@@ -56,7 +56,7 @@ namespace {
     };
 } // namespace
 
-int main() {
+int32_t main() {
     // ---- the schema describes itself, completely ----
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());

@@ -55,8 +55,8 @@ namespace vulkan::pass {
         if (this->pipeline_.has_value()) {
             return; // already built for this device
         }
-        std::span<unsigned char const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<unsigned char const>{};
-        std::span<unsigned char const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<unsigned char const>{};
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             utility::log("gbuffer debug view disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
@@ -85,13 +85,13 @@ namespace vulkan::pass {
         return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
     }
 
-    void gbuffer_debug_pass::set_channel(int const channel) noexcept {
+    void gbuffer_debug_pass::set_channel(int32_t const channel) noexcept {
         // The clamp came with the parameter: the count is the declaration's own `gbuffer_channel_count`, and a
         // channel outside it would index the shader's switch by a value it does not know.
         this->channel_ = std::clamp(channel, 0, channel_count - 1);
     }
 
-    int gbuffer_debug_pass::channel() const noexcept {
+    int32_t gbuffer_debug_pass::channel() const noexcept {
         return this->channel_;
     }
 

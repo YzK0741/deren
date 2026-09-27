@@ -22,7 +22,7 @@ import utility;
 namespace {
     // Compile-time self-checks: data_block is fully constexpr (zero-init default + FNV-1a).
     // FNV-1a-64 golden vectors: {1,2,3,4} -> 13725386680924731485, {0,0,0,0} -> 5558979605539197941.
-    constexpr unsigned char golden_bytes[] = {1, 2, 3, 4};
+    constexpr uint8_t golden_bytes[] = {1, 2, 3, 4};
     static_assert(utility::data_block<4>(golden_bytes).hash64() == 13725386680924731485ull);
     static_assert(utility::data_block<4>().hash64() == 5558979605539197941ull); // default = zeroed
     static_assert(utility::data_block<4>(golden_bytes) == utility::data_block<4>(golden_bytes));
@@ -31,7 +31,7 @@ namespace {
     // the test walks the chunk list and re-checks every CRC32 (a wrong encoder would not survive
     // a real decoder, but structure + checksums already catch the usual mistakes).
     void test_write_png() {
-        std::vector<unsigned char> const pixels = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255}; // 2x2
+        std::vector<uint8_t> const pixels = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255}; // 2x2
         std::filesystem::path const path = "test_write_png.png";
         auto const written = utility::write_png(path, 2, 2, pixels);
         CHECK(written.has_value());
@@ -41,11 +41,11 @@ namespace {
 
         std::ifstream file(path, std::ios::binary);
         CHECK(file.good());
-        std::vector<unsigned char> const bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        std::vector<uint8_t> const bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
         file.close();
         CHECK(bytes.size() > 16);
 
-        unsigned char const signature[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
+        uint8_t const signature[] = {0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A};
         CHECK(std::equal(std::begin(signature), std::end(signature), bytes.begin()));
 
         auto const read_be32 = [&bytes](std::size_t const at) {
@@ -68,7 +68,7 @@ namespace {
             uint32_t crc = 0xFFFFFFFFu;
             for (std::size_t i = offset + 4; i < offset + 8 + length; ++i) {
                 crc ^= bytes[i];
-                for (int k = 0; k < 8; ++k) {
+                for (int32_t k = 0; k < 8; ++k) {
                     crc = (crc & 1u) != 0u ? (0xEDB88320u ^ (crc >> 1)) : (crc >> 1);
                 }
             }
@@ -130,10 +130,10 @@ namespace {
     void test_write_binary_ranges_and_pod() {
         // a one-byte range is written as-is: exactly size() bytes, and an empty one writes nothing
         std::ostringstream out;
-        unsigned char const raw[] = {0xDE, 0xAD, 0xBE, 0xEF};
-        std::array<unsigned char, 4> const chunk = {'I', 'E', 'N', 'D'};
+        uint8_t const raw[] = {0xDE, 0xAD, 0xBE, 0xEF};
+        std::array<uint8_t, 4> const chunk = {'I', 'E', 'N', 'D'};
         std::vector<uint32_t> const words = {1u, 2u};
-        std::span<unsigned char const> const empty = {};
+        std::span<uint8_t const> const empty = {};
 
         CHECK(utility::write_binary(out,
                                     std::string_view{"IHDR"}, // a fixed character sequence, no terminator
@@ -162,7 +162,7 @@ namespace {
         std::ostringstream pod_out;
         CHECK(utility::write_binary(pod_out, pod).has_value());
         CHECK(pod_out.str().size() == sizeof(padded));
-        CHECK(static_cast<unsigned char>(pod_out.str()[offsetof(padded, small)]) == 0xABu);
+        CHECK(static_cast<uint8_t>(pod_out.str()[offsetof(padded, small)]) == 0xABu);
         uint32_t restored = 0;
         std::memcpy(&restored, pod_out.str().data() + offsetof(padded, large), sizeof(restored));
         CHECK(restored == 0x01020304u);
@@ -179,7 +179,7 @@ namespace {
     struct failing_sink {
         std::string bytes = {};
         bool ok = true;
-        int writes = 0;
+        int32_t writes = 0;
         void write(char const* data, std::size_t size) {
             ++writes;
             if (!ok) {
@@ -207,7 +207,7 @@ namespace {
 
     void test_write_binary_file_round_trip() {
         std::filesystem::path const path = "test_write_binary.bin";
-        std::vector<unsigned char> const payload = {0, 1, 2, 250, 251, 252};
+        std::vector<uint8_t> const payload = {0, 1, 2, 250, 251, 252};
         auto const written = utility::write_binary_file(path, utility::be(uint32_t{0x01020304}), payload, std::string_view{"END"});
         CHECK(written.has_value());
         auto const read_back = utility::read_binary_to_vector(path);
@@ -228,19 +228,19 @@ namespace {
     };
     static_assert(utility::binary_writable<uint32_t>);
     static_assert(utility::binary_writable<utility::ordered<uint32_t, utility::endian::big>>);
-    static_assert(utility::binary_writable<std::span<unsigned char const>>);
+    static_assert(utility::binary_writable<std::span<uint8_t const>>);
     static_assert(utility::binary_writable<std::array<float, 3>>);
     static_assert(utility::binary_writable<std::string_view>);
     static_assert(!utility::binary_writable<not_writable>);
     static_assert(!utility::binary_writable<char const*>); // no raw pointers: use a span
 
     void test_xxh3_content_hash() {
-        unsigned char const a[] = {1, 2, 3, 4, 5};
-        unsigned char const b[] = {1, 2, 3, 4, 5};
-        unsigned char const c[] = {1, 2, 3, 4, 6};
-        utility::xxh3_digest const da = utility::xxh3_128bits(std::span<unsigned char const>(a));
-        utility::xxh3_digest const db = utility::xxh3_128bits(std::span<unsigned char const>(b));
-        utility::xxh3_digest const dc = utility::xxh3_128bits(std::span<unsigned char const>(c));
+        uint8_t const a[] = {1, 2, 3, 4, 5};
+        uint8_t const b[] = {1, 2, 3, 4, 5};
+        uint8_t const c[] = {1, 2, 3, 4, 6};
+        utility::xxh3_digest const da = utility::xxh3_128bits(std::span<uint8_t const>(a));
+        utility::xxh3_digest const db = utility::xxh3_128bits(std::span<uint8_t const>(b));
+        utility::xxh3_digest const dc = utility::xxh3_128bits(std::span<uint8_t const>(c));
         CHECK(da == db); // deterministic
         CHECK(da != dc); // content-sensitive
         CHECK(utility::xxh3_digest::size_byte == 16);
@@ -289,8 +289,8 @@ namespace {
 
     void test_thread_pool_runs_every_posted_task() {
         utility::thread_pool pool(2);
-        std::atomic<int> counter = 0;
-        for (int i = 0; i < 20; ++i) {
+        std::atomic<int32_t> counter = 0;
+        for (int32_t i = 0; i < 20; ++i) {
             bool const queued = pool.post([&counter] { counter.fetch_add(1, std::memory_order_relaxed); });
             CHECK(queued);
         }
@@ -300,7 +300,7 @@ namespace {
 
     void test_thread_pool_priority_group_wait() {
         utility::thread_pool pool(2);
-        std::atomic<int> counter = 0;
+        std::atomic<int32_t> counter = 0;
         std::function<void()> const tick = [&counter] { counter.fetch_add(1, std::memory_order_relaxed); };
         // runtime pattern: post_batch() then wait_until_priority_done(priority)
         std::vector<std::function<void()>> batch(10, tick);
@@ -353,14 +353,14 @@ namespace {
         // Deliberately small: every message is a real line in the log this test writes to, and a
         // four-figure flood would drown the very output someone reads when a test fails. Four writers
         // racing the worker is what exercises the queue, not the volume.
-        constexpr int writer_count = 4;
-        constexpr int per_writer = 25;
+        constexpr int32_t writer_count = 4;
+        constexpr int32_t per_writer = 25;
         std::atomic<bool> producers_done = false;
         std::vector<std::jthread> writers;
         writers.reserve(writer_count);
-        for (int w = 0; w < writer_count; ++w) {
+        for (int32_t w = 0; w < writer_count; ++w) {
             writers.emplace_back([w, &producers_done] {
-                for (int i = 0; i < per_writer; ++i) {
+                for (int32_t i = 0; i < per_writer; ++i) {
                     utility::log("log sink test: writer {} message {}", w, i);
                 }
                 producers_done.store(true, std::memory_order_relaxed);
@@ -374,7 +374,7 @@ namespace {
         });
 
         // give the waiter a bounded window; the drain itself is microseconds of work
-        for (int spin = 0; spin < 2000 && !drained.load(std::memory_order_acquire); ++spin) {
+        for (int32_t spin = 0; spin < 2000 && !drained.load(std::memory_order_acquire); ++spin) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
         CHECK_MSG(drained.load(std::memory_order_acquire), "wait_log_all() did not observe the drained queue within 2 s");
@@ -402,14 +402,14 @@ namespace {
     void test_bvh_non_finite_aabb_is_sanitized() {
         float const nan = std::numeric_limits<float>::quiet_NaN();
         float const inf = std::numeric_limits<float>::infinity();
-        int ids[3] = {0, 1, 2};
+        int32_t ids[3] = {0, 1, 2};
 
         auto const build_with = [&](glm::vec3 const& bad_min, glm::vec3 const& bad_max) {
-            std::vector<utility::aabb_box<int>> boxes;
-            boxes.push_back(utility::aabb_box<int>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &ids[0]});
-            boxes.push_back(utility::aabb_box<int>{.min = bad_min, .max = bad_max, .extra_data = &ids[1]});
-            boxes.push_back(utility::aabb_box<int>{.min = glm::vec3(3.0f), .max = glm::vec3(5.0f), .extra_data = &ids[2]});
-            return utility::bvh<int>::make(boxes);
+            std::vector<utility::aabb_box<int32_t>> boxes;
+            boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &ids[0]});
+            boxes.push_back(utility::aabb_box<int32_t>{.min = bad_min, .max = bad_max, .extra_data = &ids[1]});
+            boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(3.0f), .max = glm::vec3(5.0f), .extra_data = &ids[2]});
+            return utility::bvh<int32_t>::make(boxes);
         };
 
         // Build only: this is the property under test. Whether a particular non-finite box survives
@@ -423,7 +423,7 @@ namespace {
         CHECK(inf_boxes.has_value());
 
         // and the tree stays usable afterwards (a degenerate build must not leave it half-built)
-        for (utility::bvh<int> const* tree : {&*nan_boxes, &*inf_boxes}) {
+        for (utility::bvh<int32_t> const* tree : {&*nan_boxes, &*inf_boxes}) {
             glm::mat4 const proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 200.0f);
             glm::mat4 const view = glm::lookAt(glm::vec3(0.0f, 0.0f, 20.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
             (void)tree->frustum_cull(utility::make_frustum(proj * view)); // must not crash
@@ -434,14 +434,14 @@ namespace {
     // (every box at one point, which makes the normalization divide by its 1e-6 floor) and the
     // documented empty-input failure. Neither may corrupt memory on the way.
     void test_bvh_degenerate_inputs_do_not_crash() {
-        int id = 0;
+        int32_t id = 0;
 
         // every box at the same point: extent collapses
-        std::vector<utility::aabb_box<int>> coincident;
-        for (int i = 0; i < 5; ++i) {
-            coincident.push_back(utility::aabb_box<int>{.min = glm::vec3(2.0f), .max = glm::vec3(2.0f), .extra_data = &id});
+        std::vector<utility::aabb_box<int32_t>> coincident;
+        for (int32_t i = 0; i < 5; ++i) {
+            coincident.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(2.0f), .max = glm::vec3(2.0f), .extra_data = &id});
         }
-        auto const collapsed = utility::bvh<int>::make(coincident);
+        auto const collapsed = utility::bvh<int32_t>::make(coincident);
         CHECK(collapsed.has_value()); // a valid tree, just a degenerate one
         if (collapsed.has_value()) {
             // and it still culls every leaf into a frustum that contains the point
@@ -452,25 +452,25 @@ namespace {
 
         // a single leaf: exercises build_from_leaves' "sole leaf" path, which must hand a
         // childless heap node to the tree (a copy of the node would drag its raw links along)
-        std::vector<utility::aabb_box<int>> single;
-        single.push_back(utility::aabb_box<int>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &id});
-        auto const one = utility::bvh<int>::make(single);
+        std::vector<utility::aabb_box<int32_t>> single;
+        single.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &id});
+        auto const one = utility::bvh<int32_t>::make(single);
         CHECK(one.has_value());
 
         // an empty input is the documented make() failure path
-        auto const empty = utility::bvh<int>::make(std::vector<utility::aabb_box<int>>{});
+        auto const empty = utility::bvh<int32_t>::make(std::vector<utility::aabb_box<int32_t>>{});
         CHECK(!empty.has_value());
     }
 
     void test_bvh_frustum_cull_keeps_visible_boxes() {
-        int ids[3] = {0, 1, 2};
+        int32_t ids[3] = {0, 1, 2};
         // camera at the origin looking down -z: boxes A and B are in front, C behind
-        std::vector<utility::aabb_box<int>> boxes;
-        boxes.push_back(utility::aabb_box<int>{.min = glm::vec3(-1.0f, -1.0f, -6.0f), .max = glm::vec3(1.0f, 1.0f, -4.0f), .extra_data = &ids[0]});
-        boxes.push_back(utility::aabb_box<int>{.min = glm::vec3(-0.5f, -0.5f, -3.0f), .max = glm::vec3(0.5f, 0.5f, -2.0f), .extra_data = &ids[1]});
-        boxes.push_back(utility::aabb_box<int>{.min = glm::vec3(-1.0f, -1.0f, 4.0f), .max = glm::vec3(1.0f, 1.0f, 6.0f), .extra_data = &ids[2]});
+        std::vector<utility::aabb_box<int32_t>> boxes;
+        boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f, -1.0f, -6.0f), .max = glm::vec3(1.0f, 1.0f, -4.0f), .extra_data = &ids[0]});
+        boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-0.5f, -0.5f, -3.0f), .max = glm::vec3(0.5f, 0.5f, -2.0f), .extra_data = &ids[1]});
+        boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f, -1.0f, 4.0f), .max = glm::vec3(1.0f, 1.0f, 6.0f), .extra_data = &ids[2]});
 
-        auto const tree = utility::bvh<int>::make(boxes);
+        auto const tree = utility::bvh<int32_t>::make(boxes);
         CHECK_MSG(tree.has_value(), tree.error().c_str());
         if (!tree.has_value()) {
             return;
@@ -480,11 +480,11 @@ namespace {
         glm::mat4 const view = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
         utility::frustum const frustum = utility::make_frustum(proj * view);
 
-        std::vector<utility::bvh_node<int>*> const inside = tree->frustum_cull(frustum);
+        std::vector<utility::bvh_node<int32_t>*> const inside = tree->frustum_cull(frustum);
         bool saw_a = false;
         bool saw_b = false;
         bool saw_c = false;
-        for (utility::bvh_node<int>* node : inside) {
+        for (utility::bvh_node<int32_t>* node : inside) {
             saw_a |= node->extra_data == &ids[0];
             saw_b |= node->extra_data == &ids[1];
             saw_c |= node->extra_data == &ids[2];
@@ -499,17 +499,17 @@ namespace {
     // nodes until rebuild). Regression: repeated add()+rebuild() with a wide frustum must keep
     // returning every leaf.
     void test_bvh_add_rebuild_contract() {
-        constexpr int initial = 12;
-        constexpr int grown = 18;
-        int ids[grown];
-        std::vector<utility::aabb_box<int>> boxes;
+        constexpr int32_t initial = 12;
+        constexpr int32_t grown = 18;
+        int32_t ids[grown];
+        std::vector<utility::aabb_box<int32_t>> boxes;
         boxes.reserve(initial);
-        for (int i = 0; i < initial; ++i) {
+        for (int32_t i = 0; i < initial; ++i) {
             ids[i] = i;
             float const x = static_cast<float>(i % 4) * 1.5f - 2.25f;
-            boxes.push_back(utility::aabb_box<int>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]});
+            boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]});
         }
-        auto tree = utility::bvh<int>::make(boxes);
+        auto tree = utility::bvh<int32_t>::make(boxes);
         CHECK_MSG(tree.has_value(), tree.error().c_str());
         if (!tree.has_value()) {
             return;
@@ -521,17 +521,17 @@ namespace {
             return tree->frustum_cull(utility::make_frustum(proj * view)).size();
         };
         CHECK(visible_count() == initial);
-        for (int i = initial; i < grown; ++i) {
+        for (int32_t i = initial; i < grown; ++i) {
             ids[i] = i;
             float const x = static_cast<float>(i) * 1.5f;
-            CHECK(tree->add(utility::aabb_box<int>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]}).has_value());
+            CHECK(tree->add(utility::aabb_box<int32_t>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]}).has_value());
         }
         tree->rebuild();
         CHECK(visible_count() == grown);
     }
 } // namespace
 
-int main() {
+int32_t main() {
     test_xxh3_content_hash();
     test_write_png();
     test_write_binary_scalar_byte_order();

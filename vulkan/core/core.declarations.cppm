@@ -181,8 +181,8 @@ namespace vulkan {
      * @note fields mirror the app_config render settings; defaults keep the historic behavior
      */
     export struct core_create_info {
-        int window_width = 1080;
-        int window_height = 960;
+        int32_t window_width = 1080;
+        int32_t window_height = 960;
         std::string window_title = "vulkan_render"; // GLFW window title
         // vsync: true (default) prefers VK_PRESENT_MODE_FIFO_LATEST_READY and falls back to FIFO - the
         // frame goes out at the display's rate and the acquire blocks instead of spinning, which is what
@@ -714,7 +714,7 @@ namespace vulkan {
         void to_next_frame() noexcept;
         void wait_frame_slot(uint32_t slot) const; // host wait until this slot's last submission completed
 
-        static constexpr int MAX_FRAMES_IN_FLIGHT = 2;
+        static constexpr int32_t MAX_FRAMES_IN_FLIGHT = 2;
 
         // ---- GPU pass timing (VK_QUERY_TYPE_TIMESTAMP) ----
         // A timestamp pool with one contiguous range of gpu_timing_mark_capacity queries per frame
@@ -799,7 +799,7 @@ namespace vulkan {
          */
         VkCommandPool make_command_pool();
 
-        std::optional<vk_shader_module> make_shader_module(std::span<unsigned char> shader) const noexcept;
+        std::optional<vk_shader_module> make_shader_module(std::span<uint8_t> shader) const noexcept;
 
         /**
          * @ingroup vulkan_core
@@ -876,8 +876,8 @@ namespace vulkan {
          * @return vk_pipeline on success, error message on failure
          */
         std::expected<vk_pipeline, std::string_view> make_depth_pipeline(
-            std::span<unsigned char const> vertex_shader_code,
-            std::span<unsigned char const> fragment_shader_code,
+            std::span<uint8_t const> vertex_shader_code,
+            std::span<uint8_t const> fragment_shader_code,
             VkFormat depth_format,
             float depth_bias_constant_factor = 0.0f,
             float depth_bias_slope_factor = 0.0f,
@@ -949,8 +949,8 @@ namespace vulkan {
          *       the HDR target: its own attachments are the core::gbuffer_* targets and the pass that owns them
          */
         std::expected<vk_pipeline, std::string_view> make_gbuffer_pipeline(
-            std::span<unsigned char const> vertex_shader_code,
-            std::span<unsigned char const> fragment_shader_code,
+            std::span<uint8_t const> vertex_shader_code,
+            std::span<uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_VERTEX_BIT) const;
 
         /**
@@ -981,8 +981,8 @@ namespace vulkan {
          * @return vk_pipeline on success, error message on failure
          */
         std::expected<vk_pipeline, std::string_view> make_character_forward_pipeline(
-            std::span<unsigned char const> vertex_shader_code,
-            std::span<unsigned char const> fragment_shader_code,
+            std::span<uint8_t const> vertex_shader_code,
+            std::span<uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;
 
     private:
@@ -993,7 +993,7 @@ namespace vulkan {
         //      PUBLIC is the state they produce (the device, the queues, the samplers, the image views and the
         //      layouts) plus the facade operations (wait_idle, set_window_title).
         void init_instance() noexcept;
-        void init_window(int width, int height, std::string_view window_name = "") noexcept;
+        void init_window(int32_t width, int32_t height, std::string_view window_name = "") noexcept;
         void init_surface() noexcept;
         void init_device_and_queue() noexcept;
         void init_swap_chain() noexcept;

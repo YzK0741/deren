@@ -14,7 +14,7 @@ export import vstd;
  * @code {.cpp}
  * import utility;
  *
- * int main{
+ * int32_t main{
  *     utility::thread_pool pool(4);
  *
  *     auto task = []{...};
@@ -46,7 +46,7 @@ namespace utility {
 
     private:
         struct task {
-            int priority = 0;
+            int32_t priority = 0;
             std::function<void()> action;
             bool operator<(task const& other) const noexcept;
         };
@@ -61,7 +61,7 @@ namespace utility {
         // task finishes (or is discarded at shutdown), and wait_until_priority_done() blocks on
         // it reaching zero - so a caller can wait for "its" priority group without waiting for
         // unrelated tasks posted by other users of a shared pool.
-        std::unordered_map<int, std::size_t> pending_by_priority;
+        std::unordered_map<int32_t, std::size_t> pending_by_priority;
         shutdown_policy policy = shutdown_policy::wait;
         // Declared last so the jthreads are destroyed (auto-joined) FIRST, before the mutex /
         // condition variables above: worker threads still exiting would otherwise touch
@@ -70,8 +70,8 @@ namespace utility {
 
         void worker_loop(std::stop_token const& token);
         // lock-free helpers (caller holds access_mutex): bookkeeping for one posted/finished task
-        void note_task_posted(int priority);
-        void note_task_finished(int priority);
+        void note_task_posted(int32_t priority);
+        void note_task_finished(int32_t priority);
 
     public:
         /**
@@ -80,7 +80,7 @@ namespace utility {
          * @param policy behavior when tasks remain at destruction
          * @note threads should <= std::thread::hardware_concurrency()
          */
-        explicit thread_pool(int threads, shutdown_policy policy = shutdown_policy::wait);
+        explicit thread_pool(int32_t threads, shutdown_policy policy = shutdown_policy::wait);
         ~thread_pool();
         /**
          * @brief post a task to thread_pool, signature must be void()
@@ -88,7 +88,7 @@ namespace utility {
          * @param priority @see task::priority
          * @return false when the pool is shut down and will never run the task (not queued)
          */
-        bool post(std::function<void()> task, int priority = 0);
+        bool post(std::function<void()> task, int32_t priority = 0);
         /**
          * @brief post a batch of tasks at one priority in a single lock acquisition
          * @param tasks callable objects, all posted with @p priority (any order)
@@ -97,7 +97,7 @@ namespace utility {
          * @note pair with wait_until_priority_done(@p priority) to run a group synchronously:
          *       post_batch() once, then wait for exactly that priority's tasks to finish
          */
-        bool post_batch(std::span<std::function<void()>> tasks, int priority = 0);
+        bool post_batch(std::span<std::function<void()>> tasks, int32_t priority = 0);
         /**
          * @brief request all thread stop after finishing current task
          */
@@ -120,17 +120,17 @@ namespace utility {
          *       waiting may extend the wait past the intended group.
          * @note returns immediately when no task with @p priority is pending (posted or running)
          */
-        void wait_until_priority_done(int priority);
+        void wait_until_priority_done(int32_t priority);
         /**
          * @brief get count of worker threads
          * @return number of threads this pool runs
          */
-        [[nodiscard]] int thread_count() const noexcept;
+        [[nodiscard]] int32_t thread_count() const noexcept;
         /**
          * @brief get count of active thread
          * @return count of active thread
          */
-        int get_active_thread() const;
+        int32_t get_active_thread() const;
     };
 } // namespace utility
 
@@ -140,11 +140,11 @@ namespace utility {
     }
 
     // lock-free bookkeeping helpers: the caller holds access_mutex
-    void thread_pool::note_task_posted(int const priority) {
+    void thread_pool::note_task_posted(int32_t const priority) {
         ++this->pending_by_priority[priority];
     }
 
-    void thread_pool::note_task_finished(int const priority) {
+    void thread_pool::note_task_finished(int32_t const priority) {
         auto const it = this->pending_by_priority.find(priority);
         if (it != this->pending_by_priority.end() && --it->second == 0) {
             this->pending_by_priority.erase(it); // a zero entry is indistinguishable from "never posted"
@@ -155,7 +155,7 @@ namespace utility {
         this->active_thread.fetch_add(1);
         std::function<void()> current_task;
         while (true) {
-            int current_priority = 0;
+            int32_t current_priority = 0;
             {
                 std::unique_lock lock(this->access_mutex);
                 this->active_thread.fetch_sub(1);
@@ -209,7 +209,7 @@ namespace utility {
         }
     }
 
-    thread_pool::thread_pool(int const threads, shutdown_policy const policy) {
+    thread_pool::thread_pool(int32_t const threads, shutdown_policy const policy) {
         this->threads.resize(threads);
         this->policy = policy;
 
@@ -220,7 +220,7 @@ namespace utility {
         }
     }
 
-    bool thread_pool::post(std::function<void()> task, int priority) {
+    bool thread_pool::post(std::function<void()> task, int32_t priority) {
         std::unique_lock lock(this->access_mutex);
         // after shutdown() every worker is leaving: queuing would sit forever unexecuted
         if (this->threads.empty() || this->threads.front().get_stop_source().stop_requested()) {
@@ -232,7 +232,7 @@ namespace utility {
         return true;
     }
 
-    bool thread_pool::post_batch(std::span<std::function<void()>> const tasks, int const priority) {
+    bool thread_pool::post_batch(std::span<std::function<void()>> const tasks, int32_t const priority) {
         if (tasks.empty()) {
             return true;
         }
@@ -270,18 +270,18 @@ namespace utility {
         this->idle.wait(lock, [this] { return this->tasks.empty() && this->active_thread.load() == 0; });
     }
 
-    void thread_pool::wait_until_priority_done(int const priority) {
+    void thread_pool::wait_until_priority_done(int32_t const priority) {
         std::unique_lock lock(this->access_mutex);
         this->idle.wait(lock, [this, priority] {
             return !this->pending_by_priority.contains(priority);
         });
     }
 
-    int thread_pool::thread_count() const noexcept {
-        return static_cast<int>(this->threads.size());
+    int32_t thread_pool::thread_count() const noexcept {
+        return static_cast<int32_t>(this->threads.size());
     }
 
-    int thread_pool::get_active_thread() const {
+    int32_t thread_pool::get_active_thread() const {
         return this->active_thread.load();
     }
 } // namespace utility

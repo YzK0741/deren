@@ -41,7 +41,7 @@ namespace gltf {
      * @ingroup gltf_loader
      * @brief component type of an accessor element, values are the glTF OpenGL constants
      */
-    export enum class component_type : int {
+    export enum class component_type : int32_t {
         byte_t = 5120,
         unsigned_byte_t = 5121,
         short_t = 5122,
@@ -59,7 +59,7 @@ namespace gltf {
      * @param gltf_constant the OpenGL constant (5120..5130)
      * @return the mapped component_type, unknown for unrecognized values
      */
-    export constexpr component_type to_component_type(int const gltf_constant) {
+    export constexpr component_type to_component_type(int32_t const gltf_constant) {
         switch (gltf_constant) {
         case 5120:
             return component_type::byte_t;
@@ -118,11 +118,11 @@ namespace gltf {
      * @param type the component type
      * @return the glTF OpenGL constant, -1 for unknown
      */
-    export constexpr int to_gltf_macro_type(component_type const type) {
+    export constexpr int32_t to_gltf_macro_type(component_type const type) {
         if (type == component_type::unknown) {
             return -1;
         }
-        return static_cast<int>(type);
+        return static_cast<int32_t>(type);
     }
 
     /**
@@ -146,7 +146,7 @@ namespace gltf {
      * @param type the glTF type constant (0..6)
      * @return the mapped element_type
      */
-    export constexpr element_type to_element_type(int const type) {
+    export constexpr element_type to_element_type(int32_t const type) {
         switch (type) {
         case 0:
             return element_type::scale;
@@ -211,7 +211,7 @@ namespace gltf {
      * @brief decoded image data of a texture
      */
     export struct texture_data {
-        std::vector<unsigned char> data;
+        std::vector<uint8_t> data;
         uint32_t width = 0;
         uint32_t height = 0;
         uint8_t component = 0; // aka. channels
@@ -234,7 +234,7 @@ namespace gltf {
      * @brief raw vertex data portion together with its component type
      */
     export struct vertex_portion {
-        std::vector<unsigned char> data;
+        std::vector<uint8_t> data;
         component_type component;
     };
 
@@ -296,7 +296,7 @@ namespace gltf {
     export struct primitive {
         std::map<std::string, vertex_portion> vertex;
         std::vector<morph_target> targets = {};
-        std::vector<unsigned char> index;
+        std::vector<uint8_t> index;
         component_type index_component_type;
         // index into scenes::materials; std::numeric_limits<uint32_t>::max() when the primitive
         // has no material (render with default factors and no textures)
@@ -321,7 +321,7 @@ namespace gltf {
      * @ingroup gltf_loader
      * @brief interpolation mode of one animation sampler (glTF "interpolation")
      */
-    export enum class animation_interpolation : int {
+    export enum class animation_interpolation : int32_t {
         linear = 0,       // glTF LINEAR: blend between consecutive keyframes (slerp for rotations)
         step = 1,         // glTF STEP: hold the previous keyframe's value until the next keyframe
         cubic_spline = 2, // glTF CUBICSPLINE: Hermite spline with per-key in/out tangents
@@ -331,7 +331,7 @@ namespace gltf {
      * @ingroup gltf_loader
      * @brief animated node property of one animation channel (glTF "path")
      */
-    export enum class animation_path : int {
+    export enum class animation_path : int32_t {
         translation = 1, // values are xyz triplets (one per keyframe)
         rotation = 2,    // values are xyzw quaternions (w scalar, one per keyframe)
         scale = 3,       // values are xyz triplets (one per keyframe)
@@ -408,7 +408,7 @@ namespace gltf {
      * @ingroup gltf_loader
      * @brief kind of a glTF camera (gltf::node::camera_index -> scenes::cameras)
      */
-    export enum class camera_type : int {
+    export enum class camera_type : int32_t {
         perspective = 0,  // yfov / znear / aspect_ratio? / zfar? (absent zfar = infinite)
         orthographic = 1, // xmag / ymag / ortho_znear / ortho_zfar
     };
@@ -439,7 +439,7 @@ namespace gltf {
      * @ingroup gltf_loader
      * @brief kind of a punctual light (KHR_lights_punctual, gltf::node::light_index)
      */
-    export enum class light_type : int {
+    export enum class light_type : int32_t {
         directional = 0, // infinitely far, direction = -node +Z axis (world)
         point = 1,       // position = node origin (world)
         spot = 2,        // position + direction from the node, cone angles below
@@ -619,7 +619,7 @@ namespace gltf {
         reference operator*() const noexcept;
         pointer operator->() const noexcept;
         scene_iterator& operator++();
-        void operator++(int);
+        void operator++(int32_t);
 
         friend bool operator==(scene_iterator const& a, scene_iterator const& b) noexcept {
             if (a.exhausted || b.exhausted) {
@@ -667,7 +667,7 @@ namespace gltf {
         reference operator*() const noexcept;
         pointer operator->() const noexcept;
         scene_node_iterator& operator++();
-        void operator++(int);
+        void operator++(int32_t);
 
         // ---- structural getters (satisfy the runtime's scene_node_iterator concept) ----
         [[nodiscard]] std::string_view get_name() const noexcept;
@@ -778,15 +778,15 @@ namespace gltf {
 
     /** @brief interleaved vertex bytes of one drawable (spans into loader-owned storage) */
     export struct vertex_view {
-        std::span<unsigned char const> data = {};
+        std::span<uint8_t const> data = {};
         uint32_t stride = 0;
         uint32_t count = 0;
     };
 
     /** @brief index bytes of one drawable; width is bytes per index (2 or 4) */
     export struct index_view {
-        std::span<unsigned char const> data = {};
-        unsigned char width = 2;
+        std::span<uint8_t const> data = {};
+        uint8_t width = 2;
         uint32_t count = 0;
     };
 
@@ -797,12 +797,12 @@ namespace gltf {
      *       into *owner. valid == false means the slot is missing.
      */
     export struct image_view {
-        std::span<unsigned char const> data = {};
+        std::span<uint8_t const> data = {};
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t mip_levels = 1;
         bool valid = false;
-        std::shared_ptr<std::vector<unsigned char>> owner = {};
+        std::shared_ptr<std::vector<uint8_t>> owner = {};
     };
 
     /** @brief PBR factors of one resolved material (mirrors the runtime's material_factors) */
@@ -1042,16 +1042,16 @@ namespace gltf {
     private:
         void ensure_built() const; // build the current drawable's interleaved geometry lazily
         resolved_material const* current_material() const;
-        image_view slot(int i) const;
+        image_view slot(int32_t i) const;
 
         gltf::scene_iterator inner;
         std::span<resolved_material const> materials = {};
         // scratch geometry of the current drawable (built lazily, valid until ++)
-        mutable std::vector<unsigned char> vertex_bytes = {};
-        mutable std::vector<unsigned char> index_bytes = {};
+        mutable std::vector<uint8_t> vertex_bytes = {};
+        mutable std::vector<uint8_t> index_bytes = {};
         mutable uint32_t vertex_stride = 0;
         mutable uint32_t vertex_count = 0;
-        mutable unsigned char index_width = 2; // 2 or 4 bytes per index
+        mutable uint8_t index_width = 2; // 2 or 4 bytes per index
         mutable uint32_t index_count = 0;
         mutable bool built = false;
     };

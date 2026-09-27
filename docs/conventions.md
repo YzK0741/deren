@@ -82,6 +82,31 @@ was copied into three translation units because it multiplies `core::heap_slot_s
 needed the constant and the helper to live together, and putting the helper in the heap-plumbing partition
 instead would have closed a cycle (`core.declarations.cppm` already re-exports `:descriptor_heap`).
 
+## Arithmetic types
+
+**Every arithmetic type the project declares is written as a fixed-width one**: `uint8_t`, `int32_t`, `uint32_t`,
+`uint64_t`. A bare `int`, `unsigned`, `short`, `unsigned char` or `long long` states its width only by
+convention, and the convention is not the same everywhere this is built.
+
+The change that introduced the rule (83 files) was a **spelling** change and is verified as one: on the platforms
+this builds on `int32_t` IS `int` and `uint8_t` IS `unsigned char` - the standard requires `uint8_t` to be a
+typedef of an 8-bit unsigned integer type, and this ABI's is `unsigned char` - so the render gate is
+byte-identical (10/10 scenarios unchanged, 12/12 unit tests) and nothing about the emitted code moves. What it
+buys is that a width is stated where it used to be implied.
+
+Three exceptions, each because somebody else's interface declares the type:
+
+| keeps | why |
+| --- | --- |
+| `int main(int argc, char** argv)` | the C++ standard requires main's own signature to use the keyword: the one place where the language, not the project, decides |
+| `timespec::tv_nsec` as `long` | it IS `long` in POSIX |
+| `std::strtol`'s answer | `long`, whose width IS the platform's (32 bits on Windows, 64 on Linux), so the conversion is an explicit `static_cast<int32_t>` rather than an implicit one |
+
+Two things the rule does NOT reach: `float` and `double`, which have no fixed-width equivalent in `<cstdint>`
+(`<stdfloat>`'s `float32_t` is a different, optional facility); and a bare `char`, which is a CHARACTER type -
+`std::string` is `basic_string<char>` - so only `unsigned char`/`signed char` are spelled `uint8_t`/`int8_t`.
+`third_party/` and `vstd/` are out of scope: the first is vendored, the second is the libc++ mirror.
+
 ## Portability
 
 The rules above are about NAMES. The rules that follow from the toolchains this is built against are a separate

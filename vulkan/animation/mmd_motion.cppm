@@ -63,7 +63,7 @@ namespace vulkan::animation {
             // bisection converges; 32 steps put the parameter far below float precision.
             float lo = 0.0f;
             float hi = 1.0f;
-            for (int i = 0; i < 32; ++i) {
+            for (int32_t i = 0; i < 32; ++i) {
                 float const s = 0.5f * (lo + hi);
                 if (x_at(s) < t) {
                     lo = s;

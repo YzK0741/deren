@@ -42,7 +42,7 @@
  * @note no allocation on purpose: the module side declares this as a plain C entry point, so this TU
  *       needs nothing from the module's world
  */
-extern "C" int utility_platform_executable_directory(char* out, std::size_t const capacity) {
+extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t const capacity) {
     if (out == nullptr || capacity == 0) {
         return -1;
     }
@@ -56,7 +56,7 @@ extern "C" int utility_platform_executable_directory(char* out, std::size_t cons
     // strip the file name, keeping the directory (including its trailing separator)
     for (DWORD i = written; i > 0; --i) {
         if (wide[i - 1] == L'\\' || wide[i - 1] == L'/') {
-            return WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int>(i), out, static_cast<int>(capacity), nullptr, nullptr);
+            return WideCharToMultiByte(CP_UTF8, 0, wide, static_cast<int32_t>(i), out, static_cast<int32_t>(capacity), nullptr, nullptr);
         }
     }
     return -1; // no separator: not a filesystem path we can use
@@ -70,7 +70,7 @@ extern "C" int utility_platform_executable_directory(char* out, std::size_t cons
     for (ssize_t i = written; i > 0; --i) {
         if (out[i - 1] == '/') {
             out[i] = '\0'; // keep the trailing separator
-            return static_cast<int>(i);
+            return static_cast<int32_t>(i);
         }
     }
     return -1;

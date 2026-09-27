@@ -340,8 +340,8 @@ namespace vulkan {
         return this->debug_overlay;
     }
 
-    std::expected<void, std::string> runtime::make_pipeline(std::string_view pipeline_name, std::span<unsigned char const> fragment_shader_code,
-                                                            std::span<unsigned char const> const mesh_vertex_shader_code, std::span<unsigned char const> const meshlet_shader_code) {
+    std::expected<void, std::string> runtime::make_pipeline(std::string_view pipeline_name, std::span<uint8_t const> fragment_shader_code,
+                                                            std::span<uint8_t const> const mesh_vertex_shader_code, std::span<uint8_t const> const meshlet_shader_code) {
         using fail = std::unexpected<std::string>;
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): a named geometry pipeline is built from a MESH
         // stage, so the mesh module is REQUIRED and its absence or refusal is an error - there is no vertex pipeline
@@ -449,9 +449,9 @@ namespace vulkan {
     }
 
     std::expected<void, std::string> runtime::make_character_forward_pipeline(std::string_view const pipeline_name,
-                                                                              std::span<unsigned char const> const fragment_shader_code,
-                                                                              std::span<unsigned char const> const mesh_vertex_shader_code,
-                                                                              std::span<unsigned char const> const meshlet_shader_code) {
+                                                                              std::span<uint8_t const> const fragment_shader_code,
+                                                                              std::span<uint8_t const> const mesh_vertex_shader_code,
+                                                                              std::span<uint8_t const> const meshlet_shader_code) {
         using fail = std::unexpected<std::string>;
         if (fragment_shader_code.empty()) {
             return fail(std::string("character-forward pipeline '") + std::string(pipeline_name) + "': no fragment stage was given");
@@ -753,7 +753,7 @@ namespace vulkan {
         wmax = glm::vec3(std::numeric_limits<float>::lowest());
         for (uint32_t i = 0; i < instanced.instance_count; ++i) {
             glm::mat4 const& model = matrices[base + i];
-            for (int corner = 0; corner < 8; ++corner) {
+            for (int32_t corner = 0; corner < 8; ++corner) {
                 glm::vec3 const p((corner & 1) != 0 ? hi.x : lo.x,
                                   (corner & 2) != 0 ? hi.y : lo.y,
                                   (corner & 4) != 0 ? hi.z : lo.z);
@@ -1160,7 +1160,7 @@ namespace vulkan {
             }
             return false;
         }
-        auto* const table = static_cast<unsigned char*>(self->meshlet_culled_mapped);
+        auto* const table = static_cast<uint8_t*>(self->meshlet_culled_mapped);
         std::memcpy(table + (static_cast<std::size_t>(self->vulkan_core.current_frame) * vulkan::meshlet_capacity + base) * sizeof(vulkan::meshlet), records.data(), records.size_bytes());
         return true;
     }
@@ -1200,14 +1200,14 @@ namespace vulkan {
         utility::log("shadow pass {}", enabled ? "enabled" : "disabled");
     }
 
-    void runtime::set_brdf_model(int const model) noexcept {
+    void runtime::set_brdf_model(int32_t const model) noexcept {
         // CPU-side only, like set_shadow_enabled: pace_and_acquire() copies light_state (which
         // carries the selected models in the UBO's std140 padding) into the paced slot's light
         // buffer every frame, so flipping the model mid-run never races an in-flight frame.
         this->light_state.brdf_model = static_cast<float>(std::clamp(model, 0, 3));
     }
 
-    void runtime::set_diffuse_model(int const model) noexcept {
+    void runtime::set_diffuse_model(int32_t const model) noexcept {
         this->light_state.diffuse_model = static_cast<float>(std::clamp(model, 0, 1));
     }
 
@@ -1455,7 +1455,7 @@ namespace vulkan {
             }
             result->meshlets.resize(room);
         }
-        std::memcpy(static_cast<unsigned char*>(this->meshlet_mapped) + this->meshlet_total * sizeof(vulkan::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(vulkan::meshlet));
+        std::memcpy(static_cast<uint8_t*>(this->meshlet_mapped) + this->meshlet_total * sizeof(vulkan::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(vulkan::meshlet));
         result->meshlet_base = static_cast<uint32_t>(this->meshlet_total);
         this->meshlet_total += result->meshlets.size();
         result->meshlet_count = static_cast<uint32_t>(result->meshlets.size());
@@ -1540,7 +1540,7 @@ namespace vulkan {
         // push.instance_base in the vertex shaders.
         uint32_t const base = this->instance_cursor;
         this->instance_cursor += count;
-        std::memcpy(static_cast<unsigned char*>(this->instance_mapped) + static_cast<size_t>(base) * sizeof(glm::mat4),
+        std::memcpy(static_cast<uint8_t*>(this->instance_mapped) + static_cast<size_t>(base) * sizeof(glm::mat4),
                     transforms.data(),
                     static_cast<size_t>(count) * sizeof(glm::mat4));
 
@@ -1552,7 +1552,7 @@ namespace vulkan {
         uint32_t const motion_base = this->motion_cursor;
         uint32_t const motion_count = std::min<uint32_t>(count, vulkan::scene_motion_capacity - this->motion_cursor);
         this->motion_cursor += motion_count;
-        for (int slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             auto* const published = static_cast<glm::mat4*>(this->motion_mapped[static_cast<std::size_t>(slot)]);
             if (published != nullptr && motion_count > 0) {
                 std::memcpy(published + motion_base, transforms.data(), static_cast<std::size_t>(motion_count) * sizeof(glm::mat4));
@@ -1625,7 +1625,7 @@ namespace vulkan {
         // Content fingerprint of this upload: the only per-frame signal that a skinned caster moved
         // (its push.model is constant, the pose lives in these matrices). XXH3 rather than a byte
         // loop - 1.3 us for an 840-joint rig against 43.7 us, and this runs on every frame.
-        this->skin_matrix_hash = utility::xxh3_64bits({static_cast<unsigned char const*>(this->skin_mapped[slot]), bytes});
+        this->skin_matrix_hash = utility::xxh3_64bits({static_cast<uint8_t const*>(this->skin_mapped[slot]), bytes});
     }
 
     void* runtime::morph_scratch() noexcept {

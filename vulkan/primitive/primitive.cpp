@@ -48,7 +48,7 @@ namespace vulkan {
     namespace {
         float host_matrix_max_axis_scale(glm::mat4 const& m) {
             float largest = 0.0f;
-            for (int row = 0; row < 3; ++row) {
+            for (int32_t row = 0; row < 3; ++row) {
                 // glm's operator[] hands back a COLUMN, so the shader's `m[row][0..2]` reads as these three entries
                 float const sum = std::abs(m[0][row]) + std::abs(m[1][row]) + std::abs(m[2][row]);
                 largest = std::max(largest, sum);

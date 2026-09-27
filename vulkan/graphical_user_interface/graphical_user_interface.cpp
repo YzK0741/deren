@@ -97,7 +97,7 @@ namespace vulkan::gui {
         backend_info.PipelineInfoMain.PipelineRenderingCreateInfo = rendering_info;
         backend_info.CheckVkResultFn = [](VkResult const err) {
             if (err != VK_SUCCESS) {
-                utility::log("imgui vulkan backend error: {}", static_cast<int>(err));
+                utility::log("imgui vulkan backend error: {}", static_cast<int32_t>(err));
             }
         };
 
@@ -323,7 +323,7 @@ namespace vulkan::gui {
         std::array<float, 3> const before = {this->value[0], this->value[1], this->value[2]};
         if (ImGui::DragFloat3(this->label.c_str(), this->value, this->speed)) {
             bool changed = false;
-            for (int i = 0; i < 3; ++i) {
+            for (int32_t i = 0; i < 3; ++i) {
                 changed = changed || this->value[i] != before[static_cast<std::size_t>(i)];
             }
             if (changed && this->on_change) {
@@ -332,7 +332,7 @@ namespace vulkan::gui {
         }
     }
 
-    combo_widget::combo_widget(std::string label, std::vector<std::string> items, int* current_item, std::function<void(int)> on_change)
+    combo_widget::combo_widget(std::string label, std::vector<std::string> items, int32_t* current_item, std::function<void(int32_t)> on_change)
         : label{std::move(label)}
         , items{std::move(items)}
         , current_item{current_item}
@@ -343,10 +343,10 @@ namespace vulkan::gui {
         if (this->current_item == nullptr || this->items.empty()) {
             return;
         }
-        *this->current_item = std::clamp(*this->current_item, 0, static_cast<int>(this->items.size()) - 1);
-        int const before = *this->current_item;
+        *this->current_item = std::clamp(*this->current_item, 0, static_cast<int32_t>(this->items.size()) - 1);
+        int32_t const before = *this->current_item;
         if (ImGui::BeginCombo(this->label.c_str(), this->items[static_cast<std::size_t>(*this->current_item)].c_str())) {
-            for (int i = 0; i < static_cast<int>(this->items.size()); ++i) {
+            for (int32_t i = 0; i < static_cast<int32_t>(this->items.size()); ++i) {
                 bool const selected = i == *this->current_item;
                 if (ImGui::Selectable(this->items[static_cast<std::size_t>(i)].c_str(), selected)) {
                     *this->current_item = i;

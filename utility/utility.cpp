@@ -6,10 +6,10 @@ module;
 extern "C" void utility_platform_sleep_ns(std::int64_t nanoseconds); // implemented in platform_sleep.cpp (see its header comment for why it is not a module)
 // the running executable's directory, written into the caller's buffer; -1 = unavailable. Implemented
 // in platform_path.cpp, a plain TU for the same reason as the sleep above.
-extern "C" int utility_platform_executable_directory(char* out, std::size_t capacity);
+extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t capacity);
 // file dialog, the chosen path written into the caller's buffer; 1 = picked, 0 = cancelled, -1 = no
 // backend could ask. Implemented in platform_dialog.cpp, a plain TU for the same reason as the two above.
-extern "C" int utility_platform_ask_open_file(char const* title, char const* filter_patterns, char* out, std::size_t capacity);
+extern "C" int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char* out, std::size_t capacity);
 #include <xxhash.h>
 
 module utility;
@@ -83,7 +83,7 @@ double utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, uint64_
     return static_cast<double>(delta) * static_cast<double>(nanoseconds_per_tick) * 1.0e-6;
 }
 
-std::optional<std::vector<unsigned char>> utility::read_binary_to_vector(std::filesystem::path const& path) {
+std::optional<std::vector<uint8_t>> utility::read_binary_to_vector(std::filesystem::path const& path) {
     std::error_code error;
     uintmax_t const file_size = std::filesystem::file_size(path, error);
     if (error) {
@@ -94,7 +94,7 @@ std::optional<std::vector<unsigned char>> utility::read_binary_to_vector(std::fi
         return std::nullopt;
     }
     // Preallocate based on file size to avoid repeated reallocation while reading
-    std::vector<unsigned char> data;
+    std::vector<uint8_t> data;
     data.reserve(static_cast<size_t>(file_size));
     data.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
     if (file.bad()) {
@@ -295,7 +295,7 @@ void utility::error_message(std::string message) {
 #endif
 }
 
-uint64_t utility::xxh3_64bits(std::span<unsigned char const> const data_view) {
+uint64_t utility::xxh3_64bits(std::span<uint8_t const> const data_view) {
     return XXH3_64bits(data_view.data(), data_view.size_bytes());
 }
 
@@ -313,7 +313,7 @@ std::filesystem::path utility::executable_directory() {
     // the module's global module fragment). A path that does not fit, and a platform with no answer,
     // both come back empty - the caller then falls back to its own lookup rather than failing.
     std::array<char, 32768> buffer = {};
-    int const written = utility_platform_executable_directory(buffer.data(), buffer.size());
+    int32_t const written = utility_platform_executable_directory(buffer.data(), buffer.size());
     if (written <= 0) {
         return {};
     }
@@ -328,7 +328,7 @@ std::optional<std::filesystem::path> utility::ask_open_file(std::string_view con
     std::array<char, 32768> buffer = {};
     std::string const title_z(title);
     std::string const patterns_z(filter_patterns);
-    int const result = utility_platform_ask_open_file(title_z.c_str(), patterns_z.c_str(), buffer.data(), buffer.size());
+    int32_t const result = utility_platform_ask_open_file(title_z.c_str(), patterns_z.c_str(), buffer.data(), buffer.size());
     if (result > 0) {
         return std::filesystem::path(std::string(buffer.data()));
     }
@@ -340,7 +340,7 @@ std::optional<std::filesystem::path> utility::ask_open_file(std::string_view con
     return std::nullopt;
 }
 
-utility::xxh3_digest utility::xxh3_128bits(std::span<unsigned char const> const data_view) {
+utility::xxh3_digest utility::xxh3_128bits(std::span<uint8_t const> const data_view) {
     // XXH3_128bits returns a {low64, high64} pair; store its bytes in the digest
     xxh3_digest digest = {};
     XXH128_hash_t const hash = XXH3_128bits(data_view.data(), data_view.size_bytes());
@@ -353,7 +353,7 @@ namespace {
         std::array<uint32_t, 256> table = {};
         for (uint32_t i = 0; i < 256; ++i) {
             uint32_t c = i;
-            for (int k = 0; k < 8; ++k) {
+            for (int32_t k = 0; k < 8; ++k) {
                 c = (c & 1u) != 0u ? (0xEDB88320u ^ (c >> 1)) : (c >> 1);
             }
             table[i] = c;
@@ -362,16 +362,16 @@ namespace {
     }
     constexpr std::array<uint32_t, 256> crc_table = make_crc_table();
 
-    constexpr uint32_t crc32_update(uint32_t const crc, unsigned char const byte) {
+    constexpr uint32_t crc32_update(uint32_t const crc, uint8_t const byte) {
         return crc_table[(crc ^ byte) & 0xFFu] ^ (crc >> 8);
     }
 
-    uint32_t png_crc32(std::string_view const type, std::span<unsigned char const> const payload) {
+    uint32_t png_crc32(std::string_view const type, std::span<uint8_t const> const payload) {
         uint32_t crc = 0xFFFFFFFFu;
         for (char const character : type) {
-            crc = crc32_update(crc, static_cast<unsigned char>(character));
+            crc = crc32_update(crc, static_cast<uint8_t>(character));
         }
-        for (unsigned char const byte : payload) {
+        for (uint8_t const byte : payload) {
             crc = crc32_update(crc, byte);
         }
         return crc ^ 0xFFFFFFFFu;
@@ -390,7 +390,7 @@ namespace {
 
         void write(char const* const data, std::size_t const size) {
             for (std::size_t i = 0; i < size; ++i) {
-                crc = crc32_update(crc, static_cast<unsigned char>(data[i]));
+                crc = crc32_update(crc, static_cast<uint8_t>(data[i]));
             }
             this->out.write(data, static_cast<std::streamsize>(size)); // ostream counts in streamsize
         }
@@ -406,12 +406,12 @@ namespace {
 
     // One PNG chunk: big-endian length, the 4 type bytes, the payload, then the CRC32 over
     // type+payload. The writer is append-only, so the length has to be known up front - which it is.
-    std::expected<void, std::string> write_png_chunk(std::ostream& sink, std::string_view const type, std::span<unsigned char const> const payload) {
+    std::expected<void, std::string> write_png_chunk(std::ostream& sink, std::string_view const type, std::span<uint8_t const> const payload) {
         return utility::write_binary(sink, utility::be(static_cast<uint32_t>(payload.size())), type, payload, utility::be(png_crc32(type, payload)));
     }
 } // namespace
 
-std::expected<void, std::string> utility::write_png(std::filesystem::path const& path, uint32_t const width, uint32_t const height, std::span<unsigned char const> const rgba) {
+std::expected<void, std::string> utility::write_png(std::filesystem::path const& path, uint32_t const width, uint32_t const height, std::span<uint8_t const> const rgba) {
     std::size_t const expected = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u;
     if (width == 0 || height == 0 || rgba.size() < expected) {
         return std::unexpected(std::string("write_png: pixel data does not match the dimensions"));
@@ -420,11 +420,11 @@ std::expected<void, std::string> utility::write_png(std::filesystem::path const&
     // raw scanlines: one filter byte (0 = none) followed by the RGBA row. The adler32 of that stream
     // is accumulated in the same pass (the zlib trailer needs it). This is the only buffer the encoder
     // keeps: a stored-deflate block carries its own length, so its length must be known up front.
-    std::vector<unsigned char> raw;
+    std::vector<uint8_t> raw;
     raw.reserve(expected + height);
     uint32_t adler_a = 1;
     uint32_t adler_b = 0;
-    auto const adler_update = [&adler_a, &adler_b](unsigned char const byte) {
+    auto const adler_update = [&adler_a, &adler_b](uint8_t const byte) {
         adler_a = (adler_a + byte) % 65521u;
         adler_b = (adler_b + adler_a) % 65521u;
     };
@@ -433,7 +433,7 @@ std::expected<void, std::string> utility::write_png(std::filesystem::path const&
         adler_update(0);
         auto const row = rgba.subspan(static_cast<std::size_t>(y) * static_cast<std::size_t>(width) * 4u, static_cast<std::size_t>(width) * 4u);
         raw.insert(raw.end(), row.begin(), row.end());
-        for (unsigned char const byte : row) {
+        for (uint8_t const byte : row) {
             adler_update(byte);
         }
     }
@@ -449,22 +449,22 @@ std::expected<void, std::string> utility::write_png(std::filesystem::path const&
         return std::unexpected(std::format("write_png: {} ('{}')", result.error(), path.string()));
     };
 
-    constexpr std::array<unsigned char, 8> signature = {0x89u, 'P', 'N', 'G', 0x0Du, 0x0Au, 0x1Au, 0x0Au};
+    constexpr std::array<uint8_t, 8> signature = {0x89u, 'P', 'N', 'G', 0x0Du, 0x0Au, 0x1Au, 0x0Au};
     if (auto const written = write_binary(file, signature); !written) {
         return failed(written);
     }
 
     // IHDR: 13 big-endian + fixed bytes, assembled through the same writer
-    std::vector<unsigned char> ihdr;
+    std::vector<uint8_t> ihdr;
     ihdr.reserve(13);
     struct vector_sink {
-        std::vector<unsigned char>& out;
+        std::vector<uint8_t>& out;
         void write(char const* data, std::size_t size) {
             out.insert(out.end(), data, data + size);
         }
     };
     vector_sink ihdr_sink{ihdr}; // non-const: the sink's write() mutates it (a const sink fails byte_sink)
-    if (auto const written = write_binary(ihdr_sink, be(width), be(height), std::array<unsigned char, 5>{8, 6, 0, 0, 0}); !written) {
+    if (auto const written = write_binary(ihdr_sink, be(width), be(height), std::array<uint8_t, 5>{8, 6, 0, 0, 0}); !written) {
         return failed(written);
     }
     if (auto const written = write_png_chunk(file, "IHDR", ihdr); !written) {
@@ -488,7 +488,7 @@ std::expected<void, std::string> utility::write_png(std::filesystem::path const&
             return failed(written);
         }
         if (auto const written = write_binary(payload,
-                                              std::array<unsigned char, 2>{0x78u, 0x01u}); // CM/CINFO + FCHECK
+                                              std::array<uint8_t, 2>{0x78u, 0x01u}); // CM/CINFO + FCHECK
             !written) {
             return failed(written);
         }
@@ -497,12 +497,12 @@ std::expected<void, std::string> utility::write_png(std::filesystem::path const&
             std::size_t const block = std::min<std::size_t>(raw.size() - offset, 65535u);
             bool const last = offset + block >= raw.size();
             // stored-block header: BFINAL/BTYPE byte then LEN and its complement, little-endian
-            std::array<unsigned char, 5> header = {
-                static_cast<unsigned char>(last ? 1u : 0u),
-                static_cast<unsigned char>(block & 0xFFu),
-                static_cast<unsigned char>((block >> 8) & 0xFFu),
-                static_cast<unsigned char>(~block & 0xFFu),
-                static_cast<unsigned char>((~block >> 8) & 0xFFu)};
+            std::array<uint8_t, 5> header = {
+                static_cast<uint8_t>(last ? 1u : 0u),
+                static_cast<uint8_t>(block & 0xFFu),
+                static_cast<uint8_t>((block >> 8) & 0xFFu),
+                static_cast<uint8_t>(~block & 0xFFu),
+                static_cast<uint8_t>((~block >> 8) & 0xFFu)};
             if (auto const written = write_binary(payload, header, std::span{raw}.subspan(offset, block)); !written) {
                 return failed(written);
             }

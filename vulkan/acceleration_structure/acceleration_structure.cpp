@@ -484,10 +484,10 @@ namespace vulkan::acceleration_structure {
         instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
         instance.accelerationStructureReference = this->functions->get_device_address(vk.device, &address_info);
 
-        std::memcpy(static_cast<unsigned char*>(target.instances_mapped) + static_cast<std::size_t>(target.count) * sizeof(VkAccelerationStructureInstanceKHR),
+        std::memcpy(static_cast<uint8_t*>(target.instances_mapped) + static_cast<std::size_t>(target.count) * sizeof(VkAccelerationStructureInstanceKHR),
                     &instance,
                     sizeof(instance));
-        std::memcpy(static_cast<unsigned char*>(target.records_mapped) + static_cast<std::size_t>(target.count) * sizeof(instance_record),
+        std::memcpy(static_cast<uint8_t*>(target.records_mapped) + static_cast<std::size_t>(target.count) * sizeof(instance_record),
                     &source.record,
                     sizeof(source.record));
         target.count += 1;

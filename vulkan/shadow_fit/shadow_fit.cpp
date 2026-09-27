@@ -30,7 +30,7 @@ namespace vulkan::shadow_fit {
         for (auto const& [world_min, world_max] : world_boxes) {
             glm::vec3 caster_min(std::numeric_limits<float>::max());
             glm::vec3 caster_max(std::numeric_limits<float>::lowest());
-            for (int corner = 0; corner < 8; ++corner) {
+            for (int32_t corner = 0; corner < 8; ++corner) {
                 glm::vec3 const p((corner & 1) != 0 ? world_max.x : world_min.x,
                                   (corner & 2) != 0 ? world_max.y : world_min.y,
                                   (corner & 4) != 0 ? world_max.z : world_min.z);
@@ -91,7 +91,7 @@ namespace vulkan::shadow_fit {
 
         // the scene sphere's light-space box, for the unbounded-caster fallback (used by every cascade)
         std::pair<glm::vec3, glm::vec3> scene_sphere_ls = {glm::vec3(std::numeric_limits<float>::max()), glm::vec3(std::numeric_limits<float>::lowest())};
-        for (int corner = 0; corner < 8; ++corner) {
+        for (int32_t corner = 0; corner < 8; ++corner) {
             glm::vec3 const p = params.scene_center +
                                 glm::vec3((corner & 1) != 0 ? params.scene_radius : -params.scene_radius,
                                           (corner & 2) != 0 ? params.scene_radius : -params.scene_radius,
@@ -117,9 +117,9 @@ namespace vulkan::shadow_fit {
             // up-sun can still throw its shadow into this cascade
             std::array<glm::vec3, 16> points = {};
             std::size_t count = 0;
-            for (int zi = 0; zi < 2; ++zi) {
-                for (int yi = 0; yi < 2; ++yi) {
-                    for (int xi = 0; xi < 2; ++xi) {
+            for (int32_t zi = 0; zi < 2; ++zi) {
+                for (int32_t yi = 0; yi < 2; ++yi) {
+                    for (int32_t xi = 0; xi < 2; ++xi) {
                         glm::vec4 const clip(xi == 0 ? -1.0f : 1.0f, yi == 0 ? -1.0f : 1.0f, zi == 0 ? 0.0f : 1.0f, 1.0f);
                         glm::vec4 const world = inverse_view_proj * clip;
                         glm::vec3 const corner = glm::vec3(world) / world.w;

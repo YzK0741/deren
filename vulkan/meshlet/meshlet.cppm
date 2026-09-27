@@ -139,14 +139,14 @@ namespace vulkan {
      *       the split sees the same bytes the mesh stage will fetch - no second interpretation of the layout.
      */
     export struct meshlet_build_input {
-        std::span<unsigned char const> vertex_data = {}; ///< the interleaved vertices, position first
-        uint32_t vertex_stride = 0;                      ///< bytes per vertex (64 for this renderer's layout)
-        uint32_t vertex_count = 0;                       ///< vertices the data holds
-        std::span<unsigned char const> index_data = {};  ///< the index buffer the window indexes into
-        uint32_t index_width = 4;                        ///< bytes per index: 2 (uint16) or 4 (uint32)
-        uint32_t first_index = 0;                        ///< the draw's first index inside `index_data`
-        uint32_t index_count = 0;                        ///< how many indices the draw covers
-        int32_t base_vertex = 0;                         ///< the draw's base vertex (static-draw chunks; else 0)
+        std::span<uint8_t const> vertex_data = {}; ///< the interleaved vertices, position first
+        uint32_t vertex_stride = 0;                ///< bytes per vertex (64 for this renderer's layout)
+        uint32_t vertex_count = 0;                 ///< vertices the data holds
+        std::span<uint8_t const> index_data = {};  ///< the index buffer the window indexes into
+        uint32_t index_width = 4;                  ///< bytes per index: 2 (uint16) or 4 (uint32)
+        uint32_t first_index = 0;                  ///< the draw's first index inside `index_data`
+        uint32_t index_count = 0;                  ///< how many indices the draw covers
+        int32_t base_vertex = 0;                   ///< the draw's base vertex (static-draw chunks; else 0)
     };
 
     /**
@@ -178,9 +178,9 @@ namespace vulkan {
             return meshlets;
         }
 
-        /// one index of the window, as an unsigned value (the same two cases the mesh stage's fetch has)
+        /// one index of the window, as an uint32_t value (the same two cases the mesh stage's fetch has)
         auto const index_at = [&input](uint32_t const i) -> uint32_t {
-            unsigned char const* const at = input.index_data.data() + static_cast<std::size_t>(input.first_index + i) * input.index_width;
+            uint8_t const* const at = input.index_data.data() + static_cast<std::size_t>(input.first_index + i) * input.index_width;
             if (input.index_width == 2u) {
                 uint16_t value = 0;
                 std::memcpy(&value, at, sizeof(value));
@@ -209,7 +209,7 @@ namespace vulkan {
                 if (!position_at(index_at(first_triangle * 3u + corner), position)) {
                     continue;
                 }
-                for (int axis = 0; axis < 3; ++axis) {
+                for (int32_t axis = 0; axis < 3; ++axis) {
                     low[axis] = std::min(low[axis], position[axis]);
                     high[axis] = std::max(high[axis], position[axis]);
                 }
@@ -255,7 +255,7 @@ namespace vulkan {
                 normals[normal_count][0] = n[0] / length;
                 normals[normal_count][1] = n[1] / length;
                 normals[normal_count][2] = n[2] / length;
-                for (int axis_index = 0; axis_index < 3; ++axis_index) {
+                for (int32_t axis_index = 0; axis_index < 3; ++axis_index) {
                     axis[axis_index] += normals[normal_count][axis_index];
                 }
                 ++normal_count;

@@ -84,7 +84,7 @@ namespace vulkan {
      * @return success: raii wrapper of VkShaderModule
      *     fail: std::nullopt
      */
-    export std::optional<vk_shader_module> make_shader_module(std::span<unsigned char const> shader,
+    export std::optional<vk_shader_module> make_shader_module(std::span<uint8_t const> shader,
                                                               VkDevice device) noexcept;
 
     /**

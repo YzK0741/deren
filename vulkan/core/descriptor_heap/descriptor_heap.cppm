@@ -341,8 +341,8 @@ namespace vulkan {
         // the allocator, and core creates it after vma.init() for that reason - create_buffer before the
         // allocator exists is an access violation with no log line, no validation message and no allocation
         // error, which is why this took so long to find. See vulkan/core/core.cpp.)
-        std::vector<unsigned char> const zeroed_resource(static_cast<std::size_t>(this->resource_size_), 0u);
-        std::vector<unsigned char> const zeroed_sampler(static_cast<std::size_t>(this->sampler_size_), 0u);
+        std::vector<uint8_t> const zeroed_resource(static_cast<std::size_t>(this->resource_size_), 0u);
+        std::vector<uint8_t> const zeroed_sampler(static_cast<std::size_t>(this->sampler_size_), 0u);
         this->resource_heap_ = allocator.create_buffer(zeroed_resource.data(), zeroed_resource.size(), buffer_type::storage_coherent, heap_usage);
         this->sampler_heap_ = allocator.create_buffer(zeroed_sampler.data(), zeroed_sampler.size(), buffer_type::storage_coherent, heap_usage);
         if (!this->resource_heap_.valid() || !this->sampler_heap_.valid()) {
@@ -427,7 +427,7 @@ namespace vulkan {
         // the heap's device address re-cast as a pointer, which is what this did first and which crashes the
         // process as soon as a driver accepts the descriptor and writes through it.
         VkHostAddressRangeEXT host_range = {};
-        host_range.address = static_cast<unsigned char*>(this->resource_mapped_) + descriptors_offset;
+        host_range.address = static_cast<uint8_t*>(this->resource_mapped_) + descriptors_offset;
         host_range.size = static_cast<std::size_t>(needed);
         return this->write_descriptors_(this->device, static_cast<uint32_t>(infos.size()), infos.data(), &host_range) == VK_SUCCESS;
     }
@@ -515,7 +515,7 @@ namespace vulkan {
         // VkHostAddressRangeEXT a resource write does, and writing through the device address is the mistake that
         // crashes the process the moment a driver dereferences it (see write_descriptors).
         VkHostAddressRangeEXT const range = {
-            .address = static_cast<unsigned char*>(this->sampler_mapped_) + descriptors_offset,
+            .address = static_cast<uint8_t*>(this->sampler_mapped_) + descriptors_offset,
             .size = bytes,
         };
         return this->write_samplers_(this->device, static_cast<uint32_t>(samplers.size()), samplers.data(), &range) == VK_SUCCESS;

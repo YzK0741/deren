@@ -42,8 +42,8 @@ namespace vulkan {
         VkDevice device,
         VkFormat color_format,
         VkFormat depth_format,
-        std::span<unsigned char const> vertex_shader_code,
-        std::span<unsigned char const> fragment_shader_code,
+        std::span<uint8_t const> vertex_shader_code,
+        std::span<uint8_t const> fragment_shader_code,
         VkSampleCountFlagBits msaa_level,
         bool depth_test_enabled = true,
         bool has_color_attachment = true,
@@ -84,15 +84,15 @@ namespace vulkan {
         VkDevice device,
         std::span<VkFormat const> color_formats,
         VkFormat depth_format,
-        std::span<unsigned char const> vertex_shader_code,
-        std::span<unsigned char const> fragment_shader_code,
+        std::span<uint8_t const> vertex_shader_code,
+        std::span<uint8_t const> fragment_shader_code,
         VkSampleCountFlagBits msaa_level,
         bool depth_test_enabled = true,
         float depth_bias_constant_factor = 0.0f,
         float depth_bias_slope_factor = 0.0f,
         float depth_bias_clamp = 0.0f,
         std::span<VkPipelineColorBlendAttachmentState const> blend_attachments = {},
-        /// @copydoc make_pipeline(VkDevice, VkFormat, VkFormat, std::span<unsigned char const>, std::span<unsigned char const>, VkSampleCountFlagBits, bool, bool, float, float, float)
+        /// @copydoc make_pipeline(VkDevice, VkFormat, VkFormat, std::span<uint8_t const>, std::span<uint8_t const>, VkSampleCountFlagBits, bool, bool, float, float, float)
         /// (the same `first_stage`: VERTEX derives the vertex input state from the module, MESH does not)
         VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_VERTEX_BIT,
         /**

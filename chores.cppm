@@ -44,13 +44,13 @@ namespace chores {
      * @param argc argv argument count (as received by main)
      * @param argv argv argument vector (as received by main)
      */
-    export startup_config analyse_config(int argc, char** argv);
+    export startup_config analyse_config(int32_t argc, char** argv);
 
     /**
      * @ingroup chores
      * @brief read one shader SPIR-V file into @p out; panic on failure (prints the path)
      */
-    export void load_shader(std::filesystem::path const& dir, std::string_view const file_name, std::vector<unsigned char>& out);
+    export void load_shader(std::filesystem::path const& dir, std::string_view const file_name, std::vector<uint8_t>& out);
 
     /**
      * @ingroup chores
@@ -99,7 +99,7 @@ namespace chores {
      * @param scene_radius radius of the imported scene (grid spacing = 2.5 x radius, so
      *        instances stay apart: the demo measures draw scaling, not overdraw)
      */
-    export void add_instancing_grid(vulkan::runtime& runtime, int grid_side, float scene_radius);
+    export void add_instancing_grid(vulkan::runtime& runtime, int32_t grid_side, float scene_radius);
 
     /**
      * @ingroup chores
@@ -115,17 +115,17 @@ namespace chores {
         bool shadow_enabled = true;        // shadow checkbox (initial: settings.render.shadow)
         float shadow_bias_constant = 0.0f; // shadow depth-bias sliders (constant factor)
         float shadow_bias_slope = 1.5f;    // shadow depth-bias sliders (slope factor)
-        int shadow_cascades = 3;           // cascade-count combo (1..4; index 0 = single map)
+        int32_t shadow_cascades = 3;           // cascade-count combo (1..4; index 0 = single map)
         float shadow_cascade_blend = 0.1f; // cascade blend-band slider (fraction of the range)
         float anim_time = 0.0f;            // animation time slider (mirror of the controller clock)
         bool anim_playing = true;          // play/pause checkbox (mirror of controller state)
-        int anim_index = 0;                // animation combo selection (0 = the auto-played one)
-        int current_camera = 0;            // camera combo selection (0 = orbit, 1..N = authored)
-        int render_mode = 0;               // render-mode combo (0 = pbr, 1 = unlit); main applies it
+        int32_t anim_index = 0;                // animation combo selection (0 = the auto-played one)
+        int32_t current_camera = 0;            // camera combo selection (0 = orbit, 1..N = authored)
+        int32_t render_mode = 0;               // render-mode combo (0 = pbr, 1 = unlit); main applies it
                                            // between frames via set_default_pipeline
-        int brdf_model = 0;                // brdf-model combo (0 = GGX+joint, 1 = GGX+height-corr,
+        int32_t brdf_model = 0;                // brdf-model combo (0 = GGX+joint, 1 = GGX+height-corr,
                                            // 2 = Beckmann, 3 = Blinn-Phong); write-through to runtime
-        int diffuse_model = 0;             // diffuse combo (0 = Lambert, 1 = Oren-Nayar)
+        int32_t diffuse_model = 0;             // diffuse combo (0 = Lambert, 1 = Oren-Nayar)
         float exposure = 1.0f;             // linear exposure slider (runtime::set_exposure)
         // bloom on/off (M9): the checkbox gates the whole chain; the intensity slider keeps its value
         // while it is off, so toggling back restores the previous look. main() mirrors it by pushing an
@@ -133,7 +133,7 @@ namespace chores {
         // bloom passes on.
         bool bloom_enabled = true;
         float bloom_intensity = 0.8f;      // bloom blend weight slider (runtime::set_bloom; 0 = off)
-        int toon_bands_index = 0;          // cel-shading combo: index into toon_band_counts (0 = plain PBR)
+        int32_t toon_bands_index = 0;          // cel-shading combo: index into toon_band_counts (0 = plain PBR)
         float sun_intensity = 1.0f;        // a scale on the sun's radiance (0..3; 1.0 = unchanged)
         float toon_softness = 0.15f;       // cel-shading band edge softness slider (smaller = harder edges)
         float bloom_threshold = 0.35f;     // bloom bright-pass threshold (visible range 0..0.75)
@@ -146,7 +146,7 @@ namespace chores {
         // path's stored surface, one channel at a time. Mirrored into the runtime every frame like
         // the FXAA state, so these fields carry the config's initial values.
         bool gbuffer_debug = false; // draw the G-buffer + its debug view instead of the shaded scene
-        int gbuffer_channel = 1;    // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
+        int32_t gbuffer_channel = 1;    // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
         // TAA (runtime::set_taa): the engine's anti-aliasing. Mirrored into the runtime every
         // frame like the other render toggles; the blend weights are the two shader knobs.
         bool taa_enabled = false;
@@ -201,7 +201,7 @@ namespace chores {
         // draws ONE slot at a time - four slots of nine controls each was thirty-six rows of panel for a
         // feature most frames leave off - so this index is what the "punctual light" combo writes and every
         // widget of the group tests.
-        int active_light = 0;
+        int32_t active_light = 0;
         // clustered light culling (M5): checkbox mirrored into the runtime every frame
         // (runtime::set_clustered_lights); false = the brute-force loop over every light
         bool clustered_lights = true;
@@ -241,7 +241,7 @@ namespace chores {
                           gui_bindings& bindings,
                           vulkan::animation::controller& animation,
                           std::vector<std::string> const& camera_names,
-                          std::function<void(int)> const& on_camera_selected);
+                          std::function<void(int32_t)> const& on_camera_selected);
 
     /**
      * @ingroup chores

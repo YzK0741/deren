@@ -8,7 +8,7 @@
 import vulkan.math;
 
 namespace {
-    constexpr std::size_t cubemap_float_count(int size) {
+    constexpr std::size_t cubemap_float_count(int32_t size) {
         return static_cast<std::size_t>(6) * static_cast<std::size_t>(size) * static_cast<std::size_t>(size) * 4;
     }
 
@@ -45,24 +45,24 @@ namespace {
     // it, and these bounds are the regression test: they fail loudly on the old behaviour and hold
     // with room to spare on the new one.
     void test_prefiltered_environment_is_smooth() {
-        constexpr int env_size = 256;
-        constexpr int mip_count = 5;
+        constexpr int32_t env_size = 256;
+        constexpr int32_t mip_count = 5;
         std::vector<float> const env = vulkan::generate_environment_cubemap(env_size);
         std::vector<float> const prefiltered = vulkan::prefilter_environment(env, env_size, mip_count);
         std::size_t cursor = 0;
-        for (int mip = 0; mip < mip_count; ++mip) {
-            int const size = std::max(1, env_size >> mip);
-            auto const luminance = [&](int const face, int const x, int const y) {
+        for (int32_t mip = 0; mip < mip_count; ++mip) {
+            int32_t const size = std::max(1, env_size >> mip);
+            auto const luminance = [&](int32_t const face, int32_t const x, int32_t const y) {
                 std::size_t const at = cursor + (static_cast<std::size_t>(face) * size * size + static_cast<std::size_t>(y) * size + x) * 4;
                 return 0.2126 * prefiltered[at] + 0.7152 * prefiltered[at + 1] + 0.0722 * prefiltered[at + 2];
             };
             double sum = 0.0;
             double brightest = 0.0;
             double worst_local_ratio = 0.0;
-            int counted = 0;
-            for (int face = 0; face < 6; ++face) {
-                for (int y = 1; y < size - 1; ++y) {
-                    for (int x = 1; x < size - 1; ++x) {
+            int32_t counted = 0;
+            for (int32_t face = 0; face < 6; ++face) {
+                for (int32_t y = 1; y < size - 1; ++y) {
+                    for (int32_t x = 1; x < size - 1; ++x) {
                         double const centre = luminance(face, x, y);
                         double const neighbourhood = (luminance(face, x - 1, y - 1) + luminance(face, x, y - 1) + luminance(face, x + 1, y - 1) +
                                                       luminance(face, x - 1, y) + luminance(face, x + 1, y) +
@@ -93,7 +93,7 @@ namespace {
     }
 } // namespace
 
-int main() {
+int32_t main() {
     test_environment_cubemap_shape();
     test_irradiance_map_shape();
     test_brdf_lut_shape();

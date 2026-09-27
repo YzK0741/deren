@@ -18,7 +18,7 @@ module chores;
 namespace chores {
     // Resolve the startup config in one step: merge config file + argv into the app settings,
     // then locate the shaders/ dir and pick the model file. Panics when a resource is missing.
-    startup_config analyse_config(int argc, char** argv) {
+    startup_config analyse_config(int32_t argc, char** argv) {
         // 1. Resolve startup settings first: config file (config.toml by default, --config <path>
         //    to override) merged with positional argv overrides. argv[1] = model, argv[2] = grid
         //    side (numeric).
@@ -75,9 +75,9 @@ namespace chores {
     }
 
     // Read a single shader SPIR-V file and print info; panic on failure
-    void load_shader(std::filesystem::path const& dir, std::string_view const file_name, std::vector<unsigned char>& out) {
+    void load_shader(std::filesystem::path const& dir, std::string_view const file_name, std::vector<uint8_t>& out) {
         std::filesystem::path const path = dir / file_name;
-        std::optional<std::vector<unsigned char>> const data = utility::read_binary_to_vector(path);
+        std::optional<std::vector<uint8_t>> const data = utility::read_binary_to_vector(path);
         if (!data) {
             utility::panic(std::source_location::current(), "cannot open shader file '{}'", path.string());
         }
@@ -100,7 +100,7 @@ namespace chores {
             }
         }
         std::filesystem::path current = std::filesystem::current_path();
-        for (int depth = 0; depth < 4; ++depth) {
+        for (int32_t depth = 0; depth < 4; ++depth) {
             std::filesystem::path candidate = current / "shaders";
             // The SAME probe as the executable-relative check above, deliberately: a directory named
             // `shaders` that holds no compiled SPIR-V (the source tree's own, since the build writes
@@ -121,7 +121,7 @@ namespace chores {
     // Walk up from the working directory to find the default model under gltf_model/
     std::optional<std::filesystem::path> locate_model_file() {
         std::filesystem::path current = std::filesystem::current_path();
-        for (int depth = 0; depth < 4; ++depth) {
+        for (int32_t depth = 0; depth < 4; ++depth) {
             std::filesystem::path candidate = current / "gltf_model" / "DamagedHelmet.gltf";
             if (std::filesystem::is_regular_file(candidate)) {
                 return candidate;
@@ -144,9 +144,9 @@ namespace chores {
                                   std::string_view const fragment_file,
                                   std::string_view const mesh_file,
                                   std::string_view const meshlet_file = {}) {
-        std::vector<unsigned char> fragment_code;
-        std::vector<unsigned char> mesh_code;
-        std::vector<unsigned char> meshlet_code;
+        std::vector<uint8_t> fragment_code;
+        std::vector<uint8_t> mesh_code;
+        std::vector<uint8_t> meshlet_code;
         load_shader(shaders_dir, fragment_file, fragment_code);
         load_shader(shaders_dir, mesh_file, mesh_code);
         if (!meshlet_file.empty()) {
@@ -189,9 +189,9 @@ namespace chores {
             //
             // The name is the one the character-forward pass binds through `render_environment::default_name`;
             // the pass is handed it rather than hardcoding it (see pass::character_forward_frame).
-            std::vector<unsigned char> character_fragment_code;
-            std::vector<unsigned char> character_mesh_code;
-            std::vector<unsigned char> character_meshlet_code;
+            std::vector<uint8_t> character_fragment_code;
+            std::vector<uint8_t> character_mesh_code;
+            std::vector<uint8_t> character_meshlet_code;
             load_shader(shaders_dir, "character_forward.frag.spv", character_fragment_code);
             load_shader(shaders_dir, "pbr.mesh.spv", character_mesh_code);
             load_shader(shaders_dir, "pbr.meshlet.spv", character_meshlet_code);
@@ -208,7 +208,7 @@ namespace chores {
             // attachment, which is nothing `runtime::make_pipeline`'s forward family describes), so there is no
             // named pipeline to create and no registration path of its own - the same arrangement the deferred
             // and TAA stages have.
-            std::vector<unsigned char> rim_fragment_code;
+            std::vector<uint8_t> rim_fragment_code;
             load_shader(shaders_dir, "toon_screen_rim.frag.spv", rim_fragment_code);
             runtime.register_shader("toon_screen_rim.frag.spv", rim_fragment_code);
         }
@@ -218,7 +218,7 @@ namespace chores {
             // above: the pass builds its own pipeline in its `create` step, from post.vert.spv (the synthetic
             // triangle, registered with the post chain below) and upscale.frag.spv - and that has to have happened
             // before create_passes(), which is where this registration sits.
-            std::vector<unsigned char> upscale_fragment_code;
+            std::vector<uint8_t> upscale_fragment_code;
             load_shader(shaders_dir, "upscale.frag.spv", upscale_fragment_code);
             runtime.register_shader("upscale.frag.spv", upscale_fragment_code);
         }
@@ -231,8 +231,8 @@ namespace chores {
             //
             // THE SAMPLERS ARE THE DEVICE ROOT'S (`core::create_samplers`), so there is nothing to create here any
             // more - the app registers the two shaders the post chain's passes build from.
-            std::vector<unsigned char> vertex_code;
-            std::vector<unsigned char> fragment_code;
+            std::vector<uint8_t> vertex_code;
+            std::vector<uint8_t> fragment_code;
             load_shader(shaders_dir, "post.vert.spv", vertex_code);
             load_shader(shaders_dir, "post.frag.spv", fragment_code);
             runtime.register_shader("post.vert.spv", vertex_code);
@@ -249,8 +249,8 @@ namespace chores {
             // The shadow pass is a PASS (vulkan.pass.shadow): the app REGISTERS its two shaders and the pass builds
             // the depth-only pipeline itself, from them and the context's depth format - which is why there is no
             // make_* here any more. Optional: without the pipeline the scene simply renders without shadows.
-            std::vector<unsigned char> fragment_code;
-            std::vector<unsigned char> mesh_code;
+            std::vector<uint8_t> fragment_code;
+            std::vector<uint8_t> mesh_code;
             load_shader(shaders_dir, "shadow.frag.spv", fragment_code);
             runtime.register_shader("shadow.frag.spv", fragment_code);
             // ... and the MESH stage, which is the pass's ONLY geometry stage since step 4 (docs/mesh_shaders.md):
@@ -272,7 +272,7 @@ namespace chores {
             // vulkan.pass.cluster) - create_passes() below runs that step, and
             // the pass logs its own outcome. It has to be registered HERE, before that call, because a pass
             // created before its shader exists builds nothing and says so.
-            std::vector<unsigned char> compute_code;
+            std::vector<uint8_t> compute_code;
             load_shader(shaders_dir, "light_cluster.comp.spv", compute_code);
             runtime.register_shader("light_cluster.comp.spv", compute_code);
         }
@@ -282,14 +282,14 @@ namespace chores {
             // opaque pass binds when it writes the G-buffer, and the fullscreen debug view that
             // turns one stored channel into a visible image. Both optional - without them
             // runtime::set_gbuffer_debug() has no effect and the opaque pass shades into the HDR target directly.
-            std::vector<unsigned char> fragment_code;
-            std::vector<unsigned char> mesh_code;
+            std::vector<uint8_t> fragment_code;
+            std::vector<uint8_t> mesh_code;
             load_shader(shaders_dir, "pbr.mesh.spv", mesh_code); // the G-buffer pass's geometry stage, and the only one it has
             load_shader(shaders_dir, "gbuffer.frag.spv", fragment_code);
             // ... and the MESHLET form (docs/mesh_shaders.md step 3): one workgroup per meshlet, camera-culled. The
             // runtime prefers it and falls back to the mesh form, which is now the pass's REQUIREMENT - its vertex
             // form went with the rest of the vertex geometry path (step 4).
-            std::vector<unsigned char> meshlet_code;
+            std::vector<uint8_t> meshlet_code;
             load_shader(shaders_dir, "pbr.meshlet.spv", meshlet_code);
             auto const gbuffer_result = runtime.make_gbuffer_pipeline(fragment_code, mesh_code, meshlet_code);
 
@@ -301,7 +301,7 @@ namespace chores {
                 // choose between are the device root's now (`core::create_samplers`).
                 // ... AND THIS IS `post.vert.spv`, NOT A GEOMETRY STAGE: a synthetic fullscreen triangle, which is a
                 // vertex stage by nature and stays one (docs/mesh_shaders.md step 4 is about the geometry path).
-                std::vector<unsigned char> vertex_code;
+                std::vector<uint8_t> vertex_code;
                 load_shader(shaders_dir, "post.vert.spv", vertex_code);
                 load_shader(shaders_dir, "gbuffer_debug.frag.spv", fragment_code);
                 runtime.register_shader("post.vert.spv", vertex_code);
@@ -338,13 +338,13 @@ namespace chores {
             //
             // IT IS A PASS: the app registers the shader and the pass builds its own compute pipeline
             // from it (see vulkan.pass.megalights_trace) - `create_passes()` below runs that step.
-            std::vector<unsigned char> megalights_code;
+            std::vector<uint8_t> megalights_code;
             load_shader(shaders_dir, "megalights_trace.comp.spv", megalights_code);
             runtime.register_shader("megalights_trace.comp.spv", megalights_code);
             // ... and the chain's temporal resolve, required for the reason any two-pass chain requires its
             // second: what the lighting stage adds is the ACCUMULATION, so a chain whose resolve is missing has
             // nothing to add and runtime::megalights_active() stays false.
-            std::vector<unsigned char> megalights_temporal_code;
+            std::vector<uint8_t> megalights_temporal_code;
             load_shader(shaders_dir, "megalights_temporal.comp.spv", megalights_temporal_code);
             runtime.register_shader("megalights_temporal.comp.spv", megalights_temporal_code);
 
@@ -353,18 +353,18 @@ namespace chores {
             // ray-tracing pipeline from them (see vulkan.pass.ray_traced_shadow), and a pass created
             // before its shaders exist builds nothing and says so. Optional, and the builder refuses on a device
             // without a ray-tracing pipeline: without it the cascaded shadow maps keep running.
-            std::vector<unsigned char> rt_shadow_raygen_code;
+            std::vector<uint8_t> rt_shadow_raygen_code;
             load_shader(shaders_dir, "rt_shadow.rgen.spv", rt_shadow_raygen_code);
             runtime.register_shader("rt_shadow.rgen.spv", rt_shadow_raygen_code);
-            std::vector<unsigned char> rt_shadow_closest_hit_code;
+            std::vector<uint8_t> rt_shadow_closest_hit_code;
             load_shader(shaders_dir, "rt_shadow.rchit.spv", rt_shadow_closest_hit_code);
             runtime.register_shader("rt_shadow.rchit.spv", rt_shadow_closest_hit_code);
-            std::vector<unsigned char> rt_shadow_miss_code;
+            std::vector<uint8_t> rt_shadow_miss_code;
             load_shader(shaders_dir, "rt_shadow.rmiss.spv", rt_shadow_miss_code);
             runtime.register_shader("rt_shadow.rmiss.spv", rt_shadow_miss_code);
             // The any-hit stage: the second stage of the SAME hit group, and the only place an alphaMode MASK
             // surface can be told apart from its bounding triangles (see shaders/rt_shadow.rahit).
-            std::vector<unsigned char> rt_shadow_any_hit_code;
+            std::vector<uint8_t> rt_shadow_any_hit_code;
             load_shader(shaders_dir, "rt_shadow.rahit.spv", rt_shadow_any_hit_code);
             runtime.register_shader("rt_shadow.rahit.spv", rt_shadow_any_hit_code);
 
@@ -376,10 +376,10 @@ namespace chores {
             // skinned caster's traced shadow is cast by its BIND POSE). Both are built by `create_passes()`
             // below, from the SAME context and the same resource channel every pass gets (see
             // vulkan.pass.mask_bake and vulkan.pass.compute_skin), so their shaders are registered here too.
-            std::vector<unsigned char> mask_bake_code;
+            std::vector<uint8_t> mask_bake_code;
             load_shader(shaders_dir, "mask_bake.comp.spv", mask_bake_code);
             runtime.register_shader("mask_bake.comp.spv", mask_bake_code);
-            std::vector<unsigned char> compute_skin_code;
+            std::vector<uint8_t> compute_skin_code;
             load_shader(shaders_dir, "compute_skin.comp.spv", compute_skin_code);
             runtime.register_shader("compute_skin.comp.spv", compute_skin_code);
 
@@ -389,21 +389,21 @@ namespace chores {
             // four assumptions about the native path (a heap-flagged pipeline with NO layout, `descriptor_heap`
             // declarations, a sampler taken from the sampler heap, parameters through vkCmdPushDataEXT) cannot be
             // tested by a picture until the whole frame is converted.
-            std::vector<unsigned char> heap_probe_code;
+            std::vector<uint8_t> heap_probe_code;
             load_shader(shaders_dir, "heap_probe.comp.spv", heap_probe_code);
             runtime.register_shader("heap_probe.comp.spv", heap_probe_code);
             // ... and its GRAPHICS half: the same read through a graphics pipeline, which is a different question
             // (a fragment stage reading the heap, and a pipeline created with the flag and no layout).
-            std::vector<unsigned char> heap_probe_vertex_code;
+            std::vector<uint8_t> heap_probe_vertex_code;
             load_shader(shaders_dir, "heap_probe.vert.spv", heap_probe_vertex_code);
             runtime.register_shader("heap_probe.vert.spv", heap_probe_vertex_code);
-            std::vector<unsigned char> heap_probe_fragment_code;
+            std::vector<uint8_t> heap_probe_fragment_code;
             load_shader(shaders_dir, "heap_probe.frag.spv", heap_probe_fragment_code);
             runtime.register_shader("heap_probe.frag.spv", heap_probe_fragment_code);
             // ... and its MESH half (docs/mesh_shaders.md step 0): the same triangle, emitted by a mesh stage
             // through a heap-native pipeline. A mesh stage is a different stage type, so this binary has a name
             // of its own rather than replacing the vertex one.
-            std::vector<unsigned char> heap_probe_mesh_code;
+            std::vector<uint8_t> heap_probe_mesh_code;
             load_shader(shaders_dir, "heap_probe.mesh.spv", heap_probe_mesh_code);
             runtime.register_shader("heap_probe.mesh.spv", heap_probe_mesh_code);
 
@@ -417,7 +417,7 @@ namespace chores {
     // Optional instancing stress: grid_side > 1 (config or argv) draws the first imported
     // primitive as a grid_side x grid_side grid in ONE instanced draw call (an
     // instanced_draw_primitive appended to the scene tree - the frame loop is untouched)
-    void add_instancing_grid(vulkan::runtime& runtime, int const grid_side, float const scene_radius) {
+    void add_instancing_grid(vulkan::runtime& runtime, int32_t const grid_side, float const scene_radius) {
         if (grid_side <= 1) {
             return;
         }
@@ -429,8 +429,8 @@ namespace chores {
         std::vector<glm::mat4> transforms;
         transforms.reserve(static_cast<size_t>(grid_side) * grid_side);
         float const spacing = 2.5f * scene_radius; // keep instances apart: measure draw scaling, not overdraw
-        for (int i = 0; i < grid_side; ++i) {
-            for (int j = 0; j < grid_side; ++j) {
+        for (int32_t i = 0; i < grid_side; ++i) {
+            for (int32_t j = 0; j < grid_side; ++j) {
                 float const dx = (static_cast<float>(i) - static_cast<float>(grid_side - 1) * 0.5f) * spacing;
                 float const dz = (static_cast<float>(j) - static_cast<float>(grid_side - 1) * 0.5f) * spacing;
                 transforms.push_back(glm::translate(glm::mat4(1.0f), glm::vec3(dx, 0.0f, dz)) * source.push.model);
@@ -452,7 +452,7 @@ namespace chores {
                    gui_bindings& bindings,
                    vulkan::animation::controller& animation,
                    std::vector<std::string> const& camera_names,
-                   std::function<void(int)> const& on_camera_selected) {
+                   std::function<void(int32_t)> const& on_camera_selected) {
         if (!use_gui) {
             return;
         }
@@ -551,12 +551,12 @@ namespace chores {
             "brdf model",
             std::vector<std::string>{"GGX + joint Smith", "GGX + height-corr. Smith", "Beckmann + Smith", "Blinn-Phong + Smith"},
             &bindings.brdf_model,
-            [&runtime](int const index) { runtime.set_brdf_model(index); }));
+            [&runtime](int32_t const index) { runtime.set_brdf_model(index); }));
         panel.push_back(std::make_unique<vulkan::gui::combo_widget>(
             "diffuse model",
             std::vector<std::string>{"Lambert", "Oren-Nayar"},
             &bindings.diffuse_model,
-            [&runtime](int const index) { runtime.set_diffuse_model(index); }));
+            [&runtime](int32_t const index) { runtime.set_diffuse_model(index); }));
         // linear exposure applied before tonemapping (pbr.frag + skybox.frag); main pushes it
         // into the runtime every frame like the light slots
         panel.push_back(std::make_unique<vulkan::gui::slider_widget>("exposure", &bindings.exposure, 0.1f, 5.0f));
@@ -662,8 +662,8 @@ namespace chores {
             // controls each was thirty-six rows of panel for a feature most frames leave off, which buried
             // everything below it. The cone knobs go one step further and appear only for a slot that is
             // actually a spot, so an omni slot is seven rows and a cone slot ten.
-            auto const selected = [&bindings, i] { return bindings.active_light == static_cast<int>(i); };
-            auto const selected_spot = [&bindings, &slot, i] { return bindings.active_light == static_cast<int>(i) && slot.spot; };
+            auto const selected = [&bindings, i] { return bindings.active_light == static_cast<int32_t>(i); };
+            auto const selected_spot = [&bindings, &slot, i] { return bindings.active_light == static_cast<int32_t>(i) && slot.spot; };
             {
                 auto w = std::make_unique<vulkan::gui::checkbox_widget>("  enabled", &slot.enabled);
                 w->visible_when = selected;
@@ -744,7 +744,7 @@ namespace chores {
                     "animation",
                     std::move(names),
                     &bindings.anim_index,
-                    [&animation](int const index) { animation.select(static_cast<std::size_t>(index)); }));
+                    [&animation](int32_t const index) { animation.select(static_cast<std::size_t>(index)); }));
             }
             utility::log("gui: playback controls added ({} animation(s))", animation.playable_count());
         }
@@ -770,7 +770,7 @@ namespace chores {
             "shadow cascades",
             std::vector<std::string>{"1 (single map)", "2", "3", "4"},
             &bindings.shadow_cascades,
-            [&runtime](int const index) { runtime.set_shadow_cascades(static_cast<uint32_t>(index) + 1u); }));
+            [&runtime](int32_t const index) { runtime.set_shadow_cascades(static_cast<uint32_t>(index) + 1u); }));
         panel.push_back(std::make_unique<vulkan::gui::slider_widget>(
             "shadow cascade blend",
             &bindings.shadow_cascade_blend,
@@ -863,7 +863,7 @@ namespace chores {
         backend.run_tasks = [&runtime](std::span<std::function<void()>> tasks) {
             runtime.run_tasks(tasks, vulkan::task_priority::animation);
         };
-        backend.task_worker_count = [&runtime]() -> int {
+        backend.task_worker_count = [&runtime]() -> int32_t {
             return runtime.task_pool_threads();
         };
         return backend;

@@ -382,7 +382,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     CHECK(gltf::toon_family_of("biaoq") == gltf::toon_family::none);
 }
 
-int main() {
+int32_t main() {
     test_load_damaged_helmet();
     test_async_load_matches_sync();
     test_missing_file_reports_file_not_found();

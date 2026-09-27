@@ -72,12 +72,12 @@ namespace vulkan::pass {
             return; // already built for this device
         }
         auto const fetch = [&context](std::string_view const name) {
-            return context.shader != nullptr ? context.shader(context.owner, name) : std::span<unsigned char const>{};
+            return context.shader != nullptr ? context.shader(context.owner, name) : std::span<uint8_t const>{};
         };
-        std::span<unsigned char const> const raygen = fetch(raygen_name);
-        std::span<unsigned char const> const closest_hit = fetch(closest_hit_name);
-        std::span<unsigned char const> const miss = fetch(miss_name);
-        std::span<unsigned char const> const any_hit = fetch(any_hit_name);
+        std::span<uint8_t const> const raygen = fetch(raygen_name);
+        std::span<uint8_t const> const closest_hit = fetch(closest_hit_name);
+        std::span<uint8_t const> const miss = fetch(miss_name);
+        std::span<uint8_t const> const any_hit = fetch(any_hit_name);
         if (raygen.empty() || closest_hit.empty() || miss.empty() || any_hit.empty()) {
             utility::log("ray-traced shadows unavailable: the owner has not registered all of {}, {}, {} and {}", raygen_name, closest_hit_name, miss_name, any_hit_name);
             return;
@@ -113,7 +113,7 @@ namespace vulkan::pass {
         }
         uint32_t const region_size = ((handle_size + base_alignment - 1u) / base_alignment) * base_alignment;
         uint32_t const group_count = built->group_count;
-        std::vector<unsigned char> handles(static_cast<size_t>(group_count) * handle_size);
+        std::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
         if (get_group_handles(context.device, this->pipeline_->get_pipeline(), 0, group_count, handles.size(), handles.data()) != VK_SUCCESS) {
             utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
             this->release_owned();
@@ -121,7 +121,7 @@ namespace vulkan::pass {
         }
         // One REGION per group, each starting on a base-aligned offset and holding exactly one record: the order
         // is the builder's (raygen, miss, hit), so `handles[group]` lands in region `group`.
-        std::vector<unsigned char> table(static_cast<size_t>(group_count) * region_size, 0);
+        std::vector<uint8_t> table(static_cast<size_t>(group_count) * region_size, 0);
         for (uint32_t group = 0; group < group_count; ++group) {
             std::memcpy(table.data() + static_cast<size_t>(group) * region_size, handles.data() + static_cast<size_t>(group) * handle_size, handle_size);
         }

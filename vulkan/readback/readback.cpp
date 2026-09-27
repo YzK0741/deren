@@ -66,7 +66,7 @@ namespace vulkan {
         return staged_target{.buffer = this->staging_buffer, .mapped = this->staging_mapped, .size = static_cast<std::size_t>(size)};
     }
 
-    std::expected<std::vector<unsigned char>, std::string> readback::read(VkBuffer const source, VkDeviceSize const size, VkDeviceSize const offset) {
+    std::expected<std::vector<uint8_t>, std::string> readback::read(VkBuffer const source, VkDeviceSize const size, VkDeviceSize const offset) {
         core& vk = *this->vk;
         this->last_read_size = 0;
         if (source == VK_NULL_HANDLE || size == 0) {
@@ -155,7 +155,7 @@ namespace vulkan {
             vk.vma.invalidate_if_not_coherent(detail->allocation, detail->allocation_info.memoryType, 0, size);
         }
 
-        std::vector<unsigned char> out(static_cast<std::size_t>(size));
+        std::vector<uint8_t> out(static_cast<std::size_t>(size));
         std::memcpy(out.data(), target->mapped, static_cast<std::size_t>(size));
         this->last_read_size = out.size();
         return out;

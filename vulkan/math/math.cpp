@@ -9,7 +9,7 @@ namespace vulkan {
         constexpr float k_pi = 3.14159265359f;
 
         // Cubemap face direction: texel (u, v) in [-1, 1] -> unit direction (Vulkan/GL cubemap convention)
-        glm::vec3 cube_face_direction(int const face, float const u, float const v) {
+        glm::vec3 cube_face_direction(int32_t const face, float const u, float const v) {
             switch (face) {
             case 0:
                 return glm::normalize(glm::vec3(1.0f, -v, -u)); // +X
@@ -63,7 +63,7 @@ namespace vulkan {
         // fetch is pulled toward its face centre and the six faces stop agreeing at the seams. That
         // warps the irradiance and prefilter bakes (the CPU samplers below are the only consumers),
         // i.e. exactly the environment the shaders then sample with the GPU's own correct convention.
-        void cube_face_uv(glm::vec3 const& dir, int& face, float& u, float& v) {
+        void cube_face_uv(glm::vec3 const& dir, int32_t& face, float& u, float& v) {
             float const ax = std::abs(dir.x);
             float const ay = std::abs(dir.y);
             float const az = std::abs(dir.z);
@@ -94,13 +94,13 @@ namespace vulkan {
 
         // Nearest-neighbor fetch of level 0. The irradiance bake and the base level use this; the
         // prefilter samples a whole source mip chain instead - see prefilter_environment.
-        glm::vec3 sample_cubemap(std::span<float const> const data, int const size, glm::vec3 const& dir) {
-            int face = 0;
+        glm::vec3 sample_cubemap(std::span<float const> const data, int32_t const size, glm::vec3 const& dir) {
+            int32_t face = 0;
             float u = 0.0f;
             float v = 0.0f;
             cube_face_uv(dir, face, u, v);
-            int const px = std::clamp(static_cast<int>((u * 0.5f + 0.5f) * static_cast<float>(size)), 0, size - 1);
-            int const py = std::clamp(static_cast<int>((v * 0.5f + 0.5f) * static_cast<float>(size)), 0, size - 1);
+            int32_t const px = std::clamp(static_cast<int32_t>((u * 0.5f + 0.5f) * static_cast<float>(size)), 0, size - 1);
+            int32_t const py = std::clamp(static_cast<int32_t>((v * 0.5f + 0.5f) * static_cast<float>(size)), 0, size - 1);
             size_t const offset = (static_cast<size_t>(face) * size * size + static_cast<size_t>(py) * size + px) * 4;
             return glm::vec3(data[offset], data[offset + 1], data[offset + 2]);
         }
@@ -148,11 +148,11 @@ namespace vulkan {
         }
     } // namespace
 
-    std::vector<float> generate_environment_cubemap(int const size, std::array<float, 3> const sun_direction) {
+    std::vector<float> generate_environment_cubemap(int32_t const size, std::array<float, 3> const sun_direction) {
         std::vector<float> data(static_cast<size_t>(6) * size * size * 4);
-        for (int face = 0; face < 6; ++face) {
-            for (int y = 0; y < size; ++y) {
-                for (int x = 0; x < size; ++x) {
+        for (int32_t face = 0; face < 6; ++face) {
+            for (int32_t y = 0; y < size; ++y) {
+                for (int32_t x = 0; x < size; ++x) {
                     float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     glm::vec3 const color = environment_color(cube_face_direction(face, u, v), sun_direction);
@@ -170,23 +170,23 @@ namespace vulkan {
     // One box-filtered source mip chain: level k is 2^k times smaller than the environment. The
     // prefilter reads a level per sample instead of always reading level 0, which is what keeps
     // the coarse levels smooth (see prefilter_environment).
-    std::vector<std::vector<float>> build_environment_pyramid(std::span<float const> const env, int const env_size, int const levels) {
+    std::vector<std::vector<float>> build_environment_pyramid(std::span<float const> const env, int32_t const env_size, int32_t const levels) {
         std::vector<std::vector<float>> pyramid;
         pyramid.reserve(static_cast<std::size_t>(levels));
         pyramid.emplace_back(env.begin(), env.end());
-        for (int level = 1; level < levels; ++level) {
-            int const source_size = std::max(1, env_size >> (level - 1));
-            int const target_size = std::max(1, env_size >> level);
+        for (int32_t level = 1; level < levels; ++level) {
+            int32_t const source_size = std::max(1, env_size >> (level - 1));
+            int32_t const target_size = std::max(1, env_size >> level);
             std::vector<float> const& source = pyramid.back();
             std::vector<float> target(static_cast<std::size_t>(6) * target_size * target_size * 4, 0.0f);
-            for (int face = 0; face < 6; ++face) {
-                for (int y = 0; y < target_size; ++y) {
-                    for (int x = 0; x < target_size; ++x) {
+            for (int32_t face = 0; face < 6; ++face) {
+                for (int32_t y = 0; y < target_size; ++y) {
+                    for (int32_t x = 0; x < target_size; ++x) {
                         glm::vec4 sum(0.0f);
-                        for (int dy = 0; dy < 2; ++dy) {
-                            for (int dx = 0; dx < 2; ++dx) {
-                                int const sx = std::min(x * 2 + dx, source_size - 1);
-                                int const sy = std::min(y * 2 + dy, source_size - 1);
+                        for (int32_t dy = 0; dy < 2; ++dy) {
+                            for (int32_t dx = 0; dx < 2; ++dx) {
+                                int32_t const sx = std::min(x * 2 + dx, source_size - 1);
+                                int32_t const sy = std::min(y * 2 + dy, source_size - 1);
                                 std::size_t const at = (static_cast<std::size_t>(face) * source_size * source_size + static_cast<std::size_t>(sy) * source_size + sx) * 4;
                                 sum += glm::vec4(source[at], source[at + 1], source[at + 2], source[at + 3]);
                             }
@@ -207,20 +207,20 @@ namespace vulkan {
     // Bilinear fetch of one pyramid level, inside the face of @p dir. Filtering stops at the face
     // edge (the environment is a smooth analytic gradient and the sun disc sits well inside a
     // face, so nothing visible crosses a seam).
-    glm::vec3 sample_cubemap_level(std::span<float const> const level, int const size, glm::vec3 const& dir) {
-        int face = 0;
+    glm::vec3 sample_cubemap_level(std::span<float const> const level, int32_t const size, glm::vec3 const& dir) {
+        int32_t face = 0;
         float u = 0.0f;
         float v = 0.0f;
         cube_face_uv(dir, face, u, v);
         float const fx = std::clamp((u * 0.5f + 0.5f) * static_cast<float>(size) - 0.5f, 0.0f, static_cast<float>(size - 1));
         float const fy = std::clamp((v * 0.5f + 0.5f) * static_cast<float>(size) - 0.5f, 0.0f, static_cast<float>(size - 1));
-        int const x0 = static_cast<int>(fx);
-        int const y0 = static_cast<int>(fy);
-        int const x1 = std::min(x0 + 1, size - 1);
-        int const y1 = std::min(y0 + 1, size - 1);
+        int32_t const x0 = static_cast<int32_t>(fx);
+        int32_t const y0 = static_cast<int32_t>(fy);
+        int32_t const x1 = std::min(x0 + 1, size - 1);
+        int32_t const y1 = std::min(y0 + 1, size - 1);
         float const tx = fx - static_cast<float>(x0);
         float const ty = fy - static_cast<float>(y0);
-        auto const fetch = [&](int const x, int const y) {
+        auto const fetch = [&](int32_t const x, int32_t const y) {
             std::size_t const at = (static_cast<std::size_t>(face) * size * size + static_cast<std::size_t>(y) * size + x) * 4;
             return glm::vec3(level[at], level[at + 1], level[at + 2]);
         };
@@ -230,17 +230,17 @@ namespace vulkan {
     }
 
     // Trilinear fetch across the pyramid: one bilinear fetch per level, blended by the fraction.
-    glm::vec3 sample_environment_trilinear(std::vector<std::vector<float>> const& pyramid, int const env_size, glm::vec3 const& dir, float const lod) {
+    glm::vec3 sample_environment_trilinear(std::vector<std::vector<float>> const& pyramid, int32_t const env_size, glm::vec3 const& dir, float const lod) {
         float const clamped = std::clamp(lod, 0.0f, static_cast<float>(pyramid.size() - 1));
-        int const low = static_cast<int>(clamped);
-        int const high = std::min(low + 1, static_cast<int>(pyramid.size()) - 1);
+        int32_t const low = static_cast<int32_t>(clamped);
+        int32_t const high = std::min(low + 1, static_cast<int32_t>(pyramid.size()) - 1);
         float const blend = clamped - static_cast<float>(low);
         glm::vec3 const a = sample_cubemap_level(pyramid[static_cast<std::size_t>(low)], std::max(1, env_size >> low), dir);
         glm::vec3 const b = sample_cubemap_level(pyramid[static_cast<std::size_t>(high)], std::max(1, env_size >> high), dir);
         return glm::mix(a, b, blend);
     }
 
-    std::vector<float> prefilter_environment(std::span<float const> const env, int const env_size, int const mip_count) {
+    std::vector<float> prefilter_environment(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
         // Why the samples read a source mip instead of level 0: this environment carries a hard
         // sun disc, and a narrow GGX lobe either lands on it or misses it. With 64 taps of level 0
         // a coarse level ended up with isolated texels several times brighter than the rest of the
@@ -256,8 +256,8 @@ namespace vulkan {
         std::vector<std::vector<float>> const pyramid = build_environment_pyramid(env, env_size, mip_count);
         float const texel_solid_angle = 4.0f * k_pi / (6.0f * static_cast<float>(env_size) * static_cast<float>(env_size));
         std::vector<float> result;
-        for (int mip = 0; mip < mip_count; ++mip) {
-            int const mip_size = std::max(1, env_size >> mip);
+        for (int32_t mip = 0; mip < mip_count; ++mip) {
+            int32_t const mip_size = std::max(1, env_size >> mip);
             float const roughness = static_cast<float>(mip) / static_cast<float>(mip_count - 1);
             // 128 taps at the first roughness level, halved per level (32 is the floor); level 0 needs
             // none - see the comment above. That is still about the cost of the naive version this
@@ -265,9 +265,9 @@ namespace vulkan {
             uint32_t const sample_count = mip == 0 ? 1u : std::max(32u, 128u >> (mip - 1));
             float const alpha = roughness * roughness;
             std::vector<float> mip_data(static_cast<size_t>(6) * mip_size * mip_size * 4, 0.0f);
-            for (int face = 0; face < 6; ++face) {
-                for (int y = 0; y < mip_size; ++y) {
-                    for (int x = 0; x < mip_size; ++x) {
+            for (int32_t face = 0; face < 6; ++face) {
+                for (int32_t y = 0; y < mip_size; ++y) {
+                    for (int32_t x = 0; x < mip_size; ++x) {
                         float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(mip_size) * 2.0f - 1.0f;
                         float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(mip_size) * 2.0f - 1.0f;
                         glm::vec3 const n = cube_face_direction(face, u, v);
@@ -313,13 +313,13 @@ namespace vulkan {
         return result;
     }
 
-    std::vector<float> generate_irradiance_map(std::span<float const> const env, int const env_size, int const irr_size) {
+    std::vector<float> generate_irradiance_map(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
         std::vector<float> result(static_cast<size_t>(6) * irr_size * irr_size * 4, 0.0f);
         // Loop-invariant constant: deliberately at function scope (not inside the loops)
         constexpr uint32_t sample_count = 512; // NOLINT (some toolchains flag the constant when scoped to the inner loop)
-        for (int face = 0; face < 6; ++face) {
-            for (int y = 0; y < irr_size; ++y) {
-                for (int x = 0; x < irr_size; ++x) {
+        for (int32_t face = 0; face < 6; ++face) {
+            for (int32_t y = 0; y < irr_size; ++y) {
+                for (int32_t x = 0; x < irr_size; ++x) {
                     float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(irr_size) * 2.0f - 1.0f;
                     float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(irr_size) * 2.0f - 1.0f;
                     glm::vec3 const n = cube_face_direction(face, u, v);
@@ -350,10 +350,10 @@ namespace vulkan {
         return result;
     }
 
-    std::vector<float> generate_brdf_lut(int const size) {
+    std::vector<float> generate_brdf_lut(int32_t const size) {
         std::vector<float> result(static_cast<size_t>(size) * size * 2);
-        for (int y = 0; y < size; ++y) {
-            for (int x = 0; x < size; ++x) {
+        for (int32_t y = 0; y < size; ++y) {
+            for (int32_t x = 0; x < size; ++x) {
                 float const ndotv = (static_cast<float>(x) + 0.5f) / static_cast<float>(size);
                 float const roughness = (static_cast<float>(y) + 0.5f) / static_cast<float>(size);
                 constexpr glm::vec4 c0(-1.0f, -0.0275f, -0.572f, 0.022f);
@@ -367,22 +367,22 @@ namespace vulkan {
         return result;
     }
 
-    std::vector<unsigned char> to_half_rgba(std::span<float const> const data) {
-        std::vector<unsigned char> out(data.size() * 2);
+    std::vector<uint8_t> to_half_rgba(std::span<float const> const data) {
+        std::vector<uint8_t> out(data.size() * 2);
         for (size_t i = 0; i < data.size(); ++i) {
             uint16_t const h = float_to_half(data[i]);
-            out[i * 2 + 0] = static_cast<unsigned char>(h & 0xFFu);
-            out[i * 2 + 1] = static_cast<unsigned char>(h >> 8);
+            out[i * 2 + 0] = static_cast<uint8_t>(h & 0xFFu);
+            out[i * 2 + 1] = static_cast<uint8_t>(h >> 8);
         }
         return out;
     }
 
-    std::vector<unsigned char> to_half_rg(std::span<float const> const data) {
-        std::vector<unsigned char> out(data.size() * 2);
+    std::vector<uint8_t> to_half_rg(std::span<float const> const data) {
+        std::vector<uint8_t> out(data.size() * 2);
         for (size_t i = 0; i < data.size(); ++i) {
             uint16_t const h = float_to_half(data[i]);
-            out[i * 2 + 0] = static_cast<unsigned char>(h & 0xFFu);
-            out[i * 2 + 1] = static_cast<unsigned char>(h >> 8);
+            out[i * 2 + 0] = static_cast<uint8_t>(h & 0xFFu);
+            out[i * 2 + 1] = static_cast<uint8_t>(h >> 8);
         }
         return out;
     }
@@ -390,20 +390,20 @@ namespace vulkan {
     // ---- async wrappers (see math.cppm): delegate to the synchronous functions on a
     //      std::async thread; the caller consumes the future when the result is needed ----
 
-    std::future<std::vector<float>> generate_environment_cubemap_async(int const size, std::array<float, 3> const sun_direction) {
+    std::future<std::vector<float>> generate_environment_cubemap_async(int32_t const size, std::array<float, 3> const sun_direction) {
         // The direction is captured BY VALUE: the caller's vector may be gone by the time the async thread runs.
         return std::async(std::launch::async, [size, sun_direction] { return generate_environment_cubemap(size, sun_direction); });
     }
 
-    std::future<std::vector<float>> prefilter_environment_async(std::span<float const> const env, int const env_size, int const mip_count) {
+    std::future<std::vector<float>> prefilter_environment_async(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {
         return std::async(std::launch::async, [env, env_size, mip_count] { return prefilter_environment(env, env_size, mip_count); });
     }
 
-    std::future<std::vector<float>> generate_irradiance_map_async(std::span<float const> const env, int const env_size, int const irr_size) {
+    std::future<std::vector<float>> generate_irradiance_map_async(std::span<float const> const env, int32_t const env_size, int32_t const irr_size) {
         return std::async(std::launch::async, [env, env_size, irr_size] { return generate_irradiance_map(env, env_size, irr_size); });
     }
 
-    std::future<std::vector<float>> generate_brdf_lut_async(int const size) {
+    std::future<std::vector<float>> generate_brdf_lut_async(int32_t const size) {
         return std::async(std::launch::async, [size] { return generate_brdf_lut(size); });
     }
 } // namespace vulkan

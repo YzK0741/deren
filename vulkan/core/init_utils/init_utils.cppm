@@ -644,7 +644,7 @@ namespace {
     }
 
     // Wrap output at the given width, indenting continuation lines
-    void print_wrapped(std::string const& text, int const width, std::string_view const indent) {
+    void print_wrapped(std::string const& text, int32_t const width, std::string_view const indent) {
         std::string current(indent);
         size_t start = 0;
         while (start < text.size()) {
@@ -1137,8 +1137,8 @@ VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow*
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
         return capabilities.currentExtent;
     }
-    int width;
-    int height;
+    int32_t width;
+    int32_t height;
     glfwGetFramebufferSize(window, &width, &height);
 
     // Ensure width and height are non-zero

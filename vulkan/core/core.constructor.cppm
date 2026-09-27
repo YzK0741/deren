@@ -181,7 +181,7 @@ namespace vulkan {
 
     // self-owned window path: only taken when core_create_info::window is empty (a caller-provided
     // window skips glfwInit/glfwCreateWindow entirely and registers no destroy cleanup)
-    void core::init_window(int const width, int const height, std::string_view const window_name) noexcept {
+    void core::init_window(int32_t const width, int32_t const height, std::string_view const window_name) noexcept {
         glfwInit();
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -287,7 +287,7 @@ namespace vulkan {
                 error_msg += "VK_ERROR_INCOMPATIBLE_DRIVER";
                 break;
             default:
-                error_msg += std::to_string(static_cast<int>(result));
+                error_msg += std::to_string(static_cast<int32_t>(result));
                 break;
             }
             utility::panic(error_msg);

@@ -114,7 +114,7 @@ export namespace vulkan {
         /// @brief the world-space cache: its flag (the runtime's), its rate and round count (the pass's) and the
         ///        tracer's gain over it
         /// @brief which G-buffer channel the debug view shows (the pass's own parameter)
-        void set_gbuffer_channel(int channel) noexcept;
+        void set_gbuffer_channel(int32_t channel) noexcept;
         /// @brief the flat render mode, which the lighting stage's own parameter decides
         ///
         /// NOTE the whole setter moved here rather than its value half, and that is the honest shape: the render mode

@@ -86,7 +86,7 @@ namespace {
     }
 
     std::string trim(std::string text) {
-        auto const not_space = [](unsigned char const c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; };
+        auto const not_space = [](uint8_t const c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; };
         text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
         text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
         return text;
@@ -97,7 +97,7 @@ namespace {
     std::string heading_anchor(std::string heading) {
         std::string anchor;
         for (char const c : trim(std::move(heading))) {
-            auto const byte = static_cast<unsigned char>(c);
+            auto const byte = static_cast<uint8_t>(c);
             if (byte >= 'A' && byte <= 'Z') {
                 anchor.push_back(static_cast<char>(byte - 'A' + 'a'));
             } else if ((byte >= 'a' && byte <= 'z') || (byte >= '0' && byte <= '9') || byte == '-') {
@@ -274,7 +274,7 @@ namespace {
     }
 } // namespace
 
-int main() {
+int32_t main() {
     std::filesystem::path const root = VR_TEST_SOURCE_DIR;
     std::filesystem::path const docs = root / "docs";
 
@@ -324,7 +324,7 @@ int main() {
                     ++line;
                     continue;
                 }
-                auto const byte = static_cast<unsigned char>(text[i]);
+                auto const byte = static_cast<uint8_t>(text[i]);
                 if (byte >= 0x80u) {
                     std::string const where = label + ":" + std::to_string(line) + " has a non-ASCII byte (the LaTeX manual runs these documents through pdflatex)";
                     CHECK_MSG(false, where.c_str());

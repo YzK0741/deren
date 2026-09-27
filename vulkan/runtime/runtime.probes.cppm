@@ -58,7 +58,7 @@ namespace vulkan {
         // the order shaders/heap_slots.glsl names (the contract test compares that order, and the host has no
         // per-sampler constant because it keeps them as a list).
         uint32_t const sampler_slot = static_cast<uint32_t>(core::heap_sampler_base);
-        std::span<unsigned char const> const spirv = this->registered_shader("heap_probe.comp.spv");
+        std::span<uint8_t const> const spirv = this->registered_shader("heap_probe.comp.spv");
         if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
@@ -143,8 +143,8 @@ namespace vulkan {
         // pipeline can be created heap-natively (the heap flag, a NULL layout) and dispatched with
         // vkCmdDrawMeshTasksEXT at all.
         core& vk = this->vulkan_core;
-        std::span<unsigned char const> const vertex_code = this->registered_shader(mesh_shader ? "heap_probe.mesh.spv" : "heap_probe.vert.spv");
-        std::span<unsigned char const> const fragment_code = this->registered_shader("heap_probe.frag.spv");
+        std::span<uint8_t const> const vertex_code = this->registered_shader(mesh_shader ? "heap_probe.mesh.spv" : "heap_probe.vert.spv");
+        std::span<uint8_t const> const fragment_code = this->registered_shader("heap_probe.frag.spv");
         if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || vertex_code.empty() || fragment_code.empty()) {
             return;
         }
@@ -285,7 +285,7 @@ namespace vulkan {
         vkQueueSubmit(vk.graphics_queue, 1, &submit, fence);
         vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX);
 
-        auto const* const pixel = static_cast<unsigned char const*>(readback_detail->allocation_info.pMappedData);
+        auto const* const pixel = static_cast<uint8_t const*>(readback_detail->allocation_info.pMappedData);
         utility::log("descriptor heap: the heap-native {} probe rendered grid slot {} into a {}x{} target and read back rgba {},{},{},{} (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)",
                      mesh_shader ? "MESH" : "GRAPHICS",
                      material_slot,

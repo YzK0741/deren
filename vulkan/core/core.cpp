@@ -123,7 +123,7 @@ namespace vulkan {
         return vk_sampler(sampler, this->device);
     }
 
-    std::optional<vk_shader_module> core::make_shader_module(std::span<unsigned char> const shader) const noexcept {
+    std::optional<vk_shader_module> core::make_shader_module(std::span<uint8_t> const shader) const noexcept {
         return ::vulkan::make_shader_module(shader, this->device);
     }
 
@@ -478,8 +478,8 @@ namespace vulkan {
         this->shared_sampler_infos[5] = make_shadow_sampler_info();
     }
     std::expected<vk_pipeline, std::string_view> core::make_gbuffer_pipeline(
-        std::span<unsigned char const> const vertex_shader_code,
-        std::span<unsigned char const> const fragment_shader_code,
+        std::span<uint8_t const> const vertex_shader_code,
+        std::span<uint8_t const> const fragment_shader_code,
         VkShaderStageFlagBits const first_stage) const {
         // Five color targets: the three surface targets, the motion vectors, and the scene color the
         // pass ADDS the emissive term into (lighting-independent, and it needs the emissive texture and
@@ -533,8 +533,8 @@ namespace vulkan {
     }
 
     std::expected<vk_pipeline, std::string_view> core::make_character_forward_pipeline(
-        std::span<unsigned char const> const vertex_shader_code,
-        std::span<unsigned char const> const fragment_shader_code,
+        std::span<uint8_t const> const vertex_shader_code,
+        std::span<uint8_t const> const fragment_shader_code,
         VkShaderStageFlagBits const first_stage) const {
         // ONE colour target, and it is the HDR one: this pass runs inside the HDR chain (after the lighting
         // stage, before the resolve), so the tonemap stays the post chain's - see the declaration's note.
@@ -573,8 +573,8 @@ namespace vulkan {
     }
 
     std::expected<vk_pipeline, std::string_view> core::make_depth_pipeline(
-        std::span<unsigned char const> vertex_shader_code,
-        std::span<unsigned char const> const fragment_shader_code,
+        std::span<uint8_t const> vertex_shader_code,
+        std::span<uint8_t const> const fragment_shader_code,
         VkFormat const depth_format,
         float const depth_bias_constant_factor,
         float const depth_bias_slope_factor,

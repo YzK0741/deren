@@ -93,8 +93,8 @@ namespace app_config {
      *        that the runtime/core layers add); parsed here but not interpreted by app_config.
      */
     export struct render_settings {
-        int window_width = 1080;
-        int window_height = 960;
+        int32_t window_width = 1080;
+        int32_t window_height = 960;
         std::string window_title = "vulkan_render";               // GLFW window title
         bool vsync = true;                                        // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                     // 0 = uncapped; a positive value caps the render loop
@@ -121,7 +121,7 @@ namespace app_config {
         // single-map behavior) and the fraction of a cascade's range over which the shader blends into
         // the next one. 3 by default: the cheapest point where the near range stops paying for the far
         // range's texel size. Applied BEFORE the scene import - see runtime::set_shadow_cascades.
-        int shadow_cascades = 3;
+        int32_t shadow_cascades = 3;
         float shadow_cascade_blend = 0.1f;
         // Shadow depth bias ([render] shadow_bias_constant / shadow_bias_slope): the rasterization bias the
         // shadow pass pushes a caster's depth by, which is what keeps a lit surface from shadowing itself
@@ -148,7 +148,7 @@ namespace app_config {
         // choices - resolution against the pass cost and memory (the layered map is
         // shadow_map_size^2 x 4 layers x 4 bytes per cascade set, per frame slot). Applied before the
         // scene import; the runtime clamps it to 256..8192 and rounds to a power of two.
-        int shadow_map_size = 2048;
+        int32_t shadow_map_size = 2048;
         // Stochastic PUNCTUAL lighting (docs/megalights.md): sample a few of each pixel's clustered lights, trace
         // one visibility ray per sample and add the shadowed estimate where the raster loop would have added an
         // unshadowed one. OFF by default, and deliberately: the estimator is the first stage of a chain whose
@@ -156,7 +156,7 @@ namespace app_config {
         bool megalights = false;
         // How many samples per HALF-RESOLUTION pixel (1..4, the shader's compile-time bound). This is the knob the
         // cost and the noise both scale with, and it is the one the overlay exposes next to the switch.
-        int megalights_samples = 4;
+        int32_t megalights_samples = 4;
         // The chain's SPATIAL pre-filter width in half-resolution texels (0 = off, which is the temporal-only
         // chain). It is the "detail versus grain" dial: a filter that removes signal and noise at the same rate is
         // worse than none, so this one is configurable and its own measurement is in docs/megalights.md.
@@ -216,7 +216,7 @@ namespace app_config {
         bool ssao = true;
         float ssao_radius = 0.5f;
         float ssao_intensity = 1.0f;
-        int ssao_samples = 8;
+        int32_t ssao_samples = 8;
         // Render mode ([render] unlit): the "pbr (lit)" / "unlit (flat)" combo of the debug overlay
         // as a startup setting - the flat base-color reference, useful as a shading-free view. It
         // selects the runtime's default pipeline for the transparent pass, and the lighting stage is
@@ -259,7 +259,7 @@ namespace app_config {
         // chain. A development view of the deferred path's data - the deferred lighting pass (M2)
         // takes over the display role and this stays as the inspection tool.
         bool gbuffer_debug = false;
-        int gbuffer_channel = 1; // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 material id, 6 depth, 7 flags, 8 motion
+        int32_t gbuffer_channel = 1; // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 material id, 6 depth, 7 flags, 8 motion
         // Temporal anti-aliasing ([render] taa / taa_blend_static / taa_blend_min): the deferred path's
         // anti-aliasing (a G-buffer cannot be multisampled, so there is no MSAA to fall back on). The projection is jittered every frame and a resolve pass blends the
         // reprojected, neighborhood-clamped history in - see runtime::set_taa. There is no per-object
@@ -284,10 +284,10 @@ namespace app_config {
      * @brief image-based-lighting precompute resolutions ([lighting] in the config)
      */
     export struct lighting_settings {
-        int env_size = 256;    // base environment cubemap size
-        int env_mip_count = 5; // prefiltered-environment mip chain length
-        int irr_size = 32;     // irradiance cubemap size
-        int lut_size = 256;    // BRDF LUT size
+        int32_t env_size = 256;    // base environment cubemap size
+        int32_t env_mip_count = 5; // prefiltered-environment mip chain length
+        int32_t irr_size = 32;     // irradiance cubemap size
+        int32_t lut_size = 256;    // BRDF LUT size
         // sun_direction ([lighting] sun_direction): the sun's direction in world space, pointing FROM the
         // surface TOWARD the sun, unnormalized (it is normalized where it is used). ONE setting feeds three
         // consumers that must agree or the frame contradicts itself - the shadow cascades and the shading's
@@ -303,7 +303,7 @@ namespace app_config {
         // only; the generated ones are pushed every frame together with the overlay's slots.
         // Capped at max_demo_lights: the light UBO holds max_punctual_lights lights in total, and the
         // overlay's own slots share that array.
-        int demo_lights = 0;
+        int32_t demo_lights = 0;
         /**
          * WHERE the generated lights sit and how far they reach, both as FRACTIONS of the scene radius.
          *
@@ -343,7 +343,7 @@ namespace app_config {
         // model file (empty = locate default via paths.model_dir; "ask" opens the platform's own file
         // dialog at startup - see wants_model_dialog, which is the only thing that may interpret it)
         std::string model = {};
-        int grid_side = 0; // > 1 enables the instancing stress grid
+        int32_t grid_side = 0; // > 1 enables the instancing stress grid
         path_settings paths = {};
         render_settings render = {};
         lighting_settings lighting = {};
@@ -386,12 +386,12 @@ namespace app_config {
      *        file: positional[0] = model path, positional[1] = grid side (numeric)
      * @return the merged settings (see app_settings notes for the "not specified" semantics)
      */
-    export app_settings resolve_from_argv(int argc, char const* const* argv);
+    export app_settings resolve_from_argv(int32_t argc, char const* const* argv);
 
     /**
      * @ingroup app_config
      * @brief like resolve_from_argv() but with an explicit default config path when no --config
      *        argument is present (used when the caller does not want the cwd-relative default)
      */
-    export app_settings resolve_from_argv(int argc, char const* const* argv, std::string const& default_config_path);
+    export app_settings resolve_from_argv(int32_t argc, char const* const* argv, std::string const& default_config_path);
 } // namespace app_config

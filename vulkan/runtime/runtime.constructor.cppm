@@ -56,7 +56,7 @@ namespace {
         return static_cast<vulkan::runtime*>(glfwGetWindowUserPointer(window));
     }
 
-    void mouse_button_callback(GLFWwindow* window, int const button, int const action, [[maybe_unused]] int const mods) {
+    void mouse_button_callback(GLFWwindow* window, int32_t const button, int32_t const action, [[maybe_unused]] int32_t const mods) {
         auto* runtime = runtime_from_window(window);
         if (button != GLFW_MOUSE_BUTTON_LEFT) {
             return;
@@ -115,7 +115,7 @@ namespace vulkan {
     // so run_tasks blocks until every task in the batch finished. The enum tier is mapped
     // onto the pool's integer priority (see task_priority in runtime.cppm).
     void runtime::run_tasks(std::span<std::function<void()>> const tasks, task_priority const priority) {
-        int const pool_priority = static_cast<int>(priority);
+        int32_t const pool_priority = static_cast<int32_t>(priority);
         if (tasks.empty() || !this->task_pool.post_batch(tasks, pool_priority)) {
             return; // empty batch, or the pool is shut down (never in the running demo)
         }
@@ -221,7 +221,7 @@ namespace vulkan {
         }
         auto const* const counters = static_cast<uint32_t const*>(this->meshlet_stats_mapped);
         uint64_t total[8] = {};
-        for (int slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             for (uint32_t counter = 0; counter < 8u; ++counter) {
                 total[counter] += counters[static_cast<std::size_t>(slot) * 8u + counter];
             }
@@ -270,7 +270,7 @@ namespace vulkan {
 
         // 1x1 white fallback texture, always the first entry of the scene texture array; missing
         // material textures point at it
-        constexpr std::array<unsigned char, 4> white_pixels = {255, 255, 255, 255};
+        constexpr std::array<uint8_t, 4> white_pixels = {255, 255, 255, 255};
         vulkan::image_create_info white_info = {};
         white_info.width = 1;
         white_info.height = 1;
@@ -320,7 +320,7 @@ namespace vulkan {
 
         // GPU material table: fixed capacity, host-visible (direct mapping); records are appended
         // at registration and read-only for the GPU (set 0 binding 5)
-        std::vector<unsigned char> const zeroed_materials(static_cast<size_t>(vulkan::material_capacity) * sizeof(material_record), 0);
+        std::vector<uint8_t> const zeroed_materials(static_cast<size_t>(vulkan::material_capacity) * sizeof(material_record), 0);
         init_utils::create_host_buffer(this->vulkan_core,
                                        std::as_bytes(std::span(zeroed_materials)),
                                        vulkan::buffer_type::storage_coherent,
@@ -366,7 +366,7 @@ namespace vulkan {
         //
         //      WRITTEN ONCE, here, like the material table beside it: the values are fixed at import and never
         //      rewritten, which is why it is one descriptor and not a per-frame pair.
-        std::vector<unsigned char> const zeroed_sdf_lanes(static_cast<size_t>(vulkan::material_capacity) * sizeof(uint32_t), 0);
+        std::vector<uint8_t> const zeroed_sdf_lanes(static_cast<size_t>(vulkan::material_capacity) * sizeof(uint32_t), 0);
         init_utils::create_host_buffer(this->vulkan_core,
                                        std::as_bytes(std::span(zeroed_sdf_lanes)),
                                        vulkan::buffer_type::storage_coherent,
@@ -398,7 +398,7 @@ namespace vulkan {
         //      with the material table's shape and for its reasons: fixed capacity, host-visible (direct mapping),
         //      and a device address because a heap descriptor for a buffer IS an address range.
         {
-            std::vector<unsigned char> const zeroed_meshlets(static_cast<size_t>(vulkan::meshlet_capacity) * sizeof(vulkan::meshlet), 0);
+            std::vector<uint8_t> const zeroed_meshlets(static_cast<size_t>(vulkan::meshlet_capacity) * sizeof(vulkan::meshlet), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_meshlets)),
                                            vulkan::buffer_type::storage_coherent,
@@ -433,7 +433,7 @@ namespace vulkan {
         //      command data, not a resource any shader reads.
         {
             constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
-            std::vector<unsigned char> const zeroed_commands(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
+            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_commands)),
                                            vulkan::buffer_type::storage_coherent,
@@ -452,7 +452,7 @@ namespace vulkan {
         //      uints per frame in flight, on the heap because a mesh stage has no other way to reach memory, and
         //      host-visible because the host reads it back once, at shutdown. Zeroed here; the entries only add.
         {
-            std::vector<unsigned char> const zeroed_stats(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t), 0);
+            std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_stats)),
                                            vulkan::buffer_type::storage_coherent,
@@ -480,7 +480,7 @@ namespace vulkan {
         //      records and the heap-bound because the mesh entry reads it. Per frame rather than one slot, unlike the
         //      table it shadows: this one is rewritten from the camera every frame.
         {
-            std::vector<unsigned char> const zeroed_culled(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * vulkan::meshlet_capacity * sizeof(vulkan::meshlet), 0);
+            std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * vulkan::meshlet_capacity * sizeof(vulkan::meshlet), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_culled)),
                                            vulkan::buffer_type::storage_coherent,
@@ -505,7 +505,7 @@ namespace vulkan {
 
         // Per-instance transform buffer (set 0 binding 6): one mat4 per instance, host-visible;
         // filled by set_instanced_draw() for instanced stress draws (see pbr.vert)
-        std::vector<unsigned char> const zeroed_instances(static_cast<size_t>(vulkan::instance_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_instances(static_cast<size_t>(vulkan::instance_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffer(this->vulkan_core,
                                        std::as_bytes(std::span(zeroed_instances)),
                                        vulkan::buffer_type::storage_coherent,
@@ -519,7 +519,7 @@ namespace vulkan {
         // frame rewrites. Zero-filled: a leaf's first frame reports "no motion", which is right -
         // nothing was there to move from. motion_previous is the CPU-side copy of what is currently
         // in it, advanced by advance_motion_transforms().
-        std::vector<unsigned char> const zeroed_motion(static_cast<size_t>(vulkan::scene_motion_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_motion(static_cast<size_t>(vulkan::scene_motion_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffers(this->vulkan_core,
                                         vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_motion)),
@@ -536,7 +536,7 @@ namespace vulkan {
         // Per-joint skin matrices (set 0 binding 9): one buffer PER FRAME SLOT (scene_skin_capacity
         // mat4s each, host-visible) so an in-flight frame never shares the buffer the next frame
         // rewrites. Zero-filled initially (the identity block is written by the setup upload).
-        std::vector<unsigned char> const zeroed_skins(static_cast<size_t>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_skins(static_cast<size_t>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffers(this->vulkan_core,
                                         vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_skins)),
@@ -553,7 +553,7 @@ namespace vulkan {
         // ("the matrices one frame ago") that advance_motion_deformations() publishes from, initialised to
         // IDENTITY exactly as motion_previous is - an unskinned or not-yet-animated vertex then reports no
         // deformation, and the one frame that could read it is a frame TAA gives no history to.
-        std::vector<unsigned char> const zeroed_previous_skins(static_cast<size_t>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_previous_skins(static_cast<size_t>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffers(this->vulkan_core,
                                         vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_previous_skins)),
@@ -568,7 +568,7 @@ namespace vulkan {
         // each, host-visible); the caller bakes per-primitive morph blocks (deltas + weights)
         // into every slot's buffer at setup, then rewrites only the active slot's weights per frame.
         // Zero-filled from one shared host vector (each create_buffer copies its own GPU buffer).
-        std::vector<unsigned char> const zeroed_morphs(static_cast<size_t>(vulkan::scene_morph_capacity) * sizeof(float), 0);
+        std::vector<uint8_t> const zeroed_morphs(static_cast<size_t>(vulkan::scene_morph_capacity) * sizeof(float), 0);
         init_utils::create_host_buffers(this->vulkan_core,
                                         vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_morphs)),
@@ -603,7 +603,7 @@ namespace vulkan {
     void runtime::init_recording_resources() {
         // One command buffer per frame slot, owned and reused every frame
         this->command_buffers.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        for (int slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             this->command_buffers.push_back(this->vulkan_core.make_command_buffer());
         }
         // One shadow-pass + one gui-overlay secondary command buffer per frame slot (stage 2/3
@@ -615,8 +615,8 @@ namespace vulkan {
         // parallel; see sub_render_task).
         this->secondary_command_buffers.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
         this->main_segments.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        unsigned const record_workers = static_cast<unsigned>(std::max(1, this->task_pool_threads()));
-        for (int slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        uint32_t const record_workers = static_cast<uint32_t>(std::max(1, this->task_pool_threads()));
+        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
             std::array<vk_command_buffer, static_cast<std::size_t>(secondary_pass::count)> pair = {
@@ -634,7 +634,7 @@ namespace vulkan {
             this->shadow_recording.push_back(std::move(cascade_recording));
             std::vector<std::pair<VkCommandPool, vk_command_buffer>> segments;
             segments.reserve(record_workers);
-            for (unsigned s = 0; s < record_workers; ++s) {
+            for (uint32_t s = 0; s < record_workers; ++s) {
                 segments.push_back(init_utils::create_recording_pool(this->vulkan_core)); // one per worker
             }
             this->main_segments.push_back(std::move(segments));
@@ -680,7 +680,7 @@ namespace vulkan {
         this->shadow_images.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
         this->shadow_array_views.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
         this->shadow_layer_views.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        for (int slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             vulkan::image_create_info shadow_info = {};
             shadow_info.width = this->shadow_map_size;
             shadow_info.height = this->shadow_map_size;
@@ -811,8 +811,8 @@ namespace vulkan {
         // host each frame (that IS the pass's clear, see pace_and_acquire), and the indices only need
         // to live on the GPU between the dispatch and the shading.
         std::size_t const slots = static_cast<std::size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        std::vector<unsigned char> const zero_counts(static_cast<std::size_t>(vulkan::max_cluster_count) * sizeof(uint32_t), 0);
-        std::vector<unsigned char> const zero_indices(static_cast<std::size_t>(vulkan::max_cluster_count) * vulkan::cluster_light_capacity * sizeof(uint32_t), 0);
+        std::vector<uint8_t> const zero_counts(static_cast<std::size_t>(vulkan::max_cluster_count) * sizeof(uint32_t), 0);
+        std::vector<uint8_t> const zero_indices(static_cast<std::size_t>(vulkan::max_cluster_count) * vulkan::cluster_light_capacity * sizeof(uint32_t), 0);
         init_utils::create_host_buffers(this->vulkan_core,
                                         static_cast<uint32_t>(slots),
                                         std::as_bytes(std::span(zero_counts)),
@@ -895,7 +895,7 @@ namespace vulkan {
         // per-frame re-pointing is needed and an in-flight frame never shares a buffer the next
         // frame rewrites. Only the HEAP half is left: the two bindings are written into this slot's heap block
         // (and the shadow map into its grid slot) rather than into a descriptor set.
-        for (int slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             auto const* light_detail = this->vulkan_core.vma.get_buffer_detail(this->light_buffers[static_cast<std::size_t>(slot)].handle());
             if (light_detail == nullptr) {
                 utility::panic("failed to get light ubo buffer detail");
@@ -952,7 +952,7 @@ namespace vulkan {
         if (info.env_size == 0) {
             return;
         }
-        auto const upload = [this](std::span<unsigned char const> const data, image_create_info const& create_info, image_type const type) -> vk_image {
+        auto const upload = [this](std::span<uint8_t const> const data, image_create_info const& create_info, image_type const type) -> vk_image {
             vk_image image = this->vulkan_core.vma.create_image(data.data(), data.size_bytes(), create_info, type);
             if (!image.valid()) {
                 utility::panic("failed to create IBL image");
@@ -1074,7 +1074,7 @@ namespace vulkan {
             // decoded bytes (xxh3-128, the same digest vma uses for GPU-image dedup) and key the
             // slot cache on (digest, format, dimensions): N materials over one image upload
             // once and share the array element. The image itself is also vma-deduped below.
-            utility::xxh3_digest const digest = utility::xxh3_128bits(std::span<unsigned char const>(tex.data.data(), tex.data.size_bytes()));
+            utility::xxh3_digest const digest = utility::xxh3_128bits(std::span<uint8_t const>(tex.data.data(), tex.data.size_bytes()));
             // key on the digest data_block itself (not a raw byte array): data_block carries the
             // equality/ordering the std::map key needs
             auto const key = std::tuple<utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>{
@@ -1250,7 +1250,7 @@ namespace vulkan {
             return {};
         }
         uint32_t const material_index = this->material_count++;
-        std::memcpy(static_cast<unsigned char*>(this->material_mapped) + static_cast<size_t>(material_index) * sizeof(material_record), &record, sizeof(record));
+        std::memcpy(static_cast<uint8_t*>(this->material_mapped) + static_cast<size_t>(material_index) * sizeof(material_record), &record, sizeof(record));
         // THE FACE SDF LANE, written BESIDE the record rather than into it, and this is the one place that knows
         // both the material's index and its lane (see core::heap_slots::sdf_lanes for why the record cannot carry
         // it). It is MATERIAL-indexed, so the shader reaches it with the index it already uses for the record.

@@ -30,7 +30,7 @@ namespace {
     // Both are stripped from argv before app_config sees them, so the positional model /
     // grid-side slots keep their meaning.
     struct capture_options {
-        int frames = 0;                                            // 0 = normal interactive run
+        int32_t frames = 0;                                        // 0 = normal interactive run
         std::optional<std::array<float, 3>> camera = std::nullopt; // yaw(deg), pitch(deg), distance
         std::optional<glm::vec3> target = std::nullopt;            // orbit target override (optional)
         // Degrees of YAW added per presented frame (`--capture-sweep`). 0 - the default - is a fixed
@@ -73,11 +73,11 @@ namespace {
         return value;
     }
 
-    capture_options parse_capture_options(int const argc, char** argv, std::vector<char*>& filtered) {
+    capture_options parse_capture_options(int32_t const argc, char** argv, std::vector<char*>& filtered) {
         capture_options options = {};
         filtered.push_back(argv[0]);
         // "--flag value" or "--flag=value"; returns the value and advances i past it
-        auto const take_value = [&](int& i, std::string_view const arg, std::string_view const name) -> std::optional<std::string_view> {
+        auto const take_value = [&](int32_t& i, std::string_view const arg, std::string_view const name) -> std::optional<std::string_view> {
             if (arg == name) {
                 return i + 1 < argc ? std::optional<std::string_view>(argv[++i]) : std::nullopt;
             }
@@ -86,7 +86,7 @@ namespace {
             }
             return std::nullopt;
         };
-        for (int i = 1; i < argc; ++i) {
+        for (int32_t i = 1; i < argc; ++i) {
             std::string_view const arg(argv[i]);
             // --mmd-motion is consumed here even though main scans argv for it itself: the app's
             // parser would otherwise treat the flag as the positional model path and panic with
@@ -96,7 +96,7 @@ namespace {
             }
             if (std::optional<std::string_view> const value = take_value(i, arg, "--capture-frames")) {
                 if (std::optional<float> const frames = parse_number(*value)) {
-                    options.frames = static_cast<int>(std::max(0.0f, *frames));
+                    options.frames = static_cast<int32_t>(std::max(0.0f, *frames));
                 } else {
                     utility::log("capture: ignoring '--capture-frames {}' (expected a frame count)", *value);
                 }
@@ -166,10 +166,12 @@ namespace {
 
 } // namespace
 
+// `int`, NOT `int32_t`: the C++ standard requires main's own signature to use the keyword, and this is the one
+// place in the tree where that is a LANGUAGE rule rather than a choice about the project's arithmetic types.
 int main(int argc, char** argv) {
     // --version: print the version (single source: project(VERSION) in CMakeLists.txt, injected
     // as VULKAN_RENDER_VERSION_*) and exit before any config / Vulkan init.
-    for (int i = 1; i < argc; ++i) {
+    for (int32_t i = 1; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--version") {
             utility::println("vulkan_render {}.{}.{}", VULKAN_RENDER_VERSION_MAJOR, VULKAN_RENDER_VERSION_MINOR, VULKAN_RENDER_VERSION_PATCH);
             return 0;
@@ -183,7 +185,7 @@ int main(int argc, char** argv) {
     // from argv first (see parse_capture_options) so they cannot land in the positional slots.
     std::vector<char*> filtered_argv;
     capture_options const capture = parse_capture_options(argc, argv, filtered_argv);
-    chores::startup_config const config = chores::analyse_config(static_cast<int>(filtered_argv.size()), filtered_argv.data());
+    chores::startup_config const config = chores::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
     app_config::app_settings const& settings = config.settings;
     std::filesystem::path const& shaders_dir = config.shaders_dir;
     std::string const& model_path = config.model_path;
@@ -278,7 +280,7 @@ int main(int argc, char** argv) {
     // 7. Collect the async startup results
     auto scenes = load_future.get();
     if (!scenes) {
-        utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int>(scenes.error()));
+        utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int32_t>(scenes.error()));
     }
     std::vector<float> const env = env_future.get();
     auto const startup_done = std::chrono::steady_clock::now();
@@ -394,9 +396,9 @@ int main(int argc, char** argv) {
     auto const stage2_done = std::chrono::steady_clock::now();
     utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
 
-    std::vector<unsigned char> const env_bytes = vulkan::to_half_rgba(prefiltered);
-    std::vector<unsigned char> const irr_bytes = vulkan::to_half_rgba(irradiance);
-    std::vector<unsigned char> const lut_bytes = vulkan::to_half_rg(brdf_lut);
+    std::vector<uint8_t> const env_bytes = vulkan::to_half_rgba(prefiltered);
+    std::vector<uint8_t> const irr_bytes = vulkan::to_half_rgba(irradiance);
+    std::vector<uint8_t> const lut_bytes = vulkan::to_half_rg(brdf_lut);
 
     // 10. Upload the scene-wide IBL once: shared by every primitive (bindings 2-4 of the scene block)
     runtime.set_ibl(vulkan::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes, .env_size = static_cast<uint32_t>(env_size), .env_mip_count = static_cast<uint32_t>(env_mip_count), .irr_size = static_cast<uint32_t>(irr_size), .lut_size = static_cast<uint32_t>(lut_size)});
@@ -484,17 +486,17 @@ int main(int argc, char** argv) {
         /// input the lookup returns is a SPAN INTO IT and `register_material` reads it during the import. ONE
         /// buffer serves BOTH ramp lanes: the diffuse ramp and the specular ramp are the same neutral step, and
         /// what tells them apart is which family numbers the shader moves it with
-        std::vector<unsigned char> baked_unit_ramp = {};
+        std::vector<uint8_t> baked_unit_ramp = {};
         uint32_t baked_ramp_width = 0;
         uint32_t baked_ramp_height = 0;
         /// the SHADOW LUT cube (see the baker below) - a different shape from the ramp and so a different
         /// buffer, kept alive for the same reason: the lookup hands out a SPAN INTO IT
-        std::vector<unsigned char> baked_shadow_lut = {};
+        std::vector<uint8_t> baked_shadow_lut = {};
         uint32_t baked_lut_width = 0;
         uint32_t baked_lut_height = 0;
         /// the MATCAP ball (see the baker below) - a third shape again, and a black one, because this stage had
         /// no matcap term to reproduce
-        std::vector<unsigned char> baked_matcap = {};
+        std::vector<uint8_t> baked_matcap = {};
         uint32_t baked_matcap_size = 0;
     };
 
@@ -543,12 +545,12 @@ int main(int argc, char** argv) {
             float const t = std::clamp((x - edge0) / (edge1 - edge0), 0.0f, 1.0f);
             return t * t * (3.0f - 2.0f * t);
         };
-        std::vector<unsigned char> pixels(static_cast<std::size_t>(baked_ramp_width) * baked_ramp_height * 4u, 255u);
+        std::vector<uint8_t> pixels(static_cast<std::size_t>(baked_ramp_width) * baked_ramp_height * 4u, 255u);
         for (uint32_t v = 0; v < baked_ramp_height; ++v) {
             for (uint32_t u = 0; u < baked_ramp_width; ++u) {
                 float const x = static_cast<float>(u) / static_cast<float>(baked_ramp_width - 1u);
                 float const step = smoothstep(0.5f - baked_ramp_half_width, 0.5f + baked_ramp_half_width, x);
-                unsigned char* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_ramp_width + u) * 4u;
+                uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_ramp_width + u) * 4u;
                 // GREY, and the SHADER READS `.r`: the ramp carries the step and nothing else, so the family's
                 // own `shadow_tint` is what colours the dark side rather than a bake that could only ever hold
                 // one family's tint. Writing the same value into R, G and B keeps the asset readable as a ramp
@@ -558,7 +560,7 @@ int main(int argc, char** argv) {
                 // what the sampler hands the shader is then the LINEAR step, which is the number the procedural
                 // branch's `smoothstep` produced. Encoding is what makes the two branches agree on the VALUE and
                 // not just on the shape.
-                unsigned char const encoded = static_cast<unsigned char>(std::clamp(srgb_encode(step), 0.0f, 1.0f) * 255.0f + 0.5f);
+                uint8_t const encoded = static_cast<uint8_t>(std::clamp(srgb_encode(step), 0.0f, 1.0f) * 255.0f + 0.5f);
                 texel[0] = encoded;
                 texel[1] = encoded;
                 texel[2] = encoded;
@@ -598,7 +600,7 @@ int main(int argc, char** argv) {
         auto const srgb_encode = [](float const linear) {
             return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
         };
-        std::vector<unsigned char> pixels(static_cast<std::size_t>(baked_lut_width) * baked_lut_height * 4u, 255u);
+        std::vector<uint8_t> pixels(static_cast<std::size_t>(baked_lut_width) * baked_lut_height * 4u, 255u);
         for (uint32_t row = 0; row < baked_lut_height; ++row) {
             for (uint32_t column = 0; column < baked_lut_width; ++column) {
                 // The identity cube at this texel's coordinate: the X channel from which tile it is in, the Y
@@ -608,12 +610,12 @@ int main(int argc, char** argv) {
                 float const y = static_cast<float>(column % baked_lut_tiles) / static_cast<float>(baked_lut_tiles - 1u);
                 float const z = static_cast<float>(baked_lut_tiles - 1u - row) / static_cast<float>(baked_lut_tiles - 1u);
                 float const cube[3] = {x, y, z};
-                unsigned char* const texel = pixels.data() + (static_cast<std::size_t>(row) * baked_lut_width + column) * 4u;
-                for (int c = 0; c < 3; ++c) {
+                uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(row) * baked_lut_width + column) * 4u;
+                for (int32_t c = 0; c < 3; ++c) {
                     // SRGB-ENCODED for the same reason the ramp is: the lane is uploaded as an sRGB texture, so
                     // the sampler hands the shader the LINEAR value the cube is written to mean, and the identity
                     // survives the round trip instead of being gamma-shifted by it.
-                    texel[c] = static_cast<unsigned char>(std::clamp(srgb_encode(cube[c]), 0.0f, 1.0f) * 255.0f + 0.5f);
+                    texel[c] = static_cast<uint8_t>(std::clamp(srgb_encode(cube[c]), 0.0f, 1.0f) * 255.0f + 0.5f);
                 }
                 texel[3] = 255u;
             }
@@ -639,7 +641,7 @@ int main(int argc, char** argv) {
         // A matcap is an sRGB reference image (the reference's `EfClothSampleMatcap` says so explicitly), so the
         // lane's upload format applies here as it does to the ramps: zero is zero in both encodings, which is the
         // one value where the encode step cannot disagree with itself.
-        return std::vector<unsigned char>(static_cast<std::size_t>(baked_matcap_size) * baked_matcap_size * 4u, 0u);
+        return std::vector<uint8_t>(static_cast<std::size_t>(baked_matcap_size) * baked_matcap_size * 4u, 0u);
     };
 
     // THE LOOKUP, whose lane vocabulary lives with the diagnostic above so that the two cannot disagree about
@@ -669,7 +671,7 @@ int main(int argc, char** argv) {
         // other lanes keep the model's images for now: nothing reads them yet, and baking them is the same
         // question one lane at a time.
         if ((lane == vulkan::toon_slot::diffuse_ramp || lane == vulkan::toon_slot::specular_ramp) && !state.baked_unit_ramp.empty()) {
-            out.data = std::span<unsigned char const>(state.baked_unit_ramp.data(), state.baked_unit_ramp.size());
+            out.data = std::span<uint8_t const>(state.baked_unit_ramp.data(), state.baked_unit_ramp.size());
             out.width = state.baked_ramp_width;
             out.height = state.baked_ramp_height;
             out.mip_levels = 1;
@@ -682,7 +684,7 @@ int main(int argc, char** argv) {
         // carrying a specific character's skin tone. The artist's switch above still decides whether there is a
         // LUT at all, which is why hair - whose `_UseShadowLutTex` is off - is unaffected by any of this.
         if (lane == vulkan::toon_slot::shadow_lut && !state.baked_shadow_lut.empty()) {
-            out.data = std::span<unsigned char const>(state.baked_shadow_lut.data(), state.baked_shadow_lut.size());
+            out.data = std::span<uint8_t const>(state.baked_shadow_lut.data(), state.baked_shadow_lut.size());
             out.width = state.baked_lut_width;
             out.height = state.baked_lut_height;
             out.mip_levels = 1;
@@ -695,7 +697,7 @@ int main(int argc, char** argv) {
         // the game's matcap was neither read nor replaced - the lane was simply absent, which is the quietest
         // possible version of getting it wrong.
         if (lane == vulkan::toon_slot::matcap && !state.baked_matcap.empty()) {
-            out.data = std::span<unsigned char const>(state.baked_matcap.data(), state.baked_matcap.size());
+            out.data = std::span<uint8_t const>(state.baked_matcap.data(), state.baked_matcap.size());
             out.width = state.baked_matcap_size;
             out.height = state.baked_matcap_size;
             out.mip_levels = 1;
@@ -714,7 +716,7 @@ int main(int argc, char** argv) {
         if (tex.data.empty() || tex.width == 0 || tex.height == 0) {
             return out; // present but unusable: still "do not read" rather than a guess
         }
-        out.data = std::span<unsigned char const>(tex.data.data(), tex.data.size());
+        out.data = std::span<uint8_t const>(tex.data.data(), tex.data.size());
         out.width = tex.width;
         out.height = tex.height;
         out.mip_levels = 1;
@@ -791,9 +793,9 @@ int main(int argc, char** argv) {
     //      (and what the [render] clustered_lights A/B is compared against).
     std::vector<vulkan::punctual_light> demo_lights;
     if (settings.lighting.demo_lights > 0) {
-        int const total = std::min(settings.lighting.demo_lights, static_cast<int>(app_config::max_demo_lights));
+        int32_t const total = std::min(settings.lighting.demo_lights, static_cast<int32_t>(app_config::max_demo_lights));
         demo_lights.reserve(static_cast<std::size_t>(total));
-        for (int i = 0; i < total; ++i) {
+        for (int32_t i = 0; i < total; ++i) {
             float const t = static_cast<float>(i) / static_cast<float>(total);
             float const angle = t * 6.2831853f * 3.0f; // three turns around the scene
             float const radius = scene_radius * settings.lighting.demo_light_radius;
@@ -840,7 +842,7 @@ int main(int argc, char** argv) {
     // different numbering.
     {
         std::string mmd_motion_path;
-        for (int i = 1; i + 1 < argc; ++i) {
+        for (int32_t i = 1; i + 1 < argc; ++i) {
             if (std::string_view(argv[i]) == "--mmd-motion") {
                 mmd_motion_path = argv[i + 1];
             }
@@ -983,11 +985,11 @@ int main(int argc, char** argv) {
     }
     // current selection: 0 = orbit, 1..N = authored_cameras[i - 1]; default = the first
     // authored camera when the scene has any (same initial view as before, but now movable)
-    int current_camera = authored_cameras.empty() ? 0 : 1;
+    int32_t current_camera = authored_cameras.empty() ? 0 : 1;
     // point the orbit camera at the authored pose: target = scene center (frame like the
     // default view), yaw/pitch/distance solved from the camera node's world transform
-    auto const seed_orbit_from_camera = [&](int const index) {
-        if (index <= 0 || index > static_cast<int>(authored_cameras.size())) {
+    auto const seed_orbit_from_camera = [&](int32_t const index) {
+        if (index <= 0 || index > static_cast<int32_t>(authored_cameras.size())) {
             return; // "orbit": keep the current free orbit
         }
         authored_camera const& ac = authored_cameras[static_cast<std::size_t>(index - 1)];
@@ -1169,7 +1171,7 @@ int main(int argc, char** argv) {
     // recreation on restore/resize) live inside the runtime's frame phases, which main calls at
     // fine granularity so it can write per-frame data (scene node locals -> culling, skin
     // matrices, morph weights) between pacing and recording.
-    int last_render_mode = 0; // gui render-mode combo (0 = pbr); applied between frames below
+    int32_t last_render_mode = 0; // gui render-mode combo (0 = pbr); applied between frames below
     // scripted capture: apply the camera override LAST, so nothing in the setup above (the orbit
     // framing of the imported scene, an authored glTF camera) can win over the requested view
     if (capture.camera) {
@@ -1187,7 +1189,7 @@ int main(int argc, char** argv) {
     // glTF camera, or the pinned `--capture-camera` above - so a sweep composes with all three instead of
     // demanding a pinned pose it would have to be told twice.
     float const sweep_base_yaw = runtime.camera.yaw;
-    int captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
+    int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
     while (true) {
         // Phase 1: poll window events (ESC / native close -> closed, minimized -> skipped)
         vulkan::frame_status const polled = runtime.poll_events();
@@ -1277,7 +1279,7 @@ int main(int argc, char** argv) {
         }
         gui.anim_time = animation.current_time();  // keep the gui time slider in sync
         gui.anim_playing = animation.is_playing(); // reflect controller-side pauses (scrub / select)
-        gui.anim_index = static_cast<int>(animation.current());
+        gui.anim_index = static_cast<int32_t>(animation.current());
 
         // Phase 3: record + submit + present the paced frame
         vulkan::frame_status const rec = runtime.begin_recording();
@@ -1365,7 +1367,7 @@ int main(int argc, char** argv) {
         // cel shading: the combo picks a discrete band count (index 0 = off); every entry is a
         // visibly different look, unlike a continuous strength that had dead zones between bands
         constexpr std::array<float, 7> toon_band_counts = {0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};
-        auto const toon_index = static_cast<std::size_t>(std::clamp(gui.toon_bands_index, 0, static_cast<int>(toon_band_counts.size()) - 1));
+        auto const toon_index = static_cast<std::size_t>(std::clamp(gui.toon_bands_index, 0, static_cast<int32_t>(toon_band_counts.size()) - 1));
         runtime.set_toon_shading(toon_band_counts[toon_index], gui.toon_softness);
         runtime.set_sun_intensity(gui.sun_intensity);
         // The sun's DIRECTION is mirrored the same way, from the config (`[lighting] sun_direction`). It is

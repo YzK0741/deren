@@ -56,6 +56,8 @@ extern "C" void utility_platform_sleep_ns(std::int64_t const nanoseconds) {
     // frame, so the relative form does not drift.
     timespec request = {};
     request.tv_sec = static_cast<time_t>(nanoseconds / 1000000000);
+    // `long` because `timespec::tv_nsec` IS `long` in POSIX: this is the platform API's declared type, and the
+    // project's fixed-width rule stops where somebody else's interface begins.
     request.tv_nsec = static_cast<long>(nanoseconds % 1000000000);
     while (nanosleep(&request, &request) == -1 && errno == EINTR) {
     }

@@ -321,7 +321,7 @@ namespace vulkan {
         }
     }
 
-    void render_start_demo::set_gbuffer_channel(int const channel) noexcept {
+    void render_start_demo::set_gbuffer_channel(int32_t const channel) noexcept {
         if (this->gbuffer_debug_ != nullptr) {
             this->gbuffer_debug_->set_channel(channel);
         }

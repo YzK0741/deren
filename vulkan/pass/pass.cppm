@@ -412,7 +412,7 @@ export namespace vulkan::pass {
          * this renderer the app loads them and hands them over), which keeps a path and a file format out of
          * this framework.
          */
-        std::span<unsigned char const> (*shader)(void* owner, std::string_view name) = nullptr;
+        std::span<uint8_t const> (*shader)(void* owner, std::string_view name) = nullptr;
         /**
          * The three numbers a SHADER BINDING TABLE is built against: the handle size, the base alignment of a
          * region's device address and the alignment of a handle inside a region (see

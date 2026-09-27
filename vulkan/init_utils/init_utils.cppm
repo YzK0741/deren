@@ -57,7 +57,7 @@ export import vulkan.core; // the vma handles + the vk_* wrappers this interface
  *
  * @note the span parameters are `std::byte const` and the module calls vma's RAW pointer overloads
  *       deliberately: vma's `create_buffer(std::span<T>)` / `create_image(std::span<T>)` templates
- *       `reinterpret_cast` the data to `unsigned char*`, so they accept only a NON-const span - which no
+ *       `reinterpret_cast` the data to `uint8_t*`, so they accept only a NON-const span - which no
  *       call site here has, because their sources are const arrays and const zero-filled vectors. (The
  *       two `create_image` span templates are additionally unusable as written: they forward
  *       `(data, create_info, size, type)` to an overload declared `(data, size, create_info, type)`, so
@@ -76,7 +76,7 @@ namespace vulkan::init_utils {
      *       workers only add wake/join, cache and driver-side recording contention. Kept as a documented
      *       negative result so the experiment is not repeated
      */
-    export [[nodiscard]] int default_task_pool_threads() noexcept;
+    export [[nodiscard]] int32_t default_task_pool_threads() noexcept;
 
     /**
      * @ingroup vulkan_init_utils_runtime

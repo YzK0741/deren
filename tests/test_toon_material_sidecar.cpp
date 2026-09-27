@@ -352,7 +352,7 @@ namespace {
 
 } // namespace
 
-int main() {
+int32_t main() {
     test_well_formed();
     test_crlf_and_blank_lines();
     test_header_is_recognised_by_its_column_not_its_position();

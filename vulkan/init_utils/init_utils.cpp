@@ -17,11 +17,11 @@ import utility;
 import vulkan.core;
 
 namespace vulkan::init_utils {
-    int default_task_pool_threads() noexcept {
-        unsigned const hw = std::thread::hardware_concurrency();
+    int32_t default_task_pool_threads() noexcept {
+        uint32_t const hw = std::thread::hardware_concurrency();
         // A QUARTER of the hardware threads, not a half (see the interface's note: the measurement that
         // decided this is kept there, so the experiment is not repeated).
-        return static_cast<int>(hw == 0 ? 2u : std::max(1u, hw / 4u));
+        return static_cast<int32_t>(hw == 0 ? 2u : std::max(1u, hw / 4u));
     }
 
     void create_host_buffer(core& device,
@@ -32,8 +32,8 @@ namespace vulkan::init_utils {
                             void*& mapped,
                             VkBufferUsageFlags const extra_usage) {
         // The raw pointer overload, not the span template: the template wants a non-const span (it
-        // reinterpret_casts the data to `unsigned char*`), and every caller here has const bytes.
-        buffer = device.vma.create_buffer(reinterpret_cast<unsigned char const*>(initial.data()), initial.size_bytes(), type, extra_usage);
+        // reinterpret_casts the data to `uint8_t*`), and every caller here has const bytes.
+        buffer = device.vma.create_buffer(reinterpret_cast<uint8_t const*>(initial.data()), initial.size_bytes(), type, extra_usage);
         if (!buffer.valid()) {
             utility::panic(std::source_location::current(), "failed to create {}", what);
         }

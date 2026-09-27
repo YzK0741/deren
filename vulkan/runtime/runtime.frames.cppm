@@ -581,7 +581,7 @@ namespace vulkan {
         };
         uint64_t signature = static_cast<uint64_t>(this->shadow_casters.size());
         for (primitive const* caster : this->shadow_casters) {
-            uint64_t const matrix = utility::xxh3_64bits({reinterpret_cast<unsigned char const*>(&caster->push.model), sizeof(glm::mat4)});
+            uint64_t const matrix = utility::xxh3_64bits({reinterpret_cast<uint8_t const*>(&caster->push.model), sizeof(glm::mat4)});
             signature = fold(signature, matrix);
         }
         return fold(fold(signature, this->skin_matrix_hash), this->morph_revision.load(std::memory_order_relaxed));
@@ -1087,8 +1087,8 @@ namespace vulkan {
     // stage, same primitives, same scene set, same instancing/skinning/morphing. What changes is
     // where the fragments go (three 1x targets + a 1x depth image instead of the scene color)
     // and that nothing is lit - see shaders/gbuffer.frag.
-    std::expected<void, std::string> runtime::make_gbuffer_pipeline(std::span<unsigned char const> const fragment_shader_code,
-                                                                    std::span<unsigned char const> const mesh_vertex_shader_code, std::span<unsigned char const> const meshlet_vertex_shader_code) {
+    std::expected<void, std::string> runtime::make_gbuffer_pipeline(std::span<uint8_t const> const fragment_shader_code,
+                                                                    std::span<uint8_t const> const mesh_vertex_shader_code, std::span<uint8_t const> const meshlet_vertex_shader_code) {
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): the G-buffer pass's surface write is fed by a
         // MESH stage, which is why the mesh module is required here and its refusal is an ERROR rather than a log
         // line - with no vertex stage there is nothing to fall back to. (The caller disables the deferred path and
@@ -1356,7 +1356,7 @@ namespace vulkan {
         this->furnace = enabled;
     }
 
-    void runtime::register_shader(std::string_view const name, std::span<unsigned char const> const bytecode) {
+    void runtime::register_shader(std::string_view const name, std::span<uint8_t const> const bytecode) {
         // The app loads shaders (it knows the directory and the file names) and hands them over here; a pass
         // asks for its own by name at create time. A COPY, because the caller's buffer is a startup local.
         for (auto& [registered_name, registered_bytes] : this->registered_shaders) {
@@ -1365,7 +1365,7 @@ namespace vulkan {
                 return;
             }
         }
-        this->registered_shaders.emplace_back(std::string(name), std::vector<unsigned char>(bytecode.begin(), bytecode.end()));
+        this->registered_shaders.emplace_back(std::string(name), std::vector<uint8_t>(bytecode.begin(), bytecode.end()));
     }
 
     void runtime::create_passes() {
@@ -1468,7 +1468,7 @@ namespace vulkan {
                 .textures = *vk.texture_sampler};
     }
 
-    std::span<unsigned char const> runtime::registered_shader(std::string_view const name) const noexcept {
+    std::span<uint8_t const> runtime::registered_shader(std::string_view const name) const noexcept {
         for (auto const& [registered_name, registered_bytes] : this->registered_shaders) {
             if (registered_name == name) {
                 return registered_bytes;
@@ -1521,7 +1521,7 @@ namespace vulkan {
             .create_upload_buffer =
                 [](void* owner, void const* data, uint64_t const bytes, VkBufferUsageFlags const usage, VkDeviceAddress* const out_address) -> VkBuffer {
                 runtime* const self = static_cast<runtime*>(owner);
-                vk_buffer buffer = self->vulkan_core.vma.create_buffer(static_cast<unsigned char const*>(data), bytes, buffer_type::storage_coherent,
+                vk_buffer buffer = self->vulkan_core.vma.create_buffer(static_cast<uint8_t const*>(data), bytes, buffer_type::storage_coherent,
                                                                        usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
                 if (!buffer.valid()) {
                     return VK_NULL_HANDLE;
@@ -1769,7 +1769,7 @@ namespace vulkan {
             // to fill the log of every frame.
             if (this->resource_check_frames < 3 && this->resource_check_mismatched + mismatched <= 10) {
                 utility::log("resource table: pass '{}' {} (resource {}, element {}) resolved as [view {}, buffer {}, image {}] but published as [view {}, buffer {}, image {}]",
-                             decl.name, channel, static_cast<int>(id), element,
+                             decl.name, channel, static_cast<int32_t>(id), element,
                              as_pointer(resolved.view), as_pointer(resolved.buffer), as_pointer(resolved.image),
                              as_pointer(published.view), as_pointer(published.buffer), as_pointer(published.image));
             }

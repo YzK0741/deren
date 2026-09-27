@@ -63,7 +63,7 @@ export namespace vulkan::pass {
     public:
         /// @brief how many stored channels the view can show: the SHADER's own switch (`gbuffer_debug.frag`), which
         ///        is why the count lives with the pass rather than with the renderer that offers a slider for it
-        static constexpr int channel_count = 9;
+        static constexpr int32_t channel_count = 9;
         /// @brief the push block, which is also `gbuffer_debug.frag`'s
         struct push_constants {
             float channel = 1.0f; // 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
@@ -104,9 +104,9 @@ export namespace vulkan::pass {
          * push block moved here the pass needs nothing per-frame except the frame's own facts.
          * @param channel 0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion
          */
-        void set_channel(int channel) noexcept;
+        void set_channel(int32_t channel) noexcept;
         /// @brief the channel the view shows (0..gbuffer_channel_count-1)
-        [[nodiscard]] int channel() const noexcept;
+        [[nodiscard]] int32_t channel() const noexcept;
 
     private:
         static constexpr std::string_view vertex_shader_name = "post.vert.spv"; // the synthetic fullscreen triangle
@@ -125,7 +125,7 @@ export namespace vulkan::pass {
         VkDevice device_ = VK_NULL_HANDLE;
         std::optional<vk_pipeline> pipeline_ = std::nullopt;
         /// the channel the view shows (see set_channel); the default is the renderer's historical normal channel
-        int channel_ = 1;
+        int32_t channel_ = 1;
     };
 
     static_assert(sizeof(gbuffer_debug_pass::push_constants) == render_resource::gbuffer_debug_io.push->size,

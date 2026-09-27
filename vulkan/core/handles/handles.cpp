@@ -132,7 +132,7 @@ namespace vulkan {
         this->device = VK_NULL_HANDLE;
     }
 
-    std::optional<vk_shader_module> make_shader_module(std::span<unsigned char const> const shader, VkDevice const device) noexcept {
+    std::optional<vk_shader_module> make_shader_module(std::span<uint8_t const> const shader, VkDevice const device) noexcept {
         VkShaderModule shader_module = {};
 
         VkShaderModuleCreateInfo create_info = {

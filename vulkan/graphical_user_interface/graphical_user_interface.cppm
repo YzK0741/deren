@@ -173,14 +173,14 @@ namespace vulkan::gui {
      */
     export class combo_widget final : public widget {
     public:
-        combo_widget(std::string label, std::vector<std::string> items, int* current_item, std::function<void(int)> on_change = {});
+        combo_widget(std::string label, std::vector<std::string> items, int32_t* current_item, std::function<void(int32_t)> on_change = {});
         void draw() override;
 
     private:
         std::string label;
         std::vector<std::string> items;
-        int* current_item = nullptr;
-        std::function<void(int)> on_change;
+        int32_t* current_item = nullptr;
+        std::function<void(int32_t)> on_change;
     };
 
     /**

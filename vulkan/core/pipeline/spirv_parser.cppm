@@ -68,7 +68,7 @@ namespace vulkan::pipeline {
      * @return shader_stage_interface on success, error message on failure
      */
     export std::expected<shader_stage_interface, std::string_view> parse_shader_stage_interface(
-        std::span<unsigned char const> spirv_code,
+        std::span<uint8_t const> spirv_code,
         VkShaderStageFlagBits stage);
 
     bool validate_interface_match(
@@ -84,7 +84,7 @@ namespace vulkan::pipeline {
      */
     export std::expected<std::vector<descriptor_set_layout_data>, std::string_view>
     parse_descriptor_set_layouts(
-        std::span<unsigned char const> spirv_code,
+        std::span<uint8_t const> spirv_code,
         VkShaderStageFlagBits shader_stage);
 
     /**
@@ -115,7 +115,7 @@ namespace vulkan::pipeline {
      * @return push_constant_layout on success, error message on failure
      */
     export std::expected<vulkan::pipeline::push_constant_layout, std::string_view> parse_push_constant_layout(
-        std::span<unsigned char const> spirv_code);
+        std::span<uint8_t const> spirv_code);
 } // namespace vulkan::pipeline
 
 namespace {
@@ -316,7 +316,7 @@ uint32_t vulkan::pipeline::format_size(VkFormat const format) {
 
 std::expected<vulkan::pipeline::shader_stage_interface, std::string_view>
 vulkan::pipeline::parse_shader_stage_interface(
-    std::span<unsigned char const> const spirv_code,
+    std::span<uint8_t const> const spirv_code,
     VkShaderStageFlagBits const stage) {
     using fail = std::unexpected<std::string_view>;
 
@@ -419,7 +419,7 @@ bool vulkan::pipeline::validate_interface_match(
 
 std::expected<std::vector<vulkan::pipeline::descriptor_set_layout_data>, std::string_view>
 vulkan::pipeline::parse_descriptor_set_layouts(
-    std::span<unsigned char const> const spirv_code,
+    std::span<uint8_t const> const spirv_code,
     VkShaderStageFlagBits const shader_stage) {
 
     using fail = std::unexpected<std::string_view>;
@@ -490,7 +490,7 @@ vulkan::pipeline::parse_descriptor_set_layouts(
 }
 
 std::expected<vulkan::pipeline::push_constant_layout, std::string_view> vulkan::pipeline::parse_push_constant_layout(
-    std::span<unsigned char const> spirv_code) {
+    std::span<uint8_t const> spirv_code) {
 
     using fail = std::unexpected<std::string_view>;
     push_constant_layout out_layout;

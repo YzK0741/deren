@@ -89,7 +89,7 @@ export namespace vulkan {
         [[nodiscard]] VkExtent2D get_swap_chain_extent() const noexcept;
         [[nodiscard]] VkFormat get_swap_chain_image_format() const noexcept;
         [[nodiscard]] uint32_t get_current_frame() const noexcept;
-        static constexpr int max_frames_in_flight = core::MAX_FRAMES_IN_FLIGHT;
+        static constexpr int32_t max_frames_in_flight = core::MAX_FRAMES_IN_FLIGHT;
 
         // ---- facade operations (forwarded from core so callers need no raw API) ----
         void wait_idle() const noexcept;
@@ -97,7 +97,7 @@ export namespace vulkan {
 
         // ---- safe factory operations ----
         [[nodiscard]] vk_command_buffer make_command_buffer() const;
-        [[nodiscard]] std::optional<vk_shader_module> make_shader_module(std::span<unsigned char> shader) const noexcept;
+        [[nodiscard]] std::optional<vk_shader_module> make_shader_module(std::span<uint8_t> shader) const noexcept;
         [[nodiscard]] vk_image_view make_image_view(VkImage image, VkFormat format, VkImageViewType type) const;
         [[nodiscard]] vk_sampler make_sampler(VkSamplerAddressMode address_mode, float max_lod) const;
 

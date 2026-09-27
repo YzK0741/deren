@@ -148,9 +148,9 @@ namespace {
     /// the create-time context: what a pass builds itself from, and the point of the split is that ANY owner can
     /// fill it - this fake one below needs no device, no runtime and no frame, which is exactly what the test
     /// asserts a pass may rely on
-    std::span<unsigned char const> fake_shader(void* /*owner*/, std::string_view const name) {
-        static std::array<unsigned char, 3> const bytes = {0x03, 0x02, 0x23};
-        return name == "fake.comp.spv" ? std::span<unsigned char const>(bytes) : std::span<unsigned char const>{};
+    std::span<uint8_t const> fake_shader(void* /*owner*/, std::string_view const name) {
+        static std::array<uint8_t, 3> const bytes = {0x03, 0x02, 0x23};
+        return name == "fake.comp.spv" ? std::span<uint8_t const>(bytes) : std::span<uint8_t const>{};
     }
 
     vp::pass_context make_context() {
@@ -272,7 +272,7 @@ namespace {
                                                .pipelines = fullscreen_pipeline_names};
 } // namespace
 
-int main() {
+int32_t main() {
     using namespace vulkan::pass;
 
     host_state state;

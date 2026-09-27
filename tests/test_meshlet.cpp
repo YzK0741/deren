@@ -27,8 +27,8 @@ import vulkan.meshlet;
 namespace {
     /// an interleaved vertex array with a position first (the renderer's layout, without the other attributes)
     struct mesh_fixture {
-        std::vector<unsigned char> vertices;
-        std::vector<unsigned char> indices;
+        std::vector<uint8_t> vertices;
+        std::vector<uint8_t> indices;
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
         uint32_t index_width = 4;
@@ -65,10 +65,10 @@ namespace {
 
     vulkan::meshlet_build_input input_for(mesh_fixture const& fixture, uint32_t const first_index = 0, uint32_t const index_count = 0, int32_t const base_vertex = 0) {
         return vulkan::meshlet_build_input{
-            .vertex_data = std::span<unsigned char const>(fixture.vertices),
+            .vertex_data = std::span<uint8_t const>(fixture.vertices),
             .vertex_stride = fixture.vertex_stride,
             .vertex_count = fixture.vertex_count,
-            .index_data = std::span<unsigned char const>(fixture.indices),
+            .index_data = std::span<uint8_t const>(fixture.indices),
             .index_width = fixture.index_width,
             .first_index = first_index,
             .index_count = index_count == 0u ? fixture.vertex_count : index_count,
@@ -82,7 +82,7 @@ namespace {
     }
 } // namespace
 
-int main() {
+int32_t main() {
     // ---- 1. a window of exactly one meshlet, and one that needs three ----
     {
         mesh_fixture const exact = make_fixture(vulkan::meshlet_max_triangles);

@@ -44,7 +44,7 @@ namespace vulkan::pass {
             this->release_owned();
         }
         this->device_ = context.device;
-        std::span<unsigned char const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<unsigned char const>{};
+        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(std::string("mask bake: the owner has no ") + std::string(shader_name));
         }

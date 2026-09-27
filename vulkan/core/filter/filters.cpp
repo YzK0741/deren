@@ -57,7 +57,7 @@ namespace vulkan {
         return this->vk_core->make_command_buffer();
     }
 
-    std::optional<vk_shader_module> user_filter::make_shader_module(std::span<unsigned char> const shader) const noexcept {
+    std::optional<vk_shader_module> user_filter::make_shader_module(std::span<uint8_t> const shader) const noexcept {
         return this->vk_core->make_shader_module(shader);
     }
 

@@ -196,7 +196,7 @@ namespace {
     }
 } // namespace
 
-int main() {
+int32_t main() {
     test_load_settings_applies_toml();
     test_example_config_matches_documentation();
     test_load_settings_missing_file_keeps_defaults();

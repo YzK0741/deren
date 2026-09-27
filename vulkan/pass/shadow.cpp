@@ -58,7 +58,7 @@ namespace vulkan::pass {
         if (this->mesh_pipeline_.has_value()) {
             return; // already built for this device
         }
-        std::span<unsigned char const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<unsigned char const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): the pass's geometry arrives through a MESH
         // stage, so the vertex module is neither loaded nor registered anywhere, and the mesh one is REQUIRED. A
         // device without VK_EXT_mesh_shader does not reach here at all (the runtime refuses to start), which is why
@@ -71,7 +71,7 @@ namespace vulkan::pass {
             utility::log("shadow disabled: the device has no mesh shaders, and the vertex form is gone (docs/mesh_shaders.md step 4)");
             return;
         }
-        std::span<unsigned char const> const mesh_spirv = context.shader != nullptr ? context.shader(context.owner, mesh_shader_name) : std::span<unsigned char const>{};
+        std::span<uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.owner, mesh_shader_name) : std::span<uint8_t const>{};
         if (mesh_spirv.empty()) {
             utility::log("shadow disabled: the owner has no {}", mesh_shader_name);
             return;
@@ -90,7 +90,7 @@ namespace vulkan::pass {
         utility::log("SUCCESS: shadow MESH pipeline created (the depth-only pass, fed by mesh dispatches)");
         // ---- ... and the MESHLET form (docs/mesh_shaders.md step 3): only the MESH module differs (same fragment
         // stage), and a missing shader or a refusal is a log line - the mesh form above is a complete answer.
-        std::span<unsigned char const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.owner, meshlet_shader_name) : std::span<unsigned char const>{};
+        std::span<uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.owner, meshlet_shader_name) : std::span<uint8_t const>{};
         if (!meshlet_spirv.empty()) {
             auto meshlet_built = pipelines::build_shadow(context.device, context.depth_format, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, VK_SHADER_STAGE_MESH_BIT_EXT);
             if (meshlet_built) {

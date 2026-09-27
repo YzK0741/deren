@@ -287,7 +287,7 @@ namespace vulkan {
          *       replacement for it (a usage bit is not a feature; enabling one the device lacks is a
          *       validation error, not a fallback).
          */
-        vk_buffer create_buffer(unsigned char const* data, uint64_t size_byte, buffer_type type, VkBufferUsageFlags extra_usage = 0);
+        vk_buffer create_buffer(uint8_t const* data, uint64_t size_byte, buffer_type type, VkBufferUsageFlags extra_usage = 0);
 
         /**
          * @ingroup vulkan_vma
@@ -300,7 +300,7 @@ namespace vulkan {
          */
         template <typename T>
         vk_buffer create_buffer(std::span<T> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
-            return this->create_buffer(reinterpret_cast<unsigned char*>(data.data()), data.size_bytes(), type, extra_usage);
+            return this->create_buffer(reinterpret_cast<uint8_t*>(data.data()), data.size_bytes(), type, extra_usage);
         }
 
         /**
@@ -315,7 +315,7 @@ namespace vulkan {
          */
         template <typename T, std::size_t N>
         vk_buffer create_buffer(std::span<T, N> data, buffer_type const type, VkBufferUsageFlags const extra_usage = 0) {
-            return this->create_buffer(reinterpret_cast<unsigned char*>(data.data()), data.size_bytes(), type, extra_usage);
+            return this->create_buffer(reinterpret_cast<uint8_t*>(data.data()), data.size_bytes(), type, extra_usage);
         }
 
         /**
@@ -328,7 +328,7 @@ namespace vulkan {
          * @return an owning vk_image (copying shares the image, destroying releases one
          *         reference); empty when creation failed
          */
-        vk_image create_image(unsigned char const* data, uint64_t size_byte, image_create_info const& create_info, image_type type);
+        vk_image create_image(uint8_t const* data, uint64_t size_byte, image_create_info const& create_info, image_type type);
 
         /**
          * @ingroup vulkan_vma
@@ -349,7 +349,7 @@ namespace vulkan {
         // compiles and runs it.
         template <typename T>
         vk_image create_image(std::span<T const> data, image_create_info create_info, image_type const type) {
-            return this->create_image(reinterpret_cast<unsigned char const*>(data.data()), data.size_bytes(), create_info, type);
+            return this->create_image(reinterpret_cast<uint8_t const*>(data.data()), data.size_bytes(), create_info, type);
         }
 
         /**
@@ -364,7 +364,7 @@ namespace vulkan {
          */
         template <typename T, size_t N>
         vk_image create_image(std::span<T const, N> data, image_create_info create_info, image_type const type) {
-            return this->create_image(reinterpret_cast<unsigned char const*>(data.data()), data.size_bytes(), create_info, type);
+            return this->create_image(reinterpret_cast<uint8_t const*>(data.data()), data.size_bytes(), create_info, type);
         }
 
         /**
@@ -580,7 +580,7 @@ namespace {
             // and make the size check below compare against nothing, i.e. a silently wrong upload
             // (or a meaningless region layout) instead of a failure. Every format this engine uploads
             // is listed above, so a miss here is a bug in the table, not a caller error.
-            utility::error("sizeof_vk_format: unsupported VkFormat {}", static_cast<int>(format));
+            utility::error("sizeof_vk_format: unsupported VkFormat {}", static_cast<int32_t>(format));
             utility::panic("sizeof_vk_format: unsupported VkFormat");
         }
     }
@@ -923,7 +923,7 @@ namespace vulkan {
             &info);
 
         if (result != VK_SUCCESS) {
-            utility::error("Failed to create staging buffer: {}", static_cast<int>(result));
+            utility::error("Failed to create staging buffer: {}", static_cast<int32_t>(result));
             return false;
         }
 
@@ -935,7 +935,7 @@ namespace vulkan {
     bool vma_allocator::direct_upload(VmaAllocation const& allocation, VmaAllocationInfo& allocation_info, void const* data, VkDeviceSize const size) const {
         void* mapped_data = nullptr;
         if (VkResult const result = vmaMapMemory(this->allocator, allocation, &mapped_data); result != VK_SUCCESS) {
-            utility::error("Failed to map memory: {}", static_cast<int>(result));
+            utility::error("Failed to map memory: {}", static_cast<int32_t>(result));
             return false;
         }
 
@@ -1032,7 +1032,7 @@ namespace vulkan {
     bool vma_allocator::direct_image_upload(VmaAllocation const allocation, void const* data, VkDeviceSize const size) const { // NOLINT(*-misplaced-const)
         void* mapped_data = nullptr;
         if (VkResult const result = vmaMapMemory(this->allocator, allocation, &mapped_data); result != VK_SUCCESS) {
-            utility::error("Failed to map image memory: {}", static_cast<int>(result));
+            utility::error("Failed to map image memory: {}", static_cast<int32_t>(result));
             return false;
         }
 
@@ -1196,7 +1196,7 @@ namespace vulkan {
         return true;
     }
 
-    vk_buffer vma_allocator::create_buffer(unsigned char const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
+    vk_buffer vma_allocator::create_buffer(uint8_t const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
         // the returned owner carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below
         auto const make_owner = [this](uint64_t const handle) {
@@ -1234,7 +1234,7 @@ namespace vulkan {
             &alloc_info);
 
         if (result != VK_SUCCESS) {
-            utility::error("Failed to create buffer: {}", static_cast<int>(result));
+            utility::error("Failed to create buffer: {}", static_cast<int32_t>(result));
             this->recycle(handle);
             return vk_buffer{};
         }
@@ -1285,7 +1285,7 @@ namespace vulkan {
         return make_owner(handle);
     }
 
-    vk_image vma_allocator::create_image(unsigned char const* data, uint64_t const size_byte, image_create_info const& create_info, image_type const type) {
+    vk_image vma_allocator::create_image(uint8_t const* data, uint64_t const size_byte, image_create_info const& create_info, image_type const type) {
         // the returned owner carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below
         auto const make_owner = [this](uint64_t const handle) {
@@ -1378,7 +1378,7 @@ namespace vulkan {
             &alloc_detail);
 
         if (vk_result != VK_SUCCESS) {
-            utility::error("Failed to create image: {}", static_cast<int>(vk_result));
+            utility::error("Failed to create image: {}", static_cast<int32_t>(vk_result));
             this->recycle(handle);
             return vk_image{};
         }

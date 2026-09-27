@@ -71,7 +71,7 @@ namespace vulkan {
         result.width = extent.width;
         result.height = extent.height;
         result.rgba.resize(static_cast<std::size_t>(buffer_size));
-        auto const* source = static_cast<unsigned char const*>(this->screenshot_staging_mapped);
+        auto const* source = static_cast<uint8_t const*>(this->screenshot_staging_mapped);
         if (bgra) {
             // the swapchain is BGRA (sRGB); the PNG writer wants RGBA
             for (std::size_t i = 0; i < result.rgba.size(); i += 4) {

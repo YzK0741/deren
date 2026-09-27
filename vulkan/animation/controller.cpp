@@ -331,7 +331,7 @@ namespace vulkan::animation {
                 // sampling_tasks is MEMBER scratch, reused every frame (no per-frame allocation
                 // on this hot path; only touched from this frame thread).
                 std::size_t const total = this->sample_keys.size();
-                unsigned const workers = std::max(1, this->host.task_worker_count());
+                uint32_t const workers = std::max(1, this->host.task_worker_count());
                 // a single monotonic flag replaces per-slice flags: the main thread resets it
                 // before spawning, workers only ever set it, and run_tasks is synchronous, so it
                 // is only read back after every task finished
@@ -339,7 +339,7 @@ namespace vulkan::animation {
                 std::vector<std::function<void()>>& tasks = this->sampling_tasks;
                 tasks.clear();
                 tasks.reserve(workers);
-                for (unsigned w = 0; w < workers; ++w) {
+                for (uint32_t w = 0; w < workers; ++w) {
                     std::size_t const begin = total * w / workers;
                     std::size_t const end = total * (w + 1) / workers;
                     if (begin >= end) {

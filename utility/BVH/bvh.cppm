@@ -541,7 +541,7 @@ bool hit(glm::vec3 const& min, glm::vec3 const& max, glm::vec3 const& start, glm
     float near = t_min;
     float far = t_max;
 
-    for (int axis = 0; axis < 3; axis++) {
+    for (int32_t axis = 0; axis < 3; axis++) {
         if (glm::abs(direction[axis]) < 1e-8) {
             if (start[axis] < min[axis] || start[axis] > max[axis]) {
                 return false;

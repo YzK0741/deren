@@ -92,7 +92,7 @@ namespace vulkan::pass {
         if (this->pipeline_.has_value()) {
             return; // already built for this device
         }
-        std::span<unsigned char const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<unsigned char const>{};
+        std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
             utility::log("stochastic punctual lighting disabled: the owner has no {}", shader_name);
             return;

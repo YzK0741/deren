@@ -8,6 +8,10 @@
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
 // ============================================================================
+module;
+
+#include <cstdint> // int32_t / uint8_t below: the fixed-width names the project's arithmetic types come from
+
 export module vulkan.math;
 export import vstd;
 
@@ -31,7 +35,7 @@ namespace vulkan {
      *        the light UBO's direction, and a baked environment whose sun disagreed with it would put the
      *        reflections' glint somewhere the sky does not have a sun.
      */
-    export std::vector<float> generate_environment_cubemap(int size, std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
+    export std::vector<float> generate_environment_cubemap(int32_t size, std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
 
     /**
      * @ingroup vulkan_math
@@ -45,19 +49,19 @@ namespace vulkan {
      * @param mip_count number of mip levels
      * @return mip-major RGBA32F data (mip0 all faces, then mip1, ...), ready for a cubemap upload
      */
-    export std::vector<float> prefilter_environment(std::span<float const> env, int env_size, int mip_count);
+    export std::vector<float> prefilter_environment(std::span<float const> env, int32_t env_size, int32_t mip_count);
 
     /**
      * @ingroup vulkan_math
      * @brief cosine-weighted hemisphere convolution for the diffuse irradiance cubemap
      */
-    export std::vector<float> generate_irradiance_map(std::span<float const> env, int env_size, int irr_size);
+    export std::vector<float> generate_irradiance_map(std::span<float const> env, int32_t env_size, int32_t irr_size);
 
     /**
      * @ingroup vulkan_math
      * @brief BRDF integration LUT filled with the Frostbite analytic approximation (RG32F: scale, bias)
      */
-    export std::vector<float> generate_brdf_lut(int size);
+    export std::vector<float> generate_brdf_lut(int32_t size);
 
     // ---- async wrappers (each runs its synchronous twin on a fresh std::async thread) ----
     // The heavy CPU stages get _async siblings returning std::future; the caller only blocks
@@ -65,20 +69,20 @@ namespace vulkan {
     // @note span parameters are taken by view: the pointed-to data (e.g. the env cubemap)
     //       must stay alive until the returned future is consumed.
 
-    export std::future<std::vector<float>> generate_environment_cubemap_async(int size, std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
-    export std::future<std::vector<float>> prefilter_environment_async(std::span<float const> env, int env_size, int mip_count);
-    export std::future<std::vector<float>> generate_irradiance_map_async(std::span<float const> env, int env_size, int irr_size);
-    export std::future<std::vector<float>> generate_brdf_lut_async(int size);
+    export std::future<std::vector<float>> generate_environment_cubemap_async(int32_t size, std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
+    export std::future<std::vector<float>> prefilter_environment_async(std::span<float const> env, int32_t env_size, int32_t mip_count);
+    export std::future<std::vector<float>> generate_irradiance_map_async(std::span<float const> env, int32_t env_size, int32_t irr_size);
+    export std::future<std::vector<float>> generate_brdf_lut_async(int32_t size);
 
     /**
      * @ingroup vulkan_math
      * @brief convert 4-channel float data to a packed RGBA16F byte stream
      */
-    export std::vector<unsigned char> to_half_rgba(std::span<float const> data);
+    export std::vector<uint8_t> to_half_rgba(std::span<float const> data);
 
     /**
      * @ingroup vulkan_math
      * @brief convert 2-channel float data to a packed RG16F byte stream
      */
-    export std::vector<unsigned char> to_half_rg(std::span<float const> data);
+    export std::vector<uint8_t> to_half_rg(std::span<float const> data);
 } // namespace vulkan

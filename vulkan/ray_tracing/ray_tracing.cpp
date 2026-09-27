@@ -125,8 +125,8 @@ namespace vulkan::ray_tracing {
         // The two attribute records, both 4-byte-per-triangle so the dataOffsets are aligned: 0x03 is the 4-state
         // "unknown" pair (see the spec's Ray Opacity Micromap table), one micro-triangle per triangle.
         constexpr uint32_t data_stride = 4u;
-        constexpr unsigned char unknown_state = 0x03u;
-        std::vector<unsigned char> const data(static_cast<std::size_t>(triangle_count) * data_stride, unknown_state);
+        constexpr uint8_t unknown_state = 0x03u;
+        std::vector<uint8_t> const data(static_cast<std::size_t>(triangle_count) * data_stride, unknown_state);
         std::vector<VkMicromapTriangleEXT> triangles = [triangle_count] {
             std::vector<VkMicromapTriangleEXT> records(static_cast<std::size_t>(triangle_count));
             for (uint32_t i = 0; i < triangle_count; ++i) {
@@ -169,7 +169,7 @@ namespace vulkan::ray_tracing {
             VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = handle};
             return vkGetBufferDeviceAddress(vk.device, &info);
         };
-        auto const create_setup_buffer = [&vk, &address_of](std::vector<unsigned char> const& bytes) -> std::pair<vk_buffer, VkDeviceAddress> {
+        auto const create_setup_buffer = [&vk, &address_of](std::vector<uint8_t> const& bytes) -> std::pair<vk_buffer, VkDeviceAddress> {
             vk_buffer buffer = vk.vma.create_buffer(nullptr, bytes.size() + micromap_address_alignment, buffer_type::storage_coherent, input_usage);
             VkDeviceAddress const base = address_of(buffer);
             auto const* const detail = buffer.valid() ? vk.vma.get_buffer_detail(buffer.handle()) : nullptr;
@@ -177,20 +177,20 @@ namespace vulkan::ray_tracing {
                 return {std::move(buffer), 0};
             }
             VkDeviceSize const offset = (micromap_address_alignment - (base % micromap_address_alignment)) % micromap_address_alignment;
-            std::memcpy(static_cast<unsigned char*>(detail->allocation_info.pMappedData) + offset, bytes.data(), bytes.size());
+            std::memcpy(static_cast<uint8_t*>(detail->allocation_info.pMappedData) + offset, bytes.data(), bytes.size());
             return {std::move(buffer), base + offset};
         };
 
-        std::vector<unsigned char> const data_bytes(data);
+        std::vector<uint8_t> const data_bytes(data);
         auto [data_buffer, data_address] = create_setup_buffer(data_bytes);
         out.data = std::move(data_buffer);
         out.data_address = data_address;
-        std::vector<unsigned char> triangle_bytes(triangles.size() * sizeof(VkMicromapTriangleEXT));
+        std::vector<uint8_t> triangle_bytes(triangles.size() * sizeof(VkMicromapTriangleEXT));
         std::memcpy(triangle_bytes.data(), triangles.data(), triangle_bytes.size());
         auto [triangle_buffer, triangle_address] = create_setup_buffer(triangle_bytes);
         out.triangles = std::move(triangle_buffer);
         out.triangles_address = triangle_address;
-        std::vector<unsigned char> index_bytes(indices.size() * sizeof(uint32_t));
+        std::vector<uint8_t> index_bytes(indices.size() * sizeof(uint32_t));
         std::memcpy(index_bytes.data(), indices.data(), index_bytes.size());
         auto [index_buffer, index_address] = create_setup_buffer(index_bytes);
         out.indices = std::move(index_buffer);

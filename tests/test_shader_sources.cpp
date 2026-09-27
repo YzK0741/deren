@@ -43,7 +43,7 @@ namespace {
     }
 
     std::string trim(std::string text) {
-        auto const not_space = [](unsigned char const c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; };
+        auto const not_space = [](uint8_t const c) { return c != ' ' && c != '\t' && c != '\r' && c != '\n'; };
         text.erase(text.begin(), std::find_if(text.begin(), text.end(), not_space));
         text.erase(std::find_if(text.rbegin(), text.rend(), not_space).base(), text.end());
         return text;
@@ -151,7 +151,7 @@ namespace {
     }
 } // namespace
 
-int main() {
+int32_t main() {
     std::string const root = std::string(VR_TEST_SOURCE_DIR);
 
     std::set<std::string> const cmake = cmake_entries(root + "/CMakeLists.txt");

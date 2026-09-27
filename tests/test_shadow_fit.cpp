@@ -119,9 +119,9 @@ namespace {
         // the camera frustum's corners: unproject the clip-space cube (z 0..1 is the RH_ZO depth range)
         glm::mat4 const inverse_view_proj = glm::inverse(params.proj * params.view);
         std::vector<glm::vec3> frustum_corners;
-        for (int zi = 0; zi < 2; ++zi) {
-            for (int yi = 0; yi < 2; ++yi) {
-                for (int xi = 0; xi < 2; ++xi) {
+        for (int32_t zi = 0; zi < 2; ++zi) {
+            for (int32_t yi = 0; yi < 2; ++yi) {
+                for (int32_t xi = 0; xi < 2; ++xi) {
                     glm::vec4 const clip(xi == 0 ? -1.0f : 1.0f, yi == 0 ? -1.0f : 1.0f, zi == 0 ? 0.0f : 1.0f, 1.0f);
                     glm::vec4 const world = inverse_view_proj * clip;
                     frustum_corners.push_back(glm::vec3(world) / world.w);
@@ -266,7 +266,7 @@ namespace {
     }
 } // namespace
 
-int main() {
+int32_t main() {
     test_degenerate_camera_is_rejected();
     test_texel_size_grows_with_distance();
     test_splits_are_monotonic_and_end_at_the_usable_far();

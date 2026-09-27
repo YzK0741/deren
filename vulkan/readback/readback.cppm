@@ -111,7 +111,7 @@ namespace vulkan {
          * @note the result may be shorter than @p size when the source is shorter; it is never padded,
          *       so a caller that needs an exact length checks `result->size()`
          */
-        std::expected<std::vector<unsigned char>, std::string> read(VkBuffer source, VkDeviceSize size, VkDeviceSize offset = 0);
+        std::expected<std::vector<uint8_t>, std::string> read(VkBuffer source, VkDeviceSize size, VkDeviceSize offset = 0);
 
         /** @brief the size of the last `read()` (0 before the first one) */
         [[nodiscard]] std::size_t total_size() const noexcept {

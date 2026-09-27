@@ -234,7 +234,7 @@ namespace vulkan {
     export struct texture_input {
         // RGBA8 bytes of mip level 0 (or the whole mip chain, mip-major: mip0, mip1, ..., when
         // mip_levels > 1); the vma upload path copies each level at a computed buffer offset
-        std::span<unsigned char const> data = {};
+        std::span<uint8_t const> data = {};
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t mip_levels = 1;
@@ -248,9 +248,9 @@ namespace vulkan {
      * @note env_size == 0 disables the IBL bindings
      */
     export struct ibl_input {
-        std::span<unsigned char const> prefiltered_env = {};
-        std::span<unsigned char const> irradiance = {};
-        std::span<unsigned char const> brdf_lut = {};
+        std::span<uint8_t const> prefiltered_env = {};
+        std::span<uint8_t const> irradiance = {};
+        std::span<uint8_t const> brdf_lut = {};
         uint32_t env_size = 0;
         uint32_t env_mip_count = 0;
         uint32_t irr_size = 0;
@@ -291,7 +291,7 @@ namespace vulkan {
     /** @brief a vertex source: interleaved byte span + stride + vertex count */
     export template <class T>
     concept vertex_source = requires(T const& v) {
-        { v.data } -> std::convertible_to<std::span<unsigned char const>>;
+        { v.data } -> std::convertible_to<std::span<uint8_t const>>;
         { v.stride } -> std::convertible_to<uint32_t>;
         { v.count } -> std::convertible_to<uint32_t>;
     };
@@ -299,15 +299,15 @@ namespace vulkan {
     /** @brief an index source: byte span + bytes-per-index (2 or 4) + index count */
     export template <class T>
     concept index_source = requires(T const& v) {
-        { v.data } -> std::convertible_to<std::span<unsigned char const>>;
-        { v.width } -> std::convertible_to<unsigned char>;
+        { v.data } -> std::convertible_to<std::span<uint8_t const>>;
+        { v.width } -> std::convertible_to<uint8_t>;
         { v.count } -> std::convertible_to<uint32_t>;
     };
 
     /** @brief a texture source: mip-major RGBA8 byte span + dimensions + validity */
     export template <class T>
     concept image_source = requires(T const& v) {
-        { v.data } -> std::convertible_to<std::span<unsigned char const>>;
+        { v.data } -> std::convertible_to<std::span<uint8_t const>>;
         { v.width } -> std::convertible_to<uint32_t>;
         { v.height } -> std::convertible_to<uint32_t>;
         { v.mip_levels } -> std::convertible_to<uint32_t>;
@@ -411,10 +411,10 @@ namespace vulkan {
      * @brief everything runtime::make_primitive() needs: geometry + material textures + factors
      */
     export struct primitive_create_info {
-        std::span<unsigned char const> vertex_data = {};
+        std::span<uint8_t const> vertex_data = {};
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
-        std::span<unsigned char const> index_data = {};
+        std::span<uint8_t const> index_data = {};
         VkIndexType index_type = VK_INDEX_TYPE_UINT32;
         uint32_t index_count = 0;
 
@@ -769,7 +769,7 @@ namespace vulkan {
             }
             glm::vec3 wmin = glm::vec3(std::numeric_limits<float>::infinity());
             glm::vec3 wmax = glm::vec3(-std::numeric_limits<float>::infinity());
-            for (int i = 0; i < 8; ++i) {
+            for (int32_t i = 0; i < 8; ++i) {
                 glm::vec3 const corner{
                     (i & 1) ? this->local_aabb_max.x : this->local_aabb_min.x,
                     (i & 2) ? this->local_aabb_max.y : this->local_aabb_min.y,
@@ -897,10 +897,10 @@ namespace vulkan {
      *       static-draw build time - out-of-range chunks are logged and skipped.
      */
     export struct static_draw_create_info {
-        std::span<unsigned char const> vertex_data = {};
+        std::span<uint8_t const> vertex_data = {};
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
-        std::span<unsigned char const> index_data = {};
+        std::span<uint8_t const> index_data = {};
         VkIndexType index_type = VK_INDEX_TYPE_UINT32;
         uint32_t index_count = 0; // whole merged index count (the chunk table covers a subset)
         std::vector<static_draw_chunk> chunks = {};

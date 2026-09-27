@@ -130,7 +130,7 @@ namespace vulkan {
      * of passing magic ints at call sites (slot new stages in by execution order; renumbering
      * is free, these values are compile-time only).
      */
-    export enum class task_priority : int {
+    export enum class task_priority : int32_t {
         animation = 1, // runs first: per-source animation sampling fan-out (animation::controller::update)
         recording = 0, // runs after the data is ready: pass/secondary command-buffer recording (record_main_drawcalls)
         // future frame-time stages (culling, skin upload, ...) slot in between by execution order
@@ -544,7 +544,7 @@ namespace vulkan {
         // The shaders the app has loaded, by file name, for the passes that build their own pipelines. The APP
         // is the loader (it knows the shader directory); the runtime is only the place a pass asks. A copy
         // rather than a view, because the caller's buffer is a local in a startup scope.
-        std::vector<std::pair<std::string, std::vector<unsigned char>>> registered_shaders = {};
+        std::vector<std::pair<std::string, std::vector<uint8_t>>> registered_shaders = {};
         // pass when the generation changed or when the chain was switched on (see on_swapchain_recreated and
         // The alphaMode MASK bake's push block is NOT here any more: its shape is the JOB's
         // (pass::mask_bake_push_constants in vulkan.pass.mask_bake), because only that job composes it.
@@ -606,7 +606,7 @@ namespace vulkan {
          */
         [[nodiscard]] pass::frame_identity pass_frame() const noexcept;
         /// the bytes of a shader the app registered, by file name (empty when it did not)
-        [[nodiscard]] std::span<unsigned char const> registered_shader(std::string_view name) const noexcept;
+        [[nodiscard]] std::span<uint8_t const> registered_shader(std::string_view name) const noexcept;
         /**
          * @brief run the HEAP-NATIVE probe once (see shaders/heap_probe.comp): the first pipeline in this renderer
          *        with NO layout at all, its parameters through vkCmdPushDataEXT, reading a texture from the resource
@@ -1844,7 +1844,7 @@ namespace vulkan {
          *        that need to slice their work across workers (e.g. the animation controller's
          *        per-source sampling) size their slices to this
          */
-        [[nodiscard]] int task_pool_threads() const noexcept {
+        [[nodiscard]] int32_t task_pool_threads() const noexcept {
             return this->task_pool.thread_count();
         }
 
@@ -2230,15 +2230,15 @@ namespace vulkan {
          */
         std::expected<void, std::string> make_pipeline(
             std::string_view pipeline_name,
-            std::span<unsigned char const> fragment_shader_code,
+            std::span<uint8_t const> fragment_shader_code,
             /// THE MESH FORM, which is the pipeline itself since step 4 (docs/mesh_shaders.md): the vertex stage is
             /// gone, so a name without a mesh module is an ERROR rather than a fallback. Stored under @p pipeline_name
             /// in `mesh_pipelines`, which is what a session that binds by name looks in first.
-            std::span<unsigned char const> mesh_vertex_shader_code,
+            std::span<uint8_t const> mesh_vertex_shader_code,
             /// ... AND THE MESHLET FORM OF IT (docs/mesh_shaders.md step 3), the same shape again one level in: one
             /// workgroup per meshlet, culled against the camera, stored in `meshlet_pipelines` under the same name
             /// and preferred by the named sessions over the mesh form.
-            std::span<unsigned char const> meshlet_shader_code = {});
+            std::span<uint8_t const> meshlet_shader_code = {});
 
         /**
          * @ingroup vulkan_runtime
@@ -2260,9 +2260,9 @@ namespace vulkan {
          */
         std::expected<void, std::string> make_character_forward_pipeline(
             std::string_view pipeline_name,
-            std::span<unsigned char const> fragment_shader_code,
-            std::span<unsigned char const> mesh_vertex_shader_code,
-            std::span<unsigned char const> meshlet_shader_code = {});
+            std::span<uint8_t const> fragment_shader_code,
+            std::span<uint8_t const> mesh_vertex_shader_code,
+            std::span<uint8_t const> meshlet_shader_code = {});
 
         /**
          * @ingroup vulkan_runtime
@@ -2436,7 +2436,7 @@ namespace vulkan {
          * @note CPU-side only: the value rides the light UBO's std140 padding and is copied into
          *       the paced slot's buffer every frame, so this is safe at any time (GUI included)
          */
-        void set_brdf_model(int model) noexcept;
+        void set_brdf_model(int32_t model) noexcept;
         /**
          * @ingroup vulkan_runtime
          * @brief select the diffuse BRDF model (pbr.frag, gui "diffuse model" combo):
@@ -2444,7 +2444,7 @@ namespace vulkan {
          * @param model model id (clamped)
          * @note same timing rule as set_brdf_model
          */
-        void set_diffuse_model(int model) noexcept;
+        void set_diffuse_model(int32_t model) noexcept;
         /**
          * @ingroup vulkan_runtime
          * @brief linear exposure scale applied to the rendered image before tonemapping
@@ -2652,7 +2652,7 @@ namespace vulkan {
          *       and a file format nowhere, and a pass knows neither - it asks for its own by name. Register
          *       before calling create_passes(); a pass whose shader is missing says so and does not run.
          */
-        void register_shader(std::string_view name, std::span<unsigned char const> bytecode);
+        void register_shader(std::string_view name, std::span<uint8_t const> bytecode);
 
         /**
          * @ingroup vulkan_runtime
@@ -2721,8 +2721,8 @@ namespace vulkan {
          *       one set_gbuffer_debug() builds. Register it like any other pipeline (it is NOT the
          *       default: the G-buffer pass binds it explicitly).
          */
-        std::expected<void, std::string> make_gbuffer_pipeline(std::span<unsigned char const> fragment_shader_code,
-                                                               std::span<unsigned char const> mesh_vertex_shader_code = {}, std::span<unsigned char const> meshlet_vertex_shader_code = {});
+        std::expected<void, std::string> make_gbuffer_pipeline(std::span<uint8_t const> fragment_shader_code,
+                                                               std::span<uint8_t const> mesh_vertex_shader_code = {}, std::span<uint8_t const> meshlet_vertex_shader_code = {});
 
         /**
          * @ingroup vulkan_runtime
@@ -2986,7 +2986,7 @@ namespace vulkan {
         struct frame_image {
             uint32_t width = 0;
             uint32_t height = 0;
-            std::vector<unsigned char> rgba = {}; // width * height * 4, R G B A
+            std::vector<uint8_t> rgba = {}; // width * height * 4, R G B A
         };
 
         /**

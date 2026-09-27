@@ -29,12 +29,12 @@
 #include <utility>
 
 namespace vk_test {
-    [[nodiscard]] inline int& failures() {
-        static int count = 0;
+    [[nodiscard]] inline int32_t& failures() {
+        static int32_t count = 0;
         return count;
     }
-    [[nodiscard]] inline int& checks() {
-        static int count = 0;
+    [[nodiscard]] inline int32_t& checks() {
+        static int32_t count = 0;
         return count;
     }
 
@@ -46,7 +46,7 @@ namespace vk_test {
         static_cast<void>(std::fwrite(text.data(), 1, text.size(), stdout));
     }
 
-    inline void report(char const* expression, char const* file, int const line, char const* message) {
+    inline void report(char const* expression, char const* file, int32_t const line, char const* message) {
         ++failures();
         if (message != nullptr) {
             write_line("FAIL {}:{}: {}  ({})", file, line, expression, message);
@@ -56,8 +56,8 @@ namespace vk_test {
     }
 
     /** @brief print the summary and return the process exit code (0 = all checks passed) */
-    inline int finish(char const* test_name) {
-        int const failed = failures();
+    inline int32_t finish(char const* test_name) {
+        int32_t const failed = failures();
         write_line("[{}] {} checks, {} failed -> {}", test_name, checks(), failed, failed == 0 ? "PASS" : "FAIL");
         return failed == 0 ? 0 : 1;
     }

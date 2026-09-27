@@ -20,7 +20,7 @@ namespace {
     using fastgltf::Asset;
 
     struct parsed_data {
-        std::vector<unsigned char> data;
+        std::vector<uint8_t> data;
         gltf::component_type component_type = gltf::component_type::unknown;
         gltf::element_type element_type = gltf::element_type::unknown;
         uint64_t count = 0;
@@ -92,8 +92,8 @@ namespace {
     }
 
     template <typename T>
-    std::vector<unsigned char> copy_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
-        std::vector<unsigned char> data(accessor.count * sizeof(T));
+    std::vector<uint8_t> copy_accessor(Asset const& asset, fastgltf::Accessor const& accessor) {
+        std::vector<uint8_t> data(accessor.count * sizeof(T));
         fastgltf::copyFromAccessor<T>(asset, accessor, data.data());
         return data;
     }
@@ -289,12 +289,12 @@ namespace {
             return out;
         }
 
-        int width = 0;
-        int height = 0;
-        int channels = 0;
-        unsigned char* pixels = stbi_load_from_memory(
-            reinterpret_cast<unsigned char const*>(bytes.data()),
-            static_cast<int>(bytes.size()),
+        int32_t width = 0;
+        int32_t height = 0;
+        int32_t channels = 0;
+        uint8_t* pixels = stbi_load_from_memory(
+            reinterpret_cast<uint8_t const*>(bytes.data()),
+            static_cast<int32_t>(bytes.size()),
             &width, &height, &channels, 0);
         if (pixels == nullptr) {
             return out;
@@ -401,8 +401,8 @@ namespace {
 
     glm::mat4 to_glm_mat4(fastgltf::math::fmat4x4 const& matrix) {
         glm::mat4 result;
-        for (int column = 0; column < 4; ++column) {
-            for (int row = 0; row < 4; ++row) {
+        for (int32_t column = 0; column < 4; ++column) {
+            for (int32_t row = 0; row < 4; ++row) {
                 result[column][row] = matrix[column][row];
             }
         }
@@ -474,7 +474,7 @@ namespace {
                     // skip the others with a warning instead of drawing garbage.
                     if (primitive.type != fastgltf::PrimitiveType::Triangles) {
                         utility::log("gltf: skipping primitive {} of mesh '{}': mode {} is not supported (only TRIANGLES render)",
-                                     prim_index, mesh_name, static_cast<int>(primitive.type));
+                                     prim_index, mesh_name, static_cast<int32_t>(primitive.type));
                         ++prim_index;
                         continue;
                     }
@@ -556,7 +556,7 @@ namespace {
 
     // Read one scalar component (little-endian, element index @p index) of a decoded accessor
     // byte buffer as a float, converting any supported component type.
-    float read_float_component(unsigned char const* data, gltf::component_type const type, std::size_t const index) {
+    float read_float_component(uint8_t const* data, gltf::component_type const type, std::size_t const index) {
         switch (type) {
         case gltf::component_type::float_t: {
             float value;
@@ -822,8 +822,8 @@ namespace {
 
     struct built_mesh {
         std::vector<vertex> vertices;
-        std::vector<unsigned char> index_data;
-        unsigned char index_width = 2; // bytes per index (2 or 4)
+        std::vector<uint8_t> index_data;
+        uint8_t index_width = 2; // bytes per index (2 or 4)
         uint32_t index_count = 0;
     };
 
@@ -900,7 +900,7 @@ namespace {
                     break;
                 }
                 default:
-                    // int / unsigned int / double (and unknown) are not a legal vertex-attribute
+                    // int32_t / uint32_t / double (and unknown) are not a legal vertex-attribute
                     // component under the core spec or KHR_mesh_quantization, so the remaining
                     // elements stay zero rather than being reinterpreted as something else
                     out[c] = 0.0f;
@@ -916,7 +916,7 @@ namespace {
         //      read paths below run past its end. Clamp to the shortest attribute and log the
         //      mismatch (error-tolerant load). ----
         auto const portion_elements = [](gltf::vertex_portion const& portion, std::size_t const vec_size) -> std::size_t {
-            std::size_t component_bytes = 4; // float / int / unsigned int
+            std::size_t component_bytes = 4; // float / int32_t / uint32_t
             switch (portion.component) {
             case gltf::component_type::unsigned_byte_t:
                 component_bytes = 1;
@@ -971,9 +971,9 @@ namespace {
         // primitives may omit "indices" entirely (non-indexed triangle soup, e.g. the Fox
         // sample) — synthesize a sequential uint32 index buffer [0, vertex_count) so the rest
         // of the pipeline can stay indexed-only.
-        std::vector<unsigned char> synthesized_indices;
-        std::vector<unsigned char> widened_indices; // u8 -> u16 widening result (empty unless used)
-        unsigned char const index_width = [&] {
+        std::vector<uint8_t> synthesized_indices;
+        std::vector<uint8_t> widened_indices; // u8 -> u16 widening result (empty unless used)
+        uint8_t const index_width = [&] {
             if (prim.index.empty()) {
                 if (vertex_count > 0) {
                     synthesized_indices.resize(vertex_count * sizeof(uint32_t));
@@ -982,13 +982,13 @@ namespace {
                         dst[i] = static_cast<uint32_t>(i);
                     }
                 }
-                return static_cast<unsigned char>(4);
+                return static_cast<uint8_t>(4);
             }
             if (prim.index_component_type == gltf::component_type::unsigned_int_t) {
-                return static_cast<unsigned char>(4);
+                return static_cast<uint8_t>(4);
             }
             if (prim.index_component_type == gltf::component_type::unsigned_short_t) {
-                return static_cast<unsigned char>(2);
+                return static_cast<uint8_t>(2);
             }
             if (prim.index_component_type == gltf::component_type::unsigned_byte_t) {
                 // u8 indices are legal glTF (componentType 5121; at most 256 vertices): widen to u16
@@ -997,13 +997,13 @@ namespace {
                 for (std::size_t i = 0; i < prim.index.size(); ++i) {
                     dst[i] = static_cast<uint16_t>(prim.index[i]);
                 }
-                return static_cast<unsigned char>(2);
+                return static_cast<uint8_t>(2);
             }
-            utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<int>(prim.index_component_type));
+            utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<int32_t>(prim.index_component_type));
         }();
-        std::vector<unsigned char> const& index_bytes = !widened_indices.empty()
-                                                            ? widened_indices
-                                                            : (prim.index.empty() ? synthesized_indices : prim.index);
+        std::vector<uint8_t> const& index_bytes = !widened_indices.empty()
+                                                      ? widened_indices
+                                                      : (prim.index.empty() ? synthesized_indices : prim.index);
         uint32_t const index_count = static_cast<uint32_t>(index_bytes.size() / index_width);
 
         // ---- Normals: use the authored NORMAL attribute when the primitive has one; otherwise
@@ -1064,12 +1064,12 @@ namespace {
                 return out;
             }
             if (joints_portion->component == gltf::component_type::unsigned_byte_t) {
-                for (int c = 0; c < 4; ++c) {
+                for (int32_t c = 0; c < 4; ++c) {
                     out[c] = joints_portion->data[i * 4 + static_cast<std::size_t>(c)];
                 }
             } else if (joints_portion->component == gltf::component_type::unsigned_short_t) {
                 auto const* p = reinterpret_cast<std::uint16_t const*>(joints_portion->data.data());
-                for (int c = 0; c < 4; ++c) {
+                for (int32_t c = 0; c < 4; ++c) {
                     out[c] = p[i * 4 + static_cast<std::size_t>(c)];
                 }
             }
@@ -1122,9 +1122,9 @@ namespace {
     }
 
     // Convert stb-decoded texture data to RGBA (3 channels get alpha, 1 channel is gray-scaled)
-    std::vector<unsigned char> to_rgba(gltf::texture_data const& texture) {
+    std::vector<uint8_t> to_rgba(gltf::texture_data const& texture) {
         size_t const pixel_count = static_cast<size_t>(texture.width) * texture.height;
-        std::vector<unsigned char> rgba(pixel_count * 4, 255);
+        std::vector<uint8_t> rgba(pixel_count * 4, 255);
         switch (texture.component) {
         case 4:
             rgba = texture.data;
@@ -1152,10 +1152,10 @@ namespace {
 
     // 8-bit sRGB <-> linear conversion: color textures (slot 0) are averaged in linear space so
     // their mips keep correct brightness; the other (UNORM data) slots are averaged in byte space.
-    float srgb_to_linear(unsigned char const c) {
+    float srgb_to_linear(uint8_t const c) {
         static std::array<float, 256> const table = [] {
             std::array<float, 256> t = {};
-            for (int i = 0; i < 256; ++i) {
+            for (int32_t i = 0; i < 256; ++i) {
                 float const v = static_cast<float>(i) / 255.0f;
                 t[i] = v <= 0.04045f ? v / 12.92f : std::pow((v + 0.055f) / 1.055f, 2.4f);
             }
@@ -1164,36 +1164,36 @@ namespace {
         return table[c];
     }
 
-    unsigned char linear_to_srgb(float const v) {
-        static std::array<unsigned char, 4096> const table = [] {
-            std::array<unsigned char, 4096> t = {};
-            for (int i = 0; i < 4096; ++i) {
+    uint8_t linear_to_srgb(float const v) {
+        static std::array<uint8_t, 4096> const table = [] {
+            std::array<uint8_t, 4096> t = {};
+            for (int32_t i = 0; i < 4096; ++i) {
                 float const v = static_cast<float>(i) / 4095.0f;
                 float const s = v <= 0.0031308f ? v * 12.92f : 1.055f * std::pow(v, 1.0f / 2.4f) - 0.055f;
-                t[i] = static_cast<unsigned char>(std::clamp(std::lround(s * 255.0f), 0L, 255L));
+                t[i] = static_cast<uint8_t>(std::clamp(std::lround(s * 255.0f), 0L, 255L));
             }
             return t;
         }();
-        int const idx = std::clamp(static_cast<int>(std::lround(v * 4095.0f)), 0, 4095);
+        int32_t const idx = std::clamp(static_cast<int32_t>(std::lround(v * 4095.0f)), 0, 4095);
         return table[idx];
     }
 
     // A full RGBA8 mip chain: mip0, mip1, ... laid out contiguously (mip-major). The level
     // count is floor(log2(min(width, height))) + 1.
     struct mip_chain {
-        std::vector<unsigned char> data = {};
+        std::vector<uint8_t> data = {};
         uint32_t mip_levels = 0;
     };
 
-    mip_chain generate_mip_chain(std::span<unsigned char const> const rgba, uint32_t const width, uint32_t const height, bool const srgb) {
+    mip_chain generate_mip_chain(std::span<uint8_t const> const rgba, uint32_t const width, uint32_t const height, bool const srgb) {
         uint32_t const mip_count = static_cast<uint32_t>(std::floor(std::log2(static_cast<float>(std::min(width, height))))) + 1;
         mip_chain result;
         result.mip_levels = mip_count;
         result.data.reserve(static_cast<size_t>(width) * height * 4 * 4 / 3); // geometric series for power-of-two
 
-        std::vector<unsigned char> a(rgba.begin(), rgba.end());
-        std::vector<unsigned char> b;
-        std::span<unsigned char const> cur = a;
+        std::vector<uint8_t> a(rgba.begin(), rgba.end());
+        std::vector<uint8_t> b;
+        std::span<uint8_t const> cur = a;
         uint32_t w = width;
         uint32_t h = height;
         for (uint32_t mip = 0; mip < mip_count; ++mip) {
@@ -1215,12 +1215,12 @@ namespace {
                     size_t const p01 = (static_cast<size_t>(sy1) * w + sx0) * 4;
                     size_t const p11 = (static_cast<size_t>(sy1) * w + sx1) * 4;
                     size_t const dst = (static_cast<size_t>(y) * nw + x) * 4;
-                    for (int c = 0; c < 4; ++c) {
+                    for (int32_t c = 0; c < 4; ++c) {
                         if (srgb && c < 3) {
                             float const l = (srgb_to_linear(cur[p00 + c]) + srgb_to_linear(cur[p10 + c]) + srgb_to_linear(cur[p01 + c]) + srgb_to_linear(cur[p11 + c])) * 0.25f;
                             b[dst + c] = linear_to_srgb(l);
                         } else {
-                            b[dst + c] = static_cast<unsigned char>((static_cast<unsigned>(cur[p00 + c]) + cur[p10 + c] + cur[p01 + c] + cur[p11 + c] + 2) / 4);
+                            b[dst + c] = static_cast<uint8_t>((static_cast<uint32_t>(cur[p00 + c]) + cur[p10 + c] + cur[p01 + c] + cur[p11 + c] + 2) / 4);
                         }
                     }
                 }
@@ -1293,11 +1293,11 @@ namespace gltf {
         // character's skeleton. So the name is split on non-alphanumerics and a token has to BE `head`.
         std::size_t i = 0;
         while (i < node_name.size()) {
-            while (i < node_name.size() && std::isalnum(static_cast<unsigned char>(node_name[i])) == 0) {
+            while (i < node_name.size() && std::isalnum(static_cast<uint8_t>(node_name[i])) == 0) {
                 ++i;
             }
             std::size_t const start = i;
-            while (i < node_name.size() && std::isalnum(static_cast<unsigned char>(node_name[i])) != 0) {
+            while (i < node_name.size() && std::isalnum(static_cast<uint8_t>(node_name[i])) != 0) {
                 ++i;
             }
             if (i == start) {
@@ -1306,7 +1306,7 @@ namespace gltf {
             std::string token;
             token.reserve(i - start);
             for (std::size_t k = start; k < i; ++k) {
-                token.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(node_name[k]))));
+                token.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(node_name[k]))));
             }
             if (token == "head") {
                 return true;
@@ -1349,7 +1349,7 @@ namespace gltf {
         std::string lowered;
         lowered.reserve(name.size());
         for (char const c : name) {
-            lowered.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+            lowered.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(c))));
         }
         auto const has = [&lowered](std::string_view const needle) { return lowered.find(needle) != std::string::npos; };
         // PRIORITY ORDER IS THE SUBSTANCE OF THIS FUNCTION - see the declaration's note in the interface
@@ -1537,7 +1537,7 @@ namespace gltf {
         return *this;
     }
 
-    void scene_iterator::operator++(int) {
+    void scene_iterator::operator++(int32_t) {
         ++*this;
     }
 
@@ -1633,7 +1633,7 @@ namespace gltf {
         return *this;
     }
 
-    void scene_node_iterator::operator++(int) {
+    void scene_node_iterator::operator++(int32_t) {
         ++*this;
     }
 
@@ -1678,7 +1678,7 @@ namespace gltf {
         // decoded texture cache: one entry per glTF texture index; shared textures decode once,
         // and the shared_ptr owners keep every image_view's span alive for the caller
         struct decoded_texture {
-            std::shared_ptr<std::vector<unsigned char>> data = {};
+            std::shared_ptr<std::vector<uint8_t>> data = {};
             uint32_t width = 0;
             uint32_t height = 0;
             uint32_t mip_levels = 1;
@@ -1691,10 +1691,10 @@ namespace gltf {
             if (!entry) {
                 entry = decoded_texture{};
                 gltf::texture_data const& tex = scenes.textures[texture_index];
-                std::vector<unsigned char> const rgba = to_rgba(tex);
+                std::vector<uint8_t> const rgba = to_rgba(tex);
                 if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
                     mip_chain mips = generate_mip_chain(rgba, tex.width, tex.height, srgb);
-                    entry->data = std::make_shared<std::vector<unsigned char>>(std::move(mips.data));
+                    entry->data = std::make_shared<std::vector<uint8_t>>(std::move(mips.data));
                     entry->width = tex.width;
                     entry->height = tex.height;
                     entry->mip_levels = mips.mip_levels;
@@ -1729,7 +1729,7 @@ namespace gltf {
             // ... AND THE NAME ITSELF, because the toon sidecar is keyed by it: a consumer that has only the
             // family cannot look up the entry describing THIS material. See resolved_material::name.
             out.name = mat.name;
-            for (int i = 0; i < 5; ++i) {
+            for (int32_t i = 0; i < 5; ++i) {
                 auto const it = mat.texture_indices.find(std::string(slot_names[i]));
                 if (it == mat.texture_indices.end() || it->second >= scenes.textures.size()) {
                     continue;
@@ -1763,7 +1763,7 @@ namespace gltf {
             return;
         }
         built_mesh const mesh = build_mesh(*((*this->inner).primitive));
-        auto const* const first = reinterpret_cast<unsigned char const*>(mesh.vertices.data());
+        auto const* const first = reinterpret_cast<uint8_t const*>(mesh.vertices.data());
         this->vertex_bytes.assign(first, first + mesh.vertices.size() * sizeof(vertex));
         this->vertex_stride = sizeof(vertex);
         this->vertex_count = static_cast<uint32_t>(mesh.vertices.size());
@@ -1792,9 +1792,9 @@ namespace gltf {
         return index < this->materials.size() ? &this->materials[index] : nullptr;
     }
 
-    image_view drawable_iterator::slot(int const i) const {
+    image_view drawable_iterator::slot(int32_t const i) const {
         resolved_material const* material = this->current_material();
-        // The slot count is a fixed five (resolved_material::slots) and `i` is an arbitrary int from
+        // The slot count is a fixed five (resolved_material::slots) and `i` is an arbitrary int32_t from
         // the caller, so the index is checked rather than trusted.
         if (material == nullptr || i < 0 || static_cast<std::size_t>(i) >= material->slots.size()) {
             return image_view{};
@@ -2022,9 +2022,9 @@ namespace gltf {
                 local_max = glm::max(local_max, p);
             }
             // TRS transforms map an AABB to an AABB, so transforming the 8 corners is exact
-            for (int x = 0; x < 2; ++x) {
-                for (int y = 0; y < 2; ++y) {
-                    for (int z = 0; z < 2; ++z) {
+            for (int32_t x = 0; x < 2; ++x) {
+                for (int32_t y = 0; y < 2; ++y) {
+                    for (int32_t z = 0; z < 2; ++z) {
                         glm::vec3 const corner(x ? local_max.x : local_min.x, y ? local_max.y : local_min.y, z ? local_max.z : local_min.z);
                         glm::vec4 const world = drawable.transform_matrix * glm::vec4(corner, 1.0f);
                         scene_min = glm::min(scene_min, glm::vec3(world));

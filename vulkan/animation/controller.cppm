@@ -59,14 +59,14 @@ namespace vulkan::animation {
      *        once; the controller plays them without knowing the source format.
      */
     /** @brief interpolation mode of one animation sampler */
-    export enum class interpolation : int {
+    export enum class interpolation : int32_t {
         linear = 0,       // blend between consecutive keyframes (slerp for rotations)
         step = 1,         // hold the previous keyframe's value until the next keyframe
         cubic_spline = 2, // Hermite spline with per-key in/out tangents
     };
 
     /** @brief animated node property of one animation channel */
-    export enum class channel_path : int {
+    export enum class channel_path : int32_t {
         translation = 1, // values are xyz triplets (one per keyframe)
         rotation = 2,    // values are xyzw quaternions (w scalar, one per keyframe)
         scale = 3,       // values are xyz triplets (one per keyframe)
@@ -279,7 +279,7 @@ namespace vulkan::animation {
         // ---- frame-loop cooperation ----
         std::function<void()> scene_changed;                             // node locals edited -> caller invalidates caches
         std::function<void(std::span<std::function<void()>>)> run_tasks; // fan tasks out on the host's worker pool (sync)
-        std::function<int()> task_worker_count;                          // pool workers, for slicing fan-out tasks
+        std::function<int32_t()> task_worker_count;                      // pool workers, for slicing fan-out tasks
     };
 
     /**

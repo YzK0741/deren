@@ -384,7 +384,7 @@ namespace {
             }
         };
         auto u32 = [&d](std::uint32_t const value) {
-            for (int byte = 0; byte < 4; ++byte) {
+            for (int32_t byte = 0; byte < 4; ++byte) {
                 d.push_back(static_cast<std::uint8_t>((value >> (8 * byte)) & 0xffu));
             }
         };
@@ -410,7 +410,7 @@ namespace {
             u32(0);
             u32(0x3f800000u); // rotation x, y, z, w = 0, 0, 0, 1
             frame += 30u;
-            for (int byte = 0; byte < 64; ++byte) {
+            for (int32_t byte = 0; byte < 64; ++byte) {
                 d.push_back(0); // interpolation block
             }
         }
@@ -559,7 +559,7 @@ namespace {
     }
 } // namespace
 
-int main() {
+int32_t main() {
     test_linear_translation_interpolates_and_clamps();
     test_step_holds_previous_keyframe();
     test_rotation_linear_slerps_and_normalizes();
