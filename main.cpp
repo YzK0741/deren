@@ -216,6 +216,10 @@ int main(int argc, char** argv) {
     core_options.window_title = settings.render.window_title;
     core_options.vsync = settings.render.vsync;
     core_options.validation_layers = settings.render.validation_layers;
+    // the render scale is a CREATION option and not a runtime setter, because it decides the extent every
+    // render target is created with (see core_create_info::render_scale): it has to be in the options the
+    // core is constructed from, and it applies from the first frame.
+    core_options.render_scale = settings.render.render_scale;
     vulkan::runtime runtime{core_options};
     runtime.clear_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
     // shadow is applied after enable_shadows() below (it needs the shadow maps to exist)

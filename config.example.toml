@@ -246,6 +246,24 @@ rt_skin_bake = false
 # albedo instead of shading it, because it binds its own pipeline and cannot follow a per-leaf switch.
 unlit = false
 
+# render_scale: the fraction of the window's extent the RENDER CHAIN runs at, so the scene is shaded at
+# fewer pixels than are presented. 1.0 (the default) is the historic frame - every render target is the
+# window's own size, and the frame's last pass writes the swapchain directly. Below 1.0 the whole render
+# chain shrinks together: the G-buffer, the HDR/LDR images, the TAA history, the half-size stochastic
+# targets and the bloom chain all follow ONE extent (core::render_extent is that one definition), which cuts
+# the per-pixel cost of every scene stage, and the frame's last pass resolves those pixels back up to the
+# output extent - so 0.5 shades a quarter of the pixels and still fills the window.
+#
+# The window, the screenshot read-back and the debug overlay stay at the output's size either way, and the
+# presented image is the same size at every scale: what changes is how many pixels the shading was asked
+# for, not how many are shown.
+#
+# It is a STARTUP value: the render targets are created from it, so it takes effect when the swapchain is
+# next built (at startup, or on a window resize), never mid-frame. The supported range is 0.1 .. 1.0; a
+# value outside it is clamped and logged, and 1.0 is EXACT - a config that does not set this key renders
+# the frame it always did.
+render_scale = 1.0
+
 fxaa = false
 
 # gpu_timings: measure how long each pass takes on the GPU (timestamp queries). The frame writes a

@@ -224,6 +224,20 @@ namespace app_config {
         // switch: it then outputs the stored albedo instead of shading it.
         bool unlit = false;
         bool fxaa = false; // FXAA the final image (one extra fullscreen pass)
+        /**
+         * THE RENDER SCALE ([render] render_scale): the fraction of the swapchain's extent the RENDER chain
+         * runs at, so the scene is shaded at fewer pixels than are presented.
+         *
+         * 1.0 - the default - is the historic frame: every render target is the output's own size. Below
+         * 1.0 the whole render chain shrinks together (`core::render_extent` is the one definition of the
+         * frame's resolution, so a `full` pass, a half-size stochastic target and the bloom chain all follow
+         * it), and the frame's last pass resolves those pixels back up to the output extent. That resolve is
+         * what makes a scale below 1.0 an image rather than a smaller picture in the corner.
+         *
+         * A STARTUP value: it is read when the render targets are created, so it takes effect at the next
+         * swapchain recreation rather than this frame.
+         */
+        float render_scale = 1.0f;
         // measure per-pass GPU time with timestamp queries: one vkCmdWriteTimestamp per pass
         // boundary, read back after the frame slot completed, averaged over a 60-frame window
         // (logged + shown in the debug overlay). A no-op on devices that cannot timestamp.

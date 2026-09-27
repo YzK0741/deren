@@ -53,6 +53,11 @@ namespace vulkan {
         // minimized into a 0-sized client area) has no valid attachments: recording would set a
         // 0-wide viewport - a VUID - and produce nothing. Skip the frame exactly like the
         // minimized case; nothing was acquired, so no semaphore is left pending.
+        //
+        // THE SWAPCHAIN'S OWN EXTENT, not the render extent, and the two are not interchangeable here:
+        // this is the question "is there an image to record into at all", which the OUTPUT answers. A
+        // render extent that rounded up to at least 1x1 (`render_extent` clamps there) would report a
+        // usable frame for a 0-sized window, which is the image the acquire just failed on.
         if (vk.swap_chain_extent.width == 0 || vk.swap_chain_extent.height == 0) {
             return frame_status::skipped;
         }
@@ -127,6 +132,10 @@ namespace vulkan {
         // Write this frame's camera UBO into the paced slot's per-slot buffer. The heap's
         //    per-slot camera slot points at that slot's own buffer, so one memcpy is the whole
         //    camera update - there is no per-frame descriptor write to make.
+        // The DISPLAY aspect, from the swapchain's extent: the projection is not a per-pixel quantity, so
+        // the render scale cancels out of it - but the output's own extent is the honest source (a scale
+        // that rounds the two axes differently would otherwise tilt the projection by a fraction of a
+        // pixel's worth of aspect).
         this->current_aspect = static_cast<float>(vk.swap_chain_extent.width) / static_cast<float>(vk.swap_chain_extent.height);
         this->current_ubo = make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_radius, this->current_aspect);
         // Motion-vector support: the G-buffer computes its vectors from the UNJITTERED pair, and the
@@ -142,10 +151,15 @@ namespace vulkan {
         // part of `proj` - so geometry AND the lighting stage's depth reconstruction agree about where
         // each sample is. Both unjittered matrices above are already taken, so the jitter cannot leak
         // into a motion vector.
+        //
+        // ONE PIXEL HERE IS A RENDER PIXEL, which is why this divides by the render extent and not by the
+        // swapchain's: the halton sequence is a sub-pixel pattern in the raster the samples land in, so at
+        // half scale the same NDC offset would cover two output pixels and the resolve would be handed a
+        // jitter twice the size of the pixel it is cancelling.
         if (this->taa_active()) {
             glm::vec2 const jitter_pixels = taa_jitter_offset(this->taa_jitter_index);
-            this->current_ubo.proj[2][0] += jitter_pixels.x * 2.0f / static_cast<float>(vk.swap_chain_extent.width);
-            this->current_ubo.proj[2][1] += jitter_pixels.y * 2.0f / static_cast<float>(vk.swap_chain_extent.height);
+            this->current_ubo.proj[2][0] += jitter_pixels.x * 2.0f / static_cast<float>(vk.render_extent().width);
+            this->current_ubo.proj[2][1] += jitter_pixels.y * 2.0f / static_cast<float>(vk.render_extent().height);
             this->taa_jitter_index = (this->taa_jitter_index + 1) % taa_jitter_count;
         }
         // The deferred lighting stage reconstructs world positions from the G-buffer depth, so its
@@ -187,8 +201,8 @@ namespace vulkan {
             //      the swapchain has an extent) disables the pass for that frame: shade_surface() then
             //      loop every light, which is always correct - just slower.
             {
-                this->cluster_tiles_x = std::min((vk.swap_chain_extent.width + vulkan::cluster_tile_size - 1) / vulkan::cluster_tile_size, vulkan::max_cluster_tiles_x);
-                this->cluster_tiles_y = std::min((vk.swap_chain_extent.height + vulkan::cluster_tile_size - 1) / vulkan::cluster_tile_size, vulkan::max_cluster_tiles_y);
+                this->cluster_tiles_x = std::min((vk.render_extent().width + vulkan::cluster_tile_size - 1) / vulkan::cluster_tile_size, vulkan::max_cluster_tiles_x);
+                this->cluster_tiles_y = std::min((vk.render_extent().height + vulkan::cluster_tile_size - 1) / vulkan::cluster_tile_size, vulkan::max_cluster_tiles_y);
                 glm::mat4 const base_proj = this->current_proj_unjittered;
                 bool const degenerate = !(this->current_aspect > 0.0f) || std::abs(base_proj[2][2]) < 1e-6f;
                 float cluster_near = 0.1f;
@@ -207,8 +221,8 @@ namespace vulkan {
                                                            clustered ? 1.0f : 0.0f);
                 this->light_state.cluster_depth = glm::vec4(cluster_near,
                                                             cluster_far,
-                                                            static_cast<float>(vk.swap_chain_extent.width),
-                                                            static_cast<float>(vk.swap_chain_extent.height));
+                                                            static_cast<float>(vk.render_extent().width),
+                                                            static_cast<float>(vk.render_extent().height));
                 // the pass only APPENDS, so the counts are cleared here - the buffer is host-coherent
                 // (no flush) and this slot was just paced, so its previous GPU reads are done
                 // Gated on the SAME feature flag the dispatch uses: without an active punctual light,
@@ -878,15 +892,23 @@ namespace vulkan {
         // extent changed, so resync them from the current extent before drawing (begin_pipeline
         // applies the stored values). Done here on the primary thread (it mutates the cached
         // pipeline state), before the scene content below is recorded - inline or in secondaries.
+        //
+        // THE RENDER EXTENT, and this is complete rather than approximate: the pipelines that read these
+        // stored values are the ones that declared `resync_viewport = false` (the scene, transparent,
+        // character, shadow and cluster stages), and every one of them draws into a target that
+        // `create_render_targets` created at the render extent. A pass that DID declare the resync - the
+        // deferred lighting, TAA, the post composite, FXAA and anything that resolves to the output - gets
+        // its viewport from its own declaration's extent at record time, so a render scale below 1.0 cannot
+        // leave a scene pipeline and a fullscreen pipeline disagreeing about how big a pixel is.
         VkViewport const full_viewport = {
             0.0f,
             0.0f,
-            static_cast<float>(vk.swap_chain_extent.width),
-            static_cast<float>(vk.swap_chain_extent.height),
+            static_cast<float>(vk.render_extent().width),
+            static_cast<float>(vk.render_extent().height),
             0.0f,
             1.0f,
         };
-        VkRect2D const full_scissor = {{0, 0}, vk.swap_chain_extent};
+        VkRect2D const full_scissor = {{0, 0}, vk.render_extent()};
         {
             // unique lock: mutating every cached pipeline's viewport/scissor while parallel
             // recording workers may read them through their environments
@@ -1134,7 +1156,7 @@ namespace vulkan {
         vkCmdPipelineBarrier2(command_buffer, &clear_dependency);
         VkClearValue clear = {};
         VkRenderingAttachmentInfo const attachment = make_color_attachment_info(vk.scene_color_image_views[index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, vk.swap_chain_extent}, true, &attachment, nullptr);
+        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, vk.render_extent()}, true, &attachment, nullptr);
         vkCmdBeginRendering(command_buffer, &rendering_info);
         vkCmdEndRendering(command_buffer);
     }
@@ -1813,7 +1835,7 @@ namespace vulkan {
             .depth_format = vk.depth_format,
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .gbuffer = true,
-            .extent = vk.swap_chain_extent,
+            .extent = vk.render_extent(),
         };
     }
 
@@ -1974,7 +1996,7 @@ namespace vulkan {
             .fill_heap_bind = vk.descriptor_heaps.ready() ? &runtime::fill_heap_bind : nullptr,
             .color_format = vulkan::hdr_format,
             .depth_format = vk.depth_format,
-            .extent = vk.swap_chain_extent,
+            .extent = vk.render_extent(),
         };
     }
 
@@ -1999,7 +2021,7 @@ namespace vulkan {
             .pipeline_name = character_forward_pipeline_name,
             .color_format = vulkan::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
             .depth_format = vk.depth_format,
-            .extent = vk.swap_chain_extent,
+            .extent = vk.render_extent(),
         };
     }
 
@@ -2165,13 +2187,24 @@ namespace vulkan {
         core const& vk = this->vulkan_core;
         switch (id) {
         case pass::resource_id::bloom: {
-            // A bloom level is HALF the previous one - max(1, swap >> (level + 1)) - which is the SAME formula
-            // `core::create_render_targets` created the images with. The clamp is belt-and-braces rather than the
-            // contract: the schema's `count` (4) plus the validator's element check is what limits the level, and
-            // a shift of 32 or more would be undefined behaviour if one ever got through.
+            // A bloom level is HALF the previous one - max(1, render >> (level + 1)) - which is the SAME
+            // formula `core::create_render_targets` created the images with, over the same base: the RENDER
+            // extent, so the bloom chain follows a render scale down with the rest of the chain instead of
+            // staying output-sized and sampling a target that no longer exists at that size. The clamp is
+            // belt-and-braces rather than the contract: the schema's `count` (4) plus the validator's element
+            // check is what limits the level, and a shift of 32 or more would be undefined behaviour if one
+            // ever got through.
             uint32_t const shift = std::min<uint32_t>(element + 1u, 31u);
-            return VkExtent2D{std::max(1u, vk.swap_chain_extent.width >> shift), std::max(1u, vk.swap_chain_extent.height >> shift)};
+            return VkExtent2D{std::max(1u, vk.render_extent().width >> shift), std::max(1u, vk.render_extent().height >> shift)};
         }
+        case pass::resource_id::swapchain_image:
+            // THE ONE RESOURCE WHOSE EXTENT IS NOT THE FRAME'S. Every other entry here answers a size that is
+            // part of the render chain, and the frame's own extent is what a `full` pass gets; this one is the
+            // OUTPUT. A pass that declares `extent_rule::resource` over it is asking to cover the presented
+            // image while the frame runs at the render extent - which is exactly what the resolve pass that
+            // scales the render chain up to the swapchain has to do, and the reason its viewport has to come
+            // from its own declaration rather than from the frame.
+            return vk.swap_chain_extent;
         default:
             return VkExtent2D{}; // an element of a resource whose extent IS the frame's: nothing to answer
         }
@@ -2207,7 +2240,15 @@ namespace vulkan {
             // the generation's image count, which is what a pass that owns a per-image family sizes it from -
             // and NOT the same number as the image index above
             .image_count = static_cast<uint32_t>(vk.ml_images.size()),
-            .extent = vk.swap_chain_extent,
+            // THE FRAME'S EXTENT IS THE RENDER EXTENT - this one line is where "the frame's resolution" is
+            // defined for every pass (`pass::resolve_extent` reads it for the `full` and `half` rules). It
+            // equals the swapchain extent at the default render scale, and below it every `full` pass follows
+            // the render chain down together, which is what keeps a lower internal resolution one decision
+            // rather than a per-pass one. A pass that has to write the OUTPUT - the resolve that scales the
+            // chain back up to what is presented - declares `extent_rule::resource` over
+            // `resource_id::swapchain_image` instead, and `resolve_resource_extent` answers with the
+            // swapchain's extent.
+            .extent = vk.render_extent(),
         };
     }
 
@@ -2681,7 +2722,7 @@ namespace vulkan {
         vkCmdPipelineBarrier2(command_buffer, &clear_dependency);
         VkClearValue clear = {};
         VkRenderingAttachmentInfo const attachment = make_color_attachment_info(vk.hdr_image_views[index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, vk.swap_chain_extent}, true, &attachment, nullptr);
+        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, vk.render_extent()}, true, &attachment, nullptr);
         vkCmdBeginRendering(command_buffer, &rendering_info);
         vkCmdEndRendering(command_buffer);
     }

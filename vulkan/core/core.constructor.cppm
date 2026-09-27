@@ -46,6 +46,16 @@ namespace vulkan {
 
     core::core(core_create_info const& options)
         : create_options{options} {
+        // THE RENDER SCALE BEFORE ANYTHING IS CREATED: `init_swap_chain` below sets `swap_chain_extent`,
+        // which `render_extent()` multiplies, and `create_depth_resources` / `create_render_targets` are
+        // created with the result. Clamped rather than rejected: 1.0 is the historic behaviour and the
+        // value a caller writes by omission, a value above 1.0 would ask the render chain for MORE pixels
+        // than are presented (a supersample this renderer's resolve does not implement), and a zero or
+        // negative scale is an invalid extent rather than a small frame.
+        this->render_scale = std::clamp(options.render_scale, 0.1f, 1.0f);
+        if (this->render_scale != options.render_scale) {
+            utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", options.render_scale, this->render_scale);
+        }
         if (options.window.has_value()) {
             // caller-provided window: bind to it as-is - no glfwInit / glfwCreateWindow here and
             // no glfwDestroyWindow cleanup (ownership stays with the caller; see
@@ -620,7 +630,7 @@ namespace vulkan {
 
     void core::create_depth_image(VkImage& image, VkDeviceMemory& image_memory, VkImageView& image_view) const noexcept {
         // Use the swapchain size stored in the class
-        auto const& [width, height] = this->swap_chain_extent;
+        auto const& [width, height] = this->render_extent();
 
         // 1. Create images
         VkImageCreateInfo image_info = {};
@@ -707,6 +717,16 @@ namespace vulkan {
     }
 
     void core::create_render_targets() {
+        // EVERY TARGET BELOW IS CREATED AT THE RENDER EXTENT, not at the output's. With a render scale
+        // below 1.0 the scene chain is deliberately smaller than the swapchain - that is the whole point of
+        // `render_scale` - and the frame's last writer resolves it up to the output extent. The swapchain
+        // images themselves are created in `init_swap_chain` and are untouched by this, which is what keeps
+        // the presented size and the shaded size two different numbers. At the default scale the two
+        // extents are equal by construction (`render_extent`), so this creates exactly what it always did.
+        // The derived sizes below stay DERIVED - the half-size stochastic targets halve the render extent
+        // and a bloom level is `render >> (level + 1)` - so they follow the scale instead of contradicting
+        // it.
+        VkExtent2D const render = this->render_extent();
         // One HDR scene target per swapchain image: the lighting stage (or the TAA resolve, when TAA
         // is on) writes it and the post-process pass samples it. TRANSFER_SRC as well, because the TAA
         // resolve copies the frame it wrote here into the history image (vkCmdCopyImage requires the
@@ -717,8 +737,8 @@ namespace vulkan {
 
         for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
             create_target_image(
-                swap_chain_extent.width,
-                swap_chain_extent.height,
+                render.width,
+                render.height,
                 hdr_format,
                 VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
@@ -751,8 +771,8 @@ namespace vulkan {
         ldr_image_views.resize(swap_chain_image_views.size());
         for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
             create_target_image(
-                swap_chain_extent.width,
-                swap_chain_extent.height,
+                render.width,
+                render.height,
                 hdr_format,
                 VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -789,8 +809,8 @@ namespace vulkan {
 
             for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
                 create_target_image(
-                    swap_chain_extent.width,
-                    swap_chain_extent.height,
+                    render.width,
+                    render.height,
                     gbuffer_formats[target],
                     VK_IMAGE_TILING_OPTIMAL,
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -822,14 +842,14 @@ namespace vulkan {
         // Motion vectors + the TAA working image (the scene color the resolve reads): same extent and
         // lifetime as the G-buffer targets, single-sampled, written as attachments and sampled
         // afterwards.
-        auto const create_sampled_target = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views, VkFormat const format, uint32_t const heap_slot_base) {
+        auto const create_sampled_target = [this, render](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views, VkFormat const format, uint32_t const heap_slot_base) {
             images.resize(swap_chain_image_views.size());
             memories.resize(swap_chain_image_views.size());
             views.resize(swap_chain_image_views.size());
             for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
                 create_target_image(
-                    swap_chain_extent.width,
-                    swap_chain_extent.height,
+                    render.width,
+                    render.height,
                     format,
                     VK_IMAGE_TILING_OPTIMAL,
                     VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -858,8 +878,8 @@ namespace vulkan {
         taa_history_image_views.resize(swap_chain_image_views.size());
         for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
             create_target_image(
-                swap_chain_extent.width,
-                swap_chain_extent.height,
+                render.width,
+                render.height,
                 hdr_format,
                 VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -879,8 +899,8 @@ namespace vulkan {
 
         // The stochastic punctual lighting chain's images are HALF resolution, one per swapchain image: the
         // trace, the history and the resolve all share these two extents.
-        uint32_t const half_width = std::max(1u, swap_chain_extent.width / 2u);
-        uint32_t const half_height = std::max(1u, swap_chain_extent.height / 2u);
+        uint32_t const half_width = std::max(1u, render.width / 2u);
+        uint32_t const half_height = std::max(1u, render.height / 2u);
 
         // The stochastic punctual lighting chain's raw estimate: the same allocation as the GI trace's
         // (half resolution, STORAGE for its writer and SAMPLED for the lighting stage that adds it), and
@@ -993,8 +1013,8 @@ namespace vulkan {
         rt_shadow_image_views.assign(vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
         for (uint32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             create_target_image(
-                swap_chain_extent.width,
-                swap_chain_extent.height,
+                render.width,
+                render.height,
                 VK_FORMAT_R16_SFLOAT,
                 VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -1024,8 +1044,8 @@ namespace vulkan {
         gbuffer_depth_image_views.resize(swap_chain_image_views.size());
         for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
             create_target_image(
-                swap_chain_extent.width,
-                swap_chain_extent.height,
+                render.width,
+                render.height,
                 depth_format,
                 VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
@@ -1054,8 +1074,8 @@ namespace vulkan {
             std::vector<VkImage>& level_images = bloom_images[level];
             std::vector<VkDeviceMemory>& level_memories = bloom_image_memories[level];
             std::vector<VkImageView>& level_views = bloom_image_views[level];
-            uint32_t const level_width = std::max(1u, swap_chain_extent.width >> (level + 1u));
-            uint32_t const level_height = std::max(1u, swap_chain_extent.height >> (level + 1u));
+            uint32_t const level_width = std::max(1u, render.width >> (level + 1u));
+            uint32_t const level_height = std::max(1u, render.height >> (level + 1u));
 
             level_images.resize(swap_chain_image_views.size());
             level_memories.resize(swap_chain_image_views.size());

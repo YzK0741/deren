@@ -163,6 +163,7 @@ def write_toml(path: str, cfg: dict) -> None:
         f"taa_blend_static = {cfg['taa_blend_static']}",
         f"taa_blend_min = {cfg['taa_blend_min']}",
         f"fxaa = {str(cfg['fxaa']).lower()}",
+        f"render_scale = {cfg['render_scale']}",
         f"gbuffer_debug = {str(cfg['gbuffer_debug']).lower()}",
         f"gbuffer_channel = {cfg['gbuffer_channel']}",
         f"gpu_timings = {str(cfg['gpu_timings']).lower()}",
@@ -263,6 +264,9 @@ def ask_all(output_dir: str) -> dict:
     taa_blend_static = ask_float("render.taa_blend_static", 0.9, 0.0, 1.0, hint="history weight for a still pixel")
     taa_blend_min = ask_float("render.taa_blend_min", 0.5, 0.0, 1.0, hint="history weight floor under motion")
     fxaa = ask_bool("render.fxaa", False, hint="final anti-aliasing pass; costs nothing when off")
+    render_scale = ask_float(
+        "render.render_scale", 1.0, 0.1, 1.0, hint="fraction of the window the render chain runs at (1.0 = no scaling)"
+    )
     gbuffer_debug = ask_bool("render.gbuffer_debug", False, hint="show a stored G-buffer channel")
     gbuffer_channel = ask_int(
         "render.gbuffer_channel", 1, 0, 8, hint="0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion"
@@ -348,6 +352,7 @@ def ask_all(output_dir: str) -> dict:
         "taa_blend_static": taa_blend_static,
         "taa_blend_min": taa_blend_min,
         "fxaa": fxaa,
+        "render_scale": render_scale,
         "gbuffer_debug": gbuffer_debug,
         "gbuffer_channel": gbuffer_channel,
         "gpu_timings": gpu_timings,

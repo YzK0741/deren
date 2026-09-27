@@ -251,6 +251,11 @@ namespace app_config {
                     settings.render.fxaa = *value;
                 }
             }
+            if (toml::node const* node = render->get("render_scale")) {
+                if (std::optional<double> const value = node->value<double>()) {
+                    settings.render.render_scale = static_cast<float>(*value);
+                }
+            }
             if (toml::node const* node = render->get("taa")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.taa = *value;

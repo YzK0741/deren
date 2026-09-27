@@ -102,7 +102,7 @@ namespace vulkan {
             // submission (the G-buffer depth heap slot, which all four of them read). STORE_OP_DONT_CARE would
             // leave the contents undefined, which is exactly what those four read.
             VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(vk.gbuffer_depth_image_views[image_index], VK_ATTACHMENT_STORE_OP_STORE);
-            VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, vk.swap_chain_extent}, gbuffer_attachments.data(), static_cast<uint32_t>(gbuffer_attachments.size()), &depth_attachment);
+            VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, vk.render_extent()}, gbuffer_attachments.data(), static_cast<uint32_t>(gbuffer_attachments.size()), &depth_attachment);
             vkCmdBeginRendering(command_buffer, &rendering_info);
             return;
         }
@@ -121,7 +121,7 @@ namespace vulkan {
         // nothing samples this depth (the G-buffer depth above is the one that is read back).
         VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(vk.depth_image_views[image_index], VK_ATTACHMENT_STORE_OP_DONT_CARE);
 
-        VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, vk.swap_chain_extent}, true, &color_attachment, &depth_attachment);
+        VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, vk.render_extent()}, true, &color_attachment, &depth_attachment);
         vkCmdBeginRendering(command_buffer, &rendering_info);
     }
 
@@ -394,8 +394,8 @@ namespace vulkan {
             if (built) {
                 // the two cached values every named pipeline needs (begin_pipeline re-emits them, and
                 // update_pass_geometry resyncs every registered pipeline once per frame)
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.swap_chain_extent.width), static_cast<float>(this->vulkan_core.swap_chain_extent.height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->vulkan_core.swap_chain_extent};
+                built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
+                built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
                 mesh_result = std::move(*built);
             } else {
                 // NO FALLBACK LEFT (docs/mesh_shaders.md step 4): the caller sees this as the pipeline's failure
@@ -421,8 +421,8 @@ namespace vulkan {
                                                std::span<VkPipelineColorBlendAttachmentState const>(blend_attachments),
                                                VK_SHADER_STAGE_MESH_BIT_EXT);
             if (built) {
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.swap_chain_extent.width), static_cast<float>(this->vulkan_core.swap_chain_extent.height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->vulkan_core.swap_chain_extent};
+                built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
+                built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
                 meshlet_result = std::move(*built);
             } else {
                 utility::log("pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());

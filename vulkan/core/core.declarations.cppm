@@ -189,6 +189,21 @@ namespace vulkan {
         // keeps an idle window off the CPU. false prefers VK_PRESENT_MODE_MAILBOX_KHR, the uncapped path
         // a throughput measurement needs (see the [render] vsync note in config.example.toml).
         bool vsync = true;
+        /**
+         * THE RENDER SCALE: the fraction of the swapchain's extent the RENDER chain runs at.
+         *
+         * 1.0 - the default - is what every frame before this field did: the render targets are the
+         * output's own size and the frame's last pass writes the swapchain directly. Below 1.0 the scene
+         * is shaded at fewer pixels than are presented (see `core::render_extent()`), which saves the
+         * per-pixel cost of every scene stage and needs a pass that resolves those pixels onto the output
+         * extent. The swapchain, the screenshot read-back and the debug overlay stay at the output's size
+         * either way.
+         *
+         * A STARTUP value rather than a runtime knob: it is read when the render targets are created
+         * (`create_render_targets`, which runs at construction and again on every swapchain recreation),
+         * so changing it mid-run would mean recreating every one of them.
+         */
+        float render_scale = 1.0f;
         // Vulkan validation layers + debug messenger (instance layer VK_LAYER_KHRONOS_validation
         // and the VK_EXT_debug_utils messenger); off by default - the caller (app_config) keeps
         // the historic Debug-on / Release-off default and can override it per build
@@ -280,6 +295,28 @@ namespace vulkan {
         std::vector<VkImage> swap_chain_images = {};
         VkFormat swap_chain_image_format = {};
         VkExtent2D swap_chain_extent = {};
+        /**
+         * @brief the extent the RENDER chain runs at: `swap_chain_extent` scaled by `render_scale`
+         *
+         * This is the ONE definition of "the frame's resolution": `runtime::pass_frame` hands it to every
+         * pass (so a `full` or `half` `extent_rule` is relative to it), and every render target this core
+         * creates is created with it. At `render_scale == 1.0` it returns `swap_chain_extent` exactly, so a
+         * frame at the default scale is the frame this renderer always produced - which is what makes the
+         * decoupling verifiable rather than merely plausible.
+         *
+         * ROUNDED to nearest rather than truncated: at half scale the floor would take a pixel off an odd
+         * output width ON TOP of the halving, and both the images and the passes have to agree on the
+         * number, so there is one formula and it is this one.
+         */
+        [[nodiscard]] VkExtent2D render_extent() const noexcept {
+            auto const scaled = [this](uint32_t const axis) {
+                uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
+                return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
+            };
+            return VkExtent2D{scaled(this->swap_chain_extent.width), scaled(this->swap_chain_extent.height)};
+        }
+        /// @brief the render scale `render_extent()` applies; clamped to (0, 1] at construction
+        float render_scale = 1.0f;
         // Whether the swapchain images were created with VK_IMAGE_USAGE_TRANSFER_SRC_BIT (i.e. the
         // surface supports it). The screenshot read-back copies from a swapchain image and is only
         // legal when this is true - see init_swap_chain().

@@ -516,16 +516,18 @@ namespace vulkan {
             first_stage);
         if (result) {
             // same fullscreen viewport/scissor default as the forward pipelines (the frame path
-            // re-syncs it on every swapchain recreation)
+            // re-syncs it on every swapchain recreation). The RENDER extent, because this pipeline draws
+            // into a render target from the scene chain - see `update_pass_geometry`, which resyncs exactly
+            // the pipelines that carry these stored values.
             result->viewport = {
                 0.0f,
                 0.0f,
-                static_cast<float>(this->swap_chain_extent.width),
-                static_cast<float>(this->swap_chain_extent.height),
+                static_cast<float>(this->render_extent().width),
+                static_cast<float>(this->render_extent().height),
                 0.0f,
                 1.0f,
             };
-            result->scissor = {{0, 0}, this->swap_chain_extent};
+            result->scissor = {{0, 0}, this->render_extent()};
         }
         return result;
     }
@@ -560,12 +562,12 @@ namespace vulkan {
             result->viewport = {
                 0.0f,
                 0.0f,
-                static_cast<float>(this->swap_chain_extent.width),
-                static_cast<float>(this->swap_chain_extent.height),
+                static_cast<float>(this->render_extent().width),
+                static_cast<float>(this->render_extent().height),
                 0.0f,
                 1.0f,
             };
-            result->scissor = {{0, 0}, this->swap_chain_extent};
+            result->scissor = {{0, 0}, this->render_extent()};
         }
         return result;
     }

@@ -37,6 +37,7 @@ taa = false
 taa_blend_static = 0.9
 taa_blend_min = 0.5
 fxaa = false
+render_scale = 1.0
 gbuffer_debug = false
 gbuffer_channel = 1
 gpu_timings = true
