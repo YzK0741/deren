@@ -256,6 +256,11 @@ namespace app_config {
                     settings.render.render_scale = static_cast<float>(*value);
                 }
             }
+            if (toml::node const* node = render->get("upscale")) {
+                if (std::optional<std::string> const value = node->value<std::string>()) {
+                    settings.render.upscale = *value;
+                }
+            }
             if (toml::node const* node = render->get("taa")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.taa = *value;

@@ -164,6 +164,7 @@ def write_toml(path: str, cfg: dict) -> None:
         f"taa_blend_min = {cfg['taa_blend_min']}",
         f"fxaa = {str(cfg['fxaa']).lower()}",
         f"render_scale = {cfg['render_scale']}",
+        f"upscale = \"{cfg['upscale']}\"",
         f"gbuffer_debug = {str(cfg['gbuffer_debug']).lower()}",
         f"gbuffer_channel = {cfg['gbuffer_channel']}",
         f"gpu_timings = {str(cfg['gpu_timings']).lower()}",
@@ -267,6 +268,12 @@ def ask_all(output_dir: str) -> dict:
     render_scale = ask_float(
         "render.render_scale", 1.0, 0.1, 1.0, hint="fraction of the window the render chain runs at (1.0 = no scaling)"
     )
+    upscale = ask_choice(
+        "render.upscale: which filter resolves a scaled render chain",
+        ["easu", "linear"],
+        "easu",
+        hint="easu = FSR 1's upscaler; linear = the bilinear reference it is measured against",
+    )
     gbuffer_debug = ask_bool("render.gbuffer_debug", False, hint="show a stored G-buffer channel")
     gbuffer_channel = ask_int(
         "render.gbuffer_channel", 1, 0, 8, hint="0 albedo, 1 normal, 2 roughness, 3 metallic, 4 ao, 5 id, 6 depth, 7 flags, 8 motion"
@@ -353,6 +360,7 @@ def ask_all(output_dir: str) -> dict:
         "taa_blend_min": taa_blend_min,
         "fxaa": fxaa,
         "render_scale": render_scale,
+        "upscale": upscale,
         "gbuffer_debug": gbuffer_debug,
         "gbuffer_channel": gbuffer_channel,
         "gpu_timings": gpu_timings,

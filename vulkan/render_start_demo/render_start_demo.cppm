@@ -126,6 +126,15 @@ export namespace vulkan {
         /// The SESSION-level diagnostic travels with it ("why does this switch do nothing?"), asked through the
         /// runtime's own answers rather than by reaching into it.
         void set_ssao(bool enabled, float radius, float intensity, uint32_t samples) noexcept;
+        /// @brief WHICH FILTER resolves a scaled render chain onto the output (`[render] upscale`)
+        ///
+        /// @param name "easu" (FSR 1's upsampler, the default) or "linear" (the bilinear reference it is measured
+        ///        against). IT TAKES THE CONFIG'S SPELLING rather than a pass enum, and that is the layering
+        ///        rather than convenience: the app hands its setting over without having to know the pass
+        ///        namespace, and the one mapping from a name to a filter lives next to the pass that implements it.
+        ///        An unknown spelling resolves to EASU and says so in the log: a value that looks like a setting
+        ///        but selects nothing is what makes "which filter produced this frame?" unanswerable.
+        void set_upscale_filter(std::string_view name) noexcept;
 
     private:
         /// give every pass of the named stage its frame, and run the frame's ordering rules for that stage

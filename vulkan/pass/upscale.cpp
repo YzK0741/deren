@@ -92,6 +92,55 @@ namespace vulkan::pass {
         this->frame_ = frame;
     }
 
+    void upscale_pass::set_filter(upscale_filter const filter) noexcept {
+        this->filter_ = filter;
+    }
+
+    upscale_filter upscale_pass::filter() const noexcept {
+        return this->filter_;
+    }
+
+    easu_constants make_easu_constants(uint32_t const render_width, uint32_t const render_height, uint32_t const output_width, uint32_t const output_height) noexcept {
+        // `FsrEasuCon` TRANSCRIBED (AMD's ffx_fsr1.h v1.20210629, see shaders/upscale.slang for the license
+        // and the kernel that consumes these): the input viewport and the input size are the same two numbers
+        // here, because this renderer has no dynamic-resolution offset region inside a larger input resource.
+        //
+        // THE ZERO GUARDS ARE NOT DEFENSIVE PADDING: these are divisions by an extent, and a zero would put an
+        // infinity into EASU's tap positions, which produces a frame of garbage rather than a small image. The
+        // frame cannot reach here with a zero extent (the pass returns early, and `core::render_extent` clamps
+        // to 1), so the guard exists to make that a property of THIS function rather than of its callers.
+        float const in_w = static_cast<float>(render_width == 0u ? 1u : render_width);
+        float const in_h = static_cast<float>(render_height == 0u ? 1u : render_height);
+        float const out_w = static_cast<float>(output_width == 0u ? 1u : output_width);
+        float const out_h = static_cast<float>(output_height == 0u ? 1u : output_height);
+        float const rcp_in_w = 1.0f / in_w;
+        float const rcp_in_h = 1.0f / in_h;
+
+        easu_constants con = {};
+        // The output integer position -> a pixel position in the input viewport, and the -0.5 that keeps the
+        // mapping centred on the input's own pixel centres rather than its corner.
+        con.con0[0] = in_w / out_w;
+        con.con0[1] = in_h / out_h;
+        con.con0[2] = 0.5f * in_w / out_w - 0.5f;
+        con.con0[3] = 0.5f * in_h / out_h - 0.5f;
+        // Viewport pixel position -> normalized image space, which is the upper-left of the 'F' tap, plus the
+        // three further gather positions relative to it (the reference's own arrangement, kept so the shader's
+        // p0..p3 stay recognisable against it).
+        con.con1[0] = rcp_in_w;
+        con.con1[1] = rcp_in_h;
+        con.con1[2] = 1.0f * rcp_in_w;
+        con.con1[3] = -1.0f * rcp_in_h;
+        con.con2[0] = -1.0f * rcp_in_w;
+        con.con2[1] = 2.0f * rcp_in_h;
+        con.con2[2] = 1.0f * rcp_in_w;
+        con.con2[3] = 2.0f * rcp_in_h;
+        con.con3[0] = 0.0f * rcp_in_w;
+        con.con3[1] = 4.0f * rcp_in_h;
+        con.con3[2] = 0.0f;
+        con.con3[3] = 0.0f;
+        return con;
+    }
+
     void upscale_pass::set_overlay(draw_callback const overlay) noexcept {
         // The host's hook, installed once. This pass needs no fact to decide whether to use it: whenever the
         // chain is resolved, THIS is the frame's last writer (the composite's frame is what needs the answer).
@@ -130,13 +179,24 @@ namespace vulkan::pass {
         to_attachment.image = target;
         VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
         vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
-        // The push block is composed HERE (S3), and it is the pass's own: the display transfer is the only value
-        // the resolve reads, and it follows from the surface's format - 0 when the swapchain attachment encodes
-        // linear -> sRGB in hardware (so the shader must hand it LINEAR values) and 1 when the format is UNORM
-        // and the display-encoded value is what should be stored. The same lane, the same convention and the
-        // same expression as fxaa_pass::record, because a second spelling of the transfer is a second chance to
-        // double-encode the frame.
+        // The push block is composed HERE (S3), and it is the pass's own. TWO GROUPS OF LANES:
+        //
+        //   * EASU's four constants, from the two extents the pass can see without being told the scale: the
+        //     FRAME's extent is the render chain's (`io.frame.extent` - the same value `pass_frame` handed the
+        //     resolver) and `io.extent` is the OUTPUT extent this pass's own `resource` rule resolved to. Their
+        //     ratio IS the render scale, which is why nothing here needs to know it.
+        //   * the display transfer, which follows from the surface's format - 0 when the swapchain attachment
+        //     encodes linear -> sRGB in hardware (so the shader must hand it LINEAR values) and 1 when the
+        //     format is UNORM and the display-encoded value is what should be stored. The same lane, the same
+        //     convention and the same expression as fxaa_pass::record, because a second spelling of the
+        //     transfer is a second chance to double-encode the frame.
+        easu_constants const es = make_easu_constants(io.frame.extent.width, io.frame.extent.height, io.extent.width, io.extent.height);
         push_constants const push = {
+            .con0 = {es.con0[0], es.con0[1], es.con0[2], es.con0[3]},
+            .con1 = {es.con1[0], es.con1[1], es.con1[2], es.con1[3]},
+            .con2 = {es.con2[0], es.con2[1], es.con2[2], es.con2[3]},
+            .con3 = {es.con3[0], es.con3[1], es.con3[2], es.con3[3]},
+            .mode = this->filter_ == upscale_filter::easu ? 1.0f : 0.0f,
             .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format_) ? 0.0f : 1.0f,
         };
         VkClearValue clear = {};

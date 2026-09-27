@@ -75,18 +75,61 @@ export namespace vulkan::pass {
     };
 
     /**
-     * @brief the resolve: the display-referred LDR image -> the swapchain, by a linear (bilinear) filter
+     * @brief WHICH FILTER resolves the render chain onto the output
+     *
+     * Two, and the naive one is kept on purpose rather than deleted once FSR landed: an upscaler's whole claim
+     * is "closer to the native-resolution frame than the cheap answer", and that claim is a MEASUREMENT between
+     * these two modes (`build-release-clang64/upscale_quality.py`: mean absolute difference against a
+     * `render_scale = 1.0` capture of the same scene, and the mean absolute Laplacian of luma as sharpness).
+     * A mode deleted after the fact would take its own baseline with it.
+     */
+    enum class upscale_filter : uint8_t {
+        linear, // one tap of the shared linear sampler per output pixel: a bilinear resample of the whole chain
+        easu,   // FSR 1's edge-adaptive spatial upsampling (see shaders/upscale.slang's port and its license note)
+    };
+
+    /// @brief EASU's four constants, as the shader's push block carries them
+    /// @note a free function rather than a lambda inside `record`: it is `FsrEasuCon` ported (see
+    ///       shaders/upscale.slang), it is pure arithmetic on two extents, and that makes it pinnable by a test
+    ///       instead of only observable through a rendered frame - a transposed or half-pixel-shifted constant
+    ///       still produces a plausible image.
+    struct easu_constants {
+        float con0[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float con1[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float con2[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+        float con3[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    };
+
+    /**
+     * @brief `FsrEasuCon` (AMD's, v1.20210629): the constants EASU's kernel needs, from two extents
+     * @param render_width/height the RENDER chain's extent - AMD's `inputViewportInPixels` AND
+     *        `inputSizeInPixels`, equal here because this renderer has no dynamic-resolution offset region
+     * @param output_width/height the swapchain's extent, i.e. `outputSizeInPixels`
+     */
+    [[nodiscard]] easu_constants make_easu_constants(uint32_t render_width, uint32_t render_height, uint32_t output_width, uint32_t output_height) noexcept;
+
+    /**
+     * @brief the resolve: the display-referred LDR image -> the swapchain, by the configured filter
      *
      * The frame's last writer and its overlay's owner whenever the render chain runs below the output size.
      */
     class upscale_pass final : public frame_pass {
     public:
-        /// @brief the push block, which is also `upscale.slang`'s - the display transfer and nothing else
+        /// @brief the push block, which is also `upscale.slang`'s - EASU's four constants, the filter and the transfer
         /// @note THE TWO HEAP LANES ARE APPENDED BY THE FRAMEWORK and are therefore NOT fields here (see the
         ///       shader's note and `runtime::push_stage_block`): the shader's block is this struct plus
         ///       `uint frame_slot; uint image_index;`, and a field added here for either would make the host
         ///       append its own values PAST them.
         struct push_constants {
+            /// EASU's four constants - `FsrEasuCon`'s con0..con3, computed by `make_easu_constants` below from
+            /// the RENDER extent (input viewport and input size) and the OUTPUT extent. `float[4]` rather than a
+            /// graphics-math vector so that sixteen floats do not put a glm dependency into a pass module; the
+            /// shader reads them as a `float4` each, and the layout is four tightly packed vectors either way.
+            float con0[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float con1[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float con2[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float con3[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+            float mode = 0.0f;         // the filter: 0 = linear, 1 = EASU (see upscale_filter)
             float encode_gamma = 0.0f; // 0 = the swapchain is an sRGB format and encodes on write, 1 = it does not
         };
 
@@ -111,6 +154,11 @@ export namespace vulkan::pass {
 
         /// @brief install the host's overlay hook (this pass is the frame's last writer whenever it runs)
         void set_overlay(draw_callback overlay) noexcept;
+        /// @brief which filter to resolve with; a STARTUP value the owner sets from the config, because it
+        ///        selects a shader path rather than a per-frame quantity
+        void set_filter(upscale_filter filter) noexcept;
+        /// @brief the filter in force (a test asks; the shader is told through the push block)
+        [[nodiscard]] upscale_filter filter() const noexcept;
         /// @brief build this pass's frame from the published facts (see frame_pass::prepare_frame)
         void prepare_frame(frame_facts const& facts) noexcept override;
         /// @brief the frame for this stage; the pass composes it itself now (see frame_pass::prepare_frame),
@@ -143,6 +191,10 @@ export namespace vulkan::pass {
         /// the host's overlay hook, installed once (see set_overlay): this pass draws it whenever it runs
         draw_callback overlay_ = {};
         upscale_frame frame_ = {};
+        /// EASU by DEFAULT, which is also `[render] upscale`'s default: a frame that renders below the output
+        /// size is asking for a resolve, and the whole reason this pass exists is FSR's upscaler. The linear
+        /// mode is the reference it is measured against, not the thing to fall back to.
+        upscale_filter filter_ = upscale_filter::easu;
     };
 
     /// THE DECLARATION'S NUMBER AND THE PASS'S STRUCT CANNOT DRIFT: the declaration's `push` size is this

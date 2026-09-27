@@ -29,6 +29,7 @@ furnace = true
 unlit = true
 fxaa = true
 render_scale = 0.5
+upscale = "linear"
 gpu_timings = false
 gbuffer_debug = true
 gbuffer_channel = 5

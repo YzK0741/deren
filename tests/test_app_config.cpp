@@ -31,6 +31,7 @@ namespace {
         CHECK(settings.render.unlit);                                                            // fixture: the flat render mode
         CHECK(settings.render.fxaa);
         CHECK(settings.render.render_scale > 0.49f && settings.render.render_scale < 0.51f); // fixture: a half-scale render chain
+        CHECK(settings.render.upscale == "linear");                                          // fixture: the bilinear reference the FSR filter is measured against
         CHECK(!settings.render.gpu_timings);
         CHECK(settings.render.gbuffer_debug);
         CHECK(settings.render.gbuffer_channel == 5);
@@ -134,6 +135,7 @@ namespace {
         CHECK(settings.render.taa_blend_min > 0.49f && settings.render.taa_blend_min < 0.51f);
         CHECK(!settings.render.fxaa);
         CHECK(settings.render.render_scale > 0.99f && settings.render.render_scale < 1.01f); // generator default: unscaled
+        CHECK(settings.render.upscale == "easu");                                            // generator default: FSR 1's upsampler
         CHECK(!settings.render.gbuffer_debug);
         CHECK(settings.render.gbuffer_channel == 1);
         CHECK(settings.render.gpu_timings);

@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <cstdlib>
 #include <expected>
 #include <filesystem>
@@ -25,9 +26,11 @@
 #include <vector>
 
 import vulkan.render_resource;
+import vulkan.pass.upscale; // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
 
 namespace {
     namespace rr = vulkan::render_resource;
+    namespace up = vulkan::pass;
 
     /// validate a declaration that holds exactly one binding, so a wrong one can be built in one line
     std::expected<void, std::string> validate_one(rr::pass_binding const& binding) {
@@ -540,12 +543,48 @@ int main() {
         CHECK(rr::upscale_io.barrier_images[0].resource == rr::resource_id::ldr);
         CHECK(rr::upscale_io.barrier_images[0].element == 0);
         CHECK(rr::upscale_io.push.has_value());
-        // THE PASS'S OWN BLOCK, NOT THE POST CHAIN'S: one display-transfer lane. The shader's block is this
-        // size PLUS the two heap index lanes the framework appends (the LDR image is a per-swapchain-image heap
-        // slot the shader names itself), which is why the declaration stops at the 4 bytes the pass composes.
-        CHECK(rr::upscale_io.push->size == 4);
+        // THE PASS'S OWN BLOCK, NOT THE POST CHAIN'S: EASU's four constants plus the two scalar lanes (which
+        // filter, and the display transfer). The shader's block is this size PLUS the heap index lanes the
+        // framework appends (the LDR image is a per-swapchain-image heap slot the shader names itself), which is
+        // why the declaration stops at the bytes the pass composes - see upscale_push_bytes.
+        CHECK(rr::upscale_io.push->size == 72);
+        CHECK(rr::upscale_io.push->size == rr::upscale_push_bytes);
         CHECK(rr::upscale_io.push->offset == 0);
         CHECK(rr::upscale_io.push->stages == rr::stage_flag::fragment);
+    }
+
+    // ---- EASU's constants: `vulkan.pass.upscale::make_easu_constants` IS `FsrEasuCon` (AMD's ffx_fsr1.h,
+    //      v1.20210629) with the extents split into the two this renderer has. Pinned as arithmetic rather than
+    //      only observed through a rendered frame, because the term that is easiest to get wrong - the -0.5
+    //      half-pixel centering - produces a plausible image shifted by half an input pixel, and the ratio that
+    //      would hide a tap-offset mistake is exactly the power-of-two one.
+    {
+        auto const near = [](float const a, float const b) { return std::abs(a - b) < 1e-6f; };
+
+        // HALF SCALE, an integer ratio: 540x480 of a 1080x960 output.
+        auto const half = up::make_easu_constants(540, 480, 1080, 960);
+        CHECK(near(half.con0[0], 0.5f) && near(half.con0[1], 0.5f));     // input -> output scale
+        CHECK(near(half.con0[2], -0.25f) && near(half.con0[3], -0.25f)); // the half-pixel centering
+        CHECK(near(half.con1[0], 1.0f / 540.0f) && near(half.con1[1], 1.0f / 480.0f));
+        CHECK(near(half.con1[2], 1.0f / 540.0f) && near(half.con1[3], -1.0f / 480.0f));
+        CHECK(near(half.con2[0], -1.0f / 540.0f) && near(half.con2[1], 2.0f / 480.0f));
+        CHECK(near(half.con2[2], 1.0f / 540.0f) && near(half.con2[3], 2.0f / 480.0f));
+        CHECK(near(half.con3[0], 0.0f) && near(half.con3[1], 4.0f / 480.0f));
+        CHECK(near(half.con3[2], 0.0f) && near(half.con3[3], 0.0f));
+
+        // THREE QUARTERS: the same four formulas at a ratio that is NOT a power of two, which is where a port
+        // that happens to be right at 0.5 (every tap offset lands on an integer there) stops passing.
+        auto const three_quarters = up::make_easu_constants(810, 720, 1080, 960);
+        CHECK(near(three_quarters.con0[0], 0.75f) && near(three_quarters.con0[1], 0.75f));
+        CHECK(near(three_quarters.con0[2], -0.125f) && near(three_quarters.con0[3], -0.125f));
+        CHECK(near(three_quarters.con1[0], 1.0f / 810.0f) && near(three_quarters.con2[1], 2.0f / 720.0f));
+
+        // A ZERO EXTENT IS GUARDED, not undefined behaviour: these are divisions by an extent, and an infinity
+        // in a tap position is a frame of garbage rather than a small image.
+        auto const guarded = up::make_easu_constants(0, 0, 1080, 960);
+        CHECK(std::isfinite(guarded.con0[0]) && std::isfinite(guarded.con0[2]));
+        CHECK(std::isfinite(guarded.con1[0]) && std::isfinite(guarded.con1[3]));
+        CHECK(std::isfinite(guarded.con3[1]));
     }
 
     // ---- the SLOT GRID's two sources of truth, compared: the host reserves it in core::heap_slots and the

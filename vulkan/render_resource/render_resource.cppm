@@ -1197,6 +1197,15 @@ export namespace vulkan::render_resource {
         .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment},
     };
 
+    /// @brief the upscale pass's own push block, in bytes: EASU's four `float4` constants and the two scalar
+    ///        lanes; its shape is `vulkan.pass.upscale`'s `push_constants`
+    /// @note 72, and NOT the 80 bytes the shader's block adds up to: the framework appends the heap index lanes
+    ///       AFTER these bytes (`runtime::push_stage_block`), so the pass declares only what it composes. Get
+    ///       this wrong in the other direction - declare the lanes as part of the pass's own size - and they
+    ///       land past the fields the shader reads them from, which is a silent wrong-image rather than a
+    ///       validation error.
+    inline constexpr uint32_t upscale_push_bytes = 72;
+
     /// @brief what the UPSCALE pass RENDERS INTO by declaration: the swapchain, i.e. the OUTPUT image whose
     ///        extent is the one thing this pass asks for that is not the frame's
     inline constexpr std::array<render_target, 1> upscale_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
@@ -1226,11 +1235,12 @@ export namespace vulkan::render_resource {
      * composite's target choice, the frame's `write_ldr` and the overlay's owner all read the two predicates
      * from `frame_facts` so nothing can disagree.
      *
-     * The push block is this pass's OWN and is 4 bytes - the display transfer lane, whose value follows from the
-     * surface's format exactly as FXAA's does. It is deliberately NOT `post_push_bytes`: the resolve samples one
-     * image at one coordinate, so every lane of the post chain's block would be a dead field. The shader's block
-     * is this size PLUS the two heap index lanes the framework appends (the LDR image is a per-swapchain-image
-     * heap slot the shader names itself - see shaders/upscale.slang).
+     * The push block is this pass's OWN and is 72 bytes - EASU's four constants (4 x float4) and the two scalar
+     * lanes (which filter, and the display transfer, whose value follows from the surface's format exactly as
+     * FXAA's does). It is deliberately NOT `post_push_bytes`: the resolve samples one image and filters it, so
+     * every lane of the post chain's block would be a dead field. The shader's block is this size PLUS the two
+     * heap index lanes the framework appends (the LDR image is a per-swapchain-image heap slot the shader names
+     * itself - see shaders/upscale.slang).
      */
     inline constexpr pass_io upscale_io = {
         .name = "upscale",
@@ -1238,7 +1248,7 @@ export namespace vulkan::render_resource {
         .targets = upscale_targets,
         .barrier_images = upscale_barriers,
         .barrier_buffers = {},
-        .push = push_block{.offset = 0, .size = 4, .stages = stage_flag::fragment},
+        .push = push_block{.offset = 0, .size = upscale_push_bytes, .stages = stage_flag::fragment},
     };
 
     /// @brief what the debug view RENDERS INTO: the HDR target, which is the image it actually writes - so unlike

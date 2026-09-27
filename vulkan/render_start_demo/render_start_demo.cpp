@@ -338,6 +338,22 @@ namespace vulkan {
         }
     }
 
+    void render_start_demo::set_upscale_filter(std::string_view const name) noexcept {
+        // ONE MAPPING from the config's spelling to the pass's filter, here and nowhere else. EASU is the
+        // fallback for an empty or unrecognised value, and the unrecognised case is LOGGED rather than silently
+        // absorbed: a config key that appears to select a filter while the frame is produced by another one is
+        // exactly the kind of dead setting this repository deletes instead of documenting.
+        pass::upscale_filter filter = pass::upscale_filter::easu;
+        if (name == "linear") {
+            filter = pass::upscale_filter::linear;
+        } else if (!name.empty() && name != "easu") {
+            utility::log("render_start_demo: [render] upscale = \"{}\" is not a filter this renderer has (linear, easu); using easu", name);
+        }
+        if (this->upscale_ != nullptr) {
+            this->upscale_->set_filter(filter);
+        }
+    }
+
     void render_start_demo::set_ssao(bool const enabled, float const radius, float const intensity, uint32_t const samples) noexcept {
         // CPU-side only (the same rule as the other render-mode knobs): the values are pushed with the lighting stage
         // each frame, so they are safe to change mid-run. THE VALUES AND THEIR CLAMPS ARE THE PASS'S (see

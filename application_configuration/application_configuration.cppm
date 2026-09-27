@@ -238,6 +238,18 @@ namespace app_config {
          * swapchain recreation rather than this frame.
          */
         float render_scale = 1.0f;
+        /**
+         * WHICH FILTER RESOLVES THE RENDER CHAIN ONTO THE OUTPUT ([render] upscale): "easu" (the default) or
+         * "linear".
+         *
+         * It only means anything below `render_scale = 1.0`, because at 1.0 the render chain IS the output and
+         * nothing resolves anything. `easu` is FSR 1's edge-adaptive spatial upsampling (AMD's, MIT - see
+         * shaders/upscale.slang, which carries the license), and `linear` is the single bilinear tap that was
+         * the resolve's first version. Linear is KEPT rather than replaced because it is the reference the
+         * FSR filter is measured against: the claim "EASU is closer to a native-resolution frame" is a number
+         * between these two modes, and a mode deleted after the fact takes its own baseline with it.
+         */
+        std::string upscale = "easu";
         // measure per-pass GPU time with timestamp queries: one vkCmdWriteTimestamp per pass
         // boundary, read back after the frame slot completed, averaged over a 60-frame window
         // (logged + shown in the debug overlay). A no-op on devices that cannot timestamp.

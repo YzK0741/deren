@@ -1074,6 +1074,11 @@ int main(int argc, char** argv) {
     gui.megalights_bias = settings.render.megalights_bias;
     gui.megalights_light_angle = settings.render.megalights_light_angle;
     start_demo.set_megalights_light_angle(settings.render.megalights_light_angle);
+    // WHICH FILTER RESOLVES A SCALED RENDER CHAIN ([render] upscale), applied ONCE here and deliberately NOT
+    // mirrored into `gui` like the toggles above: it selects a shader path rather than a per-frame quantity, so
+    // there is nothing to change between frames - and the render scale it works with is a creation option, so
+    // the pair is a startup decision by construction.
+    start_demo.set_upscale_filter(settings.render.upscale);
     gui.shadow_cascades = settings.render.shadow_cascades - 1;       // cascade combo index (0 = single map)
     gui.shadow_cascade_blend = settings.render.shadow_cascade_blend; // cascaded shadow maps (M4)
     gui.clustered_lights = settings.render.clustered_lights;         // clustered light culling (M5)

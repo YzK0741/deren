@@ -264,6 +264,22 @@ unlit = false
 # the frame it always did.
 render_scale = 1.0
 
+# upscale: WHICH FILTER resolves the render chain onto the output, and it only means anything while
+# `render_scale` is below 1.0 (at 1.0 the chain IS the output and nothing resolves anything).
+#
+#   "easu"   - FSR 1's edge-adaptive spatial upsampling, AMD's EASU (MIT; the port and its license notice are
+#              in shaders/upscale.slang). It estimates an edge direction from a 12-tap neighbourhood,
+#              stretches a lanczos-shaped kernel along it, and clamps the result to the nearest taps so the
+#              negative lobe cannot ring. This is the default: a frame rendered below the output size is
+#              asking for a resolve, and EASU is what that resolve is for.
+#   "linear" - one bilinear tap per output pixel. KEPT rather than replaced because it is the reference the
+#              filter above is MEASURED against: on the character scene at render_scale = 0.5 it differs from
+#              a native-resolution frame by 1.10 of 255 per channel on average but carries 1.40 of the native
+#              frame's 2.86 mean absolute Laplacian (sharpness) - a bilinear resample loses about half the
+#              high-frequency energy of the chain it resamples, and closing that gap without losing the
+#              distance is EASU's whole claim.
+upscale = "easu"
+
 fxaa = false
 
 # gpu_timings: measure how long each pass takes on the GPU (timestamp queries). The frame writes a
