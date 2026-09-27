@@ -16,6 +16,8 @@
  */
 
 #include <cstddef>
+#include <cstdint> // int32_t below: stated HERE rather than borrowed transitively - libc++'s <cstddef> happens to
+                   // provide it and libstdc++'s does not, which is a build that fails on one toolchain only
 #include <iterator>
 
 #if defined(_WIN32)

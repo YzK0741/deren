@@ -19,6 +19,7 @@
  */
 
 #include <cstddef>
+#include <cstdint> // int32_t below, for the same measured reason as platform_path.cpp's include
 #include <cstdio>
 #include <cstring>
 #include <iterator> // std::size on the stack buffers below (same reason as platform_path.cpp)
