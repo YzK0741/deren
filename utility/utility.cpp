@@ -1,7 +1,7 @@
 module;
 
 #include <cstdint>
-#include <cstdio> // std::print(stderr, ...) below needs the stderr macro (not exportable via modules)
+#include <cstdio> // utility::print(stderr, ...) below needs the stderr macro (not exportable via modules)
 #include <cstring>
 extern "C" void utility_platform_sleep_ns(std::int64_t nanoseconds); // implemented in platform_sleep.cpp (see its header comment for why it is not a module)
 // the running executable's directory, written into the caller's buffer; -1 = unavailable. Implemented
@@ -240,10 +240,10 @@ void utility::log_sink::worker_loop() noexcept {
                        << '\n'
                        << std::flush;
         } else {
-            std::println("{}", message); // fall back to the terminal if the file cannot be opened
+            utility::println("{}", message); // fall back to the terminal if the file cannot be opened
         }
 #else
-        std::println("{}", message);
+        utility::println("{}", message);
 #endif
         // Decrement pending only after the write finishes so wait_log_all also covers the message being written
         {
@@ -254,6 +254,13 @@ void utility::log_sink::worker_loop() noexcept {
             }
         }
     }
+}
+
+std::FILE* utility::standard_output() noexcept {
+    // The macro lives HERE and not in the interface: `stdout` expands to a call into the C library's FILE table
+    // rather than naming an object, so it cannot cross a module boundary - see the declaration's note for the
+    // measured reason the interface does not just include <cstdio> and use the macro directly.
+    return stdout;
 }
 
 void utility::log_sink::write(std::string message) {
@@ -284,7 +291,7 @@ void utility::error_message(std::string message) {
     log_sink::instance().write("[ERROR] " + std::move(message));
 #else
     // Debug: print directly to stderr in red, no queueing (error is usually followed by terminate)
-    std::print(stderr, "\x1b[31m[ERROR] {}\x1b[0m\n", message);
+    utility::print(stderr, "\x1b[31m[ERROR] {}\x1b[0m\n", message);
 #endif
 }
 

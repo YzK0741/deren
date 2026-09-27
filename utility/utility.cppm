@@ -137,6 +137,91 @@ namespace utility {
         panic(std::format(fmt, std::forward<Args>(args)...), source_location);
     }
 
+    namespace detail {
+        /// one write and no flush: the stream's own buffering decides, which is what `std::print` does too (and
+        /// `stderr` is unbuffered, which is why the error path needs nothing more)
+        inline void write_text(std::FILE* const stream, std::string_view const text) {
+            if (!text.empty()) {
+                static_cast<void>(std::fwrite(text.data(), 1, text.size(), stream));
+            }
+        }
+    } // namespace detail
+
+    /**
+     * @brief `stdout`, which a module cannot export
+     *
+     * THE C STANDARD STREAMS ARE MACROS, not objects: exporting one from a module is not something the language
+     * can do. The two ways out are a textual `<cstdio>` include in this INTERFACE - which declares libc++'s
+     * entities twice, once in the module's global fragment and once through `export import vstd`, and which
+     * clang 22.1.8 responds to by CRASHING in code generation (measured: `EmitBuiltinNewDeleteCall` on
+     * `std::__libcpp_allocate`, while emitting the deferred definitions of a consumer that instantiates the
+     * print family below) - or an accessor, which is this. `std::FILE` and `std::fwrite` come from `vstd`
+     * already; only the macro needed a home, and it is the implementation unit's.
+     */
+    export [[nodiscard]] std::FILE* standard_output() noexcept;
+
+    /**
+     * @ingroup utility
+     * @brief THE PROJECT'S OWN `std::print`: formatted text to a stream
+     *
+     * WHY THIS EXISTS INSTEAD OF `std::print`, and it is a MEASURED LINK FAILURE rather than taste. MinGW's
+     * libstdc++ 16.2 ships `<print>`'s declarations without the terminal-writing half of its implementation: a
+     * call site fails at link time with
+     *
+     *     undefined reference to `std::__open_terminal(_iobuf*)'
+     *     undefined reference to `std::__write_to_terminal(void*, std::span<char, ...>)'
+     *
+     * (`nm --defined-only libstdc++.a` finds no definition of either, and both are referenced from
+     * `bits/print.h`'s `vprint_unicode`.) `utility::log` is the only thing in the engine that prints and the
+     * tests are the only thing that prints besides it, so owning these functions here removed the tree's last
+     * use of `<print>` - which, together with one `std::unique_ptr` held over an incomplete type, was the whole
+     * of what stopped the project linking with libstdc++ (see the compiler-tolerance audit).
+     *
+     * THE SEMANTICS ARE `std::print`'s: the format string is a `std::format_string`, so it is checked at COMPILE
+     * time exactly as `std::format`'s is, and the result is written with ONE `std::fwrite`. There is no flush.
+     * `std::format` itself comes from `vstd` (which exports it) - the one standard facility this family needs
+     * and does not implement.
+     *
+     * @param stream the stream to write to (`standard_output()`, `stderr` from a TU that includes <cstdio>, or
+     *        any other)
+     * @param fmt the format string, checked at compile time
+     * @param args the arguments it formats
+     * @note the project builds with -fno-exceptions, so a formatting or allocation failure terminates instead of
+     *       propagating: the first is a bug the compile-time check already rules out, the second is a machine out
+     *       of memory
+     * @note thread safe to the extent `std::fwrite` is - the C library locks the stream
+     */
+    export template <typename... Args>
+    void print(std::FILE* stream, std::format_string<Args...> fmt, Args&&... args) {
+        detail::write_text(stream, std::format(fmt, std::forward<Args>(args)...));
+    }
+
+    /// @copydoc print(std::FILE*, std::format_string<Args...>, Args&&...)
+    export template <typename... Args>
+    void print(std::format_string<Args...> fmt, Args&&... args) {
+        // QUALIFIED, and that is not decoration: an unqualified call here is AMBIGUOUS against
+        // `std::print(std::FILE*, format_string<Args...>, Args&&...)`, which libc++'s <print> brings into an
+        // unqualified lookup inside this namespace (measured: clang reports the two as candidates and calls it
+        // ambiguous at this line).
+        utility::print(standard_output(), fmt, std::forward<Args>(args)...);
+    }
+
+    /// @brief `print` with the newline `std::println` adds
+    export template <typename... Args>
+    void println(std::FILE* stream, std::format_string<Args...> fmt, Args&&... args) {
+        std::string text = std::format(fmt, std::forward<Args>(args)...);
+        text.push_back('\n');
+        detail::write_text(stream, text);
+    }
+
+    /// @copydoc println(std::FILE*, std::format_string<Args...>, Args&&...)
+    export template <typename... Args>
+    void println(std::format_string<Args...> fmt, Args&&... args) {
+        // Qualified for the same measured reason as `print` above: libc++'s <print> has a `std::println(FILE*,
+        // ...)` overload that an unqualified call finds, and the two are then ambiguous.
+        utility::println(standard_output(), fmt, std::forward<Args>(args)...);
+    }
+
     /**
      * @ingroup utility
      * @brief a simple time test function

@@ -171,7 +171,7 @@ int main(int argc, char** argv) {
     // as VULKAN_RENDER_VERSION_*) and exit before any config / Vulkan init.
     for (int i = 1; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--version") {
-            std::print("vulkan_render {}.{}.{}\n", VULKAN_RENDER_VERSION_MAJOR, VULKAN_RENDER_VERSION_MINOR, VULKAN_RENDER_VERSION_PATCH);
+            utility::println("vulkan_render {}.{}.{}", VULKAN_RENDER_VERSION_MAJOR, VULKAN_RENDER_VERSION_MINOR, VULKAN_RENDER_VERSION_PATCH);
             return 0;
         }
     }

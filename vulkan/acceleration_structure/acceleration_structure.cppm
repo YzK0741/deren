@@ -195,8 +195,18 @@ namespace vulkan::acceleration_structure {
         /// The extension entry points, resolved per device in the constructor. Declared incomplete here
         /// and defined in the .cpp, because a function pointer table is implementation detail - and a
         /// unique_ptr so the header does not have to name the four PFN types either.
+        ///
+        /// NO INITIALIZER HERE, AND THAT IS WHAT MAKES THE INCOMPLETE TYPE LEGAL: `entry_points` is only
+        /// forward-declared at this point, so anything that constructs or destroys a unique_ptr<entry_points>
+        /// IN THIS HEADER needs the complete type. libc++ (the clang64 build) tolerates the `= {}` this used to
+        /// carry; libstdc++ does not - GCC instantiates `~unique_ptr<entry_points>` at the default member
+        /// initializer itself and stops on `default_delete`'s `static_assert(sizeof(_Tp)>0)` (measured, both
+        /// classes in this file). Default-initializing the member in the CONSTRUCTOR instead costs the same
+        /// (the members are default-constructed before the body runs either way) and puts the instantiation in
+        /// the .cpp, where `entry_points` is defined - which is the same reason the destructor is declared above
+        /// and defined there.
         struct entry_points;
-        std::unique_ptr<entry_points> functions = {};
+        std::unique_ptr<entry_points> functions;
         vk_buffer scratch = {};
         VkDeviceAddress scratch_address = 0;
         VkDeviceSize scratch_size = 0;
@@ -322,8 +332,10 @@ namespace vulkan::acceleration_structure {
         };
 
         core* vk = nullptr; // non-const: VMA's detail lookups and buffer creation are not const
+        /// The extension entry points, forward-declared and held by pointer for the same reason (and with the
+        /// same NO-initializer rule) as `bottom_level_structures::functions` above - see the note there.
         struct entry_points;
-        std::unique_ptr<entry_points> functions = {};
+        std::unique_ptr<entry_points> functions;
         std::vector<slot> slots = {};
         uint32_t current_slot = 0;
         build_stats stats = {};

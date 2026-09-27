@@ -19,8 +19,16 @@
 #include <iterator>
 
 #if defined(_WIN32)
+// THE `#ifndef` IS LOAD-BEARING, not decoration: libstdc++'s `c++config.h`, reached through <cstddef> above,
+// already defines NOMINMAX when it pulls in a Windows header - so an unguarded `#define` here is a REdefinition,
+// which the project's `-Werror` turns into a build failure (measured with GCC 16.2 on MinGW; libc++'s
+// configuration does not define it, which is why the clang64 build never saw this).
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #elif defined(__linux__)
 #include <unistd.h>

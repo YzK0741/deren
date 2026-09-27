@@ -314,7 +314,7 @@ namespace {
     void test_mmd_motion_real_file_when_available() {
         char const* const path = std::getenv("VR_MMD_MOTION");
         if (path == nullptr || *path == '\0') {
-            std::println("  (VR_MMD_MOTION is not set - the real-motion check was skipped)");
+            vk_test::write_line("  (VR_MMD_MOTION is not set - the real-motion check was skipped)");
             return;
         }
         std::optional<mmd_motion> const m = load_mmd_motion(path);

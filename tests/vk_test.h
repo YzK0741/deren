@@ -3,9 +3,30 @@
 // framework (the repo stays dependency-free). Every failed CHECK prints file:line
 // and bumps the failure counter; the test's main returns 1 when anything failed so
 // CTest sees the test as failed. One test executable = one translation unit.
-// Tests are plain TUs (no `import std`), so they use <print> textually.
+//
+// TESTS ARE PLAIN TUs, and this harness formats its own output (`std::format` into one `std::fwrite`) rather
+// than calling the project's `utility::println`, WHICH IS A MEASURED WORKAROUND FOR A CLANG BUG rather than a
+// layering preference:
+//
+//   * `<print>` is not an option at all: MinGW's libstdc++ 16.2 declares it without the terminal-writing half
+//     of its implementation (`std::__open_terminal` / `std::__write_to_terminal` are absent from
+//     `libstdc++.a`), so a `std::println` call site fails to LINK there - see utility.cppm's print family.
+//   * and CALLING THAT FAMILY FROM HERE CRASHES CLANG 22.1.8: with an inline function in this header calling
+//     the module's variadic template, `test_shadow_fit.cpp` and `test_animation.cpp` die in code generation
+//     with "clang frontend command failed due to signal" inside `EmitBuiltinNewDeleteCall`
+//     (`std::__libcpp_allocate`). The minimal reproduction of that shape - a module exporting such a template,
+//     a header with an inline function calling it, a TU that imports and then includes - compiles cleanly on
+//     its own, so the trigger is the combination of the two rather than either half.
+//
+// A harness is not worth a compiler bug, so it formats here: `std::format` is compiler and library neutral, and
+// every test TU stays a plain TU that imports only the module under test. The engine's own printing goes
+// through `utility::print`/`println` as it should.
 
-#include <print>
+#include <cstddef>
+#include <cstdio>
+#include <format>
+#include <string>
+#include <utility>
 
 namespace vk_test {
     [[nodiscard]] inline int& failures() {
@@ -17,19 +38,27 @@ namespace vk_test {
         return count;
     }
 
+    /// one formatted line on stdout; the format string is checked at compile time exactly as `std::format`'s is
+    template <typename... Args>
+    inline void write_line(std::format_string<Args...> fmt, Args&&... args) {
+        std::string text = std::format(fmt, std::forward<Args>(args)...);
+        text.push_back('\n');
+        static_cast<void>(std::fwrite(text.data(), 1, text.size(), stdout));
+    }
+
     inline void report(char const* expression, char const* file, int const line, char const* message) {
         ++failures();
         if (message != nullptr) {
-            std::println("FAIL {}:{}: {}  ({})", file, line, expression, message);
+            write_line("FAIL {}:{}: {}  ({})", file, line, expression, message);
         } else {
-            std::println("FAIL {}:{}: {}", file, line, expression);
+            write_line("FAIL {}:{}: {}", file, line, expression);
         }
     }
 
     /** @brief print the summary and return the process exit code (0 = all checks passed) */
     inline int finish(char const* test_name) {
         int const failed = failures();
-        std::println("[{}] {} checks, {} failed -> {}", test_name, checks(), failed, failed == 0 ? "PASS" : "FAIL");
+        write_line("[{}] {} checks, {} failed -> {}", test_name, checks(), failed, failed == 0 ? "PASS" : "FAIL");
         return failed == 0 ? 0 : 1;
     }
 } // namespace vk_test
