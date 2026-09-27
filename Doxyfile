@@ -1064,7 +1064,8 @@ INPUT                  = ./shaders \
 				./docs/slang_migration.md \
 				./docs/descriptor_heap_migration.md \
 				./docs/descriptor_heap_handover.md \
-				./docs/migration_tradeoffs.md
+				./docs/migration_tradeoffs.md \
+				./docs/compiler_tolerance.md
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses

@@ -81,3 +81,10 @@ Beside the thing it is defined in terms of, and published once. The heap-write h
 was copied into three translation units because it multiplies `core::heap_slot_stride`; removing the copies
 needed the constant and the helper to live together, and putting the helper in the heap-plumbing partition
 instead would have closed a cycle (`core.declarations.cppm` already re-exports `:descriptor_heap`).
+
+## Portability
+
+The rules above are about NAMES. The rules that follow from the toolchains this is built against are a separate
+page, each with the measurement behind it: what a module interface may not do with an incomplete type, why
+`NOMINMAX` is guarded before `<windows.h>`, and why the project owns `utility::print`/`println` instead of using
+`std::print`. See \ref md_docs_2compiler__tolerance "Compiler tolerance".
