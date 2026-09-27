@@ -544,6 +544,10 @@ namespace vulkan {
             .megalights = this->megalights_active(),
             .rt_shadow = this->rt_shadows_active(),
             .fxaa = this->post_fxaa_active(),
+            // THE RESOLVE'S OWN ATOM (see `post_upscale_active`): below render_scale 1.0 and with its pipeline
+            // built, this pass is the frame's last writer - and that is also what makes `post_fxaa_active` false
+            // on those frames, so the two atoms are the two halves of one exclusion rather than two switches.
+            .upscale = this->post_upscale_active(),
             .gbuffer_debug = this->gbuffer_debug,
             .shadow = this->shadow_enabled && this->shadows_enabled,
             .clustered = this->clustered_lights,
@@ -582,6 +586,10 @@ namespace vulkan {
         f.ssao = ask("ssao");
         f.bloom = ask("bloom");
         f.fxaa = ask("fxaa");
+        // ... and the resolve, asked the same way: `post_upscale_active` is an ATOM of the facts above and the
+        // owner's table relays it (see render_start_demo::feature_active), so the composed answer and the one the
+        // frame's target choice reads are the same composition rather than two.
+        f.upscale = ask("upscale");
         f.transparent = ask("transparent");
         return f;
     }
@@ -1283,6 +1291,15 @@ namespace vulkan {
         this->fxaa_on = enabled && this->pass_ready("fxaa");
         if (enabled && !this->fxaa_on) {
             this->warn_missing_feature("fxaa", "FXAA has no effect: the fxaa pipeline was not created (is fxaa.frag.spv present?)");
+        }
+        // ... AND A CONFIG THAT ASKS FOR FXAA AND A SCALED RENDER CHAIN GETS ONE OF THE TWO, because the two are
+        // mutually exclusive rather than stacked (see post_fxaa_active): the upscale resolve is the frame's last
+        // writer whenever the chain runs below the output size, so FXAA's render-resolution filter would be
+        // resampled away. The flag above stays SET - at render_scale 1.0 (and on a frame whose upscale pipeline
+        // is missing) FXAA is the one that runs - and this line is the one place that says which of the two the
+        // frame is actually getting. `warn_missing_feature`'s once-per-key rule is what keeps it to one line.
+        if (enabled && this->post_upscale_active()) {
+            this->warn_missing_feature("upscale", "FXAA is disabled because the render chain is scaled: the upscale resolve is this frame's last writer and would resample an FXAA result away (set render_scale = 1.0 to use FXAA)");
         }
         this->fxaa_subpixel = std::clamp(subpixel, 0.0f, 1.0f);
         // below ~0.05 every shaded gradient counts as an edge (the whole image gets softened),

@@ -51,6 +51,7 @@ import vulkan.pass.taa;
 import vulkan.pass.transparent;
 import vulkan.pass.character_forward; // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
 import vulkan.pass.toon_screen_rim;   // ... and its second rim: a fullscreen additive contour from the depth
+import vulkan.pass.upscale;           // the resolve: the render chain's LDR image -> the presented swapchain
 
 export namespace vulkan {
 
@@ -198,6 +199,11 @@ export namespace vulkan {
         pass::megalights_temporal_pass* megalights_temporal_ = nullptr;
         pass::post_composite_pass* composite_ = nullptr;
         pass::fxaa_pass* fxaa_ = nullptr;
+        /// THE RESOLVE (vulkan.pass.upscale): the render chain's LDR image -> the presented swapchain, the
+        /// frame's last writer whenever the chain runs below the output size. It is fed no frame by this owner
+        /// - the overlay hook it carries is installed once in `attach`, like the composite's and FXAA's - so
+        /// this view exists for that hook and for the feature table's relay.
+        pass::upscale_pass* upscale_ = nullptr;
     };
 
 } // namespace vulkan

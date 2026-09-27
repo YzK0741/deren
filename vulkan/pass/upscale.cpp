@@ -1,0 +1,161 @@
+// The upscale pass's implementation: the LDR image's transition to a sampled layout, the clear instance over
+// the swapchain, the push block with the display transfer in it, the fullscreen draw and the overlay inside
+// the same instance. Moved into a pass from the shape the FXAA pass established, and the difference between
+// the two is exactly what the resolve needs: FXAA's filter runs at the render resolution (a `full` extent),
+// while this pass's extent comes from its declaration's `resource` rule over the swapchain image, i.e. the
+// OUTPUT extent - so the same single tap of the same linear sampler covers the whole presented image.
+
+module;
+
+#include <array>
+#include <cstdint>
+#include <span>
+#include <vulkan/vulkan.h>
+
+module vulkan.pass.upscale;
+
+import vulkan.constant_init;
+import vulkan.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
+import utility;
+
+namespace vulkan::pass {
+
+    upscale_pass::~upscale_pass() {
+        this->release_owned();
+    }
+
+    void upscale_pass::release_owned() noexcept {
+        this->pipeline_.reset();
+    }
+
+    render_resource::pass_io const& upscale_pass::io() const noexcept {
+        return render_resource::upscale_io;
+    }
+
+    vulkan::pass::behaviour const& upscale_pass::behaviour() const noexcept {
+        return behaviour_;
+    }
+
+    std::string_view upscale_pass::feature() const noexcept {
+        // THE NAME THE RENDERER ALREADY ANSWERS: `f.upscale` = "the render chain is smaller than the output AND
+        // this pass built its pipeline" (`runtime::post_upscale_active`), which is one definition shared with
+        // the composite's target choice and the overlay's owner - so the runner's gate, the frame's target and
+        // the overlay cannot disagree about whether this pass runs. At render_scale = 1.0 it answers false and
+        // the pass is never resolved or recorded, which is what keeps every scale-1.0 frame byte-identical.
+        return "upscale";
+    }
+
+    void upscale_pass::create(pass_context const& context) {
+        if (context.device == VK_NULL_HANDLE) {
+            return;
+        }
+        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+            this->release_owned();
+        }
+        this->device_ = context.device;
+        if (this->pipeline_.has_value()) {
+            return; // already built for this device
+        }
+        std::span<unsigned char const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<unsigned char const>{};
+        std::span<unsigned char const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<unsigned char const>{};
+        if (vertex_spirv.empty() || fragment_spirv.empty()) {
+            utility::log("upscale disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            return;
+        }
+        // The surface's format is the pipeline's declared colour format (the resolve writes the swapchain).
+        auto built = pipelines::build_upscale_owned(context.device, context.swap_chain_image_format, vertex_spirv, fragment_spirv);
+        if (!built) {
+            utility::log("upscale disabled: {}", built.error());
+            this->release_owned();
+            return;
+        }
+        this->pipeline_ = std::move(built->resolve);
+        this->swap_chain_format_ = context.swap_chain_image_format;
+        utility::log("SUCCESS: upscale pipeline created (LDR -> the presented swapchain, a linear filter)");
+    }
+
+    void upscale_pass::on_swapchain_recreated(pass_host const&) {
+        // Nothing to reset: the pipeline depends on the surface's FORMAT (a session-stable device fact) and not
+        // on its size - the viewport is resynced by the runner from `io.extent`, which is the swapchain's own
+        // extent this time (see behaviour_) - and this pass owns no descriptor family.
+    }
+
+    bool upscale_pass::pipeline_ready() const noexcept {
+        return this->pipeline_.has_value();
+    }
+
+    VkPipeline upscale_pass::pipeline() const noexcept {
+        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+    }
+
+    void upscale_pass::set_frame(upscale_frame const& frame) noexcept {
+        this->frame_ = frame;
+    }
+
+    void upscale_pass::set_overlay(draw_callback const overlay) noexcept {
+        // The host's hook, installed once. This pass needs no fact to decide whether to use it: whenever the
+        // chain is resolved, THIS is the frame's last writer (the composite's frame is what needs the answer).
+        this->overlay_ = overlay;
+    }
+
+    void upscale_pass::prepare_frame([[maybe_unused]] frame_facts const& facts) noexcept {
+        this->set_frame(upscale_frame{.after_draw = this->overlay_});
+    }
+
+    void upscale_pass::record(resolved_io const& io) {
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+            io.extent.width == 0 || io.extent.height == 0) {
+            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
+        }
+        VkImage const target = io.targets[0].image;
+        VkImageView const target_view = io.targets[0].view;
+        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE) {
+            return;
+        }
+        // THE INPUT FIRST, and it is THIS pass's transition rather than the frame loop's: the LDR image was
+        // written by the composite earlier in this same command buffer, so its old layout is known to be a
+        // colour attachment and the src masks have to publish that write. It is the declaration's one barrier
+        // image, so the handle is the one the pass named - and on a frame this pass does not run, nothing moves
+        // the image at all (the composite writes it as an attachment, or writes the swapchain directly).
+        if (!io.barrier_images.empty() && io.barrier_images[0].image != VK_NULL_HANDLE) {
+            VkImageMemoryBarrier2 to_sampling = vulkan::hdr_sampling_transition;
+            to_sampling.image = io.barrier_images[0].image;
+            VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
+            vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
+        }
+        // ... then the swapchain, which the instance CLEARs: UNDEFINED as the old layout asserts nothing about
+        // contents the resolve is about to replace entirely (the same claim the composite and FXAA make - a
+        // CLEAR instance's old layout is dead by definition).
+        VkImageMemoryBarrier2 to_attachment = vulkan::color_attachment_transition;
+        to_attachment.image = target;
+        VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
+        vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
+        // The push block is composed HERE (S3), and it is the pass's own: the display transfer is the only value
+        // the resolve reads, and it follows from the surface's format - 0 when the swapchain attachment encodes
+        // linear -> sRGB in hardware (so the shader must hand it LINEAR values) and 1 when the format is UNORM
+        // and the display-encoded value is what should be stored. The same lane, the same convention and the
+        // same expression as fxaa_pass::record, because a second spelling of the transfer is a second chance to
+        // double-encode the frame.
+        push_constants const push = {
+            .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format_) ? 0.0f : 1.0f,
+        };
+        VkClearValue clear = {};
+        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
+        vkCmdBeginRendering(io.cmd, &rendering_info);
+        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
+        // The source is a heap slot (see upscale.slang): the appended index lane names it, and the frame bound
+        // the heaps for this command buffer, so there is no set to bind here.
+        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        vkCmdDraw(io.cmd, 3, 1, 0, 0);
+        // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it
+        // runs, so the overlay belongs here and NOT in the composite's instance - the composite drew into the
+        // render-extent LDR image this pass is about to resample, so a UI drawn there would be scaled up with
+        // the scene (see upscale_frame::after_draw and the composite's frame for the other case).
+        if (this->frame_.after_draw.valid()) {
+            this->frame_.after_draw.record(this->frame_.after_draw.owner, io.cmd);
+        }
+        vkCmdEndRendering(io.cmd);
+    }
+
+} // namespace vulkan::pass

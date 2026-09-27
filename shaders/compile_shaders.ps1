@@ -36,6 +36,7 @@ $slangSources = @(
     "character_forward.slang:main:fragment:character_forward.frag.spv",
     "toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv",
     "fxaa.slang:main:fragment:fxaa.frag.spv",
+    "upscale.slang:main:fragment:upscale.frag.spv",
     "post.slang:main:vertex:post.vert.spv",
     "post.slang:frag_main:fragment:post.frag.spv",
     "gbuffer_debug.slang:main:fragment:gbuffer_debug.frag.spv",

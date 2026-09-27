@@ -524,6 +524,30 @@ int main() {
         rr::pass_io const touching = {.name = "post_hdr", .bindings = {}, .targets = adjacent, .push = std::nullopt};
         CHECK(rr::validate(touching).has_value());
     }
+    // ---- the SEVENTEENTH declaration: the UPSCALE resolve, the frame's last writer below render_scale 1.0 ----
+    {
+        auto const upscale = rr::validate(rr::upscale_io);
+        CHECK_MSG(upscale.has_value(), upscale.has_value() ? "" : upscale.error().c_str());
+        CHECK(rr::upscale_io.bindings.empty()); // the LDR image reaches the shader through the frame's heap
+        CHECK(rr::upscale_io.targets.size() == 1);
+        CHECK(rr::upscale_io.targets[0].resource == rr::resource_id::swapchain_image); // it finishes the frame
+        CHECK(rr::upscale_io.targets[0].element == 0);
+        CHECK(rr::upscale_io.targets[0].kind == rr::target_kind::color);
+        // ITS INPUT IS DECLARED, exactly as FXAA's is and for the same reason: the composite writes the LDR
+        // image and this pass reads it, so this pass is the one that moves it - and on a frame it does not run
+        // (render_scale 1.0, or FXAA resolving instead) nothing moves it at all
+        CHECK(rr::upscale_io.barrier_images.size() == 1);
+        CHECK(rr::upscale_io.barrier_images[0].resource == rr::resource_id::ldr);
+        CHECK(rr::upscale_io.barrier_images[0].element == 0);
+        CHECK(rr::upscale_io.push.has_value());
+        // THE PASS'S OWN BLOCK, NOT THE POST CHAIN'S: one display-transfer lane. The shader's block is this
+        // size PLUS the two heap index lanes the framework appends (the LDR image is a per-swapchain-image heap
+        // slot the shader names itself), which is why the declaration stops at the 4 bytes the pass composes.
+        CHECK(rr::upscale_io.push->size == 4);
+        CHECK(rr::upscale_io.push->offset == 0);
+        CHECK(rr::upscale_io.push->stages == rr::stage_flag::fragment);
+    }
+
     // ---- the SLOT GRID's two sources of truth, compared: the host reserves it in core::heap_slots and the
     //      shaders BAKE the same numbers out of shaders/heap_slot_constants.glsl. Both are text, neither is generated from
     //      the other, and a drift between them is invisible to validation - it shows up only as a wrong picture,

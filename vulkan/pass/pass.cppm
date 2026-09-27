@@ -606,6 +606,13 @@ export namespace vulkan::pass {
          */
         /// `post_fxaa_active()`: the FXAA knob and the pass having built its pipeline, i.e. who writes the LDR image
         bool fxaa_resolves = false;
+        /**
+         * `post_upscale_active()`: the render chain running BELOW the output size and the upscale pass having
+         * built its pipeline - i.e. the resolve is this frame's last writer, so the composite writes the LDR
+         * image for IT to read (the same question `fxaa_resolves` answers for FXAA, and the two are mutually
+         * exclusive: see `runtime::post_fxaa_active`).
+         */
+        bool upscale_resolves = false;
         /// the composed `gbuffer-debug` answer (see the note above), which is what suppresses the bloom sum
         bool debug_view = false;
         /// the clustered lighting's bin count, which is the sort's only input beyond its own dispatch

@@ -2069,6 +2069,7 @@ namespace vulkan {
             .megalights_resolved = this->megalights_resolved,
             .megalights_history_valid = index < this->megalights_history_valid.size() && this->megalights_history_valid[index],
             .fxaa_resolves = this->post_fxaa_active(),
+            .upscale_resolves = this->post_upscale_active(),
             .debug_view = this->active_features().gbuffer_debug,
             .cluster_count = this->cluster_tiles_x * this->cluster_tiles_y * vulkan::cluster_slice_count,
         };
@@ -2123,6 +2124,10 @@ namespace vulkan {
         this->post_composite_stage = {at("post_composite")};
         this->bloom_stage = {at("post_bloom_0"), at("post_bloom_1"), at("post_bloom_2"), at("post_bloom_3")};
         this->fxaa_stage = {at("fxaa")};
+        // ... and the resolve that scales the render chain back up to the output (vulkan.pass.upscale): the
+        // frame's last writer whenever `render_scale < 1.0` and its pipeline exists. It is looked up like every
+        // other stage here; the frame loop records it after the FXAA stage, with which it is mutually exclusive.
+        this->upscale_stage = {at("upscale")};
         // ... and the stochastic lighting chain's two passes, in the order the FRAME records them: the tracer
         // and its temporal resolve. Two passes rather than one because the frame has an ordering rule to
         // run BETWEEN them - it publishes the G-buffer depth and the motion-vector target that the resolve is the
@@ -2680,7 +2685,29 @@ namespace vulkan {
         // and pipeline variant with it, the frame loop decides the overlay's owner with it, the feature registry
         // reports it, and set_fxaa() already folds the pipeline's existence into `fxaa_on` for the same reason. The
         // pipeline is the FXAA PASS's now (vulkan.pass.fxaa), which is why this asks the pass rather than a member.
-        return this->fxaa_on && this->pass_ready("fxaa");
+        //
+        // ... AND IT CANNOT BE TRUE ON A FRAME THE UPSCALE RUNS, which is a CORRECTNESS rule rather than tidiness:
+        // the two passes read the SAME LDR image and both want to be the frame's last writer, and FXAA's edge
+        // filter is defined on the display-referred image AT THE RESOLUTION IT FILTERS - the render extent. On a
+        // scaled frame the upscale resamples that image up to the output, so an FXAA result written at the render
+        // extent would be thrown away by the resolve (or, if FXAA won, the resolve would magnify an already
+        // filtered image). Both cannot run, and the upscale is the one that must: it is what makes a scaled frame
+        // fill the presented image at all.
+        return this->fxaa_on && this->pass_ready("fxaa") && !this->post_upscale_active();
+    }
+
+    bool runtime::post_upscale_active() const noexcept {
+        // ONE definition of "the upscale pass is this frame's last writer", composed from the two facts that
+        // decide it: the render chain is running BELOW the output size, and the pass built the pipeline it
+        // records with (vulkan.pass.upscale, created by create_passes()).
+        //
+        // AT render_scale == 1.0 THE ANSWER IS FALSE BY CONSTRUCTION, and that is the whole reason this
+        // predicate is not just `pass_ready`: `core::render_extent()` returns the swapchain's extent at 1.0, so
+        // the resolve would read an image at the output size and write an image at the output size - a
+        // same-size resample that costs a pass and changes no pixel. This is also what keeps every scale-1.0
+        // capture byte-identical: the runner never resolves or records the stage, the composite never writes
+        // the LDR image for it, and the frame is the frame it always was.
+        return this->vulkan_core.render_scale < 1.0f && this->pass_ready("upscale");
     }
 
     void runtime::draw_overlay_after(void* const owner, VkCommandBuffer const command_buffer) {
@@ -2808,11 +2835,13 @@ namespace vulkan {
         this->gpu_mark(command_buffer, gpu_mark_id::bloom_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
         // ---- THE COMPOSITE, as a stage of one pass ----
-        // ITS FRAME CARRIES THE OVERLAY when FXAA is off: the overlay has no load op of its own, so it has to be
-        // drawn inside whichever instance is the frame's LAST writer - and when FXAA runs, that is the FXAA pass.
-        // Which of the two that is, and whether this frame's bloom sum exists, are published as facts
-        // (`frame_facts::fxaa_resolves` / `debug_view`) and the PASS composes its frame from them, including the
-        // overlay hook it was handed once in the application's `attach` (see frame_pass::prepare_frame).
+        // ITS FRAME CARRIES THE OVERLAY only when NEITHER resolve runs: the overlay has no load op of its own, so
+        // it has to be drawn inside whichever instance is the frame's LAST writer - and that is the FXAA pass on
+        // the frames it resolves and the upscale pass on the frames IT does. Which of the three that is, and
+        // whether this frame's bloom sum exists, are published as facts
+        // (`frame_facts::fxaa_resolves` / `frame_facts::upscale_resolves` / `debug_view`) and the PASS composes
+        // its frame from them, including the overlay hook it was handed once in the application's `attach` (see
+        // frame_pass::prepare_frame).
         pass::stage const composite_stage = {.name = "post_composite", .passes = this->post_composite_stage, .marks = false};
         this->prepare_stage(composite_stage, command_buffer);
         [[maybe_unused]] pass::run_report const composite_report = pass::record_stage(composite_stage, this->make_pass_host());
@@ -2831,7 +2860,21 @@ namespace vulkan {
         // the composite already ended the frame's display work, so this interval is ~0.
         this->gpu_mark(command_buffer, gpu_mark_id::fxaa_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
 
-        // true in both paths: the FXAA pass (or the composite, when FXAA is off) wrote the swapchain
+        // ---- THE UPSCALE RESOLVE, as a stage of one pass (vulkan.pass.upscale) ----
+        // It is the frame's LAST writer on the frames it runs (the render chain is smaller than the output), so
+        // it is the pass that carries the overlay there - the third and last case of the split the composite's
+        // frame states. The runner gates it on the feature `upscale`, which is `post_upscale_active()`: the same
+        // predicate that decided this frame's composite TARGET, so the pass runs exactly when the LDR image is
+        // what the composite wrote. It sits AFTER the FXAA stage because it is the later half of the exclusive
+        // pair (`post_fxaa_active` is false whenever this one is true), and it has no timing mark of its own: on
+        // the frames it runs its cost is reported in the interval after `fxaa_end`, which is where the frame's
+        // remaining commands already are.
+        pass::stage const upscale_stage = {.name = "upscale", .passes = this->upscale_stage, .marks = false};
+        this->prepare_stage(upscale_stage, command_buffer);
+        [[maybe_unused]] pass::run_report const upscale_report = pass::record_stage(upscale_stage, this->make_pass_host());
+
+        // true in all three paths: the composite (when neither resolve runs), the FXAA pass or the upscale pass
+        // wrote the swapchain
         return true;
     }
     frame_status runtime::end_recording() {

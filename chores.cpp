@@ -214,6 +214,16 @@ namespace chores {
         }
 
         {
+            // THE RESOLVE'S STAGE. Only the fragment shader is registered here, for the same reason as the rim's
+            // above: the pass builds its own pipeline in its `create` step, from post.vert.spv (the synthetic
+            // triangle, registered with the post chain below) and upscale.frag.spv - and that has to have happened
+            // before create_passes(), which is where this registration sits.
+            std::vector<unsigned char> upscale_fragment_code;
+            load_shader(shaders_dir, "upscale.frag.spv", upscale_fragment_code);
+            runtime.register_shader("upscale.frag.spv", upscale_fragment_code);
+        }
+
+        {
             // The post chain is a PASS PAIR now (vulkan.pass.post): the composite owns the chain's two pipelines,
             // and the four bloom levels record with them. So the app REGISTERS the two shaders the pass builds
             // from (post.vert's synthetic triangle and post.frag, whose `mode` lane selects the stage) and the pass

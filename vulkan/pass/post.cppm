@@ -68,9 +68,9 @@ export namespace vulkan::pass {
         float mode = 0.0f;            // 0 = prefilter, 1 = downsample, 2 = composite, 3 = FXAA
         // composite only: 1 = the shader encodes to sRGB itself, 0 = the target is an sRGB attachment and the
         // hardware encodes on write. Filled from the frame's TARGET (never hard-coded: either choice
-        // double-encodes an sRGB attachment or under-encodes a UNORM one), and the FXAA pass forces it to 1,
-        // because it renders into the R16F LDR image, which must hold gamma-encoded values for FXAA's luma
-        // thresholds.
+        // double-encodes an sRGB attachment or under-encodes a UNORM one), and the composite forces it to 1
+        // whenever it writes the R16F LDR image rather than the swapchain - i.e. whenever a resolve (the FXAA
+        // pass or the upscale pass) will read it, because that image must hold display-encoded values.
         float encode_gamma = 0.0f;
         // FXAA lanes (fxaa.frag): the sub-pixel term strength (0 = pure directional blend) and the relative luma
         // contrast below which a pixel counts as flat.
@@ -97,14 +97,16 @@ export namespace vulkan::pass {
          * WHY IT IS A CALLBACK AND NOT A PASS OF ITS OWN, which is the decision this step had to make: the
          * overlay has no load op - it composites a UI on top of the image the composite just wrote - so a pass
          * of its own would CLEAR the frame it is supposed to draw over. It has to be inside whichever instance
-         * is the frame's LAST writer, and which one that is depends on FXAA: the pass installs this hook (see
-         * `set_overlay`) and then decides from `write_ldr` whether it or the FXAA pass is the one that draws it
-         * (vulkan.pass.fxaa holds the same hook for the other case).
+         * is the frame's LAST writer, and which one that is depends on the resolve: the pass installs this hook
+         * (see `set_overlay`) and then decides from `write_ldr` whether it or the FXAA pass (or the upscale pass
+         * - the two are mutually exclusive) is the one that draws it (vulkan.pass.fxaa and vulkan.pass.upscale
+         * hold the same hook for the other two cases).
          */
         draw_callback after_draw = {};
         /**
-         * Whether the FXAA pass finishes this frame, i.e. whether the composite must write the LDR image instead
-         * of the swapchain (see the target deviation in `render_resource::post_composite_io`).
+         * Whether a RESOLVE finishes this frame (the FXAA pass or the upscale pass), i.e. whether the composite
+         * must write the LDR image instead of the swapchain (see the target deviation in
+         * `render_resource::post_composite_io`).
          *
          * IT ARRIVES AS DATA RATHER THAN BEING DERIVED from the overlay hook's presence, because a pass inferring
          * one decision from another decision's nullness is exactly the kind of coupling a frame struct exists to
@@ -128,10 +130,11 @@ export namespace vulkan::pass {
     /**
      * @brief the composite: HDR plus the weighted bloom levels, tonemapped into the frame's display target
      *
-     * The frame's LAST writer when FXAA is off (it then carries the overlay through `after_draw`) and the
-     * second-to-last when FXAA is on (it writes the R16F LDR image instead, with the R16F pipeline, and the
-     * FXAA pass finishes). Which of the two it is, is the host's answer - see `render_resource::post_composite_io`
-     * for the recorded target deviation.
+     * The frame's LAST writer when no resolve runs (it then carries the overlay through `after_draw`) and the
+     * second-to-last when one does (it writes the R16F LDR image instead, with the R16F pipeline, and the FXAA
+     * pass finishes at the frame's resolution while the upscale pass finishes at the output's). Which of the
+     * three it is, is the host's answer - see `render_resource::post_composite_io` for the recorded target
+     * deviation.
      */
     class post_composite_pass final : public frame_pass {
     public:
@@ -150,11 +153,12 @@ export namespace vulkan::pass {
          * @brief resolve the declaration, then let the FRAME decide the target and the pipeline variant
          *
          * THE ONE POST PASS THAT OVERRIDES `resolve`, and the reason is the deviation its declaration records:
-         * `render_target` names one resource, and this pass renders into the SWAPCHAIN when FXAA is off and into
-         * the R16F LDR image when it is on (FXAA has to READ what the composite produced, and a pass may not read
-         * the image it renders into). The two choices ARE one choice - the target decides the pipeline's format -
-         * so they are made together here, from `composite_frame::write_ldr`, which is the frame's answer (the same
-         * predicate that decides who draws the overlay).
+         * `render_target` names one resource, and this pass renders into the SWAPCHAIN when no resolve runs and
+         * into the R16F LDR image when one does (the FXAA pass or the upscale pass has to READ what the composite
+         * produced, and a pass may not read the image it renders into). The two choices ARE one choice - the
+         * target decides the pipeline's format - so they are made together here, from
+         * `composite_frame::write_ldr`, which is the frame's answer (the same predicate that decides who draws
+         * the overlay).
          *
          * The PUSH BLOCK is composed here too rather than in `record`, because `encode_gamma` is a consequence of
          * the same decision (with FXAA the target is R16F and the shader must encode; without it the swapchain
@@ -170,12 +174,12 @@ export namespace vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline for a target in the SWAPCHAIN's format (the FXAA-off frame)
+        /// @brief the pipeline for a target in the SWAPCHAIN's format (the frame no resolve finishes)
         [[nodiscard]] VkPipeline composite_pipeline() const noexcept;
-        /// @brief the R16F pipeline: the bloom levels, and the LDR target FXAA will read
+        /// @brief the R16F pipeline: the bloom levels, and the LDR target a resolve will read
         [[nodiscard]] VkPipeline hdr_pipeline() const noexcept;
         /// @brief the pipeline the runner binds by default: the SWAPCHAIN variant, which `resolve` replaces on
-        ///        the frames FXAA finishes (the declaration names ONE pipeline, and this pass owns both variants)
+        ///        the frames a resolve finishes (the declaration names ONE pipeline, and this pass owns both variants)
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
         /**
          * @brief the R16F variant, which the BLOOM LEVELS record with

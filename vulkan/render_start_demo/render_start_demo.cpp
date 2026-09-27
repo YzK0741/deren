@@ -57,6 +57,11 @@ namespace vulkan {
         this->chain_.emplace<pass::post_bloom_pass>(2u);
         this->chain_.emplace<pass::post_bloom_pass>(3u);
         this->chain_.emplace<pass::fxaa_pass>();
+        // ... and the RESOLVE, after it: the render chain's display-referred image onto the presented swapchain.
+        // It is the frame's LAST writer on the frames the chain runs below the output size, and it is mutually
+        // exclusive with the FXAA pass above (see runtime::post_fxaa_active), so the two are alternatives in the
+        // frame loop rather than a stack.
+        this->chain_.emplace<pass::upscale_pass>();
         this->passes_ = &this->chain_;
         // LOOKED UP BY THE NAME THE DECLARATION CARRIES, which is the only key a chain gives: a cast is what turns
         // the declaration's owner into the type whose frame it wants. A pass this build does not have (its
@@ -75,6 +80,7 @@ namespace vulkan {
         this->megalights_temporal_ = this->find<pass::megalights_temporal_pass>("megalights_temporal");
         this->composite_ = this->find<pass::post_composite_pass>("post_composite");
         this->fxaa_ = this->find<pass::fxaa_pass>("fxaa");
+        this->upscale_ = this->find<pass::upscale_pass>("upscale");
 
         std::size_t found = 0;
         found += this->cluster_ != nullptr ? 1u : 0u;
@@ -113,6 +119,12 @@ namespace vulkan {
         }
         if (this->fxaa_ != nullptr) {
             this->fxaa_->set_overlay(self.overlay_draw());
+        }
+        // ... and the resolve holds it too: on a frame the render chain is smaller than the output, THIS is the
+        // frame's last writer, so the overlay has to be drawn inside its instance (at the OUTPUT extent - the
+        // other reason it belongs here and not in the composite, whose instance covers the render extent).
+        if (this->upscale_ != nullptr) {
+            this->upscale_->set_overlay(self.overlay_draw());
         }
         return found;
     }
@@ -224,6 +236,12 @@ namespace vulkan {
             // whether this frame's bloom sum exists), and the overlay hook was installed once in `attach`.
         } else if (stage == "fxaa") {
             // ... and neither has the FXAA pass, whose frame is the overlay hook it was given in `attach`.
+        } else if (stage == "upscale") {
+            // ... AND NEITHER HAS THE RESOLVE, and that is the whole answer rather than an omission: its frame is
+            // the overlay hook it was given in `attach`, it owns the two transitions it records (the LDR image it
+            // reads and the swapchain it writes), and every value it pushes is either its own or the frame's -
+            // so there is no frame-ORDER duty for this owner to run before it, which is exactly the shape the
+            // composite's and FXAA's stages above have.
         }
         // A stage with no entry above is a stage whose pass wants nothing from this owner: the world-space probe
         // cache's declaration resolves every value it needs, and the frames of every other stage are the passes'
@@ -384,6 +402,14 @@ namespace vulkan {
         }
         if (name == "fxaa") {
             return facts.fxaa;
+        }
+        if (name == "upscale") {
+            // THE RUNTIME'S COMPOSED PREDICATE (`post_upscale_active`: the render chain is smaller than the
+            // output AND the pass built its pipeline), relayed exactly as `fxaa` is - the runtime is what knows
+            // the render scale and the pass registry, and this owner is what knows the chain. Nothing of the
+            // pass's own is added here: its `ready()` half is already inside the fact, so the runner's gate and
+            // the composite's target choice cannot disagree about whether the resolve runs.
+            return facts.upscale;
         }
         if (name == "shadow") {
             // The shadow map is only read by the shading stages. The flat render mode samples nothing, so recording

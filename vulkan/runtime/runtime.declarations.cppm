@@ -39,6 +39,7 @@ import vulkan.pass.scene;                 // the third: the scene itself, whose 
 import vulkan.pass.transparent;           // the fourth: the blended geometry, over the shaded frame
 import vulkan.pass.character_forward;     // ... and the toon character stage, which re-shades the OPAQUE leaves over it
 import vulkan.pass.toon_screen_rim;       // ... and its second rim, a fullscreen additive contour from the depth
+import vulkan.pass.upscale;               // the resolve: the render chain's LDR image -> the presented swapchain
 import vulkan.pass.ray_traced_shadow;     // the ninth, and the only pass that traces outside the chain: the ray-traced shadow
 import vulkan.pass.mask_bake;             // ... and the one-shot MASK bake, which is a JOB rather than a frame pass
 import vulkan.pass.compute_skin;          // ... and the compute-skinning job, which is a job for the same reason
@@ -461,6 +462,14 @@ namespace vulkan {
         std::array<pass::frame_pass*, 1> shadow_stage = {};
         std::array<pass::frame_pass*, 1> gbuffer_debug_stage = {};
         std::array<pass::frame_pass*, 1> fxaa_stage = {};
+        /**
+         * THE UPSCALE PASS (vulkan.pass.upscale): the resolve that scales the render chain back up to the
+         * output, and the frame's LAST writer on the frames it runs. It is the only pass in the frame whose
+         * extent is the SWAPCHAIN's rather than the render extent's (its declaration says so - see
+         * `upscale_io`), and it is mutually exclusive with the FXAA pass by `post_fxaa_active()`: both read the
+         * composite's LDR image and both want to write the presented one.
+         */
+        std::array<pass::frame_pass*, 1> upscale_stage = {};
 
         std::array<pass::frame_pass*, 1> rt_shadow_stage = {};
         /// the deferred lighting stage's own stage: it sits between the ray-traced shadow (whose output its
@@ -1598,6 +1607,13 @@ namespace vulkan {
             bool megalights = false;   // megalights_active(): the knob, the pass, and the deferred shading path
             bool rt_shadow = false;    // rt_shadows_active(): the knob and the device
             bool fxaa = false;         // post_fxaa_active(): the knob and the FXAA pass
+            /**
+             * post_upscale_active(): the render chain running below the output size AND the upscale pass having
+             * built its pipeline. Reported as an atom for the same reason `fxaa` is: the runtime acts on it (it
+             * picks the composite's target and pipeline variant), the frame reports it in `frame_facts` and the
+             * chain owner's table relays it, so all three read ONE composition rather than three.
+             */
+            bool upscale = false;
             /// the knobs the feature table composes with, and the frame's own content
             bool gbuffer_debug = false;       // the debug view's knob
             bool shadow = false;              // the checkbox AND enable_shadows() having succeeded
@@ -2108,6 +2124,16 @@ namespace vulkan {
          *        target and pipeline variant, the overlay's owner, set_fxaa() and the feature registry all ask it)
          */
         [[nodiscard]] bool post_fxaa_active() const noexcept;
+        /**
+         * @brief whether the UPSCALE pass is this frame's LAST writer
+         *
+         * The frame's own question, exactly as `post_fxaa_active` is: the composite's target and pipeline
+         * variant, the overlay's owner, the feature registry and `frame_facts::upscale_resolves` all ask it.
+         * It is true only BELOW render_scale 1.0 - at 1.0 the render chain IS the output, so a resolve would be
+         * a same-size resample that costs a pass and changes nothing, and the frame stays exactly the frame it
+         * has always been.
+         */
+        [[nodiscard]] bool post_upscale_active() const noexcept;
         /**
          * @brief the debug overlay, drawn INSIDE the instance of whichever pass is the frame's last writer
          *
@@ -2925,6 +2951,7 @@ namespace vulkan {
             bool ssao = false;          // the lighting stage applies screen-space AO (shader-side gate)
             bool bloom = false;         // run the bloom chain
             bool fxaa = false;          // run the final FXAA pass
+            bool upscale = false;       // resolve the render chain up to the output (post_upscale_active)
             bool transparent = false;   // the transparent pass has work to record
         };
         [[nodiscard]] render_features active_features() const noexcept;

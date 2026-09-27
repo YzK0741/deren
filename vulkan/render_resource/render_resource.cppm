@@ -1197,6 +1197,50 @@ export namespace vulkan::render_resource {
         .push = push_block{.offset = 0, .size = post_push_bytes, .stages = stage_flag::fragment},
     };
 
+    /// @brief what the UPSCALE pass RENDERS INTO by declaration: the swapchain, i.e. the OUTPUT image whose
+    ///        extent is the one thing this pass asks for that is not the frame's
+    inline constexpr std::array<render_target, 1> upscale_targets = {{render_target{.resource = resource_id::swapchain_image, .element = 0, .kind = target_kind::color}}};
+
+    /// @brief the image the upscale pass reads and therefore has to move to a sampled layout: the composite's LDR
+    ///        output - the same image FXAA reads, which is why the two passes are mutually exclusive
+    inline constexpr std::array<barrier_image, 1> upscale_barriers = {{barrier_image{.resource = resource_id::ldr, .element = 0}}};
+
+    /**
+     * @brief the UPSCALE pass's declaration: the display-referred LDR image -> the presented swapchain, by a
+     *        linear (bilinear) resample
+     *
+     * WHY IT EXISTS: `core::render_extent()` is the RENDER chain's extent, so at `[render] render_scale < 1.0`
+     * every image the chain renders into is created smaller while the swapchain keeps the output size. Before
+     * this declaration the scaled frame was simply presented in the TOP-LEFT QUADRANT of that output - the
+     * scene was shaded, at a lower resolution, and nothing resolved it. This pass is that resolve.
+     *
+     * THE TARGET IS THE SWAPCHAIN AND ITS EXTENT IS THE OUTPUT, and that pairing is the whole mechanism: this
+     * is the one resource `runtime::resolve_resource_extent` answers with the swapchain's extent rather than
+     * the frame's, so a pass declaring `extent_rule::resource` over it gets a viewport covering the presented
+     * image while it samples an image at the render extent (`behaviour::resync_viewport` sets both).
+     *
+     * IT IS FXAA'S SIBLING AND ITS EXCLUSIVE ALTERNATIVE, and the exclusion is a correctness rule rather than
+     * tidiness: both read the same LDR image, both want to be the frame's last writer, and FXAA's edge filter
+     * is defined at the resolution it filters - so on a frame this pass resolves, FXAA must not run at all
+     * (its result would be resampled away). `runtime::post_fxaa_active` carries that exclusion, and the
+     * composite's target choice, the frame's `write_ldr` and the overlay's owner all read the two predicates
+     * from `frame_facts` so nothing can disagree.
+     *
+     * The push block is this pass's OWN and is 4 bytes - the display transfer lane, whose value follows from the
+     * surface's format exactly as FXAA's does. It is deliberately NOT `post_push_bytes`: the resolve samples one
+     * image at one coordinate, so every lane of the post chain's block would be a dead field. The shader's block
+     * is this size PLUS the two heap index lanes the framework appends (the LDR image is a per-swapchain-image
+     * heap slot the shader names itself - see shaders/upscale.slang).
+     */
+    inline constexpr pass_io upscale_io = {
+        .name = "upscale",
+        .bindings = {},
+        .targets = upscale_targets,
+        .barrier_images = upscale_barriers,
+        .barrier_buffers = {},
+        .push = push_block{.offset = 0, .size = 4, .stages = stage_flag::fragment},
+    };
+
     /// @brief what the debug view RENDERS INTO: the HDR target, which is the image it actually writes - so unlike
     ///        the deferred stage's and the composite's, this declaration carries no deviation
     inline constexpr std::array<render_target, 1> gbuffer_debug_targets = {{render_target{.resource = resource_id::hdr, .element = 0, .kind = target_kind::color}}};

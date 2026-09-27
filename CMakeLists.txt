@@ -153,6 +153,7 @@ target_sources(vulkancorekit
         vulkan/pass/deferred.cppm
         vulkan/pass/post.cppm
         vulkan/pass/fxaa.cppm
+        vulkan/pass/upscale.cppm
         vulkan/pass/geometry_buffer_debug.cppm
         vulkan/pass/shadow.cppm
         vulkan/pass/chain.cppm
@@ -192,6 +193,7 @@ target_sources(vulkancorekit
         vulkan/pass/deferred.cpp
         vulkan/pass/post.cpp
         vulkan/pass/fxaa.cpp
+        vulkan/pass/upscale.cpp
         vulkan/pass/geometry_buffer_debug.cpp
         vulkan/pass/shadow.cpp
         vulkan/render_start_demo/render_start_demo.cpp
@@ -780,6 +782,10 @@ set(VR_SLANG_SOURCES
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
     toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
     fxaa.slang:main:fragment:fxaa.frag.spv
+    # upscale.slang is the RESOLVE: the render chain's display-referred LDR image onto the presented swapchain,
+    # by a linear (bilinear) filter. It runs only below `[render] render_scale = 1.0` - at 1.0 the chain IS the
+    # output and the pass's feature gate is false, which is why no capture scenario records it.
+    upscale.slang:main:fragment:upscale.frag.spv
     post.slang:main:vertex:post.vert.spv
     # post.frag is the post chain's stage for ALL THREE modes (bright pass / downsample / composite), so every
     # scenario records it - the widest verification a single port can have.

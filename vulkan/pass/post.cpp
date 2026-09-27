@@ -127,12 +127,15 @@ namespace vulkan::pass {
     }
 
     void post_composite_pass::prepare_frame(frame_facts const& facts) noexcept {
-        // WHO WRITES THE LDR IMAGE is the fact that decides both lanes at once: when FXAA resolves, this pass is
-        // not the frame's last writer, so it writes the intermediate and FXAA carries the overlay; when it does
-        // not, this pass is the last writer and draws the overlay itself.
+        // WHO WRITES THE LDR IMAGE is the fact that decides both lanes at once: when EITHER resolve runs (FXAA at
+        // the frame's resolution, the upscale below render_scale 1.0 - the two are mutually exclusive, see
+        // runtime::post_fxaa_active), this pass is not the frame's last writer, so it writes the intermediate and
+        // that resolve carries the overlay; when neither runs, this pass is the last writer and draws the
+        // overlay itself.
+        bool const resolved = facts.fxaa_resolves || facts.upscale_resolves;
         composite_frame frame = {};
-        frame.after_draw = facts.fxaa_resolves ? draw_callback{} : this->overlay_;
-        frame.write_ldr = facts.fxaa_resolves;
+        frame.after_draw = resolved ? draw_callback{} : this->overlay_;
+        frame.write_ldr = resolved;
         frame.suppress_bloom = facts.debug_view;
         this->set_frame(frame);
     }
@@ -141,11 +144,11 @@ namespace vulkan::pass {
         if (!resolve_declaration(*this, context, out)) {
             return false;
         }
-        // THE FRAME DECIDES THE TARGET AND THE PIPELINE TOGETHER (see this override's declaration note): with
-        // FXAA on, the composite writes the R16F LDR image with the R16F variant; otherwise it writes the
-        // declared swapchain image and the FXAA pass never runs. The LDR image is not in the declaration - one
-        // `render_target` names one resource - so it comes from the frame's table, in the declaration's own
-        // vocabulary, exactly as the declared one did.
+        // THE FRAME DECIDES THE TARGET AND THE PIPELINE TOGETHER (see this override's declaration note): with a
+        // resolve on (FXAA at the frame's extent, the upscale below render_scale 1.0), the composite writes the
+        // R16F LDR image with the R16F variant; otherwise it writes the declared swapchain image and neither
+        // resolve pass runs. The LDR image is not in the declaration - one `render_target` names one resource -
+        // so it comes from the frame's table, in the declaration's own vocabulary, exactly as the declared one did.
         if (!this->frame_.write_ldr) {
             return this->fill_push(out, false);
         }
@@ -217,8 +220,8 @@ namespace vulkan::pass {
         vkCmdDraw(io.cmd, 3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: the debug overlay composites a UI over the image
         // this draw just wrote and has no load op of its own, so it can be neither a pass nor outside the
-        // instance (see composite_frame::after_draw - the pass leaves this empty when FXAA is the frame's last
-        // writer instead, which its own frame decided in prepare_frame).
+        // instance (see composite_frame::after_draw - the pass leaves this empty when a resolve is the frame's
+        // last writer instead, which its own frame decided in prepare_frame).
         if (this->frame_.after_draw.valid()) {
             this->frame_.after_draw.record(this->frame_.after_draw.owner, io.cmd);
         }

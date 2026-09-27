@@ -149,6 +149,19 @@ namespace vulkan::pipelines {
     };
     export std::expected<fxaa_owned, std::string> build_fxaa_owned(VkDevice device, VkFormat swap_chain_format,
                                                                    std::span<unsigned char const> vertex_shader_code, std::span<unsigned char const> fragment_shader_code);
+    /**
+     * @brief what the UPSCALE pass's own create step needs: the resolve pipeline
+     *
+     * FXAA's sibling, and its body is the same pipeline recipe on purpose: both passes read the composite's
+     * display-referred LDR image and write the swapchain with `post.vert.spv`'s synthetic triangle and no depth
+     * attachment, so the only things that differ are the fragment shader and the viewport the RUNNER sets from
+     * each pass's own declaration (FXAA's is the frame's extent, this one's is the swapchain's).
+     */
+    export struct upscale_owned {
+        std::optional<vk_pipeline> resolve;
+    };
+    export std::expected<upscale_owned, std::string> build_upscale_owned(VkDevice device, VkFormat swap_chain_format,
+                                                                         std::span<unsigned char const> vertex_shader_code, std::span<unsigned char const> fragment_shader_code);
     export struct deferred_owned {
         std::optional<vk_pipeline> lighting;
     };
@@ -795,6 +808,25 @@ namespace vulkan::pipelines {
             return fail(std::string(pipeline_result.error()));
         }
         out.antialias = std::move(pipeline_result).value();
+        return out;
+    }
+
+    std::expected<upscale_owned, std::string> build_upscale_owned(VkDevice const device, VkFormat const swap_chain_format,
+                                                                  std::span<unsigned char const> const vertex_shader_code, std::span<unsigned char const> const fragment_shader_code) {
+        using fail = std::unexpected<std::string>;
+        upscale_owned out;
+
+        // The resolve pipeline renders into the SWAPCHAIN, so its declared colour format is the surface's - and
+        // that format is also what decides the shader's `encode_gamma` lane (see upscale_pass::record). The
+        // single-target convenience form's blend state is the engine's standard src-alpha one, which the
+        // fragment shader's alpha of 1.0 reduces to a copy: the same arrangement the composite's and FXAA's
+        // swapchain writes already have, and the reason no blend state is spelled out here.
+        auto pipeline_result = vulkan::make_pipeline(
+            device, swap_chain_format, VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, true, 0.0f, 0.0f, 0.0f);
+        if (!pipeline_result) {
+            return fail(std::string(pipeline_result.error()));
+        }
+        out.resolve = std::move(pipeline_result).value();
         return out;
     }
 } // namespace vulkan::pipelines
