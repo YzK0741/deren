@@ -356,9 +356,73 @@ namespace vulkan {
             }
         }
 
-        // ---- THE FACE SDF LANE TABLE: ONE uint PER MATERIAL, and a buffer of its own because the material record
-        //      cannot hold it - see core::heap_slots::sdf_lanes for the measurement that settled that (the record
-        //      is INLINE in the per-draw push block, and adding a word to it crashed the renderer).
+        // ---- THE MATERIAL COLOURS: ONE `vec4` PER LANE PER MATERIAL, WHITE to begin with ----
+        //
+        // THE NEUTRAL IS THE INITIAL CONTENT and not a placeholder (see `toon_colour_lane`): every lane multiplies
+        // or tints something, so a material whose sidecar states no colour must leave that thing alone - and
+        // `register_material` overwrites the lanes it was given, per material, at the index the shader addresses.
+        // THREE LANES ARE NOT WHITE, and all three are stated below: the outline lane's width (0, not 1) and the
+        // TWO scalar lanes' sentinel (-1, not 1) - the specular strength and the parallax depth.
+        //
+        // A BUFFER OF FLOATS, so the fill below writes 1.0f as a FLOAT - not 0xFF, which is one in a UNORM texture
+        // and 0.0 in this. That distinction is the whole reason a colour lane could not reuse the texture lanes.
+        {
+            std::vector<glm::vec4> neutral_colours(static_cast<size_t>(vulkan::material_capacity) * static_cast<size_t>(vulkan::toon_colour_lane::count), glm::vec4(1.0f));
+            // ... EXCEPT THE OUTLINE LANE'S WIDTH, WHICH IS 0.0 AND NOT 1.0 (`toon_inputs::colours` states the
+            // whole argument): three of that lane's four floats are the `_OutlineTintColor` tint, whose neutral is
+            // white, and the fourth is `_OutlineWidth`, whose neutral is ZERO - a width of 1.0 would draw a hull
+            // around every material that states no outline, i.e. the entire character. The layout is
+            // MATERIAL-major (`material_index * toon_colour_lane::count + lane`, see `register_material`), so the
+            // lane to reach is every `count`-th element.
+            for (size_t material = 0; material < static_cast<size_t>(vulkan::material_capacity); ++material) {
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::outline_edge)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+                // ... AND THE TWO SCALAR LANES' SENTINEL IS `-1.0` RATHER THAN 1.0, for the same kind of reason:
+                // neither `.x` is a tint but a STRENGTH (`_Specular`) or a DEPTH (`_ParallaxScale`), whose "no
+                // statement" cannot be a number in the value's own range (see `toon_colour_lane::specular_strength`
+                // and `toon_colour_lane::parallax_scale`). A table left at 1.0 would shade every material that
+                // states no `_Specular` with a full-strength highlight, and would push every material that states
+                // no `_ParallaxScale` to a parallax offset thirty-three times the one the stage's own constant
+                // gives - which is the same failure from the other side.
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::specular_strength)] =
+                    glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::parallax_scale)] =
+                    glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
+            }
+            init_utils::create_host_buffer(this->vulkan_core,
+                                           std::as_bytes(std::span(neutral_colours)),
+                                           vulkan::buffer_type::storage_coherent,
+                                           "toon colour table buffer",
+                                           this->toon_colour_buffer,
+                                           this->toon_colour_mapped,
+                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+                auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_colour_buffer.handle());
+                if (detail != nullptr) {
+                    VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
+                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
+                    bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride,
+                                                                                         address,
+                                                                                         std::as_bytes(std::span(neutral_colours)).size(),
+                                                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                    utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
+                                 written ? "written" : "NOT written",
+                                 address,
+                                 static_cast<uint32_t>(vulkan::toon_colour_lane::count),
+                                 vulkan::material_capacity,
+                                 static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride);
+                }
+            }
+        }
+
+        // ---- THE TOON LANES BESIDE THE RECORD: ONE `uvec4` PER MATERIAL, and a buffer of its own because the
+        //      material record cannot hold them - see core::heap_slots::toon_lanes for the measurement that
+        //      settled that (the record is INLINE in the per-draw push block, and adding a word to it crashed the
+        //      renderer).
+        //
+        //      x IS THE FACE SDF LANE (`_SDFLightmap`) and y IS THE METALLIC/GLOSS LANE (`_MetallicGlossMap`); z
+        //      and w are reserved for the lanes the rest of the character work adds, which is why the block is a
+        //      `uvec4` rather than the single uint the SDF lane needed on its own - one descriptor, four lanes.
         //
         //      IT IS MATERIAL-INDEXED, not lane-indexed like the record's `toon_indices`: the shader reaches it
         //      with the material index it already has, so nothing new has to be threaded through the push path.
@@ -366,28 +430,59 @@ namespace vulkan {
         //
         //      WRITTEN ONCE, here, like the material table beside it: the values are fixed at import and never
         //      rewritten, which is why it is one descriptor and not a per-frame pair.
-        std::vector<uint8_t> const zeroed_sdf_lanes(static_cast<size_t>(vulkan::material_capacity) * sizeof(uint32_t), 0);
+        std::vector<uint8_t> const zeroed_toon_lanes(static_cast<size_t>(vulkan::material_capacity) * vulkan::toon_lane_blocks * sizeof(glm::uvec4), 0);
         init_utils::create_host_buffer(this->vulkan_core,
-                                       std::as_bytes(std::span(zeroed_sdf_lanes)),
+                                       std::as_bytes(std::span(zeroed_toon_lanes)),
                                        vulkan::buffer_type::storage_coherent,
-                                       "face sdf lane table buffer",
-                                       this->sdf_lane_buffer,
-                                       this->sdf_lane_mapped,
+                                       "toon lane table buffer",
+                                       this->toon_lane_buffer,
+                                       this->toon_lane_mapped,
                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
         if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-            auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->sdf_lane_buffer.handle());
+            auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_lane_buffer.handle());
             if (detail != nullptr) {
                 VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
                 VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
-                bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::sdf_lanes) * core::heap_slot_stride,
+                bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride,
                                                                                      address,
-                                                                                     static_cast<VkDeviceSize>(vulkan::material_capacity) * sizeof(uint32_t),
+                                                                                     static_cast<VkDeviceSize>(vulkan::material_capacity) * vulkan::toon_lane_blocks * sizeof(glm::uvec4),
                                                                                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                utility::log("descriptor heap: face sdf lane table {} (address 0x{:x}, {} lanes, offset {})",
+                utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
                              written ? "written" : "NOT written",
                              address,
                              vulkan::material_capacity,
-                             static_cast<VkDeviceSize>(core::heap_slots::sdf_lanes) * core::heap_slot_stride);
+                             static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride);
+            }
+        }
+
+        // ---- THE TOON LIGHT RIG: ONE BLOCK FOR THE RUN, and it is not a per-frame pair for the reason the two
+        //      tables above are not: nothing rewrites it while a frame is in flight (see
+        //      core::heap_slots::toon_rig). The application fills it from its config through
+        //      `runtime::set_toon_rig`, and the zeros it is created with are replaced before the first frame.
+        {
+            std::vector<uint8_t> const zeroed_toon_rig(sizeof(vulkan::toon_rig), 0);
+            init_utils::create_host_buffer(this->vulkan_core,
+                                           std::as_bytes(std::span(zeroed_toon_rig)),
+                                           vulkan::buffer_type::storage_coherent,
+                                           "toon light rig buffer",
+                                           this->toon_rig_buffer,
+                                           this->toon_rig_mapped,
+                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+                auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_rig_buffer.handle());
+                if (detail != nullptr) {
+                    VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
+                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
+                    bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride,
+                                                                                         address,
+                                                                                         static_cast<VkDeviceSize>(sizeof(vulkan::toon_rig)),
+                                                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                    utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
+                                 written ? "written" : "NOT written",
+                                 address,
+                                 sizeof(vulkan::toon_rig),
+                                 static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride);
+                }
             }
         }
 
@@ -1025,6 +1120,35 @@ namespace vulkan {
         // "point the binding at it" step and nothing to rewrite here.
     }
 
+    // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), uploaded exactly as the BRDF LUT above is - the same
+    // `create_image(data, ...)` -> `make_image_view` -> `write_heap_grid_image` triple, because a baked cube and a
+    // generated one differ only in who filled the bytes.
+    void runtime::set_post_lut(std::span<uint8_t const> const pixels, uint32_t const width, uint32_t const height) {
+        if (pixels.empty() || width == 0u || height == 0u) {
+            utility::log("post LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
+            return;
+        }
+        vulkan::image_create_info lut_info = {};
+        lut_info.width = width;
+        lut_info.height = height;
+        lut_info.mip_levels = 1;
+        lut_info.array_layers = 1;
+        lut_info.format = VK_FORMAT_R8G8B8A8_SRGB;
+        this->post_lut_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), lut_info, vulkan::image_type::texture_2d);
+        if (!this->post_lut_image.valid()) {
+            utility::panic("failed to create the post LUT image");
+        }
+        auto const* const detail = this->vulkan_core.vma.get_image_detail(this->post_lut_image.handle());
+        if (detail == nullptr) {
+            utility::panic("failed to get the post LUT image detail");
+        }
+        this->post_lut_view = this->vulkan_core.make_image_view(detail->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D);
+        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::post_lut, detail->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D)) {
+            utility::log("descriptor heap: the post LUT did not reach grid slot {}", core::heap_slots::post_lut);
+        }
+        utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::post_lut);
+    }
+
     material_id runtime::register_material(primitive_create_info const& info) {
         // ---- 1. Resolve the 5 texture slots against the shared array: identical texture bytes
         //         upload once, keyed by a CONTENT hash of the decoded bytes (xxh3 digest +
@@ -1059,6 +1183,20 @@ namespace vulkan {
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::specular_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::matcap)], VK_FORMAT_R8G8B8A8_SRGB},
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_lightmap)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE METALLIC/GLOSS LANE IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are
+            // metallic, reflectivity, occlusion and smoothness - NUMBERS, not colour - so an sRGB decode would
+            // bend every one of them, and roughness read out of a decoded smoothness would be wrong everywhere on
+            // the surface rather than at one band edge.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::metallic_gloss)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE FACE MASK IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are REGION
+            // WEIGHTS and a normal term - numbers, not colour - so an sRGB decode would bend every one of them.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE EMOTION ATLAS IS COLOUR - it is a painting of eyebrows and a mouth that REPLACES the albedo where
+            // its alpha says so - so it takes the sRGB treatment the ramps do, not the mask's.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::emotion)], VK_FORMAT_R8G8B8A8_SRGB},
+            // THE SPLIT NORMAL IS UNORM: its two packed tangent-space normals are DATA (`* 2 - 1` on the way in),
+            // so an sRGB decode would bend both of them.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], VK_FORMAT_R8G8B8A8_UNORM},
         };
 
         std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
@@ -1215,6 +1353,38 @@ namespace vulkan {
         if (info.factors.alpha_blend) {
             record.flags |= 32u; // bit5: alphaMode BLEND - alpha-blended / transparent material
         }
+        // ---- THE OVERLAY CHANNEL, on the record's two free bits ----
+        //
+        // THE FRAGMENT STAGE HAS TO BRANCH ON THIS, and that is the only reason it is in the record as well as
+        // on the primitive: the article's two masks compute DIFFERENT multipliers from the same inputs -
+        // `MyZmdEyeDarkShader` multiplies by `mask * _Alpha` while `MyZmdHairShadowShader` multiplies by the
+        // scalar `_DayStrength` and never reads its mask - so one overlay pipeline draws both only because the
+        // record tells it which. The primitive's copy is what the HOST reads to build the frame's leaf lists
+        // (`primitive::overlay_kind`); this one is what the SHADER reads. It is the same deliberate
+        // two-copies-of-one-import-fact arrangement `alpha_blend`/bit5 above already has, and it is two bits
+        // rather than a lane because the record is at its 80-byte `static_assert` and `flags` had room.
+        //
+        // THE NUMBERS ARE `gltf::overlay_kind`'S (1 = eye_dark, 2 = hair_shadow) and they are spelled as
+        // literals here for the same reason every other flavour of this value is a number on this side of the
+        // boundary: `vulkan.runtime` does not import the loader's types - the classification is done where the
+        // NAME exists and travels onwards as a value (see `toon_family` above, which does exactly this).
+        // tests/test_gltf_loader.cpp asserts the enum's numbering so this pair cannot drift silently.
+        if (info.overlay_kind == 1u) {
+            record.flags |= 64u; // bit6: the EYE-DARK overlay (mask-driven)
+        } else if (info.overlay_kind == 2u) {
+            record.flags |= 128u; // bit7: the HAIR-SHADOW overlay (day-strength-driven)
+        }
+        // ---- THE AUTHOR'S TOON TRANSPARENT VARIANT (`_TRANSPARENT_ON`), ON ITS OWN BIT ----
+        //
+        // SEPARATE FROM bit5 (`alphaMode BLEND`) ON PURPOSE, and the two are not redundant: bit5 is glTF's
+        // statement about coverage and is what the FRAGMENT stage writes a real `out_alpha` for; this one is the
+        // sidecar's `_SrcBlend 5 / _DstBlend 10` pair, which the runtime evaluates at import (see
+        // `toon_lookup::scalar`) because the blend state itself is per-PASS here. A material with this bit gets
+        // the alpha-blended pipeline; every other material keeps the overwrite, and the two are the same
+        // arithmetic at alpha 1.
+        if (info.toon.alpha_blend) {
+            record.flags |= 256u; // bit8: `_TRANSPARENT_ON` - the toon stage's own transparent variant
+        }
 
         // ---- 3. Content-address the record, then append (or degrade on overflow) ----
         // Identical materials (same texture slots, factors and flags) share ONE table entry:
@@ -1223,19 +1393,43 @@ namespace vulkan {
         // the byte-exact 80-byte record carried in a data_block - no hash collisions, because
         // the unordered lookup hashes the block only for bucketing while equality stays
         // byte-exact.
-        // ---- THE FACE SDF LANE IS PART OF THE DEDUP KEY, and that is a fix rather than tidiness ----
+        // ---- THE LANES BESIDE THE RECORD ARE PART OF THE DEDUP KEY, and that is a fix rather than tidiness ----
         //
-        // The record does NOT carry this lane (see core::heap_slots::sdf_lanes), so two primitives whose
-        // records are byte-identical but whose materials differ in their SDF map would COLLIDE on the key below:
-        // the second would take the early return, never write its lane, and that face would simply not have one
-        // - with the frame showing nothing but a slightly wrong face. MEASURED BEFORE THIS LINE EXISTED: an
-        // instrumented probe showed the SDF texture arriving at this function VALID (1024x1024, 4 MB) and every
-        // material's written lane was nevertheless 0, which is exactly the signature of the material that owns
-        // the map losing the race to one that does not.
-        uint32_t const sdf_lane = texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::sdf_lightmap)];
-        utility::data_block<sizeof(vulkan::material_record) + sizeof(uint32_t)> material_key = {};
+        // The record does NOT carry these lanes (see core::heap_slots::toon_lanes), so two primitives whose
+        // records are byte-identical but whose materials differ in their SDF or metallic/gloss map would COLLIDE
+        // on the key below: the second would take the early return, never write its lanes, and that material would
+        // silently lose the feature - with the frame showing nothing but a slightly wrong face. MEASURED BEFORE
+        // THIS LINE EXISTED: an instrumented probe showed the SDF texture arriving at this function VALID
+        // (1024x1024, 4 MB) and every material's written lane was nevertheless 0, which is exactly the signature
+        // of the material that owns the map losing the race to one that does not.
+        glm::uvec4 const toon_lanes_extra(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::sdf_lightmap)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::metallic_gloss)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::sdf_mask)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::emotion)]);
+        // THE SECOND BLOCK, whose remaining three lanes are reserved: it exists because a fifth lane does not fit a
+        // `uvec4`, and it is zeroed rather than left out so that a shader reading a lane nobody set reads "do not
+        // read" - the same contract the first block's lanes follow.
+        glm::uvec4 const toon_lanes_extra2(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::split_normal)], 0u, 0u, 0u);
+        // ---- AND THE COLOUR LANES, THE SAME FIX ONE TABLE FURTHER ALONG ----
+        //
+        // They are written BELOW, after the early return, which is the whole reason they have to be in the key:
+        // the early return is "this material's row is already in the tables", and without these bytes that claim
+        // was false for the six `vec4`s - the second of two record-identical materials read the FIRST one's
+        // colours. MEASURED, not argued (see `remaining_port_spec.md`'s "材质去重键补上 colour lanes" section): a copy of
+        // `M_actor_chen_hair_01` stating `_Specular = 0.0`, attached to a mesh whose node comes earlier in the
+        // scene, took the earlier index; the hair itself then took this early return and rendered BYTE-FOR-BYTE
+        // like an asset whose hair states 0.0 - its own 1.0 discarded.
+        //
+        // `info.toon.colours` IS the array the table is filled from, lane for lane and in the same order, so
+        // keying exactly these bytes dedups precisely the materials whose six rows would come out identical -
+        // a pair stating the same values still shares one entry (the control arm of that probe: 0 px).
+        utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)> material_key = {};
         std::memcpy(material_key.data.data(), &record, sizeof(record));
-        std::memcpy(material_key.data.data() + sizeof(record), &sdf_lane, sizeof(sdf_lane));
+        std::memcpy(material_key.data.data() + sizeof(record), &toon_lanes_extra, sizeof(toon_lanes_extra));
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra), &toon_lanes_extra2, sizeof(toon_lanes_extra2));
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2),
+                    info.toon.colours.data(),
+                    static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4));
         if (auto const cached = this->material_slot_cache.find(material_key); cached != this->material_slot_cache.end()) {
             return cached->second; // already registered: share the existing record
         }
@@ -1251,20 +1445,85 @@ namespace vulkan {
         }
         uint32_t const material_index = this->material_count++;
         std::memcpy(static_cast<uint8_t*>(this->material_mapped) + static_cast<size_t>(material_index) * sizeof(material_record), &record, sizeof(record));
-        // THE FACE SDF LANE, written BESIDE the record rather than into it, and this is the one place that knows
-        // both the material's index and its lane (see core::heap_slots::sdf_lanes for why the record cannot carry
-        // it). It is MATERIAL-indexed, so the shader reaches it with the index it already uses for the record.
+        // THE LANES BESIDE THE RECORD, written here rather than into it, and this is the one place that knows both
+        // the material's index and its lanes (see core::heap_slots::toon_lanes for why the record cannot carry
+        // them). They are MATERIAL-indexed, so the shader reaches them with the index it already uses for the
+        // record.
         //
         // IT SITS AFTER THE DEDUP'S EARLY RETURN, deliberately and safely: that return is for a record ALREADY in
-        // the table, whose lane was written when it was appended. A lane of 0 - no map, or the artist's
-        // `_UseSDFLightmap` off, which collapse to the same value here exactly as they do for the record's four -
-        // is the "do not read" the shader tests.
-        static_cast<uint32_t*>(this->sdf_lane_mapped)[material_index] = sdf_lane;
-        // LOGGED WHILE THIS LANE IS BEING WIRED, and the reason is that a lane which silently stays zero is this
-        // table's only failure mode and it is invisible in the frame: the shader's test is `lane != 0`, so a
-        // table that was never filled renders exactly like a model with no SDF at all - the feature does not
-        // happen and nothing says why.
-        utility::log("toon: material {} (family {}) -> face SDF lane {} of {} texture(s)", material_index, record.toon_family, sdf_lane, this->texture_array_views.size());
+        // the table, whose lanes were written when it was appended. A lane of 0 - no map, or the artist's
+        // `_UseSDFLightmap` / `_UseMetallicGlossMap` off, which collapse to the same value here exactly as they do
+        // for the record's four - is the "do not read" the shader tests.
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks] = toon_lanes_extra;
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks + 1u] = toon_lanes_extra2;
+        // AND THE MATERIAL'S COLOURS, at the same index and in the same once-written spirit: the shader addresses
+        // them with `material_index * toon_colour_lane::count + lane`, so the two sides' stride has to agree - see
+        // `character_toon_colour_lanes` in the stage and the drift check in the sidecar test.
+        //
+        // AND THEY *ARE* PART OF THE DEDUP KEY ABOVE, which is a fix and not tidiness: they are written at this
+        // index, once, and this paragraph used to say the opposite - that the key was the record plus the two
+        // `uvec4` blocks alone, so two materials whose records AND texture lanes were byte-identical shared ONE
+        // index here and therefore ONE set of colours, whichever registered first. That was latent on this
+        // repository's assets (chen registers all seven of its materials separately - see the `toon: material N`
+        // lines - because their records differ), but it governed all three per-material things that live ONLY in
+        // these lanes: `toon_colour_lane::specular_strength`, `toon_colour_lane::parallax_scale`, and the outline
+        // width in `toon_colour_lane::outline_edge`'s `.w` (which nothing else carries either). Fixed by keying
+        // the six lanes' bytes beside the two blocks - see the `material_key` construction above and the note on
+        // `material_slot_cache` in `runtime.declarations.cppm`.
+        if (this->toon_colour_mapped != nullptr) {
+            glm::vec4* const colours = static_cast<glm::vec4*>(this->toon_colour_mapped) + static_cast<std::size_t>(material_index) * static_cast<std::size_t>(vulkan::toon_colour_lane::count);
+            for (uint32_t lane = 0; lane < static_cast<uint32_t>(vulkan::toon_colour_lane::count); ++lane) {
+                colours[lane] = info.toon.colours[lane];
+            }
+        }
+        // LOGGED WHILE THESE LANES ARE BEING WIRED, and the reason is that a lane which silently stays zero is
+        // this table's only failure mode and it is invisible in the frame: the shader's test is `lane != 0`, so a
+        // table that was never filled renders exactly like a model with no SDF and no metallic/gloss map at all -
+        // the feature does not happen and nothing says why.
+        utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {} of {} texture(s)",
+                     material_index,
+                     record.toon_family,
+                     toon_lanes_extra.x,
+                     toon_lanes_extra.y,
+                     toon_lanes_extra.z,
+                     toon_lanes_extra2.x,
+                     this->texture_array_views.size());
+        // ... AND THE SPECULAR STRENGTH, WHICH IS THE ONE LANE WHOSE "NOTHING STATED" IS A SENTINEL RATHER THAN
+        // THE TABLE'S NEUTRAL (`-1`, see `toon_colour_lane::specular_strength`), so a log line is the only place
+        // the difference between "the asset said 0.0" and "no source spoke" is visible at all: both reach the
+        // shader as a number, and one of them means the family table answers. Printed for every registered
+        // material, because the value is per material and the interesting case is the one that DISAGREES with its
+        // family - which is exactly the case a family table cannot show.
+        utility::log("toon: material {} -> specular strength {:.4f}{}",
+                     material_index,
+                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::specular_strength)].x),
+                     info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::specular_strength)].x < 0.0f ? "  <- no source stated `_Specular`: the family table's number stands" : "");
+        // ... AND THE PARALLAX DEPTH BESIDE IT, for the same reason one lane up and with one difference that makes
+        // the line more useful rather than less: the stage's fallback for it is not a family number but its own
+        // constant (`character_eye_parallax_depth`, 0.03), so `-1` here reads as "this material keeps the offset
+        // the port had before the lane existed". That is the whole expected output for chen: a value on the three
+        // materials whose `extras` state the row (0.03 iris / 0.5 brow / 0.5 cloth_01) and the sentinel on the rest.
+        utility::log("toon: material {} -> parallax depth {:.4f}{}",
+                     material_index,
+                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::parallax_scale)].x),
+                     info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::parallax_scale)].x < 0.0f ? "  <- no source stated `_ParallaxScale`: the stage's own constant stands" : "");
+        // ---- AND THE EMISSIVE LANE, WHICH THE TOON STAGE ADDS AND THEREFORE HAS TO BE ABLE TO TRUST ----
+        //
+        // `s.emissive` is `emissive_factor * the texture at emissive_index`, and index 0 is the WHITE FALLBACK
+        // rather than "no emission" - so a material whose emissive map did not reach the record does not lose a
+        // term, it gains `factor * 1`, i.e. the emission its artist stated applied at FULL STRENGTH over the
+        // whole surface. That is the opposite of a missing feature and it is invisible in the log without this
+        // line: measured on `chars\chen_full2.glb`, where the cloth's near-black emissive map (mean 0.3/255)
+        // resolved in one file and not in the other, the difference is 30% of the frame.
+        utility::log("toon: material {} -> emissive: index {} factor ({:.3f}, {:.3f}, {:.3f}){}",
+                     material_index,
+                     record.emissive_index,
+                     static_cast<double>(record.emissive_factor.x),
+                     static_cast<double>(record.emissive_factor.y),
+                     static_cast<double>(record.emissive_factor.z),
+                     record.emissive_index == 0u && (record.emissive_factor.x != 0.0f || record.emissive_factor.y != 0.0f || record.emissive_factor.z != 0.0f)
+                         ? "  <- FACTOR AGAINST THE WHITE FALLBACK: this material states emission but has no emissive map in the record"
+                         : "");
         this->material_slot_cache.emplace(material_key, material_id{material_index});
         // THE TOON FAMILY, LOGGED WHEN IT IS NOT `none`, and this is the one place it can be logged once per
         // MATERIAL rather than once per primitive (the dedup above returns early for a shared record). A

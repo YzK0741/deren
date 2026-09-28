@@ -225,15 +225,34 @@ namespace vulkan {
         }
 
         /**
+         * @brief force FRONT-face culling for the next group of leaves, whatever their own materials say
+         *
+         * THE INVERTED HULL (the article's ① 描边) is the first caller and the reason this exists: a hull is drawn
+         * with its FRONT faces culled, so that only the back faces survive the depth test and the result is a ring
+         * OUTSIDE the silhouette rather than a second shaded surface over it. No pipeline state can state that on
+         * its own here, because every leaf's draw() calls set_cull_mode() with its own `doubleSided` flag a few
+         * instructions later - the exact shape `depth_write_locked` was added for, one state over.
+         *
+         * `false` IS THE WHOLE DEFAULT and it is not a fallback: a session that never sets it reaches
+         * `set_cull_mode`'s original expression and records the identical command stream it did before this field
+         * existed, which is what keeps every other pass and group unchanged.
+         */
+        bool forced_cull_front = false;
+
+        /**
          * @brief record the cull mode for a material, honoring the session's two-sided flag
          * @param two_sided_material the primitive's own glTF `doubleSided` flag (renders both faces)
          * @note callers pass their material flag and let the session decide: the shadow pass forces
          *       VK_CULL_MODE_NONE regardless (see two_sided), the main pass keeps back-face culling
          *       for single-sided materials. Deduplicated like set_depth_write(), so consecutive
          *       leaves sharing a cull mode emit the state once.
+         * @note `forced_cull_front` outranks both session and material (see its own note): it is how the inverted
+         *       hull states Cull Front for a group of leaves that would otherwise each put BACK/NONE back.
          */
         void set_cull_mode(bool const two_sided_material) {
-            VkCullModeFlags const want = (this->two_sided || two_sided_material) ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT;
+            VkCullModeFlags const want = this->forced_cull_front
+                                             ? VK_CULL_MODE_FRONT_BIT
+                                             : ((this->two_sided || two_sided_material) ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT);
             if (!this->cull_mode_known || this->cull_mode_recorded != want) {
                 this->set_cull_mode_fn(this->command_buffer, want);
                 this->cull_mode_recorded = want;

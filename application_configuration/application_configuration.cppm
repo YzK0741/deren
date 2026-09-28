@@ -335,6 +335,43 @@ namespace app_config {
 
     /**
      * @ingroup app_config
+     * @brief the TOON stage's LIGHT RIG ([toon] in the config), which is `vulkan::toon_rig`'s content
+     *
+     * THESE ARE THE ARTICLE'S GLOBAL NUMBERS - the ones an artist tunes once for a whole character rather than per
+     * material: the split between the sun and the head light the game rigs over every figure, what each of them
+     * looks like on a surface's shadow side, and the strengths of the two environment terms. A FAMILY's numbers are
+     * NOT here (they are `shaders/toon_params.slang`, because two stages must agree about them) and a MATERIAL's
+     * come from the sidecar beside the model.
+     *
+     * THE DEFAULTS ARE THE ARTICLE'S OWN VALUES, so a config that says nothing renders what this port was measured
+     * at - and `day_strength` is the one that moves a frame most: 1 is the sun leading with the head light
+     * supplementing it, 0 removes the sun's DIRECT term entirely (no terminator, no light direction) and lets the
+     * head light and the environment carry the character. Intermediate values blend two whole shading outcomes
+     * rather than dimming one, because a dimmed sun still draws its own terminator.
+     */
+    export struct toon_settings {
+        float day_strength = 1.0f;                                      // `_DayStrength` (0..1)
+        float head_light_day0 = 0.7f;                                   // `_OtherLightResultStrength_day0` - the author's default
+        float head_light_day1 = 0.3f;                                   // `_OtherLightResultStrength_day1` - the author's default
+        std::array<float, 3> head_light_colour = {0.60f, 0.65f, 0.80f}; // `_OtherLightColor`
+        std::array<float, 3> sun_dark_colour = {0.60f, 0.65f, 0.80f};   // `_MainLightColor_dark`
+        float env_strength = 1.0f;                                      // `_EnvLightStrength`
+        float env_rotation = 0.0f;                                      // `_EnvRotation`, in DEGREES
+        float specular_strength = 1.0f;                                 // `_SpecularStrength`
+        float diffuse_blend_effect = 1.0f;                              // `_DiffuseBlendEffect`
+        float rim_area = 1.0f;                                          // `_RimLightArea` - the author's default
+        float rim_strength = 1.0f;                                      // `_RimLightStrength`
+        float rim_nolxz_strength = 1.0f;                                // `_RimLightNoLxzStrength`
+        float backlight_strength = 1.0f;                                // the backlight compensation's weight
+        // WHICH EXPRESSION THE FACE IS WEARING (`_EmotionMap`'s cell): 0 = none, so the face keeps its own albedo,
+        // which is what every capture before this key existed was taken at; 1..3 = the atlas' other three cells.
+        // IT IS A CONFIG KEY RATHER THAN A MATERIAL VALUE because the material files have none - the game picks the
+        // expression from the character's animation/script system, and nothing in the sidecar describes it.
+        float emotion_type = 0.0f;
+    };
+
+    /**
+     * @ingroup app_config
      * @brief the resolved startup settings after config-file + argv merging.
      * @note empty string / zero fields mean "not specified": the caller falls back to its
      *       built-in defaults, mirroring the pre-config argv behavior.
@@ -347,6 +384,7 @@ namespace app_config {
         path_settings paths = {};
         render_settings render = {};
         lighting_settings lighting = {};
+        toon_settings toon = {};
         gui_settings gui = {};
         std::string config_file = {}; // path actually read (empty = no config file found / used)
     };

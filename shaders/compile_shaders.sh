@@ -56,6 +56,7 @@ done <<'SLANG_SOURCES'
 unlit.slang:main:fragment:unlit.frag.spv
 character_forward.slang:main:fragment:character_forward.frag.spv
 toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
+overlay.slang:main:fragment:overlay.frag.spv
 fxaa.slang:main:fragment:fxaa.frag.spv
 upscale.slang:main:fragment:upscale.frag.spv
 post.slang:main:vertex:post.vert.spv
@@ -66,6 +67,8 @@ gbuffer.slang:main:fragment:gbuffer.frag.spv
 pbr.slang:main:fragment:pbr.frag.spv
 pbr.slang:mesh_main:mesh:pbr.mesh.spv
 pbr.slang:meshlet_main:mesh:pbr.meshlet.spv
+pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
+outline.slang:frag_main:fragment:outline.frag.spv
 shadow.slang:main:fragment:shadow.frag.spv
 shadow.slang:mesh_main:mesh:shadow.mesh.spv
 shadow.slang:meshlet_main:mesh:shadow.meshlet.spv

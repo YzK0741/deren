@@ -1,6 +1,6 @@
 // ============================================================================
 // module: gltf_loader
-// module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.3.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU glTF / GLB loader (vendored fastgltf + stb): drawable stream, retained
 // node tree, animations / skins / morph targets / cameras / punctual lights.
@@ -11,11 +11,13 @@
 // ============================================================================
 module;
 
+#include <array> // the CLAIMED EXTRAS ROWS table (see `gltf::claimed_extras_floats`)
 #include <cstdint>
 // `std::optional`: `scenes::texture_index_by_name` returns one, because a name that matches nothing is a
 // state the caller handles rather than an error (see the method's note).
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <map> // the material's CLAIMED extras rows, by the asset pipeline's own spelling
 #include <optional>
 #include <string_view> // the name it looks up
 
@@ -275,7 +277,55 @@ namespace gltf {
          * famiy-independent path every non-character model already had.
          */
         std::string name = {};
+        /**
+         * THE `extras` SCALARS THIS PORT HAS CLAIMED, by the asset pipeline's own spelling (`_Specular`,
+         * `_ParallaxScale`), and only those - see `claimed_extras_floats`.
+         *
+         * WHAT `extras` IS AND WHY IT NEEDED A THIRD SOURCE: a glTF material carries the spec's six factors and
+         * five texture slots, and this repository's toon characters carry a SECOND set of parameters in
+         * `material.extras` - the game's own exported material table, as `efFloats` / `efColors` / `efTexSlots` /
+         * `efToonSlots` / `efResolved` (194 float/colour names that the `.toon.tsv` sidecar does not carry; the
+         * sidecar is this port's transcription of a subset of the same tables). glTF has no slot for them, the
+         * sidecar the renderer reads has no row for this one, and a value the game states per material that the
+         * shader could not see was simply not available - which is the gap this field closes.
+         *
+         * WHY IT IS A CLAIMED SUBSET RATHER THAN THE WHOLE `efFloats` BLOCK: the port's own rule is that a lane
+         * nobody consumes is a SECOND source of truth for a value that has none, so a property is imported when
+         * its consumer is wired and not before. The names are held in ONE table (`claimed_extras_floats`) whose
+         * entries are added together with their reader, and a name absent from a given material's extras is
+         * simply absent from this map - the consumer's fallback then answers, exactly as it did before.
+         *
+         * Empty for every material whose file has no `extras`, which is every non-character model: the loader
+         * reads this block through fastgltf's extras callback and never invents a value for it.
+         */
+        std::map<std::string, float> extras_floats = {};
     };
+
+    /**
+     * @ingroup gltf_loader
+     * @brief the `extras` scalar names this port has CLAIMED - the whitelist `material::extras_floats` is
+     *        filled from
+     *
+     * AN ALLOW-LIST RATHER THAN A FILTER, and the difference is the point: `efFloats` on chen's cloth material
+     * holds 190 names, of which the port reads one. Importing the block whole would put 190 unread values into
+     * the model - a second source of truth for every one of them, in the exact shape this repository refuses
+     * everywhere else - so the loader copies out ONLY the names listed here, and a name reaches this table in
+     * the same change as the code that reads it.
+     *
+     * THE CURRENT ENTRIES, each with its reader:
+     *   `_Specular`       ->  the per-material specular strength, a `toon_colour_lane::specular_strength` lane read
+     *                         by `shaders/character_forward.slang` (`main_specular = ... * spec_strength *
+     *                         rig.env.z`). It was the one extras-only property with a live consumer whose source
+     *                         was a per-FAMILY constant (`shaders/toon_params.slang`'s `spec_strength`) and whose
+     *                         value the asset states per MATERIAL; chen's `M_actor_chen_brow_01` is the material
+     *                         that proves it (0.0 against the face family's 1.0).
+     *   `_ParallaxScale`  ->  the per-material parallax depth, a `toon_colour_lane::parallax_scale` lane read by
+     *                         the same stage (`parallax_offset = offset_dir * depth * float2(1.0, 0.25)`), whose
+     *                         source was the stage's own `character_eye_parallax_depth` constant - chen states
+     *                         0.03 on the iris and 0.5 on the brow, and values 0.03/0.5/0.5 over the three
+     *                         materials that state the row at all.
+     */
+    export inline constexpr std::array<std::string_view, 2> claimed_extras_floats = {"_Specular", "_ParallaxScale"};
 
     /**
      * @ingroup gltf_loader
@@ -753,6 +803,24 @@ namespace gltf {
          * `_Use` rule already implies, is to leave that feature off.
          */
         [[nodiscard]] std::optional<uint16_t> texture_index_by_name(std::string_view name) const noexcept;
+
+        /**
+         * @brief the material NAMED @p name, or nullptr when no material has that name
+         *
+         * THE SECOND HALF OF THE SAME JOIN, one level up: the toon inputs are looked up BY MATERIAL NAME (the
+         * sidecar is keyed that way, and the runtime asks its installed `toon_lookup` for "the colour of this
+         * material and this lane"), so a consumer that holds a name and needs a per-material fact glTF itself
+         * did not carry - the `extras` this loader now reads - has to get from the name back to the material.
+         *
+         * A LINEAR SCAN, deliberately and for the reason `texture_index_by_name` states: a character carries
+         * tens of materials, and a map would be a second index to keep in step with the vector.
+         *
+         * A MISS IS NOT AN ERROR. A name that matches nothing is a real state (a sidecar written for a model
+         * whose materials were renamed, a primitive with no material), and the caller's answer to it is its own
+         * rule's - for the extras that means "this material states nothing", which is the same state as a
+         * material whose file has no extras at all.
+         */
+        [[nodiscard]] material const* material_by_name(std::string_view name) const noexcept;
     };
 
     /**
@@ -878,6 +946,46 @@ namespace gltf {
 
     /**
      * @ingroup gltf_loader
+     * @brief the TWO OVERLAY MASKS a character carries, as the article's two `Trick` shaders distinguish them
+     *
+     * AN OVERLAY IS NOT A MATERIAL FAMILY, and that is why this is a second enum rather than a seventh
+     * `toon_family`. A family says HOW this port SHADES a surface - ramp, layers, specular, the whole toon chain -
+     * while an overlay surface is not shaded at all: `MyZmdEyeDarkShader` and `MyZmdHairShadowShader` are drawn by
+     * a pass of their own that MULTIPLIES an already shaded character by a mask, and their entire material state is
+     * `_MainTex`, `_Color`, `_Alpha` and `_DayStrength`. Both names therefore classify as `toon_family::none`
+     * (see the top of `toon_family_of`) and are claimed HERE instead.
+     *
+     * WHY THE TWO ARE TOLD APART, since the second's fragment is nearly the first's: their masks are driven
+     * differently. `MyZmdEyeDarkShader` multiplies by `mask * _Alpha` - the mask is what shapes the eye socket's
+     * shadow - while `MyZmdHairShadowShader` multiplies by the scalar `_DayStrength` and never reads its mask at
+     * all. Collapsing them into one kind would silently turn one of those into the other.
+     *
+     * THE NAMES ARE THE ARTICLE'S OWN, not the game's: the game's material sidecar (`ef_char_materials_full`) has no
+     * colour and no day strength at all - it drives these masks procedurally from the light angle - so the two
+     * shaders being ported are the article's simplification of that mechanism, and these are its two shaders.
+     */
+    export enum class overlay_kind : uint32_t {
+        none = 0,        // not an overlay: every material whose name claims nothing
+        eye_dark = 1,    // `MyZmdEyeDarkShader`: multiply by the mask, scaled by `_Alpha`
+        hair_shadow = 2, // `MyZmdHairShadowShader`: multiply by `_Color` as far as `_DayStrength` says
+    };
+
+    /**
+     * @ingroup gltf_loader
+     * @brief classify a glTF material name into the overlay channel it belongs to, if any
+     *
+     * SUBSTRING MATCHING over a lowercased name, like `toon_family_of` and for the same reason (the name is the
+     * only input, and a glTF material name is authored text). The two patterns are `eyeshadow` and `hairshadow`,
+     * which are the names the game's own assets use - `M_eyeshadow_common_01` and `M_hairshadow_common_01` on
+     * `chars\chen_full2.glb`, and `M_S_actor_zhuangfy_eyeshadow_01_lod0` in the game's own package.
+     *
+     * @param name the glTF material name (case-insensitive ASCII)
+     * @return the channel, or `overlay_kind::none` when nothing matched
+     */
+    export overlay_kind overlay_kind_of(std::string_view name);
+
+    /**
+     * @ingroup gltf_loader
      * @brief the FACE SDF's three axes: which way the head looks, and its right and up
      *
      * WHY THE FACE NEEDS A HEAD FRAME AT ALL, and it is the whole reason the SDF lane exists: a low-poly anime
@@ -982,6 +1090,10 @@ namespace gltf {
         /// the TOON FAMILY this material's name classified into (see toon_family_of), resolved ONCE here so
         /// no later stage re-derives it from a string
         uint32_t toon_family = 0;
+        /// the OVERLAY CHANNEL this material's name classified into (see overlay_kind_of), resolved at the
+        /// same moment as the family and for the same reason. 0 == `overlay_kind::none`, i.e. an ordinary
+        /// surface; a non-zero value means this material is drawn by the overlay pass rather than shaded.
+        uint32_t overlay_kind = 0;
     };
 
     /**
@@ -1036,6 +1148,9 @@ namespace gltf {
         bool get_double_sided() const;
         /// the current drawable's TOON FAMILY (see toon_family_of), already resolved with the material
         uint32_t get_toon_family() const;
+        /// the current drawable's OVERLAY CHANNEL (see overlay_kind_of); 0 == `overlay_kind::none`, i.e. the
+        /// material is an ordinary shaded surface and not one of the article's two framebuffer multiplies
+        uint32_t get_overlay_kind() const;
         /// the current drawable's MATERIAL NAME, which is what the toon material sidecar is keyed by
         [[nodiscard]] std::string_view get_material_name() const;
 

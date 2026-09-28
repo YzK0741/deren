@@ -539,8 +539,18 @@ namespace vulkan {
         // ONE colour target, and it is the HDR one: this pass runs inside the HDR chain (after the lighting
         // stage, before the resolve), so the tonemap stays the post chain's - see the declaration's note.
         std::array<VkFormat, 1> const formats = {hdr_format};
-        // OVERWRITE, not blend: the toon result replaces the deferred-lit pixel rather than layering over it.
-        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
+        // STANDARD ALPHA BLENDING, AND FOR AN OPAQUE MATERIAL IT IS BIT-IDENTICAL TO THE OVERWRITE THIS
+        // REPLACES: `src * srcAlpha + dst * (1 - srcAlpha)` at `srcAlpha == 1` is `src`, and the character stage
+        // writes an alpha of exactly 1 for every material that is not the article's transparent variant (see
+        // `toon_inputs::alpha_blend`). That is why one pipeline can serve both: the blend state is per-PASS in
+        // this renderer, and the PER-MATERIAL half of the author's `Blend [_SrcBlend] [_DstBlend]` - chen's
+        // `cloth_02` is `SrcAlpha` / `OneMinusSrcAlpha` - travels as the fragment stage's coverage instead.
+        //
+        // THE COST OF SHARING THE PIPELINE, stated rather than hidden: the HDR target's ALPHA channel is now
+        // read-modify-written by this pass instead of overwritten. Nothing consumes it - `post.slang` returns
+        // `float4(color, 1.0)` and samples `.rgb` - and the A/B that proves the rest of the character is
+        // unaffected (0 px) is in `remaining_port_spec.md`'s "其余部位按参考对齐（续）" item 10.
+        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment()};
         auto result = vulkan::make_pipeline(
             this->device,
             std::span<VkFormat const>(formats),
@@ -569,6 +579,104 @@ namespace vulkan {
             };
             result->scissor = {{0, 0}, this->render_extent()};
         }
+        return result;
+    }
+
+    std::expected<vk_pipeline, std::string_view> core::make_overlay_pipeline(
+        std::span<uint8_t const> const vertex_shader_code,
+        std::span<uint8_t const> const fragment_shader_code,
+        VkShaderStageFlagBits const first_stage) const {
+        // ONE colour target, and it is the HDR one - the same target the character-forward stage just wrote, so
+        // that the multiply lands on the TOON result rather than on a resolved copy of it. The grade and the
+        // tonemap stay the post chain's, exactly as they are for the toon stage itself.
+        std::array<VkFormat, 1> const formats = {hdr_format};
+        // THE MULTIPLY (see make_color_blend_attachment_multiply): this is the state that makes the article's
+        // two `Trick` shaders overlays rather than surfaces, and the reason the port needs no blend extension.
+        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_multiply()};
+        auto result = vulkan::make_pipeline(
+            this->device,
+            std::span<VkFormat const>(formats),
+            this->depth_format,
+            vertex_shader_code,
+            fragment_shader_code,
+            VK_SAMPLE_COUNT_1_BIT, // single-sampled, like the toon stage and the G-buffer it re-shades
+            true,                  // the depth TEST is on; the WRITE is turned off per draw (dynamic state)
+            0.0f,
+            0.0f,
+            0.0f,
+            std::span<VkPipelineColorBlendAttachmentState const>(blends),
+            first_stage,
+            // LESS_OR_EQUAL, AND NOT THE TOON STAGE'S EQUAL - the one place the two pipelines differ beyond the
+            // blend, and the difference is a property of the geometry rather than a preference. The toon stage
+            // draws the SAME triangles the G-buffer recorded, so `EQUAL` is what confines its overwrite to that
+            // surface. An overlay mask is a DIFFERENT mesh (36 and 246 vertices on `chars\chen_full2.glb`) whose
+            // quads sit a little IN FRONT of the surface they darken - an `EQUAL` test would reject almost every
+            // fragment of it and the masks would draw nothing at all. `LESS_OR_EQUAL` is also the article's own
+            // state (`ZTest` default, `ZWrite Off`), so the port is reproducing it rather than working around it.
+            VK_COMPARE_OP_LESS_OR_EQUAL);
+        if (result) {
+            result->viewport = {
+                0.0f,
+                0.0f,
+                static_cast<float>(this->render_extent().width),
+                static_cast<float>(this->render_extent().height),
+                0.0f,
+                1.0f,
+            };
+            result->scissor = {{0, 0}, this->render_extent()};
+        }
+        return result;
+    }
+
+    std::expected<vk_pipeline, std::string_view> core::make_outline_pipeline(
+        std::span<uint8_t const> const vertex_shader_code,
+        std::span<uint8_t const> const fragment_shader_code,
+        VkShaderStageFlagBits const first_stage) const {
+        // ONE colour target, and it is the HDR one - the same target the character-forward stage has just
+        // written, so the hull lands in the TOON result rather than on a resolved copy of it. The grade and the
+        // tonemap stay the post chain's, exactly as they are for the toon stage and for the overlay group.
+        std::array<VkFormat, 1> const formats = {hdr_format};
+        // OVERWRITE, NOT MULTIPLY: the article's outline is an OPAQUE surface - `MyZmdOutlineShader`'s SubShader
+        // states no `Blend` at all and its fragment returns alpha 1 - so this is the state the TOON stage uses
+        // (`make_color_blend_attachment_opaque`), not the overlay group's multiply.
+        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
+        auto result = vulkan::make_pipeline(
+            this->device,
+            std::span<VkFormat const>(formats),
+            this->depth_format,
+            vertex_shader_code,
+            fragment_shader_code,
+            VK_SAMPLE_COUNT_1_BIT, // the HDR chain is single-sampled, like the G-buffer it re-shades
+            true,                  // the depth TEST is on; the WRITE is turned off per draw (dynamic state)
+            0.0f,
+            0.0f,
+            0.0f,
+            std::span<VkPipelineColorBlendAttachmentState const>(blends),
+            first_stage,
+            // LESS_OR_EQUAL, AND THE ARTICLE'S OWN `ZTest` DEFAULT rather than the toon stage's `EQUAL`. The
+            // difference is the geometry: a hull is the same mesh pushed OUTWARD, so the fragments that survive
+            // front-face culling are the ring just OUTSIDE the silhouette - where the depth buffer holds whatever
+            // is behind the character (nothing, or a farther surface). `EQUAL` would reject exactly those
+            // fragments (they are not the surface the G-buffer recorded) and the outline would draw nothing at
+            // all; `LESS_OR_EQUAL` keeps the ring and is what confines the hull's interior to the surface that
+            // already covers it. See `character_forward.cpp`, which states the depth-write half of this.
+            VK_COMPARE_OP_LESS_OR_EQUAL);
+        if (result) {
+            result->viewport = {
+                0.0f,
+                0.0f,
+                static_cast<float>(this->render_extent().width),
+                static_cast<float>(this->render_extent().height),
+                0.0f,
+                1.0f,
+            };
+            result->scissor = {{0, 0}, this->render_extent()};
+        }
+        // CULL FRONT IS NOT HERE, AND THAT IS THE POINT RATHER THAN AN OMISSION: the rasterization state is
+        // DYNAMIC in this renderer (every leaf's draw() calls `set_cull_mode` with its own `doubleSided` flag), so
+        // a Cull Front stated in the pipeline would be overwritten by the first hull drawn with it. The front-face
+        // culling that makes an inverted hull an outline is `render_environment::forced_cull_front`, which the
+        // character-forward pass sets around this group alone (see character_forward.cpp).
         return result;
     }
 

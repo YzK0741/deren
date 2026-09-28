@@ -22,6 +22,12 @@ struct PostPush
     float encode_gamma;
     float fxaa_subpixel;       // 0 = pure directional blend, up to 1 = also blend away single-pixel aliasing
     float fxaa_edge_threshold; // relative luma contrast below which a pixel counts as flat (0.166 = FXAA default)
+    // THE ARTICLE'S LUT WEIGHT, WHICH THIS STAGE NEVER READS - and it is declared here for exactly the reason the
+    // comment above gives: the pipeline layout shares ONE push-constant range, so a field missing on this side shifts
+    // the heap indices below it by four bytes and this pass then samples whatever slot the wrong number names. That
+    // is not hypothetical: adding the field to `post.slang` alone left `deferred_taa_fxaa` as the one reference
+    // scenario that changed, because FXAA read its `display` image out of the LUT's slot.
+    float lut_weight;
     uint frame_slot;           // THE HEAP INDICES, at the END so every field above keeps its offset
     uint image_index;
 };

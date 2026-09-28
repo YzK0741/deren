@@ -505,6 +505,126 @@ namespace vulkan {
         return {};
     }
 
+    std::expected<void, std::string> runtime::make_overlay_pipeline(std::string_view const pipeline_name,
+                                                                    std::span<uint8_t const> const fragment_shader_code,
+                                                                    std::span<uint8_t const> const mesh_vertex_shader_code,
+                                                                    std::span<uint8_t const> const meshlet_shader_code) {
+        using fail = std::unexpected<std::string>;
+        if (fragment_shader_code.empty()) {
+            return fail(std::string("overlay pipeline '") + std::string(pipeline_name) + "': no fragment stage was given");
+        }
+        // The mesh stage is REQUIRED, exactly as it is for the toon and forward families (docs/mesh_shaders.md
+        // step 4): the vertex geometry path is gone, so a name without a mesh module has no complete answer.
+        bool const want_mesh = !mesh_vertex_shader_code.empty() && this->evaluate_mesh_shaders(nullptr);
+        {
+            std::unique_lock const lock(this->access_mutex);
+            if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
+                return fail(std::string("pipeline '") + std::string(pipeline_name) + "' already exists");
+            }
+        }
+        if (!want_mesh) {
+            return fail(std::string("overlay pipeline '") + std::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
+        }
+        // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
+        // never be blocked by shader compilation.
+        std::optional<vk_pipeline> mesh_result = std::nullopt;
+        {
+            auto built = this->vulkan_core.make_overlay_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            if (!built) {
+                return fail("overlay pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
+            }
+            mesh_result = std::move(*built);
+        }
+        std::optional<vk_pipeline> meshlet_result = std::nullopt;
+        if (!meshlet_shader_code.empty()) {
+            // A refusal here leaves the mesh form as the answer rather than failing the call - the same
+            // relationship both other families have between their two forms. The overlay meshes are two to nine
+            // meshlets apiece, so the meshlet form is a small win here and its absence costs nothing.
+            auto built = this->vulkan_core.make_overlay_pipeline(meshlet_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            if (built) {
+                meshlet_result = std::move(*built);
+            } else {
+                utility::log("overlay pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
+            }
+        }
+        {
+            std::unique_lock const lock(this->access_mutex);
+            this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
+            utility::log("SUCCESS: overlay pipeline '{}' created with a MESH form (one HDR target, dst = src * dst, depth compare LESS_OR_EQUAL, depth write held off)", pipeline_name);
+            if (meshlet_result.has_value()) {
+                this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
+                utility::log("SUCCESS: overlay pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
+            }
+            // NOTE: `default_pipeline_name` is deliberately NOT set here, for the reason
+            // make_character_forward_pipeline gives: this pipeline declares ONE colour attachment and the
+            // multiply blend, so a default-semantics leaf anywhere else drawn by it would be multiplied into the
+            // frame by a mask texture that has nothing to do with it.
+        }
+        return {};
+    }
+
+    std::expected<void, std::string> runtime::make_outline_pipeline(std::string_view const pipeline_name,
+                                                                    std::span<uint8_t const> const fragment_shader_code,
+                                                                    std::span<uint8_t const> const mesh_vertex_shader_code,
+                                                                    std::span<uint8_t const> const meshlet_shader_code) {
+        using fail = std::unexpected<std::string>;
+        if (fragment_shader_code.empty()) {
+            return fail(std::string("outline pipeline '") + std::string(pipeline_name) + "': no fragment stage was given");
+        }
+        // The mesh stage is REQUIRED, exactly as it is for the toon, forward and overlay families
+        // (docs/mesh_shaders.md step 4): the vertex geometry path is gone, so a name without a mesh module has no
+        // complete answer. It is doubly required here: pushing a hull's vertices outward in clip space is the
+        // MESH stage's job (`pbr.slang`'s outline entry), so an outline without it would be the surface drawn a
+        // second time.
+        bool const want_mesh = !mesh_vertex_shader_code.empty() && this->evaluate_mesh_shaders(nullptr);
+        {
+            std::unique_lock const lock(this->access_mutex);
+            if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
+                return fail(std::string("pipeline '") + std::string(pipeline_name) + "' already exists");
+            }
+        }
+        if (!want_mesh) {
+            return fail(std::string("outline pipeline '") + std::string(pipeline_name) + "' has no mesh stage to build from, and its vertex form is gone (docs/mesh_shaders.md step 4)");
+        }
+        // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
+        // never be blocked by shader compilation.
+        std::optional<vk_pipeline> mesh_result = std::nullopt;
+        {
+            auto built = this->vulkan_core.make_outline_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            if (!built) {
+                return fail("outline pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
+            }
+            mesh_result = std::move(*built);
+        }
+        std::optional<vk_pipeline> meshlet_result = std::nullopt;
+        if (!meshlet_shader_code.empty()) {
+            // A refusal here leaves the mesh form as the answer rather than failing the call - the same
+            // relationship the other families have between their two forms. Every leaf that carries an outline
+            // width is still drawn by the mesh form, so the absence of a meshlet form costs throughput, not
+            // correctness.
+            auto built = this->vulkan_core.make_outline_pipeline(meshlet_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            if (built) {
+                meshlet_result = std::move(*built);
+            } else {
+                utility::log("outline pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
+            }
+        }
+        {
+            std::unique_lock const lock(this->access_mutex);
+            this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
+            utility::log("SUCCESS: outline pipeline '{}' created with a MESH form (one HDR target, opaque blend, depth compare LESS_OR_EQUAL, depth write held off, front faces culled per draw)", pipeline_name);
+            if (meshlet_result.has_value()) {
+                this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
+                utility::log("SUCCESS: outline pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
+            }
+            // NOTE: `default_pipeline_name` is deliberately NOT set here, for the reason
+            // make_overlay_pipeline gives: this pipeline declares ONE colour attachment and an opaque blend, so a
+            // default-semantics leaf anywhere else drawn by it would be painted as an unlit hull in place of its
+            // own shaded surface.
+        }
+        return {};
+    }
+
     void runtime::set_default_pipeline(std::string_view const pipeline_name) {
         std::unique_lock const lock(this->access_mutex);
         if (this->mesh_pipelines.contains(pipeline_name) || this->meshlet_pipelines.contains(pipeline_name)) {
@@ -559,7 +679,12 @@ namespace vulkan {
             // pass to re-shade, and a scene with no toon character must not pay for the stage at all. When it
             // is false the pass's `feature()` answers inactive and the runner never resolves its declaration -
             // which is exactly what keeps the ten capture-gate scenarios byte-identical while it is off.
-            .character_forward_pending = this->character_forward_on && !this->frame_visible.empty(),
+            //
+            // EITHER LEAF LIST KEEPS IT ALIVE, and the overlay half is not a formality: a character whose only
+            // remaining geometry this frame is the article's two masks (an extreme close-up can cull everything
+            // else) still has something for the pass to multiply, and a gate that only looked at `frame_visible`
+            // would drop it. See `character_forward_pass::record`, which makes the same test from its side.
+            .character_forward_pending = this->character_forward_on && (!this->frame_visible.empty() || !this->frame_overlay.empty()),
             .gbuffer_pipeline = this->gbuffer_pipeline_mesh.has_value() || this->gbuffer_pipeline_meshlet.has_value(),
             .structures_ready = this->structures.ready() && this->structures.handle(static_cast<uint32_t>(vk.current_frame)) != VK_NULL_HANDLE,
             .furnace = this->furnace,
@@ -1211,6 +1336,16 @@ namespace vulkan {
         this->light_state.diffuse_model = static_cast<float>(std::clamp(model, 0, 1));
     }
 
+    void runtime::set_toon_rig(toon_rig const& rig) noexcept {
+        // A PLAIN COPY INTO THE MAPPED BLOCK, and it is safe for the reason every other once-written table here
+        // is (see core::heap_slots::toon_rig): the frame path never rewrites this block, so there is no frame in
+        // flight that could read it half-written. The contract that follows from that is the caller's - write it
+        // BEFORE the frame loop, not from inside a frame.
+        if (this->toon_rig_mapped != nullptr) {
+            std::memcpy(this->toon_rig_mapped, &rig, sizeof(rig));
+        }
+    }
+
     void runtime::set_head_basis(head_ubo const& basis) noexcept {
         // CPU-side only, the same rule set_exposure and set_brdf_model follow: remember it here and let
         // pace_and_acquire copy it into the paced slot's buffer, so a call from a GUI callback or from the import
@@ -1507,6 +1642,17 @@ namespace vulkan {
         result->push.motion_base = result->motion_slot_index;
         result->double_sided = info.double_sided;
         result->transparent = info.factors.alpha_blend;
+        // ... AND WHICH OVERLAY CHANNEL THE LEAF BELONGS TO (0 == none). Carried onto the primitive because the
+        // LEAF LISTS are built from it every frame (see `frame_overlay`): an overlay surface is drawn by the
+        // overlay pass and by nothing else, so this has to be known while the lists are being split rather than
+        // when a draw is recorded.
+        result->overlay_kind = info.overlay_kind;
+        // ... AND THIS LEAF'S OUTLINE WIDTH, for the same list-building reason: the frame has to know which
+        // leaves the ① outline group draws BEFORE any draw is recorded, and the material's `_OutlineWidth` is
+        // otherwise only in the GPU colour-lane table (`core::heap_slots::toon_colours`) where the frame cannot
+        // read it. Read out of the SAME `toon_inputs` the shader's lane is built from, so the gate the frame
+        // applies and the gate the outline mesh stage applies (`w > 0`) cannot disagree.
+        result->outline_width = info.toon.colours[static_cast<std::size_t>(toon_colour_lane::outline_edge)].w;
         return result;
     }
 
@@ -1572,6 +1718,9 @@ namespace vulkan {
         result->push.model = glm::mat4(1.0f);
         result->double_sided = source.double_sided;
         result->transparent = source.transparent; // same material semantics as the source geometry
+        // ... and the same material's outline width, so a hull of an instanced draw is gated by the material the
+        // instances share rather than by the default (see `primitive::outline_width`).
+        result->outline_width = source.outline_width;
 
         scene_tree::scene_node& leaf = this->get_scene().add_root();
         leaf.name = "pbr";

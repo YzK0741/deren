@@ -200,17 +200,34 @@ namespace vulkan {
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
         std::vector<vk_image_view> ibl_views = {};
         std::vector<vk_image> ibl_images = {};
+        // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) IS ITS OWN IMAGE, kept alive here for the same
+        // reason the IBL's three are: the heap holds a DESCRIPTOR, and an image the host lets go of leaves that
+        // descriptor pointing at nothing. Uploaded once by `set_post_lut`, which the application calls with a baked
+        // neutral cube.
+        vk_image post_lut_image = {};
+        vk_image_view post_lut_view = {};
         vk_sampler env_sampler = {};
         // GPU material table (set 0 binding 5): one material_record per entry (texture indices +
         // factors + flags); primitives only push their material_index. Host-visible, written at
         // registration, read-only for the GPU.
         vk_buffer material_buffer = {};
         void* material_mapped = nullptr;
-        // THE FACE SDF LANE TABLE: ONE uint PER MATERIAL, and a buffer of its own because the material record
-        // cannot carry a fifth lane - it is inline in the per-draw push block (see core::heap_slots::sdf_lanes).
+        // THE TOON LANES BESIDE THE RECORD: ONE `uvec4` PER MATERIAL (x = `_SDFLightmap`, y =
+        // `_MetallicGlossMap`, z and w reserved), and a buffer of its own because the material record cannot
+        // carry a fifth lane - it is inline in the per-draw push block (see core::heap_slots::toon_lanes).
         // Host-visible and written once at import, exactly like the table above and for the same reason.
-        vk_buffer sdf_lane_buffer = {};
-        void* sdf_lane_mapped = nullptr;
+        vk_buffer toon_lane_buffer = {};
+        void* toon_lane_mapped = nullptr;
+        // THE TOON LIGHT RIG: one block for the whole run (see core::heap_slots::toon_rig), written by
+        // `set_toon_rig` - which the application calls from its config, before the first frame. Host-visible and
+        // never rewritten by the frame path, exactly like the lane table above.
+        vk_buffer toon_rig_buffer = {};
+        void* toon_rig_mapped = nullptr;
+        // THE MATERIAL COLOURS (see `core::heap_slots::toon_colours`): one `vec4` per lane per material, filled
+        // from the sidecar at registration and never rewritten afterwards - the same once-written contract the two
+        // tables above follow.
+        vk_buffer toon_colour_buffer = {};
+        void* toon_colour_mapped = nullptr;
         uint32_t material_count = 0;
         // content-addressed material dedup + overflow fallback (see register_material):
         // material_slot_cache keys the full material_record bytes (texture indices + factors +
@@ -220,12 +237,27 @@ namespace vulkan {
         // later registrations degrade to the reserved default material at index 0 (registered
         // in init_scene_resources) with a one-time log instead of a hard panic.
         //
-        // THE KEY CARRIES ONE WORD PAST THE RECORD, and it has to: the face SDF lane lives OUTSIDE the record
-        // (see core::heap_slots::sdf_lanes for why), so a key built from the record alone cannot tell two
-        // materials apart when they differ ONLY in their SDF map - the second would take the dedup early return,
-        // never write its lane, and the face would silently not have one. See register_material.
-        std::unordered_map<utility::data_block<sizeof(vulkan::material_record) + sizeof(uint32_t)>, material_id,
-                           utility::data_block<sizeof(vulkan::material_record) + sizeof(uint32_t)>::hasher>
+        // THE KEY CARRIES THE LANE BLOCK PAST THE RECORD, and it has to: those lanes live OUTSIDE the record
+        // (see core::heap_slots::toon_lanes for why), so a key built from the record alone cannot tell two
+        // materials apart when they differ ONLY in their SDF or metallic/gloss map - the second would take the
+        // dedup early return, never write its lanes, and that material would silently lose the feature. See
+        // register_material.
+        //
+        // ... AND IT CARRIES THE COLOUR LANES FOR EXACTLY THE SAME REASON, one table further along: those six
+        // `vec4`s live outside the record too (see core::heap_slots::toon_colours), and the write that fills
+        // them sits AFTER this map's early return. A key without them made the write unreachable for the second
+        // of two record-identical materials, so that material read the FIRST registrant's six lanes - which is
+        // not a missing feature but a WRONG VALUE, and it now governs `_Specular` (lane 4), `_ParallaxScale`
+        // (lane 5) and `_OutlineWidth` (lane 3's `.w`). MEASURED WITH AN ASSET PROBE rather than argued: a
+        // mesh-less copy of `M_actor_chen_hair_01` stating `_Specular = 0.0` was registered one node earlier
+        // than the hair itself, the hair took this early return, and the render came out BYTE-FOR-BYTE identical
+        // to an asset whose hair states 0.0 - see `remaining_port_spec.md`'s "材质去重键补上 colour lanes" section.
+        //
+        // THE THIRD TERM IS SPELLED IN TERMS OF THE ENUM, so adding a colour lane grows the key by itself (a
+        // hand-written 4 or 5 here is the drift this note exists to prevent), and it is in LANE ORDER, the same
+        // order register_material writes the table in and the shader addresses it in.
+        std::unordered_map<utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>, material_id,
+                           utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>::hasher>
             material_slot_cache = {};
         bool material_overflow_logged = false;
         // same degradation policy for the texture array: when scene_texture_capacity distinct
@@ -1130,6 +1162,36 @@ namespace vulkan {
         // camera each time the cull re-runs: drawn AFTER the opaque pass (depth-write off), so
         // the blend order is back-to-front. Rebuilt in begin_recording together with the cull.
         std::pmr::vector<primitive const*> frame_transparent = {};
+        /**
+         * THE OVERLAY LEAVES (`primitive::overlay_kind != 0`), which are the article's two framebuffer
+         * multiplies - the eye shadow and the hair shadow.
+         *
+         * THEY ARE REMOVED FROM `frame_leaves` AS THEY ARE COLLECTED, so they reach NONE of the lists built
+         * from it: not the cull, not `frame_visible`, not `frame_transparent`, and not `shadow_casters`. That is
+         * the whole point of the list rather than a convenience - a mask drawn by a shading pass is a shaded
+         * quad (see `primitive::overlay_kind` for the measurement), and one drawn by the shadow pass casts a
+         * shadow of its own. They are drawn by the character-forward stage's overlay group instead, with the
+         * multiply pipeline and depth test, after the toon character they modify.
+         */
+        std::pmr::vector<primitive const*> frame_overlay = {};
+        /**
+         * THE OUTLINE LEAVES (`primitive::outline_width > 0`), which are the leaves the article's ① 描边
+         * (inverted hull) is drawn from.
+         *
+         * UNLIKE `frame_overlay` THESE ARE NOT TAKEN OUT OF ANY LIST: an outline is the SAME surface drawn a
+         * second time, so its leaf must stay in `frame_visible` (the toon stage re-shades it) AND in
+         * `shadow_casters` (its surface still casts the shadow it always did) - only the hull is extra. What
+         * this list adds is the per-MATERIAL gate the article has and the mesh does not: a material whose
+         * `_OutlineWidth` is 0 gets no hull, and it is a material fact rather than a mesh one (chen's
+         * `cloth_02` is 0.0 in the game's own table while its neighbours are 0.6).
+         *
+         * IT IS BUILT FROM `frame_visible` rather than from `frame_leaves`, and that is a correctness
+         * requirement rather than an optimisation: a hull is confined to the outside of its silhouette BY THE
+         * DEPTH TEST against the surface the pass just re-shaded (see `character_forward_frame::outline_leaves`),
+         * so a leaf the cull dropped would leave its hull with nothing to be occluded by - a whole unlit shell
+         * painted over the frame instead of a ring. Culling a leaf must therefore cull its outline with it.
+         */
+        std::pmr::vector<primitive const*> frame_outline = {};
         // shadow-pass subset (rebuilt each frame before the shadow recording). SMALL scenes
         // (<= full_scene_shadow_leaf_limit leaves, begin_recording): EVERY leaf - exact and cheap
         // at that size. HEAVY scenes: the camera-visible leaves plus the leaves the BVH reports
@@ -2266,6 +2328,59 @@ namespace vulkan {
 
         /**
          * @ingroup vulkan_runtime
+         * @brief register the OVERLAY (multiply) pipeline under @p pipeline_name
+         *
+         * THE THIRD ENTRY POINT OF THE SAME SHAPE, and the third set of states: `make_pipeline` builds the
+         * forward family's (swapchain format, src-alpha blending, depth LESS_OR_EQUAL),
+         * `make_character_forward_pipeline` the toon stage's (HDR target, blending off, depth EQUAL), and this
+         * one the article's two masks' (HDR target, `dst = src * dst`, depth LESS_OR_EQUAL). It goes through
+         * `core::make_overlay_pipeline`, which states why each of those is forced - including why the depth
+         * compare cannot be the toon stage's `EQUAL`.
+         *
+         * It lands in the same two registries and, like the toon pipeline, never becomes the implicit default.
+         * A device that refuses it is not a failure of the run: the pass takes an EMPTY name to mean "draw no
+         * overlay" (`character_forward_frame::overlay_pipeline_name`), because the only alternative - drawing
+         * the masks with the toon pipeline - would paint two shaded quads over the face.
+         */
+        std::expected<void, std::string> make_overlay_pipeline(
+            std::string_view pipeline_name,
+            std::span<uint8_t const> fragment_shader_code,
+            std::span<uint8_t const> mesh_vertex_shader_code,
+            std::span<uint8_t const> meshlet_shader_code = {});
+
+        /**
+         * @ingroup vulkan_runtime
+         * @brief create the ARTICLE'S ① 描边 (inverted hull) pipeline under @p pipeline_name
+         * @param pipeline_name the name the pipeline is registered under (the runtime's own
+         *        `outline_pipeline_name = "outline"`)
+         * @param fragment_shader_code raw SPIR-V of outline.frag (the article's inverted-hull fragment stage)
+         * @param mesh_vertex_shader_code raw SPIR-V of pbr.mesh - the geometry is the outline's own mesh stage,
+         *        because a hull has to push its vertices outward and only that stage does (see `pbr.slang`)
+         * @param meshlet_shader_code raw SPIR-V of the meshlet form, or empty when there is none
+         * @return success, or an error message on failure
+         *
+         * THE FOURTH ENTRY POINT OF THE SAME SHAPE, and the fourth set of states: `make_pipeline` builds the
+         * forward family's (swapchain format, src-alpha blending, depth LESS_OR_EQUAL), `make_character_forward_pipeline`
+         * the toon stage's (HDR target, blending off, depth EQUAL), `make_overlay_pipeline` the article's two
+         * masks' (HDR target, `dst = src * dst`, depth LESS_OR_EQUAL), and this one the ① 描边 hull's (HDR
+         * target, opaque blend, depth LESS_OR_EQUAL). It goes through `core::make_outline_pipeline`, which
+         * states why each of those is what it is.
+         *
+         * IT LANDS IN THE SAME TWO REGISTRIES AND, LIKE THE OTHER TWO FAMILY PIPELINES, NEVER BECOMES THE
+         * IMPLICIT DEFAULT: it declares ONE colour attachment, so a default-semantics leaf drawn by it would
+         * paint an unlit hull where a shaded surface belongs. A device that refuses it is not a failure of the
+         * run: the pass takes an EMPTY name to mean "draw no outline"
+         * (`character_forward_frame::outline_pipeline_name`), which is the frame this renderer produced before ①
+         * landed.
+         */
+        std::expected<void, std::string> make_outline_pipeline(
+            std::string_view pipeline_name,
+            std::span<uint8_t const> fragment_shader_code,
+            std::span<uint8_t const> mesh_vertex_shader_code,
+            std::span<uint8_t const> meshlet_shader_code = {});
+
+        /**
+         * @ingroup vulkan_runtime
          * @brief make @p pipeline_name the runtime's default pipeline (the one default-semantics
          *        primitives draw with; see make_pipeline for the implicit first-pipeline default)
          * @param pipeline_name a pipeline previously created via make_pipeline()
@@ -2330,6 +2445,23 @@ namespace vulkan {
             /// `material_record::toon_indices`). The sidecar keeps them apart for diagnosis, and the application
             /// is where the distinction is consumed.
             texture_input (*texture)(void* owner, std::string_view material_name, toon_slot lane) = nullptr;
+            /// the COLOUR for @p lane of @p material_name, or WHITE when the material has no such row.
+            ///
+            /// SEPARATE FROM `texture` BECAUSE IT CAN BE: a caller may have the maps and not the colours (an older
+            /// sidecar), and a null callback here leaves every lane at the neutral white `toon_inputs` starts with -
+            /// which is the same state a material with no `color` row reaches, and for the same reason.
+            glm::vec4 (*colour)(void* owner, std::string_view material_name, toon_colour_lane lane) = nullptr;
+            /// ONE SIDECAR SCALAR of @p material_name, or @p fallback when the material states none.
+            ///
+            /// THE THIRD CALLBACK EXISTS FOR A BLEND STATE, which is the one toon fact that is not a map, not a
+            /// colour and not a family: the author's transparent variant is selected by a MATERIAL PROPERTY
+            /// (`_TransParentToon`) and its blending by a PAIR OF NUMBERS (`_SrcBlend 5` / `_DstBlend 10` on
+            /// chen's `cloth_02`), and in this port neither glTF nor the family can express it - glTF's
+            /// `alphaMode` on that material is OPAQUE. So the runtime asks the sidecar for the two numbers by
+            /// NAME, exactly as it asks for the two maps and the colours, and the honesty of that is the point:
+            /// "this surface is alpha-blended" gets to be a statement the ASSET makes rather than a material name
+            /// or a family the port hard-codes. See `toon_inputs::alpha_blend`.
+            float (*scalar)(void* owner, std::string_view material_name, std::string_view row, float fallback) = nullptr;
         };
 
         /**
@@ -2468,6 +2600,16 @@ namespace vulkan {
          * frame is how a model whose head TURNS stays correct; calling it once is correct for a model that cannot
          * turn its head, which is what this repository's only SDF-bearing model is.
          */
+        /**
+         * @brief publish the toon stage's LIGHT RIG (the sun/head-light split and the chain's global scalars)
+         *
+         * The character stage's global numbers are one block rather than fields of every material record - see
+         * `vulkan::toon_rig` for what belongs there and `core::heap_slots::toon_rig` for why it is safe to write
+         * outside the frame path: nothing rewrites it while a frame is in flight, so a call from the import path
+         * or from a settings change cannot be read half-written. It MEANS the call must be made BEFORE the frame
+         * loop starts (or between frames), which is what the application does.
+         */
+        void set_toon_rig(toon_rig const& rig) noexcept;
         void set_head_basis(head_ubo const& basis) noexcept;
         /**
          * @ingroup vulkan_runtime
@@ -2707,6 +2849,33 @@ namespace vulkan {
          * lookup every forward session already performs.
          */
         static constexpr std::string_view character_forward_pipeline_name = "character_forward";
+
+        /**
+         * @brief the name the OVERLAY (multiply) pipeline is registered under, which the character-forward
+         *        pass binds for its overlay group
+         *
+         * THE ARTICLE'S TWO FRAMEBUFFER MULTIPLIES - the eye shadow and the hair shadow - draw with this one
+         * pipeline, and the state that makes them overlays rather than surfaces is the pipeline's:
+         * `dst = src * dst` (see `core::make_overlay_pipeline`), with the depth test on so each mask lands only
+         * on the geometry it was authored over. Registering it by NAME rather than keeping it as the pass's own
+         * object follows `character_forward_pipeline_name` exactly, and for the same reason: the pass is handed
+         * the name (it does not own a registry) and the session's bind callback resolves it.
+         */
+        static constexpr std::string_view overlay_pipeline_name = "overlay";
+
+        /**
+         * @brief the name the OUTLINE (inverted hull) pipeline is registered under, which the
+         *        character-forward pass binds for its outline group
+         *
+         * THE ARTICLE'S ① 描边 - `MyZmdOutlineShader` - draws with this one pipeline, and the state that makes a
+         * hull an outline rather than a surface is the pipeline's: FRONT faces culled (so only the pushed-out
+         * back shell survives), depth compare LESS_OR_EQUAL and no blend (see `core::make_outline_pipeline`).
+         * Registering it by NAME rather than keeping it as the pass's own object follows
+         * `overlay_pipeline_name` exactly, and for the same reason: the pass is handed the name (it does not own
+         * a registry) and the session's bind callback resolves it. An empty name means "draw no outline" - the
+         * frame this renderer produced before ① landed - which is what the pass reads it as.
+         */
+        static constexpr std::string_view outline_pipeline_name = "outline";
 
         /**
          * @ingroup vulkan_runtime
@@ -3146,6 +3315,21 @@ namespace vulkan {
         void set_ibl(ibl_input const& info);
 
         /**
+         * @brief upload the ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) into its heap slot
+         *
+         * A `width x height` R8G8B8A8_SRGB image, uploaded once, exactly as `set_ibl` uploads the BRDF LUT - and for
+         * the same reason the two are separate entry points rather than fields of one info struct: the IBL arrives
+         * from the async generators while this arrives from the application's own bake (`bake_post_lut` in main.cpp),
+         * which is a different producer with a different lifetime.
+         *
+         * THE CONTENT IS THE IDENTITY, and that is what makes the port's LUT weight default safe: the shader's
+         * addressing is the article's log-domain encoding, so a cube holding `decode(address)` at every texel reads
+         * back as the colour it was looked up with - a frame with the weight at 1 and no artist's cube is the frame
+         * without any LUT at all, which is a measurement the capture gate can check.
+         */
+        void set_post_lut(std::span<uint8_t const> pixels, uint32_t width, uint32_t height);
+
+        /**
          * @ingroup vulkan_runtime
          * @brief upload the scene-wide skin matrices (scene block slot 9) into the frame slot
          *        paced by the last pace_and_acquire(): the caller fills the buffer layout
@@ -3309,14 +3493,36 @@ namespace vulkan {
                 // THE TOON FAMILY, resolved by the loader from the material's NAME (the last place the name
                 // exists). Copied here like every other per-material fact so the runtime never sees a string.
                 info.toon_family = drawable.get_toon_family();
+                // ... AND THE OVERLAY CHANNEL, resolved by the loader from the same name and at the same
+                // moment, so the runtime never sees a string here either. A non-zero value takes this leaf out
+                // of every shading pass and into the overlay one (see `primitive::overlay_kind`).
+                info.overlay_kind = drawable.get_overlay_kind();
                 // ---- THE TOON MAPS, from the installed lookup (see set_toon_lookup) ----
                 // The runtime asks by NAME because the sidecar is keyed by name; it never sees the sidecar.
                 // A null lookup leaves `info.toon` empty, which is what a model with no sidecar gets: an empty
                 // block rather than a block of white, so a shader finds nothing switched on.
-                if (this->toon_lookup_.texture != nullptr) {
+                if (this->toon_lookup_.texture != nullptr || this->toon_lookup_.colour != nullptr || this->toon_lookup_.scalar != nullptr) {
                     std::string_view const material_name = drawable.get_material_name();
                     for (uint32_t lane = 0; lane < static_cast<uint32_t>(toon_slot::count); ++lane) {
-                        info.toon.slots[lane] = this->toon_lookup_.texture(this->toon_lookup_.owner, material_name, static_cast<toon_slot>(lane));
+                        if (this->toon_lookup_.texture != nullptr) {
+                            info.toon.slots[lane] = this->toon_lookup_.texture(this->toon_lookup_.owner, material_name, static_cast<toon_slot>(lane));
+                        }
+                    }
+                    // THE COLOURS, from the same name and the same sidecar: a material with no such row keeps the
+                    // neutral white `toon_inputs` gave it, which is what "the game states no colour here" has to
+                    // look like for a multiply-tint.
+                    for (uint32_t lane = 0; this->toon_lookup_.colour != nullptr && lane < static_cast<uint32_t>(toon_colour_lane::count); ++lane) {
+                        info.toon.colours[lane] = this->toon_lookup_.colour(this->toon_lookup_.owner, material_name, static_cast<toon_colour_lane>(lane));
+                    }
+                    // THE ARTICLE'S TRANSPARENT VARIANT, from the sidecar's own blend pair - see
+                    // `toon_inputs::alpha_blend` and `toon_lookup::scalar`. `5` / `10` are Unity's `SrcAlpha` /
+                    // `OneMinusSrcAlpha`, which is the pair every material in this repository states when it
+                    // states one; anything else is left as the opaque overwrite rather than approximated,
+                    // because a blend state this port cannot evaluate is not a blend state it should guess.
+                    if (this->toon_lookup_.scalar != nullptr) {
+                        float const src = this->toon_lookup_.scalar(this->toon_lookup_.owner, material_name, "_SrcBlend", 1.0f);
+                        float const dst = this->toon_lookup_.scalar(this->toon_lookup_.owner, material_name, "_DstBlend", 0.0f);
+                        info.toon.alpha_blend = src == 5.0f && dst == 10.0f;
                     }
                 }
             };

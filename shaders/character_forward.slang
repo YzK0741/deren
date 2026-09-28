@@ -79,6 +79,65 @@ static const float character_ramp_spec_band_v = 0.375;
 /// the bands above are: a number whose provenance is a specific material should say so where it is written.
 static const float character_matcap_strength = 0.5666667;
 
+/// @brief the CORNEA's bump - the article's `_CorneaBumpStrength`, whose per-material value this port cannot carry
+/// @note it is the `0.125` in `corneaTS.xy = 0.125 * _CorneaBumpStrength * centredUV`, i.e. how far the hemisphere
+///       tilts at the iris' edge. Named rather than inlined for the reason the other recorded constants are: a
+///       number whose provenance is one material should say so where it is written.
+static const float character_cornea_bump = 0.125;
+
+/// @brief the article's `_ParallaxDepth` for the eye - the distance the iris' albedo lookup slides behind the cornea
+/// @note the VALUE is the game's own (`M_actor_chen_iris_01` states `_ParallaxScale = 0.03`, and the article's
+///       property of that name is what its `parallaxOffset = offsetDir * _ParallaxDepth * float2(1.0, 0.25)` reads;
+///       the same material's brow carries 0.5, so it is per-material in the game).
+/// @note IT IS NO LONGER THE VALUE THE STAGE USES ON EVERY MATERIAL - it is the FALLBACK behind the asset's own
+///       per-material row, and the note that used to stand here ("this is the one material's, recorded here
+///       exactly as `character_matcap_strength` records another's" ... the per-material value cannot be carried)
+///       is now WRONG and was replaced by what is measured: `_ParallaxScale` reaches the GPU as
+///       `toon_colour_lane::parallax_scale` (the asset's `extras` block, via
+///       `gltf::claimed_extras_floats`), and the read in `toon_diffuse` is
+///       `lane.x >= 0 ? lane.x : this constant`. On `chars\chen.glb` the asset states the row for exactly three
+///       materials - iris 0.03, brow 0.5, `M_actor_chen_cloth_01` 0.5 - and stays silent for the other four, so
+///       THIS CONSTANT IS STILL LIVE and still 0.03: it is the answer for every material whose sources say
+///       nothing (the body, the face, the hair, cloth_02, and every non-character model), and on the iris the
+///       asset's 0.03 and this constant are the same number to the last bit, which is why the iris renders
+///       unchanged.
+/// @note AND THE OTHER TWO MATERIALS THAT STATE 0.5 DO NOT MOVE EITHER, which is the measured answer rather than
+///       the expected one: the parallax block is gated on the material's MATCAP (`toon_indices.w != 0`) and only
+///       the iris has one, so wiring this lane changes zero pixels on this character. The probe that separates
+///       "read" from "ignored" (the iris re-stated as 0.3) is recorded in `remaining_port_spec.md`'s
+///       "extras 数据源" section, and its mask is `zmd-ab/parallax_zoom.png`.
+///       Named rather than inlined for the reason the other recorded constants are.
+static const float character_eye_parallax_depth = 0.03;
+
+/// @brief the article's `_SpecularColor` for the eye's matcap - ITS OWN PROPERTY, and the port has no game row for it
+/// @note the article's eye shader declares it `("SpecularColor", Color) = (1,1,1,1)` and its specular is
+///       `specularColor * _SpecularStrength + _SpecularColor * specularW`, where `specularColor`/`specularW` are the
+///       matcap's RGB and A. No sidecar this repository carries has a `_SpecularColor` row, so the article's own
+///       default is what this is - named rather than inlined because it is a value whose provenance is the article,
+///       not the game, which is the opposite of the two constants above it.
+static const float3 character_eye_specular_colour = float3(1.0, 1.0, 1.0);
+
+/// @brief the article's `* 2.5` on the eye's two trick colours (`_SpecularTrickColor` / `_EyeInTrickColor`)
+/// @note WHERE the trick colours go is the article's and is settled (the LIT layer - see `eye_trick`), but HOW FAR
+///       they go is not: the article's `* 2.5` is its own compensation for Unity's light units, and this engine's
+///       sun carries roughly 7.5x the radiance the article's does (the reason the hair LUT needed a `/PI` bridge),
+///       so copying the article's factor AND this engine's magnitudes at once is not a faithful port - it is two
+///       unit systems multiplied. It is 1.0 here, which is this port's existing magnitude, and the A/B that decides
+///       between 1.0 and 2.5 is this one number.
+static const float character_eye_trick_scale = 2.5;
+
+/// @brief the article's `_SpecularMatcap`: the matcap's own tint, which the game's table carries ONLY for chen's
+///        iris (`_MatcapColor` = (0.145, 0.161, 0.314, 0.933)) and which this port does NOT read yet
+/// @note RECORDED RATHER THAN INVENTED, and the note is why it is written down instead of implemented: every other
+///       colour lane in this stage exists because something consumes it (see `vulkan::toon_colour_lane`), and this
+///       one has no consumer, so writing it into a lane would be a second source of truth for a value nothing
+///       reads. The reference's own name for the property is `EF_EYE_IRIS_MATCAP05_STRENGTH` for the STRENGTH
+///       (`character_matcap_strength` below, 0.5666667) and the article's is `_SpecularMatcap`; the TINT is a
+///       third thing and it is the one the game states. The A/B that would settle it: apply
+///       `_MatcapColor.rgb` with `_MatcapColor.a` (0.933) as its weight to the eye's highlight and compare the
+///       iris against the game's own frame.
+
+
 /**
  * @brief the MATCAP's UV - the sphere map, from the view-space normal
  *
@@ -96,6 +155,18 @@ static const float character_matcap_strength = 0.5666667;
  * a ball has no distinguished up. What it buys is not needing a second per-frame matrix in this stage for one
  * lookup.
  *
+ * MEASURED (阶段④, `remaining_port_spec.md`): THE ROLL HERE IS EXACTLY ZERO, so this basis IS the article's
+ * `mul((float3x3)UNITY_MATRIX_V, corneaNormalWS)`. The article builds its own `cameraRight` as
+ * `cross(worldUp, cameraForward)` with `cameraForward = UNITY_MATRIX_V[2].xyz` (`ZmdEyeToonMain.hlsl:70,73-74`)
+ * - the same world-up, the same row 2 of the same matrix this port's `camera_forward` reads - so its `right`
+ * and `up` are this function's `right` and `up_ortho` to the bit. Measured as two real builds: the view-space
+ * form and this one render the IDENTICAL frame at yaw 0/30/60 and at the user pose (0 px differing).
+ * THE ONLY REAL DIFFERENCE FROM THE ARTICLE'S LINE IS THE SIGN OF V, and the sign is REQUIRED: the article's
+ * literal `n_vs.xy * 0.5 + 0.5` on this port's glTF/Vulkan texture (V downwards) kills the catchlight -
+ * MEASURED 1219 lit px inside the eye at yaw 0 down to 6 px, and 1206 px of the front iris changed - which is
+ * the same V-axis inversion `EfClothSampleMatcap`'s comment describes. So this `-dot(n, up_ortho)` is the
+ * article's `corneaNormalVS.xy * 0.5 + 0.5` in this port's texture convention rather than a deviation from it.
+ *
  * @param n world-space shading normal
  * @param v the unit surface-to-camera vector, which the caller has already computed
  */
@@ -104,6 +175,34 @@ float2 toon_matcap_uv(const float3 n, const float3 v) {
     const float3 right = normalize(cross(up, v));
     const float3 up_ortho = cross(v, right);
     return saturate(float2(dot(n, right), -dot(n, up_ortho)) * 0.5 + 0.5);
+}
+
+/// @brief relative luminance, with the article's own Rec. 709 weights (`MyCalculateLightStrength`)
+///
+/// IT IS USED FOR TWO DIFFERENT JOBS below and both are the article's: desaturating the dark side's albedo
+/// toward its own brightness, and holding the ramp's colour mapping to a TINT rather than a brightness change.
+static float toon_luminance(const float3 c) {
+    return dot(c, float3(0.212672904, 0.715152204, 0.0721750036));
+}
+
+/// @brief linear -> display-space (sRGB) encode, the article's own `linear2sRGB` from `ZmdToonUtils.hlsl`
+///
+/// WHY THE SHADING STAGE NEEDS AN ENCODER AT ALL, when the whole point of working in linear is not to: the game's
+/// shadow LUT is indexed by the ALBEDO AS THE ARTIST SAW IT - the display-space value - because that is the space
+/// the palette was painted in. Reading it with a linear coordinate lands on the wrong texel everywhere except at
+/// the two ends, which shows as a dark side that is roughly right in tone and wrong in hue. So the lookup's domain
+/// is converted here and nowhere else; the COLOUR that comes back is still linear, because the lane is uploaded
+/// sRGB and the sampler decodes it.
+///
+/// THE BRANCH IS THE sRGB CURVE'S OWN: a straight segment below 0.0031308 and a power above it. Written as the
+/// article writes it, including its `abs` before the `log2` (a negative channel would otherwise be NaN rather than
+/// a number nobody looks at).
+static float3 toon_linear_to_srgb(const float3 colour) {
+    const float3 linear_segment = colour * 12.9200001;
+    const float3 curve_segment = exp2(log2(abs(colour)) * 0.416666657) * 1.05499995 - 0.0549999997;
+    return float3(colour.r <= 0.00313080009 ? linear_segment.r : curve_segment.r,
+                  colour.g <= 0.00313080009 ? linear_segment.g : curve_segment.g,
+                  colour.b <= 0.00313080009 ? linear_segment.b : curve_segment.b);
 }
 
 /// THE HEAD FRAME the face SDF shades against (scene block slot 749). Layout matches `head_ubo` in
@@ -116,15 +215,70 @@ struct HeadUBO {
     float4 up;    // its up
 };
 
-/// @brief the reference's `EF_FACE_SDF_GOO_SHARP` - the Sigmoid's SLOPE, neutral 0.5 (range 0.05..5.0)
-static const float character_sdf_sharp = 0.5;
-/// @brief the reference's `EF_FACE_SDF_GOO_CENTER` - a constant added to the per-pixel angle threshold
-static const float character_sdf_center_offset = 0.1;
-/// @brief the reference's `EF_FACE_SDF_GOO_BASE` - the Sigmoid's base, hardcoded in its named twin too
-static const float character_sdf_base = 100000.0;
+/// THE TOON LIGHT RIG (scene block slot 750): the character stage's global numbers, declared BY THIS STAGE
+/// exactly as `HeadUBO` is. THE LAYOUT MUST MATCH `vulkan::toon_rig` - eight `float4`s, lane by lane named
+/// here - and `runtime::set_toon_rig` is the only writer. A rig nobody writes is not a broken frame: the
+/// application always publishes one, and the host's defaults are the article's own values.
+struct ToonRigUBO {
+    // x = `_DayStrength` (0 = the sun's direct term is gone and the head light carries the character, 1 = full
+    // sun), y = `_OtherLightOffset`, z = `_OtherLightStrength`, w = `_OtherLightStrength_Offset`
+    float4 day;
+    // x = the head light's weight in the day-0 state, y = its (much smaller) weight in the day-1 state,
+    // z = `_SelfAoShadowStrength`, w = the occlusion exponent the metallic/gloss map's B channel is raised to
+    float4 other_light;
+    // rgb = the head light's colour on the SHADOW side of a surface
+    float4 other_colour;
+    // rgb = the sun's colour on a surface's shadow side, a = `_BaseColorPow` (the albedo's own exponent)
+    float4 main_dark;
+    // x = `_RimLightArea`, y = `_RimLightStrength`, z = `_RimLightNoLxzStrength`,
+    // w = `_RimLightDiffuseColorEffect`
+    float4 rim;
+    // rgb = `_SssColor`, a = `_SssPowStrength`
+    float4 sss;
+    // x = `_EnvLightStrength`, y = `_EnvRotation` in degrees, z = `_SpecularStrength`,
+    // w = `_DiffuseBlendEffect`
+    float4 env;
+    // x = the backlight compensation's weight, y = `_NoFStrength`, z = `_NoFPowStrength`,
+    // w = `_RampColorNoLStrength`
+    float4 misc;
+};
+
+/// @brief the rig's lanes as a VALUE, which a heap handle cannot be
+///
+/// THE HANDLE IS AN ADDRESS RANGE, NOT THE BLOCK, and Slang says so: `heap_at<ConstantBuffer<T>>(slot)` supports
+/// MEMBER access (`.day.x`, which is what every other block in this renderer is read through) but not assignment
+/// to a `T`. Copying lane by lane is the whole of this function, and it exists so that the shading body can hold
+/// the rig once rather than re-reading a handle it does not name - MEASURED: `const ToonRigUBO rig =
+/// toon_rig_at(...)` fails to compile with "expected an expression of type 'ToonRigUBO', got 'DescriptorHandle<...>'".
+static ToonRigUBO toon_rig_value() {
+    ToonRigUBO rig;
+    rig.day = toon_rig_at(heap_slots_toon_rig).day;
+    rig.other_light = toon_rig_at(heap_slots_toon_rig).other_light;
+    rig.other_colour = toon_rig_at(heap_slots_toon_rig).other_colour;
+    rig.main_dark = toon_rig_at(heap_slots_toon_rig).main_dark;
+    rig.rim = toon_rig_at(heap_slots_toon_rig).rim;
+    rig.sss = toon_rig_at(heap_slots_toon_rig).sss;
+    rig.env = toon_rig_at(heap_slots_toon_rig).env;
+    rig.misc = toon_rig_at(heap_slots_toon_rig).misc;
+    return rig;
+}
+
+/// @brief the reference's `EF_FACE_SDF_GOO_BASE` twin used to live here, and it is DELETED WITH ITS FORMULA
+///
+/// THIS FILE USED TO CARRY `character_sdf_sharp = 0.5` / `character_sdf_center_offset = 0.1` /
+/// `character_sdf_base = 100000.0` and threshold the SDF with `1 / (1 + base^(-3*sharp*(x - center)))`. Those
+/// three numbers are the GAME/RP's (`EF_FACE_SDF_GOO_*` appears nowhere in the article's sources - see
+/// `zmd-ab/face_shader_compare.md` §5-8), and the article's own face main writes a DIFFERENT formula at
+/// `ZmdFaceToonMain.hlsl:168-172`: it normalises the SDF value into the light-angle WINDOW `[sdf_min, sdf_min +
+/// sdf_width]`, smoothsteps that, and hands the RESULT to the ramp as its U coordinate. MEASURED, and it is why
+/// this was replaced rather than tuned: the sigmoid's flip window is `+-0.06` in SDF units (about +-15 of 255),
+/// while the asset's R channel is <=30 over 48% of its texels and the G channel is 255 over 66%, so the term
+/// came out near-BINARY - the cheek's 3x3 luminance mottle read **7.18** against the unprobed baseline's
+/// **5.37** (`zmd-ab/p13_probe_report.md` §3-3, which also ablated the term to 3.49 by forcing it to 1.0).
+/// The article's window is the whole SDF range for a light the face looks into, so the same term is a GRADIENT.
 
 /**
- * @brief the FACE's shadow terminator, from its SDF lightmap - the reference's `EF_FACE_SDF_GOO_ANGLE` path
+ * @brief the FACE's shadow terminator, from its SDF lightmap - the article's `ZmdFaceToonMain.hlsl:168-173`
  *
  * WHY A FACE NEEDS A DIFFERENT MECHANISM FROM EVERY OTHER SURFACE, and it is the whole reason this lane exists:
  * a low-poly anime face is a handful of triangles whose normals are a poor description of its form - the cheeks
@@ -157,21 +311,39 @@ static const float character_sdf_base = 100000.0;
  * with its vertical flip, i.e. it is strongly antisymmetric about u = 0.5, which is exactly the structure that
  * makes the mirrored read land on a meaningful counterpart.
  *
- * THE SIGMOID IS THE REFERENCE'S, INLINED AS IT INLINES IT: `1 / (1 + base^(-3 * sharp * (x - center)))`, with
- * `x` the R/G average of the mirrored sample, `center` the per-pixel light angle plus a constant, and a `saturate`
- * on the way out. The angle is `|atan2(side, front)| / PI`, so 0 is a light straight ahead and 1 is a light
- * directly behind - and `center` is therefore where the terminator sits for THIS light direction.
+ * THE LIGHT-ANGLE WINDOW IS THE ARTICLE'S OWN, COPIED LINE FOR LINE from `ZmdFaceToonMain.hlsl:159-173`, and it
+ * is what replaced a fixed-slope sigmoid (see the note above the deleted constants). Four of the article's lines
+ * collapse here because the port computes their inputs above in the caller: its `mainLightDir_xz_faceDir.z` is
+ * this function's `dot(light_dir, head_front)`, and its `backLight * faceNoL_compensation` is the caller's
+ * `ramp_curve * back_light` (algebraically identical - `-0.5*z*z + 0.5 == 0.5 - 0.5*z*z`), which is exactly what
+ * the caller's `ramp_u` adds to `face_no_l`. Only `sdf_backLight` and the window have to be built here.
+ *
+ * THE WINDOW IS WHAT MAKES THE TERM CONTINUOUS: `faceNoL` is the light's forward component in the head's frame
+ * mapped to [0,1], the window is `[max(0, 2*faceNoL - 1), min(1, 2*faceNoL)]`, and the SDF's R/G average is
+ * stretched across it. With the light straight ahead (`faceNoL = 1`) the window is the WHOLE range `[0,1]`, so
+ * every level of the distance field is a distinct terminator position instead of a hard flip.
  *
  * WHAT IT DOES NOT DO, said plainly: it never reads the surface normal - that is the point of the lane - so a
  * material with no SDF map, or one whose artist switched `_UseSDFLightmap` off, keeps the geometric terminator
  * instead. The caller's `sdf_lane != 0u` test is the whole of that decision, and both cases collapse to it.
  *
+ * ONE DEGENERACY IS THE ARTICLE'S AND IS NOT PAPERED OVER HERE EITHER: at `faceNoL = 0` - a light edge-on to the
+ * face's forward axis - its `sdf_width` is `min(1,0) - max(0,-1) = 0` and the window divides by zero. The article
+ * does not guard it (`ZmdFaceToonMain.hlsl:169-170`); this port leaves the same division unguarded so the two
+ * agree, and the weight is then 0 or 1 from the saturate rather than a value anybody reads.
+ *
  * @param uv the surface's texture coordinate, which is the SDF atlas's coordinate too
  * @param lane the material's SDF heap lane; the caller must not call this with 0
  * @param light_ws the unit SURFACE-TO-LIGHT vector
+ * @param head_face_dir_z the camera's forward axis measured along the head's own forward axis (the article's
+ *        `cameraForward_faceDir.z` / `headFDotCamerF`), which the shadow mask on the caller's side shares too
+ * @param sdf_back_light the article's `backLight` - its backlight compensation's weight, which the caller has
+ *        already built from the same two directions `ramp_curve` uses
+ * @param out_mask_uv the uv the caller must sample the FACE MASK (`_SDFMask`) at - the ORIGINAL coordinate, not
+ *        the mirrored one this function samples the SDF at (see the note at the assignment)
  * @return the light/dark weight, 0 = shadow side, 1 = lit side
  */
-float toon_sdf_mask(const float2 uv, const uint lane, const float3 light_ws) {
+float toon_sdf_mask(const float2 uv, const uint lane, const float3 light_ws, const float head_face_dir_z, const float sdf_back_light, out float2 out_mask_uv, out float out_sdf_z) {
     // THE HEAD FRAME, READ FROM THE PER-FRAME BLOCK rather than written as constants here. `HeadUBO` is declared
     // by this stage exactly as `LightUBO` and `CameraUBO` are declared by the stages that read them - a macro is
     // text, so the accessor above expands at this point and finds the declaration below.
@@ -189,21 +361,53 @@ float toon_sdf_mask(const float2 uv, const uint lane, const float3 light_ws) {
     const float3 projected = light_ws - dot(light_ws, head_up) * head_up;
     const float projected_len_sq = dot(projected, projected);
     if (projected_len_sq < 1e-8) {
+        out_mask_uv = uv;
+        out_sdf_z = 0.0;
         return 1.0;
     }
     const float3 light_dir = projected * rsqrt(projected_len_sq);
     const float side = dot(light_dir, head_right);
     const float mirror = step(0.0, side);
     const float2 sdf_uv = float2(lerp(1.0 - uv.x, uv.x, mirror), uv.y);
+    // HANDED BACK AS THE **ORIGINAL** uv, WHICH IS THE ARTICLE'S OWN COORDINATE FOR THIS TEXTURE: its face main
+    // samples `_SdfRefineTex` at `i.uv0` (`ZmdFaceToonMain.hlsl:55`) and reserves the mirrored `float2(sdf_u,
+    // sdf_v)` for `_SdfTex` alone (`:157`). THE PORT USED TO HAND BACK `sdf_uv` HERE, on the assumption that the
+    // face mask is authored in the same mirrored space the SDF is - an assumption the article's source does not
+    // support, and one that matters because the mask's `.y` (the neck/jaw ring) and `.w` (the side bands) are
+    // HARD-EDGED rings: read at the mirrored coordinate, one side of the face receives the OTHER side's band and
+    // the blend weight jumps across the seam.
+    out_mask_uv = uv;
     const float4 sdf = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, sdf_uv);
     // R AND G AVERAGED, which is what the reference's production path does. Its debug branches read the
     // channels separately (front light -> G, back light -> R); the goo path this ports averages them, and B and
     // A are never read outside a raw dump.
     const float average = saturate(0.5 * (sdf.r + sdf.g));
-    const float angle01 = saturate(abs(atan2(side, dot(light_dir, head_front))) * (1.0 / 3.14159265));
-    const float center = angle01 + character_sdf_center_offset;
-    const float exponent = -3.0 * character_sdf_sharp * (average - center);
-    return saturate(1.0 / max(1.0 + pow(character_sdf_base, exponent), 1e-4));
+    // THE THIRD CHANNEL IS THE FACE'S OWN NORMAL TERM, mirrored with the same flag the sample was: the article turns
+    // it back into a world-space normal in the head's frame (see the caller), which is how a face gets a rim that
+    // follows its SHAPE rather than its tessellation.
+    out_sdf_z = lerp(-(sdf.b * 2.0 - 1.0), sdf.b * 2.0 - 1.0, mirror);
+    // ---- THE ARTICLE'S WINDOW, `ZmdFaceToonMain.hlsl:159-173` ----
+    //
+    // `light_dir_front_z` IS THE ARTICLE'S `mainLightDir_xz_faceDir.z` and `sdf_back_light` ITS `backLight`: the
+    // light's own forward component in the head's frame, plus the compensation that keeps a backlit face from
+    // collapsing onto the dark end of its own distance field (`backLight * (-0.5*z*z + 0.5)`) - the same term the
+    // caller adds to this weight when it builds the ramp coordinate, which is why this is only the SHADOW side of
+    // it: the article's `halfFaceNoL * ceil(halfFaceNoL)` is the backlit half, and `abs(-smooth - back) * 2 - 1`
+    // folds to `smooth + back` for `smooth, back` in [0,1] - the caller's `ramp_u` is that sum.
+    const float light_dir_front_z = dot(light_dir, head_front);
+    const float sdf_face_no_l_compensation = -0.5 * light_dir_front_z * light_dir_front_z + 0.5;
+    const float sdf_half_face_no_l = (light_dir_front_z + sdf_back_light * sdf_face_no_l_compensation) * 0.5;
+    const float face_no_l_window = saturate(-(light_dir_front_z + sdf_back_light * sdf_face_no_l_compensation) * 0.5 + 0.5);
+    const float sdf_min = max(0.0, 2.0 * face_no_l_window - 1.0);
+    const float sdf_window = min(1.0, 2.0 * face_no_l_window) - sdf_min;
+    // THE STRETCH AND THE SMOOTHSTEP ARE THE ARTICLE'S TWO LINES (`:170`, `:172`), and they are what turns a
+    // 8-bit distance field into a gradient: the SDF's whole range is mapped onto the window the light angle opens,
+    // so the terminator MOVES CONTINUOUSLY with the light instead of flipping where a fixed threshold crosses it.
+    float sdf_smooth = saturate((average - sdf_min) / sdf_window);
+    sdf_smooth = sdf_smooth * sdf_smooth * (3.0 - 2.0 * sdf_smooth);
+    // AND IT IS HANDED BACK AS THE LIGHT TERM THE RAMP IS INDEXED BY, which is the article's `:173`: the shadow
+    // side of the smoothstep is subtracted from the backlit half so the two halves of the face meet at one value.
+    return abs(-sdf_smooth - sdf_half_face_no_l * ceil(sdf_half_face_no_l)) * 2.0 - 1.0;
 }
 
 /**
@@ -233,6 +437,30 @@ static const float character_ramp_half_width = 0.035;
 /// `tests/test_toon_material_sidecar.cpp` compares the two.
 static const float character_shadow_lut_tiles = 32.0;
 
+/// @brief how many `vec4` lanes `vulkan::toon_colour_lane` has - the stride of the colour table
+///
+/// THE SHADER ADDRESSES THE COLOUR TABLE FLAT (`material_index * this + lane`), so this number is HALF OF A
+/// CONTRACT and the other half is `vulkan::toon_colour_lane::count` in the host. A mismatch reads another
+/// material's colour rather than failing, which is the silent-drift shape `tests/test_toon_material_sidecar.cpp`
+/// exists to catch - it compares this against the enum for the same reason it compares the LUT's tile count.
+/// LANE 3 IS THE OUTLINE'S (`.rgb` = `_OutlineTintColor`, `.w` = `_OutlineWidth`), and IT IS WHY THIS FILE IS
+/// NOT THE ONLY READER: `pbr.slang`'s outline mesh entry reads the same lane for the width of the hull it
+/// expands and `outline.slang` for the tint, each with its own copy of the stride for the same reason - a stage
+/// cannot include this one without inheriting its entry point.
+/// LANE 4 IS THE FIRST LANE FILLED FROM A SOURCE OTHER THAN THE SIDECAR - the asset's own `extras` block
+/// (`_Specular`, in `.x`, with `-1` meaning "the asset states nothing"; see the read in `toon_diffuse`), and the
+/// first of the two lanes whose neutral is not white for that reason.
+/// LANE 5 IS THE SECOND, FROM THE SAME SOURCE AND WITH THE SAME SENTINEL (`_ParallaxScale`, in `.x` - the depth
+/// the eye's parallax offset uses, see `character_eye_parallax_depth`): both lanes carry a per-material SCALAR
+/// whose "absent" cannot be a number in the value's own range, and the read below resolves them together.
+static const uint character_toon_colour_lanes = 6u;
+
+/// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
+///
+/// LANES 4..7 LIVE IN BLOCK 0 AND 8..11 IN BLOCK 1, so the shader addresses block 1 at `material * 2 + 1` (see
+/// `toon_lanes2_at`). This number is half of that contract and `vulkan::toon_lane_blocks` is the other half.
+static const uint character_toon_lane_blocks = 2u;
+
 /**
  * @brief the material's SHADOW COLOUR for its own albedo - the reference's `_ShadowLutTex` lane
  *
@@ -248,11 +476,11 @@ static const float character_shadow_lut_tiles = 32.0;
  * half-texel offsets, and they are written below as the arithmetic they are so the next reader does not have
  * to recover them from decimals.
  *
- * WHERE IT DEVIATES, and it is one thing: the reference indexes its LUT by the DISPLAY-SPACE (sRGB) albedo,
- * because the atlas it reads was authored in the space the artist painted in. This one is indexed by the
- * LINEAR albedo, because the LUT here is OUR bake and this stage works in linear - so the domain is ours to
- * choose, and choosing the working space removes two colour conversions whose only possible contribution
- * would be to disagree with the sampler's own.
+ * THE DOMAIN IS THE DISPLAY-SPACE ALBEDO, which is the reference's own and is now this stage's too: the game's
+ * palette was painted against the albedo AS THE ARTIST SAW IT, so the lookup converts the linear albedo through
+ * `toon_linear_to_srgb` first. THE BAKED FALLBACK WAS CHANGED TO MATCH - it stores the display-space coordinate
+ * rather than the linear one - which keeps its identity property ("albedo in, albedo out") true in the new domain
+ * instead of turning the fallback into a brighter version of the albedo. See main.cpp's `bake_shadow_lut`.
  *
  * THE CONTENT OF THE BAKED LUT IS THE IDENTITY, which makes this lane READ WITHOUT CHANGING THE LOOK - the
  * same property the ramps have - and it is not a placeholder: what the lane is for is honouring an AUTHORED
@@ -264,17 +492,37 @@ static const float character_shadow_lut_tiles = 32.0;
  * @param lane the material's shadow-LUT heap lane; 0 means "do not read" and the caller must not call this
  */
 float3 toon_shadow_lut(const float3 albedo, const uint lane) {
-    const float3 cube = saturate(albedo);
-    // The tile the X channel lands in, and how far between it and the next one - the reference's
-    // `lutFloorX` / `lutTileLerp` pair.
-    const float tile_f = cube.x * (character_shadow_lut_tiles - 1.0);
+    // THE DISPLAY-SPACE COORDINATE, because the palette was painted in that space (see the note above).
+    const float3 cube = saturate(toon_linear_to_srgb(albedo));
+    // ---- THE THREE AXES ARE THE ARTICLE'S, AND THEY ARE THE SWIZZLE'S RATHER THAN AN ARBITRARY ASSIGNMENT ----
+    //
+    // The article writes BOTH its colour and its coordinate from one line (`ZmdFaceToonMain.hlsl:133`):
+    //
+    //     float3 albedo_sRGB = linear2sRGB(albedo.brg);
+    //
+    // so `albedo_sRGB = (f(b), f(r), f(g))`, and every later use of `.x` / `.y` / `.z` is a use of THOSE:
+    //     `:134` `lut_uv = albedo_sRGB.xz * float2(31, 0.96875)`        -> the TILE is the BLUE channel
+    //     `:136` `lut_uv_yz = albedo_sRGB.yz * float2(...) + ...`       -> in-tile X is RED, in-tile Y is GREEN
+    //     `:140` `lutTex_lerp = albedo_sRGB.x * 31 - lut_uv_floorx`     -> and the tile blend weight with it.
+    // The port read `tile <- cube.x`, `u <- cube.y`, `v <- cube.z`, i.e. the same three roles permuted, which on
+    // the real asset (`T_actor_common_femaleskincolor02_lut_D`, `1024x32` = 32 `32x32` tiles of a `32^3` cube)
+    // reads a DIFFERENT cell of the cube: the darkness is roughly right and the HUE is wrong. The axis order is
+    // not a preference and not something to tune - the article's swizzle is the statement of it.
+    //
+    // THE BLEND SAMPLE'S OFFSET IS THE SAME STATEMENT: the article's second fetch is at
+    // `lut_uv_final + float2(0.03125, 0.015625)` (`:142`) - `+1/32` in u, which is the TILE PITCH, and `+1/64`
+    // in v, which is half of its `31/32` in-tile span - so the pair straddles the tile boundary by one tile in
+    // u and half an in-tile span in v, and `lerp(low, high, lutTex_lerp)` walks from one tile to the next.
+    // This port's two fetches are `u` and `u + 1/tiles` at the same v, which is that same pair written with the
+    // tile pitch as a constant instead of as a decimal - the v offset being zero keeps the flip direction
+    // consistent with the author's own upside-down coordinate (`1 - lut_uv_yz.y`).
+    const float tile_f = cube.z * (character_shadow_lut_tiles - 1.0);
     const float tile = floor(tile_f);
     const float tile_lerp = tile_f - tile;
-    // The in-tile coordinate: X from the Y channel, Y from the Z channel and FLIPPED, with the half-texel
-    // offsets that put a sample at a texel CENTRE rather than at its corner - which is what makes the bake
-    // and this read invert each other instead of being off by half a texel everywhere.
-    const float in_tile_x = cube.y * ((character_shadow_lut_tiles - 1.0) / (character_shadow_lut_tiles * character_shadow_lut_tiles)) + (0.5 / (character_shadow_lut_tiles * character_shadow_lut_tiles));
-    const float in_tile_y = 1.0 - (cube.z * ((character_shadow_lut_tiles - 1.0) / character_shadow_lut_tiles) + (0.5 / character_shadow_lut_tiles));
+    // The half-texel offsets put a sample at a texel CENTRE rather than at its corner, which is what makes the
+    // bake and this read invert each other instead of being off by half a texel everywhere.
+    const float in_tile_x = cube.x * ((character_shadow_lut_tiles - 1.0) / (character_shadow_lut_tiles * character_shadow_lut_tiles)) + (0.5 / (character_shadow_lut_tiles * character_shadow_lut_tiles));
+    const float in_tile_y = 1.0 - (cube.y * ((character_shadow_lut_tiles - 1.0) / character_shadow_lut_tiles) + (0.5 / character_shadow_lut_tiles));
     const float u = tile / character_shadow_lut_tiles + in_tile_x;
     const float3 low = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, float2(u, in_tile_y)).rgb;
     const float3 high = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, float2(u + 1.0 / character_shadow_lut_tiles, in_tile_y)).rgb;
@@ -282,176 +530,1144 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 }
 
 /**
- * @brief the toon diffuse: half-Lambert GATED by the shadow term, then banded
+ * @brief the toon diffuse: THREE ALBEDO LAYERS chosen by the light, the shadow and the material's own ramp
  *
- * THIS IS THE REFERENCE'S STRUCTURE, and the gating is the part worth stating because it is what makes the
- * look two-tone rather than merely darker. The character shaders in the reference derive a ramp COORDINATE
- * from the half-Lambert term and the shadow term together - the shadow decides WHICH SIDE of the ramp a
- * fragment reads and the half-Lambert positions it within that side - and then read a tinted colour out of
- * the ramp. A plain `saturate(dot(N, L)) * shadow` has no such gate: the two terms multiply into one smooth
- * value and the dark side has no identity of its own.
+ * THIS IS THE 终末地 CHAIN, and it differs from the quantizer this stage started with in what the ramp IS. That
+ * model read a neutral unit step out of the ramp lane and used it as a THRESHOLD - the shadow picked the side and
+ * the half-Lambert positioned the fragment within it - so the ramp carried a shape and the family carried the
+ * colour. The game's ramp is the opposite arrangement: its U axis IS the light term, its RGB is a COLOUR mapping
+ * along that axis and its ALPHA is a LIGHTNESS, so the texture answers "what colour is this at this light term"
+ * and "how lit is this at this light term" at once, and the family's numbers move to the layers instead of the
+ * threshold. Both readings are implemented below and the branch between them is the LANE: a material with a ramp
+ * takes the texture's answers, and a material without one gets the family's tint and Hermite step, which is what
+ * the previous model did for everybody.
  *
- * WHAT STANDS IN FOR THE RAMP TEXTURE, and why it is not a shortcut: the reference reads its colour from a
- * layered ramp atlas (`SampleDirectShadowRamp(ramp, x, 0.125)` / `SampleDirectSpecularRamp(ramp, x, 0.375)`),
- * and those atlases are game assets its own license boundary excludes from redistribution. What replaced them
- * is a NEUTRAL UNIT STEP baked by the host (`bake_unit_ramp`) and read through the material's own sidecar
- * lane - the same lane, the same texture heap slot and the same read as the game's atlas had - with the
- * family's `center` / `softness` deciding where the step is read (see `character_ramp_half_width`). So the ramp
- * data path is exercised by an asset this repository can carry, and the shading still varies per material
- * family rather than collapsing to one look.
+ * WHY LAYERS RATHER THAN A MULTIPLIER, and it is the article's whole thesis: a toon character's dark side is a
+ * HUE shift as much as a darkening, so the shadow side needs its OWN albedo - and the darkest region inside it
+ * needs a third. The light, the shadow and the material's ambient occlusion then CHOOSE among the three, which is
+ * why the shadow appears here as a gate on a lerp's weight and not as a factor on the result: applied as a factor
+ * as well it would extinguish the layers it was choosing between.
+ *
+ * THE RAMPS THIS READS ARE THE GAME'S OWN (the asset pipeline's `_DiffRampMap`, 256x1), which is a change from
+ * the neutral bake this repository carried: the bake remains as the fallback for a model that has none, but a
+ * character that ships its ramp is shaded with it - see `main.cpp`'s `bake_neutral_ramp` and `toon_texture`.
  *
  * @param albedo the surface albedo (linear)
+ * @param albedo_alpha the albedo texture's ALPHA, which the article's chain reads as a MATERIAL weight rather
+ *        than as coverage: it decides how far the diffuse steps aside for the highlight. The data says this is
+ *        per-material and not universal - the face's alpha is a constant 1 while the body's carries a mask - so
+ *        the chain must work for both, which is what `_DiffuseBlendEffect` being the rig's buys.
+ *        ... AND IT IS A SECOND CONSUMER'S ENTIRE SOURCE: the article's SKIN reads its OCCLUSION out of this
+ *        same channel (`ZmdSkinToonMain.hlsl:154`), which is the one family whose `ao` is not the metallic/gloss
+ *        map's blue - see `ao_used` below.
+ * @param family the material's `gltf::toon_family`, which this function needs for the TWO places the article's
+ *        shaders disagree BY FAMILY rather than by material: the occlusion's source (`ao_used`) and nothing else
+ *        - every other branch here is selected by a LANE, because a lane is what the asset states.
  * @param n world-space shading normal
  * @param world_pos world-space position, for the shadow lookup
- * @param ao the surface's baked occlusion, which scales the ambient ONLY - never the direct sun, because a
- *        baked occlusion term is a statement about the sky's reach and applying it to a shadowed sun would
- *        darken the lit side on geometry whose only fault is a concave crevice
- * @param shadow_tint the colour the unlit side is tinted toward. A TINT rather than a multiplier: the
- *        reference's dark side is a hue shift as much as a darkening, and a grey scale factor cannot
- *        express it. Cooler than the albedo, which is what the reference's skin and cloth ramps encode.
- * @param toon_indices the material's FOUR sidecar LANES (see `vulkan::toon_slot`): x is the diffuse ramp, y the
- *        shadow LUT, z the specular ramp, w the matcap. A lane of 0 is "the artist switched this off, or the
- *        model does not have it", and every read below is gated on that rather than on a separate flag - which
- *        is what makes the `_Use` flag in the sidecar the only switch there is.
+ * @param ao_engine the ENGINE's own occlusion for this fragment (the G-buffer's, from glTF if the material has
+ *        one). It multiplies the map's own baked occlusion rather than replacing it, so neither term has to know
+ *        about the other - and the product scales the AMBIENT and the layer weights, never the sun's own
+ *        radiance, because a baked occlusion term is a statement about the sky's reach.
+ * @param params the material FAMILY's numbers (see toon_params.slang): the thresholds and tints the procedural
+ *        branch uses, the rim's shape, and the 终末地 fields this chain added
+ * @param toon_indices the material's FOUR in-record sidecar LANES (see `vulkan::toon_slot`): x is the diffuse
+ *        ramp, y the shadow LUT, z the specular ramp, w the matcap. A lane of 0 is "the artist switched this off,
+ *        or the model does not have it", and every read below is gated on that rather than on a separate flag -
+ *        which is what makes the `_Use` flag in the sidecar the only switch there is.
+ * @param toon_lanes the lanes that do NOT fit the record (see `core::heap_slots::toon_lanes`): x is the face SDF
+ *        map and y the metallic/gloss map, each 0 for "do not read"
  */
-float3 toon_diffuse(float3 albedo, float3 n, float3 world_pos, float ao, toon_params params, uint4 toon_indices, const float2 uv, const uint sdf_lane) {
+float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, float3 n, float3 world_pos, float ao_engine, toon_params params, uint4 toon_indices, const float2 uv, const uint4 toon_lanes, const uint material_index) {
     // THE LIGHT VECTOR IS THE SURFACE-TO-LIGHT DIRECTION, which is the engine's existing convention
     // (`evaluate_direct_light` normalizes this same field into its `l`).
     const float3 l = normalize(light_at(heap_light_slot).light_dir.xyz);
-    const float half_lambert = saturate(dot(n, l) * 0.5 + 0.5);
+
+    // ---- THE EYE'S OWN NORMAL: A HEMISPHERE THE MATERIAL'S UV DESCRIBES ----
+    //
+    // THE ARTICLE SHADES AN EYE WITH A MANUFACTURED NORMAL, and this is the half of that mechanism this port was
+    // missing: its `NoL = dot(corneaNormalWS, flattenedLightDirWS)` and its `NoF` off the same normal are what put a
+    // CURVED terminator ACROSS the iris, so its upper half reads lit and its lower half shadowed. This port built
+    // the same hemisphere at the matcap and spent it there only, so the ramp was indexed by the FLAT quad's normal -
+    // one value over the whole eye - and an eye whose single value lands under the ramp's threshold is uniformly
+    // dark rather than graded. MEASURED on chen's iris: the rendered mean is 0.65x its own texture with the hue
+    // pulled cool (render (91.9,75.1,81.2) against the texture's (141.2,102.9,100.7)), i.e. the DARK layer
+    // everywhere - `dark_base = albedo * _ShadowColorBrightness` with `_ShadowColorSaturation` 1.4 on top.
+    //
+    // THE ZONE AND THE BASIS ARE THE HIGHLIGHT'S OWN, and they are computed HERE because the ramp needs them: the
+    // uv's offset from the eye's centre (`eye_uv`, used again by the trick colours and the matcap below), and a
+    // basis built from the CAMERA - which is `toon_matcap_uv`'s own argument, that a matcap is a picture of a ball
+    // so a roll about the view axis cannot show. The article takes the basis from the mesh tangent instead.
+    //
+    // WHAT IS NOT REPRODUCED IS ITS LIGHT DIRECTION: the article flattens `_MainLightPosition` onto the face's own
+    // plane with `_FaceRight` / `_FaceForward`, which are globals the game supplies and no sidecar of this
+    // repository carries, so this uses the light as it is. That makes this term the article's SHAPE - a hemisphere
+    // lit from one side - rather than its exact angle, and it is written down as a difference rather than hidden.
+
+    const float2 eye_uv = frac(uv) - float2(0.5, 0.5);
+    // `step(0.25, |uv|^2)` is the article's own line between the two zones: INSIDE it the hemisphere stands, outside
+    // it the quad's flat normal does, which is what keeps the cornea's curvature off the sclera's rim.
+    const float eye_centre_area = step(0.25, dot(eye_uv, eye_uv));
+    // THE MESH'S OWN TANGENT FRAME, read ONCE here for both of the eye's uses below - the cornea's basis and the
+    // parallax's `viewDirTS` - and it is the article's own basis rather than the camera-built one this port used to
+    // substitute: the article takes `tangentWS` / `bitangenWS` from the VERTEX TANGENT attribute and builds
+    // `corneaNormalWS` from them, and `surface_tbn` derives that same frame from the surface's uv derivatives (the
+    // substitute this repository uses wherever a vertex tangent would be - see its note on mirrored-uv handedness).
+    // A DEGENERATE FRAME FALLS BACK TO THE FLAT NORMAL, which the article never needs (a vertex tangent always
+    // exists) and a uv-derivative frame does on a collapsed triangle.
+    vec3 eye_tangent = vec3(1.0, 0.0, 0.0);
+    vec3 eye_bitangent = vec3(0.0, 1.0, 0.0);
+    const bool eye_has_tbn = surface_tbn(world_pos, uv, eye_tangent, eye_bitangent);
+    float3 shading_normal = n;
+    if (toon_indices.w != 0u && eye_has_tbn) {
+        const float2 centred_uv = eye_uv * 2.0;
+        const float z_hemi = max(1e-16, sqrt(max(0.0, 1.0 - min(1.0, dot(centred_uv, centred_uv)))));
+        float3 cornea_ts = float3(character_cornea_bump * centred_uv, z_hemi);
+        cornea_ts = lerp(cornea_ts, float3(0.0, 0.0, 1.0), eye_centre_area);
+        // the article's `corneaNormalTS.x = -x` flip, without which the terminator sits on the wrong side.
+        cornea_ts.x = -cornea_ts.x;
+        // `corneaNormalTS.x * tangentWS + .y * bitangenWS + .z * normalWS`, the article's own line.
+        shading_normal = normalize(cornea_ts.x * eye_tangent + cornea_ts.y * eye_bitangent + cornea_ts.z * n);
+    }
+
+    // ---- THE PARALLAX DEPTH: THE ASSET'S OWN NUMBER WHEN IT STATES ONE, THE CONSTANT ABOVE OTHERWISE ----
+    //
+    // READ HERE RATHER THAN BESIDE THE OTHER LANES, and the placement is forced rather than chosen: this is the
+    // first use in the function (`parallax_offset` below), and the material's colours are read further down for
+    // the reasons stated there. `material_index` is all this read needs - the lane is a flat
+    // `material_index * character_toon_colour_lanes + lane` lookup like every other one.
+    //
+    // `_ParallaxScale` IS A PER-MATERIAL ROW AND THE STAGE USED ONE MATERIAL'S VALUE ON EVERY MATERIAL. It
+    // carried chen's iris number (`character_eye_parallax_depth`, 0.03) with a note saying the per-material row
+    // could not be carried. It can: the row is in the asset's own `extras` block
+    // (`gltf::claimed_extras_floats`, read into `toon_colour_lane::parallax_scale`), which the host resolves
+    // before the sidecar and before the constant. MEASURED on `chars\chen.glb`, the asset states it for three
+    // materials - iris 0.03, brow 0.5, cloth_01 0.5 - and holds no such row for the rest, and the `.toon.tsv`
+    // sidecar this repository carries has no `_ParallaxScale` row at all, so the asset is the only source that
+    // can speak for this property on this character.
+    //
+    // THE FALLBACK IS THE CONSTANT ITSELF RATHER THAN A FAMILY NUMBER, which is the difference from the specular
+    // lane below and it is deliberate: the eye path (`toon_indices.w != 0`, a material with a matcap) is the ONLY
+    // consumer of this row in the whole port, so the right answer for a material that states nothing is the
+    // offset that material had before this lane existed - a family number would be a value invented here.
+    //
+    // WHAT THIS READ TURNED OUT TO CHANGE ON chen IS NOTHING, AND THE REASON IS WORTH WRITING DOWN because it is
+    // the opposite of what the row's values suggest (three materials state it, and only ONE of them can consume
+    // it): the parallax block below is gated on `toon_indices.w != 0` - the material's MATCAP - and the iris is
+    // the only chen material that has one. The brow's sidecar carries a `_MatcapColor` and no `_MatcapTex`, and
+    // the runtime prints `split normal 0` for it, so its 0.5 reaches the GPU and stops there. The iris' 0.03
+    // equals the constant bit for bit, and the other four state no row at all, so wiring this lane changes ZERO
+    // pixels on this character - which is why a PROBE is what proves the lane is live rather than ignored: the
+    // iris re-stated as 0.3 in the asset's own extras moves 1 315 pixels, 0.0 moves 480 and 1.0 moves 1 485,
+    // every one of them inside the iris (`zmd-ab/parallax_zoom.png` paints the mask over the eye).
+    //
+    // `0.0` IS A LEGAL STATEMENT ON THIS ROW (a material that wanted no parallax would state it), so as on the
+    // specular lane "absent" is `-1` rather than zero and the test is `>= 0.0` on both.
+    const float extras_parallax_scale = toon_colour_at(heap_slots_toon_colours, (material_index * character_toon_colour_lanes) + 5u).x;
+    const float parallax_depth = extras_parallax_scale >= 0.0 ? extras_parallax_scale : character_eye_parallax_depth;
+
+    // ---- THE ARTICLE'S PARALLAX, which moves the ALBEDO'S LOOKUP AND NOTHING ELSE ----
+    //
+    // `offsetDir` is the view direction expressed IN THE MESH'S OWN TANGENT FRAME (the article's `viewDirTS`, whose
+    // basis is the mesh TBN - which this stage has through `surface_tbn`, so this read is the article's rather than an
+    // approximation of it), the offset is `_ParallaxDepth * float2(1.0, 0.25)` - the article's quarter-strength y,
+    // kept - and the mask is a smoothstep of `-5 * (distSq - 0.25)`: full at the iris' centre, zero by the disc's
+    // edge, which is what keeps the sclera from sliding. `distSq` is the SAME `dot(eye_uv, eye_uv)` the cornea zone
+    // uses, on the RAW uv - the article computes the zone from `frac(i.uv0)` and offsets only the texture read.
+    // THE DEPTH IS `parallax_depth` AND NOT A CONSTANT HERE, which is the one line this block gained when
+    // `_ParallaxScale` became a per-material row (see its read above and `character_eye_parallax_depth`): the
+    // article's `_ParallaxDepth` is per material, and which material this is comes from the record the fragment
+    // already carries.
+    //
+    // ONLY THE TEXTURE READ MOVES, which is the article's own arrangement: its `finalEyeUV` is passed to `_AlbedoTex`
+    // and to nothing else, so the cornea normal, the ramp, the two trick colours and the matcap all stay on the raw
+    // uv. Re-sampling here rather than inside `gather_surface` is what keeps it to this stage (a G-buffer is shared
+    // with the deferred path, and the article's parallax is a character-forward statement about an iris).
+    if (toon_indices.w != 0u && eye_has_tbn) {
+        const float3 to_camera = normalize(camera_at(heap_camera_slot).camera_pos.xyz - world_pos);
+        const float3 view_ts = float3(dot(eye_tangent, to_camera), dot(eye_bitangent, to_camera), dot(n, to_camera));
+        const float2 offset_dir = normalize(view_ts).xy;
+        const float2 parallax_offset = offset_dir * parallax_depth * float2(1.0, 0.25);
+        const float dist_sq = dot(eye_uv, eye_uv);
+        const float mask_raw = saturate(-5.0 * (dist_sq - 0.25));
+        const float parallax_mask = mask_raw * mask_raw * (3.0 - 2.0 * mask_raw);
+        const Material eye_material = material_at(heap_slots_materials, material_index);
+        albedo = (eye_material.base_color_factor * heap_sample(eye_material.tex_indices.x, uv - parallax_offset * parallax_mask)).rgb;
+    }
+    const float no_l = dot(shading_normal, l);
 
     // `calc_shadow` returns the quantized term when the engine's cel knob is on and the raw one otherwise;
     // either way it is the shadow factor for this fragment, and this stage does not band it a second time -
     // that would quantize a quantized value, which collapses the bands to nothing on a frame where the knob
     // is set.
-    const float shadow = calc_shadow(world_pos, n);
+    //
+    // AN EYE DOES NOT READ IT AT ALL, because the ARTICLE'S EYE SHADER HAS NO CAST-SHADOW TERM - its shading is
+    // the toon ramp off the cornea normal, `NoF`, and the two-state light, and that is the whole list. This is not
+    // a stylistic choice on this port's part but the fix for a measured dead end: MEASURED with a false-colour
+    // probe of `ao` / `shadow` / `ramp_weight` on the face close-up, the iris is at `shadow = 0.00` across 100% of
+    // its pixels while the cheek one centimetre away is at `1.00` (forehead 0.09 under the bangs, hair 0.55) - the
+    // eyeball is INSIDE the socket, so the shadow map's depth at its own screen position belongs to the face plate
+    // in front of it and every eye pixel is "occluded" for good. `min_shadow_effect = min(ao, shadow, ramp_weight)`
+    // is therefore 0 over the whole eye, the LIT layer never contributes, and the iris can only ever be the dark
+    // layer (`albedo * _ShadowColorBrightness` with `_ShadowColorSaturation` 1.4 on top) plus the ambient and the
+    // matcap: a flat, dark, desaturated ball - which is what the eye looked like, and why the cornea normal, the
+    // two trick colours and their `* 2.5` all measured as no-ops or near-no-ops before this line existed.
+    const float shadow = toon_indices.w != 0u ? 1.0 : calc_shadow(world_pos, n);
 
-    // THE GATE. The shadow term multiplies the half-Lambert rather than being applied after it.
-    const float gated = saturate(shadow * half_lambert);
+    // ---- THE CAMERA'S OWN BASIS, which the article's chain needs twice ----
+    //
+    // `CAMERA FORWARD` IS NOT THE VIEW VECTOR, and the difference is the whole reason it is read here: the view
+    // vector points from THIS fragment to the camera, so it fans out across the frame, while the camera's forward
+    // axis is ONE direction for the whole frame - and the article uses that one direction to decide whether the
+    // character is backlit (a property of the rig) and where its highlights sit (a property of the pose). Its
+    // `UNITY_MATRIX_V[2].xyz` is the view matrix's third ROW, which is the camera's world-space BACK axis: the
+    // direction a surface faces when it looks at the camera. Read the same way here, from the view matrix the
+    // engine already publishes, so no second per-frame block is needed for one direction.
+    const float3 camera_forward = normalize(mul(camera_at(heap_camera_slot).view, float4(0.0, 0.0, 1.0, 0.0)).xyz);
+
+    // THE RIG, read once here and used by every stage of the chain below (see `ToonRigUBO`): the sun/head-light
+    // split, their shadow-side colours, and the scalars that are the ARTICLE's globals rather than a family's or
+    // a material's.
+    const ToonRigUBO rig = toon_rig_value();
+
+    // ---- THE MATERIAL'S OWN COLOURS, from the table the host fills per material ----
+    //
+    // THE SECOND HALF OF THE SIDECAR'S VOCABULARY: the `color` rows are four floats rather than a texture name, so
+    // they cannot ride `toon_lanes` (a `uvec4` of texture indices) and they live in a flat `float4` array the
+    // shader addresses as `material_index * character_toon_colour_lanes + lane` (see `vulkan::toon_colour_lane`).
+    // A MATERIAL WITH NO SUCH ROW READS WHITE, which is the neutral every one of these lanes is defined against -
+    // so the shading falls back to doing nothing rather than to doing something black. THE TWO SCALAR LANES (4
+    // and 5) ARE THE EXCEPTIONS to that neutral (`-1`, read below), because their values are a strength and a
+    // depth rather than tints.
+    const uint colour_base = material_index * character_toon_colour_lanes;
+    const float3 sdf_rim_colour = toon_colour_at(heap_slots_toon_colours, colour_base + 0u).rgb;
+    const float3 eye_highlight_colour = toon_colour_at(heap_slots_toon_colours, colour_base + 1u).rgb;
+    const float3 eye_scattering_colour = toon_colour_at(heap_slots_toon_colours, colour_base + 2u).rgb;
+
+    // ---- THE PARALLAX DEPTH IS READ ABOVE, beside the article's parallax block, for the reason stated there ----
+    // (it is that block's first use and `parallax_depth` is in scope from its declaration onward).
+
+    // ---- THE SPECULAR STRENGTH: THE ASSET'S OWN NUMBER WHEN IT STATES ONE, THE FAMILY'S OTHERWISE ----
+    //
+    // THE GAME STATES `_Specular` PER MATERIAL AND THIS PORT USED TO READ IT PER FAMILY. The family table
+    // (`toon_params.slang`) is the article's shape - one set of numbers per family - and it carried the game's
+    // value as a FAMILY constant, which is right for six of chen's seven materials and wrong for the seventh:
+    // `M_actor_chen_brow_01` classifies as `face` (its own eyebrow) and states `_Specular = 0.0` against the
+    // face's 1.0, so the brow wore a highlight nobody authored.
+    //
+    // WHERE THE NUMBER COMES FROM IS A THIRD SOURCE, and this lane is the first property connected from it: the
+    // ASSET'S OWN `extras` block, which is the game's exported material table travelling inside the .glb
+    // (`gltf::claimed_extras_floats`). The host resolves the order - extras first, then the `.toon.tsv` sidecar
+    // (which carries no `_Specular` row at all), then this family table - and the ONLY thing this stage has to
+    // know is the sentinel: `.x < 0` means neither source spoke, and the family's number stands. `0.0` is a value
+    // the game really states (the iris and the brow), which is why "absent" could not be encoded as zero.
+    const float extras_specular_strength = toon_colour_at(heap_slots_toon_colours, colour_base + 4u).x;
+    const float specular_strength = extras_specular_strength >= 0.0 ? extras_specular_strength : params.spec_strength;
+
+
+    // ---- THE HAIR'S SMOOTH NORMAL, packed beside the model's own in ONE texture ----
+    //
+    // THE GAME'S `_SplitNormalMap` (chen's hair ships `T_actor_chen_hair_01_HN`) holds TWO tangent-space normals in
+    // one map: the model's own and a SMOOTHED one, which the reference port confirmed at the instruction level. The
+    // smooth one exists for exactly ONE consumer - the highlight - because a strand's silhouette is geometry while
+    // its highlight is a line DOWN the strand, and the raw normals of a low-poly hair shell break that line into
+    // facets.
+    //
+    // IT IS READ ONLY WHERE THE LANE IS SET, and that is what keeps the derivative-based frame below off every other
+    // material's fragments: a lane of 0 (no map, or the artist's `_UseSpecBumpMap` off) leaves the highlight on the
+    // model's own normal, exactly where it was before this lane existed.
+    //
+    // THE `.zw` PAIR IS THE SMOOTH ONE and it unpacks like any tangent-space normal - two channels plus a
+    // reconstructed third - and the frame comes from `surface_tbn`, the SAME function the normal-map path uses
+    // rather than a second copy of that arithmetic (see surface.glsl).
+    const uint4 toon_lanes2 = toon_lanes2_at(heap_slots_toon_lanes, material_index);
+    float3 highlight_normal = n;
+    float3 hair_bitangent = float3(0.0, 1.0, 0.0); // the smooth frame's binormal; the hair LUT blends toward it
+    if (toon_lanes2.x != 0u) {
+        const float4 packed_normal = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes2.x), heap_sampler_texture, uv);
+        const float2 smooth_xy = packed_normal.zw * 2.0 - 1.0;
+        const float smooth_z = sqrt(max(1.0e-16, 1.0 - min(1.0, dot(smooth_xy, smooth_xy))));
+        const float3 tangent_normal = normalize(float3(smooth_xy, smooth_z));
+        float3 tangent_dir = float3(1.0, 0.0, 0.0);
+        float3 bitangent_dir = float3(0.0, 1.0, 0.0);
+        if (surface_tbn(world_pos, uv, tangent_dir, bitangent_dir)) {
+            const float3x3 smooth_frame = float3x3(tangent_dir, bitangent_dir, n);
+            highlight_normal = normalize(mul(smooth_frame, tangent_normal));
+            hair_bitangent = normalize(mul(smooth_frame, float3(0.0, 1.0, 0.0)));
+        }
+    }
+
+    // THE VIEW VECTOR AND ITS COSINE, computed HERE rather than in the rim block below where they used to live,
+    // and the reason is that the chain needs them three times before that point: the SSS term is a function of the
+    // angle to the camera, the environment's reflection is built from the mirror direction, and the highlight
+    // needs `NoV` for its `V` term.
+    const float3 v = normalize(camera_at(heap_camera_slot).camera_pos - world_pos);
+    const float no_v = saturate(dot(n, v));
+
+    // ---- THE MATERIAL'S OWN NUMBERS: the metallic/gloss lane, or THE FAMILY'S ----
+    //
+    // THE FOUR CHANNELS ARE THE ARTICLE'S `ORM`: metallic, reflectivity, ambient occlusion and smoothness. A LANE
+    // OF 0 IS "DO NOT READ" (see `vulkan::toon_slot`) and that is the SKIN's normal case: the game ships no
+    // metallic/gloss map for skin at all, so the family's own `roughness` / `reflectivity` are what the shading
+    // uses - which is the article's "give the default material's numbers to a material that has no map" written as
+    // a family default instead of as a second material.
+    float3 orm = float3(0.0, params.reflectivity, 1.0); // no metal, the family's reflectivity, unoccluded
+    float smoothness = 1.0 - params.roughness;          // the family's roughness, inverted into the map's domain
+    if (toon_lanes.y != 0u) {
+        const float4 orm_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes.y), heap_sampler_texture, uv);
+        orm = orm_texel.rgb;
+        smoothness = orm_texel.w;
+    }
+    const float metallic = (toon_lanes2.x != 0u) ? 0.0 : orm.x;
+    // ---- THE HAIR'S `R` CHANNEL IS NOT METALLIC, and this is the article's own shader saying so ----
+    //
+    // THE MEASUREMENT THAT MADE THIS A BRANCH RATHER THAN A READING: chen's hair metallic/gloss map has R WHITE on
+    // 55% of its texels AS AN IMAGE, and `energy_distribution_metallic = 0.96 - 0.96 * metallic` would zero the
+    // hair's DIRECT DIFFUSE wherever it is 1. THE PICTURE MEASURED LESS THAN THE IMAGE SUGGESTED, and both numbers
+    // belong here: the change moved 2,226 pixels of a 1080x960 frame (0.21%) with a handful of them strongly - so
+    // the region the hair mesh actually samples is mostly R=0, and this branch is a correctness fix for the texels
+    // that are not, rather than the rescue the image statistic promised. The article's hair shader uses that channel
+    // for something else entirely: it is the WEIGHT between two bitangents
+    // (`lerp(hairBiNormal_flatten, hariBinormal, orm.x)`) and the offset in its view direction
+    // (`_ViewDirYOffset * (1 - orm.x)`) - a mask over the strands, which is what a channel that is half white on a
+    // head of hair looks like.
+    //
+    // SO THE LANE THAT SAYS "THIS MATERIAL IS A HAIR" (the split normal) IS WHAT SELECTS THE INTERPRETATION, and the
+    // `reflectivity` / smoothness channels keep their meaning: those two are the ones the hair's specular reads.
+    // THE REFLECTIVITY IS THE SECOND CHANNEL and it is what makes F0 a material property rather than a constant
+    // (see the highlight below): on this repository's cloth maps it is a CONSTANT 1.0, which the data said when
+    // this lane was wired - so the channel is read for the materials that do use it and costs nothing where it is
+    // flat.
+    const float reflectivity = orm.y;
+    // THE ROUGHNESS IS THE SMOOTHNESS INVERTED, which is the article's own line and not a preference: the map is
+    // authored as a gloss channel, and every consumer below - the specular lobe and the environment's mip - is
+    // written in roughness.
+    const float roughness = 1.0 - smoothness;
+    // THE OCCLUSION CARRIES BOTH SOURCES: the map's own baked occlusion (which is what the game ships) and the
+    // engine's `s.ao` (which is 1 for every one of these materials, because glTF occlusion is not where the game
+    // put its own). Multiplying them means neither has to know about the other.
+    const float ao = pow(saturate(orm.z), rig.other_light.w) * ao_engine;
+
+    // ---- THE HAIR'S SHADOW IS PULLED OPEN BY THE METALLIC/GLOSS MAP'S RED CHANNEL ----
+    //
+    // `ZmdHairToonMain.hlsl:144`, one line and the LAST statement of that shader's shadow block (its `:142-143`
+    // are the same `SigmoidSharp`/`_ShadowOffset` chain this port's `calc_shadow` stands in for):
+    //     `shadowScene = lerp(1,shadowScene,ormTex_var.x);`
+    // The article's hair shader reads that channel THREE times and each use is a different mask over the strands:
+    // the smooth normal's weight (`:87`), the bitangent's blend (`:111`) and this one - a mask that OPENS the
+    // cast shadow, i.e. `orm.x` 1 leaves the shadow alone and `orm.x` 0 removes it entirely.
+    //
+    // THE PORT HAD THE FIRST TWO AND NOT THIS ONE. It already declines to read the channel as METALLIC for a
+    // material with a split normal (`metallic` above) and uses it as `binormal_lut`'s weight in the Kajiya-Kay
+    // block, so this is the missing third consumer rather than a new interpretation of the channel.
+    //
+    // WHAT IT COSTS ON THIS ASSET, stated because the image statistic is easy to misread: chen's hair
+    // metallic/gloss map has R WHITE on 59.6% of its texels AS AN IMAGE (`glb_images.py`), so this is a
+    // large-amplitude mask - but the same map's `G` is what the smoothness uses and the strand shell's own area
+    // is what decides how much of the frame sees it. MEASURED in the report's item 8.
+    //
+    // WHY IT IS NOT A FAMILY TEST: the article applies it in the HAIR main, and what makes a material a hair for
+    // this port is the split-normal lane (`toon_lanes2.x`), which is also what selects the other two reads of
+    // this channel - so `sdf_lane`-style lane ownership is what is used here, not the family id.
+    //
+    // THE EYE'S FORCED 1.0 STAYS FIRST and is unchanged: the iris is inside the socket, so the engine's shadow
+    // map reports it occluded by the face plate in front of it (see the note above), and the article's eye main
+    // reads no shadow map at all.
+    const float shadow_used = (toon_indices.w != 0u)
+        ? 1.0
+        : ((toon_lanes2.x != 0u) ? lerp(1.0, shadow, orm.x) : shadow);
+
+    // ---- THE SSS USED TO SIT HERE, and it moved BELOW the face mask ----
+    //
+    // Its weight is limited by the mask's `.x` / `.y` for a face (the article's own arrangement), and the mask is
+    // read at the SDF's mirrored coordinate, which is only known further down. Nothing between here and there reads
+    // the albedo it changes: the ramp block is a function of the light term and the camera, and the face mask's own
+    // inputs are the light and the head frame.
 
     // ---- THE FACE SDF LANE: the terminator as a SHAPE rather than as geometry (see toon_sdf_mask) ----
     //
     // THE MASK REPLACES THE COORDINATE, NOT THE COLOUR. It answers "which side of the ramp is this fragment on"
     // and the ramp below still decides what the two sides look like - which is the reference's own composition:
     // its SDF mask becomes the U coordinate of an RD ramp lookup and that lookup's alpha becomes the light/dark
-    // weight. So this is a SUBSTITUTION, not a second term to blend with the gated half-Lambert, and a material
-    // without the lane keeps the coordinate it always had.
+    // weight. So this is a SUBSTITUTION, not a second term to blend with the light term, and a material without
+    // the lane keeps the coordinate it always had.
+    //
+    // THE MASK ANSWERS 0..1 AND THE BAND COORDINATE IS SIGNED, so it is mapped back rather than blended: the
+    // ramp's U axis runs from the shadow side to the lit one, and a face's SDF is that same axis measured from
+    // the light's angle in the HEAD's frame instead of from the surface normal.
     //
     // A LANE OF 0 MEANS "DO NOT READ", as in every other lane, and it is the ONLY test needed: the sidecar's
     // `_UseSDFLightmap` and the model's lack of an SDF both collapse to it at import (see
-    // core::heap_slots::sdf_lanes), so this stage cannot tell them apart and does not have to.
-    const float shaped = sdf_lane != 0u ? toon_sdf_mask(uv, sdf_lane, l) : gated;
+    // core::heap_slots::toon_lanes), so this stage cannot tell them apart and does not have to.
+    const uint sdf_lane = toon_lanes.x;
+    // ---- THE HEAD'S FORWARD AXIS AND THE CAMERA'S SHARE OF IT, read ONCE, ABOVE EVERY READER ----
+    //
+    // THE ORDER HERE IS A DEPENDENCY RATHER THAN A STYLE. The article's face main reads
+    // `cameraForward_faceDir.z` (`ZmdFaceToonMain.hlsl:109`) twice - the SDF's backlight compensation at `:162-164`
+    // and the projected-shadow mask at `:196` - and the backlight compensation is itself one of the terms the RAMP
+    // coordinate below adds. So the ROOT of the chain is the camera's direction in the head's frame, and both the
+    // SDF call here and the ramp further down have to take it from this one place or the two would drift.
+    const float3 head_front = normalize(head_frame_at(heap_slots_scene_head + heap_frame_slot).front.xyz);
+    const float head_face_dir_z = dot(head_front, camera_forward);
+    // THE BACKLIGHT COMPENSATION'S WEIGHT, which is the same value the ramp's `back_light` is - read here rather
+    // than beside the ramp because the SDF takes it as an argument (see `toon_sdf_mask`). A character lit from
+    // behind can show the camera nothing but surfaces facing away from the sun, so this term lifts the terminator
+    // back across the grazing range instead of letting the whole visible face collapse onto the SDF's dark end.
+    const float2 camera_forward_xz = normalize(camera_forward.xz + float2(1e-6, 0.0));
+    const float2 light_dir_xz = normalize(l.xz + float2(1e-6, 0.0));
+    const float back_light_xz = saturate(-dot(camera_forward_xz, light_dir_xz));
+    const float back_light_y = smoothstep(0.0, 1.0, saturate(-abs(camera_forward.y) + 0.75));
+    const float back_light = back_light_xz * back_light_y * rig.misc.x;
+    float2 face_mask_uv = uv;
+    float face_sdf_z = 0.0;
+    const float sdf_weight = sdf_lane != 0u ? toon_sdf_mask(uv, sdf_lane, l, head_face_dir_z, back_light, face_mask_uv, face_sdf_z) : 0.0;
+    // ---- THE FACE MASK (`_SDFMask`), sampled at the ORIGINAL uv ----
+    //
+    // THE ARTICLE'S SECOND FACE TEXTURE, and it answers what the SDF cannot: WHERE on the face a term belongs. Its
+    // four channels are read by different parts of the chain below - `.x` limits the subsurface, `.y` is the
+    // NECK SEAM, `.z` is the projected SHADOW RING (read by nothing here yet) and `.w` the rim's region - and a
+    // material with no mask says "no limits" through the default below rather than through a branch at each use.
+    //
+    // THE COORDINATE IS `i.uv0` AND NOT THE SDF's MIRRORED ONE, which is the article's own arrangement rather
+    // than a preference: `ZmdFaceToonMain.hlsl:55` samples `_SdfRefineTex` at `i.uv0` and `:157` samples
+    // `_SdfTex` at `float2(sdf_u, sdf_v)`, so the two face textures are read in DIFFERENT spaces on purpose - the
+    // atlas holds one face which a light from the other side reads mirrored, while the mask's rings are authored
+    // on the face's own uv. The port handed the mirrored coordinate back here (`out_face_uv = sdf_uv`) on the
+    // assumption that both were the same space; the article's lines are what say otherwise.
+    //
+    // THE DEFAULT IS (1, 0, ...): `.x = 1` means "the SSS region is the whole face", `.y = 0` means "no seam, use
+    // the SDF's own term everywhere" - which is exactly what this stage did before the lane existed, so a model
+    // without a mask is shaded as it was.
+    float4 face_mask = float4(1.0, 0.0, 0.0, 0.0);
+    if (toon_lanes.z != 0u && sdf_lane != 0u) {
+        face_mask = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes.z), heap_sampler_texture, face_mask_uv);
+    }
+    const float face_no_l = sdf_lane != 0u ? (sdf_weight * 2.0 - 1.0) : no_l;
+    // ---- THE PROJECTED SHADOW'S OWN MASK, WHICH A FACE GATES ON ITS SDF ----
+    //
+    // `ZmdFaceToonMain.hlsl:196-199`, copied line for line:
+    //
+    //     float shadowArea = MySmoothstep(saturate(-2 * cameraForward_faceDir.z)) * sdfRefineTex_var.z;
+    //     shadowArea = max(sdfRefineTex_var.y, shadowArea);
+    //     float shadowEffect = lerp( 1, shadowScene, shadowArea);
+    //
+    // WHY A FACE NEEDS IT AND NO OTHER MATERIAL DOES: the engine's cast shadow arrives per-fragment from a shadow
+    // map, and on a face it is the WRONG SHAPE - a lock of hair, a collar or the character's own nose casts a
+    // hard-edged, map-resolution stamp across a surface whose whole shading model is a painted distance field. The
+    // article's answer is not to filter it but to say WHERE a cast shadow is allowed to land at all: `refine.y` is
+    // the mask's neck/geometry ring (1 at the jaw and the neck, 0 over the face plate) and `refine.z` is its
+    // shadow ring, and the camera term is the second opinion on the same question - a camera looking at the face
+    // from BEHIND (`cameraForward_faceDir.z` negative) sees the ring the shadow belongs to. Where the mask says
+    // "this is the face's own plate", `shadowArea` is 0 and `shadowEffect` is 1: the fragment is treated as
+    // UNOCCLUDED by the cast shadow whatever the map says.
+    //
+    // `MySmoothstep(x)` IS THE ARTICLE'S UTILITY (`ZmdToonUtils.hlsl:24-30`): `x*x*(-2x + 3)`, written out rather
+    // than called, because this file has no include of that header - and it is NOT HLSL's `smoothstep`, which is
+    // why it is spelled out here instead of `smoothstep(0, 1, x)` (the two agree only at the endpoints and at 0.5).
+    //
+    // THE MASK IS `_SDFMask` AND THAT IS THIS PORT'S IDENTIFICATION, NOT THE ARTICLE'S: the sidecar has no
+    // `_SdfRefineTex` row (it carries `_SDFMask` for the face's own mask - see `zmd-ab/face_shader_compare.md` §1
+    // and §5-1 for the channel-role evidence). `.z` was previously described in this file as "the rim's own
+    // normal" and never read; the article's refine `.z` is THIS, the shadow ring, and the rim's normal is the
+    // SDF's own B channel (`out_sdf_z` above). One channel, one meaning, and the shadow ring is the one the
+    // article names.
+    //
+    // ---- THIS WAS TRIED ONCE, REVERTED, AND IS NOW KEPT: THE JUDGEMENT CHANGED WITH THE CRITERION ----
+    //
+    // It first landed on the 5.37-mottle baseline, where it read as a noise REGRESSION (mottle 4.78 -> 5.81,
+    // ROI std 41.22 -> 54.27, edges 8669/5938/4222 -> 9209/6974/4808) and was reverted. That measurement was
+    // taken BEFORE the face corrections of `remaining_port_spec.md`'s "脸部链按参考对齐" (the SDF window, the
+    // ambient, `_AlbedoDarkStrength`, the LUT axes, the mask uv, the rim and the SSS tint), i.e. while the
+    // cheek's own terminator was still near-binary, and it was scored on the cheek's local RANGE - a NOISE
+    // measure - rather than on what the user then asked about, which is the SUN'S CAST SHADOW BEING TOO STRONG.
+    //
+    // RE-APPLIED on the current baseline (mottle 2.84) and re-scored on the shadow, camera
+    // `-30.3668,-14.3239,0.5,0.0,-0.48,0.0`, cheek ROI x0=560 y0=130 s=300:
+    //     ROI mean lum                 54.93 -> 77.41   (+41%)
+    //     darkest-quartile mean        30.98 -> 40.02   (+29%)
+    //     brightest-quartile mean      87.69 -> 138.56  (+58%)
+    //     row-mean shadow profile     45..74 -> 54..90  (the whole cheek lifts; `face_ref_shadow2.py`)
+    //     strongest horizontal step     0.99 -> 0.92
+    //     mottle                        2.84 -> 4.02    (+41%, the KNOWN cost)
+    //     ROI lum std                  26.51 -> 44.28
+    //     edges >8 / >16 / >32   8080/5591/2984 -> 9306/6286/3778
+    //     frame                    144871 px -> 417079 px, mean|d| 10.35 -> 7.37, max|d| 118
+    // and at the STANDARD pose - where the user's complaint does not arise - it is nearly free and slightly
+    // BETTER: mottle 11.83 -> 11.87, lum std 27.37 -> 25.97, edges 14065/11226/7360 -> 14045/11155/7300.
+    // The report's "太阳阴影强度" section carries the false-colour evidence for why the lift is so large: the
+    // cheek's cast shadow was the term suppressing the LIT layer over 85% of the ROI.
+    const float shadow_camera = saturate(-2.0 * head_face_dir_z);
+    const float shadow_area = max(face_mask.y, shadow_camera * shadow_camera * (-2.0 * shadow_camera + 3.0) * face_mask.z);
+    const float shadow_effect = lerp(1.0, shadow_used, shadow_area);
+    // ---- THE SKIN'S OCCLUSION IS ITS ALBEDO'S ALPHA, AND IT IS THE ARTICLE'S OWN SOURCE ----
+    //
+    // `ZmdSkinToonMain.hlsl:154` is one line - `float ao = mainTex_var.w;` - and it is NOT the same source the
+    // article's other four shaders use: the base, hair, face and eye shaders all read the occlusion out of the
+    // metallic/gloss map (`ormTex_var.b`, `_AoStrength`), while SKIN reads the ALBEDO TEXTURE'S ALPHA. That is
+    // why the source has to be a per-family branch here rather than a change to `orm.z`'s read above.
+    //
+    // THE PORT HAD NO EQUIVALENT SOURCE AT ALL, so this is a substitution rather than a tuning: skin ships no
+    // ORM map in this repository's assets (`toon_lanes.y == 0`), so the line above leaves `orm = (0, r, 1)` and
+    // the engine's own `s.ao` is 1 for every one of these materials (no glTF `occlusionTexture`) - the skin's
+    // `ao` was IDENTICALLY 1.0, and `ao` is not a cosmetic term: it is the "which layer shows" gate
+    // (`min_shadowEffect = min(ao, shadowScene, rampColor.w)`, `:156-157`), the edge darkening
+    // (`ao_shadow = ao * shadowScene`, `:155`) and the two rims' own `min(ao, shadowScene)`.
+    //
+    // MEASURED ON THIS ASSET, and the probe had to be built before this line could honestly be written - the
+    // task's own rule is that a channel may not be nominated as AO from the armchair. THE CRITERION IS THE
+    // ASSET-SIDE PROBE ALONE (`zmd-ab/skin_ao_probe.py` / `skin_ao_meshuv.py`, re-run unchanged for this
+    // record): `T_actor_chen_body_01_D` (512x512, `baseColorFactor.a = 1`) carries a real mask in alpha -
+    // min 0 / max 255, mean 79.56 / std 88.19 over the image, 1.20% of its texels at 255 and 9.84% at 0,
+    // with the low values spread through the interior (median distance from the image border 75 texels)
+    // rather than hugging a silhouette, and a correlation of -0.005 with the RGB luminance - i.e. it is an
+    // occlusion-like map and NOT a UV-occupancy cut. Sampled at the body mesh's own TEXCOORD_0 the 8-bit
+    // mean is 93.24 bilinear / 93.33 nearest (flip V: 95.87 / 95.57), i.e. 0.366-0.376 linear.
+    //
+    // TWO CLAIMS AN EARLIER DRAFT OF THIS COMMENT CARRIED ARE WITHDRAWN, and the record says why: `the mean
+    // is 0.46 linear` at that same TEXCOORD_0 is reproduced by NO script in this repository (the two above
+    // give 0.366/0.376, and `zmd-ab/` contains no "0.46" at all), and `the RENDERED read ... agrees with the
+    // stored image to within a level` is CONTRADICTED by the surviving arms `zmd-ab/skin_ao_probe_pose.png`
+    // / `skin_ao_probe_std.png`: over the character's pixels both are a PLATEAU OF 232 (the R==G==B set's
+    // p10/p50/p90 = 232/232/232, mean 228.63 pose / 226.06 std), which is the plateau `skin_ao_meshuv.py`'s
+    // own docstring names - and is why this line is judged on the ASSET-SIDE probe and not on the rendered
+    // one. See `zmd-ab/remaining_port_spec.md`: item 5's number table and "本节新发现" item 3.
+    //
+    // IT IS READ FROM `s.alpha`, which is the SAME product the probe measured: `surface.glsl:193/201` sets it
+    // to `base_color_factor.a * albedo_texture.a`. The article's own `mainTex_var.w` has no factor in it, so
+    // this is that value AND the material factor the asset states - and on chen's skin the factor is 1.
+    //
+    // WHY HERE AND NOT AT `:745`: the line above is the article's `shadowEffect` (`ZmdFaceToonMain.hlsl:199`),
+    // which is the FACE's gate and exists only for a material with an SDF lane - skin has none, so shadow_effect
+    // is exactly `shadow` for it and the substitution below is the article's own chain. Computing it here also
+    // keeps `ao`'s existing definition (the ORM channel and the engine's occlusion) intact for the four
+    // families that read it, which is what makes this a SKIN-only change.
+    const float ao_used = (family == VR_FAMILY_SKIN) ? albedo_alpha : ao;
+    // THE NECK SEAM, and it is the article's own line: `.y` is 0 over the face's own region and 1 where the mesh
+    // meets the neck, and the light term is lerped from the SDF's SHAPE to the model's own normal across it. Without
+    // it the two shading models meet at a line - the face is shaped by a distance field and the neck beside it by
+    // its normals - and the seam shows as a crack down the jaw.
+    const float no_l_used = lerp(face_no_l, no_l, face_mask.y);
 
-    // ---- THE LIGHT TINT: the material's OWN RAMP when it has one, the procedural threshold otherwise ----
+    // ---- THE FACE'S OWN NORMAL, REBUILT FROM THE SDF ----
     //
-    // THE RAMP CARRIES THE SHAPE AND THE FAMILY CARRIES THE MAPPING. Both branches build the same number -
-    // `smoothstep(center - softness, center + softness, gated)` - and they differ only in WHERE that step comes
-    // from: the procedural branch evaluates the Hermite curve here, and the texture branch READS a neutral unit
-    // step out of the material's own heap lane at a coordinate that inverts it. That inversion is the reason
-    // the baked asset can be shared by every family without the family table having to exist twice - the
-    // pixels hold a step at 0.5 and the family's `center` / `softness` are what move it.
+    // THE SDF'S THIRD CHANNEL IS A DIRECTION, not a weight: the atlas stores, per texel, how far the face's surface
+    // leans to one side at that point, and the article turns that into a world-space normal by expressing
+    // `(tilt, ~0, forward)` in the HEAD's own basis. WHY IT IS WORTH THE TROUBLE: a low-poly anime face's normals
+    // describe its TESSELLATION, so a rim computed from them breaks into facets along the cheeks and vanishes from
+    // the nose - the same reason the terminator comes from the SDF rather than from `dot(N, L)`. The rebuilt normal
+    // is smooth by construction, and the rim below is what reads it.
     //
-    // THE TWO ARE ALTERNATIVES, NOT LAYERS, and that is unchanged from when the ramp was the game's own atlas:
-    // a ramp IS a baked quantizer, so running the procedural threshold over a ramp read would quantize an
-    // already-quantized value and flatten the step back out. The texture branch replaces the procedural one
-    // rather than refining it.
+    // IT IS BLENDED BACK TO THE MODEL'S NORMAL BY THE MASK'S `.y`, exactly as the light term is: the two channels
+    // answer the same question in the same place, which is what keeps the rim off the neck (where the SDF has
+    // nothing to say and the model's own normal is the right one).
+    float3 face_normal = n;
+    if (sdf_lane != 0u) {
+        const float3 face_dir = normalize(float3(face_sdf_z, 6.10351562e-05, 1.0 - abs(face_sdf_z)));
+        const float3 head_front = normalize(head_frame_at(heap_slots_scene_head + heap_frame_slot).front.xyz);
+        const float3 head_right = normalize(head_frame_at(heap_slots_scene_head + heap_frame_slot).right.xyz);
+        const float3 head_up = normalize(head_frame_at(heap_slots_scene_head + heap_frame_slot).up.xyz);
+        face_normal = normalize(face_dir.x * head_right + face_dir.y * head_up + face_dir.z * head_front);
+        face_normal = normalize(lerp(face_normal, n, face_mask.y));
+    }
+
+    // ---- THE SSS, WHICH MOVES THE ALBEDO RATHER THAN ADDING A TERM ----
     //
-    // A LANE OF 0 MEANS "DO NOT READ" (it is the white fallback - see material_record::toon_indices), so a
-    // material with no ramp, or one whose artist switched the ramp off, takes the procedural path. That is what
-    // keeps the family table's thresholds meaningful: they are what a character looks like BEFORE its ramps
-    // arrive, not a second opinion about them.
-    // THE BRANCH PRODUCES A STEP, NOT A COLOUR, and that is what lets a SECOND lane join it below: the shadow
-    // LUT supplies the dark side's colour and needs the same weight this produces. `light_tint` is derived from
-    // it immediately afterwards, so the no-LUT arithmetic is character-for-character what it was.
-    float ramp_step;
+    // THE ARTICLE'S SIMPLEST POSSIBLE SUBSURFACE: a surface seen at a grazing angle is a surface light passes
+    // THROUGH, so it takes the material's scattering colour, and the weight is `1.05 - NoV` raised to a power the
+    // material chooses. It is applied to the ALBEDO, BEFORE the layers, because what it stands for is a change in
+    // what the surface scatters rather than light arriving from somewhere else - which is why every layer, the F0
+    // and the rim below inherit it, and why a cheek or a purple skirt reads as translucent instead of as tinted.
+    //
+    // THE ALBEDO'S ALPHA IS BOTH ITS WEIGHT AND ITS GATE, and that is the article's own line: `step(albedo.w, 0.99)`
+    // switches the term OFF wherever that channel says "this texel is opaque material rather than thin material".
+    // THE DATA AGREES WITH THAT READING: the face's alpha is a constant 1 in every material this repository loads,
+    // so the FACE gets none of this term on its own - which is why the article gives the face a SECOND gate, the
+    // mask's `.x` and `.y` below, and why the face's subsurface has to be requested explicitly.
+    //
+    // IT SITS HERE, AFTER THE FACE MASK, because the mask is one of its inputs - and before the layers, which read
+    // the albedo it has just changed.
+    // THE FACE'S OWN LIMIT AND THE FACE'S OWN EXPRESSION, and the two are DIFFERENT from the base's rather than the
+    // same one tuned - which the article states by writing a second shader for the face. `.x` scales the term and
+    // `.y` blends the head's aspect into it, so a face seen from behind keeps a little scattering on the parts that
+    // curve toward the camera; and the result TINTS the albedo (`albedo * lerp(1, sss, area)`) instead of replacing
+    // it, because a cheek's scattering is a shift in what the skin scatters rather than a different material. The
+    // article's `sss_NoV = saturate(NoV) * 0.85 + 0.15` is its face/skin variant of the base's `1.05 - NoV`.
+    //
+    // MEASURED, AND WHY THE BASE'S GATE CANNOT BE REUSED HERE: the base switches this term off with
+    // `step(albedo.w, 0.99)`, and the face's albedo alpha is a constant 1 in every material this repository loads -
+    // so keeping that gate made the whole face branch a no-op (25 pixels of a 1080x960 frame, all of them the neck
+    // seam). The mask is what the article gives the face INSTEAD of that gate.
+    // ---- THE ARTICLE'S "IS THE HEAD TURNED TOWARD THE CAMERA" GATE, read once, used by the SSS and the rim ----
+    //
+    // `ZmdFaceToonMain.hlsl:109-110`: the camera's forward axis expressed in the head's OWN basis, then its
+    // FORWARD component normalised by its horizontal one -
+    //     float3 cameraForward_faceDir = normalize(float3(dot(cameraForward, _FaceRight), dot(cameraForward, _FaceUp), dot(cameraForward, _FaceForward)));
+    //     float headFDotCamerF = cameraForward_faceDir.z * rsqrt(dot(cameraForward_faceDir.xz, cameraForward_faceDir.xz));
+    // - which is "how much of the camera's direction is the direction the face LOOKS, measured against how far
+    // off-axis it is". The article reads it twice, for two different purposes (the face SSS at `:110-113` and the
+    // rim at `:310-311`), so it is built here once, next to the SDF's `head_face_dir_z` that it is derived from.
+    //
+    // THE HORIZONTAL LENGTH IS MEASURED IN THE HEAD'S OWN FRAME and NOT in world space, which the port used to get
+    // wrong: `-abs(h)` with `h = dot(head_front, camera_forward)` is the horizontal share only when the camera's
+    // residual sits entirely in the head's forward axis, and on a real head basis it does not - the two disagree by
+    // up to a factor of `sqrt2`. `rsqrt` of a squared length is written out because the article's `rsqrt` is not
+    // available on a `float2` here.
+    const float3 camera_forward_face_dir = float3(
+        dot(camera_forward, head_frame_at(heap_slots_scene_head + heap_frame_slot).right.xyz),
+        dot(camera_forward, head_frame_at(heap_slots_scene_head + heap_frame_slot).up.xyz),
+        head_face_dir_z);
+    const float head_forward_dot_camera_forward = camera_forward_face_dir.z * rsqrt(max(dot(camera_forward_face_dir.xz, camera_forward_face_dir.xz), 1e-8));
+    const float head_aspect = saturate(head_forward_dot_camera_forward + 0.5);
+    if (sdf_lane != 0u) {
+        const float face_no_v = saturate(no_v) * 0.85 + 0.15;
+        const float sss_region = lerp(head_aspect, 1.0, face_mask.y) * face_mask.x;
+        const float face_area = saturate(params.sss_strength * sss_region * (1.0 - face_no_v));
+        // `_SSSColor` IS (1,1,1) ON THE FACE IN THE ARTICLE, so its `lerp(float3(1), _SSSColor, sss_area)` is the
+        // IDENTITY and the article's face carries NO subsurface tint at all. Two facts say so and both are file
+        // evidence rather than inference: the property's own default is
+        //     `_SSSColor ("SSSColor", Color) = (1,1,1,1)`   (`MyZmdFaceShader.shader:35`)
+        // and there is no sidecar row and no `efColors` entry that overrides it on `M_actor_chen_face_01`
+        // (`zmd-ab/face_shader_compare.md` §1 and §6-1). The port's `rig.sss.rgb` is `(1.0, 0.80, 0.78)`
+        // (`vulkan/primitive/primitive.cppm:199` - the MME pack's `EF_SKIN_SSS_COLOR`, which this port's own
+        // `toon_params.slang:209-210` records as coming from MME and NOT from the article) and `main.cpp` never
+        // writes the lane, so the face was being tinted warm where the article tints nothing.
+        //
+        // THE WEIGHT IS SET TO ZERO RATHER THAN THE EXPRESSION BEING DELETED, which is the article's own value
+        // written as the number it is: `lerp(1, colour, 0)` is exactly `lerp(1, (1,1,1), area)`, and leaving the
+        // line in place is what makes "the article's face has no SSS colour" a statement in the code instead of a
+        // missing term. The tint itself is NOT touched here - the SKIN family reads the same lane and the
+        // article's skin shader DOES read `_SSSColor` (`ZmdSkinToonMain.hlsl:103`), so its own correction is a
+        // separate change on that family's branch.
+        albedo *= lerp(float3(1.0, 1.0, 1.0), rig.sss.rgb, 0.0);
+    } else if (params.sss_strength > 0.0) {
+        // ---- THE SKIN'S OWN SUBSURFACE, WHICH IS A DIFFERENT FORMULA FROM THE BASE'S ----
+        //
+        // `ZmdSkinToonMain.hlsl:97-103`, copied line for line:
+        //     float NoV = dot(normalWS, viewDir);
+        //     float sss_NoV = saturate(NoV);
+        //     sss_NoV = sss_NoV * 0.85 + 0.15;
+        //     float sss_area = saturate(_SSSArea * (1.0 - sss_NoV));
+        //     float3 sssColorEffect = lerp(float3(1.0, 1.0, 1.0), _SSSColor, sss_area);
+        //     float3 albedo_sssRefine = mainTex_var.rgb * sssColorEffect;
+        //
+        // FOUR THINGS THIS CHANGES, and each is a line of the article rather than a taste:
+        //   1. THE AREA IS LINEAR, NOT A POWER. The branch used to run the BASE shader's MME formula
+        //      (`pow(1.05 - NoV, 1 + alpha*_SssPowStrength)`, `ZmdToonMain.hlsl:103-104`), which the SKIN shader
+        //      does not use: skin's is `saturate(_SSSArea * (1 - sss_NoV))`, a straight ramp.
+        //   2. NO ALPHA GATE. The base has `sss_area = min(0.9, sss_area) * step(mainTex_var.w, 0.99)`, and the
+        //      port had carried that gate here - where it is a no-op for a DIFFERENT reason than the article's:
+        //      the face's albedo alpha is a constant 1 in every material this repository loads, so the gate
+        //      switched the term off everywhere. The article's skin has no gate and no `min(0.9)`.
+        //   3. IT TINTS RATHER THAN REPLACES. `albedo * lerp(1, colour, area)` instead of `lerp(albedo, colour,
+        //      area)`: the two agree at area 0 and differ by a factor where the colour is dark, and the article's
+        //      form is the one the skin shader writes.
+        //   4. `_SSSColor` DOES NOT REACH THIS GPU, AND THAT IS WHY THE FACTOR IS WHITE. The property is declared
+        //      `_SSSColor ("SSSColor", Color) = (1,1,1,1)` (`MyZmdSkinToonShader.shader:...`) and there is NO
+        //      sidecar row and no `efColors` entry for it on any of chen's seven materials
+        //      (`zmd-ab/body_shader_compare.md`), so the article's own value IS white and its `lerp` is the
+        //      identity. The port's `rig.sss.rgb` is `(1.0, 0.80, 0.78)` - the MME pack's `EF_SKIN_SSS_COLOR`
+        //      (`vulkan/primitive/primitive.cppm:199`, and `toon_params.slang` records it as coming from MME and
+        //      NOT from the article) - and it is deliberately NOT used here: inventing a colour for a property the
+        //      assets never state is exactly what "port the article, do not invent" forbids. The zero weight below
+        //      IS the article's default written out, and the line stays so that a future asset that DOES state the
+        //      property has somewhere to land.
+        const float sss_no_v = saturate(no_v) * 0.85 + 0.15;
+        const float sss_area = saturate(params.sss_strength * (1.0 - sss_no_v));
+        albedo *= lerp(float3(1.0, 1.0, 1.0), rig.sss.rgb, 0.0 /* the article's `_SSSColor` = white */);
+    } else {
+        // ---- EVERY OTHER FAMILY'S ARTICLE SHADER HAS NO SUBSURFACE TERM AT ALL ----
+        //
+        // `ZmdHairToonMain.hlsl` and `ZmdEyeToonMain.hlsl` contain no `sss`/`SSS` read whatsoever (grep: 0 hits
+        // in each), and the BASE shader's own term (`ZmdToonMain.hlsl:105`) is gated by `_IsNeedSss` with a
+        // different formula. This branch is what a family whose article shader states nothing gets, and what it
+        // states is NOTHING: `lerp(1, colour, 0)`. Before this change the port ran the base's `pow(1.05 - NoV, …)`
+        // on hair and eye as well, i.e. it gave two materials a subsurface term their own shaders do not have.
+        albedo *= 1.0;
+    }
+
+    // ---- THE RAMP: the article's own read, which answers TWO questions from one texture ----
+    //
+    // THE GAME'S RAMP IS NOT A QUANTIZER, which is what this stage assumed before and what a baked unit step can
+    // express. Its U AXIS IS THE LIGHT TERM, its RGB is a COLOUR mapping along that axis (dark warm brown to white
+    // on the body ramp this repository carries), and its ALPHA is a second mapping of the same axis - a LIGHTNESS,
+    // 0 at the dark end and 1 at the lit one. So one fetch gives the shading two of its three variables, and the
+    // second fetch - at the surface's angle to the CAMERA rather than to the sun - gives it the third.
+    //
+    // THE BAND COORDINATE IS THE PHYSICAL LIGHT TERM WITH THE ARTICLE'S BACKLIGHT COMPENSATION ON TOP OF IT, and
+    // the compensation is the fix for a specific collapse: a character lit from behind can show the camera nothing
+    // but surfaces facing away from the sun, so the ramp reads its dark end everywhere and the silhouette flattens
+    // into one shape. The correction depends on the CAMERA's yaw against the light and on how far the camera is
+    // from horizontal, so it appears where the problem does - a camera looking along the light at a level pitch -
+    // and vanishes for a top-down or a side-on shot, where the dark side is information rather than a loss.
+    // ---- THE CAMERA'S FORWARD AXIS IN THE HEAD'S FRAME WAS READ ABOVE, WITH THE SDF ----
+    //
+    // `head_face_dir_z` IS THE ARTICLE'S `cameraForward_faceDir.z` (`ZmdFaceToonMain.hlsl:109`), and it is read
+    // ONCE, above the SDF call, because the article's face main reads the same direction twice for two different
+    // jobs: the SDF's backlight compensation (`:162-164`) and the projected-shadow mask (`:196`). `back_light` is
+    // the same value the SDF took as an argument. Both are the ROOT of the chain this block finishes, not inputs
+    // invented here.
+    //
+    // THE RAMP IS THE ARTICLE'S OWN READ, WHICH ANSWERS TWO QUESTIONS FROM ONE TEXTURE, and the article's own
+    // backlight compensation rides on the light term below - `sdf_backLight` on the SDF side and this same
+    // `back_light` here are the two halves of its `faceNoL`.
+
+    // `0.5 - 0.5 * NoL * NoL` is the article's curve rather than `0.5 * NoL + 0.5`, and the difference is what the
+    // compensation is multiplied by: this one is ZERO at both ends of the light term, so the correction can only
+    // move a surface that is neither fully lit nor fully shadowed - which is exactly the grazing range a backlit
+    // character's visible surfaces live in.
+    const float ramp_curve = 0.5 - 0.5 * no_l_used * no_l_used;
+    const float ramp_u = saturate((ramp_curve * back_light + no_l_used) * 0.5 + 0.5);
+
+    // THE SECOND READ, indexed by the CAMERA angle: the article's `_NoFStrength` and `_NoFPowStrength` shape it,
+    // and what it buys is the edge darkening that a cel drawing gets from its linework - a limb darkens against
+    // the body it overlaps without a second texture or a depth test. IT READS `shading_normal` rather than `n` for
+    // the article's own reason: its eye takes BOTH reads off the cornea's normal, so the eye's edge term rises and
+    // falls with the hemisphere as well - a flat quad's `NoF` is one value, which is the same flatness the ramp had.
+    const float no_f = saturate(dot(shading_normal, camera_forward) * 0.5 + 0.5);
+
+    float3 ramp_colour;
+    float ramp_weight;
+    float no_f_weight;
     if (toon_indices.x != 0u) {
-        // THE REMAP, and each factor is doing a different job: `- center` slides the neutral step to this
-        // family's threshold, and `* (character_ramp_half_width / softness)` rescales the coordinate so the
-        // family's edge width lands on the ramp's own. `saturate` gives the flat shadow and lit sides, which is
-        // what a ramp has and a bare `smoothstep` does not.
-        const float ramp_x = saturate(0.5 + (shaped - params.center) * (character_ramp_half_width / max(params.softness, 1e-4)));
-        // `.r` because the baked ramp holds the STEP in all three channels and no colour - the dark side's
-        // colour is `params.shadow_tint` below, so one shared asset can serve a family whose shadow is warm and
-        // one whose shadow is cool, which a baked-in tint could not.
-        ramp_step = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.x), heap_sampler_texture, float2(ramp_x, character_ramp_band_v)).r;
+        ramp_colour = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.x), heap_sampler_texture, float2(ramp_u, character_ramp_band_v)).rgb;
+        ramp_weight = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.x), heap_sampler_texture, float2(ramp_u, character_ramp_band_v)).w;
+        no_f_weight = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.x), heap_sampler_texture, float2(no_f, character_ramp_band_v)).w;
     } else {
-        ramp_step = smoothstep(params.center - params.softness, params.center + params.softness, shaped);
+        // THE PROCEDURAL BRANCH, which is what a material with no ramp - or an artist who switched it off - gets.
+        // The family's tint stands in for the ramp's COLOUR and its Hermite step for the ramp's ALPHA, so the two
+        // branches differ in WHERE the numbers come from and in nothing else - which is what keeps the family
+        // table's thresholds meaningful: they are what a character looks like BEFORE its ramps arrive.
+        const float step = smoothstep(params.center - params.softness, params.center + params.softness, ramp_u);
+        ramp_colour = lerp(params.shadow_tint, float3(1.0, 1.0, 1.0), step);
+        ramp_weight = step;
+        no_f_weight = step;
     }
-    const float3 light_tint = lerp(params.shadow_tint, float3(1.0, 1.0, 1.0), ramp_step);
+    no_f_weight = pow(saturate(no_f_weight * rig.misc.y), rig.misc.z);
+    // `_RampColorNoLStrength` scales the ramp's LIGHTNESS lane, and it is the article's only control over how far
+    // the material's own ramp may move the layer weights - the colour lane has its own (`ramp_colour_strength`,
+    // which is per family because the references carry it per material). Scaling it HERE rather than at each use
+    // is the article's own order: it multiplies the sampled alpha once, before the weights are built from it.
+    ramp_weight *= rig.misc.w;
 
-    // The sun's radiance and the /PI are the ENGINE'S expressions (`shade_surface` builds the same pair:
-    // `vec3(7.5 * sun_intensity)` and `kd * base_color / PI`), so a toon fragment and a deferred fragment
-    // standing in the same light cannot disagree about how bright the sun is.
-    const float3 sun = float3(7.5, 7.5, 7.5) * light_at(heap_light_slot).sun_intensity;
-
-    // THE BAND *IS* THE LIGHT FACTOR, and this is the line that is easy to get wrong in a way that looks
-    // like "the banding does not work" rather than like a bug: multiplying the result by `shadow` a SECOND
-    // time - on top of the gate that produced the coordinate - drives every shadowed fragment to zero and
-    // leaves only the ambient, which flattens the very split the band was computing. The shadow's job here
-    // is to CHOOSE the side of the ramp; the tint is what the shadow side looks like, and it is a colour,
-    // not an extinction. Measured: the double-applied version and the flat-albedo probe were hard to tell
-    // apart by eye, which is what a banding term multiplied by its own gate does.
-    // ---- THE SHADOW LUT LANE, which replaces the dark side's COLOUR and not its weight ----
+    // ---- THE EMOTION TRICK: AN EXPRESSION PAINTED OVER THE ALBEDO ----
     //
-    // THE REFERENCE'S OWN EXPRESSION, `lerp(lutDark, authoredBright, diffuseWeight)`: the shadowed albedo is
-    // looked up from the lit one, and the ramp step is the weight between them. The no-LUT path is the same
-    // expression with the lookup replaced by the family's constant tint - `lerp(albedo * tint, albedo, step)`
-    // is `albedo * lerp(tint, white, step)` - so the two branches differ in WHERE the dark side's colour comes
-    // from and in nothing else. That is why this is a branch rather than a second term: a LUT blended ON TOP of
-    // the tint would be a third opinion about a colour that already has two sources.
-    float3 direct;
-    if (toon_indices.y != 0u) {
-        // `* params.shadow_tint` because our bake holds the IDENTITY cube rather than the game's palette, so
-        // the family's tint is still what says how dark and how warm the shadow side is; an authored cube would
-        // carry that itself and this multiply would become the identity it already is for the baked one.
-        const float3 lut_dark = toon_shadow_lut(albedo, toon_indices.y) * params.shadow_tint;
-        direct = sun * lerp(lut_dark, albedo, ramp_step) / PI;
-    } else {
-        direct = albedo * sun * light_tint / PI;
+    // THE ARTICLE'S SECOND FACE TEXTURE (`_EmotionMap`) is a 2x2 ATLAS of four eyebrow-and-mouth paintings, and the
+    // expression index becomes a CELL rather than a blend: `frac(t)` picks the column, `floor(t) * 0.5` the row
+    // (with the index halved first, so 0..3 lands on the four cells), and the mesh's OWN uv at HALF SCALE reads
+    // inside that cell - the atlas is laid out over the face's uv space, so `uv * 0.5` is what puts the face into
+    // one quadrant. Its RGB REPLACES the albedo where the cell's alpha says so, which is how a face is given an
+    // expression without a morph target or a second material.
+    //
+    // THE INDEX IS NOT IN THE MATERIAL FILE, which is a fact about the game rather than a gap in this port: the
+    // expression is chosen by the character's animation/script system, and no `_TrickType` exists in any sidecar.
+    // It comes from `[toon] emotion_type`, whose default of 0 leaves every earlier capture where it was.
+    if (toon_lanes.w != 0u && rig.other_colour.w > 0.0) {
+        const float emoji_type = rig.other_colour.w * 0.5;
+        const float2 emoji_uv = float2(frac(abs(emoji_type)), floor(emoji_type) * 0.5);
+        const float4 trick = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes.w), heap_sampler_texture, uv * 0.5 + emoji_uv);
+        albedo = lerp(albedo, trick.rgb, trick.w);
     }
+
+    // ---- THE EYE'S TWO REGION COLOURS, WHICH THE ARTICLE APPLIES TO THE LIT LAYER ----
+    //
+    // TWO WEIGHTS, TWO COLOURS, ONE PRODUCT: `eyeCenterArea` (the uv-derived zone the cornea highlight below also
+    // uses) carries one colour, and the ALBEDO'S OWN ALPHA carries the other over whatever the material marked -
+    // the same channel the base's SSS reads, used here for a different statement about the same surface.
+    //
+    // THEY MULTIPLY THE **LIT LAYER** AND NOT THE ALBEDO, which is a correction the face close-up forced rather
+    // than a tidy-up: the article's own line is `lerp(dark, mainDiffuseColor_Light * trickAlbedo, rampNoL)`, so
+    // the tint reaches the surface only where the surface is LIT. Multiplying the albedo instead - what this port
+    // did - sends the same tint into the dark layer, the ramp's colour and the ambient, so the eye's SHADOWED side
+    // comes out tinted where the reference tints nothing. Measured on chen's iris, whose rendered colour was pulled
+    // to `_EyeHighLightColor`'s own hue over the whole eye rather than over its corners: the render's iris reads
+    // B/G 1.081 against that colour's 1.080, while the iris TEXTURE is 0.98 (a warm brown) and the eye's ramp
+    // (`T_actor_common_body_01_RD`, dark end (183,121,94)) is warm too.
+    //
+    // THE STRENGTH IS THE ARTICLE'S `* 2.5`, KEPT AS THE ARTICLE WRITES IT. An earlier version of this note held it
+    // at 1.0 on the argument that 2.5 compensates for the article's Unity light units while this engine's sun
+    // carries ~7.5x the radiance - AND THAT ARGUMENT WAS WRONG, which is worth recording because the distinction is
+    // the whole question: this expression scales a COLOUR RATIO (`lerp(1, colour * 2.5, w)`, a number between 1 and
+    // the material's own colour), not a light magnitude, so the ratio transfers between engines unchanged. What
+    // needed a bridge was the hair LUT's `/PI`, and that reconciled two RADIANCE scales - a different kind of
+    // difference. The wrong argument is also why the constant looked inert for two rounds: it was invisible because
+    // the LAYER it scales had zero weight, which `shadow` now explains.
+    //
+    // MEASURED, ONCE THE EYE'S SHADOW GATE WAS FIXED: 1.0 against 2.5 differs by 8530 px / 0.82% of the face
+    // close-up with max |d| 33, and by 63 px on the standard frame, 2.5 being the brighter of the two - the tint's
+    // colours are all above 1 (chen's iris is (2.40,1.89,2.04) and (2.43,2.05,1.86)), so scaling them up lifts the
+    // lower lid's scattering and the corner highlight the article's two weights select.
+    //
+    // THE ZONE AND THE TWO COLOURS ARE READ ABOVE (`eye_uv` / `eye_centre_area`, which the shading normal needs) and
+    // the colours come from the MATERIAL'S OWN `color` ROWS (see the read at the top of this function) - which is
+    // what makes them per-material rather than the eye FAMILY's reading of one character's iris. They are GATED ON
+    // THE MATCAP LANE, which is the measurement talking rather than a preference: a BROW material carries
+    // `_EyeHighLightColor` too (chen's is (2,2,2)) and applying "the eye's highlight tint" to an eyebrow is a
+    // 130-pixel error measured the moment the colours moved to their real source. `_UseMatcap` is what separates the
+    // two in the game's own data - 1.0 on the iris, 0.0 on the brow - and it is the same lane the eye's highlight
+    // below needs, so the two uses agree by construction.
+    // THE ZONE IS THE ARTICLE'S, EXACTLY AS IT WRITES IT, AND A ROUND OF THIS PORT DEPARTED FROM IT AND CAME BACK.
+    // The departure was mine and it is worth recording as a warning: the article's `eyeCenterArea` covers the region
+    // OUTSIDE the inscribed circle (`step(0.25, |uv|^2)`), so the tint lands on the eye's CORNERS, and a measurement
+    // showed the iris itself staying dark, which invited flipping the mask so the ~2.4x colour reached the iris
+    // (it brightened it by ~46/255). THAT WAS THE PORT INVENTING A MECHANISM: the article's mask is what it is, the
+    // materials were authored against it, and a port that "fixes" a formula because a reference image looks brighter
+    // has stopped porting. Reverted to `eye_centre_area`; whatever the eye's brightness is, it is now the article's
+    // own composition of terms rather than one of them bent to fit a picture.
+    float3 eye_trick = float3(1.0, 1.0, 1.0);
+    if (toon_indices.w != 0u) {
+        eye_trick = lerp(float3(1.0, 1.0, 1.0), eye_highlight_colour * character_eye_trick_scale, eye_centre_area) *
+                    lerp(float3(1.0, 1.0, 1.0), eye_scattering_colour * character_eye_trick_scale, albedo_alpha);
+    }
+
+    // ---- THE THREE LAYERS, and the article's weights between them ----
+    //
+    // THE SHADOW AND THE OCCLUSION ARE GATES ON WHICH LAYER SHOWS, not extinction on the result, and the two ways
+    // they combine below are different on purpose: a MIN where the terms are alternative statements about whether
+    // light arrives at all (a crevice and a cast shadow are not additive - either one makes the fragment dark),
+    // and a PRODUCT where both are required (the edge darkening wants the surface in shadow AND turned away).
+    const float ao_shadow = ao_used * shadow_effect;
+    const float min_shadow_effect = min(min(ao_used, shadow_effect), ramp_weight);
+    const float ao_shadow_no_f = ao_shadow * no_f_weight;
+
+    // THREE ALBEDOS RATHER THAN THREE MULTIPLIERS, because a toon character's dark side is a HUE shift as much as
+    // a darkening: the lit layer is the albedo, the dark one is that albedo scaled and pulled toward its own
+    // brightness, and the darkest is the dark layer scaled again.
+    const float energy_distribution_metallic = 0.96 - 0.96 * metallic;
+    // THE LIT LAYER IS WHERE THE EYE'S TWO TRICK COLOURS GO (see the block that builds `eye_trick`), which is the
+    // article's own placement: `mainDiffuseColor_Light * trickAlbedo`. For every other material `eye_trick` is
+    // exactly 1.0, so this multiply is bit-exact where there is no eye.
+    const float3 light_colour = albedo * energy_distribution_metallic * eye_trick;
+    // THE DARK SIDE'S COLOUR COMES FROM THE MATERIAL'S OWN LUT WHEN IT HAS ONE, and NOTHING ELSE IS MULTIPLIED
+    // INTO IT - which is a correction rather than a detail, and the frames are what found it. The family's
+    // `shadow_tint` used to ride on top (`* params.shadow_tint`), which was right while this lane read the
+    // IDENTITY BAKE: with the bake the tint WAS the dark side's colour, and a tint of white left the albedo alone.
+    // The game's palette is not an identity - it is a stylised dark-side colour, saturated teal and violet on the
+    // skin and cloth palettes this repository loads - so multiplying a cool family tint into it tinted the artist's
+    // choice a SECOND time and dragged every cloth's shadow toward the tint's hue. THE ARTICLE'S OWN EXPRESSION is
+    // `lerp(lutDark, authoredBright, weight)` with `lutDark` straight out of the LUT, and that is what this is.
+    float3 dark_base;
+    if (toon_indices.y != 0u && params.lut_strength > 0.0) {
+        // `_AlbedoDarkStrength` IS MULTIPLIED IN HERE TOO, and it is the article's own line rather than a
+        // symmetry: `ZmdFaceToonMain.hlsl:145` is
+        //     `albedo_lutRefine * energyDistribution_metallic * _AlbedoDarkStrength`
+        // and its skin twin says the same (`ZmdSkinToonMain.hlsl:126`). The port had the family's
+        // `albedo_dark_strength` (0.55 on the face, from the game's `_ShadowColorBrightness`) only on the
+        // NON-LUT branch, so a LUT family - the face and skin both - read its dark layer about 1/0.55 = 1.8x
+        // brighter than the article's. MEASURED: the cheek's dark side drops by ~8/255 and the face's mean
+        // luminance by ~3.9 while the artifact measures improve slightly; see `remaining_port_spec.md`
+        // "脸部链按参考对齐".
+        dark_base = toon_shadow_lut(albedo, toon_indices.y) * params.albedo_dark_strength;
+    } else {
+        dark_base = albedo * params.albedo_dark_strength;
+        dark_base = lerp(toon_luminance(dark_base).xxx, dark_base, params.albedo_dark_saturation);
+    }
+    const float3 dark_colour = dark_base * energy_distribution_metallic;
+    // THE ARTICLE'S "DARK IN DARK" IS A SATURATION MOVE, NOT A DARKER COLOUR: it takes the dark layer at 65% and
+    // then pushes it 20% FURTHER from its own luminance, so the deepest region reads as a more saturated version
+    // of the dark side rather than as the same hue turned down. That is what makes the third layer visible at all
+    // - a plain multiplier is indistinguishable from a stronger shadow.
+    const float3 dark_attention = dark_colour * params.dark_in_dark;
+    const float3 dark_in_dark = lerp(toon_luminance(dark_attention).xxx, dark_attention, 1.2);
+
+    // THE ARTICLE'S COMPOSITION, in its own order: the dark side lerps between the DARK layer and the DARKEST one
+    // by the edge/ramp weight, that result lerps toward the lit colour by the shadow gate, and the ramp's COLOUR
+    // is applied last.
+    const float3 dark_lerped = lerp(dark_in_dark, dark_colour, saturate(ao_shadow_no_f + ramp_weight));
+    const float3 brdf_base = lerp(dark_lerped, light_colour, min_shadow_effect);
+    // THE RAMP'S COLOUR IS A TINT, NOT A BRIGHTNESS, and the article gets that from the ramp's own SATURATION:
+    // `max - min` of its channels measures how coloured the entry is, so a grey ramp entry leaves the surface
+    // alone while a coloured one tints it. Without this the ramp's white end would brighten every lit surface,
+    // which is the difference between a colour mapping and a light.
+    const float ramp_max = max(max(ramp_colour.r, ramp_colour.g), ramp_colour.b);
+    const float ramp_min = min(min(ramp_colour.r, ramp_colour.g), ramp_colour.b);
+    const float ramp_saturation = ramp_max - ramp_min;
+    const float3 ramp_effect = ramp_colour * ramp_saturation + 1.0 - ramp_saturation;
+    const float3 brdf_ramped = brdf_base * ramp_effect;
+    // `rampColor_control` is the article's guard on top of that: the ramp multiplies into a value that already
+    // carries the albedo, so a bright entry would brighten as well as tint unless the result is held to the
+    // brightness it started with. ITS OWN UPPER BOUND IS 1.5 AND NOT 1.0, which is the part worth keeping: a
+    // saturated ramp entry multiplies the surface DARK, and the control is allowed to give up to half of that
+    // back, so the ramp tints the shading instead of replacing it. Clamping to 1.0 would turn the ramp's colour
+    // into a second shadow term - which is exactly the "ramp as the主体" arrangement this port is replacing.
+    const float ramp_control = clamp(toon_luminance(brdf_base) / max(0.01, toon_luminance(brdf_ramped)), 0.0, 1.5);
+    const float3 brdf_final = lerp(brdf_base, brdf_ramped * ramp_control, params.ramp_colour_strength);
+
+    // ---- THE LIGHT RIG: TWO STATES OF THE SUN, AND A HEAD LIGHT THAT IS ALWAYS THERE ----
+    //
+    // THIS IS THE ARTICLE'S CENTRAL MECHANISM, and it is what a single directional light cannot reproduce: the
+    // sun's strength follows the time of day and the weather, and simply turning it DOWN loses the DISTRIBUTION
+    // that goes with it - a dimmed sun still draws its own terminator across the character, which is wrong in
+    // exactly the situation the game cares about (a character in a corner, lit by what is around it). So the
+    // strength becomes a BLEND between two whole shading outcomes: at `_DayStrength` 1 the sun carries the
+    // character with the head light supplementing it, and at 0 the sun's DIRECT term is gone - no light
+    // direction, no terminator - and the head light carries it.
+    //
+    // THE HEAD LIGHT IS A RIGGED LIGHT RATHER THAN A PHYSICAL ONE: it comes from straight above (`(0,1,0)`) and
+    // its term is shaped by hand - an offset before the saturate, a strength and a second offset after - because
+    // what it stands for is not a lamp but the fill a character artist expects on a figure with no GI. Its COLOUR
+    // is the shadow side's, lerped toward white by the same `min_shadow_effect` the layers used, so it warms the
+    // character exactly where nothing else reaches.
+    //
+    // ---- THE LIGHT, CONSTRUCTED THE AUTHOR'S WAY ----
+    //
+    // THE PORT USED TO TAKE THE ENGINE'S RADIANCE STRAIGHT (`vec3(7.5 * sun_intensity)`, the same expression
+    // `shade_surface` uses) and then patch the consequence with a `/ PI` on the diffuse. Read against the author's
+    // own repository (`github.com/qiudashu233/MyZmdShaders`, commit 6507457), his shaders do neither:
+    //
+    //   ZmdToonMain.hlsl / ZmdEyeToonMain.hlsl, line for line:
+    //     float3 mainLightColor = _MainLightColor;
+    //     float  mainLightIntensity = max(0.001, (0.299*r + 0.587*g + 0.114*b));
+    //     mainLightColor = mainLightColor / mainLightIntensity;                 // unit-LUMINANCE colour
+    //     ...
+    //     float3 mainLightColor_new = lerp(mainLightColorStrength.xxx, mainLightColor, w) * mainLightIntensity;
+    //     float3 mainLightColor_final = lerp(otherLightResult_day0, mainLightColor_new + otherLightResult_day1,
+    //                                        _DayStrength);
+    //   and `mainDiffuseResult = mainLightColor_final * mainDiffuseBrdf_final` - NO `/ PI` anywhere.
+    //
+    // SO `mainLightColor_final` IS A COLOUR OF ORDER 1 IN HIS UNITS (a unit-luminance colour times the light's
+    // intensity), and the engine's `7.5 * sun_intensity` is not: feeding it in made EVERY term that multiplies it
+    // ~7.5x too strong, which the port masked on the diffuse with `/ PI` and not at all on the specular - the
+    // measured symptom being `mainSpecularResult` clipping to pure white wherever the eye's matcap W channel is
+    // bright (0.4 on the game's ball) instead of reaching the 0.4 the author's light produces.
+    //
+    // WHAT REPLACES IT IS THEREFORE HIS OWN EXPRESSION, not a new scale factor: this engine's sun is a SCALAR
+    // intensity with no colour of its own (`[render] sun_intensity`; there is no `_MainLightColor` to normalize),
+    // so the unit-luminance colour IS white and the intensity IS `sun_intensity`. `toon_luminance(main_dark)` is
+    // the port's standing-in for his `mainLightColorStrength` (the luminance of the normalized colour times
+    // `_MainLightColor_dark`), which collapses to the dark colour's own luminance when that colour is white.
+    //
+    // `_IsNeedSelfLight` / `_SelfLightIntensity` (his debug white-light toggle) are NOT reproduced: they are a
+    // debugging switch, and this renderer has no GUI for them.
+    const float main_light_intensity = max(0.001, light_at(heap_light_slot).sun_intensity);
+    // THE HEAD LIGHT READS THE SAME NORMAL THE RAMP DOES (`shading_normal`, which is the cornea's on an eye), because
+    // the article's eye takes EVERY read off `corneaNormalWS` and this was the last one still on the flat quad's
+    // normal - whose `dot(up, n)` is ~0 for an iris facing the camera. MEASURED AND IT MOVES NOTHING: with the eye's
+    // `NoL`/`NoF` already on the cornea normal and the two trick colours at full strength, switching this one changes
+    // 0 PIXELS at both the standard pose and the face close-up (max |d| 0) - at `day_strength` 1 the head light is a
+    // supplement to a sun that already carries the character, so it is not the missing lift. It stays because it is
+    // the article's own arrangement and it is provably free; the eye's remaining darkness is in its ALBEDO and in
+    // nothing this term reaches (see the note on the eye's net gain: 0.73x of its own albedo, measured).
+    // `params.other_light_no_l` IS THE ARTICLE'S ZERO AND IT BELONGS ON THE WHOLE TERM: the author's
+    // `otherLightNoL` starts at 0 in every one of his shaders (`ZmdEyeToonMain.hlsl:178`, `ZmdSkinToonMain.hlsl:160`,
+    // `ZmdFaceToonMain.hlsl:208`) and the two lines after it only multiply and offset that zero, so his head light
+    // is a FLAT fill whose colour the shadow term picks and which no surface normal can modulate. This port drives
+    // the same slot from the WORLD UP AXIS - a hemisphere fill the article does not have - and the families whose
+    // article shaders this has been read against (the EYE and the SKIN) set this to 0 to get his term back.
+    const float head_no_l = (saturate(dot(float3(0.0, 1.0, 0.0), shading_normal) + rig.day.y) * rig.day.z + rig.day.w) * params.other_light_no_l;
+    const float3 head_colour = lerp(rig.other_colour.rgb, float3(1.0, 1.0, 1.0), min_shadow_effect) * head_no_l;
+    const float3 head_day0 = head_colour * rig.other_light.x;
+    const float3 head_day1 = head_colour * rig.other_light.y;
+    const float sun_dark = toon_luminance(rig.main_dark.rgb);
+    // `params.light_intensity_scale` IS THE ARTICLE'S PER-SHADER SUN FACTOR AND IT GOES HERE, ON THE SUN ONLY.
+    // `ZmdSkinToonMain.hlsl:69` multiplies `mainLightIntensity` by `1.3/1.6` and every other face of the article
+    // multiplies it by the no-op `1.6/1.6`, so the skin's direct sun - diffuse and specular both, since both read
+    // `mainLightColor_final` - is 18.75% dimmer than every other family's. It multiplies `sun_colour` and NOT
+    // `main_light_final`, because the article's `mainLightIntensity` reaches the image inside this term and not
+    // inside `head_day0`/`head_day1` (the `_OtherLight*` block is built from `_OtherLightStrength`): scaling the
+    // shared intensity would dim the head light too, which the article does not do.
+    const float3 sun_colour = lerp(sun_dark.xxx, float3(1.0, 1.0, 1.0), min_shadow_effect) * main_light_intensity * params.light_intensity_scale;
+    const float3 main_light_final = lerp(head_day0, sun_colour + head_day1, rig.day.x);
+
+    // THE DAY-0 BRDF IS THE ONE WITHOUT A LIGHT DIRECTION, and that is the whole point of the second state: with
+    // the sun's direct term gone, the shadow gate that chose between the layers has nothing to say, so the layers
+    // are chosen by the EDGE/OCCLUSION weight instead - the surface is shaded by what reaches it from the sky and
+    // the fill - while the head light's own NoL does the modelling. At `_DayStrength` 1 the layered brdf stands.
+    const float3 brdf_low_light = lerp(dark_in_dark, light_colour, ao_shadow_no_f);
+    const float3 brdf_day = lerp(brdf_low_light, brdf_final, rig.day.x);
+
+    // THE SHADOW IS ALREADY INSIDE THESE BRDFS - as the gate that CHOSE the layer rather than as a multiplier on
+    // the result (see the weights above). Multiplying here as well is the mistake this comment exists to prevent:
+    // it drives every shadowed fragment to zero, leaves only the ambient, and flattens the very split the layers
+    // were computing - which reads as "the banding does not work" rather than as a bug.
+    //
+    // AND NO `/ PI`: the author's line is `mainDiffuseResult = mainLightColor_final * mainDiffuseBrdf_final`, full
+    // stop. The `/ PI` that used to be here was this port's bridge for feeding the ENGINE's radiance
+    // (`vec3(7.5 * sun_intensity)`) into a chain the author tuned for a colour of order 1; with the light built
+    // the author's way above, the bridge has nothing left to bridge and keeping it would make the diffuse
+    // `PI` times too dark. It left with `sun_radiance`.
+    const float3 direct = brdf_day * main_light_final;
 
     // The ambient is the engine's irradiance map and the engine's composition
     // (`ibl_diffuse * albedo * ao`), so a toon character in a scene is lit by the same sky as everything
     // else in it. WITHOUT IT the dark side is the tint times nothing, which reads as a hole rather than as
     // shadow - and a toon look without ambient is the single most common way this style reads as broken.
-    const float3 ambient = irradiance_sample(n) * albedo * ao;
+    // `ao_used` AND NOT `ao`, for the reason the skin branch above states: the article's skin feeds its own
+    // albedo-alpha occlusion to EVERY term that reads an occlusion, and this one does too.
+    const float3 ambient = irradiance_sample(n) * albedo * ao_used * params.ambient_strength;
 
-    // ---- the view-angle rim ----
-    // The view vector, the engine's own expression for it (`shade_surface` builds the same one).
-    const float3 v = normalize(camera_at(heap_camera_slot).camera_pos - world_pos);
-    const float no_v = saturate(dot(n, v));
-    // Fresnel-shaped: strongest where the surface turns away from the camera, which is the silhouette.
-    const float fresnel = pow(1.0 - no_v, params.rim_power);
-    // THE LIGHT-SIDE MASK. Without it the rim doubles on the shadow side and reads as a second light source
-    // rather than a contour - which is the single most common way a rim light looks wrong. The references
-    // both gate it (`EF_*_RIM_AREA` with a NoL term; `GetRimColor`'s `frontRim`/`backRim` split by the
-    // sign of `dot(normalVS, lightDirVS)`).
-    const float light_side = smoothstep(0.0, character_rim_light_end, dot(n, l));
-    // The MME pack lightens the albedo for the rim rather than adding a flat colour
-    // (`albedoRimColor = saturate(albedo + 0.3)`), so a dark material's rim is still recognisably ITS
-    // colour instead of a white outline pasted on.
-    const float3 rim = params.rim_colour * fresnel * light_side * params.rim_strength * saturate(albedo + 0.3);
+    // ---- THE RIM: TWO DIFFERENT MECHANISMS, WHICH IS WHAT THE ARTICLE CARRIES ----
+    //
+    // RIM ONE IS A RANGE-MAPPED FRESNEL, and the mapping is the part worth stating: rather than raising `1 - NoV` to
+    // a power and calling the result a rim, the article maps it through a WINDOW whose start and end both move with
+    // ONE material number (`_RimLightArea`) - so an artist widens the contour's inner edge without moving its outer
+    // one, which is what lets the same shader give a sleeve a broad rim and a cheek a tight one. The window is
+    // smoothstepped, so the band has no hard edge at either end.
+    const float rim_start = rig.rim.x * -0.6 + 0.8;
+    const float rim_end = rig.rim.x * -0.4 + 0.9;
+    const float rim_width = max(rim_end - rim_start, 1e-4);
+    // A FACE'S RIM IS MEASURED AGAINST ITS REBUILT NORMAL rather than the model's (`face_normal` above), which is
+    // the whole reason that normal exists: a rim from faceted normals breaks along the cheeks.
+    const float rim_no_v = sdf_lane != 0u ? saturate(dot(face_normal, v)) : no_v;
+    float rim_t = saturate(((1.0 - rim_no_v) - rim_start) / rim_width);
+    float rim_area = rim_t * rim_t * (3.0 - 2.0 * rim_t);
+    // ---- AND A FACE'S RIM HAS A REGION AND A SIDE, BOTH FROM THE MASK ----
+    //
+    // `.w` IS THE RIM'S OWN REGION: the article blends its window against that channel -
+    // `lerp(rimArea, rimArea_mask, _RimMaskStrength)` (`ZmdFaceToonMain.hlsl:322`) - and `_RimMaskStrength`
+    // defaults to 1 (`MyZmdFaceShader.shader:87`) with no sidecar row to override it, so at the article's own
+    // defaults the mask DECIDES and the window is discarded. THAT IS NOT A HARDCODED `rim_area = 1.0`, which is
+    // what this line was mistaken for: the `1.0` here is the lerp's WEIGHT, and the value it selects is the
+    // sampled channel. A material with no mask keeps the window it always had, because the block is skipped.
+    //
+    // THE SIDE IS THE CAMERA'S, taken as `dot(camera_right, normal)`: a rim down BOTH sides of a face reads as a
+    // painted mask rather than as a light, so the article keeps the one the camera's right axis agrees with.
+    float3 rim_one_sided = float3(1.0, 1.0, 1.0);
+    if (sdf_lane != 0u) {
+        const float3 camera_right = normalize(cross(float3(0.0, 1.0, 0.0), camera_forward) + float3(1e-6, 0.0, 0.0));
+        // THE MASK IS THE RIM'S REGION, AND IT REPLACES THE WINDOW RATHER THAN MULTIPLYING IT - which is the
+        // article's own `lerp(rimArea, rimArea_mask, _RimMaskStrength)`, taken at the weight that lets the mask
+        // decide. TWO EARLIER READINGS OF THIS CHANNEL WERE WRONG, and the file itself is what settled it: rendered
+        // as an image, `.w` is a BROAD VERTICAL BAND DOWN EACH SIDE OF THE FACE plus a small patch at the NOSE -
+        // exactly where a face's contour light belongs, and exactly what the article's own text calls out ("the
+        // nose-tip rim, which can be observed in the game"). I first read it as "a region, not a rim", and then as a
+        // window to be multiplied by the fresnel band - the product of two masks, which intersected the rim away and
+        // is why this stage's face rim has been nearly invisible since.
+        //
+        // THE COORDINATE QUESTION THIS COMMENT USED TO LEAVE OPEN IS ANSWERED, and the answer was the fault: the
+        // mask was being sampled at the SDF's MIRRORED uv, and the article samples it at the ORIGINAL one
+        // (`ZmdFaceToonMain.hlsl:55` vs `:157`). A probe of this mask then read ~0.04 at p90 where the channel's own
+        // statistics promise bright bands at ~1.0 over 13% of its area - i.e. the read was landing in the wrong
+        // place, which is why a five-factor product left this rim a six-pixel effect. See the mask's own block
+        // where `face_mask_uv` is built.
+        rim_area = lerp(rim_area, face_mask.w, 1.0);
+        rim_one_sided = saturate(dot(camera_right, face_normal)).xxx;
+    }
+    // ---- THE ARTICLE'S "THE HEAD IS TURNED TOWARD THE CAMERA" DOOR, WHICH THIS PORT DID NOT HAVE ----
+    //
+    // `ZmdFaceToonMain.hlsl:310-311` and `:324`, both of which are the SAME factor:
+    //     float headFDotCamerF_rim = saturate(-0.9 + headFDotCamerF * 10);
+    //     headFDotCamerF_rim = MySmoothstep(headFDotCamerF_rim);
+    //     float3 rimLight = rimArea_final * headFDotCamerF_rim * _RimLightColor * _RimLightStrength;
+    // `headFDotCamerF` positive means the camera is looking along the head's own forward axis, i.e. the face is
+    // turned TOWARD it; the ramp `-0.9 + 10x` then saturates at `x = 0.09` and is 0 for everything below `-0.9`, so
+    // a face seen from behind loses its contour light entirely. That is the article's answer to "a rim is a
+    // property of a lit edge, and a face pointing away from the camera has no such edge to show it".
+    //
+    // `MySmoothstep(x) = x*x*(-2x+3)` (`ZmdToonUtils.hlsl:24-30`) is written OUT because this file has no include
+    // of that header, and it is NOT HLSL's `smoothstep` - the two agree only at 0, 0.5 and 1.
+    const float head_f_dot_camera_f_rim = saturate(-0.9 + head_forward_dot_camera_forward * 10.0);
+    const float rim_head_gate = head_f_dot_camera_f_rim * head_f_dot_camera_f_rim * (-2.0 * head_f_dot_camera_f_rim + 3.0);
+    // ---- THE RIM'S COLOUR IS THE ARTICLE'S `_RimLightColor`, WHICH IS WHITE ----
+    //
+    // `MyZmdFaceShader.shader:84` `_RimLightColor ("RimLightColor", Color) = (1,1,1,1)`, and it has NO sidecar
+    // row, so the article's face rim is WHITE. THIS PORT USED `_SDFRimColor` HERE - a name that does not exist
+    // anywhere in the article's sources (`zmd-ab/face_shader_compare.md` §1's last row) - read from the lane that
+    // carries the GAME's `_SDFRimColor` row (chen: 0.761/0.553/0.455), i.e. a warm tint the article never applies.
+    // It is gone, and `params.rim_colour` (the family's, white from the family table) is what the rim takes. The
+    // `sdf_rim_colour` lane is still READ above and still used - by the EYE's highlight tint, which is a different
+    // consumer of the same `color` table - so the lane itself is untouched.
+    //
+    // AND `params.rim_strength` IS GONE TOO, for the same reason: the article multiplies `_RimLightStrength`, whose
+    // default is 1 (`MyZmdFaceShader.shader:85`) and which has no sidecar row, so the article's face rim carries no
+    // family scale. The port's face family setting is 0.7, i.e. it was drawing this rim 30% weaker than the
+    // article. `rig.rim.y` (the config's own `_RimLightStrength`, default 1.0) STAYS: that is the article's
+    // property under the article's own name, and it is the knob an A/B is supposed to be able to move.
+    const float3 rim_colour_used = params.rim_colour;
+    const float3 rim_brdf = (light_colour - 0.25) * rig.rim.w + 0.25;
+    // THE `min(ao, shadow)` GATE IS THE PORT'S AND NOT THE ARTICLE'S, and it is left as it is ON PURPOSE: the
+    // article's line is `rimLight * min(ao, shadowScene)` (`:325`) and `shadowScene` does not exist in this stage
+    // (its sigmoid remap `SigmoidSharp` is not in `author_src/` - see the "not done" item in the report). Using
+    // the raw `shadow` here is the port's existing approximation of the same gate, and changing the RIM to a term
+    // the rest of the chain does not have would be a second definition of "the shadow" rather than a port.
+    const float3 rim_fresnel = rim_area * rim_head_gate * rim_colour_used * rig.rim.y * rim_brdf * min(ao_used, shadow_used) * rim_one_sided;
+    // ---- RIM TWO IS THE LIGHT'S OWN, AND IT IS WHY A CHARACTER READS AS ROUND ----
+    //
+    // It is built from the light's direction PROJECTED INTO THE XZ PLANE - the article's "treat the character as a
+    // cylinder lit from the side" - so it appears where the surface turns away from the light's AZIMUTH rather than
+    // from the camera. `0.5 - (0.5 * NoLxz - 1) * NoLxz` reshapes that term so its peak sits at the silhouette, the
+    // `NoV` mask keeps it off a surface that faces the camera (a rim there is a glow rather than an edge), and the
+    // whole term is scaled by `_DayStrength` because with the sun gone there is no azimuth to take a rim from. Its
+    // brightness follows the albedo's lit layer for the same reason rim one's does.
+    //
+    // THE ARTICLE'S OWN COLOUR TERM IS A CONSTANT HERE, and that is a units decision rather than an omission: its
+    // `lerp(1, mainLightColor * mainLightIntensity, _DayStrength)` multiplies a NORMALISED hue by its own intensity
+    // and comes out at white, while this engine's radiance is a real number (7.5 * sun_intensity) that would blow
+    // the rim out. What sets the rim's brightness here is `_RimLightNoLxzStrength` and the family's strength.
+    const float no_lxz = dot(n, float3(light_dir_xz.x, 6.10351562e-05, light_dir_xz.y));
+    const float no_lxz_refine = (0.5 - (0.5 * no_lxz - 1.0) * no_lxz) * rig.day.x;
+    const float no_v_rim_mask = smoothstep(0.0, 1.0, saturate(5.0 * (0.4 - no_v)));
+    // THE AZIMUTH RIM IS SKIPPED FOR A FACE, which is the article's own arrangement: it replaces the base material's
+    // rim with its mask-driven one rather than adding to it, because the two together put a band on the jaw and
+    // another on the temple.
+    const float3 rim_main_light_result = float3(1.0, 1.0, 1.0) * no_lxz_refine * no_v_rim_mask * min(ao_used, shadow_used) * max(float3(0.15, 0.15, 0.15), light_colour) * rig.rim.z * (sdf_lane != 0u ? 0.0 : 1.0);
+    // THE SUM IS CLAMPED AT ZERO, which is the article's `max(rimLight_finalResult, 0)`: the two mechanisms can
+    // cancel on a fragment that is at the silhouette of one and the inside of the other, and a negative rim would
+    // carve a dark line into the character.
+    //
+    // AND THE EYE IS GATED OUT OF BOTH, which is the ARTICLE'S answer rather than a taste: `ZmdEyeToonMain.hlsl`
+    // contains no `_Rim*` read at all (the rim lives in the base and face shaders), so an iris has no rim in the
+    // reference. This port's own family table already states that fact - `toon_params.slang:384` writes
+    // `p.rim_strength = 0.0` for the eye - but `params.rim_strength` is no longer read by THIS expression (see the
+    // note at `:1472`), so that value only reaches the screen-space rim pass today. MEASURED (phase ② probe,
+    // `zmd-ab/eye_term_probe.py`, target `0,-0.47,0.20` distance 0.45, yaw 0/30/60): this rim is EXACTLY 0 on the
+    // iris at yaw 0 and then grows to 4.6 and 165.6 (8-bit display mean over the eye's own lane), i.e. the iris at
+    // yaw 60 was lit almost entirely by a rim the reference does not have - the reported "extra highlight at the
+    // side". The gate is the same lane idiom as the `sdf_lane` one above, it is 0/1 rather than a strength, and no
+    // colour or strength is tuned: the A/B changed 0 px outside the eye at every yaw, 0 px ON the eye at yaw 0, and
+    // dropped the eye's mean luminance 171.6 -> 27.0 at yaw 60.
+    const float3 rim = max(rim_fresnel + rim_main_light_result, float3(0.0)) * (toon_indices.w != 0u ? 0.0 : 1.0);
 
-    // ---- the toon SPECULAR: the reference's second ramp band ----
-    // The reference samples ONE ramp atlas twice, at two V bands: the diffuse at v=0.125 and the highlight at
-    // v=0.375. The diffuse band is indexed by the shadow-gated half-Lambert; this one by the HALF-VECTOR
-    // angle, which is what makes a highlight follow the camera instead of the light's terminator.
-    const float3 h = normalize(l + v);
-    const float no_h = saturate(dot(n, h));
-    // ---- THE SECOND RAMP LANE, read exactly like the first ----
+    // ---- THE STYLIZED PBR HIGHLIGHT: A REFLECTION OF A LIGHT THAT IS PARTLY THE CAMERA ----
     //
-    // THE SAME NEUTRAL STEP AND THE SAME REMAP, which is the point of the bake being neutral: `_DiffRampMap` and
-    // `_SpecRampMap` are two LANES of one sidecar, they are read with the same inversion, and the only thing
-    // that differs between them is which pair of family numbers moves the step. A lane of 0 means this material
-    // has no specular ramp or its artist switched `_UseSpecRampMap` off, and it takes the procedural threshold
-    // - the same contract as the diffuse lane, checked the same way.
+    // THE ARTICLE'S SECOND BIG DEPARTURE from a stock BRDF, and the reason a toon face carries its highlight where
+    // the artist put it rather than where the geometry says: the half-vector is built against a DIRECTION THAT IS
+    // PARTLY THE CAMERA'S. A physical half-vector slides the highlight across the surface as either the sun or the
+    // eye moves; here the sun's direction is mixed with a "forward light" - the camera's own forward axis, raised
+    // toward the sun's pitch - and at `_DayStrength` 0 the sun's share is gone entirely, so the highlight answers
+    // to the CAMERA alone and stays put while the character turns. That is the whole style: a highlight that is a
+    // property of the SHOT rather than of the sky.
     //
-    // THE TWO BRANCHES ARE THE SAME FUNCTION HERE TOO, and that is deliberate rather than a wasted read: the
-    // bake is `smoothstep(0.5 - w, 0.5 + w, x)` and the remap inverts it, so a material whose lane is live gets
-    // the number `smoothstep(spec_center - spec_softness, spec_center + spec_softness, no_h)` back - through a
-    // texture fetch and its 8-bit quantization instead of in registers. What the lane buys is not a different
-    // look at these parameters; it is that the ARTIST'S asset is what decides the look, and a hand-authored
-    // ramp (a highlight with a falloff, a shaped spike) would be honoured without this stage changing at all.
+    // THE LOBE IS THE PBR ONE, SIMPLIFIED TO THE PAIR THAT MATTERS: a GGX-like `D` and the cheap `V` it is
+    // normally paired with, clamped, times F0 - where F0 COMES FROM THE MATERIAL'S OWN METALLIC/GLOSS MAP rather
+    // than from a constant, which is what gives cloth a broad sheen and a metal-trimmed part its response without
+    // a second shader.
+    const float no_v_spec = saturate(dot(highlight_normal, v));
+    const float roughness2 = max(roughness * roughness, 0.0078);
+    const float3 forward_light_dir = normalize(float3(camera_forward.x, lerp(0.5, l.y, rig.day.x), camera_forward.z));
+    const float3 spec_light_dir = l * rig.day.x + 2.0 * forward_light_dir;
+    const float3 spec_half_dir = normalize(v * (2.0 + rig.day.x) + spec_light_dir);
+    const float no_h = saturate(dot(highlight_normal, spec_half_dir));
+    const float a2 = roughness2 * roughness2;
+    float specular_d = (no_h * a2 - no_h) * no_h + 1.0;
+    specular_d *= specular_d;
+    specular_d = a2 / specular_d;
+    float specular_v = no_v_spec * 2.0 + roughness2 + 9.99999975e-05;
+    specular_v = 0.5 / specular_v;
+    // THE MATERIAL'S OWN F0, the article's expression and the usual metal/dielectric split: a dielectric reflects
+    // 4% scaled by its reflectivity channel, and a metal reflects its own albedo.
+    const float3 f0 = 0.04 * reflectivity.xxx + metallic * (albedo - 0.04 * reflectivity.xxx);
+    float specular_dv = specular_d * specular_v - 6.10351562e-05;
+    specular_dv = clamp(specular_dv, 0.0, 20.0);
+    // `float3` AND NOT `const`, because the hair branch below REPLACES the lobe with its LUT-driven highlight rather
+    // than adding to it - the article's own arrangement for that family (see the Kajiya-Kay block).
+    float3 specular_brdf = specular_dv * f0;
+    // THE HIGHLIGHT'S OWN SHADOWING RE-USES THE DIFFUSE CHAIN'S WEIGHTS rather than inventing a third: the
+    // article's `lerp(ao_shadow_NoFRamp, min_shadowEffect, _DayStrength)` is "how much light reaches here", and
+    // its `selfAoShadowEffect` turns that into the self-occlusion factor the highlight is scaled by.
+    const float ao_shadow_low_light = lerp(ao_shadow_no_f, min_shadow_effect, rig.day.x);
+    const float self_ao_shadow = lerp(rig.other_light.z, 1.0, ao_shadow_low_light);
+    const float3 specular_light = main_light_final * self_ao_shadow * (ao_shadow_low_light * 0.5 + 0.5);
+
+    // ---- THE SPECULAR RAMP LANE, KEPT AS A GATE ON THE HIGHLIGHT RATHER THAN AS THE HIGHLIGHT ----
+    //
+    // THE ARTICLE'S BASE MATERIAL HAS NO HIGHLIGHT RAMP - the lobe above is its whole highlight - but the GAME'S
+    // MATERIALS SHIP ONE (`_SpecRampMap`, on 23 of the 45) and it is the map the article's own HAIR section reads
+    // as a colour LUT. So the port keeps the read and gives it the job it can do without contradicting the lobe: a
+    // material that ships a ramp has its highlight SHAPED by it, and one that does not is gated by the family's own
+    // threshold and softness. The remap, the host's unit-step bake and the half width are unchanged, which is why
+    // that contract now belongs to THIS lane alone (see tests/test_toon_material_sidecar.cpp).
+    //
+    // A LANE OF 0 MEANS "DO NOT READ", the same contract every other lane uses.
     float spec_band;
     if (toon_indices.z != 0u) {
         const float spec_x = saturate(0.5 + (no_h - params.spec_center) * (character_ramp_half_width / max(params.spec_softness, 1e-4)));
@@ -459,27 +1675,248 @@ float3 toon_diffuse(float3 albedo, float3 n, float3 world_pos, float ao, toon_pa
     } else {
         spec_band = smoothstep(params.spec_center - params.spec_softness, params.spec_center + params.spec_softness, no_h);
     }
-    // GATED BY THE SHADOW AND THE LIT SIDE, and both gates are the references': a highlight that survives
-    // into the shadow reads as a glow rather than as a reflection, and the MME pack's skin ships
-    // `lightSideMask = smoothstep(0, EF_SKIN_SPECULAR_LIGHT_END, noL) * diffuseWeight` for exactly this.
-    const float3 specular = sun * spec_band * params.spec_strength * shadow * light_side / PI;
-
-    const float3 toon_colour = direct + ambient + rim + specular * albedo;
-
-    // ---- THE MATCAP LANE: applied to the FINISHED colour, which is where the reference applies it ----
+    // ---- THE HAIR'S HIGHLIGHT: KAJIYA-KAY, WITH ITS COLOUR OUT OF A LUT ----
     //
-    // `EfEyeIrisApplyMatcap05` returns `max(color, 0) * (1 + max(matcap, 0) * strength)`: a matcap MULTIPLIES the
-    // shaded result rather than being another light, because it stands for the environment the surface is sitting
-    // in rather than for a second sun. The `max(..., 0)` is the reference's and is kept - a matcap's negative
-    // texels are an artifact of its encoding, not a request to darken the surface.
+    // THE ARTICLE'S HAIR SHADER REPLACES THE LOBE ABOVE rather than adding to it, and both halves are the article's
+    // own lines: the SHAPE comes from Kajiya-Kay (a strand is a cylinder, so the highlight is where the half-vector
+    // is PERPENDICULAR to the strand's binormal - `1 - ToH^2`), and the COLOUR comes from the material's ramp map
+    // read as a precomputed highlight (`_SpecRampMap`, the lane the base material uses as a band gate).
     //
-    // A LANE OF 0 IS "DO NOT READ", as in every other lane, and the BAKED CONTENT IS BLACK (see main.cpp's
-    // bake_matcap for why black is this lane's neutral value rather than a placeholder). Black makes the factor
-    // exactly `1.0`, so this multiply is bit-exact for every material whose artist did not supply a matcap.
-    if (toon_indices.w != 0u) {
-        const float3 matcap = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.w), heap_sampler_texture, toon_matcap_uv(n, v)).rgb;
-        return toon_colour * (1.0 + max(matcap, 0.0) * character_matcap_strength);
+    // THE FLATTENING IS WHAT MAKES IT READ AS HAIR: `highlight_normal - dot(highlight_normal, camera_right) *
+    // camera_right` removes the component across the camera's axis, so every strand of the shell ends up with the
+    // SAME binormal and the highlights line up instead of scattering - which is the article's own complaint about
+    // its first attempt ("把法向上与 cameraRight 混合的部分去除，使法向在任何地方都只朝正前方"). Its weight is
+    // `_SpecularTrick_Flatten`, a material value this repository cannot carry, and it is taken at 1 (fully flat),
+    // which is the look the article settled on.
+    //
+    // THE UNRECOVERABLE KNOBS ARE THE ARTICLE'S MATERIAL VALUES AND SIT AT THEIR NEUTRAL NUMBERS, each named where
+    // it is used: `_ViewDirYOffset` = 0 (no lift of the view direction), `_BiNormalOffset_specularLut` = 0 (no
+    // offset along the normal), `_LutVPowStrength` = 1 (the LUT's V ramp unwarped), `_SpecularBackF0` = 0 (no
+    // halo). A value with no source is NOT invented here - the ones that exist in the game's own table are the
+    // channels this reads (`reflectivity`, the R mask, smoothness), and the rest would be tuning.
+    if (toon_lanes2.x != 0u) {
+        const float3 camera_right = normalize(cross(float3(0.0, 1.0, 0.0), camera_forward) + float3(1e-6, 0.0, 0.0));
+        const float3 cylinder_normal = normalize(highlight_normal - dot(highlight_normal, camera_right) * camera_right);
+        const float3 flat_normal = normalize(lerp(highlight_normal, cylinder_normal, 1.0));
+        const float3 fake_tangent = normalize(cross(float3(0.0, 1.0, 0.0), flat_normal));
+        const float3 binormal_flat = normalize(cross(flat_normal, fake_tangent));
+        // `orm.x` IS THE WEIGHT between the flattened binormal and the smooth frame's own - the same channel the
+        // metallic branch above declines to read as metallic, used here for what the article uses it for.
+        const float3 binormal_lut = normalize(lerp(binormal_flat, hair_bitangent, orm.x));
+        const float to_h = dot(normalize(v + l), binormal_lut);
+        const float to_h_shape = max(0.0001, sqrt(max(0.0, 1.0 - to_h * to_h)));
+        // THE U COORDINATE IS A SHARPENED CURVE, not the raw `1 - ToH^2`: `exp2(200 * log2(x))` is `x^200`, which
+        // is what turns a broad band into the thin line a strand's highlight is, and `reflectivity` scales how far
+        // up the LUT it reaches.
+        const float lut_u = saturate(exp2(200.0 * log2(to_h_shape)) * reflectivity);
+        const float2 view_proj = float2(dot(v, camera_right), dot(v, camera_forward));
+        const float2 normal_proj = float2(dot(highlight_normal, camera_right), dot(highlight_normal, camera_forward));
+        const float vohn = saturate(dot(view_proj, normal_proj));
+        const float lut_v = vohn * vohn * step(0.0, to_h);
+        const float3 lut_f0 = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.z), heap_sampler_texture, float2(lut_u, lut_v)).rgb * f0;
+        // THE `* 7` IS THE ARTICLE'S, and it is what makes a LUT entry a HIGHLIGHT rather than a tint: the map holds
+        // a fraction of F0 and the factor brings it into the range a specular highlight needs.
+        //
+        // AND THERE IS NO `/ PI` HERE ANY MORE, because the question this comment used to leave open - "whether the
+        // whole specular path should divide by PI" - is ANSWERED by the author's own source: nothing in
+        // `ZmdToonMain.hlsl` or `ZmdEyeToonMain.hlsl` divides by PI, and the article's own line (p52 of the deck) is
+        // `finalF0 = lutF0 * 7 + backF0`. The `/ PI` was this port's bridge for feeding the engine's
+        // `vec3(7.5 * sun_intensity)` into a chain tuned for a light colour of order 1, and that bridge now lives
+        // where the light is built (`main_light_intensity` above, the author's own normalization). Keeping it here
+        // as well would divide ONE family by PI twice and leave the others untouched - which is exactly the
+        // asymmetry the old note was apologising for.
+        //
+        // THE SILVER-HAIR BLOW-OUT THAT PROMPTED IT IS NOW PREVENTED AT THE SOURCE: `main_light_final` is the
+        // author's O(1) light, so a LUT whose R channel sits at 0.8..1.0 (`measured` on
+        // `T_actor_common_hair_08_RS`) lands at 7 * 0.8..1.0 * O(1) rather than 7 * 0.8..1.0 * 7.5.
+        spec_band = 1.0; // the LUT IS the shape here, so the band gate that shapes the lobe has nothing left to do
+        specular_brdf = lut_f0 * 7.0;
     }
+
+    // GATED BY `_SpecularStrength` AND NOTHING ELSE, which is the ARTICLE'S OWN composition and not a tuning:
+    // every one of its four mains multiplies the specular by that one scalar and stops there -
+    //     `ZmdToonMain.hlsl:271-272`:  `mainLightSpeuclarResult = specularLight * specular_brdf;`
+    //                                  `mainLightSpeuclarResult *= _SpecularStrength;`
+    //     `ZmdSkinToonMain.hlsl:238-239`, `ZmdHairToonMain.hlsl:279-283`, `ZmdEyeToonMain.hlsl:219` - the same
+    //     pair. Its specular's SHADOWING is already inside `specularLight`: `selfAoShadowEffect` (from
+    //     `ao_shadow_lowLight`) is the article's own self-occlusion factor and is what makes a highlight fade in
+    //     a crevice.
+    //
+    // THE PORT HAD TWO EXTRA GATES HERE - `* shadow` and `* light_side` - and they are this port's, not the
+    // article's: `shadow` is the ENGINE's cast-shadow term (the article's `shadowScene`, which never reaches its
+    // specular at all) and `light_side` is the port's `smoothstep(0, 0.35, dot(n, l))` mask, which exists for the
+    // RIM and has no counterpart in any of the four mains. MEASURED on this character (see the report's item 7):
+    // the two gates were suppressing the highlight on the shadowed side and at grazing angles, which is exactly
+    // where the article's own `selfAoShadowEffect` already decides how much highlight survives.
+    const float3 main_specular = specular_light * specular_brdf * spec_band * specular_strength * rig.env.z;
+
+    // ---- THE EYE'S HIGHLIGHT: A MATCAP ON A CORNEA THE UV ITSELF DESCRIBES ----
+    //
+    // AUDITED LINE BY LINE AGAINST `ZmdEyeToonMain.hlsl` (the article's eye shader), and the result is recorded here
+    // because "it matches the article" is a claim that should be checkable rather than asserted:
+    //   * L101-103  `finalEyeUV` read, `albedo = tex * _BaseColor`, `albedo_dark = albedo * _AlbedoDarkStrength`
+    //               (with NO saturation step - see toon_params' note on the eye's `albedo_dark_saturation`) - HERE
+    //   * L105-119  the cornea hemisphere, its `lerp` to (0,0,1) by `eyeCenterArea`, the `.x = -x` flip, and the
+    //               TBN assembly - HERE, on `surface_tbn` rather than the vertex TANGENT attribute
+    //   * L121-124  `energyDistribution_metallic = 0.96`, the lit and dark albedos - HERE
+    //   * L126-143  the `_FACIAL_ON` branch - NOT TAKEN, and correctly: it is the variant where the FACE material
+    //               draws the eye (`corneaNormalWS = i.normalWS`, a LUT dark side); chen's iris is its own material
+    //               with `_UseMatcap = 1` and `_UseShadowLutTex = 0`, which is the article's non-facial eye
+    //   * L145-166  the light flattening, `NoL`, the ramp's colour and `w`, and `NoF` off the same normal - HERE,
+    //               EXCEPT the flattening: `_FaceRight` / `_FaceUp` / `_FaceForward` are globals the game supplies
+    //               and no sidecar carries, so the light is used unflattened (the one difference this port cannot
+    //               close, stated where it happens)
+    //   * L168-169  both trick colours, `lerp(1, colour * 2.5, weight)`, `eyeCenterArea` and the albedo's alpha
+    //               as the two weights - HERE, and the polarity is the article's own (a round of this port flipped
+    //               it to brighten the iris and was reverted: see the note at `eye_trick`)
+    //   * L170-205  `trickAlbedo`, the other-light and day blends, the three albedo layers and the dark-in-dark
+    //               saturation move - HERE, in the composition phase 1 ported for every family (the port blends the
+    //               layer weights with `min(ao, shadow, ramp_weight)`, which for an eye is `ramp_weight`: it has no
+    //               ORM lane, and the article's eye reads no AO and no shadow map at all)
+    //   * L206-226  `DayDarkEffect`, the view-space matcap uv, `specularColor * _SpecularStrength + _SpecularColor
+    //               * specularW`, and `specularDarkEffect` - HERE (see the block below)
+    //   * L229-233  `mainSpecularResult + mainDiffuseResult * lerp(1, mainTex_var.w, _DiffuseBlendEffect)` - HERE,
+    //               minus this engine's sky irradiance and the family's rim, NEITHER of which the article's eye
+    //               carries (see `ambient_strength` and the eye's `rim_strength`)
+    //
+    // TWO DIFFERENCES ARE STRUCTURAL AND REMAIN, both written where they occur: the unflattened light above, and the
+    // port's phase-1 layer composition (shared by every family rather than special-cased for the eye). Everything the
+    // article's eye shader states per material - `_ParallaxDepth`, `_CorneaBumpStrength`, `_SpecularStrength`,
+    // `_SpecularColor`, `_AlbedoDarkStrength`, `_NoLOffset`, `_MainDiffuseColorLightStrength`, `_DiffuseDarkStrength`
+    // - is either read from chen's own row or is a no-op at the article's declared default.
+    //
+    // THE ARTICLE'S THIRD USE OF THE MATERIAL'S UV, and the reason this family cannot use the lobe above: an iris is
+    // a FLAT quad, so its normals point at the camera everywhere and a spherical lookup reads ONE texel. MEASURED:
+    // with the game's own ball (`T_actor_common_matcap_06_D`, whose centre is black and whose catchlight is a rim)
+    // the matcap highlight was a 0-PIXEL difference on this character - which is what sent this block to the uv.
+    //
+    // SO THE NORMAL IS MANUFACTURED, ONCE, ABOVE: the uv's own offset from the eye's centre becomes the tilt of a
+    // HEMISPHERE (`z = sqrt(1 - |uv|^2)`), smooth by construction, and both this matcap and the ramp before it read
+    // that ONE normal (`shading_normal`) - which is the article's own arrangement: its eye takes `NoL`, `NoF` and
+    // the matcap's uv from the same `corneaNormalWS`. `step(0.25, |uv|^2)` is the article's line between the two
+    // zones: inside it the hemisphere stands, outside it the quad's flat normal does, which is what keeps the
+    // catchlight on the iris rather than on the sclera.
+    float3 eye_highlight = float3(0.0, 0.0, 0.0);
+    if (toon_indices.w != 0u) {
+        const float4 eye_matcap = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_indices.w), heap_sampler_texture, toon_matcap_uv(shading_normal, camera_forward));
+        // THE ARTICLE'S OWN TWO TERMS, in its own order: `specularColor * _SpecularStrength + _SpecularColor *
+        // specularW`. The first is the BALL's colour gated by the material's `_Specular` - chen's iris states 0.0, so
+        // on this character that term is dead and the highlight is the second one alone; the second is the article's
+        // `_SpecularColor` (its own property, white by default) times the ball's W, which is the channel its comment
+        // treats as the catchlight's own mask.
+        //
+        // THE `_Specular` HERE IS THE SAME RESOLVED `specular_strength` THE LOBE ABOVE USES - the material's own
+        // value where the asset states one, the family's otherwise - because the article's eye means the same
+        // property in both places and a second read of the raw family number would let the two disagree.
+        //
+        // THIS PORT USED TO COMPUTE `matcap.rgb * matcap.w`, gated on `(1 - eyeCenterArea)` and scaled by the rig's
+        // environment strength. NONE OF THAT IS THE ARTICLE'S and all of it is gone: the gate was this port reading
+        // the cornea zone a second time, and the article's matcap lookup already lands on the sclera's flat normal
+        // outside that zone by construction.
+        const float3 specular_brdf = eye_matcap.rgb * specular_strength + character_eye_specular_colour * eye_matcap.w;
+        // `DayDarkEffect = lerp(rampTex_NoF, rampNoL, _DayStrength)` and the two lines under it: half-and-half with
+        // the lit end, and `_SelfAoShadowStrength` (the rig's `other_light.z`) holding the highlight down wherever
+        // the surface is dark.
+        const float day_dark_effect = lerp(no_f_weight, ramp_weight, rig.day.x);
+        const float specular_dark_effect = (day_dark_effect * 0.5 + 0.5) * lerp(rig.other_light.z, 1.0, day_dark_effect);
+        eye_highlight = main_light_final * specular_brdf * specular_dark_effect;
+    }
+
+    // ---- THE ARTICLE'S OWN BLEND OF THE TWO HALVES ----
+    //
+    // THE DIFFUSE STEPS ASIDE WHERE THE MATERIAL WANTS THE HIGHLIGHT TO CARRY THE SURFACE, and the weight is the
+    // ALBEDO'S OWN ALPHA - the one channel of the game's `_BaseMap` that is not colour. The strength of the step
+    // is `_DiffuseBlendEffect`'s, in the rig, so a material whose alpha carries nothing (the face's is a constant
+    // 1 in every material this repository loads) comes out exactly where it was.
+    //
+    // THE HIGHLIGHT IS ADDED, NOT MULTIPLIED BY THE ALBEDO, which is the difference from the band this replaced:
+    // F0 already carries the albedo for a metal and 4% for a dielectric, so a second multiply would darken every
+    // highlight that is not on a bright surface.
+    //
+    // THE SKIN IS THE ONE FAMILY THAT DOES NOT GET THIS STEP, and that is the article's own composition rather
+    // than a tuning: all four of its other mains write
+    //     `float diffuseSpecularBlend = 1 - _DiffuseBlendEffect * (1 - mainTex_var.w);`
+    //     `float3 mainLightResult = mainDiffuseResult * diffuseSpecularBlend + mainLightSpecluarResult;`
+    // (`ZmdToonMain.hlsl:275-276`, the hair's `:283`, the eye's `:229`), while the SKIN's is ONE line with no
+    // blend at all - `ZmdSkinToonMain.hlsl:242`:
+    //     `float3 mainLightResult = mainDiffuseResult + mainLightSpecluarResult;`
+    // The reason is visible in the other change this family needed: the skin's albedo ALPHA is its OCCLUSION
+    // (`:154`, see `ao_used`), so using it as a diffuse/highlight MIX as well would make the same channel do two
+    // unrelated jobs - the article gives the alpha to the occlusion and leaves the blend out of this shader.
+    const float diffuse_specular_blend = (family == VR_FAMILY_SKIN) ? 1.0 : (1.0 - rig.env.w * (1.0 - albedo_alpha));
+
+    // ---- THE ENVIRONMENT'S SPECULAR HALF: A POLYNOMIAL INSTEAD OF THE ENGINE'S LUT ----
+    //
+    // THE ENGINE ALREADY HAS A SPLIT-SUM IBL (`shaders/ibl_specular.glsl`, shared with the deferred path) AND THIS
+    // STAGE DELIBERATELY DOES NOT USE ITS BRDF HALF, which is the article's choice rather than an oversight: the
+    // game's highlight comes from a FIT of the same integral - the pair of polynomials below, the DFG fit NVIDIA's
+    // NRD uses - plus a KULLA-CONTY term for the energy a single-scattering fit loses. A toon character is exactly
+    // where a LUT's texel grid shows: on a surface as smooth as an eye, a bilinear lookup reads as a facet.
+    //
+    // WHAT IS SHARED WITH THE ENGINE IS THE ENVIRONMENT ITSELF (`env_cube_sample_lod`), because the sky a toon
+    // character reflects has to be the sky the rest of the frame reflects - a second cubemap for the character
+    // would put it in a different world from the ground it stands on.
+    const float no_v2 = no_v * no_v;
+    const float no_v3 = no_v2 * no_v;
+    const float roughness4 = roughness2 * roughness2;
+    const float roughness6 = roughness4 * roughness2;
+    const float ibl_numerator = (3.32707 * no_v + 0.0365463) + (-9.04755 * no_v + 9.0632) * roughness2;
+    const float fit_x = 3.59685 * no_v2 - 1.36772 * no_v3 + 1.0;
+    const float fit_y = 9.22949 * no_v3 - 16.3174 * no_v2 + 9.04401;
+    const float fit_z = -20.2123 * no_v3 + 19.7886 * no_v2 + 5.56589;
+    const float ibl_denominator = dot(float3(fit_x, fit_y, fit_z), float3(1.0, roughness2, roughness6));
+    const float ibl_brdf = ibl_numerator / max(ibl_denominator, 1e-6);
+    const float env_scale = dot(float2(dot(float2(-1.28514, 1.0), float2(no_v, 0.990440011)), dot(float2(1.0, -0.75591), float2(1.29678, no_v))), float2(1.0, roughness2));
+    const float bias_x = dot(float3(2.92338, 59.4188, 1.0), float3(no_v, no_v3, 1.0));
+    const float bias_y = dot(float3(1.0, -27.0302, 222.592), float3(20.3225, no_v, no_v3));
+    const float bias_z = dot(float3(626.130, 316.627, 1.0), float3(no_v, no_v3, 121.563004));
+    const float env_bias = env_scale / max(dot(float3(bias_x, bias_y, bias_z), float3(1.0, roughness2, roughness6)), 1e-6);
+    const float3 ibl_brdf_final = ibl_brdf * f0 + env_bias;
+    // THE KULLA-CONTY COMPENSATION, and the reason the article needs it at all: a single-scattering BRDF loses the
+    // light that bounces more than once on a rough surface, which reads as a dark edge on metal. The term adds back
+    // `F0 * (1 - albedo) / albedo` of the energy the fit says is missing, which is the standard approximation.
+    const float directional_albedo = max(ibl_brdf + env_bias, 1e-3);
+    const float3 multi_scatter = f0 * ((1.0 - directional_albedo) / directional_albedo);
+    const float3 final_ibl_brdf = ibl_brdf_final * (1.0 + multi_scatter);
+
+    // THE REFLECTION IS MIRRORED IN X AND Z BEFORE THE ROTATION. Those two lines are the article's and they are a
+    // convention of the ENVIRONMENT MAP it reads rather than of the maths - the game's cube is stored with those
+    // axes flipped - and the Y rotation exists so an artist can turn the sky without turning the sun.
+    float3 reflect_dir = reflect(-v, n);
+    reflect_dir.x = -reflect_dir.x;
+    reflect_dir.z = -reflect_dir.z;
+    // `_EnvRotation` is DEGREES in the rig, and this is the one place it becomes radians.
+    const float env_angle = rig.env.y * 0.0174532925;
+    float env_sin = 0.0;
+    float env_cos = 0.0;
+    sincos(env_angle, env_sin, env_cos);
+    const float3 env_dir = float3(reflect_dir.x * env_cos - reflect_dir.z * env_sin, reflect_dir.y, reflect_dir.x * env_sin + reflect_dir.z * env_cos);
+    // THE LEVEL IS THE ARTICLE'S CURVE, CLAMPED TO THIS RENDERER'S CHAIN, and the clamp is a documented difference
+    // rather than a silent one: `log2(roughness) * 1.2 + 5` assumes the game's own prefiltered chain, while this
+    // engine's is `[lighting] env_mip_count` mips deep (5 by default). The curve's SHAPE is kept - a smooth
+    // surface reads a sharper mip than linear-in-roughness would give it - and the range is the asset's.
+    const float env_level = clamp(log2(max(0.01, roughness)) * 1.2 + 5.0, 0.0, max(0.0, float(env_cube_levels() - 1)));
+    const float3 env_map_colour = env_cube_sample_lod(env_dir, env_level);
+    // `selfAoShadowEffect` again, which is the article's: an environment reflection is occluded by the same
+    // self-shadowing the highlight is, or a crevice shines.
+    const float3 indir_light_specular = env_map_colour * final_ibl_brdf * rig.env.x * self_ao_shadow * params.ibl_specular_strength;
+
+    const float3 toon_colour = direct * diffuse_specular_blend + main_specular + eye_highlight + indir_light_specular + ambient + rim;
+
+    // ---- NO MATCAP MULTIPLY HERE, AND THAT IS THE ARTICLE'S OWN ANSWER ----
+    //
+    // THIS BLOCK USED TO BE `toon_colour * (1 + max(matcap, 0) * character_matcap_strength)`, cited to
+    // `EfEyeIrisApplyMatcap05`. That function is the GAME'S, not the article's: read against the author's own
+    // repository (`github.com/qiudashu233/MyZmdShaders`, commit 6507457), NEITHER `ZmdToonMain.hlsl` (the base
+    // toon) NOR `ZmdEyeToonMain.hlsl` (the eye) multiplies the finished colour by a matcap - the eye's
+    // `_SpecularMatcap` is consumed by `specularBrdf = specularColor * _SpecularStrength + _SpecularColor *
+    // specularW` and by nothing else, and the base toon has no matcap at all. The port had taken the multiply
+    // from the reference port (DanbaidongRP), which follows the game; this stage follows the ARTICLE, so the
+    // multiply is gone and the lane is read where the article reads it (`eye_highlight` below).
+    //
+    // WHAT THE LANE STILL DOES: it gates the eye block (`toon_indices.w != 0`), which is how the article's eye
+    // shader is selected, and it is the `_MatcapTex`/`_SpecularMatcap` image the highlight samples. A material
+    // with no matcap lane is unaffected either way - the removed factor was exactly 1.0 for it.
     return toon_colour;
 }
 
@@ -499,10 +1936,42 @@ float4 main(
     // gltf_loader's toon_family_of) and carried through the material record. An unclassified material gets
     // `toon_params_for(0)`, which is the family-independent path.
     const toon_params params = toon_params_for(s.toon_family);
-    const float3 colour = toon_diffuse(s.albedo, normalize(s.normal), v_world_pos, s.ao, params, s.toon_indices, v_uv, sdf_lane_at(heap_slots_sdf_lanes, push.material_index));
+    // THE LANES BESIDE THE RECORD, read once here: `.x` is the face SDF map the SDF lane shades with, and
+    // `.y` is the metallic/gloss map, which the shading below reads as its metallic, reflectivity, occlusion
+    // and smoothness - the four MATERIAL numbers glTF's own five slots cannot carry (see `vulkan::toon_slot`).
+    const uint4 toon_lanes = toon_lanes_at(heap_slots_toon_lanes, push.material_index);
+    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, normalize(s.normal), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index);
+
+    // ---- THE EMISSIVE TERM, ADDED AFTER THE LIGHTING LIKE EVERY OTHER STAGE'S ----
+    //
+    // IT WAS BEING GATHERED AND THROWN AWAY, and the loss was invisible rather than absent: `gather_surface`
+    // already fetches `s.emissive` (the material's emissive factor times its emissive map, `surface.glsl`), this
+    // stage simply never read it. What that costs is not "the toon shade is missing a term" but "an emissive
+    // toon material lost the emission the G-buffer had already added": the G-buffer pass ADDS emissive into the
+    // scene colour (`gbuffer.slang`: `out.scene_color = float4(s.emissive, 1.0)`, blended ONE/ONE), and this
+    // pass then OVERWRITES that same pixel with the toon result - so the emission has to be put back, or a
+    // character whose material ships one (chen's cloth carries an emissive map and factor 0.57/0.81/0.88) is
+    // shaded flat where the engine's own forward path would glow.
+    //
+    // THE POSITION IS THE ENGINE'S, NOT AN INVENTION: `shading.glsl` composes `ambient + direct + specular_ibl +
+    // s.emissive`, i.e. emission is added after everything that is lit, and it is not attenuated by shadow or
+    // ao - it is radiance the surface produces, not light it receives. `_EmissionBrightness` (the game's own
+    // scalar, 1.0 on every material of every character in this repository) is deliberately NOT applied here:
+    // glTF's `emissiveFactor` already carries what the game stated, and multiplying by that scalar would be a
+    // second place for one number to live.
+    const float3 lit = colour + s.emissive;
 
     // the BLEND rule, copied from unlit.slang: an alphaMode BLEND material carries its own coverage, and
     // every other material is fully opaque regardless of what its base colour's alpha says
-    const float out_alpha = ((s.flags & 32u) != 0u) ? s.alpha : 1.0;
-    return float4(colour, out_alpha);
+    //
+    // ... AND THE ARTICLE'S OWN TRANSPARENT VARIANT IS THE SECOND TERM HERE (`_TRANSPARENT_ON`, record bit8 -
+    // see `toon_inputs::alpha_blend`). It is a DIFFERENT statement from glTF's: that material's glTF
+    // `alphaMode` is OPAQUE and its sidecar is what says "blend, SrcAlpha / OneMinusSrcAlpha", so without this
+    // bit the port draws a surface the author blends. The article's coverage for that variant is
+    // `mainTex_var.w * _CustomAlpha` (`ZmdToonMain.hlsl:386`), i.e. the albedo alpha times a material scalar
+    // whose default is 1; the port carries no `_CustomAlpha` row and the game's own value is 1.0, so the
+    // albedo alpha IS the coverage.
+    const bool toon_transparent = (s.flags & 256u) != 0u;
+    const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
+    return float4(lit, out_alpha);
 }

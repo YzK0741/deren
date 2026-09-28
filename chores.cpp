@@ -203,6 +203,71 @@ namespace chores {
         }
 
         {
+            // THE OVERLAY CHANNEL'S PIPELINE (`overlay.slang`): the article's two framebuffer multiplies, drawn by
+            // the character-forward stage's overlay group. It is registered through a THIRD entry point because
+            // its states are a third set again - ONE HDR target (like the toon stage), `dst = src * dst`
+            // (like nothing else in the renderer) and depth compare LESS_OR_EQUAL (the toon stage's is EQUAL, and
+            // an overlay mesh sits in FRONT of the surface it darkens, so EQUAL would reject it) - see
+            // `core::make_overlay_pipeline`, which derives the blend from the article's `BlendOp Multiply` in core
+            // Vulkan factors rather than reaching for a blend extension.
+            //
+            // THE GEOMETRY IS pbr's, unchanged, for the same reason the toon stage's is: an overlay is an ordinary
+            // mesh (skinned and morphed like the face it is registered to), so the two passes cannot disagree about
+            // a surface's shape.
+            //
+            // A FAILURE IS NOT FATAL, and that is a deliberate difference from the toon pipeline above: the pass
+            // takes an EMPTY overlay name to mean "draw no overlay" (see character_forward_frame), so a device that
+            // refuses this pipeline renders the character without its two masks - which is exactly the frame the
+            // model had before they were merged into the asset - rather than drawing them as shaded quads.
+            std::vector<uint8_t> overlay_fragment_code;
+            std::vector<uint8_t> overlay_mesh_code;
+            std::vector<uint8_t> overlay_meshlet_code;
+            load_shader(shaders_dir, "overlay.frag.spv", overlay_fragment_code);
+            load_shader(shaders_dir, "pbr.mesh.spv", overlay_mesh_code);
+            load_shader(shaders_dir, "pbr.meshlet.spv", overlay_meshlet_code);
+            runtime.register_shader("overlay.frag.spv", overlay_fragment_code);
+            auto const overlay_result = runtime.make_overlay_pipeline("overlay", overlay_fragment_code, overlay_mesh_code, overlay_meshlet_code);
+            if (!overlay_result) {
+                utility::log("WARNING: the overlay pipeline was not created ({}); the character's eye and hair shadows will not be multiplied", overlay_result.error());
+            }
+        }
+
+        {
+            // THE ARTICLE'S ① 描边 (INVERTED HULL) PIPELINE (`outline.slang` + `pbr.slang`'s outline mesh
+            // entry), drawn by the character-forward stage's outline group. It goes through a FOURTH entry point
+            // because its states are a fourth set: ONE HDR target (like the toon stage), an OPAQUE blend - the
+            // article's `MyZmdOutlineShader` states no `Blend` at all - and depth compare LESS_OR_EQUAL (the toon
+            // stage's is EQUAL, which would reject the whole outer ring, since a pushed-out hull is not the
+            // surface the G-buffer recorded) - see `core::make_outline_pipeline`, which states each of those.
+            //
+            // THE GEOMETRY IS THE OUTLINE'S OWN MESH STAGE, not pbr's: pushing each vertex outward in clip space
+            // is the one thing that turns a second copy of a mesh into an outline, and it lives in the
+            // `outline_mesh_main` entry of `pbr.slang` (see `shaders/outline.slang` for why the fragment entry is
+            // `frag_main`).
+            //
+            // THERE IS NO MESHLET FORM, AND THAT IS DELIBERATE RATHER THAN AN OMISSION:
+            // `build-release-clang64/shaders/outline.meshlet.spv` is residue from an earlier experiment that no
+            // build rule produces (`outline_plan.md` §10), so wiring it would register a stage this build never
+            // compiled. A leaf that would otherwise dispatch per meshlet falls back to the mesh form (see the
+            // bind in `runtime.frames.cppm`), which costs throughput and not correctness.
+            //
+            // A FAILURE IS NOT FATAL, on the same terms as the overlay's: the pass takes an EMPTY outline name to
+            // mean "draw no outline" (see character_forward_frame), so a device that refuses this pipeline
+            // renders exactly the frame this port produced before ① landed - rather than drawing hulls with the
+            // toon pipeline, which neither culls front faces nor tests with LESS_OR_EQUAL and would paint whole
+            // shaded surfaces over the character.
+            std::vector<uint8_t> outline_fragment_code;
+            std::vector<uint8_t> outline_mesh_code;
+            load_shader(shaders_dir, "outline.frag.spv", outline_fragment_code);
+            load_shader(shaders_dir, "outline.mesh.spv", outline_mesh_code);
+            runtime.register_shader("outline.frag.spv", outline_fragment_code);
+            auto const outline_result = runtime.make_outline_pipeline("outline", outline_fragment_code, outline_mesh_code);
+            if (!outline_result) {
+                utility::log("WARNING: the outline pipeline was not created ({}); the character will be drawn without its ① outline", outline_result.error());
+            }
+        }
+
+        {
             // THE SCREEN-SPACE DEPTH RIM'S STAGE. Only the two shaders are registered here: the pass builds its
             // own pipeline in its `create` step (it is a fullscreen stage with one additive target and no depth
             // attachment, which is nothing `runtime::make_pipeline`'s forward family describes), so there is no

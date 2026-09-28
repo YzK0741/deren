@@ -60,6 +60,10 @@ struct PostPush
     // member, but the layout up to the indices has to match the CPU struct.
     float fxaa_subpixel;
     float fxaa_edge_threshold;
+    // THE ARTICLE'S LUT WEIGHT (`ZmdLutPost.shader`'s `_LutWeight`). It sits HERE, at the end of the floats and
+    // before the three heap indices, because that is where the CPU's `post_push_constants` puts it - see this
+    // struct's own note above about a block that stops short reading its lanes out of the wrong members.
+    float lut_weight;
     uint frame_slot;
     uint image_index;
     uint post_source_slot; // this chain's own lane: the host names the pass's ABSOLUTE grid slot per pass
@@ -206,6 +210,47 @@ float4 frag_main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
     if (pc.encode_gamma > 0.5)
     {
         color = linear_to_srgb(color);
+    }
+
+    // ---- THE ARTICLE'S LUT POST (`ZmdLutPost.shader`), ON THE DISPLAY-REFERRED COLOUR ----
+    //
+    // WHY HERE AND NOT EARLIER: the article's domain mapping is
+    // `log2(c * 5.55555582 + 0.0479959995) * 0.0734997839 + 0.386036009` - the standard log encoding a 32^3 grading
+    // LUT is authored against - and the value it grades is the one the artist saw, i.e. AFTER the tonemap and the
+    // display encode. Both have just happened above, which is why this block sits between them and the return.
+    //
+    // THE ADDRESSING IS THE ARTICLE'S, LINE FOR LINE: blue picks the slice and the two neighbouring slices are
+    // lerped, red and green sit inside the tile with the vertical flip its `yOffset` carries, and every index is
+    // pulled half a texel in (`halfColX` / `halfColY`) so a linear filter reads texel CENTRES. `_LutWeight` is the
+    // article's own blend (`lerp(origin, lut, w)`), not a multiply.
+    //
+    // THE SLOT HOLDS A NEUTRAL CUBE BY DEFAULT (`runtime::set_post_lut` bakes it), so this block is the identity with
+    // no artist's cube present: the weight can be the article's 1.0 and the frame is unchanged, which is what makes
+    // "the LUT lane is wired" a measurement rather than an assertion.
+    //
+    // WHAT IS NOT REPRODUCED IS THE ARTICLE'S DITHER (`ditherNoise * 0.0013725491 * _LutWeight`), a recorded
+    // difference rather than an oversight: it needs the pixel coordinate and this stage has no screen-size constant
+    // to build one from (the bloom's filters derive their spacing from each level's own size instead). Its amplitude
+    // is 1.4e-3 of the graded value, below what an 8-bit attachment can hold, so the grade is applied exactly and the
+    // dither is left to a stage that knows the resolution.
+    if (pc.lut_weight > 0.0)
+    {
+        const float3 origin = color;
+        const float3 lut_input = saturate(log2(max(float3(0.0, 0.0, 0.0), color * 5.55555582 + 0.0479959995)) * 0.0734997839 + 0.386036009);
+        const float colors = 32.0;
+        const float max_colour = colors - 1.0;
+        const float half_col_x = 0.5 / (colors * colors);
+        const float half_col_y = 0.5 / colors;
+        const float threshold = max_colour / colors;
+        const float slice_offset = lut_input.b * max_colour;
+        const float slice_0 = floor(slice_offset);
+        const float slice_1 = min(slice_0 + 1.0, max_colour);
+        const float slice_weight = frac(slice_offset);
+        const float x_offset = half_col_x + lut_input.r * threshold / colors;
+        const float y_offset = 1.0 - (half_col_y + lut_input.g * threshold);
+        const float3 lut_0 = heap_texel(heap_at<Texture2D<float4>>(heap_slots_post_lut), heap_sampler_post, float2(x_offset + slice_0 / colors, y_offset)).rgb;
+        const float3 lut_1 = heap_texel(heap_at<Texture2D<float4>>(heap_slots_post_lut), heap_sampler_post, float2(x_offset + slice_1 / colors, y_offset)).rgb;
+        color = lerp(origin, lerp(lut_0, lut_1, slice_weight), pc.lut_weight);
     }
     return float4(color, 1.0);
 }

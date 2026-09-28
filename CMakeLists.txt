@@ -226,11 +226,23 @@ target_sources(gltf_loader
         gltf_loader/toon_material_sidecar.cpp
 )
 
+# THE EXTRAS PARSE CALLBACK'S ONE HEADER, and it is SYSTEM on purpose: fastgltf reports a material's `extras`
+# block by CALLING BACK with a `simdjson::dom::object*` (see its `ExtrasParseCallback`), so the loader's own
+# translation unit has to know that type - and `simdjson.h` is upstream code whose warnings this project does
+# not own, exactly like the vendored libraries above. PRIVATE, because nothing that CONSUMES gltf_loader ever
+# sees a simdjson type: the extras are copied out into `gltf::material`'s own maps before `load_model` returns.
+target_include_directories(gltf_loader
+    SYSTEM PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader
+)
+
 # fastgltf + simdjson, vendored under third_party/ (the sources ship in the repo, so no
 # network FetchContent is needed and both Windows/MSYS2 and Linux build self-contained).
 # fastgltf's headers deliberately do NOT include simdjson (it is hidden inside the .cpp
-# files), so only this library's own sources need the simdjson include; consumers of
-# gltf_loader only see fastgltf's headers. simdjson is compiled from its amalgamated
+# files), so only two translation units ever see it: this library's own sources, and
+# gltf_loader's (which needs the type because fastgltf's EXTRAS PARSE CALLBACK hands it a
+# `simdjson::dom::object*` - see the SYSTEM include on that target, which is what keeps a
+# vendored header out of this project's -Werror set). simdjson is compiled from its amalgamated
 # single-header/single-source pair (simdjson.h + simdjson.cpp), and the three fastgltf
 # translation units are compiled here as plain C++ (vendored code does not follow the
 # project's -Werror set, mirroring the imgui/xxhash policy).
@@ -747,6 +759,12 @@ set(VR_SHADER_INCLUDES
     # be forgotten the same way.
     "${VR_SHADER_SRC_DIR}/heap_access.slang"
     "${VR_SHADER_SRC_DIR}/mesh_geometry.slang"
+    # character_forward.slang IS INCLUDED BY A LEAF NOW, which is why it is here: the outline fragment stage
+    # includes it for `toon_diffuse` (the same reason `toon_params.slang` is above - a second copy of that chain
+    # is the duplicate this repository refuses), so editing it must rebuild `outline.frag.spv` too.
+    # `test_shader_sources` requires every `#include` found in shaders/ to be listed here, which is what would
+    # have caught the omission: an unlisted include leaves STALE SPIR-V that nothing but a byte comparison sees.
+    "${VR_SHADER_SRC_DIR}/character_forward.slang"
 )
 # (THE GLSL STAGE LIST USED TO LIVE HERE: twenty-four names, glslc's input, kept in step with the sources by
 # hand. Every one of them is in shaders/glsl.old/ now and built from Slang instead, so the list is gone -
@@ -781,6 +799,11 @@ set(VR_SLANG_SOURCES
     # toon_screen_rim.slang is the toon stage's SECOND rim: a fullscreen additive contour from the depth,
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
     toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
+    # overlay.slang is the article's TWO FRAMEBUFFER MULTIPLIES (an eye shadow and a hair shadow), drawn by the
+    # `character_forward` stage's overlay group with the multiply blend and gated by that same feature - so, like
+    # the two entries above, no capture scenario records it until one turns the toon stage on. It shares
+    # pbr.mesh.spv as its geometry entry: an overlay is a normal mesh (see the file's header).
+    overlay.slang:main:fragment:overlay.frag.spv
     fxaa.slang:main:fragment:fxaa.frag.spv
     # upscale.slang is the RESOLVE: the render chain's display-referred LDR image onto the presented swapchain,
     # by a linear (bilinear) filter. It runs only below `[render] render_scale = 1.0` - at 1.0 the chain IS the
@@ -810,6 +833,20 @@ set(VR_SLANG_SOURCES
     pbr.slang:mesh_main:mesh:pbr.mesh.spv
     # ... and the MESHLET entry (docs/mesh_shaders.md step 3): one workgroup per meshlet, camera-culled.
     pbr.slang:meshlet_main:mesh:pbr.meshlet.spv
+    # ... and THE OUTLINE'S MESH ENTRY: `mesh_main`'s triangle loop with the author's normal expansion applied
+    # to the clip position before the vertex is written (`build-release-clang64/zmd-ab/outline_plan.md` ①). It is
+    # the SAME FILE because the hull has to be skinned, morphed and placed by the same body as the surface it
+    # outlines - a second copy of that body is how an outline detaches from a deforming character.
+    pbr.slang:outline_mesh_main:mesh:outline.mesh.spv
+    # ... and the outline's FRAGMENT stage, which shades that hull with the G-buffer normal of the surface
+    # BEHIND it (the author's `MyZmdOutlineShader.shader:196-198`). ITS ENTRY IS `frag_main`, NOT `main`, and the
+    # reason is measured rather than stylistic: it INCLUDES character_forward.slang for `toon_diffuse`, which
+    # brings that file's own `[shader("fragment")] main` with it, and Slang then refuses to resolve a plain
+    # `-entry main` at all (E38000, "no function found matching entry point name 'main'") because the name is an
+    # overload set. One file with several distinctly-named entries is this repository's existing shape
+    # (`post.slang`'s `frag_main`, `heap_probe.slang`'s three), and the .spv name - which is what the host loads
+    # - is unaffected by the entry's name.
+    outline.slang:frag_main:fragment:outline.frag.spv
     # shadow.slang shares no body: the material table and the albedo fetch through the shim's accessors
     # (`material_at`, `heap_sample`), and the entry returns void because a depth-only stage has no output.
     # Its MESH entry reuses the same matrix-array accessors pbr.slang does, which is the point of the pair:

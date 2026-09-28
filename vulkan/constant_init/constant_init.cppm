@@ -594,6 +594,41 @@ export namespace vulkan {
                 .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
     }
     /**
+     * @brief blend state for a target that is MULTIPLIED INTO (`dst = src * dst`): the article's two overlay
+     *        masks, and nothing else in this renderer
+     *
+     * WHY IT IS A FACTOR PAIR AND NOT AN EXTENSION, which is the whole reason this late addition to the
+     * renderer costs no device feature: the article's shaders are authored in Unity, where `BlendOp Multiply`
+     * and `Blend [_BlendSrc=5][_BlendDst=1]` compile to the `KHR_blend_operation_advanced` equation
+     * `MULTIPLY` - and an advanced equation IGNORES the source and destination factors. The same product is
+     * reachable in core Vulkan by naming the FACTORS instead of the equation: with `blendOp = ADD`,
+     * `srcColorBlendFactor = DST_COLOR` and `dstColorBlendFactor = ZERO` the blend reduces to
+     * `src * dst + dst * 0`, i.e. exactly `src * dst`. So the port needs no extension, no capability query and
+     * no fallback path - and the chapter's `MyZmdEyeDarkShader` / `MyZmdHairShadowShader` are reproduced by
+     * the blend state rather than approximated by it.
+     *
+     * THE ALPHA CHANNEL IS DELIBERATELY UNTOUCHED (`ZERO`/`ONE`, an ADD of nothing): the article's fragment
+     * stages also compute an output alpha, and under an advanced blend their alpha would multiply the target's
+     * too - but the target here is the HDR colour image, whose alpha carries no coverage and is read by nobody.
+     * Writing `dst` back is the choice that keeps this state from silently attenuating a channel that no
+     * consumer of this pass ever asked about, and it is stated here rather than left to a default because it is
+     * the one channel where "the article does something and we do not" is a deliberate difference.
+     *
+     * @note the destination must be LOAD-preserved by the rendering instance, which is the point: the multiply
+     *       reads what the pass before it wrote, and a cleared target would turn the overlay into a black
+     *       rectangle instead of a shadow
+     */
+    constexpr VkPipelineColorBlendAttachmentState make_color_blend_attachment_multiply() noexcept {
+        return {.blendEnable = VK_TRUE,
+                .srcColorBlendFactor = VK_BLEND_FACTOR_DST_COLOR,
+                .dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+                .colorBlendOp = VK_BLEND_OP_ADD,
+                .srcAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+                .dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
+                .alphaBlendOp = VK_BLEND_OP_ADD,
+                .colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT};
+    }
+    /**
      * @brief blend state for one attachment; depth-only pipelines have no color attachment
      * @param attachment caller-owned blend attachment (ignored when has_color_attachment false)
      */

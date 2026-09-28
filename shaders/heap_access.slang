@@ -56,6 +56,14 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 // the character's head bone or from the reference's fallback and uploaded every frame - see head_ubo in
 // vulkan/primitive.cppm. The struct is declared by the stage that reads it, like every other block here.
 #define head_frame_at(slot) heap_at<ConstantBuffer<HeadUBO>>(slot)
+/// the TOON LIGHT RIG, one block for the run - see `vulkan::toon_rig` and the stage's own `ToonRigUBO`.
+#define toon_rig_at(slot) heap_at<ConstantBuffer<ToonRigUBO>>(slot)
+/// THE MATERIAL COLOURS, one flat `float4` array: read as `toon_colour_at(slot, material * kLanes + lane)`, because
+/// the lanes are per material and a flat array keeps the stride question away (see `vulkan::toon_colour_lane`).
+#define toon_colour_at(slot, index) heap_at<StructuredBuffer<float4>>(slot)[index]
+/// THE SECOND BLOCK of the toon lane table (lanes 8..11, see `vulkan::toon_slot`): the same buffer, read at the
+/// odd `uvec4` - `material_index * 2 + 1`, a stride the stage names as `character_toon_lane_blocks`.
+#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 2u + 1u]
 #define cluster_count_at(slot, cluster) heap_at<StructuredBuffer<uint>>(slot)[cluster]
 #define cluster_indices_at(slot, i) heap_at<StructuredBuffer<uint>>(slot)[i]
 
@@ -77,10 +85,22 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 #define skin_matrix_at(slot, index) heap_at<StructuredBuffer<VR_MAT4>>(slot)[index]
 #define skin_matrix_previous_at(slot, index) heap_at<StructuredBuffer<VR_MAT4>>(slot)[index]
 #define morph_value_at(slot, index) heap_at<StructuredBuffer<float>>(slot)[index]
-// THE FACE SDF LANE: one texture-array index per material, or 0 for "do not read". It is a structured buffer
-// rather than a member of the material record because the record is INLINE in the per-draw push block and a
-// word added to it moves every offset in `surface.glsl` and `shadow.slang` - see core::heap_slots::sdf_lanes.
-#define sdf_lane_at(slot, index) heap_at<StructuredBuffer<uint>>(slot)[index]
+// THE TOON LANES BESIDE THE MATERIAL RECORD: one `uvec4` per material - x is its `_SDFLightmap` texture-array
+// index, y its `_MetallicGlossMap`'s, z and w reserved - with 0 in a component meaning "do not read", the same
+// contract the record's four lanes use. It is a structured buffer rather than members of the material record
+// because the record is INLINE in the per-draw push block and a word added to it moves every offset in
+// `surface.glsl` and `shadow.slang` - see core::heap_slots::toon_lanes.
+/// THE FIRST BLOCK of the toon lane table (lanes 4..7), read at `material * blocks + 0`.
+///
+/// THE STRIDE IS THE WHOLE POINT OF THIS MACRO AND IT WAS WRONG FOR THREE ROUNDS: the table holds
+/// `vulkan::toon_lane_blocks` `uvec4`s per material, so block 0 sits at `material * blocks` and block 1 at
+/// `material * blocks + 1` - while this accessor read `[material]` and the host wrote `[material * 2]`. The two sides
+/// therefore disagreed about EVERY material: element `m` held the host's material `m / 2`, block `m % 2`. What that
+/// looked like is the reason the codebase documents silent drift rather than assuming it: the FACE (material 5) read
+/// element 5 = material 2's block 1 = all zeroes, so it silently lost its SDF, its mask and its expression lane at
+/// once; the cloth read another material's lanes; and the FRAME still looked like a character - which is how it went
+/// unnoticed until a probe on the face rim came back with a 0-pixel difference.
+#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 2u]
 
 /// one cascade's world -> light-clip matrix, read as the FIRST matrix array of the light buffer.
 /// @note WHY NOT `light_at(slot).light_view_proj[index]`, measured: Slang lowers a matrix ARRAY member of a

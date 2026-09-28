@@ -372,14 +372,115 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     CHECK(gltf::toon_family_of("M_actor_zhuangfy_body_01") == gltf::toon_family::skin);
     CHECK(gltf::toon_family_of("M_actor_zhuangfy_cloth_01") == gltf::toon_family::cloth);
     CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_eyebrow_01_lod0") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == gltf::toon_family::hair);
+    // THE TWO OVERLAY MATERIALS ARE `none`, NOT `hair`: the article draws them in their own framebuffer-multiply
+    // pass (`MyZmdEyeDarkShader` / `MyZmdHairShadowShader`), so no toon family may claim them - see the note at the
+    // top of `toon_family_of`. The hair-shadow line here asserted `hair` until that pass was being ported, which is
+    // the reference's own classification of the NAME and not of the SHADING.
+    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == gltf::toon_family::none);
     CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == gltf::toon_family::none);
+    CHECK(gltf::toon_family_of("M_eyeshadow_common_01") == gltf::toon_family::none);
+    CHECK(gltf::toon_family_of("M_hairshadow_common_01") == gltf::toon_family::none);
     CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_tail_02_lod0") == gltf::toon_family::none);
 
     // AN EMPTY NAME ASKS NOTHING and an unrecognised one is `none` rather than the first pattern's family -
     // an unnamed material is common in these files and must keep the family-independent path.
     CHECK(gltf::toon_family_of("") == gltf::toon_family::none);
     CHECK(gltf::toon_family_of("biaoq") == gltf::toon_family::none);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THE OVERLAY MATCHER, the other half of the same "no family shades them" decision above.
+//
+// WHY IT NEEDS ITS OWN TEST AND NOT JUST A SECOND `CHECK` LINE: the two functions are ONE decision read from
+// two sides (see the note at the top of `toon_family_of`). A name claimed by neither is a material that is
+// never drawn at all - not a wrong picture, a disappearing surface - so the invariant that matters is the PAIR:
+// every name `overlay_kind_of` claims must be `toon_family::none`, and the two overlay assets' names must be
+// claimed by exactly one of the two channels.
+//
+// THE NUMBERING IS ASSERTED HERE TOO, because `register_material` compares the value against the literals 1 and
+// 2 to set the material record's flag bits 6 and 7 (vulkan.runtime does not import the loader's types, so the
+// value crosses the boundary as a number). Renumbering this enum would therefore change which shader branch an
+// overlay takes with no compile error anywhere - so the numbers are pinned where the enum is.
+void test_the_overlay_matcher_claims_the_two_masks() {
+    static_assert(static_cast<uint32_t>(gltf::overlay_kind::none) == 0u);
+    static_assert(static_cast<uint32_t>(gltf::overlay_kind::eye_dark) == 1u);
+    static_assert(static_cast<uint32_t>(gltf::overlay_kind::hair_shadow) == 2u);
+
+    // the two materials `chars\chen_full2.glb` carries, which is the asset this port is measured on
+    CHECK(gltf::overlay_kind_of("M_eyeshadow_common_01") == gltf::overlay_kind::eye_dark);
+    CHECK(gltf::overlay_kind_of("M_hairshadow_common_01") == gltf::overlay_kind::hair_shadow);
+    // ... and the game's own names for the same two, which are the ones the loader meets first in practice
+    CHECK(gltf::overlay_kind_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == gltf::overlay_kind::eye_dark);
+    CHECK(gltf::overlay_kind_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == gltf::overlay_kind::hair_shadow);
+    // the matcher is case-insensitive ASCII, like `toon_family_of`
+    CHECK(gltf::overlay_kind_of("M_Actor_Chen_EyeShadow_01") == gltf::overlay_kind::eye_dark);
+
+    // THE INVARIANT THE PAIR HAS TO KEEP: an overlay is not a family, so every claimed name is `none` there -
+    // and `hairshadow` contains `hair`, which is exactly the collision the top of `toon_family_of` exists for.
+    CHECK(gltf::toon_family_of("M_eyeshadow_common_01") == gltf::toon_family::none);
+    CHECK(gltf::toon_family_of("M_hairshadow_common_01") == gltf::toon_family::none);
+    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == gltf::toon_family::none);
+
+    // NOTHING ELSE IS AN OVERLAY, and the near miss is the point: `shadow` alone is a word that appears in
+    // plenty of ordinary decals and shadow-catcher materials, so a matcher that accepted it would silently turn
+    // one of them into a framebuffer multiply.
+    CHECK(gltf::overlay_kind_of("M_shadow_decal_01") == gltf::overlay_kind::none);
+    CHECK(gltf::overlay_kind_of("M_actor_chen_face_01") == gltf::overlay_kind::none);
+    CHECK(gltf::overlay_kind_of("M_actor_chen_hair_01") == gltf::overlay_kind::none);
+    CHECK(gltf::overlay_kind_of("") == gltf::overlay_kind::none);
+}
+
+// ---------------------------------------------------------------------------------------------------
+// THE CLAIMED `extras` ROWS, which are the loader's third data source and the only place an ALLOW-LIST
+// decides what enters a model.
+//
+// WHY THIS IS TESTED RATHER THAN TRUSTED: the block it reads (`efFloats`) holds 190 names on chen's cloth
+// material and the port reads two, so "import the block and let consumers pick" and "import the claimed names"
+// produce the same picture and differ by 188 unread values that would each be a second source of truth for a
+// property with no reader. The fixture also carries an UNCLAIMED name next to the claimed ones precisely so
+// this test can tell the two implementations apart - without it, both pass.
+void test_the_extras_block_is_read_through_the_claimed_table() {
+    auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/claimed_extras.gltf");
+    CHECK(result.has_value());
+    if (!result.has_value()) {
+        return;
+    }
+    gltf::scenes const& scenes = *result;
+    CHECK(scenes.materials.size() == 3);
+    if (scenes.materials.size() != 3) {
+        return;
+    }
+    // THE CLAIMED ROWS ARRIVE, as the asset wrote them - and a stated ZERO is a value rather than an absence,
+    // which is exactly why these lanes' "nothing stated" had to be a sentinel of its own.
+    CHECK(scenes.materials[0].extras_floats.count("_Specular") == 1);
+    CHECK(scenes.materials[0].extras_floats.at("_Specular") == 0.0f);
+    // ... AND SO DOES THE SECOND CLAIMED ROW, which is the pair the whitelist is now made of: a table that
+    // carried one name and a reader that asked for two would silently import nothing for the second property.
+    CHECK(scenes.materials[0].extras_floats.count("_ParallaxScale") == 1);
+    CHECK(std::abs(scenes.materials[0].extras_floats.at("_ParallaxScale") - 0.5f) < 1e-6f);
+    // ... AND THE TWO ROWS ARE INDEPENDENT PER MATERIAL, which is what makes them per-material facts rather
+    // than one block's: material 1 states a different value of the same row and no `_OutlineOffsetZ` at all.
+    CHECK(std::abs(scenes.materials[1].extras_floats.at("_ParallaxScale") - 0.03f) < 1e-6f);
+    // ... AND A ROW THE PORT HAS NOT CLAIMED DOES NOT, even though it sits in the same block. This is the
+    // assertion the whole allow-list exists for.
+    CHECK(scenes.materials[0].extras_floats.count("_UnclaimedRow") == 0);
+    CHECK(scenes.materials[0].extras_floats.count("_OutlineOffsetZ") == 0);
+    // a colour row inside the same `extras` is not a claimed scalar: only `efFloats` is read at all
+    CHECK(scenes.materials[0].extras_floats.count("_SdfColor") == 0);
+    // a FRACTIONAL value survives the JSON round trip (the callback reads a double and the map holds a float)
+    CHECK(scenes.materials[1].extras_floats.count("_Specular") == 1);
+    CHECK(std::abs(scenes.materials[1].extras_floats.at("_Specular") - 0.454f) < 1e-6f);
+    // A MATERIAL WITH NO `extras` AT ALL IS THE SAME STATE as one that states none of the claimed rows: empty,
+    // so every consumer's fallback answers rather than a zero being invented here.
+    CHECK(scenes.materials[2].extras_floats.empty());
+
+    // THE NAME JOIN the extras are read through: a consumer holds a material NAME (that is how the toon lookup
+    // is asked) and needs the per-material facts glTF did not carry, so the two lookups have to agree - and an
+    // unnamed or unknown name must be a MISS rather than a match on the first material.
+    CHECK(scenes.material_by_name("M_fractional_extras") == &scenes.materials[1]);
+    CHECK(scenes.material_by_name("M_no_extras") == &scenes.materials[2]);
+    CHECK(scenes.material_by_name("M_not_in_this_file") == nullptr);
+    CHECK(scenes.material_by_name("") == nullptr);
 }
 
 int32_t main() {
@@ -394,5 +495,7 @@ int32_t main() {
     test_no_head_bone_is_found_where_there_is_none();
     test_a_head_bone_is_found_at_its_joint_index();
     test_the_toon_family_matcher_reads_mmd_material_names();
+    test_the_overlay_matcher_claims_the_two_masks();
+    test_the_extras_block_is_read_through_the_claimed_table();
     return vk_test::finish("test_gltf_loader");
 }

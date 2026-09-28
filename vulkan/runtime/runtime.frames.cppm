@@ -401,6 +401,36 @@ namespace vulkan {
         for (scene_tree::scene_node const& root : this->bound_scene->roots) {
             collect_leaf_primitives(root, this->frame_leaves);
         }
+        // ---- AND THE OVERLAY LEAVES COME STRAIGHT BACK OUT OF THAT SET ----
+        //
+        // This is the ONE place the article's two framebuffer multiplies are separated from every ordinary
+        // surface, and it is here rather than at draw time because of what the separation MEANS: an overlay
+        // surface must be absent from the opaque list, the transparent list AND the shadow caster list, not
+        // merely ignored by them. A mask left in the opaque set is shaded as a surface (it is drawn with
+        // whatever pipeline the pass binds and occludes what is behind it), and one left in the caster set
+        // throws a shadow of its own onto the face it exists to darken. Both are the same mistake - a mask
+        // treated as geometry.
+        //
+        // HOW MUCH THAT COSTS, MEASURED WITH A CONTROL rather than quoted: `chars\chen_full2_control.glb` is
+        // the same asset with the two overlay materials renamed so neither classifier claims them
+        // (`make_overlay_control.py`), i.e. exactly the frame this port replaces. Against the port's own frame
+        // it differs by 591 px / 0.06% at the standard pose, 846 / 0.08% at 35 degrees of yaw and 8444 / 0.81%
+        // at the 0.45 close-up - small, because these two quads are shaped to the features they darken and
+        // almost all of each one lands on the face, and the largest part of what differs is where a quad
+        // protrudes past the silhouette onto the background. The magnitude is therefore NOT the argument for
+        // this split; the three states above are, and the magnitude is what says the split is not a rewrite of
+        // the frame either.
+        //
+        // THE ORDER INSIDE EACH GROUP IS PRESERVED, which is why this is a stable removal and not a sort: the
+        // leaves' order is the scene tree's, and two overlay quads that overlap must keep composing the way the
+        // asset authored them.
+        this->frame_overlay.clear();
+        for (primitive const* const leaf : this->frame_leaves) {
+            if (leaf->overlay_kind != 0u) {
+                this->frame_overlay.push_back(leaf);
+            }
+        }
+        std::erase_if(this->frame_leaves, [](primitive const* const leaf) { return leaf->overlay_kind != 0u; });
 
         // Frustum culling for the main pass: build a BVH over every leaf that has a single
         //     world AABB (normal draw primitives, whose bounds follow push.model), then keep only
@@ -2007,18 +2037,75 @@ namespace vulkan {
 
     pass::character_forward_frame runtime::make_character_forward_frame() noexcept {
         core const& vk = this->vulkan_core;
+        // DOES THE OVERLAY PIPELINE EXIST? Asked HERE rather than left to the session's bind callback, and the
+        // difference is a log line per frame rather than a nicety: a name that resolves to nothing is reported by
+        // that callback as "unknown pipeline", which is right for a leaf that asked for one and wrong for a pass
+        // that is about to discover a build failure it should simply not draw through. So the frame hands over an
+        // EMPTY name when the pipeline is absent, and the pass reads that as "draw no overlay" - the documented
+        // contract on `character_forward_frame::overlay_pipeline_name`.
+        bool overlay_ready = false;
+        {
+            std::shared_lock const lock(this->access_mutex);
+            overlay_ready = this->mesh_pipelines.contains(overlay_pipeline_name) || this->meshlet_pipelines.contains(overlay_pipeline_name);
+        }
+        // DOES THE OUTLINE PIPELINE EXIST? Asked on exactly the same terms as the overlay one above, and for the
+        // same reason: an empty name is the pass's documented "draw no outline", whereas a name that resolves to
+        // nothing would be reported by the session's bind callback as "unknown pipeline" - a log line per frame
+        // for a build failure the pass should simply not draw through.
+        bool outline_ready = false;
+        {
+            std::shared_lock const lock(this->access_mutex);
+            outline_ready = this->mesh_pipelines.contains(outline_pipeline_name) || this->meshlet_pipelines.contains(outline_pipeline_name);
+        }
+        // ---- AND THE OUTLINE LEAVES: THE PER-MATERIAL GATE, WHICH IS NOT THE MESH ----
+        //
+        // The article's ① 描边 is an inverted hull of a surface THIS PASS ALREADY DRAWS, so the list is a
+        // SUBSET OF `frame_visible` and not a parallel list: a leaf whose material states an `_OutlineWidth`
+        // is drawn once as the surface (the toon stage) and once as its hull (the outline group), and one that
+        // states 0 is drawn only as the surface. `frame_visible` rather than `frame_leaves` because the hull's
+        // outside-the-silhouette ring exists only where the surface it hugs was drawn and wrote depth - a hull
+        // for a culled leaf would be an unoccluded shell over the whole frame (see `frame_outline`).
+        //
+        // THE WIDTH IS READ OFF THE PRIMITIVE (`primitive::outline_width`) rather than out of the material's
+        // colour lane, because the lane lives in the GPU table (`core::heap_slots::toon_colours`) and the frame
+        // cannot read it without a readback. That mirror is filled from the same `toon_inputs` the shader's lane
+        // is built from, so this gate and the mesh stage's own `w > 0` cannot drift apart.
+        //
+        // THE ORDER IS `frame_visible`'S, for the same reason `frame_overlay` keeps the scene tree's: two hulls
+        // that overlap must compose in the order the asset authored them.
+        this->frame_outline.clear();
+        for (primitive const* const leaf : this->frame_visible) {
+            if (leaf->outline_width > 0.0f) {
+                this->frame_outline.push_back(leaf);
+            }
+        }
         // THE OPAQUE LEAVES, which are the SCENE pass's - this stage re-shades the surfaces the scene pass
         // already drew, so it must see exactly that list. A leaf the culling dropped has no lit pixel to
         // overwrite, and one it kept but this frame omitted would keep the deferred shading while its
         // neighbours were re-shaded.
         return pass::character_forward_frame{
             .leaves = this->frame_visible,
+            // ... AND THE OVERLAY LEAVES, which the collection step has already taken out of `frame_visible`
+            // (see `frame_overlay`): they are not surfaces to re-shade, they are the article's two masks to
+            // multiply over what this pass just wrote.
+            .overlay_leaves = this->frame_overlay,
+            // ... AND THE OUTLINE LEAVES (`primitive::outline_width > 0`), which are the SAME leaves this pass
+            // re-shades, drawn a second time as their inverted hulls. A subset of `leaves` rather than a list of
+            // its own, because an outline is not a different surface - see `frame_outline` for why it follows the
+            // CULL as well as the material.
+            .outline_leaves = this->frame_outline,
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
             // The name the pipeline was registered under (chores.cpp). Handed over rather than hardcoded in
             // the pass, because the registry is the runtime's: a pass asserting a string another module chose
             // would be a name with no owner.
             .pipeline_name = character_forward_pipeline_name,
+            // ... and the overlay group's, on the same terms - empty when it was never built, which the pass
+            // reads as "there is no overlay to draw" (see `overlay_ready` above).
+            .overlay_pipeline_name = overlay_ready ? overlay_pipeline_name : std::string_view{},
+            // ... and the outline group's pipeline name, on the overlay's terms exactly: empty when it was never
+            // built, which the pass reads as "there is no outline to draw" (see `outline_ready` above).
+            .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
             .color_format = vulkan::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
             .depth_format = vk.depth_format,
             .extent = vk.render_extent(),

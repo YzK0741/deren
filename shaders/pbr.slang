@@ -258,6 +258,143 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 }
 
 // =============================================================================================================
+// THE OUTLINE MESH ENTRY (entry `outline_mesh_main`): THE ARTICLE'S OUTLINE, whose geometry half is the author's
+// `MyZmdOutlineShader.shader:134-170` and whose colour half is `shaders/outline.slang`.
+//
+// IT IS `mesh_main` WITH ONE STEP ADDED, and that is the design rather than an economy: the hull must be skinned,
+// morphed and placed EXACTLY like the surface it outlines, or the outline detaches from the character the moment
+// either deforms. So the loop below is `mesh_main`'s loop, the projection is `pbr_shade_vertex`, and the addition
+// is the author's expansion applied to the clip position before the vertex is written out. A mesh stage (rather
+// than a vertex stage) is the only shape available: the vertex geometry path was removed (see the note above the
+// mesh stage), and the author's expansion is per-vertex behaviour that fits inside the same triangle loop.
+//
+// THE AUTHOR'S ARITHMETIC, in its own order (`:134-170`), with the two substitutions this port has to make:
+//
+//   float2 scaledScreenParams = GetScaledScreenParams(); float ScaleX = abs(x/y);        <- the viewport aspect
+//   float weightN = sqrt(saturate(1.0 - dot(v.uv1.xy, v.uv1.xy)));                       <- uv1 == 0 for chen
+//   float3 smoothNormalOS = v.uv1.x * tangent + v.uv1.y * biTangent + weightN * normal;  <- hence == v.normal
+//   float3 smoothNormalVS = mul((float3x3)UNITY_MATRIX_IT_MV, smoothNormalOS);
+//   float2 clipNormal2D = mul((float2x3)UNITY_MATRIX_P, smoothNormalVS);
+//   float2 normal2D = normalize(clipNormal2D); normal2D.x /= ScaleX;
+//   float depthScale = o.positionHCS.w; float outlineDepthClamp = min(depthScale, 20.0);
+//   float depthRefine = lerp(1, _ZMinRefine, smoothstep(1, 12, depthScale));
+//   float2 offset = normal2D * (_OutlineWidth * outlineDepthClamp * 0.01 * depthRefine);
+//   o.positionHCS.xy += offset;
+//
+//  1. THE SMOOTH NORMAL IS `o.normal`. The author reads a SECOND uv set in which an artist baked a smoothed
+//     normal, and computes `weightN = sqrt(saturate(1 - |uv1|^2))`; with `uv1 = (0,0)` that is `weightN = 1` and
+//     the sum ADDS UP TO `v.normal` - an algebraic identity, not an approximation. Every mesh this port loads
+//     has no uv1 (`hasUV1 = False` on chen's meshes), so the identity is the whole path, and `o.normal` is the
+//     mesh's world-space normal (already the world-transformed, skinned, morphed one - `pbr_shade_vertex`).
+//  2. THE VIEW SPACE NORMAL IS `mat3(view) * o.normal`. The author's `UNITY_MATRIX_IT_MV` is the inverse
+//     transpose of the model-view matrix applied to an OBJECT-space normal; this port's normal is already world
+//     space, and for the rigid view transform the inverse transpose of its 3x3 IS its 3x3. THE SPELLING MATTERS
+//     AND WAS MEASURED: `mat3(M) * v` is the GLSL product and `mul(M, v)` on this port's `row_major float4x4`
+//     emits the TRANSPOSED one (see the note beside VR_SLANG_SOURCES' flags) - the same reason
+//     `pbr_shade_vertex`'s projection reads `proj * view * world_pos` and not `mul`.
+//
+// `ScaleX`: the author's `GetScaledScreenParams()` is the RENDER-TARGET size, which this renderer does not
+// publish to a shader; what it does publish is the projection the frame is built with, and for a perspective
+// projection the ratio `proj[1][1] / proj[0][0]` IS the viewport's aspect ratio. THAT IS AN EQUIVALENT QUANTITY
+// AND NOT `_ScreenParams` ITSELF: a render scale below 1.0 scales BOTH screen dimensions, so the aspect - the
+// only thing the author divides by - is the same number. The `abs` is not decoration: this engine's projection
+// carries Vulkan's Y flip, so `proj[1][1]` is NEGATIVE, and an unsigned aspect would flip the hull inside out.
+//
+// `0.01` IS THE AUTHOR'S OWN CONSTANT (`:168`, verbatim in the source - it was the PDF's one truncated scalar
+// and the source settled it), NOT a port fudge.
+//
+// `_ZMinRefine` IS THE ARTICLE'S DEFAULT (0.4, `:17`): the game's parameter table carries no such row (measured
+// with `zmd-ab/outline_rows.py`), so the constant stands as the article states it.
+//
+// `_ZBias` IS NOT IMPLEMENTED, and that is a value rather than an omission: `:8` declares its default 0.0, and
+// `:172-178` adds `positionHCS.z -= _ZBias` (REVERSED_Z) or `+= _ZBias` - an exact zero for every material at
+// the default. The game's `_OutlineOffsetZ` (0.05 on chen's cloth, 0.22 on the face, 1.0 on cloth_02) has NO
+// confirmed mapping to it in this port, so nothing is guessed into the term.
+//
+// THE GATE IS THE WIDTH ITSELF (`> 0`), read from the material's outline lane, and it is per DRAW rather than
+// per material: `push.material_index` is this draw's record, so the branch is UNIFORM across the workgroup. A
+// material whose width is 0 still emits its vertices and simply is not expanded - which is what lets the whole
+// outline pass be recorded in ONE batch: the game's own `chen` cloth_02 states `_OutlineWidth = 0.0` (measured),
+// so "this material has no outline" is data rather than a host-side list.
+// =============================================================================================================
+/// `vulkan::toon_colour_lane::outline_edge`: the material's outline lane in `heap_slots::toon_colours`, whose
+/// `.rgb` is the game's `_OutlineTintColor` and whose `.w` is its `_OutlineWidth`. Spelled out here (and again in
+/// `outline.slang`) because a shader cannot include a C++ enum; the STRIDE below is the same quantity as
+/// `character_forward.slang`'s `character_toon_colour_lanes`, which is the spelling the host's
+/// `toon_colour_lane::count` is checked against by `test_toon_material_sidecar`.
+static const uint pbr_outline_edge_lane = 3u;
+// THE STRIDE IS THE HOST'S LANE COUNT, so it is 6 (`vulkan::toon_colour_lane::count`) and NOT the number of lanes
+// THIS STAGE reads - which is one. A stride left at an older count would address a NEIGHBOURING MATERIAL's lane:
+// the hull of material 4 would be expanded by material 1's width, silently, with the frame merely looking wrong.
+// `test_toon_material_sidecar` pins this spelling against `character_toon_colour_lanes`.
+static const uint pbr_toon_colour_lanes = 6u;
+
+[shader("mesh")]
+[outputtopology("triangle")]
+[numthreads(1, 1, 1)]
+void outline_mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup], out indices uint3 tris[mesh_triangles_per_workgroup], uint3 group_id : SV_GroupID)
+{
+    const MeshGeometryLanes geometry = push.geometry;
+    const uint triangle_count = geometry.index_count / mesh_indices_per_triangle;
+    // this workgroup's first triangle, and how many of the draw's triangles are left for it - `mesh_main`'s own
+    // window arithmetic, kept identical on purpose: the hull's triangles must be the surface's triangles.
+    const uint first_triangle = group_id.x * mesh_triangles_per_workgroup;
+    const uint remaining = first_triangle < triangle_count ? triangle_count - first_triangle : 0u;
+    const uint emit = min(remaining, mesh_triangles_per_workgroup);
+
+    SetMeshOutputCounts(emit * mesh_indices_per_triangle, emit);
+    // ... the same counter `mesh_main` adds to, so the two passes' workgroup counts are readable on one run.
+    mesh_stat_add(push.frame_slot, mesh_stat_mesh_workgroups, 1u);
+
+    // ---- THIS MATERIAL'S OUTLINE WIDTH, and the `> 0` gate (see the block above) ----
+    const uint colour_base = push.material_index * pbr_toon_colour_lanes;
+    const float outline_width = heap_at<StructuredBuffer<float4>>(heap_slots_toon_colours)[colour_base + pbr_outline_edge_lane].w;
+    // `ScaleX`, hoisted out of the loop because it is a property of the frame's projection and not of a vertex.
+    const float scale_x = abs(camera_at(heap_camera_slot).proj[1][1] / camera_at(heap_camera_slot).proj[0][0]);
+    // The view matrix once, for the same reason: `mat3(view) * normal` is the world -> view rotation.
+    const VR_MAT4 outline_view = camera_at(heap_camera_slot).view;
+
+    for (uint t = 0u; t < emit; ++t)
+    {
+        for (uint corner = 0u; corner < mesh_indices_per_triangle; ++corner)
+        {
+            const uint raw_index = mesh_index_at(geometry, geometry.first_index + (first_triangle + t) * mesh_indices_per_triangle + corner);
+            const uint vertex_index = uint(int(raw_index) + geometry.base_vertex);
+            const MeshVertex v = mesh_vertex_at(geometry, vertex_index);
+            // THE SURFACE'S OWN VERTEX FIRST, through the shared body: everything the hull inherits - morph, skin,
+            // the world transform, the previous-frame position - is this call.
+            pbr_vertex_output o = pbr_shade_vertex(v, vertex_index, group_id.y);
+            if (outline_width > 0.0)
+            {
+                // ---- THE AUTHOR'S EXPANSION, in clip space (`:152-170`) ----
+                const float3 n_view = mat3(outline_view) * o.normal;
+                // `(float2x3)UNITY_MATRIX_P * n`: the projection's first two rows against the view normal. This
+                // engine's projection has no shear - its upper-left 3x3 is diagonal - so this is the same pair of
+                // products the author's cast produces.
+                const float2 clip_normal_2d = float2(dot(camera_at(heap_camera_slot).proj[0].xyz, n_view), dot(camera_at(heap_camera_slot).proj[1].xyz, n_view));
+                // THE DEGENERATE CASE IS A MEASURED CORRECTION AND NOT A STYLE CHOICE: at a vertex whose normal
+                // points straight along the view axis the projected normal is (0,0), `normalize` returns NaN, and
+                // ONE NaN vertex drops every triangle that touches it - the first attempt at this outline in this
+                // repository moved zero pixels for exactly that reason. A degenerate normal expands by nothing,
+                // which is the article's own zero-offset case.
+                const float clip_normal_length = length(clip_normal_2d);
+                const float2 normal_2d_raw = clip_normal_length > 1e-5 ? clip_normal_2d / clip_normal_length : float2(0.0, 0.0);
+                // ... and `normal2D.x /= ScaleX` is the author's correction for the projection NOT being
+                // aspect-aware in clip space.
+                const float2 normal_2d = float2(normal_2d_raw.x / scale_x, normal_2d_raw.y);
+
+                const float depth_scale = o.position.w;
+                const float outline_depth_clamp = min(depth_scale, 20.0);
+                const float depth_refine = lerp(1.0, 0.4, smoothstep(1.0, 12.0, depth_scale));
+                o.position.xy += normal_2d * (outline_width * outline_depth_clamp * 0.01 * depth_refine);
+            }
+            verts[t * mesh_indices_per_triangle + corner] = o;
+        }
+        tris[t] = uint3(t * mesh_indices_per_triangle + 0u, t * mesh_indices_per_triangle + 1u, t * mesh_indices_per_triangle + 2u);
+    }
+}
+
+// =============================================================================================================
 // THE MESHLET ENTRY (entry `meshlet_main`): ONE workgroup per meshlet, its window read out of the table, and the
 // same per-meshlet frustum culling the shadow pass's entry does - against the CAMERA's clip volume here, since
 // this is the pass the camera sees (docs/mesh_shaders.md step 3).

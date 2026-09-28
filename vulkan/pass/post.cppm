@@ -76,6 +76,15 @@ export namespace vulkan::pass {
         // contrast below which a pixel counts as flat.
         float fxaa_subpixel = 0.75f;
         float fxaa_edge_threshold = 0.166f;
+        // THE ARTICLE'S LUT WEIGHT (`ZmdLutPost.shader`'s `_LutWeight`). IT SHIPS AT 0, AND THAT IS A MEASUREMENT
+        // RATHER THAN A HEDGE: the engine bakes a NEUTRAL cube into the post-LUT slot (`runtime::set_post_lut`), and
+        // with the weight at the article's own 1.0 the frame against that cube is *nearly* the frame with no LUT - max
+        // |d| 8/255, 0.02% of pixels above 4, 53% of pixels differing by 1-2 - because a 32^3 cube is the identity
+        // only AT its grid points, and the article's log-domain addressing leaves the interpolation between them
+        // approximate (largest at the bright end, where the encoding's slope is greatest). The port's lanes read
+        // WITHOUT changing the look, so the default keeps the frame exact and the artist's switch is this number;
+        // turning it on is a one-line change here, and the measurement above is what says what that costs.
+        float lut_weight = 0.0f;
     };
 
     static_assert(sizeof(post_push_constants) == render_resource::post_push_bytes,

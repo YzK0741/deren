@@ -26,6 +26,12 @@
  * then LOCKS, because every leaf's draw() otherwise turns it back on (see
  * render_environment::depth_write_locked).
  *
+ * IT ALSO DRAWS THE ARTICLE'S TWO OVERLAY MULTIPLIES (the eye shadow and the hair shadow), AFTER the toon
+ * leaves and with a SECOND pipeline - see `character_forward_frame::overlay_leaves`. They belong to this
+ * stage rather than a pass of their own because they modify exactly what this stage just wrote, in the same
+ * instance, on the same depth: the multiply has to see the toon-shaded pixel, and the depth test is what
+ * confines the mask to the surface it was authored over.
+ *
  * WHAT IT DOES NOT OWN: the geometry. Its leaves are the SCENE's, re-drawn - the renderer hands over the
  * same list the scene pass drew, which is what makes the two agree about which surfaces exist.
  *
@@ -58,6 +64,39 @@ export namespace vulkan::pass {
         /// the OPAQUE leaves - the same set the scene pass drew, because this pass re-shades those surfaces
         std::span<primitive const* const> leaves = {};
         /**
+         * THE OVERLAY LEAVES: the article's two framebuffer multiplies (an eye shadow and a hair shadow), which
+         * the renderer has already taken OUT of the opaque/transparent/shadow sets because a mask is not a
+         * surface (see `primitive::overlay_kind`).
+         *
+         * THEY ARE A SECOND LIST AND NOT A PART OF `leaves` because they are drawn differently in three ways at
+         * once: a different pipeline (the multiply one, see `overlay_pipeline_name`), AFTER every toon leaf
+         * rather than in scene order, and for the hair shadow's mask by geometry alone - this renderer has no
+         * stencil attachment for the article's `Stencil { Ref 1 Comp Equal }` to test, which is a recorded
+         * difference rather than an oversight (see `core::make_overlay_pipeline`).
+         */
+        std::span<primitive const* const> overlay_leaves = {};
+        /**
+         * THE OUTLINE LEAVES: the article's `MyZmdOutlineShader` - the INVERTED HULL, i.e. the character's own
+         * leaves drawn a SECOND time with their front faces culled and their vertices pushed outward in clip
+         * space, so what survives is the ring just outside each silhouette (the article's ① 描边).
+         *
+         * THEY ARE A THIRD LIST for the same three reasons the overlay list is a second one, and each is a
+         * difference rather than a convenience:
+         *   * a different pipeline (`outline_pipeline_name`): CULL FRONT, depth compare LESS_OR_EQUAL, no blend;
+         *   * a different ORDER: after every toon leaf, because the hull has to be occluded by the surface the
+         *     leaves just re-shaded onto the same depth (the depth test is the only thing that confines a hull
+         *     to the outside of its silhouette);
+         *   * a per-MATERIAL gate that is not the mesh: a material whose `_OutlineWidth` is 0 (chen's `cloth_02`
+         *     is 0.0 in the game's own table) is in `leaves` but NOT here, because the article has no outline for
+         *     it - the width rides the material's own colour lane (see `toon_colour_lane::outline_edge`), and the
+         *     renderer's filter is what keeps the two lists consistent.
+         *
+         * DRAWN BEFORE THE OVERLAY GROUP: both belong to the article's character stage and the overlays MULTIPLY
+         * what that stage wrote, so the hull is part of what they multiply - which is the order the article's own
+         * opaque/multiply split implies.
+         */
+        std::span<primitive const* const> outline_leaves = {};
+        /**
          * Draw state for this session, built by the renderer.
          *
          * A CALLBACK for the same reason the scene and transparent frames' is (the pipeline registry is the
@@ -76,6 +115,25 @@ export namespace vulkan::pass {
          * under a string it chose. Empty means the session cannot bind anything and the pass draws nothing.
          */
         std::string_view pipeline_name = {};
+        /**
+         * The pipeline the OVERLAY group binds, on the same terms (`overlay_pipeline_name` in the runtime).
+         *
+         * EMPTY MEANS THE OVERLAY GROUP IS NOT DRAWN, and that is the honest answer rather than a fallback: the
+         * toon pipeline would not multiply (it OVERWRITES, and its fragment shades a surface), so drawing the
+         * masks with it would paint two shaded quads over the face - which is the very defect this pass exists
+         * to remove. A device where the overlay pipeline could not be built therefore draws no overlay, and the
+         * character looks exactly as it did before the masks were merged into the asset.
+         */
+        std::string_view overlay_pipeline_name = {};
+        /**
+         * The pipeline the OUTLINE group binds (`outline_pipeline_name` in the runtime), on the same terms.
+         *
+         * EMPTY MEANS THE OUTLINE GROUP IS NOT DRAWN, and that is again the honest answer: the toon pipeline
+         * neither culls front faces nor tests with LESS_OR_EQUAL, so drawing hulls with it would paint whole
+         * shaded surfaces over the character instead of a ring around it. A device where the outline pipeline
+         * could not be built therefore draws no outline, which is what the frame looked like before ① landed.
+         */
+        std::string_view outline_pipeline_name = {};
         /// the two declared targets' formats and the extent (the pass opens its own instance)
         VkFormat color_format = VK_FORMAT_UNDEFINED;
         VkFormat depth_format = VK_FORMAT_UNDEFINED;

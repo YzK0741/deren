@@ -35,6 +35,13 @@ namespace vulkan::pass {
         // scene this pass is INACTIVE on - which is what the runner checks before it resolves anything, so
         // the pass neither records nor resolves and costs nothing on those frames. That is also what keeps
         // every capture-gate scenario byte-identical while the feature is off.
+        //
+        // THE OVERLAY GROUP RIDES THE SAME GATE, and that is a decision rather than an accident of sharing a
+        // pass: an overlay mask is part of the article's toon character stage (it multiplies what THIS stage
+        // wrote), so a frame that does not run the toon stage has nothing for a mask to modify. The
+        // consequence a reader should know: with the feature off, the two mask meshes are drawn by NOTHING -
+        // they are out of the opaque, transparent and shadow lists (see `frame_overlay`) and this pass does not
+        // run - which at their default `_Color` of white is also what drawing them would have looked like.
         return "character_forward";
     }
 
@@ -52,7 +59,11 @@ namespace vulkan::pass {
     }
 
     void character_forward_pass::record(resolved_io const& io) {
-        if (this->frame_.make_environment == nullptr || this->frame_.pipeline_name.empty() || this->frame_.leaves.empty() || io.targets.size() < 2) {
+        // BOTH LEAF LISTS ARE THE GATE, not just the toon one: a frame whose only character geometry is the
+        // article's two masks still has something to multiply, and returning on `leaves.empty()` alone would
+        // silently drop it. Either list being non-empty is the pass having work to do.
+        if (this->frame_.make_environment == nullptr || this->frame_.pipeline_name.empty() || io.targets.size() < 2 ||
+            (this->frame_.leaves.empty() && this->frame_.overlay_leaves.empty() && this->frame_.outline_leaves.empty())) {
             return; // the runner resolves all of this or skips the pass (see make_character_forward_frame)
         }
         VkImageView const target_view = io.targets[0].view; // the scene colour target (declaration order)
@@ -97,6 +108,60 @@ namespace vulkan::pass {
 
         for (primitive const* const leaf : this->frame_.leaves) {
             leaf->draw(env);
+        }
+
+        // ---- AND THE OUTLINE GROUP, AFTER THE LEAVES AND BEFORE THE OVERLAYS ----
+        //
+        // THE ARTICLE'S ① 描边 (`MyZmdOutlineShader`): the character's own leaves drawn a second time as an
+        // INVERTED HULL - front faces culled, vertices pushed outward in the VERTEX stage - so the only fragments
+        // that survive the depth test are the ring just outside each silhouette. It is a third list for the same
+        // reason `overlay_leaves` is a second one: its own pipeline (`outline_pipeline_name`, Cull Front +
+        // LESS_OR_EQUAL), its own order, and its own per-material gate (the material's `_OutlineWidth`, which is 0
+        // for a material the game itself says has no outline - chen's `cloth_02`).
+        //
+        // WHY IT IS BEFORE THE OVERLAYS: they multiply what this stage wrote, so the hull is part of what they
+        // multiply. WHY THE DEPTH TEST IS ENOUGH: the leaves have just re-shaded the character onto the depth
+        // this pass LOADed, so every hull fragment inside a silhouette fails LESS_OR_EQUAL against its own
+        // surface and only the outside ring is left.
+        //
+        // WHAT IS NOT REPRODUCED, and it is the one state the article's shader states that this pass cannot: its
+        // `ZWrite On`. Depth write is off and LOCKED for the whole instance (see above), which for a single hull
+        // drawn with front-face culling is equivalent - the nearest back face wins the depth test either way - and
+        // whose only visible consequence is that the hull does not occlude what is drawn after it (the overlays
+        // and the post chain, neither of which is behind a silhouette).
+        if (!this->frame_.outline_pipeline_name.empty() && !this->frame_.outline_leaves.empty()) {
+            env.default_name = this->frame_.outline_pipeline_name;
+            // CULL FRONT FOR THIS GROUP ONLY, and it has to be stated HERE rather than in the pipeline: every
+            // leaf's draw() calls `set_cull_mode` with its own double-sided flag (see the field's own note), so a
+            // pipeline-level Cull Front would be undone by the first hull. Cleared immediately after, so the
+            // overlay group below records its own culling exactly as before.
+            env.forced_cull_front = true;
+            for (primitive const* const leaf : this->frame_.outline_leaves) {
+                leaf->draw(env);
+            }
+            env.forced_cull_front = false;
+        }
+
+        // ---- AND THE OVERLAY GROUP, AFTER THEM AND WITH ITS OWN PIPELINE ----
+        //
+        // THE ORDER IS THE MECHANISM (see `character_forward_frame::overlay_leaves`): the multiply has to see
+        // the toon-SHADED pixel, so it cannot be interleaved with the leaves whose result it multiplies. The
+        // pipeline is swapped by moving the session's DEFAULT NAME rather than by binding after the fact,
+        // because every leaf's draw() calls `bind_default()` and would otherwise put the toon pipeline straight
+        // back a few instructions later - the same shape as the depth-write lock above.
+        //
+        // DEPTH TEST stays on, with the compare the overlay pipeline carries (LESS_OR_EQUAL): the quads sit a
+        // little in front of the surface they darken, so the test confines each mask to the face it was authored
+        // over. THE ARTICLE'S `Stencil { Ref 1 Comp Equal }` ON THE HAIR SHADOW IS NOT REPRODUCED and cannot be
+        // here: this renderer's dynamic rendering info declares NO stencil attachment
+        // (`stencilAttachmentFormat` is VK_FORMAT_UNDEFINED, see vulkan/constant_init), so there is no stencil
+        // plane for a Ref test - the geometry's own coverage is what stands in for it, which is why the hair
+        // shadow is a mesh shaped around the forehead rather than a full-screen quad.
+        if (!this->frame_.overlay_pipeline_name.empty() && !this->frame_.overlay_leaves.empty()) {
+            env.default_name = this->frame_.overlay_pipeline_name;
+            for (primitive const* const leaf : this->frame_.overlay_leaves) {
+                leaf->draw(env);
+            }
         }
 
         vkCmdEndRendering(io.cmd);

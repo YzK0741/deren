@@ -1,3 +1,4 @@
+#include <charconv>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 import vstd;
@@ -20,6 +21,43 @@ import vulkan.render_start_demo; // the example's pass wiring: this app's chain,
 [[maybe_unused]] static auto& pmr = utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace {
+
+    // ---- THE ASSET'S OWN `extras` ROWS, WHICH THE LOADER CARRIES AND THE TOON LOOKUP CONSULTS FIRST ----
+    //
+    // THE THIRD DATA SOURCE, and the ordering between the three is the whole content of this helper. A toon
+    // material's per-material facts can come from:
+    //   1. the ASSET'S `extras` block (`gltf::material::extras_floats`, read by the loader from the game's own
+    //      exported table that ships inside the .glb) - the ORIGINAL;
+    //   2. the `.toon.tsv` SIDECAR beside the model - this port's TRANSCRIPTION of a subset of the same tables;
+    //   3. the family table in `shaders/toon_params.slang` - the port's own fallback.
+    // EXTRAS WINS, and the reason is what the two files ARE rather than which is newer: extras is written by the
+    // game's own material pipeline and travels inside the asset, while the sidecar is a copy this repository made
+    // from the game's JSON tables - a copy can be incomplete (it carries 109 of the 194 names) and can be stale,
+    // and a copy must not outrank the thing it was copied from. The sidecar stays the fallback rather than being
+    // dropped because it carries facts the extras do not (the sidecar's own slot vocabulary, and every model
+    // whose .glb has no `extras` block at all), and the family table stays the last resort because some of its
+    // numbers are the port's own (see its note).
+    //
+    // MEASURED, AND THE HONEST STATEMENT IS THAT THIS ORDER IS NOT SETTLED BY chen's FRAMES: on `chars\chen.glb`
+    // the two sources never disagree - every name they share carries the same value in both - so no frame can
+    // tell the two rules apart. What the frames DO settle is that the extras value reaches the GPU at all (see
+    // `zmd-ab/extras_dump.md` and the probe arms in `remaining_port_spec.md`'s "extras 数据源"), and the order
+    // above is therefore a rule stated where it is applied and PROVABLE BY ASSET: a sidecar row that contradicts
+    // extras is ignored, and the probe in that section is exactly such a row.
+    [[nodiscard]] std::optional<float> extras_float_of(gltf::scenes const* const scenes, std::string_view const material_name, std::string_view const row) {
+        if (scenes == nullptr) {
+            return std::nullopt;
+        }
+        gltf::material const* const material = scenes->material_by_name(material_name);
+        if (material == nullptr) {
+            return std::nullopt;
+        }
+        auto const found = material->extras_floats.find(std::string(row));
+        if (found == material->extras_floats.end()) {
+            return std::nullopt; // this asset states no such row: the caller's next source answers
+        }
+        return found->second;
+    }
 
     // ---- scripted capture (dev tool) ----
     // Verifying anything visual used to need a human at the keyboard (F12). Two flags remove
@@ -339,6 +377,48 @@ int main(int argc, char** argv) {
         {"_SpecRampMap", "_UseSpecRampMap"},
         {"_MatcapTex", "_UseMatcap"},
         {"_SDFLightmap", "_UseSDFLightmap"},
+        // THE METALLIC/GLOSS LANE FOLLOWS THE `_Use<Slot>` CONVENTION, unlike the matcap above: `_UseMetallicGlossMap`
+        // is what the material files carry (24 of the 45 materials across the five characters export one).
+        {"_MetallicGlossMap", "_UseMetallicGlossMap"},
+        // THE FACE MASK IS SWITCHED ON BY THE SDF'S OWN FLAG, which is a fact about the material files rather than a
+        // convention: there is no `_UseSDFMask` in any of them (the census over the five characters has
+        // `_UseSDFLightmap` on 10 materials and `_UseSDFMask` on none), and the mask is meaningless without the SDF
+        // it belongs to - the two are authored for one face and read at one coordinate.
+        {"_SDFMask", "_UseSDFLightmap"},
+        // THE EMOTION ATLAS HAS A FLAG OF ITS OWN (`_UseEmotionMap`, on the face and on nothing else in chen).
+        {"_EmotionMap", "_UseEmotionMap"},
+        // THE SPLIT NORMAL'S FLAG IS `_UseSpecBumpMap`, not `_UseSplitNormalMap` - the second slot in this table
+        // whose flag does not follow the convention (the matcap is the first), and found the same way: by asking
+        // the files rather than by deriving the name.
+        {"_SplitNormalMap", "_UseSpecBumpMap"},
+    }};
+    // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `vulkan::toon_colour_lane`, in lane order - the
+    // same arrangement the texture table above uses and for the same reason: the asset pipeline's spelling belongs
+    // where the sidecar is read, and the ORDER is the contract with the shader's lane indices.
+    static constexpr std::array<std::string_view, static_cast<std::size_t>(vulkan::toon_colour_lane::count)> toon_colour_row = {{
+        "_SDFRimColor",
+        "_EyeHighLightColor",
+        "_EyeScatteringColor",
+        // THE OUTLINE LANE IS THE ONE LANE WHOSE ROW CARRIES ONLY PART OF THE VALUE: `.rgb` is this row
+        // (`color _OutlineTintColor`, the game's name for the author's `_OutlineColor`), and `.w` is the SEPARATE
+        // `float _OutlineWidth`, read as a scalar below - see `toon_colour_lane::outline_edge`.
+        "_OutlineTintColor",
+        // THE SPECULAR LANE'S ROW IS A `float` AND NOT A `color`, which is why this table's name is used only as
+        // the SIDECAR FALLBACK for it: the value the port prefers is the ASSET'S (`extras_float_of`), and this
+        // row is consulted second - see `toon_colour_lane::specular_strength` and `extras_float_of`.
+        "_Specular",
+        // THE PARALLAX DEPTH'S ROW IS A `float` TOO, AND ON THIS ASSET THE SIDECAR CARRIES IT NOWHERE:
+        // `chars\chen.glb.toon.tsv` has no `_ParallaxScale` row at all, so the asset's `extras` block is the only
+        // source that speaks for it here and the stage's own constant is the answer for every material it does
+        // not speak for. The name still belongs in this table for the other direction: a model whose sidecar
+        // holds the row is a model this lane can answer for without any `extras` block at all.
+        //
+        // WHAT "EVERY MATERIAL IT DOES NOT SPEAK FOR" TURNED OUT TO MEAN, MEASURED RATHER THAN EXPECTED: on chen
+        // the asset states the row for three materials (iris 0.03, brow 0.5, cloth_01 0.5) and the ONE consumer -
+        // the stage's parallax block - is gated on the material's matcap, which only the iris has. So the lane is
+        // routed correctly and this character's frame does not move by a pixel; the probe that proves the lane is
+        // live (the iris re-stated as 0.3) is in `remaining_port_spec.md`'s "extras 数据源" section.
+        "_ParallaxScale",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -402,6 +482,57 @@ int main(int argc, char** argv) {
 
     // 10. Upload the scene-wide IBL once: shared by every primitive (bindings 2-4 of the scene block)
     runtime.set_ibl(vulkan::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes, .env_size = static_cast<uint32_t>(env_size), .env_mip_count = static_cast<uint32_t>(env_mip_count), .irr_size = static_cast<uint32_t>(irr_size), .lut_size = static_cast<uint32_t>(lut_size)});
+
+    // ---- THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), BAKED NEUTRAL ----
+    //
+    // A `1024x32` strip of 32 `32x32` tiles holding a `32^3` cube: the layout the article's own addressing walks
+    // (blue picks the slice, red and green sit inside the tile, the tile's rows run bottom-up). THE CONTENT IS THE
+    // IDENTITY UNDER THAT ADDRESSING rather than a placeholder, and the identity means INVERTING the article's
+    // domain mapping: the shader encodes the frame with
+    // `log2(c * 5.55555582 + 0.0479959995) * 0.0734997839 + 0.386036009` and looks THAT up, so the texel at address
+    // `a` has to hold the colour `c` that encodes to `a` - `decode(a)`, below.
+    //
+    // AND IT IS STORED sRGB-ENCODED, because the lane is an `R8G8B8A8_SRGB` image and the sampler DECODES what it
+    // reads: storing `srgb_encode(decode(a))` is what makes the shader receive `decode(a)` itself. That is the same
+    // convention the shadow LUT's bake states for its own lane, and it is the difference between a neutral cube and
+    // a brighter-than-neutral one.
+    //
+    // WHY IT IS BAKED RATHER THAN SHIPPED: the ramps, the shadow LUT and the matcap are all baked here for the same
+    // reason - the lane then reads without changing the frame, so the shader's weight can default to the article's
+    // 1.0 with no artist's cube present, and an artist's cube replaces the bake the day one exists.
+    {
+        constexpr uint32_t post_lut_width = 1024u;
+        constexpr uint32_t post_lut_height = 32u;
+        constexpr uint32_t post_lut_tiles = 32u;
+        auto const srgb_encode = [](float const linear) {
+            return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+        };
+        std::vector<uint8_t> post_lut(static_cast<std::size_t>(post_lut_width) * post_lut_height * 4u, 255u);
+        for (uint32_t row = 0; row < post_lut_height; ++row) {
+            for (uint32_t column = 0; column < post_lut_width; ++column) {
+                float const address[3] = {
+                    // THE AXES ARE THE ARTICLE'S, AND THEY ARE NOT THE SHADOW LUT'S - the trap this bake walked into
+                    // first: `xOffset = halfColX + lut_input.r * threshold / colors` puts RED in the tile's own X,
+                    // `yOffset = 1 - (halfColY + lut_input.g * threshold)` puts GREEN in the tile's Y (flipped, because
+                    // v grows upward while the strip's rows grow downward), and the slice term `slice / colors` puts
+                    // BLUE in the TILE INDEX. The shadow LUT's bake next door assigns those axes differently (tile =
+                    // red, in-tile X = green, row = blue), and copying its layout wrote a cube whose red and blue were
+                    // swapped - measured as 99.45% of the frame moving when the lookup was switched on against what
+                    // was supposed to be the identity.
+                    static_cast<float>(column % post_lut_tiles) / static_cast<float>(post_lut_tiles - 1u),
+                    static_cast<float>(post_lut_tiles - 1u - row) / static_cast<float>(post_lut_tiles - 1u),
+                    static_cast<float>(column / post_lut_tiles) / static_cast<float>(post_lut_tiles - 1u),
+                };
+                uint8_t* const texel = post_lut.data() + (static_cast<std::size_t>(row) * post_lut_width + column) * 4u;
+                for (int32_t c = 0; c < 3; ++c) {
+                    float const decoded = (std::exp2((address[c] - 0.386036009f) / 0.0734997839f) - 0.0479959995f) / 5.55555582f;
+                    texel[c] = static_cast<uint8_t>(std::clamp(srgb_encode(std::clamp(decoded, 0.0f, 1.0f)), 0.0f, 1.0f) * 255.0f + 0.5f);
+                }
+                texel[3] = 255u;
+            }
+        }
+        runtime.set_post_lut(post_lut, post_lut_width, post_lut_height);
+    }
 
     // 11. Batch-import: the runtime drives the traversal itself through two aligned loader
     //     streams — the retained node hierarchy (gltf::scene_node_iterator: DFS pre-order,
@@ -489,6 +620,12 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> baked_unit_ramp = {};
         uint32_t baked_ramp_width = 0;
         uint32_t baked_ramp_height = 0;
+        /// the DIFFUSE ramp lane's neutral content (see the baker below) - a different SHAPE from the unit step
+        /// above, because the two lanes read their ramp differently: one as a threshold, this one as a colour
+        /// mapping plus a lightness
+        std::vector<uint8_t> baked_neutral_ramp = {};
+        uint32_t baked_neutral_ramp_width = 0;
+        uint32_t baked_neutral_ramp_height = 0;
         /// the SHADOW LUT cube (see the baker below) - a different shape from the ramp and so a different
         /// buffer, kept alive for the same reason: the lookup hands out a SPAN INTO IT
         std::vector<uint8_t> baked_shadow_lut = {};
@@ -498,6 +635,8 @@ int main(int argc, char** argv) {
         /// no matcap term to reproduce
         std::vector<uint8_t> baked_matcap = {};
         uint32_t baked_matcap_size = 0;
+        /// the METALLIC/GLOSS lane has NO neutral here on purpose - see the note where its baker used to be.
+        /// A material with no such map is shaded by its family's own `roughness` / `reflectivity`.
     };
 
     // ---- THE PROCEDURAL RAMP, which is what replaces the game's own ramps on the read path ----
@@ -570,6 +709,40 @@ int main(int argc, char** argv) {
         return pixels;
     };
 
+    // ---- THE DIFFUSE RAMP'S NEUTRAL CONTENT, which is a DIFFERENT SHAPE from the unit step above ----
+    //
+    // THE TWO LANES READ THEIR RAMP DIFFERENTLY, so one bake can no longer serve both. The specular lane reads
+    // `.r` as a THRESHOLD, and the unit step above is exactly that. The diffuse lane reads RGB as a COLOUR mapping
+    // and A as a LIGHTNESS (see the shading stage's `toon_diffuse`), and a grey step is wrong in BOTH channels for
+    // that use: its alpha is a constant 1, which claims every fragment is fully lit, and its RGB would tint the
+    // lit side as though the material's ramp had said so.
+    //
+    // SO THIS BAKE HOLDS THE ONLY CONTENT THAT MEANS "NO COLOUR MAPPING, AND AS LIT AS THE LIGHT TERM SAYS": WHITE
+    // in RGB and the identity lightness in A. A material whose model ships no ramp is then shaded by its own light
+    // term rather than by an invented band, which is the same neutrality the other bakes keep - and the real map
+    // takes precedence whenever the model has one (`_DiffRampMap` is on every character material in this
+    // repository, so the fallback is for fixtures and for models exported without it).
+    constexpr uint32_t baked_neutral_ramp_width = 256;
+    constexpr uint32_t baked_neutral_ramp_height = 8;
+    auto const bake_neutral_ramp = []() {
+        auto const srgb_encode = [](float const linear) {
+            return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
+        };
+        // WHITE RGB, filled in here and never overwritten: the lane is uploaded as sRGB, so 255 is the encoded
+        // form of the linear 1.0 the shading stage needs back - a colour mapping that changes nothing.
+        std::vector<uint8_t> pixels(static_cast<std::size_t>(baked_neutral_ramp_width) * baked_neutral_ramp_height * 4u, 255u);
+        for (uint32_t v = 0; v < baked_neutral_ramp_height; ++v) {
+            for (uint32_t u = 0; u < baked_neutral_ramp_width; ++u) {
+                float const x = static_cast<float>(u) / static_cast<float>(baked_neutral_ramp_width - 1u);
+                uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(v) * baked_neutral_ramp_width + u) * 4u;
+                // ENCODED for the same reason the unit step is: the lane is an sRGB texture, so the shader must
+                // get the LINEAR lightness back, and writing `x` raw would hand it the encoded one.
+                texel[3] = static_cast<uint8_t>(std::clamp(srgb_encode(x), 0.0f, 1.0f) * 255.0f + 0.5f);
+            }
+        }
+        return pixels;
+    };
+
     // ---- THE SHADOW LUT, WHICH IS A CUBE RATHER THAN A STEP ----
     //
     // IT IS THE ONE LANE THAT CANNOT REUSE THE UNIT RAMP, and the shape is the reason: a ramp answers "how deep
@@ -597,9 +770,6 @@ int main(int argc, char** argv) {
     constexpr uint32_t baked_lut_width = baked_lut_tiles * baked_lut_tiles;
     constexpr uint32_t baked_lut_height = baked_lut_tiles;
     auto const bake_shadow_lut = []() {
-        auto const srgb_encode = [](float const linear) {
-            return linear <= 0.0031308f ? linear * 12.92f : 1.055f * std::pow(linear, 1.0f / 2.4f) - 0.055f;
-        };
         std::vector<uint8_t> pixels(static_cast<std::size_t>(baked_lut_width) * baked_lut_height * 4u, 255u);
         for (uint32_t row = 0; row < baked_lut_height; ++row) {
             for (uint32_t column = 0; column < baked_lut_width; ++column) {
@@ -612,10 +782,14 @@ int main(int argc, char** argv) {
                 float const cube[3] = {x, y, z};
                 uint8_t* const texel = pixels.data() + (static_cast<std::size_t>(row) * baked_lut_width + column) * 4u;
                 for (int32_t c = 0; c < 3; ++c) {
-                    // SRGB-ENCODED for the same reason the ramp is: the lane is uploaded as an sRGB texture, so
-                    // the sampler hands the shader the LINEAR value the cube is written to mean, and the identity
-                    // survives the round trip instead of being gamma-shifted by it.
-                    texel[c] = static_cast<uint8_t>(std::clamp(srgb_encode(cube[c]), 0.0f, 1.0f) * 255.0f + 0.5f);
+                    // STORED AS THE DISPLAY-SPACE COORDINATE, which is what keeps the identity true now that the
+                    // shader indexes this lane by the DISPLAY-SPACE albedo (the game's own domain - see
+                    // character_forward.slang's toon_shadow_lut). The lane is uploaded as an sRGB texture, so the
+                    // sampler DECODES whatever is stored: storing the encoded coordinate makes the shader receive
+                    // the LINEAR value that coordinate means, which is exactly the albedo it looked up. Encoding the
+                    // linear coordinate instead - what this bake did before the domain changed - would hand back
+                    // `srgb(albedo)` decoded, i.e. a brighter albedo, on every material with no LUT.
+                    texel[c] = static_cast<uint8_t>(std::clamp(cube[c], 0.0f, 1.0f) * 255.0f + 0.5f);
                 }
                 texel[3] = 255u;
             }
@@ -644,6 +818,13 @@ int main(int argc, char** argv) {
         return std::vector<uint8_t>(static_cast<std::size_t>(baked_matcap_size) * baked_matcap_size * 4u, 0u);
     };
 
+    // ---- THE METALLIC/GLOSS NEUTRAL IS GONE, AND ITS ABSENCE IS THE CONTRACT ----
+    //
+    // A material with no `_MetallicGlossMap` is shaded by its FAMILY's `roughness` / `reflectivity` (see
+    // toon_params.slang), because those four channels are the material's own numbers rather than art this project
+    // would be reproducing - and a family default is the article's own answer for skin, which ships no such map.
+    // The lane therefore answers "there is none" and the shading stage decides.
+
     // THE LOOKUP, whose lane vocabulary lives with the diagnostic above so that the two cannot disagree about
     // which flag switches a lane on.
     auto const toon_texture = [](void* const owner, std::string_view const material_name, vulkan::toon_slot const lane) -> vulkan::texture_input {
@@ -665,12 +846,75 @@ int main(int argc, char** argv) {
         if (!material->enabled_by_flag(names.flag)) {
             return out;
         }
-        // THE DIFFUSE AND SPECULAR RAMP LANES BOTH GET THE BAKED UNIT STEP, NOT THE MODEL'S IMAGE - see
-        // bake_unit_ramp for why a path that read the game's own ramps is a path this repository cannot carry,
-        // and note that the artist's switch above is still what decides WHETHER there is a ramp at all. The
-        // other lanes keep the model's images for now: nothing reads them yet, and baking them is the same
-        // question one lane at a time.
-        if ((lane == vulkan::toon_slot::diffuse_ramp || lane == vulkan::toon_slot::specular_ramp) && !state.baked_unit_ramp.empty()) {
+        // ---- WHICH LANES READ THE MODEL'S IMAGE AND WHICH READ A NEUTRAL BAKE ----
+        //
+        // THE SPLIT IS THE ASSET BOUNDARY RATHER THAN A PREFERENCE, and the two sides are different in kind. Three
+        // lanes stand in for maps whose content is a SHAPE the shading could describe itself (see bake_unit_ramp /
+        // bake_shadow_lut / bake_matcap), so they take the bake whatever the model carries - the artist's switch
+        // above still decides WHETHER there is a ramp or a LUT at all. The METALLIC/GLOSS lane is the other case:
+        // its four channels are the material's own NUMBERS rather than art this project would be reproducing, so
+        // it READS THE MODEL'S MAP and falls back to a neutral texel when the model has none.
+        //
+        // THE MODEL'S IMAGE FOR THIS SLOT IS RESOLVED ONCE, here, for every lane below: the sidecar names a texture
+        // asset and the glTF carries images by name, so the join is one lookup - and a lane that resolved it may
+        // still decline it.
+        std::string_view const texture_name = material->slot(slot_name);
+        gltf::texture_data const* model_tex = nullptr;
+        if (!texture_name.empty()) {
+            if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
+                gltf::texture_data const& candidate = state.scenes->textures[*index];
+                if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
+                    model_tex = &candidate; // present and usable; whether it is READ is the lane's decision
+                }
+            }
+        }
+        // ---- THE METALLIC/GLOSS LANE READS THE MODEL'S OWN MAP, OR ANSWERS "THERE IS NONE" ----
+        //
+        // IT DOES NOT GET A NEUTRAL TEXEL, unlike the ramps and the LUT below, and that is a change the SKIN forced:
+        // the four channels are the material's own numbers, and a material with no map for them is not a material
+        // whose numbers are neutral - it is one whose numbers the FAMILY states (`toon_params`' `roughness` /
+        // `reflectivity`, which is exactly where the article keeps its skin's). So a lane of 0 here means "ask the
+        // family", and handing it a baked texel instead would override that with one invented surface.
+        if (lane == vulkan::toon_slot::metallic_gloss) {
+            if (model_tex != nullptr) {
+                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.width = model_tex->width;
+                out.height = model_tex->height;
+                out.mip_levels = 1;
+                out.valid = true;
+            }
+            return out;
+        }
+        // ---- THE DIFFUSE RAMP READS THE MODEL'S OWN MAP, WHICH IS THE CHANGE THIS LANE WAS WAITING FOR ----
+        //
+        // THE GAME'S RAMP IS THE ONE TOON ASSET WHOSE CONTENT IS NOT A SHAPE this stage could reconstruct: its
+        // RGB is the artist's colour mapping along the light axis and its A the artist's lightness along the same
+        // axis, so a neutral bake can only ever stand in for a model that has none. Every character in this
+        // repository ships one (`_DiffRampMap` is on 45 of the 45 materials across the five characters), so the
+        // lane reads it and `bake_neutral_ramp` covers the rest.
+        if (lane == vulkan::toon_slot::diffuse_ramp) {
+            if (model_tex != nullptr) {
+                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.width = model_tex->width;
+                out.height = model_tex->height;
+                out.mip_levels = 1;
+                out.valid = true;
+                return out;
+            }
+            if (!state.baked_neutral_ramp.empty()) {
+                out.data = std::span<uint8_t const>(state.baked_neutral_ramp.data(), state.baked_neutral_ramp.size());
+                out.width = state.baked_neutral_ramp_width;
+                out.height = state.baked_neutral_ramp_height;
+                out.mip_levels = 1;
+                out.valid = true;
+            }
+            return out;
+        }
+        // THE SPECULAR RAMP LANE STILL GETS THE BAKED UNIT STEP, NOT THE MODEL'S IMAGE - see bake_unit_ramp for
+        // why a path that read the game's own ramps is a path this repository cannot carry, and note that the
+        // artist's switch above is still what decides WHETHER there is a ramp at all. Nothing has taught THIS
+        // lane to read the game's own atlas yet, and it is the one that still reads `.r` as a threshold.
+        if (lane == vulkan::toon_slot::specular_ramp && !state.baked_unit_ramp.empty()) {
             out.data = std::span<uint8_t const>(state.baked_unit_ramp.data(), state.baked_unit_ramp.size());
             out.width = state.baked_ramp_width;
             out.height = state.baked_ramp_height;
@@ -678,61 +922,222 @@ int main(int argc, char** argv) {
             out.valid = true;
             return out;
         }
-        // THE SHADOW LUT LANE GETS THE BAKED CUBE, NOT THE MODEL'S PALETTE - the same trade as the ramps, and
-        // for a stronger version of the same reason: `T_actor_common_femaleskincolor01_lut_D` is not the game's
-        // only skin palette but one of several per-character variants, so a read path carrying it would be
-        // carrying a specific character's skin tone. The artist's switch above still decides whether there is a
-        // LUT at all, which is why hair - whose `_UseShadowLutTex` is off - is unaffected by any of this.
-        if (lane == vulkan::toon_slot::shadow_lut && !state.baked_shadow_lut.empty()) {
-            out.data = std::span<uint8_t const>(state.baked_shadow_lut.data(), state.baked_shadow_lut.size());
-            out.width = state.baked_lut_width;
-            out.height = state.baked_lut_height;
-            out.mip_levels = 1;
-            out.valid = true;
+        // ---- THE SHADOW LUT READS THE MODEL'S OWN PALETTE, AND THIS IS THE SKIN'S BIGGEST LEVER ----
+        //
+        // THE ONE TOON LANE WHOSE CONTENT IS A COLOUR THE ARTIST CHOSE per skin tone: the game ships
+        // `T_actor_common_femaleskincolorNN_lut_D` - a `1024x32` strip holding a `32^3` cube - and the shading reads
+        // it as "what is THIS albedo when it is in shadow". Its earlier treatment here was the identity bake, which
+        // is the right FALLBACK for a model that ships none and the wrong answer for one that does: a baked identity
+        // reproduces the albedo, so the whole dark side of every skin in the game was being replaced by the lit
+        // one. The artist's switch above still decides whether there is a LUT at all, which is why hair - whose
+        // `_UseShadowLutTex` is off - is unaffected by any of this.
+        if (lane == vulkan::toon_slot::shadow_lut) {
+            if (model_tex != nullptr) {
+                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.width = model_tex->width;
+                out.height = model_tex->height;
+                out.mip_levels = 1;
+                out.valid = true;
+                return out;
+            }
+            if (!state.baked_shadow_lut.empty()) {
+                out.data = std::span<uint8_t const>(state.baked_shadow_lut.data(), state.baked_shadow_lut.size());
+                out.width = state.baked_lut_width;
+                out.height = state.baked_lut_height;
+                out.mip_levels = 1;
+                out.valid = true;
+            }
             return out;
         }
-        // THE MATCAP LANE GETS THE BAKED BALL, NOT THE MODEL'S - `T_actor_common_matcap_10_D` is a game image
-        // like the rest. THIS IS ALSO THE LANE THE FLAG TABLE ABOVE WAS FIXED FOR: until the flag was asked by
-        // name, `_MatcapTex` resolved to "off" for the iris that ships it on, so this branch was unreachable and
-        // the game's matcap was neither read nor replaced - the lane was simply absent, which is the quietest
-        // possible version of getting it wrong.
-        if (lane == vulkan::toon_slot::matcap && !state.baked_matcap.empty()) {
-            out.data = std::span<uint8_t const>(state.baked_matcap.data(), state.baked_matcap.size());
-            out.width = state.baked_matcap_size;
-            out.height = state.baked_matcap_size;
-            out.mip_levels = 1;
-            out.valid = true;
+        // ---- THE MATCAP LANE READS THE MODEL'S OWN BALL, WITH THE BLACK BAKE AS ITS FALLBACK ----
+        //
+        // THE EYE'S HIGHLIGHT IS A MATCAP AND NOT A LOBE, which is the article's own arrangement for that family
+        // (`EF_EYE_IRIS_MATCAP05_STRENGTH` and a separate overlay material), and the game ships the ball as
+        // `T_actor_common_matcap_06_D`. Reading it is what turns an iris from a flat dark disc into a surface with a
+        // catchlight in it - and the bake below still covers a model whose material switches a matcap on without
+        // shipping one, where black remains the only neutral content (see bake_matcap).
+        //
+        // THIS IS ALSO THE LANE THE FLAG TABLE ABOVE WAS FIXED FOR: until the flag was asked by name, `_MatcapTex`
+        // resolved to "off" for the very material that ships it, so this branch was unreachable and the game's ball
+        // was neither read nor replaced - the lane was simply absent, the quietest possible version of wrong.
+        if (lane == vulkan::toon_slot::matcap) {
+            if (model_tex != nullptr) {
+                out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+                out.width = model_tex->width;
+                out.height = model_tex->height;
+                out.mip_levels = 1;
+                out.valid = true;
+                return out;
+            }
+            if (!state.baked_matcap.empty()) {
+                out.data = std::span<uint8_t const>(state.baked_matcap.data(), state.baked_matcap.size());
+                out.width = state.baked_matcap_size;
+                out.height = state.baked_matcap_size;
+                out.mip_levels = 1;
+                out.valid = true;
+            }
             return out;
         }
-        std::string_view const texture_name = material->slot(slot_name);
-        if (texture_name.empty()) {
-            return out;
+        if (model_tex == nullptr) {
+            return out; // the sidecar names a map this model does not have, or one that is present but unusable
         }
-        std::optional<uint16_t> const index = state.scenes->texture_index_by_name(texture_name);
-        if (!index.has_value()) {
-            return out; // the sidecar names a map this model does not have
-        }
-        gltf::texture_data const& tex = state.scenes->textures[*index];
-        if (tex.data.empty() || tex.width == 0 || tex.height == 0) {
-            return out; // present but unusable: still "do not read" rather than a guess
-        }
-        out.data = std::span<uint8_t const>(tex.data.data(), tex.data.size());
-        out.width = tex.width;
-        out.height = tex.height;
+        out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
+        out.width = model_tex->width;
+        out.height = model_tex->height;
         out.mip_levels = 1;
         out.valid = true;
         return out;
+    };
+    // THE COLOUR LOOKUP, whose lanes are the same sidecar rows read as four floats instead of as a texture name.
+    //
+    // A `color` ROW IS TEXT UNTIL SOMEBODY PARSES IT (`2.3985064,1.885226,2.0379374,1.0`), and the parsing lives
+    // here rather than in the sidecar module because the *meaning* of the value is the consumer's: the module
+    // keeps the row verbatim so that a consumer which does not know what `_EyeHighLightColor` is cannot damage it.
+    // A ROW THAT IS ABSENT, OR UNPARSEABLE, ANSWERS THE LANE'S NEUTRAL - white for the three multiply-tints, and
+    // for lane 3 white in `.rgb` with a WIDTH OF 0 in `.w` (see the table below), and for the two scalar lanes
+    // (4 and 5) the sentinel `-1` (see them, too) - so a material whose sources say nothing tints nothing, is not
+    // outlined, and keeps the fallback its consumer already had.
+    //
+    // THE NEUTRAL IS PER LANE AND NOT ONE WHITE, AND THAT IS A CORRECTNESS MATTER RATHER THAN A REFINEMENT: three
+    // of the outline lane's four floats are a tint, whose neutral is white, and the fourth is `_OutlineWidth`,
+    // whose neutral is ZERO. A missing row answered with `vec4(1.0f)` would therefore mean a width of 1.0 - an
+    // outline around EVERY material that states none, which is the whole model (`toon_colour_lane`'s own note
+    // states the same thing from the other side).
+    //
+    // THE SPECULAR LANE'S NEUTRAL IS `-1.0` AND IT IS A SENTINEL RATHER THAN A NO-OP, which is the first of the
+    // two places this table says "the asset states nothing" instead of "multiply by one": the lane's `.x` is a
+    // STRENGTH, so `0` would mean "no highlight at all" - a value the game really states on the iris and the
+    // brow - and `1` would mean a full one. The stage tests `>= 0.0` and falls back to the family table (see
+    // `toon_colour_lane::specular_strength`).
+    //
+    // THE PARALLAX LANE'S NEUTRAL IS THE SAME `-1.0` FOR THE SAME KIND OF REASON: its `.x` is a DEPTH rather than a
+    // tint, so there is no no-op number - `0` is a legitimate authored "no parallax", and any other in-range value
+    // would be a depth the port invented. The stage tests `>= 0.0` and falls back to its own
+    // `character_eye_parallax_depth` constant (see `toon_colour_lane::parallax_scale`).
+    static constexpr std::array<glm::vec4, static_cast<std::size_t>(vulkan::toon_colour_lane::count)> toon_colour_neutral = {
+        {glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)}};
+    auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
+        std::size_t const lane_index = static_cast<std::size_t>(lane);
+        toon_lookup_state const& state = *static_cast<toon_lookup_state*>(owner);
+        // ---- THE SPECULAR STRENGTH IS READ BEFORE THE SIDECAR IS EVEN LOOKED FOR, AND THAT ORDER IS THE RULE ----
+        //
+        // Its value is the ASSET'S (`extras_float_of`), the sidecar is only the fallback, and the FAMILY TABLE in
+        // the shader is the fallback behind that - so this lane must answer even for a model that has extras and
+        // NO sidecar at all, which is why it does not sit behind the two early returns below. `-1` is the third
+        // answer (neither source speaks), and the stage reads it as "the family's number stands".
+        //
+        // THE PARALLAX DEPTH TAKES EXACTLY THE SAME PATH IN THE SAME ORDER, which is why the two share one branch:
+        // both are per-material SCALARS whose preferred source is the asset (`-1` = nothing stated), and the only
+        // thing that differs is what the stage falls back TO - `params.spec_strength` for one,
+        // `character_eye_parallax_depth` for the other. On chen the sidecar holds no `_ParallaxScale` row at all,
+        // so for that property the asset is the ONLY source that can speak and this lane answers the sentinel for
+        // every material but the three that state the row - which is the state the frame had before this lane
+        // existed, material by material.
+        if (lane == vulkan::toon_colour_lane::specular_strength || lane == vulkan::toon_colour_lane::parallax_scale) {
+            glm::vec4 scalar = toon_colour_neutral[lane_index]; // -1 in .x until a source states a value
+            if (std::optional<float> const from_asset = extras_float_of(state.scenes, material_name, toon_colour_row[lane_index])) {
+                scalar.x = *from_asset;
+                return scalar;
+            }
+            if (state.sidecar != nullptr) {
+                if (toon::material_sidecar const* const from_sidecar = state.sidecar->find(material_name)) {
+                    // The same "states nothing" contract as the generic path below: `scalar` answers the fallback
+                    // when the row is absent, and the fallback here IS the sentinel.
+                    float const value = from_sidecar->scalar(toon_colour_row[lane_index], scalar.x);
+                    // A SIDECAR ROW OUTSIDE THE SENTINEL'S SIDE OF ZERO IS IGNORED RATHER THAN TRUSTED, because
+                    // `-1` is not a strength (nor a depth) and a negative one would shade nothing: a row that
+                    // parsed as a negative number is a row this lane cannot express, so the stage's own fallback
+                    // answers instead.
+                    if (value >= 0.0f) {
+                        scalar.x = value;
+                    }
+                }
+            }
+            return scalar;
+        }
+        if (state.sidecar == nullptr) {
+            return toon_colour_neutral[lane_index];
+        }
+        toon::material_sidecar const* const material = state.sidecar->find(material_name);
+        if (material == nullptr) {
+            return toon_colour_neutral[lane_index];
+        }
+        // THE OUTLINE LANE IS THE ONE LANE FED BY TWO ROWS OF TWO DIFFERENT KINDS, so it does not go through the
+        // single-row path below: `.rgb` is the `color _OutlineTintColor` row (the game's name for the author's
+        // `_OutlineColor`) and `.w` is the SEPARATE `float _OutlineWidth` row - see `toon_colour_lane::outline_edge`.
+        //
+        // THE TWO ROWS ARE INDEPENDENT, WHICH IS MEASURED RATHER THAN ASSUMED: in `chars\chen.glb.toon.tsv` the
+        // tint row exists for `M_actor_chen_cloth_01` ALONE (1,1,1,1), while `_OutlineWidth` exists for all five
+        // materials (body 0.6 / cloth_01 0.6 / cloth_02 0.0 / face 0.5 / hair 0.5). Reading the width only when
+        // the tint row is present would therefore outline one material out of five and silently drop the rest, so
+        // the width is read unconditionally and a missing tint answers white - the article's own `_OutlineColor`
+        // default is white, and white is what "the game states no tint" has to look like for a multiply.
+        if (lane == vulkan::toon_colour_lane::outline_edge) {
+            glm::vec4 outline = toon_colour_neutral[lane_index]; // white tint, width 0 until a row says otherwise
+            if (auto const tint = material->others.find(std::string(toon_colour_row[lane_index])); tint != material->others.end()) {
+                std::string_view rest = tint->second;
+                for (int32_t component = 0; component < 4 && !rest.empty(); ++component) {
+                    std::size_t const comma = rest.find(',');
+                    std::string_view const field = rest.substr(0, comma);
+                    float value = 0.0f;
+                    if (auto const result = std::from_chars(field.data(), field.data() + field.size(), value); result.ec == std::errc{}) {
+                        outline[component] = value;
+                    }
+                    rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+                }
+            }
+            // ... AND THE WIDTH, which is a `float` row rather than part of the colour row. A material with no
+            // `_OutlineWidth` row gets 0.0, i.e. no outline - the only answer that leaves the frame where it was.
+            outline.w = material->scalar("_OutlineWidth", 0.0f);
+            return outline;
+        }
+        auto const row = material->others.find(std::string(toon_colour_row[lane_index]));
+        if (row == material->others.end()) {
+            return toon_colour_neutral[lane_index];
+        }
+        glm::vec4 parsed = toon_colour_neutral[lane_index];
+        std::string_view rest = row->second;
+        for (int32_t component = 0; component < 4 && !rest.empty(); ++component) {
+            std::size_t const comma = rest.find(',');
+            std::string_view const field = rest.substr(0, comma);
+            float value = 0.0f;
+            if (auto const result = std::from_chars(field.data(), field.data() + field.size(), value); result.ec == std::errc{}) {
+                parsed[component] = value;
+            }
+            rest = comma == std::string_view::npos ? std::string_view{} : rest.substr(comma + 1);
+        }
+        return parsed;
+    };
+    // THE SCALAR LOOKUP, for the one toon fact that is neither a map nor a colour: the article's TRANSPARENT
+    // variant, which `M_actor_chen_cloth_02` selects with `_SrcBlend 5` / `_DstBlend 10` (Unity's `SrcAlpha` /
+    // `OneMinusSrcAlpha`) while its glTF `alphaMode` stays OPAQUE. The two rows are read by NAME through this
+    // callback so the runtime never has to know what a sidecar is (see `toon_lookup::scalar`), and the pair is
+    // mapped to `toon_inputs::alpha_blend` only when BOTH say the standard alpha equation - 5/10 is the only
+    // pair any material in this repository states, and any other pair is left alone rather than guessed at.
+    auto const toon_scalar = [](void* const owner, std::string_view const material_name, std::string_view const row, float const fallback) -> float {
+        toon_lookup_state const& state = *static_cast<toon_lookup_state*>(owner);
+        if (state.sidecar == nullptr) {
+            return fallback;
+        }
+        toon::material_sidecar const* const material = state.sidecar->find(material_name);
+        if (material == nullptr) {
+            return fallback;
+        }
+        return material->scalar(row, fallback);
     };
     toon_lookup_state toon_state{.sidecar = toon_sidecar.has_value() ? &*toon_sidecar : nullptr, .scenes = &*scenes};
     toon_state.baked_unit_ramp = bake_unit_ramp();
     toon_state.baked_ramp_width = baked_ramp_width;
     toon_state.baked_ramp_height = baked_ramp_height;
+    toon_state.baked_neutral_ramp = bake_neutral_ramp();
+    toon_state.baked_neutral_ramp_width = baked_neutral_ramp_width;
+    toon_state.baked_neutral_ramp_height = baked_neutral_ramp_height;
     toon_state.baked_shadow_lut = bake_shadow_lut();
     toon_state.baked_lut_width = baked_lut_width;
     toon_state.baked_lut_height = baked_lut_height;
     toon_state.baked_matcap = bake_matcap();
     toon_state.baked_matcap_size = baked_matcap_size;
-    runtime.set_toon_lookup(vulkan::runtime::toon_lookup{.owner = &toon_state, .texture = toon_texture});
+    runtime.set_toon_lookup(vulkan::runtime::toon_lookup{.owner = &toon_state, .texture = toon_texture, .colour = toon_colour, .scalar = toon_scalar});
 
     // ---- THE HEAD FRAME the face SDF shades against, resolved once here and published every frame ----
     //
@@ -766,6 +1171,43 @@ int main(int argc, char** argv) {
             utility::log("head frame: no head bone in '{}' ({} skin(s)) - shading from the reference's fallback frame", model_path, scenes->skins.size());
         }
         runtime.set_head_basis(vulkan::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f)});
+    }
+
+    // ---- THE TOON LIGHT RIG, published once, before the frame loop ----
+    //
+    // THE ONE CONFIG KNOB THE RIG TAKES SO FAR IS THE DAY STRENGTH, and it is the one the two-state lighting is
+    // driven by - so it is the one an A/B capture has to be able to move. Every other rig number keeps
+    // `vulkan::toon_rig`'s own default, which is the article's value.
+    //
+    // PUBLISHING HERE RATHER THAN IN THE FRAME LOOP IS THE BLOCK'S CONTRACT (see core::heap_slots::toon_rig):
+    // nothing rewrites it while a frame is in flight, which is what makes a write from outside the frame path
+    // safe - and the cost of that is exactly this, that the write has to happen before the loop starts.
+    {
+        vulkan::toon_rig rig = {};
+        rig.day.x = settings.toon.day_strength;
+        rig.other_light.x = settings.toon.head_light_day0;
+        rig.other_light.y = settings.toon.head_light_day1;
+        rig.other_colour = glm::vec4(settings.toon.head_light_colour[0], settings.toon.head_light_colour[1], settings.toon.head_light_colour[2], 0.0f);
+        rig.main_dark.x = settings.toon.sun_dark_colour[0];
+        rig.main_dark.y = settings.toon.sun_dark_colour[1];
+        rig.main_dark.z = settings.toon.sun_dark_colour[2];
+        rig.env.x = settings.toon.env_strength;
+        rig.env.y = settings.toon.env_rotation;
+        rig.env.z = settings.toon.specular_strength;
+        rig.env.w = settings.toon.diffuse_blend_effect;
+        rig.rim.x = settings.toon.rim_area;
+        rig.rim.y = settings.toon.rim_strength;
+        rig.rim.z = settings.toon.rim_nolxz_strength;
+        rig.misc.x = settings.toon.backlight_strength;
+        // THE FACE'S EXPRESSION INDEX rides the head light's colour block's fourth lane, which was unused and is
+        // named in `vulkan::toon_rig` - the same zero-cost reuse the material record's `toon_family` makes.
+        rig.other_colour.w = settings.toon.emotion_type;
+        runtime.set_toon_rig(rig);
+        utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}",
+                     rig.day.x,
+                     rig.other_light.y,
+                     rig.other_light.x,
+                     rig.env.x);
     }
 
     vulkan::scene_import_result const imported = runtime.import_scene(node_first, node_last, scene_first, scene_last, scene_import_shift);

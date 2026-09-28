@@ -621,14 +621,46 @@ namespace vulkan {
              *       group count is the survivor count and no workgroup is launched for a culled meshlet.
              */
             static constexpr uint32_t meshlet_culled = heap_slot_base + 747u;
-            // THE FACE SDF LANE TABLE: one uint per material, written once at import. See
-            // heap_slot_constants.glsl for why it is a buffer of its own rather than a fifth component of the
-            // material record, and why it is one descriptor rather than a per-frame pair.
-            static constexpr uint32_t sdf_lanes = heap_slot_base + 748u;
+            // THE TOON LANES THAT DO NOT FIT THE MATERIAL RECORD: one `uvec4` per material, written once at
+            // import. x is the face SDF map's texture-array index (`_SDFLightmap`), y the metallic/gloss map's
+            // (`_MetallicGlossMap`), and z and w are reserved for the lanes the rest of the character work
+            // adds. See heap_slot_constants.glsl for why they are a buffer of their own rather than components
+            // of the material record, and why it is one descriptor rather than a per-frame pair.
+            static constexpr uint32_t toon_lanes = heap_slot_base + 748u;
             // THE HEAD FRAME the face SDF shades against, one block per frame slot because on a model whose
             // head turns it changes every frame. It is its own block rather than a field of the camera's: the
             // head frame belongs to the CHARACTER, not to the eye looking at it.
             static constexpr uint32_t scene_head = heap_slot_base + 749u;
+            // THE TOON LIGHT RIG (`vulkan::toon_rig`): the character stage's global numbers - the sun/head-light
+            // split, their shadow-side colours and the chain's scalars - written once from the application's
+            // config. ONE descriptor and not a per-frame pair, because the values are fixed for a run exactly as
+            // the material table's and the toon lane table's are: nothing writes it while a frame is in flight.
+            //
+            // ONE SLOT PAST THE HEAD BLOCK AND NOT BESIDE IT, which is a MEASURED correction rather than
+            // spacing: `scene_head` above is a PER-FRAME-SLOT array, so it occupies 749 AND 750 (two frames in
+            // flight), and a rig placed at 750 was therefore overwritten every frame by the second slot's head
+            // frame. What that looked like was not a crash and not a validation error: the rig simply read as the
+            // head frame's own numbers - `_DayStrength` came out of the head basis' first lane, i.e. zero - so
+            // the two-state lighting silently sat in its NIGHT state for every frame of both captures. The
+            // captures differed by 0 pixels before this line moved.
+            static constexpr uint32_t toon_rig = heap_slot_base + 751u;
+            // THE MATERIAL COLOURS (see `vulkan::toon_colour_lane`): one `vec4` per lane per material, written once
+            // at import from the same sidecar the texture lanes come from. A buffer of its own because the value is
+            // FOUR FLOATS and the material record has nowhere to put it here: the record is INLINE in the per-draw
+            // push block (see `sdf_lanes` above for the measurement), so a colour lane could not be a record field
+            // even if the record had room. The REFERENCE PORT solved the same problem by growing ITS record from
+            // 128 B to 192 B - a shape this renderer cannot copy, and does not need to, because the lane table
+            // pattern already exists here.
+            //
+            // ... AND BECAUSE THEY LIVE HERE RATHER THAN IN THE RECORD, THEY ARE THEIR OWN TERM OF THE MATERIAL
+            // DEDUP KEY: `material_slot_cache` (see `runtime.declarations.cppm`) keys the record, the two texture
+            // lane blocks AND these six lanes' bytes, because `register_material` writes this table only AFTER its
+            // early return - six lanes left out of the key are six lanes the second of two record-identical
+            // materials reads from the first one. See the "材质去重键补上 colour lanes" section of `remaining_port_spec.md` for the probe.
+            static constexpr uint32_t toon_colours = heap_slot_base + 752u;
+            /// THE ARTICLE'S POST LUT: see `runtime::set_post_lut` and `heap_slots_post_lut` in the shader's slot
+            /// file, which `test_render_resources` holds against this spelling.
+            static constexpr uint32_t post_lut = heap_slot_base + 753u;
             static constexpr uint32_t scene_camera = heap_slot_base + 514u;        // binding 0, per frame slot
             static constexpr uint32_t scene_light = heap_slot_base + 516u;         // binding 7, per frame slot
             static constexpr uint32_t cluster_counts = heap_slot_base + 518u;      // binding 11, per frame slot
@@ -981,6 +1013,57 @@ namespace vulkan {
          * @return vk_pipeline on success, error message on failure
          */
         std::expected<vk_pipeline, std::string_view> make_character_forward_pipeline(
+            std::span<uint8_t const> vertex_shader_code,
+            std::span<uint8_t const> fragment_shader_code,
+            VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;
+
+        /**
+         * @ingroup vulkan_core
+         * @brief build the OVERLAY pipeline: the article's two framebuffer multiplies (`MyZmdEyeDarkShader`,
+         *        `MyZmdHairShadowShader`), which darken an already shaded character by a mask
+         *
+         * WHAT MAKES IT AN OVERLAY, and each of the four facts is forced:
+         *  - ONE target, and it is `hdr_format`: the multiply has to read the TOON result, which lives in the
+         *    HDR chain before the resolve - the same reason `make_character_forward_pipeline` takes this format.
+         *  - BLEND `dst = src * dst` (`make_color_blend_attachment_multiply`). This is the article's
+         *    `BlendOp Multiply` / `Blend 5,1` expressed in core Vulkan factors, so no blend extension is needed;
+         *    see that function for the derivation and for why the alpha channel is left alone.
+         *  - DEPTH TEST ON, compare `LESS_OR_EQUAL` (and NOT the toon stage's `EQUAL`): an overlay is a different
+         *    mesh whose quads sit slightly in FRONT of the surface they darken, so `EQUAL` would reject it.
+         *  - DEPTH WRITE is not set here because it is a DYNAMIC state: the character-forward pass has already
+         *    turned it off and LOCKED it for the whole instance (see `render_environment::depth_write_locked`),
+         *    which is also what keeps the mask from occluding anything.
+         *
+         * WHAT IS NOT REPRODUCED IS THE ARTICLE'S STENCIL on the hair shadow (`Stencil { Ref 1 Comp Equal Pass
+         * Keep }`), and it is unreachable rather than omitted: this renderer's dynamic rendering info declares
+         * `stencilAttachmentFormat = VK_FORMAT_UNDEFINED` (see vulkan/constant_init), so no pass in the chain has
+         * a stencil plane to test against. The substitute is the geometry's own coverage - the mask meshes are
+         * shaped to the features they darken - which is why the difference is recorded here rather than hidden.
+         *
+         * @param vertex_shader_code the MESH stage that emits the geometry (docs/mesh_shaders.md step 4: the
+         *        geometry path is mesh-only, so this is `pbr.mesh.spv`, exactly as the toon stage uses)
+         * @param fragment_shader_code the overlay fragment stage (`overlay.frag.spv`)
+         * @param first_stage MESH for the mesh entry, MESH for the meshlet entry
+         * @return vk_pipeline on success, error message on failure
+         */
+        std::expected<vk_pipeline, std::string_view> make_overlay_pipeline(
+            std::span<uint8_t const> vertex_shader_code,
+            std::span<uint8_t const> fragment_shader_code,
+            VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;
+        /**
+         * @brief the ARTICLE'S ① 描边 pipeline: the inverted hull, drawn over the toon result
+         *
+         * THREE STATES, and each is the article's rather than a preference: ONE HDR colour target (the hull is part
+         * of the character stage, so it lands where that stage wrote and the tonemap stays the post chain's), an
+         * OPAQUE blend (`MyZmdOutlineShader` states no `Blend`), and `LESS_OR_EQUAL` - the article's own `ZTest`
+         * default, which is also the only operator that can keep a hull's outer ring, since those fragments are
+         * not the surface the G-buffer recorded (see the definition in core.cpp).
+         *
+         * CULL FRONT IS NOT A PARAMETER HERE: the rasterization state is dynamic, so the front-face culling that
+         * makes a hull an outline is `render_environment::forced_cull_front`, set by the character-forward pass
+         * around the outline group only.
+         */
+        std::expected<vk_pipeline, std::string_view> make_outline_pipeline(
             std::span<uint8_t const> vertex_shader_code,
             std::span<uint8_t const> fragment_shader_code,
             VkShaderStageFlagBits first_stage = VK_SHADER_STAGE_MESH_BIT_EXT) const;

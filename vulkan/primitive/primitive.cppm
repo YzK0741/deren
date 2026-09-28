@@ -166,6 +166,65 @@ namespace vulkan {
 
     /**
      * @ingroup vulkan_primitive
+     * @brief the TOON LIGHT RIG's global numbers (scene block slot 750), written once from the application's config
+     *
+     * WHAT BELONGS HERE, AND THE BOUNDARY IS THE POINT: a FAMILY's numbers live in `shaders/toon_params.slang`,
+     * because two stages must agree about them, and a MATERIAL's live in the material record or in the sidecar
+     * beside the model. What is left is the RIG - the numbers the article tunes once for a whole character
+     * whatever it is wearing: the split between the SUN and the head light the game adds over every character, the
+     * colours those two take on a surface's shadow side, and the global scalars the shading chain multiplies by.
+     * They change when the art direction changes rather than per material, so they are one block and not a field
+     * of every record.
+     *
+     * THE LANES ARE THE ARTICLE'S OWN VOCABULARY (`_DayStrength`, `_OtherLight*`, `_MainLightColor_dark`, ...),
+     * packed four to a `vec4` so no layout question can arise - `head_ubo` above makes the same choice for the
+     * same reason. The shader's `ToonRigUBO` names every lane in its own comments; the two must be read together,
+     * and the defaults below are the article's values wherever it states one.
+     */
+    export struct toon_rig {
+        /// x = `_DayStrength` (0 = the sun is gone and the head light carries the character, 1 = full sun),
+        /// y = `_OtherLightOffset`, z = `_OtherLightStrength`, w = `_OtherLightStrength_Offset`
+        glm::vec4 day = glm::vec4(1.0f, 0.0f, 1.0f, 0.0f);
+        /// x = `_OtherLightResultStrength_day0`, y = `_OtherLightResultStrength_day1`,
+        /// z = `_SelfAoShadowStrength`, w = the metallic/gloss map's occlusion exponent (`_AoStrength`)
+        ///
+        /// x/y ARE THE AUTHOR'S OWN DEFAULTS (0.7 / 0.3), which all SIX of its shaders declare identically
+        /// (`MyZmdToonShader.shader:79-80`, `MyZmdHairToonShader.shader:63-64`, `MyZmdSkinToonShader.shader:58-59`,
+        /// `MyZmdFaceShader.shader:68-69`, `MyZmdEyeShader.shader:71-72`, `MyZmdOutlineShader.shader:12-13`).
+        /// The port carried 1.0 / 0.25 - its own numbers, and ones that made the head light's DAY-1 share 3.3x
+        /// the author's. `head_day1` is live at the default `day_strength = 1` (`mainLightColor_final =
+        /// lerp(head_day0, sun + head_day1, day)`), so both were visible; `head_day0` only at day < 1.
+        glm::vec4 other_light = glm::vec4(0.7f, 0.3f, 1.0f, 1.0f);
+        /// rgb = `_OtherLightColor` - the head light's colour on the SHADOW side of a surface
+        glm::vec4 other_colour = glm::vec4(0.60f, 0.65f, 0.80f, 0.0f);
+        /// rgb = `_MainLightColor_dark` - the sun's colour on a surface's shadow side; a = `_BaseColorPow`
+        glm::vec4 main_dark = glm::vec4(0.60f, 0.65f, 0.80f, 1.0f);
+        /// x = `_RimLightArea`, y = `_RimLightStrength`, z = `_RimLightNoLxzStrength`,
+        /// w = `_RimLightDiffuseColorEffect`
+        ///
+        /// x AND w ARE THE AUTHOR'S DEFAULTS (1.0 and 0.1), which every one of its rim-carrying shaders declares
+        /// identically (`MyZmdToonShader.shader:101/104`, `MyZmdHairToonShader.shader:85/88`,
+        /// `MyZmdSkinToonShader.shader:78/81`, `MyZmdFaceShader.shader:83/86` - the EYE has no rim at all).
+        /// The port carried x = 0.5 and w = 1.0, and the second is the bigger of the two by far: `w` is
+        /// `rimLight_brdf = (mainDiffuseColor_Light - 0.25) * w + 0.25`, so at 1.0 the rim's brightness tracks the
+        /// material's own lit layer TEN TIMES as strongly as the author's 0.1 does. `x` moves the window the rim
+        /// occupies: `rimStart = x * -0.6 + 0.8`, `rimEnd = x * -0.4 + 0.9`, so 0.5 puts it at 0.5..0.7 and the
+        /// author's 1.0 at 0.2..0.5 - a wider band starting further from the silhouette.
+        glm::vec4 rim = glm::vec4(1.0f, 1.0f, 1.0f, 0.1f);
+        /// rgb = `_SssColor`, a = `_SssPowStrength`
+        glm::vec4 sss = glm::vec4(1.0f, 0.80f, 0.78f, 1.0f);
+        /// x = `_EnvLightStrength`, y = `_EnvRotation` in degrees, z = `_SpecularStrength`,
+        /// w = `_DiffuseBlendEffect`
+        glm::vec4 env = glm::vec4(1.0f, 0.0f, 1.0f, 1.0f);
+        /// x = the backlight compensation's weight, y = `_NoFStrength`, z = `_NoFPowStrength`,
+        /// w = `_RampColorNoLStrength`
+        glm::vec4 misc = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+    };
+    // 128: eight vec4s, so the shader's copy is the same eight members with no padding to agree about.
+    static_assert(sizeof(toon_rig) == 8 * sizeof(glm::vec4));
+
+    /**
+     * @ingroup vulkan_primitive
      * @brief light UBO content, layout matches the LightUBO block in shaders/shading.glsl and
      *        shadow.vert (scene block slot 7): the per-cascade light-space view-projections, the
      *        light direction, the cascade ranges/texel sizes, then the punctual light array
@@ -384,12 +443,126 @@ namespace vulkan {
      * mapping between the two belongs where the sidecar is read, not in a record layout.
      */
     export enum class toon_slot : uint32_t {
-        diffuse_ramp = 0,  // `_DiffRampMap`: what the lit/shadow ramp is looked up in
-        shadow_lut = 1,    // `_ShadowLutTex`: the colour the shadow side is tinted toward
-        specular_ramp = 2, // `_SpecRampMap`: the highlight's shape and strength
-        matcap = 3,        // `_MatcapTex`: the eye's reflection map
-        sdf_lightmap = 4,  // `_SDFLightmap`: the FACE's shadow terminator, as a 2D distance field
-        count = 5,
+        diffuse_ramp = 0,   // `_DiffRampMap`: what the lit/shadow ramp is looked up in
+        shadow_lut = 1,     // `_ShadowLutTex`: the colour the shadow side is tinted toward
+        specular_ramp = 2,  // `_SpecRampMap`: the highlight's shape and strength
+        matcap = 3,         // `_MatcapTex`: the eye's reflection map
+        sdf_lightmap = 4,   // `_SDFLightmap`: the FACE's shadow terminator, as a 2D distance field
+        metallic_gloss = 5, // `_MetallicGlossMap`: metallic / reflectivity / ambient occlusion / smoothness
+        sdf_mask = 6,       // `_SDFMask`: the face's own mask - SSS region, neck blend, SDF normal, rim region
+        emotion = 7,        // `_EmotionMap`: the 2x2 expression atlas the face's own uv is read into
+        split_normal = 8,   // `_SplitNormalMap` (`_UseSpecBumpMap`): TWO tangent-space normals packed in one map
+        count = 9,
+    };
+    // THE LANES SPLIT INTO TWO GROUPS, and the split is a fact about the material record rather than a
+    // convenience: lanes 0..3 ride `material_record::toon_indices`, and every lane from 4 on is carried BESIDE
+    // the record in `core::heap_slots::toon_lanes` - because the record is INLINE in the per-draw push block
+    // and a word added to it moves every offset in `surface.glsl` and `shadow.slang` (see that slot's note).
+    // A lane added at or after `sdf_lightmap` therefore costs a component of that buffer and NOTHING here but
+    // an entry in the enum, the format table in `register_material`, and the application's vocabulary table.
+    inline constexpr uint32_t toon_record_lanes = 4;
+    static_assert(static_cast<uint32_t>(toon_slot::sdf_lightmap) == toon_record_lanes,
+                  "the first lane beside the record is the one the split is named for");
+    // AND THE LANES BESIDE THE RECORD COME IN BLOCKS OF FOUR, because they are carried as `uvec4`s: lanes 4..7 in
+    // the first block, 8..11 in the second. The shader addresses the buffer by block, so this number is half of a
+    // contract (see the stage's `character_toon_lane_blocks`), and a lane added past a block boundary needs the
+    // block count raised rather than the lane appended.
+    // `export` BECAUSE THE RUNTIME NEEDS IT FOR A TYPE: the material dedup key is a `data_block` whose size is
+    // `sizeof(record) + toon_lane_blocks * sizeof(uvec4) + toon_colour_lane::count * sizeof(vec4)`, and that key is
+    // declared in `runtime.declarations.cppm` - a different module. A non-exported constant is not visible there
+    // (measured: "declaration of 'toon_lane_blocks' must be imported from module 'vulkan.primitive' before it is
+    // required"), which is why the sibling above it is module-private and this one is not.
+    //
+    // THE KEY HAS A THIRD TERM AND IT IS THE COLOUR LANES - the `toon_colour_lane::count` `vec4`s below, which
+    // live outside the record for the same reason these blocks do and are written after the dedup's early return.
+    // They are spelled through that enum rather than as a number, so adding a lane widens the key by itself; see
+    // `toon_lane_blocks`'s consumers in `runtime.declarations.cppm` and the "材质去重键补上 colour lanes" section of `remaining_port_spec.md`.
+    export inline constexpr uint32_t toon_lane_blocks = 2;
+    static_assert(static_cast<uint32_t>(toon_slot::split_normal) == toon_record_lanes + toon_lane_blocks * 4u - 4u,
+                  "split_normal is the first lane of the second block");
+
+    /**
+     * @brief the MATERIAL COLOURS the game's own parameter table carries, in `toon_inputs::colours` order
+     *
+     * A SECOND KIND OF VALUE BESIDE THE TEXTURES, and it needs its own lanes for a reason the texture lanes do not
+     * have: a `color` row is four floats - `_EyeHighLightColor` is (2.399, 1.885, 2.038) on chen's iris - so it
+     * cannot ride the `uvec4` of texture indices, and the material record has no room for it (see
+     * `core::heap_slots::toon_colours` for why growing the record is not an option here).
+     *
+     * ONLY THE LANES SOMETHING READS ARE HERE. The parameter table carries more colours than this (an eye tint, an
+     * outline tint, a matcap tint on chen alone); a lane nobody consumes would be a second source of truth for a
+     * value that has none, which is the arrangement this repository keeps refusing.
+     *
+     * THE OUTLINE LANE IS THE ONE THE LIST USED TO NAME AS UNCLAIMED, and it carries TWO numbers in its four
+     * floats because the article's outline needs two and they are stated by the SAME material rows: `.rgb` is the
+     * game's `_OutlineTintColor` - the author's `_OutlineColor` (`MyZmdOutlineShader.shader:15`) - and `.w` is its
+     * `_OutlineWidth` (`:7`), which the outline hull's own geometry stage reads as its `> 0` gate. A separate
+     * lane for the second number would be a second carrier for one material's one statement, and the material
+     * record cannot take either (see the note above).
+     *
+     * EVERY LANE HERE IS ALSO A TERM OF THE MATERIAL DEDUP KEY, and that is a property of the ENUM rather than
+     * of the caller: the key's third component is `toon_colour_lane::count` `vec4`s (see `toon_lane_blocks`), so
+     * a lane added below widens the key by itself and nothing has to be remembered at the key. The failure that
+     * made this a term is worth knowing before adding the next one: the lanes are written AFTER the dedup's early
+     * return, so a lane OUTSIDE the key is a lane the second of two record-identical materials reads from the
+     * first - a wrong value rather than a missing one, and invisible in the frame unless some other scene happens
+     * to contain such a pair (see the "材质去重键补上 colour lanes" section of `remaining_port_spec.md`).
+     */
+    export enum class toon_colour_lane : uint32_t {
+        sdf_rim = 0,        // `_SDFRimColor`: the FACE's own rim colour, read where the SDF drives the rim
+        eye_highlight = 1,  // `_EyeHighLightColor`: the iris' highlight tint
+        eye_scattering = 2, // `_EyeScatteringColor`: the iris' scattering tint
+        outline_edge = 3,   // `_OutlineTintColor` (rgb) and `_OutlineWidth` (w): the toon outline's tint and width
+        /**
+         * `_Specular` in `.x`: the material's own SPECULAR STRENGTH, which the family table could only
+         * approximate - see below. `.y` / `.z` / `.w` are unused and reserved.
+         *
+         * THE ONE LANE THAT IS NOT A COLOUR, and it is here for the reason the lane above carries a width: the
+         * value is PER MATERIAL, it is a scalar, and the material record cannot take it (the note at the top of
+         * this enum says why - 80 bytes, inline in the per-draw push block, and it is already full). The four
+         * floats of a lane are the only per-material storage this renderer has, so a scalar that must be
+         * per-material rides one, exactly as `_OutlineWidth` does.
+         *
+         * WHY IT EXISTS AT ALL: `shaders/toon_params.slang` holds the toon parameters PER FAMILY, and
+         * `spec_strength` was that table's reading of the game's `_Specular` (skin 0.454, cloth/face/hair 1.0,
+         * eye 0.0). The game states the value PER MATERIAL, and on chen one material disagrees with its family:
+         * `M_actor_chen_brow_01` is classified `face` and states `_Specular = 0.0` against the face family's
+         * 1.0, so the brow wore a highlight no one authored. The value arrives from the asset's own `extras`
+         * block (`gltf::claimed_extras_floats`) rather than from the sidecar, which carries no `_Specular` row
+         * at all - it is the first property of a third source, and it is connected one property at a time.
+         *
+         * `.x < 0` MEANS "THE ASSET STATES NOTHING", and that sentinel is the honest form rather than a
+         * default: `0.0` is a VALUE the game states (the iris, the brow), so it cannot double as "absent", and
+         * filling an absent lane with a number here would mean this side had resolved a fallback that belongs
+         * to the family table in the shader - a second source of truth for exactly the constants this lane is
+         * meant to let the asset override. `toon_inputs::colours` therefore starts this lane at `-1`, and the
+         * stage reads `lane.x >= 0 ? lane.x : params.spec_strength`.
+         *
+         * IT IS NO LONGER THE ONLY LANE OF THIS KIND: `parallax_scale` below is the second, from the same source
+         * and with the same sentinel contract, and the two are the pair this table's per-material scalars ride.
+         */
+        specular_strength = 4, // `_Specular`: the material's own specular strength (`.x`; <0 = the family's)
+        /**
+         * `_ParallaxScale` in `.x`: the material's own PARALLAX DEPTH - the distance the iris' albedo lookup
+         * slides behind the cornea (`.y` / `.z` / `.w` are unused and reserved).
+         *
+         * THE SECOND SCALAR TO RIDE A LANE FOR THE SAME REASON AS THE FIRST: it is PER MATERIAL, the material
+         * record cannot take it, and the asset's `extras` block is the only source that states it per material
+         * (`gltf::claimed_extras_floats`). What it replaces is `shaders/character_forward.slang`'s own
+         * `character_eye_parallax_depth` constant - the value of ONE material (`M_actor_chen_iris_01`, 0.03)
+         * that the stage used to apply to every material the eye path runs on, with a note saying the per-material
+         * value could not be carried. The asset states 0.03 on the iris and 0.5 on the brow, so the constant was
+         * right for the iris and wrong for the brow - and the two are the whole visible difference of this lane.
+         *
+         * `.x < 0` MEANS "THE ASSET STATES NOTHING", the same sentinel contract as the lane above and for the
+         * same reason: `0.0` is a legitimate authored value here (a material that wants no parallax at all would
+         * state it), so it cannot double as "absent". No material in `zmd-ab/extras_dump.md` states 0 (the domain
+         * there is 0.03 / 0.5), but that is not what makes the sentinel right - the value's own domain does. The
+         * stage reads `lane.x >= 0 ? lane.x : character_eye_parallax_depth`, i.e. a material that states no such
+         * row keeps the frame it had before this lane existed.
+         */
+        parallax_scale = 5, // `_ParallaxScale`: the material's own parallax depth (`.x`; <0 = the stage's constant)
+        count = 6,
     };
 
     /**
@@ -404,6 +577,50 @@ namespace vulkan {
      */
     export struct toon_inputs {
         std::array<texture_input, static_cast<std::size_t>(toon_slot::count)> slots = {};
+        /**
+         * THE MATERIAL'S OWN COLOURS (see `toon_colour_lane`), each one NEUTRAL BY DEFAULT.
+         *
+         * WHITE IS THE NEUTRAL, and it is chosen rather than left zero for the reason every other default here is
+         * chosen: a missing row must leave the shading exactly where it was. White does that for a multiply-tint
+         * (the eye's two region colours) and for a rim colour, whereas (0,0,0,0) would black them out - which is
+         * the failure mode of a lane whose absence is indistinguishable from a black value.
+         *
+         * THE OUTLINE LANE IS THE EXCEPTION, AND ITS `.w` IS 0.0 FOR THE SAME REASON THE OTHERS ARE WHITE: the
+         * four floats of that lane are not all the same kind of value. `.rgb` is a tint, where white is the no-op,
+         * and `.w` is a WIDTH, where 0 is the no-op - a material with no `_OutlineWidth` row must not be outlined
+         * at all, and the shader's gate is exactly `w > 0`. White in `.w` would draw an outline of width 1.0
+         * around every material that states no outline, which is the whole character.
+         *
+         * ... AND THE TWO SCALAR LANES' NEUTRALS ARE NEITHER, WHICH ARE THE PLACES THIS TABLE CARRIES A SENTINEL:
+         * their `.x` is `-1.0`, meaning "the asset states no such row for this material". A "no-op" number does
+         * not exist for either - the value IS the term's strength (`_Specular`) or its depth (`_ParallaxScale`),
+         * so any number in the value's own range would be one the port invented (and `0.0`, the tempting one, is
+         * a value the game really states on the iris and the brow for `_Specular`, and a legitimate authored
+         * "no parallax" for `_ParallaxScale`). `-1` is outside either value's range and therefore cannot be
+         * confused with a statement; the stage's test is `>= 0.0` on both (see
+         * `toon_colour_lane::specular_strength` and `toon_colour_lane::parallax_scale`).
+         */
+        std::array<glm::vec4, static_cast<std::size_t>(toon_colour_lane::count)> colours = {glm::vec4(1.0f),
+                                                                                            glm::vec4(1.0f),
+                                                                                            glm::vec4(1.0f),
+                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 0.0f),
+                                                                                            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f),
+                                                                                            glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)};
+        /**
+         * THE AUTHOR'S TRANSPARENT VARIANT (`_TRANSPARENT_ON`), which its sidecar selects with the PAIR
+         * `_SrcBlend 5` / `_DstBlend 10` - Unity's `SrcAlpha` / `OneMinusSrcAlpha`.
+         *
+         * WHY IT IS A FLAG AND NOT A BLEND STATE: the pipeline is per-PASS in this renderer (the pass binds one
+         * pipeline and every leaf draws with it), so a per-material blend cannot be a pipeline property. What it
+         * CAN be is a per-material DEPTH-WRITE plus a per-material OUTPUT ALPHA, because both of those are
+         * already dynamic state and shader output: the pass turns standard alpha blending on for the whole
+         * group - which for an alpha of 1 is bit-identical to the overwrite it replaces - and this flag says
+         * which materials hand the shader a real coverage instead.
+         *
+         * FALSE BY DEFAULT, and that is the contract every other field here keeps: a material the sidecar says
+         * nothing about is drawn exactly as it was.
+         */
+        bool alpha_blend = false;
     };
 
     /**
@@ -435,6 +652,20 @@ namespace vulkan {
          * matching strings. 0 == `toon_family::none`.
          */
         uint32_t toon_family = 0;
+
+        /**
+         * THE OVERLAY CHANNEL (`gltf::overlay_kind`), carried onto the primitive and NOT into the material
+         * record - which is the opposite of what the family does, and the difference is what the fact is FOR.
+         *
+         * The family is a fact about SHADING, so the shader that shades the surface has to read it and it
+         * belongs in the record. This one is a fact about WHICH PASS DRAWS THE SURFACE, so it is read by the
+         * HOST while it is building the frame's leaf lists - long before any shader exists - and a lane in the
+         * record would be a second copy of a decision the host has already made. It is the same shape as
+         * `transparent`, which sits on the primitive for exactly this reason (see its note).
+         *
+         * 0 == `overlay_kind::none`: an ordinary surface, shaded and drawn by the passes that always drew it.
+         */
+        uint32_t overlay_kind = 0;
 
         /**
          * THE TOON TEXTURE INPUTS, filled by whoever installs a `toon_lookup` - the application, which is the
@@ -485,7 +716,10 @@ namespace vulkan {
         float metallic_factor = 1.0f;
         float roughness_factor = 1.0f;
         float normal_scale = 1.0f;
-        uint32_t flags = 0; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided, bit4: alphaMode MASK, bit5: alphaMode BLEND
+        uint32_t flags = 0; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided, bit4: alphaMode MASK, bit5: alphaMode BLEND, bit6: the EYE-DARK overlay, bit7: the HAIR-SHADOW overlay, bit8: the author's toon TRANSPARENT variant (see toon_inputs::alpha_blend)
+                            // (bits 6 and 7 are the article's two overlay channels - see `overlay_kind` in
+                            // gltf_loader and the note in register_material: the overlay fragment stage branches
+                            // on them because the two masks compute different multipliers from the same inputs)
         /**
          * THE TOON TEXTURE SLOTS, which are the ones glTF's five cannot reach.
          *
@@ -749,6 +983,40 @@ namespace vulkan {
         // back-to-front order). The GPU material record also carries the flag; this mirror on
         // the primitive lets draw() pick the depth-write state without a GPU readback.
         bool transparent = false;
+        /**
+         * THE OVERLAY CHANNEL THIS PRIMITIVE BELONGS TO (`gltf::overlay_kind`; 0 == none), i.e. whether the
+         * frame's leaf lists put it in the overlay pass rather than in the shading passes.
+         *
+         * IT IS A LIST-BUILDING FACT AND NOT A DRAW-TIME ONE, which is why it is read while the frame's leaves
+         * are collected rather than by draw(): an overlay surface must be ABSENT from the opaque, transparent
+         * and shadow lists altogether - not drawn-and-then-ignored - because those passes would shade it (the
+         * measured 8.22% of the standard frame and 68.92% of the face close-up that made this port necessary)
+         * and the shadow pass would let its quad cast a shadow of its own onto the face it darkens.
+         *
+         * The same shape as `transparent` above: a fact the host needs, mirrored on the primitive so no GPU
+         * readback is involved in a decision about which list a leaf goes into. See `overlay_kind_of` in
+         * gltf_loader for what the number means and `runtime::frame_overlay` for the list it selects.
+         */
+        uint32_t overlay_kind = 0;
+
+        /**
+         * THE MATERIAL'S OUTLINE WIDTH (`toon_colour_lane::outline_edge`'s `.w`, i.e. the game's
+         * `_OutlineWidth`), mirrored onto the primitive so the FRAME can decide which leaves the ① outline
+         * group draws without a GPU readback.
+         *
+         * IT IS THE SAME KIND OF FACT AS `overlay_kind` ABOVE AND IS MIRRORED FOR THE SAME REASON: the colour
+         * lanes are uploaded into `core::heap_slots::toon_colours`, one `vec4` per lane per material, and the
+         * per-material `material_record` is fixed at 96 bytes and explicitly refused growth (see the record's
+         * own note). The frame's leaf lists are therefore built while the only thing available is the
+         * primitive, exactly as they are for the overlay channel - and the shader reads the lane itself for the
+         * width, so this mirror is a LIST-BUILDING gate and never a second source of truth for the number.
+         *
+         * 0.0f MEANS "THIS MATERIAL HAS NO OUTLINE", WHICH IS THE `toon_inputs` DEFAULT for that lane's `.w`
+         * and the article's own gate (`outline.slang` tests `w > 0`). It is NOT the white the other three lanes
+         * default to: white in `.w` would be a width of 1.0 around every material that states no
+         * `_OutlineWidth` row, which is the whole character.
+         */
+        float outline_width = 0.0f;
 
         // local-space AABB of this primitive's geometry (model space, i.e. before push.model);
         // filled by the runtime when the geometry is uploaded. has_bounds == false means "no

@@ -79,6 +79,27 @@ clear_color = [0.02, 0.02, 0.03]
 #   and --capture-camera pins an exact pose on top of either mode.
 camera_fit = "exterior"
 
+# camera_pose: pin the orbit camera exactly - `[yaw, pitch, distance, targetX, targetY, targetZ]`, the same six
+# numbers `--capture-camera` takes and the same six the log prints on exit, so a view can be pasted between them,
+# written into a config to make a bare run reproduce it, or reported by a user. ABSENT here on purpose: absent
+# leaves `camera_fit` in charge, and `--capture-camera` overrides either.
+#
+#   THE TARGET IS THE POINT THE ORBIT ROTATES ABOUT, which is what makes this worth setting for a character.
+#   Point it at the HEAD and the mouse orbits the head; leave it on the body centre and a few degrees of pitch
+#   swings the head straight out of a close-up (measured: at distance 0.45, 15 degrees of pitch moved the face
+#   about 500 px - enough that "look at the eyes from another angle" was not possible without re-aiming).
+#
+#   THE HEAD'S NUMBER IS ARITHMETIC, NOT TASTE. main.cpp shifts the model by `-scene_center + scene_sink` with
+#   `scene_sink = (0, -scene_radius, 0)`, so the model's CENTRE lands at `y = -scene_radius` and a camera_pose
+#   target is in THAT sunk space:
+#       target_y = head_model_y - scene_radius
+#   Both numbers are in the startup log's `scene bounds (aabb)` line. For `chen.glb` (`max.y` 1.780, radius
+#   1.092, iris mesh at model y 1.51) that is `1.56 - 1.092 = +0.47` below the origin, i.e. target y -0.47, and
+#   distance 1.0 frames head and shoulders. Measured with that pose: the head stays centred and in frame at
+#   pitch -25, 0, +25, +45 and at yaw +/-35 with pitch +/-15.
+#
+# camera_pose = [0.0, 0.0, 1.0, 0.0, -0.47, 0.0]
+
 # animation_time: pin the keyframe animation at this time in SECONDS, or -1 (the default) to play it. Only
 # matters for a model that carries animations, which the demo plays automatically on a loop.
 # WHY IT EXISTS: playback is driven by the WALL CLOCK (frame_clock::delta_seconds), so the pose at a given
@@ -369,3 +390,54 @@ lut_size      = 256   # BRDF LUT size
 # together with the overlay slots (which take priority if the two together would overflow the light
 # array). 0 = overlay lights only.
 demo_lights = 0
+
+# ---- [toon] the toon character stage's LIGHT RIG ----
+#
+# These are the 终末地 chain's GLOBAL numbers (see vulkan::toon_rig): the ones tuned once for a whole character
+# rather than per material. A material FAMILY's numbers live in shaders/toon_params.slang - they are a contract
+# between two shader stages - and a MATERIAL's come from the `.toon.tsv` sidecar beside the model. The defaults
+# below are the article's own values, so saying nothing here renders what this port was measured at.
+[toon]
+# day_strength: the article's `_DayStrength`, and the one knob that moves a frame most. 1 = the sun carries the
+#   character with the head light supplementing it; 0 = the sun's DIRECT term is removed ENTIRELY (no terminator,
+#   no light direction) and the head light plus the environment carry it, which is what the game shows for a
+#   character standing in a corner. Values between the two BLEND two whole shading outcomes rather than dimming
+#   one, because a dimmed sun still draws its own terminator across the character.
+day_strength = 1.0
+# head_light_day0 / head_light_day1: the weight of the light the game rigs straight over every character, in each
+#   of the two states above. It is a fill rather than a lamp: a large weight at day 1 would light the character
+#   from above in full sun. 0.7 / 0.3 are `_OtherLightResultStrength_day0/_day1`'s own defaults, which all six of
+#   the author's shaders declare identically; day1 is LIVE at the default day_strength = 1 (the day blend is
+#   `lerp(head_day0, sun + head_day1, day_strength)`), day0 only at day_strength < 1.
+head_light_day0 = 0.7
+head_light_day1 = 0.3
+# head_light_colour: rgb, the head light's colour on the SHADOW side of a surface (it lerps toward white as the
+#   surface turns into the light).
+head_light_colour = [0.60, 0.65, 0.80]
+# sun_dark_colour: rgb, the SUN's colour on a surface's shadow side - a grey derived from it tints the shadow
+#   side, so the dark side is not simply the lit side multiplied down.
+sun_dark_colour = [0.60, 0.65, 0.80]
+# env_strength / env_rotation: the environment's specular half - how much of it the character takes, and how far
+#   the reflected sky is turned about Y (DEGREES) so an artist can move the sky without moving the sun.
+env_strength = 1.0
+env_rotation = 0.0
+# specular_strength / diffuse_blend_effect: the global scales on the stylized highlight and on the step-aside the
+#   diffuse makes for it (the step's per-material weight is the albedo texture's alpha).
+specular_strength = 1.0
+diffuse_blend_effect = 1.0
+# rim_area / rim_strength / rim_nolxz_strength: the contour. `rim_area` moves the fresnel band's INNER edge
+#   without moving its outer one (1.0 is the article's `_RimLightArea` default - the band runs 0.2..0.5, against
+#   0.5..0.7 at the 0.5 this port used to carry); the other two scale the two mechanisms - the
+#   view-angle band and the one taken from the light's own azimuth.
+rim_area = 1.0
+rim_strength = 1.0
+rim_nolxz_strength = 1.0
+# backlight_strength: how far the backlight compensation may move a surface along the ramp's light axis. It is
+#   what keeps a backlit character's silhouette from collapsing into one flat shape.
+backlight_strength = 1.0
+# emotion_type: WHICH EXPRESSION THE FACE IS WEARING - the cell of `_EmotionMap`'s 2x2 atlas of eyebrow/mouth
+#   paintings. 0 = none (the face keeps its own albedo, and every capture before this key existed was taken at
+#   0); 1..3 select the other three cells. It is a config key rather than a material value because the material
+#   files have none: the game picks the expression from the character's animation/script system, and nothing in
+#   the `.toon.tsv` describes it. See `vulkan::toon_rig`'s `other_colour.w` for the lane it rides.
+emotion_type = 0.0

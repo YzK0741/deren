@@ -5,6 +5,12 @@ module;
 #include <fastgltf/types.hpp>
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
+// THE ONE PLACE THIS PROJECT'S SOURCE SEES SIMDJSON, and it sees it because fastgltf reports a material's
+// `extras` block by CALLING BACK with a `simdjson::dom::object*` - there is no other way to reach that block
+// through this fastgltf version, which parses `extras` and does not store it (see `ExtrasParseCallback` in
+// fastgltf/core.hpp and the call site in fastgltf.cpp's `parseMaterials`). The include is PRIVATE and SYSTEM in
+// CMake, so nothing that consumes `gltf_loader` inherits either the type or the warnings of upstream code.
+#include <simdjson.h>
 
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -328,7 +334,46 @@ namespace {
         return texture_indices;
     }
 
-    gltf::material load_material(fastgltf::Material const& material) {
+    // ---- THE MATERIAL `extras` BLOCK, WHICH FASTGLTF REPORTS BY CALLBACK ----
+    //
+    // WHY A CALLBACK RATHER THAN A FIELD: this fastgltf version parses each material's `extras` object and,
+    // unless a callback is installed, DROPS it - `fastgltf::Material` has no member for it and the JSON is not
+    // retained (see `ExtrasParseCallback` in fastgltf/core.hpp and its call site in fastgltf.cpp's
+    // `parseMaterials`). The callback fires once per material while the array is walked and passes
+    // `asset.materials.size()` as the object index; the material is appended to that vector AFTER the callback
+    // runs, so the index IS the material's final index and this vector is addressed exactly like
+    // `asset.materials` - in step by construction rather than by a search.
+    struct material_extras {
+        std::vector<std::map<std::string, float>> floats = {};
+    };
+
+    void collect_material_extras(simdjson::dom::object* extras, std::size_t const object_index, fastgltf::Category const object_type, void* user_pointer) {
+        if (object_type != fastgltf::Category::Materials || extras == nullptr || user_pointer == nullptr) {
+            return; // another object's extras: this loader claims material rows and nothing else
+        }
+        auto& collected = *static_cast<material_extras*>(user_pointer);
+        if (collected.floats.size() <= object_index) {
+            collected.floats.resize(object_index + 1);
+        }
+        // THE BLOCK'S NAME IS THE ASSET PIPELINE'S (`efFloats`), and its absence is not an error: `extras` is
+        // free-form in glTF, so a file whose `extras` is some other tool's is a file this loader has nothing to
+        // say about - the material simply states no claimed value and every consumer's fallback answers.
+        simdjson::dom::object block;
+        if (extras->at_key("efFloats").get_object().get(block) != simdjson::SUCCESS) {
+            return;
+        }
+        std::map<std::string, float>& out = collected.floats[object_index];
+        // ONLY THE CLAIMED NAMES (see `gltf::claimed_extras_floats`): an allow-list scan rather than a copy of
+        // the block, so the number of values that enter the model is the number of values something reads.
+        for (std::string_view const claimed : gltf::claimed_extras_floats) {
+            double value = 0.0;
+            if (block.at_key(claimed).get_double().get(value) == simdjson::SUCCESS) {
+                out.emplace(std::string(claimed), static_cast<float>(value));
+            }
+        }
+    }
+
+    gltf::material load_material(fastgltf::Material const& material, std::map<std::string, float> const* const extras_floats) {
         gltf::material result;
         result.factors.base_color_factor = glm::vec4(material.pbrData.baseColorFactor[0],
                                                      material.pbrData.baseColorFactor[1],
@@ -351,6 +396,12 @@ namespace {
         // THE NAME IS CARRIED, not used here: it is what `toon_family_of` classifies a character material by
         // (see gltf_loader.cppm), and this is the last point in the pipeline where it still exists.
         result.name = material.name;
+        // ... AND THE CLAIMED `extras` ROWS, verbatim from the asset: the loader does not interpret them, does
+        // not default them and does not carry the ones nobody reads (see `claimed_extras_floats`). A material
+        // whose block states none of them keeps an empty map, which is the same state as a file with no extras.
+        if (extras_floats != nullptr) {
+            result.extras_floats = *extras_floats;
+        }
         return result;
     }
 
@@ -1352,6 +1403,36 @@ namespace gltf {
             lowered.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(c))));
         }
         auto const has = [&lowered](std::string_view const needle) { return lowered.find(needle) != std::string::npos; };
+        // ---- THE TWO OVERLAY MATERIALS ARE NOT TOON MATERIALS, AND THAT COMES BEFORE EVERY GROUP BELOW ----
+        //
+        // `M_eyeshadow_common_01` and `M_hairshadow_common_01` are the masks the game multiplies over an already
+        // shaded character, and the ARTICLE DRAWS THEM IN THEIR OWN PASS rather than as a family: its
+        // `MyZmdEyeDarkShader` and `MyZmdHairShadowShader` are framebuffer multiplies (`BlendOp` / `Blend` /
+        // `ZWrite 0`, plus `Stencil { Ref 1 Comp Equal }` on the hair shadow) carrying only `_Color`, `_Alpha`,
+        // `_DayStrength` and a mask texture - there is no ramp, no layer and no specular in either of them.
+        //
+        // WHY THIS IS HERE AND NOT LEFT TO THE HAIR GROUP, which used to claim the hair shadow: the reference's own
+        // classifier calls a `hairshadow` material HAIR, and that is where this table's hair entry came from - but a
+        // family is "how this port SHADES the material", and shading an overlay quad with the strand model of the
+        // hair it exists to darken is a stand-in from before the overlay pass existed here.
+        //
+        // HOW MUCH THAT COSTS, MEASURED rather than asserted: with the two overlay materials renamed so that
+        // neither classifier claims them (the same geometry drawn as ordinary surfaces - `make_overlay_control.py`,
+        // `chars\chen_full2_control.glb`), the frame differs from this port's by 0.06% at the standard pose and
+        // 0.81% at the face close-up. THIS COMMENT USED TO QUOTE 8.22% AND 68.92% for the same comparison, and
+        // those numbers cannot have come from the asset they name: `chen_full2.glb` had its two overlay nodes
+        // outside `scenes[0].nodes` at the time, so a scene-graph loader imported eight primitives out of ten and
+        // the difference could only have been zero. The smaller figures above are the ones measured against a
+        // file whose overlays are actually reachable, and the hair-shadow argument does not depend on their size:
+        // what makes the quad wrong is being shaded at all, not how much of the frame it covers.
+        if (has("eyeshadow") || has("hairshadow")) {
+            // ... AND THE SAME NAME IS CLAIMED BY `overlay_kind_of`, which is where the two are actually
+            // resolved into the channel the overlay pass draws (see `overlay_kind`). The two functions are one
+            // decision read from two sides: this one says "no family shades it", that one says "the overlay pass
+            // multiplies by its mask", and a name added to only one of them is a material that is neither shaded
+            // nor overlaid - which is a surface that silently disappears rather than a wrong picture.
+            return toon_family::none;
+        }
         // PRIORITY ORDER IS THE SUBSTANCE OF THIS FUNCTION - see the declaration's note in the interface
         // unit. Each group is written as the patterns the reference's classifier uses for the same family,
         // and the ones that could collide with a later group come first.
@@ -1418,6 +1499,31 @@ namespace gltf {
         return toon_family::none;
     }
 
+    overlay_kind overlay_kind_of(std::string_view const name) {
+        if (name.empty()) {
+            return overlay_kind::none;
+        }
+        // THE SAME LOWERCASING `toon_family_of` DOES, and for the same reason: a glTF material name is authored
+        // text (`M_eyeshadow_common_01` is lowercased here, `M_S_actor_zhuangfy_EyeShadow_01_lod0` would not be).
+        // ASCII only, deliberately - see that function's note.
+        std::string lowered;
+        lowered.reserve(name.size());
+        for (char const c : name) {
+            lowered.push_back(static_cast<char>(std::tolower(static_cast<uint8_t>(c))));
+        }
+        // `hairshadow` FIRST, because `eyeshadow` is not a substring of it and vice versa - they are disjoint, so
+        // the order is only a reading convenience rather than the priority rule `toon_family_of` needs. What the
+        // order does NOT have to absorb is the near miss both share: `shadow` alone claims nothing, so a material
+        // called `M_shadow_decal_01` stays an ordinary surface instead of silently becoming an overlay.
+        if (lowered.find("hairshadow") != std::string::npos) {
+            return overlay_kind::hair_shadow;
+        }
+        if (lowered.find("eyeshadow") != std::string::npos) {
+            return overlay_kind::eye_dark;
+        }
+        return overlay_kind::none;
+    }
+
     std::optional<uint16_t> scenes::texture_index_by_name(std::string_view const name) const noexcept {
         if (name.empty()) {
             return std::nullopt; // an unnamed texture must never match an empty query: most files are all-unnamed
@@ -1428,6 +1534,18 @@ namespace gltf {
             }
         }
         return std::nullopt;
+    }
+
+    material const* scenes::material_by_name(std::string_view const name) const noexcept {
+        if (name.empty()) {
+            return nullptr; // an unnamed material must never match an empty query, exactly as for a texture above
+        }
+        for (material const& candidate : this->materials) {
+            if (candidate.name == name) {
+                return &candidate;
+            }
+        }
+        return nullptr;
     }
 
     std::expected<scenes, error_code> load_model(std::string_view file_name) {
@@ -1445,7 +1563,15 @@ namespace gltf {
         // Parser: enable KHR_lights_punctual so asset.lights / node.lightIndex are populated
         // (cameras are part of the default categories). Files without the extension parse
         // identically to before.
+        //
+        // ... AND INSTALL THE `extras` COLLECTOR, which is the only route to a material's extras block in this
+        // fastgltf version (see `collect_material_extras`). It is installed for EVERY load and is inert on a
+        // file with no such block, so "this model is not a character" and "this character has no extras" are
+        // the same code path rather than two.
+        material_extras extras = {};
         fastgltf::Parser parser(fastgltf::Extensions::KHR_lights_punctual);
+        parser.setUserPointer(&extras);
+        parser.setExtrasParseCallback(&collect_material_extras);
         auto asset_exp = parser.loadGltf(buffer_exp.get(), path.parent_path(), load_options());
         if (!asset_exp) {
             utility::error("gltf load err: {}", fastgltf::getErrorMessage(asset_exp.error()));
@@ -1505,7 +1631,9 @@ namespace gltf {
 
         result.materials.reserve(asset.materials.size());
         for (std::size_t i = 0; i < asset.materials.size(); ++i) {
-            result.materials.push_back(load_material(asset.materials[i]));
+            // The collector is indexed the way `asset.materials` is (see `collect_material_extras`); a material
+            // the callback never saw - impossible today, and cheap to keep honest - states no claimed extras.
+            result.materials.push_back(load_material(asset.materials[i], i < extras.floats.size() ? &extras.floats[i] : nullptr));
         }
 
         return result;
@@ -1726,6 +1854,11 @@ namespace gltf {
             // through the whole pipeline or re-deriving it, and a per-draw string match is exactly the kind
             // of work that belongs at import.
             out.toon_family = static_cast<uint32_t>(toon_family_of(mat.name));
+            // ... AND THE OVERLAY CHANNEL, resolved at the same moment from the same name: a material that
+            // classified into one of the article's two framebuffer multiplies is not shaded at all, so this is
+            // the fact that takes it out of the shading passes and into the overlay pass. The two are disjoint
+            // by construction - `toon_family_of` answers `none` for exactly these names.
+            out.overlay_kind = static_cast<uint32_t>(overlay_kind_of(mat.name));
             // ... AND THE NAME ITSELF, because the toon sidecar is keyed by it: a consumer that has only the
             // family cannot look up the entry describing THIS material. See resolved_material::name.
             out.name = mat.name;
@@ -1835,6 +1968,11 @@ namespace gltf {
     uint32_t drawable_iterator::get_toon_family() const {
         resolved_material const* material = this->current_material();
         return material == nullptr ? 0u : material->toon_family; // 0 == toon_family::none
+    }
+
+    uint32_t drawable_iterator::get_overlay_kind() const {
+        resolved_material const* material = this->current_material();
+        return material == nullptr ? 0u : material->overlay_kind; // 0 == overlay_kind::none
     }
 
     std::string_view drawable_iterator::get_material_name() const {

@@ -279,15 +279,17 @@ namespace {
 
         // AND THE BAKE PUTS THE STEP AT THE CENTRE THE SHADER'S REMAP ASSUMES. `0.5` is written into both the
         // bake's `smoothstep` call and the shader's remap, so asserting the two SPELLINGS is what keeps a bake
-        // whose step sat anywhere else from shifting every family's terminator by the difference while both
+        // whose step sat anywhere else from shifting the family's highlight by the difference while both
         // constants above still matched.
         CHECK(host.find("smoothstep(0.5f - baked_ramp_half_width, 0.5f + baked_ramp_half_width") != std::string::npos);
-        CHECK(shader.find("saturate(0.5 + (shaped - params.center)") != std::string::npos);
 
-        // BOTH RAMP LANES ARE ON THE SAME CONTRACT, and this assertion is what keeps the second one from being
-        // wired with a constant of its own: the specular lane's remap has to divide by the SAME
-        // `character_ramp_half_width`, because the host bakes ONE asset for the two lanes and cannot invert it
-        // at two different widths.
+        // ONLY THE SPECULAR LANE IS STILL ON THIS CONTRACT, and the diffusive one's departure is the 终末地 port's
+        // change - so it is asserted here rather than left to the reader. The diffuse lane now reads the GAME'S
+        // OWN `_DiffRampMap` as a colour mapping indexed by the light term, and its fallback is
+        // `bake_neutral_ramp`, whose content (white RGB, identity lightness) inverts NOTHING: there is no neutral
+        // step for it to undo and no half-width for it to divide by. The unit step still serves the specular lane,
+        // whose `.r` is read as a THRESHOLD - and the host still bakes ONE unit-step asset for it, so this lane's
+        // remap has to divide by the SAME `character_ramp_half_width` the bake was written at.
         CHECK(shader.find("saturate(0.5 + (no_h - params.spec_center) * (character_ramp_half_width") != std::string::npos);
 
         // THE SHADOW LUT'S TILE COUNT IS THE SAME KIND OF CONTRACT, and it fails the same silent way: the bake
@@ -299,6 +301,46 @@ namespace {
         CHECK(lut_tiles.has_value());
         CHECK(lut_tiles_read.has_value());
         CHECK(lut_tiles == lut_tiles_read);
+
+        // THE COLOUR TABLE'S STRIDE IS A THIRD CONTRACT OF THE SAME KIND, and it fails the worst of the three: the
+        // shader addresses that table FLAT - `material_index * lanes + lane` - so a lane count that drifts does not
+        // fail, it reads ANOTHER MATERIAL's colour, one material away per lane of drift. The host's number is an
+        // enum (`vulkan::toon_colour_lane::count`) rather than a float, so the check is on the two SPELLINGS, the
+        // way the ramp's `0.5` is checked above: the shader's constant and the enum's last line.
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
+        CHECK(primitive_file.good());
+        if (primitive_file.good()) {
+            std::string const primitive{std::istreambuf_iterator<char>{primitive_file}, std::istreambuf_iterator<char>{}};
+            CHECK(shader.find("character_toon_colour_lanes = 6u") != std::string::npos);
+            CHECK(primitive.find("count = 6,") != std::string::npos);
+            // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
+            // stage cannot include `character_forward.slang` without inheriting its entry point: the outline's
+            // geometry stage. It reads ONE lane of the table and still needs the whole stride - a copy left at an
+            // older lane count addresses a neighbouring MATERIAL's lane, which is why it is asserted here too.
+            std::ifstream pbr_file{VR_TEST_SOURCE_DIR "/shaders/pbr.slang"};
+            CHECK(pbr_file.good());
+            if (pbr_file.good()) {
+                std::string const pbr{std::istreambuf_iterator<char>{pbr_file}, std::istreambuf_iterator<char>{}};
+                CHECK(pbr.find("pbr_toon_colour_lanes = 6u") != std::string::npos);
+            }
+            // AND THE LANE BLOCK COUNT, the same shape one level down: lanes 8..11 ride a SECOND `uvec4` of the same
+            // table, addressed as `material * blocks + 1`, so a block count that drifts reads a neighbouring
+            // material's lanes exactly the way a colour-lane drift reads its colours.
+            CHECK(shader.find("character_toon_lane_blocks = 2u") != std::string::npos);
+            CHECK(primitive.find("toon_lane_blocks = 2") != std::string::npos);
+            // AND THE STRIDE ITSELF, on BOTH accessors - because the failure this check exists for already happened:
+            // the host moved to a two-block stride while `toon_lanes_at` still read `[material]`, so every material
+            // read another material's lanes and the frame merely looked like a character. The two spellings below
+            // are what the two sides must agree on, and they are asserted rather than measured on a frame because a
+            // wrong lane is invisible in most of them.
+            std::ifstream heap_access_file{VR_TEST_SOURCE_DIR "/shaders/heap_access.slang"};
+            CHECK(heap_access_file.good());
+            if (heap_access_file.good()) {
+                std::string const access{std::istreambuf_iterator<char>{heap_access_file}, std::istreambuf_iterator<char>{}};
+                CHECK(access.find("#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 2u]") != std::string::npos);
+                CHECK(access.find("#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 2u + 1u]") != std::string::npos);
+            }
+        }
     }
 
     void test_the_matcap_slot_does_not_follow_the_use_slot_rule() {
@@ -350,6 +392,182 @@ namespace {
         CHECK(body->enabled_by_flag("_UseDiffRampMap"));
     }
 
+    /// THE TWO ASSET-SOURCED SCALAR LANES' CONTRACT: `specular_strength` (`_Specular`) and `parallax_scale`
+    /// (`_ParallaxScale`), the third data source's first two properties and the two lanes whose neutral is a
+    /// SENTINEL rather than a no-op.
+    ///
+    /// WHY IT NEEDS A TEST AT ALL, given the stride check in the test above: the stride only says the two sides
+    /// agree that the table has SIX lanes. What can still drift, silently, is (a) WHICH lane the shader reads -
+    /// a wrong index reads a neighbouring material's colour and the frame merely looks odd - and (b) what "the
+    /// asset states nothing" LOOKS LIKE, which is the one value on these lanes that cannot be a number in the
+    /// value's own range. A host that left the lane at the white neutral would shade every material that states
+    /// no `_Specular` with a full-strength highlight, and a host that sent `0` there would silently delete the
+    /// highlight from every material - neither of which is visible in a log line. The parallax lane's failure is
+    /// the same one lane over: white in `.x` is a depth of 1.0, i.e. an offset thirty-three times the stage's
+    /// own constant.
+    ///
+    /// THE TWO LANES ARE CHECKED TOGETHER BECAUSE THEY ARE RESOLVED BY ONE BRANCH in the application's lookup and
+    /// by one shape of read in the stage: two properties, one contract, and an edit to that shared branch is
+    /// exactly the change that could break the other one.
+    ///
+    /// THE THREE HOST SITES ARE ALL CHECKED because all three write the neutral: the `toon_inputs` default, the
+    /// table's initial fill in the runtime (which is what an unvisited lane actually holds on the GPU), and the
+    /// lookup's fallback in the application.
+    void test_the_two_asset_scalar_lanes_hold_on_both_sides() {
+        std::ifstream shader_file{VR_TEST_SOURCE_DIR "/shaders/character_forward.slang"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
+        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/vulkan/runtime/runtime.constructor.cppm"};
+        std::ifstream host_file{VR_TEST_SOURCE_DIR "/main.cpp"};
+        CHECK(shader_file.good());
+        CHECK(primitive_file.good());
+        CHECK(runtime_file.good());
+        CHECK(host_file.good());
+        if (!shader_file.good() || !primitive_file.good() || !runtime_file.good() || !host_file.good()) {
+            return;
+        }
+        auto const slurp = [](std::ifstream& file) { return std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}}; };
+        std::string const shader = slurp(shader_file);
+        std::string const primitive = slurp(primitive_file);
+        std::string const runtime = slurp(runtime_file);
+        std::string const host = slurp(host_file);
+
+        // (a) THE LANE INDICES, spelled once in the host's enum and once in each stage read: 4 and 5 on both
+        // sides, and each pair is the same number by these assertions rather than by review.
+        CHECK(primitive.find("specular_strength = 4,") != std::string::npos);
+        CHECK(shader.find("colour_base + 4u") != std::string::npos);
+        CHECK(primitive.find("parallax_scale = 5,") != std::string::npos);
+        CHECK(shader.find("+ 5u).x") != std::string::npos);
+        // ... AND THE FALLBACK THE SHADER APPLIES WHEN THAT READ SAYS "NOTHING STATED". The family table must
+        // still be reachable or the lane would have replaced a per-material value with a per-family default of
+        // its own - the exact inversion of what it is for. The parallax lane's fallback is the stage's own
+        // constant rather than a family number (the eye path is its only consumer), and that constant has to
+        // still be the number the iris states or the material this lane was measured against would move too.
+        CHECK(shader.find("extras_specular_strength >= 0.0 ? extras_specular_strength : params.spec_strength") != std::string::npos);
+        CHECK(shader.find("extras_parallax_scale >= 0.0 ? extras_parallax_scale : character_eye_parallax_depth") != std::string::npos);
+        CHECK(shader.find("character_eye_parallax_depth = 0.03") != std::string::npos);
+        // ... AND THE CONSUMER IS THE CONSUMER: the one line the eye's parallax offset is built on. A lane that
+        // reaches the GPU while this line still reads the constant changes nothing at all - the shape this
+        // repository records for a lane whose reader was not wired - and it is invisible in a frame because it
+        // looks exactly like "no bug".
+        CHECK(shader.find("parallax_offset = offset_dir * parallax_depth * float2(1.0, 0.25)") != std::string::npos);
+
+        // (b) WHAT "NOTHING STATED" IS, at every site that writes it. Each search starts at the site's own
+        // symbol and looks forward, so an unrelated `-1` elsewhere in the file cannot satisfy it.
+        std::size_t const toon_inputs_at = primitive.find("std::array<glm::vec4, static_cast<std::size_t>(toon_colour_lane::count)> colours");
+        CHECK(toon_inputs_at != std::string::npos);
+        if (toon_inputs_at != std::string::npos) {
+            CHECK(primitive.find("glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)", toon_inputs_at) != std::string::npos);
+        }
+        std::size_t const fill_at = runtime.find("toon_colour_lane::specular_strength");
+        CHECK(fill_at != std::string::npos);
+        if (fill_at != std::string::npos) {
+            CHECK(runtime.find("glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)", fill_at) != std::string::npos);
+        }
+        // the parallax lane's own initial fill in the runtime's table
+        std::size_t const parallax_fill_at = runtime.find("toon_colour_lane::parallax_scale");
+        CHECK(parallax_fill_at != std::string::npos);
+        if (parallax_fill_at != std::string::npos) {
+            CHECK(runtime.find("glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)", parallax_fill_at) != std::string::npos);
+        }
+        std::size_t const neutral_at = host.find("toon_colour_neutral = {");
+        CHECK(neutral_at != std::string::npos);
+        if (neutral_at != std::string::npos) {
+            // TWO sentinels in that table now, one per scalar lane - so the search has to find a SECOND one:
+            // a table that kept only the specular lane's would leave the parallax lane at white, i.e. 1.0.
+            std::size_t const first_sentinel = host.find("glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)", neutral_at);
+            CHECK(first_sentinel != std::string::npos);
+            if (first_sentinel != std::string::npos) {
+                CHECK(host.find("glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)", first_sentinel + 1) != std::string::npos);
+            }
+        }
+
+        // (c) THE ASSET-SIDE SPELLING, which is what the host asks the loader for: the claimed table names the
+        // rows the shader's lanes carry. A rename on either side is a material that silently keeps the value it
+        // had before the lane existed - the state before this lane - so the spellings are pinned together.
+        std::ifstream loader_file{VR_TEST_SOURCE_DIR "/gltf_loader/gltf_loader.cppm"};
+        CHECK(loader_file.good());
+        if (loader_file.good()) {
+            std::string const loader = slurp(loader_file);
+            CHECK(loader.find("claimed_extras_floats = {\"_Specular\", \"_ParallaxScale\"}") != std::string::npos);
+        }
+        // ... AND THE HOST'S OWN ROW TABLE, which is the name the lookup asks the loader with: `_ParallaxScale`
+        // reaching the whitelist but not this table would import the row and never ask for it.
+        CHECK(host.find("\"_ParallaxScale\",") != std::string::npos);
+        CHECK(host.find("extras_float_of(state.scenes, material_name, toon_colour_row[lane_index])") != std::string::npos);
+    }
+
+    /// THE MATERIAL DEDUP KEY CARRIES EVERYTHING THE MATERIAL RECORD DOES NOT - the two texture lane blocks AND
+    /// the six colour lanes.
+    ///
+    /// WHY THE KEY AT ALL, since the third contract above already pins the colour TABLE's stride: the stride says
+    /// the two sides agree on how WIDE a row is. It says nothing about which materials are allowed to SHARE one,
+    /// and that is this key's job: `register_material` looks the key up BEFORE it writes anything, and returns the
+    /// existing index when it hits. A per-material thing that is not in the key is therefore not a missing feature
+    /// for the second material - it is the FIRST material's value, silently, and the frame looks like a rendering
+    /// result rather than like a mistake.
+    ///
+    /// THE FAILURE THIS PINS IS INVISIBLE ON EVERY ASSET IN THIS REPOSITORY (chen's seven materials all have
+    /// different records, so the `toon: material N` lines are all present and correct), which is exactly why the
+    /// check is on the KEY'S COMPOSITION rather than on a frame: the probe that makes it visible needs a second
+    /// material with a byte-identical record and identical texture lanes, and that asset is built, measured and
+    /// deleted in `remaining_port_spec.md`'s "材质去重键补上 colour lanes" section. MEASURED THERE, on the pre-fix tree: a copy of
+    /// `M_actor_chen_hair_01` stating `_Specular = 0.0`, registered one node earlier than the hair, made the
+    /// hair render BYTE-FOR-BYTE like an asset whose hair states 0.0 - the hair's own 1.0 discarded.
+    void test_the_material_dedup_key_carries_the_colour_lanes() {
+        std::ifstream declarations_file{VR_TEST_SOURCE_DIR "/vulkan/runtime/runtime.declarations.cppm"};
+        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/vulkan/runtime/runtime.constructor.cppm"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
+        CHECK(declarations_file.good());
+        CHECK(runtime_file.good());
+        CHECK(primitive_file.good());
+        if (!declarations_file.good() || !runtime_file.good() || !primitive_file.good()) {
+            return;
+        }
+        auto const slurp = [](std::ifstream& file) { return std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}}; };
+        std::string const declarations = slurp(declarations_file);
+        std::string const runtime = slurp(runtime_file);
+        std::string const primitive = slurp(primitive_file);
+
+        // (a) THE THREE COMPONENTS, in ONE spelling: the key's TYPE (declared beside `material_slot_cache`) and
+        // the local key the constructor fills are asserted to be the SAME TEXT, not merely the same size - a size
+        // that happened to match while the bytes meant something else is the way this kind of key goes wrong. The
+        // compiler already forces the two sizes to agree (a mismatch is a type error at `find`), so what is left
+        // for a test is the reading: record, then the texture lane blocks, then the colour lanes.
+        std::string const key_type =
+            "utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>";
+        CHECK(declarations.find(key_type) != std::string::npos);
+        CHECK(runtime.find(key_type) != std::string::npos);
+        // ... AND IT IS THE ENUM RATHER THAN A NUMBER, which is the drift this repository has already paid for
+        // once: `count = 6` today, and a hand-written 4 or 5 would leave the two NEWEST lanes - the two the asset's
+        // own `extras` block speaks for - out of the key while every existing asset continued to look right.
+        CHECK(primitive.find("count = 6,") != std::string::npos);
+        CHECK(primitive.find("toon_lane_blocks = 2") != std::string::npos);
+
+        // (b) THE BYTES ACTUALLY GO IN, from the array the table is filled from: keying anything else (the
+        // neutral, a copy taken before the lookup resolved, a differently ordered row) would dedup on the wrong
+        // six values and split or merge the wrong pairs.
+        CHECK(runtime.find("info.toon.colours.data(),") != std::string::npos);
+        CHECK(runtime.find("static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4));") != std::string::npos);
+
+        // (c) THE ORDER THAT MAKES THE COLOUR TERM NECESSARY, asserted because it is the reason and not an
+        // accident: the key is COMPLETE before the lookup, and the table write sits AFTER it. If a later change
+        // moved the write above the early return, the key would no longer need the lanes and this check is the
+        // line that says so out loud - revisit the term and this test together, do not just delete the check.
+        std::size_t const key_at = runtime.find("material_key = {}");
+        std::size_t const colours_at = runtime.find("info.toon.colours.data(),");
+        std::size_t const lookup_at = runtime.find("this->material_slot_cache.find(material_key)");
+        std::size_t const write_at = runtime.find("colours[lane] = info.toon.colours[lane];");
+        CHECK(key_at != std::string::npos);
+        CHECK(colours_at != std::string::npos);
+        CHECK(lookup_at != std::string::npos);
+        CHECK(write_at != std::string::npos);
+        if (key_at != std::string::npos && colours_at != std::string::npos && lookup_at != std::string::npos && write_at != std::string::npos) {
+            CHECK(key_at < colours_at);    // the colour bytes are part of the key...
+            CHECK(colours_at < lookup_at); // ...and are in it BY THE TIME it is looked up...
+            CHECK(lookup_at < write_at);   // ...because the table write happens after the early return
+        }
+    }
+
 } // namespace
 
 int32_t main() {
@@ -365,5 +583,7 @@ int32_t main() {
     test_the_sidecar_and_the_model_join_by_texture_name();
     test_the_baked_ramp_and_the_shader_agree_on_its_width();
     test_the_matcap_slot_does_not_follow_the_use_slot_rule();
+    test_the_two_asset_scalar_lanes_hold_on_both_sides();
+    test_the_material_dedup_key_carries_the_colour_lanes();
     return vk_test::finish("test_toon_material_sidecar");
 }

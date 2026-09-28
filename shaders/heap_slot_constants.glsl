@@ -66,8 +66,10 @@ const uint heap_slots_meshlet_stats = heap_slot_base + 746u;
 // group count IS the survivor count and a workgroup is never launched for a meshlet nobody will see. One descriptor
 // with a per-frame lane, like every other per-frame buffer (see core::heap_slots::meshlet_culled).
 const uint heap_slots_meshlet_culled = heap_slot_base + 747u;
-// THE FACE SDF LANE TABLE: one uint per material - that material's `_SDFLightmap` texture-array index, or 0 for
-// "do not read", which is the same contract `material_record::toon_indices` uses for its four.
+// THE TOON LANES BESIDE THE MATERIAL RECORD: one `uvec4` per material - x is that material's `_SDFLightmap`
+// texture-array index, y its `_MetallicGlossMap`'s, and z and w are reserved - where 0 in a component is "do not
+// read", the same contract `material_record::toon_indices` uses for its four. Lanes 0..3 of `vulkan::toon_slot`
+// live in the record; every lane from `sdf_lightmap` on lives here.
 //
 // WHY A BUFFER OF ITS OWN RATHER THAN A FIFTH COMPONENT THERE, and it is a measurement rather than a preference:
 // the material record is INLINE IN THE PER-DRAW PUSH BLOCK (`surface.glsl`: 96 B of material fields plus two
@@ -78,7 +80,7 @@ const uint heap_slots_meshlet_culled = heap_slot_base + 747u;
 // ONE DESCRIPTOR, NOT A PER-FRAME PAIR, for the same reason `meshlets` is one: the values are fixed at scene
 // import and never rewritten, so there is no frame in flight that could read a buffer the next frame is writing
 // - which is the whole reason the frame-varying arrays above are pairs.
-const uint heap_slots_sdf_lanes = heap_slot_base + 748u;
+const uint heap_slots_toon_lanes = heap_slot_base + 748u;
 // THE HEAD FRAME the face SDF shades against: three vectors per frame slot, written every frame.
 //
 // A PAIR, unlike the lane table above, and the difference is the whole rule: the lane table holds values fixed
@@ -90,6 +92,22 @@ const uint heap_slots_sdf_lanes = heap_slot_base + 748u;
 // is a property of the CHARACTER and not of the eye looking at it, and a renderer that put it in the camera UBO
 // would have a second thing to move the day a scene holds two characters facing different ways.
 const uint heap_slots_scene_head = heap_slot_base + 749u;
+// THE TOON LIGHT RIG: the character stage's global numbers (the sun/head-light split, their shadow-side colours,
+// the chain's scalars), written once from the application's config - see `vulkan::toon_rig`.
+//
+// 751 AND NOT 750, because `heap_slots_scene_head` above is a PER-FRAME-SLOT array: with two frames in flight it
+// occupies 749 and 750, and a rig at 750 is overwritten by the second slot's head frame every frame - which reads
+// as a rig that simply has the head frame's numbers in it, with no error anywhere.
+const uint heap_slots_toon_rig = heap_slot_base + 751u;
+// THE MATERIAL COLOURS: `toon_colour_lane::count` `vec4`s per material, `material_index`-addressed. Read through
+// the stage's own `character_toon_colour_lanes`, which must match `vulkan::toon_colour_lane::count`.
+const uint heap_slots_toon_colours = heap_slot_base + 752u;
+// THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`): a `1024x32` strip of 32 `32x32` tiles, i.e. a `32^3` colour
+// cube, read by the post chain's composite AFTER the tonemap and the display encode. 753 is the next free slot after
+// the toon lanes' block (748/749/751/752 - see the note on 751 for why 750 is not one of them). The application bakes
+// a NEUTRAL cube into it at startup (`main.cpp`'s post-LUT bake), so the lookup is the identity until an artist's cube
+// replaces it, and `test_render_resources` holds this spelling against `core::heap_slots::post_lut`.
+const uint heap_slots_post_lut = heap_slot_base + 753u;
 const uint heap_slots_mask_instances = heap_slot_base + 530u;
 // frame-invariant images the shading stage samples
 const uint heap_slots_env_cube = heap_slot_base + 532u;

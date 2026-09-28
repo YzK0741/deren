@@ -42,7 +42,17 @@ struct Material {
     float roughness_factor;
     float normal_scale;
     uint flags; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided,
-                // bit4: alphaMode MASK, bit5: alphaMode BLEND
+                // bit4: alphaMode MASK, bit5: alphaMode BLEND,
+                // bit6: the EYE-DARK overlay, bit7: the HAIR-SHADOW overlay (see overlay.slang and
+                //       `gltf::overlay_kind`: the article's two framebuffer multiplies compute different
+                //       multipliers - one from the mask, one from `_DayStrength` - so the shared overlay
+                //       fragment stage is told which it is drawing here rather than by a second pipeline),
+                // bit8: the article's own TRANSPARENT variant of the toon material (`_TRANSPARENT_ON`), which
+                //       its sidecar selects with `_SrcBlend 5 / _DstBlend 10` - see `toon_inputs::alpha_blend`
+                //       in vulkan/primitive/primitive.cppm. SEPARATE from bit5 because the two are different
+                //       statements: bit5 is glTF's coverage rule (alphaMode BLEND) and this one is the toon
+                //       material's blend state, and the character-forward stage writes a real output alpha for
+                //       either of them and 1.0 for everything else.
     // ---- THE TOON SLOTS: what glTF's five cannot reach (see material_record in primitive.cppm) ----
     // x = diffuse ramp, y = shadow LUT, z = specular ramp, w = matcap. THE WHITE FALLBACK (element 0) IS THE
     // "DO NOT READ" VALUE and that is the contract rather than a convention: a lane holds a real index only

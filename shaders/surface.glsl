@@ -124,6 +124,38 @@ layout(push_constant) uniform PushConstants {
  * @note the names mirror the glTF metallic-roughness material model so the fields map 1:1 onto the
  *       spec (albedo = baseColor, ao = occlusion, ...)
  */
+/**
+ * @brief the fragment's TANGENT frame, from the screen-space derivatives of `world_pos` and `uv`
+ *
+ * A FUNCTION RATHER THAN A BLOCK INSIDE `gather_surface`, and the reason is a SECOND CALLER rather than tidiness:
+ * the normal-map path needs the frame only when the material HAS a normal map (which no character material in this
+ * repository does), while the toon stage needs one for a material whose hair normal is packed beside the model's
+ * own in the game's split-normal texture. A second copy of this arithmetic would be the second implementation this
+ * file's neighbours keep refusing, and a caller that needs no frame does not pay for one.
+ *
+ * @param normal the unit geometric normal - the frame's Z axis, and the caller's fallback
+ * @param tangent receives the world-space tangent direction (normalised)
+ * @param bitangent receives the world-space bitangent direction (normalised)
+ * @return FALSE when the UV derivatives are degenerate - a zero-area triangle or a UV seam, where no frame exists.
+ *         The caller must then fall back to the geometric normal: a NaN frame would silently poison the normal it
+ *         is multiplied into, and the two directions written above are a defined answer rather than a guess.
+ */
+bool surface_tbn(vec3 world_pos, vec2 uv, out vec3 tangent, out vec3 bitangent) {
+    const vec3 dp1 = dFdx(world_pos);
+    const vec3 dp2 = dFdy(world_pos);
+    const vec2 duv1 = dFdx(uv);
+    const vec2 duv2 = dFdy(uv);
+    const float denom = duv1.x * duv2.y - duv2.x * duv1.y;
+    if (abs(denom) < 1e-8) {
+        tangent = vec3(1.0, 0.0, 0.0);
+        bitangent = vec3(0.0, 1.0, 0.0);
+        return false;
+    }
+    tangent = normalize((duv2.y * dp1 - duv1.y * dp2) / denom);
+    bitangent = normalize((duv1.x * dp2 - duv2.x * dp1) / denom);
+    return true;
+}
+
 struct surface_sample {
     vec3 albedo;    // base color: base_color_factor * albedo texture (linear, NOT premultiplied)
     float alpha;    // coverage: base_color_factor.a * albedo.a (only meaningful for MASK/BLEND)
@@ -179,21 +211,16 @@ surface_sample gather_surface(vec3 world_pos, vec3 geo_normal, vec2 uv) {
 
     // ---- normal: optional tangent-space normal map, else the interpolated normal ----
     if ((mat.flags & 1u) != 0u) {
-        const vec3 dp1 = dFdx(world_pos);
-        const vec3 dp2 = dFdy(world_pos);
-        const vec2 duv1 = dFdx(uv);
-        const vec2 duv2 = dFdy(uv);
         const vec3 normal = normalize(geo_normal);
-        const float denom = duv1.x * duv2.y - duv2.x * duv1.y;
-        if (abs(denom) < 1e-8) {
+        vec3 sdir = vec3(1.0, 0.0, 0.0);   // world tangent direction (see surface_tbn)
+        vec3 tdir = vec3(0.0, 1.0, 0.0);   // world bitangent direction
+        if (!surface_tbn(world_pos, uv, sdir, tdir)) {
             s.normal = normal; // degenerate UV derivatives: fall back to the interpolated normal
         } else {
-            const vec3 sdir = (duv2.y * dp1 - duv1.y * dp2) / denom; // world tangent direction
-            const vec3 tdir = (duv1.x * dp2 - duv2.x * dp1) / denom; // world bitangent direction
             vec3 tbn_normal = heap_sample(mat.tex_indices.z, uv).rgb * 2.0 - 1.0;
             tbn_normal.xy *= mat.normal_scale;
             tbn_normal = normalize(tbn_normal);
-            s.normal = normalize(mat3(normalize(sdir), normalize(tdir), normal) * tbn_normal);
+            s.normal = normalize(mat3(sdir, tdir, normal) * tbn_normal);
         }
     } else {
         s.normal = normalize(geo_normal);

@@ -286,6 +286,50 @@ namespace app_config {
                     settings.render.character_forward = *value;
                 }
             }
+            // ---- THE TOON LIGHT RIG ([toon]) ----
+            //
+            // A TABLE OF ITS OWN rather than more keys under `[render]`, because these are the CHARACTER stage's art
+            // direction rather than the frame's render settings - and because they belong together: they are the
+            // lanes of one block (`vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
+            if (toml::table const* toon = table.get_as<toml::table>("toon")) {
+                for (auto const& [key, target] : {std::pair{"day_strength", &settings.toon.day_strength},
+                                                  std::pair{"head_light_day0", &settings.toon.head_light_day0},
+                                                  std::pair{"head_light_day1", &settings.toon.head_light_day1},
+                                                  std::pair{"env_strength", &settings.toon.env_strength},
+                                                  std::pair{"env_rotation", &settings.toon.env_rotation},
+                                                  std::pair{"specular_strength", &settings.toon.specular_strength},
+                                                  std::pair{"diffuse_blend_effect", &settings.toon.diffuse_blend_effect},
+                                                  std::pair{"rim_area", &settings.toon.rim_area},
+                                                  std::pair{"rim_strength", &settings.toon.rim_strength},
+                                                  std::pair{"rim_nolxz_strength", &settings.toon.rim_nolxz_strength},
+                                                  std::pair{"backlight_strength", &settings.toon.backlight_strength},
+                                                  std::pair{"emotion_type", &settings.toon.emotion_type}}) {
+                    if (toml::node const* node = toon->get(key)) {
+                        if (std::optional<double> const value = node->value<double>()) {
+                            *target = static_cast<float>(*value);
+                        }
+                    }
+                }
+                // THE DAY STRENGTH IS CLAMPED rather than trusted, because it is a blend weight between two whole
+                // shading outcomes: a value above 1 would extrapolate past the sun's own state and a negative one
+                // past the head light's, and neither is a look anybody asked for. Every other rig number is a scale
+                // whose useful range is the artist's.
+                settings.toon.day_strength = std::clamp(settings.toon.day_strength, 0.0f, 1.0f);
+                // THREE NUMBERS OR NOTHING, the rule the sun's direction already follows: a partly-specified colour
+                // would mix this config's components with the default's, which is a colour nobody asked for.
+                for (auto const& [key, target] : {std::pair{"head_light_colour", &settings.toon.head_light_colour},
+                                                  std::pair{"sun_dark_colour", &settings.toon.sun_dark_colour}}) {
+                    if (toml::node const* node = toon->get(key)) {
+                        if (toml::array const* values = node->as_array(); values != nullptr && values->size() == target->size()) {
+                            for (std::size_t i = 0; i < values->size(); ++i) {
+                                if (std::optional<double> const component = (*values)[i].value<double>()) {
+                                    (*target)[i] = static_cast<float>(*component);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if (toml::node const* node = render->get("gbuffer_channel")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
                     settings.render.gbuffer_channel = static_cast<int32_t>(*value);
