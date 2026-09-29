@@ -145,27 +145,43 @@ namespace toon {
                 ++result.skipped_lines;
                 continue;
             }
-            // a new material starts a new entry, and the entries keep the file's order
-            if (result.materials.empty() || result.materials.back().name != fields[0]) {
+            // A MATERIAL'S ROWS ARE FOUND BY NAME AND NOT BY POSITION, because they do not have to be contiguous.
+            // The first version of this reader pushed a new entry whenever the name CHANGED - right for a file
+            // written material by material, WRONG for one extended by appending a row, which is the natural way to
+            // add one. Such a file described a single material TWICE, `find` returned the first entry, and the
+            // appended rows were silently missing from it: MEASURED on `laevatain_goo.glb.toon.tsv`, whose step-4
+            // rows sat in a second block, so `_UseGooBaseRamp` never reached the lookup and a whole shading arm did
+            // not run while every log line agreed the row was in the file (see `sidecar::merged_rows`). The entries
+            // still keep the file's FIRST-appearance order, and the merge is counted so the caller can report a
+            // shape it handled rather than one it assumed away.
+            material_sidecar* material = nullptr;
+            for (material_sidecar& existing : result.materials) {
+                if (existing.name == fields[0]) {
+                    material = &existing;
+                    ++result.merged_rows;
+                    break;
+                }
+            }
+            if (material == nullptr) {
                 material_sidecar fresh;
                 fresh.name = std::string(fields[0]);
                 result.materials.push_back(std::move(fresh));
+                material = &result.materials.back();
             }
-            material_sidecar& material = result.materials.back();
             std::string const key(fields[2]);
             if (fields[1] == "slot") {
-                material.slots.insert_or_assign(key, std::string(fields[3]));
+                material->slots.insert_or_assign(key, std::string(fields[3]));
             } else if (fields[1] == "float") {
                 std::optional<float> const value = parse_number(fields[3]);
                 if (!value.has_value()) {
                     return std::unexpected(std::format("line {}: '{}' is not a number (material '{}', field '{}')", line_number, fields[3], fields[0], fields[2]));
                 }
-                material.scalars.insert_or_assign(key, *value);
+                material->scalars.insert_or_assign(key, *value);
             } else {
                 // `color` and anything the pipeline adds later: KEPT VERBATIM rather than dropped, so an
                 // unknown kind reaches a consumer as data instead of as a silently missing field. Not an error,
                 // because the format is the pipeline's to extend and this reader's to carry.
-                material.others.insert_or_assign(key, std::string(fields[3]));
+                material->others.insert_or_assign(key, std::string(fields[3]));
             }
         }
         return result;

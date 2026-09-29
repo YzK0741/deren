@@ -127,6 +127,18 @@ export namespace toon {
         /// @brief how many lines were skipped: blank ones, the header, and any line that did not have the four
         ///        columns. Counted rather than logged here, because this module reports and its caller decides
         std::size_t skipped_lines = 0;
+        /// @brief how many rows arrived for a material whose entry was ALREADY in the list, i.e. how many rows the
+        ///        reader had to MERGE back into an existing entry (see `parse_sidecar`)
+        ///
+        /// A FILE'S ORDER IS NOT THE ONLY WAY TO WRITE ONE, and this counter is the evidence for that: a material's
+        /// rows are usually contiguous, but APPENDING a row - the natural way to extend a sidecar, and how the
+        /// rewritten chain's own rows were added - puts it in a second block at the end. The first version of this
+        /// reader pushed a NEW entry whenever the name CHANGED, so such a file described one material TWICE and
+        /// `find` returned the FIRST, i.e. the one WITHOUT the appended rows. MEASURED on
+        /// `laevatain_goo.glb.toon.tsv`: `_UseGooBaseRamp` was in the file and absent from the entry the lookup
+        /// received, so a whole shading arm never ran while every log line agreed the row was there. A non-zero
+        /// count is therefore not an error - it is a file shape, seen and handled.
+        std::size_t merged_rows = 0;
 
         /// @brief the entry for @p material_name, or nullptr when the sidecar does not describe it
         [[nodiscard]] material_sidecar const* find(std::string_view material_name) const noexcept;
