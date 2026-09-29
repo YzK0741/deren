@@ -57,6 +57,12 @@ $here = $PSScriptRoot
 $repo = Split-Path -Parent (Split-Path -Parent $here)
 if (-not $WorkDir) { $WorkDir = Join-Path $repo "$BuildDir\gi-probe" }
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
+# THE WORK DIRECTORY IS RESOLVED TO AN ABSOLUTE PATH HERE, once, because the config path below is handed to a
+# process whose WORKING DIRECTORY is this same directory (see the launch): a relative `--config` would then be
+# resolved against itself and never found - measured as `config file '...\s2work\s2_pre_on.toml' not found,
+# using defaults` followed by the app's "run the program from the project root" panic. An absolute path makes
+# `-WorkDir` usable from anywhere, which is what the parameter promises.
+$WorkDir = (New-Item -ItemType Directory -Force -Path $WorkDir).FullName
 $exe = Join-Path $repo "$BuildDir\vulkan_render.exe"
 if (-not (Test-Path $exe)) { Write-Error "no executable at $exe - build it first (-BuildDir to point elsewhere)"; exit 1 }
 $mean_tool = Join-Path $repo "scripts\measure\mean.py"
@@ -75,8 +81,23 @@ if ($Model) {
     # `C:\\Users\\...` and the path only resolved because Win32 collapses a repeated separator. A UNC path
     # would not have survived that, and the log line quoted a path the user never typed.
     $escaped = $Model.Replace('\', '\\').Replace('"', '\"')
-    $cfgText = ($cfgText -split "`n" | ForEach-Object { if ($_ -match '^\s*model\s*=') { "model = `"$escaped`"" } else { $_ } }) -join "`n"
-    if ($cfgText -eq $before) { Write-Error "no change: -Model matched no line in $Base"; exit 1 }
+    # THE `model` LINE IS COUNTED AS WELL AS REPLACED, because "the text did not change" is TWO different
+    # situations and only one of them is a mistake: a `-Model` the base file does not have a line for (the
+    # typo this guard exists for), and a `-Model` the base file ALREADY names. The second is the normal case
+    # on a step whose asset is part of its base config - `zmd-ab/laevat/ab_goo.toml` names the goo asset - and
+    # it used to abort the run with "no change: -Model matched no line", which is false about the file.
+    $model_lines = 0
+    $replaced = foreach ($line in ($cfgText -split "`n")) {
+        if ($line -match '^\s*model\s*=') {
+            $model_lines++
+            "model = `"$escaped`""
+        } else {
+            $line
+        }
+    }
+    $cfgText = $replaced -join "`n"
+    if ($model_lines -eq 0) { Write-Error "no change: -Model matched no line in $Base"; exit 1 }
+    if ($cfgText -eq $before) { Write-Host "  note: -Model is the model $Base already names (the run is still a valid arm)" }
 }
 
 $pairs = @()
@@ -140,7 +161,22 @@ $launch = @("--config", $cfg, "--capture-frames", "$Frames")
 if ($Camera) { $launch += "--capture-camera=$Camera" }
 if ($Sweep -ne 0.0) { $launch += "--capture-sweep=$Sweep" }
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
-$p = Start-Process -FilePath $exe -ArgumentList $launch -WorkingDirectory $WorkDir -PassThru -WindowStyle Hidden
+# LAUNCHED WITHOUT THE SHELL, AND THAT IS THE POINT RATHER THAN A STYLE CHOICE. `Start-Process` goes through
+# ShellExecuteEx, and ShellExecuteEx is the path Windows runs its app-reputation ("unknown publisher" / "untrusted
+# program") check on - so every capture raised a security prompt for an unsigned binary that is built locally on
+# the machine it runs on. `UseShellExecute = $false` uses CreateProcess, which has no such check. The two things
+# the shell was doing for us are done explicitly instead: the working directory, and a hidden window (STARTUPINFO
+# rather than a shell verb). Standard output is NOT redirected, deliberately: this app's own `debug.log` is how a
+# capture is read, and a redirected pipe would need a concurrent reader or a 60-frame run could deadlock on a full
+# buffer.
+$start = [System.Diagnostics.ProcessStartInfo]::new()
+$start.FileName = $exe
+$start.WorkingDirectory = $WorkDir
+$start.UseShellExecute = $false
+$start.CreateNoWindow = $true
+$start.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+foreach ($arg in $launch) { $null = $start.ArgumentList.Add($arg) }
+$p = [System.Diagnostics.Process]::Start($start)
 if (-not $p.WaitForExit(300000)) { $p.Kill(); Write-Error "$Tag timed out"; exit 1 }
 $sw.Stop()
 if ($p.ExitCode -ne 0) { Write-Error "${Tag}: exit code $($p.ExitCode)"; exit 1 }

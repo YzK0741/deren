@@ -274,7 +274,17 @@ function Invoke-Scenario {
     # and the frame cannot tell a deformation-aware renderer from one that ignores deformation. Also
     # frame-indexed, so it is exactly as reproducible as the camera sweep.
     if ($Scenario.ContainsKey('animation_sweep')) { $launch += "--capture-animation-sweep=$($Scenario.animation_sweep)" }
-    $p = Start-Process -FilePath $exe -ArgumentList $launch -WorkingDirectory $workDir -PassThru -WindowStyle Hidden
+    # NO SHELL, for the reason `capture.ps1`'s launch gives at length: `Start-Process` is ShellExecuteEx, which is
+    # where Windows runs its app-reputation check on an unsigned binary - and this gate launches the renderer TWICE
+    # per scenario, so it was the largest single source of those prompts.
+    $start = [System.Diagnostics.ProcessStartInfo]::new()
+    $start.FileName = $exe
+    $start.WorkingDirectory = $workDir
+    $start.UseShellExecute = $false
+    $start.CreateNoWindow = $true
+    $start.WindowStyle = [System.Diagnostics.ProcessWindowStyle]::Hidden
+    foreach ($arg in $launch) { $null = $start.ArgumentList.Add($arg) }
+    $p = [System.Diagnostics.Process]::Start($start)
     # the capture exits on its own; the timeout is a safety net, not the expected path
     if (-not $p.WaitForExit(180000)) { $p.Kill(); return @{ ok = $false; why = "timed out" } }
     if ($p.ExitCode -ne 0) { return @{ ok = $false; why = "exit code $($p.ExitCode)" } }
