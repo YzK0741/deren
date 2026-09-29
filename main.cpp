@@ -1,6 +1,22 @@
 #include <charconv>
+#include <fstream>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+// ---- THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT IS A PNG, AND THIS IS THE DECODER ----
+//
+// `third_party/stb/stb_image.h` is already vendored and already used by `gltf_loader.cpp` for GLB textures, and
+// that translation unit defines `STB_IMAGE_IMPLEMENTATION` (whose functions are `STBIDEF`, i.e. `extern`). A
+// SECOND implementation in this file is therefore not a double definition but a LINK CLASH, and the fix is the
+// documented one: `STB_IMAGE_STATIC` makes this file's copy file-local, so the two never meet at link time. It
+// costs a second copy of ~7 KB of decode routines and buys the one thing a global image needs - a decoder at the
+// point of use, without making the engine core depend on `gltf_loader` (see `vulkancorekit`'s own note on why
+// that dependency is deliberately absent).
+//
+// The include path resolves because `vulkancorekit` exports `third_party/` as a PUBLIC include directory, and
+// `vulkan_render` links it.
+#define STB_IMAGE_STATIC
+#define STB_IMAGE_IMPLEMENTATION
+#include <stb/stb_image.h>
 import vstd;
 import application_configuration;
 import chores; // demo bootstrap helpers (shader loading / dir locating / pipelines)
@@ -202,6 +218,36 @@ namespace {
         return options;
     }
 
+    /// @brief the `_RD` image name a material's `RampIndex` selects, i.e. the reference's `RampSelect` resolved
+    ///
+    /// READ OUT OF `gooblender/nodes.json`, NOT GUESSED (spec §2.3/§2.4): the selector is
+    /// `运算.004 = idx < 0.9900000095367432`, `运算.005 = idx < 2.0`, `运算.006 = idx > 0.9900000095367432`,
+    /// `运算.007 = 运算.005 < 运算.006`, `运算.008 = idx > 2.990000009536743`, and three MIXes whose `f = 0`
+    /// takes their **A** side. Its four outcomes, in the order the cascade is written below (the LAST comparison is
+    /// the FIRST test, because it is the outermost MIX):
+    ///
+    ///     idx >  2.990000009536743  -> `图像纹理.006`  `TPLK_actor_common_cloth_03_RD`
+    ///     idx >= 2.0                -> `图像纹理.005`  `T_actor_common_cloth_04_RD`
+    ///     idx >= 0.9900000095367432 -> `图像纹理.001`  `T_actor_common_body_01_RD`
+    ///     otherwise (negative too)  -> `图像纹理`      `T_actor_common_cloth_04_RD`
+    ///
+    /// THE THIRD AND FOURTH ARMS NAME THE SAME IMAGE, which is the spec's A8 rather than a shortcut: slots 1 and 3
+    /// are byte-identical (`sha256 ff12009a...`) and were exported from two different characters' folders.
+    /// THE FIRST TWO A'S ARE WHAT MAKES THE BOUNDARIES WHAT THEY ARE: at `idx` exactly `0.9900000095367432` the
+    /// first comparison is FALSE and the MIX takes its A side, which is the BODY ramp - writing "`f` true takes
+    /// cloth" flips that boundary, and it is the boundary every laevatain material sits one step away from.
+    ///
+    /// THE RETURN IS A `string_view` INTO THE FILE, so a material that states no `RampIndex` (every other family,
+    /// and every material of every other character in this repository) gets an EMPTY view - which the lane resolver
+    /// turns into `invalid`, i.e. "no base ramp", i.e. the old chain's diffuse.
+    [[nodiscard]] std::string_view toon_base_ramp_name(toon::material_sidecar const& material) {
+        float const index = material.scalar("_GooRampIndex", 0.0f);
+        return index > 2.990000009536743f     ? std::string_view{"TPLK_actor_common_cloth_03_RD"}
+               : index >= 2.0f                ? std::string_view{"T_actor_common_cloth_04_RD"}
+               : index >= 0.9900000095367432f ? std::string_view{"T_actor_common_body_01_RD"}
+                                              : std::string_view{"T_actor_common_cloth_04_RD"};
+    }
+
 } // namespace
 
 // `int`, NOT `int32_t`: the C++ standard requires main's own signature to use the keyword, and this is the one
@@ -391,6 +437,29 @@ int main(int argc, char** argv) {
         // whose flag does not follow the convention (the matcap is the first), and found the same way: by asking
         // the files rather than by deriving the name.
         {"_SplitNormalMap", "_UseSpecBumpMap"},
+        // THE GOO IRIS BALL'S FLAG FOLLOWS THE CONVENTION (`_UseGooMatcap05`), which is the only kind of name it
+        // could have: the reference has no per-material switch for this texture at all (it is sampled from inside
+        // the group), so the flag is the port's own sidecar vocabulary rather than a row copied from an asset.
+        // Keeping it in the `_Use<Slot>` shape is what lets the diagnostic above walk it like every other lane.
+        {"_GooMatcap05", "_UseGooMatcap05"},
+        // THE GOO BASE RAMP'S FLAG FOLLOWS THE CONVENTION (`_UseGooBaseRamp`), for the matcap lane's own reason:
+        // the reference resolves this image INSIDE its `RampSelect` group and no material states a per-material
+        // switch for it, so the flag is this port's sidecar vocabulary rather than a row copied from an asset -
+        // and the `_Use<Slot>` shape is what lets the diagnostic above walk it like every other lane. The
+        // reference's own switch is `RampIndex`, which is not a flag but a SELECTOR, and it is resolved here (see
+        // `toon_base_ramp_name` below): the four slots hold two distinct images and every material this asset
+        // gives the group to states `0.0` or `1.0`, which is the spec's §2.6 + its A8.
+        {"_GooBaseRamp", "_UseGooBaseRamp"},
+        // ---- STEP 7: THE FACE CONTAINER'S THREE MASKS, ALL `_Use<Slot>` ----
+        //
+        // THE CONVENTION HOLDS FOR ALL THREE, and that is a fact about this port's vocabulary rather than about an
+        // asset: the reference samples every one of them from INSIDE `PBRToonBaseFace` (they are not material
+        // inputs at all), so there is no game-side `_Use...` row to copy and the flag is this sidecar's own switch
+        // - exactly as `_GooMatcap05` and `_GooBaseRamp` above are. Keeping the shape is what lets the diagnostic
+        // walk them like every other lane.
+        {"_GooFaceSDF", "_UseGooFaceSDF"},
+        {"_GooFaceCmM", "_UseGooFaceCmM"},
+        {"_GooFaceCsutm", "_UseGooFaceCsutm"},
     }};
     // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `vulkan::toon_colour_lane`, in lane order - the
     // same arrangement the texture table above uses and for the same reason: the asset pipeline's spelling belongs
@@ -419,6 +488,105 @@ int main(int argc, char** argv) {
         // routed correctly and this character's frame does not move by a pixel; the probe that proves the lane is
         // live (the iris re-stated as 0.3) is in `remaining_port_spec.md`'s "extras 数据源" section.
         "_ParallaxScale",
+        // THE GOO IRIS BRIGHTNESS LANE'S ROW IS A `color` AND NOT TWO `float`s, which is the shape the lane
+        // forces rather than a choice: one lane is one `vec4` and the reference states its two numbers as two
+        // SIBLING sockets of one group (`Eyes brightness` / `Eyes HightLight brightness`), read at the same two
+        // lines of it. The row's name is the port's own - the reference's sockets are neither `_`-prefixed game
+        // properties nor sidecar rows - and `.x` / `.y` are the two sockets IN THE REFERENCE'S OWN ORDER.
+        "_GooEyeBrightness",
+        // THE REWRITTEN CHAIN'S RIM LANES, and BOTH rows are `color` - which is the shape the reference forces
+        // rather than a choice: `Rim_Color` is an RGBA socket, and `Rim_ColorStrength` / `Rim_DirLightAtten` /
+        // `ToonfresnelPow` / `Use Rimlimitation?` are FOUR SIBLING sockets of the same group instance, read at
+        // one composition, so one `vec4` row carries them in the reference's own order. `.w` is a BOOLEAN's
+        // 0/1, which a `color` row states as a fourth float without loss.
+        //
+        // THE NAMES ARE THE PORT'S OWN, on `_GooEyeBrightness`'s terms: the reference's sockets are neither
+        // `_`-prefixed game properties nor sidecar rows. They are spelled with the reference's own capitalisation
+        // of `Rim` so a reader can find the socket they came from.
+        "_GooRimColour",
+        "_GooRimScalars",
+        // THE SCREEN-SPACE RIM'S TWO WIDTHS, and they are THEIR OWN ROW rather than two more floats on
+        // `_GooRimScalars` because they belong to the OTHER group the same material instantiates: the container
+        // reads `Rim_ColorStrength` / `Rim_DirLightAtten` from its own interface, while `Rim_width_X` /
+        // `Rim_width_Y` are `DepthRim`'s two `组输入` sockets, reached through `群组.016`. `.z` / `.w` are
+        // reserved. See `toon_colour_lane::goo_rim_widths`.
+        "_GooRimWidths",
+        // ---- STEP 4: THE BASE / SKIN / CLOTH DIRECT-DIFFUSE REPLACEMENT'S SIX LANES ----
+        //
+        // ITS OWN `BaseColor` FIRST, and the row name is the REFERENCE'S OWN - `组输入.BaseColor` of
+        // `Arknights: Endfield_PBRToonBase`. It is a `color` row in the material tree (`[1.1628, 0.9888, 1.0280]`
+        // on `body_01`), so `.x` / `.y` / `.z` are the tint and nothing else is read; the reason the port needs it
+        // at all is that its own albedo carries no `baseColorFactor` (see `toon_colour_lane::goo_base_colour`).
+        "_GooBaseColour",
+        // THE FOUR `SigmoidSharp` ARGUMENTS, in the order the reference's two call sites state them, and the
+        // ordering is the lane's contract rather than a preference: `.x` / `.y` are the half-Lambert curve's
+        // `center` / `sharp` and `.z` / `.w` the cast-shadow curve's.
+        "_GooDiffuseA",
+        // THE GATE'S LOWER EDGE AND ITS TWO NEIGHBOURS ON THE SAME MATERIAL ROW. `.y` HAS NO CONSUMER THIS STEP
+        // and the row is still named here, because this table's job is to be the ONE place the asset pipeline's
+        // spelling lives - see `toon_colour_lane::goo_diffuse_b` for why the value is recorded rather than applied.
+        "_GooDiffuseB",
+        // THE TOONFRESNEL PAIR: each row is a `color` whose `.rgb` is one side of the reference's `混合.006` MIX and
+        // whose `.w` is one end of the window its factor is a `smoothstep` of. `ToonfresnelPow` - the exponent
+        // between them - is NOT here: it rides `_GooRimScalars.z` already, and one socket must have one carrier.
+        "_GooFresnelInside",
+        "_GooFresnelOutside",
+        // AND THE DIRECT-OCCLUSION COLOUR, whose neutral is BLACK rather than white because black is what the
+        // reference's `lerp(black, white, AO)` starts from (see `toon_colour_lane::goo_direct_occlusion`).
+        "_GooDirectOcclusion",
+        // ---- STEP 5: THE REFERENCE'S DIRECT-SPECULAR / IBL-DIFFUSE / IBL-SPECULAR TERMS' FOUR LANES ----
+        //
+        // THE FOUR PER-MATERIAL NUMBERS THOSE TERMS CONSUME AND THE PORT COULD NOT CARRY, each one the
+        // REFERENCE'S OWN socket name (spec `goo_step5_specular_spec.md` §5.2/§7.3):
+        //
+        //   * `specularFGD Strength` - the IBL specular's strength (`0.8` on `body_01`/`body_02`, the group's
+        //     `1.0` on the cloth, and NO SOCKET AT ALL on the Face and Hair containers);
+        //   * `dirLight_lightColor` - THE LIGHT COLOUR OF THE DIRECT TERMS, which the spec's §5.4 makes
+        //     authoritative over Goo's `Shader Info` and which closes step 4's own recorded substitution (its
+        //     result document §4 item 2). It is a `color` row with a 4.2% blue/green pull on every material;
+        //   * `AmbientLightColorTint` - what the IBL diffuse multiplies the engine's probe irradiance by
+        //     (`[1.5121498107910156] x3` on the body, white on the cloth).
+        //
+        // ... AND A FOURTH, `SpecularColor`, whose absence would leave the direct specular 4.2x too dark on
+        // `body_01`/`body_02` (spec §7.3 item 5). It is NOT `BaseColor` reused: the two are independent sockets of
+        // the same group instance and disagree by 3.6x on the body, and `cloth_02`'s specular colour is darker than
+        // its base colour while the body's is brighter - see `toon_colour_lane::goo_specular_color`.
+        //
+        // THE ROW NAMES ARE THE REFERENCE'S SOCKET NAMES, which is why they have no leading underscore: every other
+        // entry above is a GAME property (`_BaseColor`, `_Specular`) or a name this port minted for a reference
+        // socket it had to name itself (`_GooRimColour`). These four are socket names the reference's own group
+        // carries verbatim, so a reader can grep `nodes.json` for them - and `_GooBaseColour` above set that
+        // precedent for `BaseColor`'s row.
+        "_GooSpecularFGD",
+        "_GooLightColor",
+        "_GooAmbientTint",
+        "_GooSpecularColor",
+        // ---- STEP 7: THE FACE CONTAINER'S FOUR LANES ----
+        //
+        // THE ROW NAMES ARE THE PORT'S OWN (the reference's sockets are neither `_`-prefixed game properties nor
+        // sidecar rows), on `_GooEyeBrightness`'s terms - and the two scalar rows carry FOUR SIBLING SOCKETS each,
+        // packed in the reference's own order, which is the shape one `vec4` forces and the same packing
+        // `_GooDiffuseA` / `_GooDiffuseB` already use:
+        //
+        //   * `_GooFaceScalarsA` = `chin_RemaphalfLambert_center`[x] / `_sharp`[y] / `sphereNormal_Strength`[z] /
+        //     `SmoothnessMax`[w] - the chin `SigmoidSharp` pair, the sphere-normal blend and the roughness source;
+        //   * `_GooFaceScalarsB` = `Face Final brightness`[x] / `Eyes white Final brightness`[y] / `Front R
+        //     Pow`[z] / `Front R Smo`[w] - the emission-brightness switch's two arms and `Front transparent
+        //     red`'s shape;
+        //   * `_GooFaceNoseShadow` = `nose_shadow_Color` and `_GooFaceFrontR` = `Front R Color`, both `color` rows
+        //     whose NEUTRAL IS BLACK because black is the socket's own `interface[]` default (see the lane's note
+        //     in `vulkan::toon_colour_lane`).
+        //
+        // THE AUDIT THAT KEPT THIS AT FOUR ROWS: eight more of the container's numbers already have carriers,
+        // filled from the SAME SOCKET NAMES by the same materials - `BaseColor` on `_GooBaseColour`, the two
+        // `SigmoidSharp` pairs and `MetallicMax` on `_GooDiffuseA` / `_GooDiffuseB`, `dirLight_lightColor` /
+        // `AmbientLightColorTint` / `SpecularColor` on step 5's three, `Rim_Color` on `_GooRimColour`, and
+        // `Color desaturation in shaded areas attenuation` on `_GooDiffuseB.y` (which step 6 taught to
+        // desaturate). Minting rows for those would give one socket two carriers.
+        "_GooFaceScalarsA",
+        "_GooFaceScalarsB",
+        "_GooFaceNoseShadow",
+        "_GooFaceFrontR",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -432,6 +600,12 @@ int main(int argc, char** argv) {
         flag.append(slot_name.starts_with('_') ? slot_name.substr(1) : slot_name);
         return flag;
     };
+    // ... AND THE ONE `float` ROW THAT IS NOT A LANE SWITCH AND NOT A COLOUR, named here because the diagnostic
+    // below walks the SIDECAR rather than the lane table and will therefore report it: `_GooRampIndex` is the
+    // reference's `RampIndex` socket, written beside its resolved name (`_GooBaseRamp`) so that the choice the
+    // host made can be re-derived from the file. Its synthetic flag is `_UseGooRampIndex`, which no asset states,
+    // so the diagnostic prints it `off` - which is TRUE of the flag and says nothing about the ramp (the ramp's
+    // switch is `_UseGooBaseRamp`). It has no colour row either, so `toon_colour` below never parses it.
 
     std::optional<toon::sidecar> toon_sidecar = {}; // kept in scope: the import below is what consumes it
     {
@@ -443,6 +617,13 @@ int main(int argc, char** argv) {
         } else {
             toon_sidecar = *sidecar;
             utility::log("toon sidecar: {} material(s) described ({} line(s) skipped)", sidecar->materials.size(), sidecar->skipped_lines);
+            // A NON-ZERO MERGE COUNT IS A FACT ABOUT THE FILE AND NOT A COMPLAINT: it says some material's rows
+            // arrived in more than one block, which the reader merges by name (see `sidecar::merged_rows`). It is
+            // logged because the OPPOSITE reading - "this material states nothing" - is what a reader that did not
+            // merge would silently report, and the two are indistinguishable in every other line of this output.
+            if (sidecar->merged_rows > 0) {
+                utility::log("toon sidecar: {} row(s) belong to a material whose rows are NOT CONTIGUOUS - merged into its entry by name", sidecar->merged_rows);
+            }
             for (toon::material_sidecar const& material : sidecar->materials) {
                 // THE FAMILY COMES FROM THE LOADER'S CLASSIFIER over the SAME name, so the sidecar (which
                 // supplies the parameters) and the renderer (which selects them) cannot disagree about which
@@ -532,6 +713,73 @@ int main(int argc, char** argv) {
             }
         }
         runtime.set_post_lut(post_lut, post_lut_width, post_lut_height);
+    }
+
+    // ---- THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT: A GLOBAL IMAGE, UPLOADED ONCE, FROM A FILE ----
+    //
+    // WHY THIS ONE IS LOADED FROM DISK WHEN EVERY OTHER TOON LOOKUP IN THIS FILE IS EITHER BAKED OR INJECTED INTO
+    // THE GLB, and the reason is the step-5 spec's §3.4 architecture ruling read the other way round: the bake
+    // functions above exist for images THIS PORT CAN COMPUTE (`smoothstep`, an identity cube, black), and the spec
+    // proves by measurement that these three FGD numbers are NOT a standard analytic form - the R channel is not
+    // Karis' `scale` at any axis mapping (ratio 0.00 to 1.01 and non-monotone), the G channel is 5-35x the fit's
+    // `bias` with no overlap in range, and the B channel differs from a 120k-sample Disney diffuse FGD by 2.4x
+    // (§3.3). So a bake here would be the port substituting its own invented curve for the reference's authored
+    // data - the one thing a port may not do - and the reference's own PNG is what travels.
+    //
+    // WHY IT DOES NOT GO THROUGH THE SIDECAR / `toon_slot` EITHER: it is ONE image shared by three containers with
+    // a coordinate computed from shading parameters, not from a material (see `heap_slots_goo_fgd_lut`), so a lane
+    // per material would be eleven rows pointing at one file. This is the "自持的全局纹理 + 自持的 heap 槽" the
+    // spec's §3.4 names, and the slot is `core::heap_slots::goo_fgd_lut` (754).
+    //
+    // THE PATH IS RESOLVED FROM THE EXECUTABLE'S OWN DIRECTORY, not from the process's working directory: a
+    // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `scripts/windows/capture.ps1`), so a
+    // CWD-relative path would miss. Nothing here is a new path *convention*: this file is a data file that ships
+    // beside the build's own `shaders/` and `chars/` directories, and `zmd-ab/` is where the reference's assets
+    // live in this repository.
+    //
+    // A MISSING FILE IS LOGGED AND NOT FATAL, deliberately: with no LUT uploaded, the slot holds no descriptor and
+    // `heap_texel` reads zero, which makes the step-5 arm's FGD terms zero - a frame that is WRONG in a way the log
+    // names, rather than a crash in a system whose other 40 features are fine. The three terms only exist inside
+    // the `goo_arm` branch, so `goo_toon = false` is unaffected either way.
+    {
+        std::vector<uint8_t> fgd_file = {};
+        // `utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
+        // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
+        // (see `scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
+        // `...\zmd-ab\laevat\zmd-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
+        // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
+        // The executable's own directory is `build-release-clang64/`, which is where `zmd-ab/` and the
+        // reference's assets live, so the path is right whatever the process's working directory is.
+        std::filesystem::path const fgd_path = utility::executable_directory() / "zmd-ab" / "gooblender" / "images" / "PreIntegratedFGD_GGXDisneyDiffuse.png";
+        if (!fgd_path.empty()) {
+            std::ifstream file(fgd_path, std::ios::binary);
+            if (file) {
+                fgd_file.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+            }
+        }
+        int32_t fgd_width = 0;
+        int32_t fgd_height = 0;
+        int32_t fgd_channels = 0;
+        stbi_uc* const fgd_pixels = fgd_file.empty()
+                                        ? nullptr
+                                        : stbi_load_from_memory(fgd_file.data(), static_cast<int32_t>(fgd_file.size()), &fgd_width, &fgd_height, &fgd_channels, 4); // 4 = force RGBA8
+        if (fgd_pixels == nullptr) {
+            utility::log("goo FGD LUT: NOT uploaded - '{}' is missing or not a readable PNG. The step-5 arm's FGD terms "
+                         "will read zero (see heap_slots_goo_fgd_lut); everything else is unaffected.",
+                         fgd_path.string());
+        } else {
+            // THE BYTES ARE HANDED OVER VERBATIM AND THAT IS THE WHOLE POINT OF THE UPLOAD'S FORMAT: the
+            // reference's image data-block is `colorspace = 'Non-Color'`, so Blender does not linearize it and the
+            // node graph reads the raw texels. `set_goo_fgd_lut` therefore creates an `R8G8B8A8_UNORM` image, and
+            // NOT the `_SRGB` one `set_post_lut` next door creates - an sRGB upload would decode all three FGD
+            // outputs once and move the highlight and the ambient (spec §3.1 item 1).
+            runtime.set_goo_fgd_lut(std::span<uint8_t const>(fgd_pixels, static_cast<std::size_t>(fgd_width) * static_cast<std::size_t>(fgd_height) * 4u),
+                                    static_cast<uint32_t>(fgd_width),
+                                    static_cast<uint32_t>(fgd_height));
+            // The decode is `STB_IMAGE_STATIC`'s own allocation and is freed here rather than kept: the upload
+            // copies into a device-local image, so nothing downstream reads these bytes.
+            stbi_image_free(fgd_pixels);
+        }
     }
 
     // 11. Batch-import: the runtime drives the traversal itself through two aligned loader
@@ -839,7 +1087,6 @@ int main(int argc, char** argv) {
         }
         toon_lane_names const& names = toon_lane[static_cast<std::size_t>(lane)];
         std::string_view const slot_name = names.slot;
-        // THE ARTIST'S SWITCH DECIDES, and an off flag produces an INVALID input, which the record turns into the
         // white fallback - i.e. "do not read" (see material_record::toon_indices). A map that exists while its
         // flag is off must NOT be read: that is the first rule the sidecar module exists to keep. Asked BY NAME
         // rather than by slot, because that is the only spelling that is true for all four lanes.
@@ -978,6 +1225,53 @@ int main(int argc, char** argv) {
             }
             return out;
         }
+        // ---- THE GOO BASE RAMP RESOLVES THE REFERENCE'S `RampSelect` ON THE HOST, AND THAT IS THE WHOLE POINT ----
+        //
+        // THE REFERENCE'S SELECTOR IS NOT A TEXTURE SLOT: `RampSelect` instantiates four `ShaderNodeTexImage`
+        // nodes inside itself and picks one with the material's `RampIndex` through five comparators and three
+        // MIX nodes (`goo_step4_diffuse_spec.md` §2.3/§2.4). The port may resolve it here for two reasons the spec
+        // proves rather than assumes (§2.6 + its A8):
+        //
+        //   * `RampIndex` HAS NO MATERIAL LINK in either dump - it is a per-material CONSTANT, so the choice cannot
+        //     change inside a frame;
+        //   * THE FOUR SLOTS HOLD ONLY TWO DISTINCT IMAGES (sha256 `ff12009a...` for slots 1 and 3,
+        //     `f92de330...` for slot 2 and the dangling `...001`), and every laevatain material states
+        //     `RampIndex` 0.0 or 1.0 - so on this asset the whole 41-node selector answers one of two names.
+        //
+        // THE SHADER THEREFORE SEES ONE LANE AND ONE FETCH, and this branch is where the arm it lands in stops
+        // being the shader's business. THE NAMES ARE THE `_RD` IMAGES' glTF NAMES, appended to the model by
+        // `zmd-ab/attach_toon_images.py` - without that step the lane resolves to nothing and the material keeps
+        // the old chain's diffuse, which is the correct fallback and an invisible one in a log.
+        if (lane == vulkan::toon_slot::goo_base_ramp) {
+            // TWO SOURCES, AND THE ORDER IS THE STATEMENT RATHER THAN A CONVENIENCE. `_GooBaseRamp` is the
+            // sidecar's own slot row and carries the name the reference's selector resolves to, already applied
+            // where the file was written; `_GooRampIndex` is the raw socket and is read only when the slot row is
+            // absent, which is the case for a material whose sidecar states the index and no name. Both answer the
+            // SAME name on every material this asset gives the group to, and `tests/test_goo_toon_math.cpp` asserts
+            // that agreement against the reference's four thresholds.
+            //
+            // THE MODEL IS THE JUDGE OF PRESENCE: a name the model does not carry leaves the lane `invalid`, so a
+            // material with no ramp in the file keeps the old chain's diffuse rather than sampling the white
+            // fallback as if it were a ramp.
+            std::string_view const ramp_name = !texture_name.empty() ? texture_name : toon_base_ramp_name(*material);
+            gltf::texture_data const* ramp_tex = nullptr;
+            if (!ramp_name.empty()) {
+                if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(ramp_name); index.has_value()) {
+                    gltf::texture_data const& candidate = state.scenes->textures[*index];
+                    if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
+                        ramp_tex = &candidate;
+                    }
+                }
+            }
+            if (ramp_tex != nullptr) {
+                out.data = std::span<uint8_t const>(ramp_tex->data.data(), ramp_tex->data.size());
+                out.width = ramp_tex->width;
+                out.height = ramp_tex->height;
+                out.mip_levels = 1;
+                out.valid = true;
+            }
+            return out;
+        }
         if (model_tex == nullptr) {
             return out; // the sidecar names a map this model does not have, or one that is present but unusable
         }
@@ -1015,7 +1309,34 @@ int main(int argc, char** argv) {
     // would be a depth the port invented. The stage tests `>= 0.0` and falls back to its own
     // `character_eye_parallax_depth` constant (see `toon_colour_lane::parallax_scale`).
     static constexpr std::array<glm::vec4, static_cast<std::size_t>(vulkan::toon_colour_lane::count)> toon_colour_neutral = {
-        {glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)}};
+        {glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
+         // STEP 4'S SIX. THE FOUR SENTINELED LANES START AT `-1000.0f` AND NOT AT `-1.0f`, and the reason is
+         // the whole point of a sentinel: two of their eight per-material numbers are AUTHORED NEGATIVES -
+         // `CastShadow_center` is `-0.10000000149011612` on both body materials and
+         // `GlobalShadowBrightnessAdjustment` is `-1.7999999523162842` on the cloth - so a neutral inside the
+         // values' own range would make the stage read an authored number as "not stated". See
+         // `goo_lane_absent` in `shaders/character_forward.slang` and each lane's note in
+         // `vulkan::toon_colour_lane`.
+         glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+         // STEP 5'S FOUR, WHOSE NEUTRALS ARE THE REFERENCE'S OWN `interface[]` DEFAULTS rather than the `-1000`
+         // sentinel four of step 4's lanes need - and the reason is the SOCKETS' RANGES, which is the check step 4's
+         // own root cause ("two of MY sockets are legitimately negative") says to make before reusing a sentinel.
+         // None of these four numbers is negative in the reference's asset: `specularFGD Strength` is `0.8` or
+         // `1.0`, `dirLight_lightColor` is `(1, 0.958..., 0.958...)`, `AmbientLightColorTint` is white or
+         // `(1.512...)`, and `SpecularColor` is a positive HDR multiplier (`[4.2093, 3.7652, 3.7652]`). So `< 0`
+         // lies outside every one of their domains and is enough, while step 4's lanes had
+         // `CastShadow_center = -0.1` and `GlobalShadowBrightnessAdjustment = -1.8` - authored negatives that a `-1`
+         // neutral would have swallowed. The scalar lane carries its sentinel in `.x` alone (the stage resolves
+         // that component to the reference's own `1.0`), and the three colour lanes fall back on their own four
+         // components, because a `-1` component of a light or a multiplier is not a state the reference has.
+         glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+         // STEP 7'S FOUR. THE TWO SCALAR LANES ARE `-1000` SENTINELS and the two colours are BLACK, each for the
+         // reason its own note gives: the scalars' zero is a meaningful value (`SmoothnessMax = 0` is "perfectly
+         // rough", and the two brightnesses are multiplied into the pixel), while the two colours' socket defaults
+         // in the reference's own interface ARE black - white would be the strongest possible statement about a
+         // nose shadow (`混合.017`'s A side) and about `Front transparent red`'s tint.
+         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)}};
     auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);
         toon_lookup_state const& state = *static_cast<toon_lookup_state*>(owner);
@@ -1170,7 +1491,11 @@ int main(int argc, char** argv) {
         } else {
             utility::log("head frame: no head bone in '{}' ({} skin(s)) - shading from the reference's fallback frame", model_path, scenes->skins.size());
         }
-        runtime.set_head_basis(vulkan::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f)});
+        // THE FOURTH MEMBER IS A POSITION AND A FLAG, and the fallback publish leaves BOTH at zero: this branch is
+        // the one a model with NO HEAD BONE takes, and for such a model there is no `HC` object to read a centre
+        // from. `center.w = 0.0` is what tells the face arm that, and its answer is the socket's own default
+        // (`sphereNormal_Strength = 0.0`) rather than a sphere about the world origin.
+        runtime.set_head_basis(vulkan::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f), .center = glm::vec4(0.0f)});
     }
 
     // ---- THE TOON LIGHT RIG, published once, before the frame loop ----
@@ -1510,6 +1835,10 @@ int main(int argc, char** argv) {
     // that never reached the gui (the trap the two lines above record) would be overwritten by the binding's
     // default on the very first frame.
     gui.character_forward = settings.render.character_forward;
+    // ... AND WHICH CHAIN THAT STAGE DRAWS WITH, initialised from the config on the same line and for the same
+    // reason: the frame loop mirrors the binding into the runtime, so a config value that never reached the
+    // binding would be overwritten by its default on the first frame.
+    gui.goo_toon = settings.render.goo_toon;
     gui.megalights_enabled = settings.render.megalights;
     gui.megalights_samples = static_cast<float>(settings.render.megalights_samples);
     gui.megalights_spatial_sigma = settings.render.megalights_spatial_sigma;
@@ -1705,11 +2034,29 @@ int main(int argc, char** argv) {
                 glm::vec3 const forward_row(joint[0][2], joint[1][2], joint[2][2]); // HLSL `_31_32_33`
                 glm::vec3 const right_row(joint[0][0], joint[1][0], joint[2][0]);   // HLSL `_11_12_13`
                 gltf::head_basis const basis = gltf::head_basis_from_axes(forward_row, right_row);
-                runtime.set_head_basis(vulkan::head_ubo{.front = glm::vec4(basis.front, 0.0f), .right = glm::vec4(basis.right, 0.0f), .up = glm::vec4(basis.up, 0.0f)});
+                // ---- AND THE HEAD'S OWN POSITION, FROM THE SAME MATRIX'S TRANSLATION COLUMN ----
+                //
+                // `Recalculate normal` needs `normalize(posWS - headCenter)`, and the reference gets `headCenter`
+                // from an OBJECT's `Object Info.Location` (spec §5.1: `存储已命名属性.003 <- 物体信息(HC).Location`).
+                // The equivalent here is the head BONE's world matrix translation - `joint[3]`, the same matrix the
+                // two rows above come from - which `gltf::head_basis` deliberately does not carry because every
+                // consumer before this step wanted a direction. It is published UNCONDITIONALLY OF `basis.from_skeleton`
+                // on purpose: the axes falling back to glTF's constants says nothing about where the head IS, and a
+                // centre of `(0,0,0)` would make the sphere normal `normalize(posWS)`, i.e. a normal pointing away
+                // from the world origin - a face shaded as if its head were at the origin of the scene.
+                // `center.w = 1.0` IS THE FLAG THAT SAYS THE SPHERE NORMAL HAS A CENTRE (see `head_ubo::center`):
+                // the initial publish below leaves it `0.0`, and on this repository's assets - every one of which
+                // is a BAKED pose with `skins = 0` - this branch is never taken, so the face arm keeps the socket's
+                // own default instead of building a normal about the world origin.
+                glm::vec3 const head_center(joint[3][0], joint[3][1], joint[3][2]);
+                runtime.set_head_basis(vulkan::head_ubo{.front = glm::vec4(basis.front, 0.0f), .right = glm::vec4(basis.right, 0.0f), .up = glm::vec4(basis.up, 0.0f), .center = glm::vec4(head_center, 1.0f)});
                 static bool logged_head_probe = false;
                 if (!logged_head_probe) {
                     logged_head_probe = true;
-                    utility::log("head probe: bone forward row ({:.3f} {:.3f} {:.3f}) right row ({:.3f} {:.3f} {:.3f}) -> basis front ({:.3f} {:.3f} {:.3f}) from_skeleton {}", forward_row.x, forward_row.y, forward_row.z, right_row.x, right_row.y, right_row.z, basis.front.x, basis.front.y, basis.front.z, basis.from_skeleton);
+                    utility::log("head probe: bone forward row ({:.3f} {:.3f} {:.3f}) right row ({:.3f} {:.3f} {:.3f}) -> basis front ({:.3f} {:.3f} {:.3f}) from_skeleton {} center ({:.3f} {:.3f} {:.3f})",
+                                 forward_row.x, forward_row.y, forward_row.z, right_row.x, right_row.y, right_row.z,
+                                 basis.front.x, basis.front.y, basis.front.z, basis.from_skeleton,
+                                 head_center.x, head_center.y, head_center.z);
                 }
             } else {
                 static bool logged_head_miss = false;
@@ -1805,6 +2152,9 @@ int main(int argc, char** argv) {
         // with the frame's opaque leaf list (feature_facts::character_forward_pending), so turning it on in a
         // frame with no opaque geometry records nothing rather than an empty instance.
         runtime.set_character_forward(gui.character_forward);
+        // ... and WHICH CHAIN that stage shades with, mirrored on the line above's own terms - CPU-side, read while
+        // the next frame is composed, so a toggle mid-run is seen by the frame after it (`runtime::set_goo_toon`).
+        runtime.set_goo_toon(gui.goo_toon);
         start_demo.set_ssao(gui.ssao_enabled, gui.ssao_radius, gui.ssao_intensity, static_cast<uint32_t>(std::max(gui.ssao_samples, 0.0f) + 0.5f));
         // cel shading: the combo picks a discrete band count (index 0 = off); every entry is a
         // visibly different look, unlike a continuous strength that had dead zones between bands

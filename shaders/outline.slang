@@ -150,7 +150,15 @@ float4 frag_main(
     // The article's `:310-312`: `mainDiffuseResult * _OutlineColor * _OutLineStrength`. `toon_diffuse` IS
     // `mainDiffuseResult` here - the same call `character_forward.slang` makes, with the normal substituted -
     // and the tint and the strength are the material's lane and the article's default above.
-    const float3 diffuse = toon_diffuse(s.albedo, s.alpha, s.toon_family, n, v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index);
+    //
+    // STEP 6'S DESATURATION IS DELIBERATELY NOT APPLIED TO THIS CALL, and the extra argument below is discarded
+    // for that reason: the reference's `色相/饱和度/明度` is the LAST node of `PBRToonBase`'s own output chain, it
+    // is not part of the group at all, and this stage multiplies the group's result by the outline's own tint. A
+    // desaturated `mainDiffuseResult` would darken and grey the OUTLINE, which is the colour of a line rather
+    // than a shading term. The out parameter exists because the group's caller needs it, and this is the one
+    // caller that does not.
+    float desaturation_unused = 0.0;
+    const float3 diffuse = toon_diffuse(s.albedo, s.alpha, s.toon_family, n, v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation_unused);
     const float3 tint = toon_colour_at(heap_slots_toon_colours, push.material_index * character_toon_colour_lanes + outline_edge_lane).rgb;
 
     return float4(diffuse * tint * outline_strength, 1.0);

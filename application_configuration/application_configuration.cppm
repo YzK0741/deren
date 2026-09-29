@@ -276,6 +276,16 @@ namespace app_config {
         // opaque surface in the scene is drawn by the character pipeline, which is what a character viewer
         // wants and what a scenario comparing against the pre-existing references must not have.
         bool character_forward = false;
+        // WHICH TOON CHAIN THAT STAGE DRAWS WITH ([render] goo_toon): false = the chain written against the
+        // author's article (`character_forward.slang`), true = the rewritten one whose authority is XIYAG's Goo
+        // node presets (`goo_toon.slang`, see vulkan::runtime::goo_toon_pipeline_name). NOT a second way to turn
+        // the stage on: with `character_forward` off this selects nothing, which is what keeps "the new shading
+        // model" and "the character stage exists" separable - the rewrite is verified by holding one and moving
+        // the other.
+        //
+        // OFF BY DEFAULT on the same terms as the flag above, and for a sharper reason: the rewrite lands one
+        // reference group at a time, so a run that does not ask for it must get the frame the old chain produces.
+        bool goo_toon = false;
         bool validation_layers = default_validation_layers; // Vulkan validation layers + debug messenger ([render])
     };
 

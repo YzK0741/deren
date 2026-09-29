@@ -810,6 +810,22 @@ namespace vulkan {
         return this->mesh_pipelines.contains(character_forward_pipeline_name) || this->meshlet_pipelines.contains(character_forward_pipeline_name);
     }
 
+    bool runtime::goo_toon_ready() const noexcept {
+        // The same question asked of the OTHER name, and the same answer's shape: this pipeline goes through the
+        // same builder, so it exists exactly when the mesh stage does (see `make_character_forward_frame`, which
+        // is where the two names are chosen between and which asks this itself rather than trusting the knob).
+        std::shared_lock const lock(this->access_mutex);
+        return this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name);
+    }
+
+    bool runtime::goo_toon_active() const noexcept {
+        // THE FRAME'S OWN PREDICATE, and the comment below is why it is here rather than recomposed by the asker:
+        // `make_character_forward_frame` picks the pipeline with exactly this expression, so the stage that has to
+        // stay silent while the rewritten chain draws asks the same question the choice was made with.
+        std::shared_lock const lock(this->access_mutex);
+        return this->goo_toon_on && (this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name));
+    }
+
     void runtime::set_toon_lookup(toon_lookup const& lookup) noexcept {
         // A SOURCE, not per-frame state: it is read while `import_scene` builds each primitive's create info, so
         // installing one AFTER an import changes nothing about what was already imported - which is what the
@@ -829,7 +845,22 @@ namespace vulkan {
         }
     }
 
-    void runtime::set_clustered_lights(bool const enabled) noexcept { // CPU-side only, like set_brdf_model: the flag rides light_state's cluster_grid.w lane and
+    void runtime::set_goo_toon(bool const enabled) noexcept {
+        // CPU-side only, on `set_character_forward`'s terms: the flag is read while the next frame's
+        // `character_forward_frame` is COMPOSED (see `make_character_forward_frame`, which is where the pipeline
+        // name is chosen), so no in-flight recording is touched.
+        this->goo_toon_on = enabled;
+        if (enabled && !(this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name))) {
+            // The knob is on but there is no pipeline to draw with: say so rather than leaving a frame that looks
+            // like the old chain and no line explaining why. NOTE WHAT THIS IS NOT: it is not a warning that the
+            // character stage is missing. With `character_forward` also on, that stage still runs - it simply
+            // draws with the OLD pipeline, which is a valid frame and a wrong experiment.
+            this->warn_missing_feature("goo_toon", "the rewritten toon chain has no effect: the goo_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's VK_EXT_mesh_shader), so the character stage draws with character_forward.slang");
+        }
+    }
+
+    void runtime::set_clustered_lights(bool const enabled) noexcept {
+        // CPU-side only, like set_brdf_model: the flag rides light_state's cluster_grid.w lane and
         // pace_and_acquire() copies light_state into the paced slot's buffer, so the next frame's
         // cluster dispatch and shading both see it (no in-flight buffer is touched).
         this->clustered_lights = enabled;
@@ -1361,6 +1392,11 @@ namespace vulkan {
         float const front_len_sq = glm::dot(front, front);
         float const right_len_sq = glm::dot(right, right);
         float const up_len_sq = glm::dot(up, up);
+        // THE FOURTH MEMBER IS A POSITION AND IT IS STORED BEFORE THE GUARD, because the guard is about the AXES:
+        // `headCenter` is what `Recalculate normal` subtracts from the fragment's world position, and a frame whose
+        // axes were refused still has a centre - keeping the previous one while a new one is known would make the
+        // sphere normal jump between two objects' heads.
+        this->head_state.center = basis.center;
         if (!std::isfinite(front_len_sq) || !std::isfinite(right_len_sq) || !std::isfinite(up_len_sq) || front_len_sq <= 1e-8f || right_len_sq <= 1e-8f || up_len_sq <= 1e-8f) {
             utility::log("head frame: refusing a degenerate basis (lengths {} {} {}), keeping the fallback", front_len_sq, right_len_sq, up_len_sq);
             return;

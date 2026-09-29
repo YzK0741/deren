@@ -144,6 +144,7 @@ target_sources(vulkancorekit
         vulkan/pass/transparent.cppm
         vulkan/pass/character_forward.cppm
         vulkan/pass/toon_screen_rim.cppm
+        vulkan/pass/goo_rim.cppm
         vulkan/pass/megalights_trace.cppm
         vulkan/pass/megalights_temporal.cppm
         vulkan/pass/ray_traced_shadow.cppm
@@ -184,6 +185,7 @@ target_sources(vulkancorekit
         vulkan/pass/transparent.cpp
         vulkan/pass/character_forward.cpp
         vulkan/pass/toon_screen_rim.cpp
+        vulkan/pass/goo_rim.cpp
         vulkan/pass/megalights_trace.cpp
         vulkan/pass/megalights_temporal.cpp
         vulkan/pass/ray_traced_shadow.cpp
@@ -476,7 +478,7 @@ option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 if(VR_BUILD_TESTS)
     enable_testing()
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_docs)
+    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
@@ -501,6 +503,13 @@ if(VR_BUILD_TESTS)
     # chores.cpp's load_shader calls) and compares them: one shader built by the build and not by the scripts is
     # the drift that test exists for, and it is the mesh path's CI gate (see the test's header).
     target_compile_definitions(test_shader_sources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
+    # test_goo_toon_math evaluates the REWRITTEN toon chain's iris arithmetic (read out of the reference's own
+    # node graph) and checks the SOURCES' TEXT for the five places a new toon lane has to be spelled - the lane
+    # enum, the upload format table, the sidecar slot/flag names, the colour-row name and the two neutral tables.
+    # None of those is a compiler-checkable contract: a missing one reads another material's data rather than
+    # failing (see `vulkan::toon_colour_lane`'s note on the dedup key). It reads those files, so it needs the
+    # source root and no library at all - like test_meshlet, it must run in CI, where there is no device.
+    target_compile_definitions(test_goo_toon_math PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
     # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
     # the source root and no library at all (see the test's header for the invariants).
@@ -765,6 +774,19 @@ set(VR_SHADER_INCLUDES
     # `test_shader_sources` requires every `#include` found in shaders/ to be listed here, which is what would
     # have caught the omission: an unlisted include leaves STALE SPIR-V that nothing but a byte comparison sees.
     "${VR_SHADER_SRC_DIR}/character_forward.slang"
+    # goo_toon.slang IS INCLUDED BY THE REWRITTEN CHAIN'S OWN STAGE, and it is listed here for the SAME reason
+    # character_forward.slang is one line above: `shaders/goo_toon.slang` includes it for `toon_diffuse` (the old
+    # body every non-iris family is still shaded by), so editing it must rebuild `goo_toon.frag.spv` as well -
+    # otherwise the old chain's fix lands in one .spv and not the other, which is a difference between two stages
+    # that must agree, visible only as a byte comparison. See `goo_toon_pipeline_name`'s note for why the two
+    # stages share one body on purpose.
+    "${VR_SHADER_SRC_DIR}/goo_toon.slang"
+    # goo_rim.slang is THE REWRITTEN CHAIN'S THIRD STAGE and it is listed for the reason the two lines above are:
+    # it reads the same two shared tables those stages do (`toon_params.slang`'s family table and
+    # `material_record.glsl`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
+    # on stale SPIR-V would read a material record with different field offsets, which is a wrong texture or a
+    # wrong family rather than a build error.
+    "${VR_SHADER_SRC_DIR}/goo_rim.slang"
 )
 # (THE GLSL STAGE LIST USED TO LIVE HERE: twenty-four names, glslc's input, kept in step with the sources by
 # hand. Every one of them is in shaders/glsl.old/ now and built from Slang instead, so the list is gone -
@@ -796,9 +818,23 @@ set(VR_SLANG_SOURCES
     # by default, so none of the ten capture scenarios records it until a scenario turns it on - which is
     # what makes its landing behaviour-neutral.
     character_forward.slang:main:fragment:character_forward.frag.spv
+    # goo_toon.slang is THE REWRITTEN TOON CHAIN's fragment stage: the same geometry, the same pass and the same
+    # frame as the entry above, with the shading model replaced by the one XIYAG's Goo node presets describe
+    # (see build-release-clang64/zmd-ab/goo_toon_plan.md). ITS ENTRY IS `goo_toon_frag_main`, NOT `main`, for the
+    # reason `outline.slang`'s is: it INCLUDES character_forward.slang, which brings that file's own
+    # `[shader("fragment")] main` with it, and a plain `-entry main` then names an overload set that Slang refuses
+    # to resolve (E38000). It is selected at run time by `[render] goo_toon` - OFF by default, so none of the ten
+    # capture scenarios draws it, and its landing is behaviour-neutral until a run asks for it.
+    goo_toon.slang:goo_toon_frag_main:fragment:goo_toon.frag.spv
     # toon_screen_rim.slang is the toon stage's SECOND rim: a fullscreen additive contour from the depth,
     # gated by the SAME `character_forward` feature, so no capture scenario records it either.
     toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
+    # goo_rim.slang is THE REWRITTEN CHAIN'S rim, and it is a stage of its own for the constraint its header
+    # records: the reference's rim is a PRODUCT of three attenuations and a screen-space depth factor, and the
+    # depth it samples is the character-forward stage's own ATTACHMENT - so the surface shader cannot compute it.
+    # It is gated by `[render] goo_toon` (through a name the chain owner composes), so, like the two entries above,
+    # no capture scenario records it until one turns the rewritten chain on.
+    goo_rim.slang:main:fragment:goo_rim.frag.spv
     # overlay.slang is the article's TWO FRAMEBUFFER MULTIPLIES (an eye shadow and a hair shadow), drawn by the
     # `character_forward` stage's overlay group with the multiply blend and gated by that same feature - so, like
     # the two entries above, no capture scenario records it until one turns the toon stage on. It shares

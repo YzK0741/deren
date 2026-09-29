@@ -51,6 +51,7 @@ import vulkan.pass.taa;
 import vulkan.pass.transparent;
 import vulkan.pass.character_forward; // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
 import vulkan.pass.toon_screen_rim;   // ... and its second rim: a fullscreen additive contour from the depth
+import vulkan.pass.goo_rim;           // ... and the REWRITTEN chain's rim: the same shape, the Goo reference's values
 import vulkan.pass.upscale;           // the resolve: the render chain's LDR image -> the presented swapchain
 
 export namespace vulkan {
@@ -197,6 +198,10 @@ export namespace vulkan {
         /// surface stage. Gated by the SAME `character_forward` feature - the contour means nothing without the
         /// shading it outlines, so the two are one switch.
         pass::toon_screen_rim_pass* toon_screen_rim_ = nullptr;
+        /// THE REWRITTEN CHAIN'S RIM (`vulkan.pass.goo_rim`): the same fullscreen additive shape as the contour
+        /// above, with the Goo reference's numbers instead of the article's, and MUTUALLY EXCLUSIVE with it - the
+        /// feature table below answers this one with `goo_toon_active()` and that one with its negation.
+        pass::goo_rim_pass* goo_rim_ = nullptr;
         pass::rt_shadow_pass* rt_shadow_ = nullptr;
         pass::deferred_pass* deferred_ = nullptr;
         pass::taa_pass* taa_ = nullptr;

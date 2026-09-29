@@ -157,6 +157,12 @@ namespace chores {
         // the other render toggles, and the overlay only offers it when the renderer registered the pipeline
         // (see render_start_demo::feature_available).
         bool character_forward = false;
+        // WHICH SHADING MODEL THAT STAGE DRAWS WITH (runtime::set_goo_toon): false = the old chain
+        // (`character_forward.slang`), true = the rewritten one (`goo_toon.slang`, see
+        // `runtime::goo_toon_pipeline_name`). A SECOND SWITCH RATHER THAN ONE, because the two answer different
+        // questions - whether the stage runs, and which model it runs - and the rewrite is verified by holding the
+        // first fixed and moving the second. Mirrored into the runtime every frame like the other render toggles.
+        bool goo_toon = false;
         // Stochastic PUNCTUAL lighting (docs/megalights.md): the switch and the estimator's sample count. The
         // switch is the A/B a user actually wants - the shadows the punctual lights never had, against the
         // unshadowed path - and the sample count is the one knob cost and noise both scale with.

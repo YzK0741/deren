@@ -39,6 +39,7 @@ import vulkan.pass.scene;                 // the third: the scene itself, whose 
 import vulkan.pass.transparent;           // the fourth: the blended geometry, over the shaded frame
 import vulkan.pass.character_forward;     // ... and the toon character stage, which re-shades the OPAQUE leaves over it
 import vulkan.pass.toon_screen_rim;       // ... and its second rim, a fullscreen additive contour from the depth
+import vulkan.pass.goo_rim;               // ... and the REWRITTEN chain's rim, a fullscreen additive stage of its own
 import vulkan.pass.upscale;               // the resolve: the render chain's LDR image -> the presented swapchain
 import vulkan.pass.ray_traced_shadow;     // the ninth, and the only pass that traces outside the chain: the ray-traced shadow
 import vulkan.pass.mask_bake;             // ... and the one-shot MASK bake, which is a JOB rather than a frame pass
@@ -206,6 +207,18 @@ namespace vulkan {
         // neutral cube.
         vk_image post_lut_image = {};
         vk_image_view post_lut_view = {};
+        // THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT (`PreIntegratedFGD_GGXDisneyDiffuse.png`) IS THE SAME KIND OF
+        // RESOURCE FOR THE SAME REASON: the heap holds a DESCRIPTOR, so an image the host lets go of leaves that
+        // descriptor pointing at nothing. Uploaded ONCE by `set_goo_fgd_lut`, by the application, from the
+        // reference's own 64x64 PNG - and it is the STEP-5 spec's architecture ruling that it is a shared global
+        // image rather than a per-material lane (§3.4).
+        //
+        // ITS FORMAT IS `VK_FORMAT_R8G8B8A8_UNORM` AND THAT IS A CORRECTNESS REQUIREMENT RATHER THAN A DEFAULT:
+        // the reference's image data-block is `colorspace = 'Non-Color'`, i.e. Blender does NOT linearize it, so
+        // the node graph reads the texel's BYTES as the value. An `_SRGB` upload would decode every channel once
+        // and move all three outputs of the group (spec §3.1 item 1).
+        vk_image goo_fgd_image = {};
+        vk_image_view goo_fgd_view = {};
         vk_sampler env_sampler = {};
         // GPU material table (set 0 binding 5): one material_record per entry (texture indices +
         // factors + flags); primitives only push their material_index. Host-visible, written at
@@ -599,6 +612,14 @@ namespace vulkan {
          * pass's and its inputs are heap slots - so this array is only what the chain lookup fills.
          */
         std::array<pass::frame_pass*, 1> toon_screen_rim_stage = {};
+        /**
+         * THE REWRITTEN CHAIN'S RIM (vulkan.pass.goo_rim): the SAME screen-space shape as the contour above -
+         * a fullscreen additive stage, no frame of its own - placed right after it, and the two are mutually
+         * exclusive by construction rather than by order: the owner answers this pass's feature with
+         * `goo_toon_active()`, which is the negation of the predicate that answers the contour's. On a frame the
+         * rewritten chain draws, this stage records and that one does not; on every other frame neither does.
+         */
+        std::array<pass::frame_pass*, 1> goo_rim_stage = {};
         /// the scene frame's view of the per-slot segments (a member, so the span it hands the pass outlives it)
         std::vector<pass::segment_buffer> scene_segment_view = {};
         /// the colour formats the scene pass's secondaries inherit, in attachment order
@@ -612,7 +633,17 @@ namespace vulkan {
          * which is what the capture gate checks and what this project requires of a behaviour-visible
          * addition. `set_character_forward` is the only writer.
          */
-        bool character_forward_on = false; // The two blend weights are NOT here any more: they are the TAA pass's own parameters now, set through
+        bool character_forward_on = false;
+        /**
+         * WHICH TOON CHAIN THE CHARACTER STAGE DRAWS WITH (see @ref goo_toon_pipeline_name and `set_goo_toon`):
+         * false = the old `character_forward.slang`, true = the rewritten `goo_toon.slang`.
+         *
+         * SEPARATE FROM `character_forward_on` ABOVE AND NOT FOLDED INTO IT, because they answer two different
+         * questions: whether the stage runs, and which shading model it runs. The rewrite's A/B holds the first
+         * fixed and moves the second, which is a comparison that cannot be expressed with one flag.
+         */
+        bool goo_toon_on = false;
+        // The two blend weights are NOT here any more: they are the TAA pass's own parameters now, set through
         // `set_taa` (which forwards them) and clamped by the pass - see vulkan.pass.taa::set_blend. What stays
         // here is the SWITCH and the jitter phase, because both are frame-loop state: the switch decides whether
         // the projection is jittered at all and which target the scene side writes, and the jitter index is the
@@ -2423,6 +2454,48 @@ namespace vulkan {
 
         /**
          * @ingroup vulkan_runtime
+         * @brief draw the character stage with the REWRITTEN toon chain instead of the old one
+         *
+         * WHAT IT SELECTS, EXACTLY: the pipeline name `make_character_forward_frame` hands the pass - see
+         * @ref goo_toon_pipeline_name. It does NOT turn the stage on: a frame with `character_forward` off draws
+         * no character stage at all, whatever this says, and that separation is deliberate - "the new shading
+         * model" and "the character stage exists" are two facts, and a single knob for both would make the A/B
+         * that verifies the rewrite unable to say which one moved the picture.
+         *
+         * OFF BY DEFAULT, on `set_character_forward`'s terms: it changes what every eye-family material in the
+         * scene is shaded by, and this step of the rewrite implements ONE reference group - so it is a switch a
+         * run asks for rather than a state a frame drifts into.
+         *
+         * @param enabled true = the stage draws with `shaders/goo_toon.slang` (when that pipeline was created);
+         *        false = it draws with the old `character_forward.slang`
+         * @note CPU-side only, like `set_character_forward`: it is read while the frame is COMPOSED, so a toggle
+         *       mid-run is seen by the next frame and disturbs no in-flight recording.
+         */
+        void set_goo_toon(bool enabled) noexcept;
+
+        /**
+         * @brief whether the REWRITTEN chain's pipeline exists, i.e. whether `goo_toon` can select anything
+         *
+         * Asked of the registry rather than of the knob, exactly as `character_forward_ready` is: the pipeline
+         * needs the mesh stage, so a device without `VK_EXT_mesh_shader` registers none.
+         */
+        [[nodiscard]] bool goo_toon_ready() const noexcept;
+
+        /**
+         * @brief whether THE REWRITTEN CHAIN IS THE ONE DRAWING this frame: `goo_toon` on AND its pipeline there
+         *
+         * A DIFFERENT QUESTION FROM `goo_toon_ready` ABOVE, and the difference is the knob: `ready` answers "can
+         * this chain be selected at all", this answers "is it selected". It is the SAME PREDICATE
+         * `make_character_forward_frame` uses to choose the pipeline name, exposed because a second stage has to
+         * ask it: the screen-space rim must not draw the article's contour over the reference's rim, and the
+         * question it needs answered is this one rather than either half of it. Two predicates for one decision
+         * would let a knob turned on without a pipeline silence the article's rim and draw nothing - so the
+         * frame's own answer is published here rather than recomposed by the asker.
+         */
+        [[nodiscard]] bool goo_toon_active() const noexcept;
+
+        /**
+         * @ingroup vulkan_runtime
          * @brief HOW THE RUNTIME REACHES A MATERIAL'S TOON MAPS, without knowing what a sidecar is
          *
          * WHY A CALLBACK RATHER THAN THE DATA: the toon maps are named in a `.toon.tsv` beside the model, and
@@ -2878,6 +2951,36 @@ namespace vulkan {
         static constexpr std::string_view outline_pipeline_name = "outline";
 
         /**
+         * @brief the name the REWRITTEN TOON CHAIN's fragment stage is registered under (`shaders/goo_toon.slang`)
+         *
+         * THE SAME PASS, THE SAME FRAME AND THE SAME STATE AS `character_forward_pipeline_name` ABOVE, and that
+         * is the whole design: this name differs from it in ONE thing - which `.spv` the fragment stage came from
+         * - so switching `[render] goo_toon` swaps the shading model and nothing else. The alternative (a second
+         * pass, a second stage, a second target) would have made "the new chain" and "a different frame" the same
+         * experiment, and the rewrite's own acceptance is a single-variable A/B.
+         *
+         * IT IS REGISTERED THROUGH `make_character_forward_pipeline`, WHICH IS WHY NO `core::make_goo_toon_*`
+         * EXISTS: that builder's three forced states (ONE HDR target, blending off, depth compare EQUAL, plus the
+         * render-extent viewport) are exactly this stage's, so a second core entry point would be a byte-for-byte
+         * copy of one state block whose only purpose was to be called from here. The two names are then chosen
+         * between in `make_character_forward_frame`, which is also the one place that knows whether this pipeline
+         * was built at all.
+         *
+         * ⚠ DIFFERENT FROM `character_forward_pipeline_name` IN ONE MORE WAY, AND IT IS THE PASS'S: the pass
+         * keeps its `feature()` name (`"character_forward"`) either way, so the OUTLINE and OVERLAY stages that
+         * hang off that feature keep running unchanged. `goo_toon` selects a SHADING MODEL, not a pass, and this
+         * step of the rewrite ports one group of that model; a switch that also turned the pass on would make
+         * "the new iris" and "the character stage exists at all" the same variable.
+         *
+         * ... AND THE SCREEN-SPACE RIM IS THE ONE TOON STAGE THAT DOES *NOT* KEEP RUNNING UNDER IT, which is why
+         * it no longer shares this feature name: that pass draws the ARTICLE's contour and the reference the
+         * rewrite follows has no such thing, so the two rims would both be on the character. It asks under
+         * `"toon_screen_rim"` and is switched off by `goo_toon_active()` (`toon_screen_rim_pass::feature` has the
+         * argument, and it is a name this renderer's feature table composes rather than a new `[render]` key).
+         */
+        static constexpr std::string_view goo_toon_pipeline_name = "goo_toon";
+
+        /**
          * @ingroup vulkan_runtime
          * @brief create the G-buffer pipeline: the deferred path's surface-only fragment stage
          * @param vertex_shader_code raw SPIR-V of pbr.vert (the G-buffer reuses the forward vertex
@@ -3328,6 +3431,24 @@ namespace vulkan {
          * without any LUT at all, which is a measurement the capture gate can check.
          */
         void set_post_lut(std::span<uint8_t const> pixels, uint32_t width, uint32_t height);
+
+        /**
+         * @ingroup vulkan_runtime
+         * @brief upload the GOO REFERENCE'S PRE-INTEGRATED FGD LUT into its own heap slot
+         *
+         * A `width x height` R8G8B8A8_**UNORM** image, uploaded once from the reference's own PNG
+         * (`zmd-ab/gooblender/images/PreIntegratedFGD_GGXDisneyDiffuse.png`, 64x64, 5234 B). The step-5 spec's
+         * §3.4 ruling is why it is a SHARED GLOBAL image rather than a `toon_slot` lane: the reference's FGD group
+         * holds one `ShaderNodeTexImage`, three containers share that data-block, and the sample coordinate is
+         * computed from shading parameters - so per-material lanes would be eleven rows of sidecar pointing at one
+         * file, i.e. the full lane cost for zero information. See `core::heap_slots::goo_fgd_lut`.
+         *
+         * UNORM AND NOT `_SRGB`, which is the one thing about this upload that is easy to get wrong and changes the
+         * picture rather than the format field: the data-block's `colorspace` is `'Non-Color'` (every other
+         * `_RD`/`_D` image in this project is `'sRGB'`), so Blender hands the node graph the texel's RAW bytes and
+         * an sRGB upload would decode all three of `specularFGD` / `diffuseFGD` / `reflectivity` once (spec §3.1).
+         */
+        void set_goo_fgd_lut(std::span<uint8_t const> pixels, uint32_t width, uint32_t height);
 
         /**
          * @ingroup vulkan_runtime

@@ -139,6 +139,34 @@ namespace {
         CHECK(!trailing.has_value());
     }
 
+    void test_rows_appended_for_an_existing_material_merge_into_its_entry() {
+        // THE FILE SHAPE THIS EXISTS FOR, and it is not hypothetical: a sidecar extended by APPENDING rows rather
+        // than inserting them beside the material's others - the natural way to add one, and how the rewritten
+        // chain's own rows arrived. It used to give one material TWO entries, and `find` returns the first, so the
+        // consumer saw NONE of the appended rows while the file plainly contained them. The failure is invisible in
+        // both directions: the log that walks the sidecar lists every row (twice), and the lookup that matters
+        // silently falls back to the material's older state.
+        constexpr std::string_view text =
+            "material\tkind\tname\tvalue\n"
+            "M_a\tslot\t_BaseMap\tT_a\n"
+            "M_b\tslot\t_BaseMap\tT_b\n"
+            "M_a\tfloat\t_UseNewThing\t1.0\n"; // appended, i.e. NOT contiguous with M_a's first row
+        auto const parsed = toon::parse_sidecar(text);
+        CHECK(parsed.has_value());
+        if (!parsed.has_value()) {
+            return;
+        }
+        CHECK(parsed->materials.size() == 2); // one entry per NAME, not one per contiguous block
+        CHECK(parsed->merged_rows == 1);      // and the merge is COUNTED, so a caller can report the shape
+        toon::material_sidecar const* const a = parsed->find("M_a");
+        CHECK(a != nullptr);
+        // BOTH rows have to be in the SAME entry: the first block's slot, and the appended flag
+        CHECK(a != nullptr && a->slot("_BaseMap") == "T_a");
+        CHECK(a != nullptr && a->enabled_by_flag("_UseNewThing"));
+        // the entries still keep the file's FIRST-appearance order, which is what the reader's contract says
+        CHECK(parsed->materials.size() == 2 && parsed->materials[0].name == "M_a" && parsed->materials[1].name == "M_b");
+    }
+
     void test_the_path_convention_appends_rather_than_replaces() {
         // `x.glb` -> `x.glb.toon.tsv`, NOT `x.toon.tsv`: the model's own extension stays
         std::filesystem::path const path = toon::sidecar_path_for("models/hero.glb");
@@ -311,8 +339,8 @@ namespace {
         CHECK(primitive_file.good());
         if (primitive_file.good()) {
             std::string const primitive{std::istreambuf_iterator<char>{primitive_file}, std::istreambuf_iterator<char>{}};
-            CHECK(shader.find("character_toon_colour_lanes = 6u") != std::string::npos);
-            CHECK(primitive.find("count = 6,") != std::string::npos);
+            CHECK(shader.find("character_toon_colour_lanes = 24u") != std::string::npos);
+            CHECK(primitive.find("count = 14,") != std::string::npos);
             // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
             // stage cannot include `character_forward.slang` without inheriting its entry point: the outline's
             // geometry stage. It reads ONE lane of the table and still needs the whole stride - a copy left at an
@@ -321,24 +349,38 @@ namespace {
             CHECK(pbr_file.good());
             if (pbr_file.good()) {
                 std::string const pbr{std::istreambuf_iterator<char>{pbr_file}, std::istreambuf_iterator<char>{}};
-                CHECK(pbr.find("pbr_toon_colour_lanes = 6u") != std::string::npos);
+                CHECK(pbr.find("pbr_toon_colour_lanes = 24u") != std::string::npos);
+            }
+            // ... AND THE THIRD READER, which step 3 added: the REWRITTEN chain's rim is a fullscreen stage of its
+            // own (`shaders/goo_rim.slang`) and it reads FIVE lanes of this table, so a copy left at the old count
+            // would give every material another material's rim colour, rim scalars AND rim widths - the loudest
+            // form of the silent failure this check exists for. The file is spelled here rather than reached
+            // through `character_forward.slang` because it is not part of that include chain at all.
+            std::ifstream goo_rim_file{VR_TEST_SOURCE_DIR "/shaders/goo_rim.slang"};
+            CHECK(goo_rim_file.good());
+            if (goo_rim_file.good()) {
+                std::string const goo_rim{std::istreambuf_iterator<char>{goo_rim_file}, std::istreambuf_iterator<char>{}};
+                CHECK(goo_rim.find("goo_rim_colour_lanes = 24u") != std::string::npos);
             }
             // AND THE LANE BLOCK COUNT, the same shape one level down: lanes 8..11 ride a SECOND `uvec4` of the same
             // table, addressed as `material * blocks + 1`, so a block count that drifts reads a neighbouring
-            // material's lanes exactly the way a colour-lane drift reads its colours.
-            CHECK(shader.find("character_toon_lane_blocks = 2u") != std::string::npos);
-            CHECK(primitive.find("toon_lane_blocks = 2") != std::string::npos);
-            // AND THE STRIDE ITSELF, on BOTH accessors - because the failure this check exists for already happened:
-            // the host moved to a two-block stride while `toon_lanes_at` still read `[material]`, so every material
-            // read another material's lanes and the frame merely looked like a character. The two spellings below
-            // are what the two sides must agree on, and they are asserted rather than measured on a frame because a
-            // wrong lane is invisible in most of them.
+            // material's lanes exactly the way a colour-lane drift reads its colours. STEP 7 RAISED BOTH OF THESE
+            // FROM 2 TO 3, because the FACE container's three masks did not fit the second block; the numbers below
+            // moved with the enum, the host's `toon_lane_blocks`, the allocation and all three accessors.
+            CHECK(shader.find("character_toon_lane_blocks = 3u") != std::string::npos);
+            CHECK(primitive.find("toon_lane_blocks = 3") != std::string::npos);
+            // AND THE STRIDE ITSELF, on ALL THREE accessors - because the failure this check exists for already
+            // happened: the host moved to a two-block stride while `toon_lanes_at` still read `[material]`, so every
+            // material read another material's lanes and the frame merely looked like a character. The spellings
+            // below are what the two sides must agree on, and they are asserted rather than measured on a frame
+            // because a wrong lane is invisible in most of them.
             std::ifstream heap_access_file{VR_TEST_SOURCE_DIR "/shaders/heap_access.slang"};
             CHECK(heap_access_file.good());
             if (heap_access_file.good()) {
                 std::string const access{std::istreambuf_iterator<char>{heap_access_file}, std::istreambuf_iterator<char>{}};
-                CHECK(access.find("#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 2u]") != std::string::npos);
-                CHECK(access.find("#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 2u + 1u]") != std::string::npos);
+                CHECK(access.find("#define toon_lanes_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u]") != std::string::npos);
+                CHECK(access.find("#define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u + 1u]") != std::string::npos);
+                CHECK(access.find("#define toon_lanes3_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u + 2u]") != std::string::npos);
             }
         }
     }
@@ -538,14 +580,15 @@ namespace {
         CHECK(declarations.find(key_type) != std::string::npos);
         CHECK(runtime.find(key_type) != std::string::npos);
         // ... AND IT IS THE ENUM RATHER THAN A NUMBER, which is the drift this repository has already paid for
-        // once: `count = 6` today, and a hand-written 4 or 5 would leave the two NEWEST lanes - the two the asset's
-        // own `extras` block speaks for - out of the key while every existing asset continued to look right.
-        CHECK(primitive.find("count = 6,") != std::string::npos);
-        CHECK(primitive.find("toon_lane_blocks = 2") != std::string::npos);
+        // once: `count = 10` today, and a hand-written 4 or 5 would leave the NEWEST lanes - the two the asset's
+        // own `extras` block speaks for, the rewritten chain's iris brightnesses, its two rim lanes and its
+        // screen-space rim widths - out of the key while every existing asset continued to look right.
+        CHECK(primitive.find("count = 14,") != std::string::npos);
+        CHECK(primitive.find("toon_lane_blocks = 3") != std::string::npos);
 
         // (b) THE BYTES ACTUALLY GO IN, from the array the table is filled from: keying anything else (the
         // neutral, a copy taken before the lookup resolved, a differently ordered row) would dedup on the wrong
-        // six values and split or merge the wrong pairs.
+        // set of lanes and split or merge the wrong pairs.
         CHECK(runtime.find("info.toon.colours.data(),") != std::string::npos);
         CHECK(runtime.find("static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4));") != std::string::npos);
 
@@ -576,6 +619,7 @@ int32_t main() {
     test_header_is_recognised_by_its_column_not_its_position();
     test_a_malformed_row_is_an_error_with_its_line_number();
     test_a_non_numeric_float_is_an_error();
+    test_rows_appended_for_an_existing_material_merge_into_its_entry();
     test_the_path_convention_appends_rather_than_replaces();
     test_a_missing_file_is_an_empty_sidecar_and_not_an_error();
     test_a_file_on_disk_is_read_through_the_convention();

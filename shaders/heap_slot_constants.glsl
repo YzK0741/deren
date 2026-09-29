@@ -108,6 +108,16 @@ const uint heap_slots_toon_colours = heap_slot_base + 752u;
 // a NEUTRAL cube into it at startup (`main.cpp`'s post-LUT bake), so the lookup is the identity until an artist's cube
 // replaces it, and `test_render_resources` holds this spelling against `core::heap_slots::post_lut`.
 const uint heap_slots_post_lut = heap_slot_base + 753u;
+// THE GOO REFERENCE'S PRE-INTEGRATED FGD LOOKUP TABLE (`PreIntegratedFGD_GGXDisneyDiffuse.png`, 64x64 RGBA8,
+// UNORM): the screenshot's `specularFGD` / `diffuseFGD` / `reflectivity` are three READS OF THIS ONE IMAGE, so it
+// is a GLOBAL texture rather than a per-material lane - the reference's `图像纹理` is one data-block shared by the
+// Base, Face and Hair containers, and its sample coordinate is computed from shading parameters
+// (`sqrt(NoV)`, `perceptualRoughness`, `fresnel0`) rather than from a material's uv or a material's map (spec
+// `goo_step5_specular_spec.md` §3.4). The application uploads it once at startup (`runtime::set_goo_fgd_lut` from
+// `main.cpp`), and 754 is the next free slot after the post LUT above - 750 is the head frame's second frame slot
+// (see the note on 751) and is NOT free. `test_render_resources` holds this spelling against
+// `core::heap_slots::goo_fgd_lut`.
+const uint heap_slots_goo_fgd_lut = heap_slot_base + 754u;
 const uint heap_slots_mask_instances = heap_slot_base + 530u;
 // frame-invariant images the shading stage samples
 const uint heap_slots_env_cube = heap_slot_base + 532u;

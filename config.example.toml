@@ -356,6 +356,21 @@ taa_blend_min = 0.5
 # gltf_loader/toon_material_sidecar.cppm for the `.toon.tsv` the slots come from.
 character_forward = false
 
+# goo_toon: WHICH SHADING MODEL the character stage above draws with. false = the chain written against the
+# author's article (`shaders/character_forward.slang`); true = the REWRITTEN chain whose authority is XIYAG's
+# Goo node presets (`shaders/goo_toon.slang`, registered as the `goo_toon` pipeline - see
+# vulkan::runtime::goo_toon_pipeline_name and build-release-clang64/zmd-ab/goo_toon_plan.md).
+#
+# IT IS NOT A SECOND WAY TO TURN THE STAGE ON: with `character_forward` off this selects nothing at all. The two
+# are separate because they answer two questions - whether the stage runs, and which model it runs - and the
+# rewrite is verified by holding the first fixed and moving only the second. The rewrite itself lands ONE
+# reference group at a time; today it carries the iris (`Arknights: Endfield_PBRToon_irisBase`, the two-layer
+# matcap) and every other family is still shaded by the old body, so `goo_toon` on this build moves the iris and
+# nothing else.
+#
+# OFF by default, so a run that does not ask for it gets the frame the old chain produces.
+goo_toon = false
+
 # validation_layers: Vulkan validation layers + debug messenger (VK_LAYER_KHRONOS_validation).
 # Debug builds default to true, Release builds to false; override per build as needed (e.g.
 # turn it on in a Release build when tracking a problem, or off in Debug for raw speed).

@@ -2048,6 +2048,21 @@ namespace vulkan {
             std::shared_lock const lock(this->access_mutex);
             overlay_ready = this->mesh_pipelines.contains(overlay_pipeline_name) || this->meshlet_pipelines.contains(overlay_pipeline_name);
         }
+        // ---- WHICH SHADING MODEL THIS FRAME DRAWS WITH (see runtime::set_goo_toon) ----
+        //
+        // THE ONE PLACE THE TWO NAMES ARE CHOSEN BETWEEN, and it is here rather than in the pass for the reason
+        // the name itself is handed over at all: the registry is the runtime's (see the note below). The choice
+        // is made on TWO facts rather than one - the knob AND whether that pipeline exists - because a name that
+        // was never registered would be reported by the session's bind callback as an unknown pipeline, once per
+        // frame; falling back to the old name instead draws the old chain, which is a valid frame whose only
+        // defect is that it is not the experiment that was asked for (and `set_goo_toon` says so, once, when the
+        // knob is turned on).
+        bool goo_toon_ready = false;
+        {
+            std::shared_lock const lock(this->access_mutex);
+            goo_toon_ready = this->mesh_pipelines.contains(goo_toon_pipeline_name) || this->meshlet_pipelines.contains(goo_toon_pipeline_name);
+        }
+        std::string_view const toon_pipeline_name = (this->goo_toon_on && goo_toon_ready) ? goo_toon_pipeline_name : character_forward_pipeline_name;
         // DOES THE OUTLINE PIPELINE EXIST? Asked on exactly the same terms as the overlay one above, and for the
         // same reason: an empty name is the pass's documented "draw no outline", whereas a name that resolves to
         // nothing would be reported by the session's bind callback as "unknown pipeline" - a log line per frame
@@ -2099,7 +2114,11 @@ namespace vulkan {
             // The name the pipeline was registered under (chores.cpp). Handed over rather than hardcoded in
             // the pass, because the registry is the runtime's: a pass asserting a string another module chose
             // would be a name with no owner.
-            .pipeline_name = character_forward_pipeline_name,
+            //
+            // ... AND IT IS THE OLD NAME OR THE REWRITTEN CHAIN'S, decided above from `set_goo_toon` and the
+            // registry: the pass draws whatever it is handed, so this one expression IS the whole of the
+            // rewrite's opt-in on the host side.
+            .pipeline_name = toon_pipeline_name,
             // ... and the overlay group's, on the same terms - empty when it was never built, which the pass
             // reads as "there is no overlay to draw" (see `overlay_ready` above).
             .overlay_pipeline_name = overlay_ready ? overlay_pipeline_name : std::string_view{},
@@ -2203,6 +2222,7 @@ namespace vulkan {
         this->transparent_stage = {at("transparent")};
         this->character_forward_stage = {at("character_forward")};
         this->toon_screen_rim_stage = {at("toon_screen_rim")};
+        this->goo_rim_stage = {at("goo_rim")};
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
         this->rt_shadow_stage = {at("rt_shadow")};
         this->megalights_stage = {at("megalights_trace"), at("megalights_temporal")};
@@ -2671,6 +2691,20 @@ namespace vulkan {
             pass::stage const toon_screen_rim_stage = {.name = "toon_screen_rim", .passes = this->toon_screen_rim_stage, .marks = false};
             this->prepare_stage(toon_screen_rim_stage, command_buffer);
             [[maybe_unused]] pass::run_report const toon_screen_rim_report = pass::record_stage(toon_screen_rim_stage, this->make_pass_host());
+
+            // THE REWRITTEN CHAIN'S RIM, in the SAME position and for the same reasons: it samples the depth the
+            // character stage has just handed back to a sampled layout and ADDs the Goo reference's rim - the
+            // object-space part AND the screen-space `DepthRim` the surface shader cannot compute - to the scene
+            // colour that stage wrote, before the resolve sees it.
+            //
+            // THE TWO RIM STAGES CANNOT BOTH RECORD, and that is one predicate rather than an ordering rule: the
+            // owner answers "toon_screen_rim" with `!goo_toon_active()` and "goo_rim" with `goo_toon_active()`, so
+            // the article's contour and the Goo rim are alternatives - which is what "the rewritten chain must not
+            // wear two rims" means here. It also means a frame with `[render] goo_toon = false` records neither
+            // this stage's pass nor its preamble, which is what keeps every capture scenario byte-identical.
+            pass::stage const goo_rim_stage = {.name = "goo_rim", .passes = this->goo_rim_stage, .marks = false};
+            this->prepare_stage(goo_rim_stage, command_buffer);
+            [[maybe_unused]] pass::run_report const goo_rim_report = pass::record_stage(goo_rim_stage, this->make_pass_host());
         } else {
             // The pass does not run (the debug view replaces the lighting stage, and a skipped lighting stage has
             // no G-buffer to start rays from), but every mark is written in order on every frame - the

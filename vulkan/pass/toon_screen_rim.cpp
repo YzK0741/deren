@@ -38,7 +38,21 @@ namespace vulkan::pass {
         // and means nothing without it, so one switch turns both on. Gating it here is also what keeps every
         // capture scenario byte-identical while that feature is off - the runner asks this before it resolves
         // the declaration, so a frame with no character never even transitions an image for this pass.
-        return "character_forward";
+        //
+        // ... AND IT IS ITS OWN NAME RATHER THAN `character_forward`, WHICH IT USED TO SHARE, because the
+        // REWRITTEN toon chain must not wear TWO rims either: this pass draws the ARTICLE's screen-space contour
+        // (`toon_screen_rim.slang`), and the Goo reference the rewrite follows has no such contour - its
+        // screen-space piece is `DepthRim`, which the rewrite's second step defers (see
+        // `zmd-ab/goo_step2_rim_spec.md` §9-U1/U2/U4/U5). Sharing the name made the two impossible to separate:
+        // `feature_active` is asked once per NAME, so "the rim stage is off" and "the character stage is off"
+        // were one answer and the switch could only turn off both.
+        //
+        // THE NAME IS NOT A NEW CONFIG KEY and does not become one: `[render]` keys are the runtime's registry
+        // (see `runtime::feature_active`), and this is a name that table composes - the owner's decision is in
+        // `render_start_demo::feature_active`, where the rewritten chain's own answer (`goo_toon` AND its
+        // pipeline) is what turns THIS stage off. The article's rim would otherwise be drawn on top of the
+        // reference's.
+        return "toon_screen_rim";
     }
 
     void toon_screen_rim_pass::create(pass_context const& context) {

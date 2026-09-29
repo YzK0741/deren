@@ -42,6 +42,10 @@ namespace vulkan {
         // ... and the toon stage's SECOND rim: a fullscreen additive contour from the depth, right after the
         // surface it outlines and before the resolve, so the anti-aliasing sees it in the frame it belongs to.
         this->chain_.emplace<pass::toon_screen_rim_pass>();
+        // ... and the REWRITTEN chain's rim, in the SAME slot of the chain's order (right after the surface stage
+        // it outlines, before the resolve) - the two are alternatives at run time, and their order only matters on
+        // a frame neither records, where it does not.
+        this->chain_.emplace<pass::goo_rim_pass>();
         this->chain_.emplace<pass::megalights_trace_pass>();
         this->chain_.emplace<pass::megalights_temporal_pass>();
         this->chain_.emplace<pass::taa_pass>();
@@ -72,6 +76,7 @@ namespace vulkan {
         this->transparent_ = this->find<pass::transparent_pass>("transparent");
         this->character_forward_ = this->find<pass::character_forward_pass>("character_forward");
         this->toon_screen_rim_ = this->find<pass::toon_screen_rim_pass>("toon_screen_rim");
+        this->goo_rim_ = this->find<pass::goo_rim_pass>("goo_rim");
         this->rt_shadow_ = this->find<pass::rt_shadow_pass>("rt_shadow");
         this->deferred_ = this->find<pass::deferred_pass>("deferred");
         this->taa_ = this->find<pass::taa_pass>("taa");
@@ -173,9 +178,21 @@ namespace vulkan {
             // THIS STAGE'S FRAME-ORDER DUTY, and it is the reason it declares no barrier images: it SAMPLES the
             // G-buffer (the depth it compares and the albedo it lightens), so whoever samples that surface FIRST
             // this frame has to publish the G-buffer instance's attachment writes. Gated on the same predicate
-            // the runner gates the stage on, so a frame that does not run it touches nothing - the same rule the
-            // ray-traced shadow and the stochastic lighting stages follow.
-            if (services.feature_active != nullptr && services.feature_active(services.owner, "character_forward")) {
+            // the runner gates THIS STAGE on - which is the pass's own feature name, `toon_screen_rim`, and NOT
+            // the surface stage's: the two were one name until the rewritten chain needed to silence the contour
+            // without silencing the stage that draws the character, and a preamble gated on the wrong one would
+            // touch the G-buffer on a frame this pass does not record.
+            if (services.feature_active != nullptr && services.feature_active(services.owner, "toon_screen_rim")) {
+                static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
+                static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
+            }
+        } else if (stage == "goo_rim") {
+            // THE SAME FRAME-ORDER DUTY as the article's contour above, and the same predicate shape: this stage
+            // samples the G-buffer (the depth it compares, the normal and the material id it reads), so whoever
+            // samples that surface FIRST this frame publishes the G-buffer instance's attachment writes. Gated on
+            // THE PASS'S OWN FEATURE NAME, which the table below answers with `goo_toon_active()` - so a frame with
+            // `[render] goo_toon = false` never touches the surface here either.
+            if (services.feature_active != nullptr && services.feature_active(services.owner, "goo_rim")) {
                 static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
                 static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
             }
@@ -397,10 +414,42 @@ namespace vulkan {
         }
         if (name == "character_forward") {
             // THE RUNTIME'S COMPOSED PREDICATE (the knob AND this frame's opaque leaf list, see
-            // feature_facts::character_forward_pending) AND the pass being ready. This ONE gate answers for BOTH
-            // toon stages - the surface pass and the screen-space rim - because the contour means nothing
-            // without the shading it outlines, so they are one feature with one switch.
+            // feature_facts::character_forward_pending) AND the pass being ready. This ONE gate answers for the
+            // SURFACE pass; the screen-space rim asks under its own name below, because the rewritten toon chain
+            // must not wear that contour as well as the Goo rim (see `toon_screen_rim_pass::feature`).
             return facts.character_forward_pending && self.character_forward_ != nullptr && self.character_forward_->ready();
+        }
+        if (name == "toon_screen_rim") {
+            // THE SAME PREDICATE AS THE STAGE ABOVE PLUS "THE REWRITTEN CHAIN IS NOT THE ONE DRAWING" - and that
+            // second half is the whole reason this is a name of its own.
+            //
+            // WHY THE REWRITTEN CHAIN MUST SILENCE IT: this pass is a fullscreen ADDITIVE contour (the article's
+            // second rim, `toon_screen_rim.slang`), and the chain the rewrite follows has no such contour - its
+            // screen-space piece is `DepthRim`, which step 2 defers. Left running with `goo_toon` on, the frame
+            // would carry the article's contour AND the reference's rim, which is the same "two rims" defect
+            // step 2 suppresses inside `toon_diffuse`, one stage over.
+            //
+            // `goo_toon_active()` IS THE RUNTIME'S OWN ANSWER to "is the rewritten chain drawing THIS frame",
+            // and it is deliberately the same predicate `make_character_forward_frame` uses to pick the pipeline
+            // name (`goo_toon_on && the pipeline exists`): the two must not be able to disagree, or a knob turned
+            // on without the pipeline would silence the article's rim and draw nothing in its place.
+            bool const goo_toon_active = self.runtime_ != nullptr && self.runtime_->goo_toon_active();
+            return facts.character_forward_pending && self.toon_screen_rim_ != nullptr && self.toon_screen_rim_->ready() && !goo_toon_active;
+        }
+        if (name == "goo_rim") {
+            // THE REWRITTEN CHAIN'S RIM, and it is the SAME predicate as the branch above with the sign of the
+            // last term flipped - which is the whole reason the two are one name each rather than one name with a
+            // mode: `feature_active` is asked once per NAME, so "the article's contour is off" and "the Goo rim is
+            // on" have to be two answers that cannot drift apart. Both would be wrong the other way: a Goo rim
+            // drawn over the old chain's frame would double the rim the old chain already computes inside
+            // `toon_diffuse`, and an article contour left on under `goo_toon` is the same defect one stage over.
+            //
+            // IT IS ALSO THE GATE THE FRAME LOOP ASKS BEFORE RECORDING THE STAGE AT ALL (see runtime.frames.cppm),
+            // so with `[render] goo_toon = false` the pass is not resolved, not recorded, and its stage preamble
+            // does not publish the G-buffer - which is what makes every pre-existing capture scenario byte
+            // identical rather than "identical because the shader wrote zero".
+            bool const goo_toon_active = self.runtime_ != nullptr && self.runtime_->goo_toon_active();
+            return facts.character_forward_pending && self.goo_rim_ != nullptr && self.goo_rim_->ready() && goo_toon_active;
         }
         if (name == "gbuffer-debug") {
             return gbuffer_debug;

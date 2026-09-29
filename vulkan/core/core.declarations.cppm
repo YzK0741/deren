@@ -661,6 +661,22 @@ namespace vulkan {
             /// THE ARTICLE'S POST LUT: see `runtime::set_post_lut` and `heap_slots_post_lut` in the shader's slot
             /// file, which `test_render_resources` holds against this spelling.
             static constexpr uint32_t post_lut = heap_slot_base + 753u;
+            /**
+             * THE GOO REFERENCE'S PRE-INTEGRATED FGD LOOKUP TABLE (see `runtime::set_goo_fgd_lut` and
+             * `heap_slots_goo_fgd_lut` in the shader's slot file, which `test_render_resources` holds against this
+             * spelling).
+             *
+             * 754 AND NOT 750: `scene_head` is a PER-FRAME-SLOT array and occupies 749 AND 750 - the note on
+             * `toon_rig` above records what happened to the last constant that forgot this - so the next free slot
+             * above the post LUT is 754.
+             *
+             * IT IS A GLOBAL IMAGE RATHER THAN A MATERIAL LANE, which is the architecture ruling the step-5 spec
+             * makes from the reference's own graph (§3.4): the Goo `GetPreIntegratedFGDGGXAndDisneyDiffuse` group
+             * has ONE `ShaderNodeTexImage`, `users == 3` containers share it, and its coordinate is computed from
+             * `sqrt(NoV)` / `perceptualRoughness` / `fresnel0` - never from a material's uv. Routing it through
+             * `toon_slot` would need eleven sidecar rows pointing at one file, and zero new information.
+             */
+            static constexpr uint32_t goo_fgd_lut = heap_slot_base + 754u;
             static constexpr uint32_t scene_camera = heap_slot_base + 514u;        // binding 0, per frame slot
             static constexpr uint32_t scene_light = heap_slot_base + 516u;         // binding 7, per frame slot
             static constexpr uint32_t cluster_counts = heap_slot_base + 518u;      // binding 11, per frame slot

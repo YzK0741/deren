@@ -323,11 +323,12 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 /// `character_forward.slang`'s `character_toon_colour_lanes`, which is the spelling the host's
 /// `toon_colour_lane::count` is checked against by `test_toon_material_sidecar`.
 static const uint pbr_outline_edge_lane = 3u;
-// THE STRIDE IS THE HOST'S LANE COUNT, so it is 6 (`vulkan::toon_colour_lane::count`) and NOT the number of lanes
+// THE STRIDE IS THE HOST'S LANE COUNT, so it is 24 (`vulkan::toon_colour_lane::count`) and NOT the number of lanes
 // THIS STAGE reads - which is one. A stride left at an older count would address a NEIGHBOURING MATERIAL's lane:
 // the hull of material 4 would be expanded by material 1's width, silently, with the frame merely looking wrong.
-// `test_toon_material_sidecar` pins this spelling against `character_toon_colour_lanes`.
-static const uint pbr_toon_colour_lanes = 6u;
+// `test_toon_material_sidecar` pins this spelling against `character_toon_colour_lanes`. STEP 7 MOVED BOTH, and
+// `outline.slang` inherits this one through its `#include` of `pbr.slang`.
+static const uint pbr_toon_colour_lanes = 24u;
 
 [shader("mesh")]
 [outputtopology("triangle")]

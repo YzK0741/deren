@@ -203,6 +203,37 @@ namespace chores {
         }
 
         {
+            // THE REWRITTEN TOON CHAIN'S PIPELINE (`goo_toon.slang`), registered under its own name so that
+            // `[render] goo_toon` can select it at a frame's composition and nothing else about the frame changes.
+            //
+            // IT GOES THROUGH `runtime::make_character_forward_pipeline`, WHICH IS NOT AN OVERSIGHT: that entry
+            // point's three forced states (ONE HDR target, blending off, depth compare EQUAL) are this stage's
+            // exactly, so the two pipelines differ in ONE thing - which module the fragment stage came from - and
+            // a second core-level builder would be a copy of one state block existing only to be called here. The
+            // NAME is what the pass and the frame choose between (see `runtime::goo_toon_pipeline_name`).
+            //
+            // THE GEOMETRY IS pbr's, unchanged, on the character-forward pipeline's own terms: this is the same
+            // leaves drawn a second time, so the varying block (location 0/1/2 = world position, normal, uv) is
+            // the one both fragment stages read.
+            //
+            // A FAILURE IS NOT FATAL, and unlike the overlay and outline cases below it is not even a missing
+            // feature: `make_character_forward_frame` falls back to the old pipeline name, so a device that
+            // refuses this one draws the old chain rather than nothing - and `set_goo_toon` reports the fallback
+            // once, when the knob is turned on.
+            std::vector<uint8_t> goo_fragment_code;
+            std::vector<uint8_t> goo_mesh_code;
+            std::vector<uint8_t> goo_meshlet_code;
+            load_shader(shaders_dir, "goo_toon.frag.spv", goo_fragment_code);
+            load_shader(shaders_dir, "pbr.mesh.spv", goo_mesh_code);
+            load_shader(shaders_dir, "pbr.meshlet.spv", goo_meshlet_code);
+            runtime.register_shader("goo_toon.frag.spv", goo_fragment_code);
+            auto const goo_result = runtime.make_character_forward_pipeline("goo_toon", goo_fragment_code, goo_mesh_code, goo_meshlet_code);
+            if (!goo_result) {
+                utility::log("WARNING: the rewritten toon pipeline was not created ({}); [render] goo_toon will draw the old chain", goo_result.error());
+            }
+        }
+
+        {
             // THE OVERLAY CHANNEL'S PIPELINE (`overlay.slang`): the article's two framebuffer multiplies, drawn by
             // the character-forward stage's overlay group. It is registered through a THIRD entry point because
             // its states are a third set again - ONE HDR target (like the toon stage), `dst = src * dst`
@@ -276,6 +307,17 @@ namespace chores {
             std::vector<uint8_t> rim_fragment_code;
             load_shader(shaders_dir, "toon_screen_rim.frag.spv", rim_fragment_code);
             runtime.register_shader("toon_screen_rim.frag.spv", rim_fragment_code);
+        }
+
+        {
+            // THE REWRITTEN CHAIN'S RIM (`goo_rim.slang`), registered exactly as the article's contour above and
+            // for the same reason: it is a fullscreen stage with ONE additive target and no depth attachment, so
+            // its pass builds its own pipeline in `create` and there is no named pipeline here. The two rims are
+            // mutually exclusive at run time (the rewritten chain silences the article's), which is why both are
+            // registered unconditionally and neither is a fallback for the other.
+            std::vector<uint8_t> goo_rim_fragment_code;
+            load_shader(shaders_dir, "goo_rim.frag.spv", goo_rim_fragment_code);
+            runtime.register_shader("goo_rim.frag.spv", goo_rim_fragment_code);
         }
 
         {
@@ -694,6 +736,12 @@ namespace chores {
             auto character = std::make_unique<vulkan::gui::checkbox_widget>("character forward (toon)", &bindings.character_forward);
             character->visible_when = [&runtime] { return runtime.feature_available("character_forward"); };
             panel.push_back(std::move(character));
+            // ... AND WHICH CHAIN IT DRAWS WITH. Offered only while the character stage itself is on, because a
+            // switch that selects a shading model for a pass that is not recording is a control with no effect -
+            // and offered only when the rewritten pipeline was actually built, on the checkbox above's own terms.
+            auto goo = std::make_unique<vulkan::gui::checkbox_widget>("goo toon (rewritten chain)", &bindings.goo_toon);
+            goo->visible_when = [&runtime, &bindings] { return bindings.character_forward && runtime.goo_toon_ready(); };
+            panel.push_back(std::move(goo));
         }
         // cel/toon shading: quantize the diffuse falloff (and harden shadows/highlights);
         // 0 steps leaves plain PBR, softness shrinks toward hard comic edges

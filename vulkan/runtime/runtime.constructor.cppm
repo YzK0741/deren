@@ -388,6 +388,94 @@ namespace vulkan {
                     glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
                 neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::parallax_scale)] =
                     glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
+                // ... AND THE GOO IRIS BRIGHTNESS LANE'S TWO COMPONENTS ARE BOTH SENTINELS, because both are
+                // BRIGHTNESSES (`Eyes brightness` / `Eyes HightLight brightness`): `0.0` is a value the reference
+                // really uses - it is what the group's own interface defaults the two sockets to - so it cannot
+                // mean "absent", and anything else in range would be a brightness this port made up. The stage
+                // tests each component separately and answers with that interface default (see
+                // `toon_colour_lane::goo_eye_brightness`).
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_eye_brightness)] =
+                    glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f);
+                // ... AND THE TWO REWRITTEN CHAIN'S RIM LANES, whose neutrals are the REFERENCE'S OWN interface
+                // defaults rather than one convention (see `toon_colour_lane::goo_rim_colour` /
+                // `goo_rim_scalars`): the tint's neutral is the `Rim_Color` sub-group's own `[1,1,1,1]`, and the
+                // four scalars are ALL sentinels because every one of them is a value the reference really uses
+                // at zero - `Rim_ColorStrength = 0.0` is how its author switches a rim off
+                // (`M_actor_laevat_cloth_03`), and `Use Rimlimitation?` is a BOOLEAN whose default is 0.0. The
+                // stage resolves each of the four separately to that socket's group default (see the shader).
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rim_colour)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rim_scalars)] =
+                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);
+                // ... AND THE SCREEN-SPACE RIM'S TWO WIDTHS ARE BOTH SENTINELS TOO, because a width has no no-op
+                // number either: `0.0` is a width the reference's author really states (it collapses the offset
+                // sample onto the pixel and the depth difference is then exactly 0 - a rim that is off ON PURPOSE,
+                // material by material), so it cannot mean "absent". The stage answers each component with the
+                // `DepthRim` group's OWN interface default, `0.5` (see `toon_colour_lane::goo_rim_widths`, and
+                // `gooblender/nodes.json`'s `meta.node_groups[DepthRim].interface[]`).
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rim_widths)] =
+                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);
+                // ... AND STEP 4'S SIX LANES, whose NEUTRALS ARE TWO DIFFERENT SHAPES FOR THE SAME REASON THE RIM
+                // LANES ABOVE ALREADY GAVE: two of them ARE the reference's own interface defaults
+                // (`BaseColor` = white, `directOcclusionColor` = black) and the other four are sentinels. THEIR
+                // SENTINEL IS `-1000` AND NOT `-1`, because two of the eight per-material numbers behind them are
+                // AUTHORED NEGATIVES - `CastShadow_center` is `-0.1` on both body materials and
+                // `GlobalShadowBrightnessAdjustment` is `-1.8` on the cloth - and a `-1` neutral would make the
+                // stage read those authored values as "not stated" (see `goo_lane_absent` in the shader).
+                // The stage resolves each sentineled component to its group's default - see
+                // `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion` and `shaders/goo_toon.slang`.
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_base_colour)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_direct_occlusion)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                for (uint32_t lane : {static_cast<uint32_t>(vulkan::toon_colour_lane::goo_diffuse_a),
+                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_diffuse_b),
+                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_fresnel_inside),
+                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_fresnel_outside)}) {
+                    neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + lane] =
+                        glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
+                }
+                // ... AND STEP 5'S THREE LANES, whose neutrals are the reference's own `interface[]` defaults and
+                // NOT the `-1000` sentinel the four above use, because none of these three numbers is ever negative
+                // in the reference's asset: `specularFGD Strength` is `0.8` or `1.0`, `dirLight_lightColor` is
+                // `(1, 0.958..., 0.958...)` and `AmbientLightColorTint` is white or `(1.512...)`. So the CHEAPER
+                // `< 0` contract is enough here - and the reason step 4's four needed `-1000` is exactly that two
+                // of THEIR eight numbers are authored negatives (`CastShadow_center` = `-0.1`,
+                // `GlobalShadowBrightnessAdjustment` = `-1.8`). The scalar lane keeps its sentinel in `.x` only
+                // (the stage resolves it to the reference's `1.0`); the two colour lanes are their own fallback.
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_specular_fgd)] =
+                    glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_light_color)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_ambient_tint)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_specular_color)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                // ... AND STEP 7'S FOUR, WHOSE NEUTRALS ARE THREE DIFFERENT SHAPES AGAIN, each one the socket's own
+                // `interface[]` default rather than a convention:
+                //
+                //   * THE TWO SCALAR LANES are `-1000` sentinels, like step 4's four and for the same reason: the
+                //     chin pair, `sphereNormal_Strength` and the two brightnesses are all positive on every
+                //     material this container is given, but `SmoothnessMax` is a value whose ZERO is meaningful
+                //     (perfectly rough) - so a neutral of `0` would read "the material states no smoothness" as "the
+                //     material is rough", and the stage would then have to invent one. `-1000` is outside every one
+                //     of their domains, so a stated value - any sign - passes and only the lane itself fails.
+                //   * `nose_shadow_Color` AND `Front R Color` ARE BLACK, because that is what the FACE container's
+                //     own interface says (`::- ... :: 组输入.nose_shadow_Color = [0.0, 0.0, 0.0, 1.0]`,
+                //     `Front R Color = [0.0, 0.0, 0.0, 1.0]`) and because WHITE WOULD BE A STATEMENT: the nose
+                //     shadow is a MIX's A side (white = no shadow at all, the strongest possible statement) and
+                //     `Front R`'s colour multiplies a term that is otherwise the albedo itself. A material that
+                //     states neither row therefore gets the reference's own defaults, which is what a material
+                //     calling the group without stating them gets in Goo.
+                for (uint32_t lane : {static_cast<uint32_t>(vulkan::toon_colour_lane::goo_face_scalars_a),
+                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_face_scalars_b)}) {
+                    neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + lane] =
+                        glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
+                }
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_face_nose_shadow)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_face_front_r)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
             }
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(neutral_colours)),
@@ -1149,6 +1237,52 @@ namespace vulkan {
         utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::post_lut);
     }
 
+    // THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT: the same `create_image` -> `make_image_view` ->
+    // `write_heap_grid_image` triple as the two LUTs above, from the reference's own PNG bytes. WHAT DIFFERS FROM
+    // BOTH OF THEM IS ONE FIELD, AND IT IS THE WHOLE POINT OF THIS FUNCTION:
+    //
+    //     `VK_FORMAT_R8G8B8A8_UNORM`, NOT `_SRGB`.
+    //
+    // The reference's image data-block is `colorspace = 'Non-Color'` - the ONLY such image in this project, every
+    // `_RD` / `_D` map being `'sRGB'` - so Blender's texture node hands the graph the texel's raw bytes and the
+    // screenshot's three FGD outputs are reads of those bytes. An sRGB upload would linearize each channel once and
+    // every one of `specularFGD` / `reflectivity` / `diffuseFGD` would be wrong in the same direction (spec §3.1
+    // item 1: the texel at `(0,32)` has `R = 47/255 = 0.184314`, which sRGB-decodes to `0.028`). It is also why
+    // `tests/test_goo_toon_math.cpp` pins this format string and asserts the file's own SHA-256.
+    //
+    // IT IS A GLOBAL IMAGE AND NOT A LANE (step-5 spec §3.4): the Goo `GetPreIntegratedFGDGGXAndDisneyDiffuse`
+    // group has ONE `ShaderNodeTexImage`, its `users == 3` containers share that data-block, and its coordinate is
+    // computed from `sqrt(NoV)` / `perceptualRoughness` / `fresnel0` rather than from a material's UV or a material
+    // map - so a lane per material would be eleven sidecar rows pointing at one file for no information at all.
+    void runtime::set_goo_fgd_lut(std::span<uint8_t const> const pixels, uint32_t const width, uint32_t const height) {
+        if (pixels.empty() || width == 0u || height == 0u) {
+            utility::log("goo FGD LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
+            return;
+        }
+        vulkan::image_create_info fgd_info = {};
+        fgd_info.width = width;
+        fgd_info.height = height;
+        // ONE MIP, WHICH IS THE REFERENCE'S OWN ANSWER rather than a saving: Blender's Texture node has no `Mip`
+        // input here (`image_user` states interpolation / extension / projection only), so it samples lod 0 - and a
+        // generated chain read by a rough surface would give a different number from the reference's (spec §9-U6).
+        fgd_info.mip_levels = 1;
+        fgd_info.array_layers = 1;
+        fgd_info.format = VK_FORMAT_R8G8B8A8_UNORM;
+        this->goo_fgd_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), fgd_info, vulkan::image_type::texture_2d);
+        if (!this->goo_fgd_image.valid()) {
+            utility::panic("failed to create the goo FGD LUT image");
+        }
+        auto const* const detail = this->vulkan_core.vma.get_image_detail(this->goo_fgd_image.handle());
+        if (detail == nullptr) {
+            utility::panic("failed to get the goo FGD LUT image detail");
+        }
+        this->goo_fgd_view = this->vulkan_core.make_image_view(detail->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D);
+        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::goo_fgd_lut, detail->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D)) {
+            utility::log("descriptor heap: the goo FGD LUT did not reach grid slot {}", core::heap_slots::goo_fgd_lut);
+        }
+        utility::log("goo FGD LUT uploaded: {}x{}, {} bytes, R8G8B8A8_UNORM -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::goo_fgd_lut);
+    }
+
     material_id runtime::register_material(primitive_create_info const& info) {
         // ---- 1. Resolve the 5 texture slots against the shared array: identical texture bytes
         //         upload once, keyed by a CONTENT hash of the decoded bytes (xxh3 digest +
@@ -1197,6 +1331,33 @@ namespace vulkan {
             // THE SPLIT NORMAL IS UNORM: its two packed tangent-space normals are DATA (`* 2 - 1` on the way in),
             // so an sRGB decode would bend both of them.
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE GOO IRIS BALL IS COLOUR, so it takes the ramps' treatment rather than the masks': the reference
+            // samples it and adds it to the albedo (`shaders/goo_toon.slang`), i.e. it is light, not a number.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], VK_FORMAT_R8G8B8A8_SRGB},
+            // THE GOO BASE RAMP IS COLOUR, so it takes the treatment the reference gives it rather than the
+            // masks': `images[...].colorspace = 'sRGB'` on all seven `_RD` images means Blender LINEARIZES each
+            // texel before its node graph sees it (spec §5.3), so uploading this lane as `_SRGB` is what makes the
+            // sampler do the same thing - and a lane uploaded UNORM would hand the shader a texel 2.2 gamma too
+            // bright, which on a mid-grey ramp entry is the difference between a shadow and a highlight. ITS
+            // ALPHA IS UNAFFECTED BY EITHER (Blender's colour management does not touch it), which is why the same
+            // upload serves `RampAlpha` and the spec's §8-A6 asset-bound assertion.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_base_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
+            // ---- STEP 7'S THREE FACE LANES, AND THE FORMAT OF EACH ONE IS A STATEMENT ABOUT ITS CHANNELS ----
+            //
+            // THE FACE'S SDF IS UNORM, for the article's `sdf_lightmap` above and NOT for the `_RD` ramps': the
+            // reference reads it as `(R + G) / 2` and feeds that NUMBER to a `SigmoidSharp` whose `center` is
+            // `0.10000000894069672` - a threshold on a distance field, not a colour - so an sRGB decode would bend
+            // the very quantity the sigmoid thresholds, by 2.2 gamma, in the region where its slope is steepest.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_sdf)], VK_FORMAT_R8G8B8A8_UNORM},
+            // `cm_M` IS UNORM TOO, and it is the same kind of statement: its three channels are a LAYER SELECTOR
+            // (`G`, compared against 0 and 1 exactly - `混合.002`'s factor), a WEIGHT (`R`, raised to `Front R Pow`
+            // and smoothstepped) and a GATE (`A`, a multiply). None of them is light, so none of them may be
+            // gamma-decoded; a `_SRGB` upload would turn a mask's "1.0" into "1.0" but its 0.2 into 0.033.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_cm)], VK_FORMAT_R8G8B8A8_UNORM},
+            // `CsutmMask` IS UNORM FOR THE SAME REASON ONE STEP FURTHER: the only channel the Face container reads
+            // is `G`, and it is read through a `GREATER_THAN(·, 0.5)` - a comparison whose whole answer is the
+            // comparison, so the upload's transfer function decides which side of 0.5 a texel lands on.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_csumt)], VK_FORMAT_R8G8B8A8_UNORM},
         };
 
         std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
@@ -1406,10 +1567,29 @@ namespace vulkan {
                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::metallic_gloss)],
                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::sdf_mask)],
                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::emotion)]);
-        // THE SECOND BLOCK, whose remaining three lanes are reserved: it exists because a fifth lane does not fit a
+        // THE SECOND BLOCK, whose remaining lane (`w`) is reserved: it exists because a fifth lane does not fit a
         // `uvec4`, and it is zeroed rather than left out so that a shader reading a lane nobody set reads "do not
         // read" - the same contract the first block's lanes follow.
-        glm::uvec4 const toon_lanes_extra2(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::split_normal)], 0u, 0u, 0u);
+        //
+        // EACH COMPONENT IS NAMED BY THE LANE IT CARRIES RATHER THAN BY ITS POSITION, which is a correction the
+        // rewritten chain's iris forced. This initialiser was `(split_normal, 0, 0, 0u)` under a comment saying the
+        // rest were reserved, and a lane written NOWHERE is not a reserved lane: it is a lane that reads "do not
+        // read" for every material that states it. MEASURED: with `goo_matcap05` at lane 9 the rewrite's iris
+        // produced a frame BYTE-IDENTICAL to the one with no matcap lane at all (`CB321ADE1673AC9C` both ways)
+        // while the sidecar reported `_GooMatcap05 -> texture #27 | ON` - the host never wrote the lane and the
+        // shader read 0 (see `zmd-ab/goo_step1_result.md`). `test_goo_toon_math` now names this line among the
+        // lane's sync points, so the next lane cannot be added to the enum and forgotten here.
+        glm::uvec4 const toon_lanes_extra2(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::split_normal)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_matcap05)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_base_ramp)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_sdf)]);
+        // THE THIRD BLOCK, WHICH STEP 7 ADDED AND WHICH IS WHY `toon_lane_blocks` IS 3: the FACE container's three
+        // masks are lanes 11..13, and lane 11 was the last free component of the block above. `w` is reserved and
+        // zeroed, the same contract every other block follows ("a lane nobody set reads DO NOT READ").
+        glm::uvec4 const toon_lanes_extra3(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_cm)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_csumt)],
+                                           0u,
+                                           0u);
         // ---- AND THE COLOUR LANES, THE SAME FIX ONE TABLE FURTHER ALONG ----
         //
         // They are written BELOW, after the early return, which is the whole reason they have to be in the key:
@@ -1427,7 +1607,8 @@ namespace vulkan {
         std::memcpy(material_key.data.data(), &record, sizeof(record));
         std::memcpy(material_key.data.data() + sizeof(record), &toon_lanes_extra, sizeof(toon_lanes_extra));
         std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra), &toon_lanes_extra2, sizeof(toon_lanes_extra2));
-        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2),
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2), &toon_lanes_extra3, sizeof(toon_lanes_extra3));
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2) + sizeof(toon_lanes_extra3),
                     info.toon.colours.data(),
                     static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4));
         if (auto const cached = this->material_slot_cache.find(material_key); cached != this->material_slot_cache.end()) {
@@ -1456,6 +1637,11 @@ namespace vulkan {
         // for the record's four - is the "do not read" the shader tests.
         static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks] = toon_lanes_extra;
         static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks + 1u] = toon_lanes_extra2;
+        // ... AND THE THIRD BLOCK, for the reason the second one's own note gives: a lane the host never writes
+        // reads "do not read" for every material that states it, which on the FACE would silently drop its SDF, its
+        // `cm_M` and its brightness switch at once while the log still reported all three as ON (lane 11 is
+        // `goo_face_sdf`, i.e. the component that closed the second block - see `toon_slot`).
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks + 2u] = toon_lanes_extra3;
         // AND THE MATERIAL'S COLOURS, at the same index and in the same once-written spirit: the shader addresses
         // them with `material_index * toon_colour_lane::count + lane`, so the two sides' stride has to agree - see
         // `character_toon_colour_lanes` in the stage and the drift check in the sidecar test.
@@ -1479,14 +1665,20 @@ namespace vulkan {
         // LOGGED WHILE THESE LANES ARE BEING WIRED, and the reason is that a lane which silently stays zero is
         // this table's only failure mode and it is invisible in the frame: the shader's test is `lane != 0`, so a
         // table that was never filled renders exactly like a model with no SDF and no metallic/gloss map at all -
-        // the feature does not happen and nothing says why.
-        utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {} of {} texture(s)",
+        // the feature does not happen and nothing says why. THE SECOND BLOCK'S THREE NAMED LANES ARE PRINTED TOO,
+        // for the same reason one table along: `_GooMatcap05` and `_GooBaseRamp` are lanes the REWRITTEN chain
+        // gates on, and a zero here is the difference between "the asset states no ramp" and "the host resolved one
+        // and never wrote it" - which is exactly the failure step 1 recorded (the iris rendered a black ball while
+        // the sidecar line said `ON`).
+        utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {}, goo matcap {}, goo base ramp {} of {} texture(s)",
                      material_index,
                      record.toon_family,
                      toon_lanes_extra.x,
                      toon_lanes_extra.y,
                      toon_lanes_extra.z,
                      toon_lanes_extra2.x,
+                     toon_lanes_extra2.y,
+                     toon_lanes_extra2.z,
                      this->texture_array_views.size());
         // ... AND THE SPECULAR STRENGTH, WHICH IS THE ONE LANE WHOSE "NOTHING STATED" IS A SENTINEL RATHER THAN
         // THE TABLE'S NEUTRAL (`-1`, see `toon_colour_lane::specular_strength`), so a log line is the only place

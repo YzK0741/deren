@@ -896,6 +896,36 @@ export namespace vulkan::render_resource {
         .push = push_block{.offset = 0, .size = 48, .stages = stage_flag::fragment},
     };
 
+    /**
+     * @brief the REWRITTEN chain's rim: the same shape as the article's contour above, one stage over
+     *
+     * ONE TARGET AND NO BINDINGS, for the reasons that declaration gives - the rim is ADDED to the frame the
+     * character stage produced (additive blend, LOAD, no depth attachment, no barrier of its own; the G-buffer it
+     * samples is published by the renderer's stage preamble). IT IS A SECOND DECLARATION RATHER THAN A SECOND
+     * TARGET ON THAT ONE because the two rims are mutually exclusive by construction: `toon_screen_rim` is the
+     * ARTICLE's contour and the owner's feature table switches it OFF whenever `runtime::goo_toon_active()` -
+     * this pass's own gate - is true.
+     *
+     * THE PUSH BLOCK IS 72 BYTES - the frame's inverse view-projection (64) and the two depth-linearization terms
+     * (8) - and it is the smallest of any stage with a matrix in it because every other number this rim uses is
+     * either the reference's own constant (in the shader) or the material's (a colour lane the shader reads through
+     * the G-buffer's material id). The framework appends the two heap lanes on top, so the shader's block is 80.
+     */
+    inline constexpr std::array<render_target, 1> goo_rim_targets = {{
+        {.resource = resource_id::scene_color, .element = 0},
+    }};
+
+    /// @brief the rewritten chain's rim declaration
+    /// @ingroup vulkan_render_resource
+    inline constexpr pass_io goo_rim_io = {
+        .name = "goo_rim",
+        .bindings = {},
+        .targets = goo_rim_targets,
+        .barrier_images = {},
+        .barrier_buffers = {},
+        .push = push_block{.offset = 0, .size = 72, .stages = stage_flag::fragment},
+    };
+
     // =============================================================================================
     // 7. THE SHARED RESOURCES - what a full-screen compute pass reaches without owning a binding
     // =============================================================================================

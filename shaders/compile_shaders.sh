@@ -55,7 +55,9 @@ while IFS=: read -r src entry_point stage dst; do
 done <<'SLANG_SOURCES'
 unlit.slang:main:fragment:unlit.frag.spv
 character_forward.slang:main:fragment:character_forward.frag.spv
+goo_toon.slang:goo_toon_frag_main:fragment:goo_toon.frag.spv
 toon_screen_rim.slang:main:fragment:toon_screen_rim.frag.spv
+goo_rim.slang:main:fragment:goo_rim.frag.spv
 overlay.slang:main:fragment:overlay.frag.spv
 fxaa.slang:main:fragment:fxaa.frag.spv
 upscale.slang:main:fragment:upscale.frag.spv
