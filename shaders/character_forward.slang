@@ -1068,14 +1068,14 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 // itself, so the two can disagree for a normal-mapped material - a recorded, deliberate asymmetry, because moving
 // the G-buffer's normal would move the article chain, every SSAO/shadow consumer of it and four pinned frames.
 //
-// HAIR: the reference gives `M_actor_laevat_hair_01` a `NormalStrength` of `0.5`, and the rewritten chain DOES draw
-// hair (its rim lanes 7/8/9 have `M_actor_laevat_hair_01` rows in the sidecar and the old-rim guard covers
-// `VR_FAMILY_HAIR`), but NO ROW IS ADDED FOR IT HERE and this is a decision rather than an omission: the hair's
-// `_HN` map is the ONE normal map in the model with a live blue channel, so the port's existing `rgb*2-1` decode is
-// already correct for it, while the reference's hair instance of `DecodeNormal` is fed by a DIFFERENT input mapping
-// (`[Arknights: Endfield_PBRToonBaseHair] :: 群组.011`: `X <- 分离 XYZ.Z`, `Y <- 转接点.118`) that this step did not
-// measure. A row of `0.5` here would apply the body's decode to the hair and make it worse; see the result
-// document's uncertainty section, where the socket's value is recorded rather than dropped.
+// HAIR: the reference gives `M_actor_laevat_hair_01` a `NormalStrength` of `0.5` (an INSTANCE value - the group
+// default is `1.0`) and this step ADDS THAT ROW, so the decode above is now what the hair takes; the number is
+// pinned in `tests/test_goo_toon_math.cpp` beside the body's and the cloth's. The premise this paragraph used to
+// state is refuted by the step-14 dump: the hair's `_HN` is not a map with a live blue channel but a packed pair of
+// two tangent-space normals - `(R, G)` is the first, reconstructed by this same `DecodeNormal`, and `(B, A)` is the
+// second, whose `HNormalStrength` of `0.75` has no carrier here: the dump traces it into the group's `H Normal`
+// output and, through the Anisotropic-highlight frame, into its `HightLightColor` and the Emission behind the
+// group's `Result` - the hair highlight, unported. The old decode read `B` as `z`, i.e. the wrong axis entirely.
 static const float goo_normal_z_floor = 1.0000000168623835e-16;
 /// the reference's group default for a material that states none - recorded here because `toon_diffuse`'s arm and the
 /// sidecar's diagnostics both quote it, NOT because an absent lane falls back to it (see the lane's own note).
@@ -1116,9 +1116,9 @@ float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, 
         const float z1 = max(sqrt(1.0 - d), goo_normal_z_floor);
         // THE STRENGTH'S FORM COMES FROM THE REFERENCE ENGINE'S OWN GLSL and not from the dump's black-box node: `xy`
         // is scaled by the RAW strength while `z` is mixed towards the flat normal by `saturate(strength)` - see the
-        // note above. For every strength this step ports (`>= 1`) that is exactly `float3(strength*xy, z1)`, and the
-        // `saturate` is kept rather than folded away because it is the engine's own expression, it is what a strength
-        // below 1 would need, and it is what makes `z` strictly positive for every strength.
+        // note above. For a strength at or above 1 that is exactly `float3(strength*xy, z1)`, and the `saturate` is
+        // kept rather than folded away because it is the engine's own expression, it is what a strength below 1 needs
+        // - the hair's `0.5` is one since this step's row landed - and it is what makes `z` strictly positive.
         const float3 n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))));
         decoded = normalize(mat3(sdir, tdir, normal) * n_ts);
     }

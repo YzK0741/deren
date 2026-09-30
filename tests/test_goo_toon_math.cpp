@@ -239,6 +239,11 @@ namespace {
     /// the reference's `chen_cloth_01` states, which is how the value was first recognised as a family constant
     /// rather than an authored tweak.
     constexpr float k_goo_normal_strength_cloth = 1.4458599090576172f;
+    /// `M_actor_laevat_hair_01 :: 法线贴图.Strength` - the INSTANCE socket's `0.5`, NOT the group's `1.0` default
+    /// above: `[Arknights: Endfield_PBRToonBaseHair]`'s `群组.001` patches `0.5` into it, which is why the row step 14
+    /// added carries `0.5` and not the default. It is also the FIRST strength this port carries that is BELOW 1, so
+    /// the `saturate` in the closed form is load-bearing on a shipped path rather than vestigial - see A5 below.
+    constexpr float k_goo_normal_strength_hair = 0.5f;
 
     /// @brief the reference's `DeSaturation` closed form: `lerp(luma(colour).xxx, colour, desaturation)`.
     ///
@@ -2232,10 +2237,10 @@ int32_t main() {
         CHECK_MSG(body.z >= 0.0f && body_weight.z < 0.0f,
                   "A3: and the weight form is the one that crosses the horizon at a strength the asset states - the whole visible difference between the two");
 
-        // A4: THE DEFECT THIS STEP FIXES, as an assertion rather than a story. Every shipped normal map of this
-        // asset stores B = 0 (the parent measured B uniq = 1, constant 0, on all four maps), so the decode the port
-        // used until now - `rgb*2 - 1` - answered `z = -1` for EVERY texel and the shading normal pointed INTO the
-        // surface. The old expression is reproduced here and the two sides of zero are the assertion.
+        // A4: THE DEFECT THIS STEP FIXES, as an assertion rather than a story. Every map the parent measured for this
+        // asset - the four the strength rows name - stores B = 0 (B uniq = 1, constant 0), so `rgb*2 - 1` answered
+        // `z = -1` for EVERY texel of those maps and the shading normal pointed INTO the surface. The hair's `_HN` is
+        // a fifth map and is NOT one of them (its `B` averages 0.495, so there the old error is a wrong axis, not a sign).
         auto const old_decode = [](float const r, float const g, float const b) {
             return normalize3(vec3{(r * 2.0f) - 1.0f, (g * 2.0f) - 1.0f, (b * 2.0f) - 1.0f});
         };
@@ -2248,12 +2253,22 @@ int32_t main() {
                   "A4: to the digit - (0.6408339783, 0, 0.7676794984) at the cloth's own strength 1.4458599090576172");
         CHECK_MSG(old_texel.z < new_texel.z, "A4: the regression is a SIGN, so the comparison is the check that survives a re-tuning of either number");
 
+        // N3: THE GATE'S DISCRIMINATOR, which no existing pin states. The pins elsewhere quote the gate's SOURCE TEXT
+        // and the sentinel's value, but none says WHICH SIDE of the comparison a value falls on - the half a `>=`
+        // rewrite or a threshold moved onto the sentinel would silently change. The gate is
+        // `if (!(strength > goo_lane_absent_threshold))` with the threshold at `-999.0`, so the three values below are
+        // the sentinel, the threshold ITSELF (which must NOT decode: the comparison is strict) and a value past it -
+        // `-998.999878f` is the SECOND f32 past it, and these literals pin the arithmetic, not the shader's operator.
+        CHECK_MSG(!(-1000.0f > -999.0f), "14-A4: the absent sentinel -1000.0 short-circuits");
+        CHECK_MSG(!(-999.0f > -999.0f), "14-A4: the sentinel's own threshold -999.0 short-circuits");
+        CHECK_MSG((-998.999878f > -999.0f), "14-A4: -998.999878 decodes");
+
         // A5: THE `saturate`'S OWN EDGE CASES, which are why the engine's expression is kept whole instead of being
-        // folded into `z1` for the `strength >= 1` this step ports: below 1 the mix bends `z` TOWARDS the flat normal
-        // while `xy` keeps the raw scale, and at or below 0 it answers the flat `z` with - for a negative strength - a
-        // flipped `xy`. The port passes no such value today (the smallest the reference states for this asset is the
-        // hair's `0.5`, which is deliberately NOT ported - see this block's note in `character_forward.slang`), so
-        // these pins are what keeps the expression honest if one ever arrives.
+        // folded into `z1`: below 1 the mix bends `z` TOWARDS the flat normal while `xy` keeps the raw scale, and at
+        // or below 0 it answers the flat `z` with - for a negative strength - a flipped `xy`. The port passes such a
+        // value TODAY: the hair's `0.5`, whose row step 14 added (see this block's note in `character_forward.slang`),
+        // so the three pins below are a SHIPPED-PATH check and not insurance against a value that never arrives - and
+        // the assertions themselves are unchanged by that, because they pin the closed form rather than its callers.
         vec3 const at_half = shipped(0.75f, 0.5f, 0.5f);
         CHECK_MSG(std::abs(at_half.x - 0.2588190451f) < 1e-6f && std::abs(at_half.z - 0.9659258263f) < 1e-6f,
                   "A5: at the hair's recorded strength 0.5 the z term is 1 + 0.5*(z1 - 1), so the mix below 1 is NOT the scale");
@@ -2278,6 +2293,12 @@ int32_t main() {
         // deliberately answers the `-1000` SENTINEL for a material with no row rather than this `1.0` (see
         // `toon_colour_lane::goo_normal_strength`), so the number that was NOT taken has to be written down.
         CHECK_MSG(k_goo_normal_strength_default == 1.0f, "A6: `DecodeNormal`'s `interface[]` default for NormalStrength is 1.0");
+
+        // N1: THE HAIR'S OWN STRENGTH, the fourth material constant this file carries - and the one that differs from
+        // the group default because the hair's instance OVERRIDES it. Nothing in the port could read a value the source
+        // does not state, so the number the sidecar's row is built from is written down here beside the body's and the
+        // cloth's; the row-reaches-the-shader half is the `14-A7` carrier check further down.
+        CHECK_MSG(k_goo_normal_strength_hair == 0.5f, "14-A7: the hair goo normal strength is the shipped 0.5");
     }
 
     // ---- 8t. STEP 9: `metallic`, THE TWO ENDS OF `fresnel0`, AND THE DIRECT SPECULAR'S ENERGY COMPENSATION ----
@@ -2930,6 +2951,12 @@ int32_t main() {
                                                    "decoded = normalize(mat3(sdir, tdir, normal) * n_ts);"}) {
                     CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
                 }
+                // N4: THE LANE INDEX THE DECODE READS. The spellings above pin the FORM of the expression but not WHICH
+                // lane feeds it, and the CPU-side mirror cannot see the shader at all - so without this line a lane
+                // index is the one number in the block that a rebase could shift with every pin still green. The
+                // ordinal is transcribed because the shader cannot name `toon_colour_lane`.
+                CHECK_MSG(character_forward.find("character_toon_colour_lanes) + 24u).x;") != std::string::npos,
+                          "14-A4: the shading-normal stage reads lane 24 (`_GooNormalStrength`) by that index");
                 CHECK_MSG(character_forward.find("const float3 n_ts = normalize(float3(strength * xy, z1));") == std::string::npos,
                           "the saturate-folded `normalize(strength*xy, z1)` form is NOT what the port ships - the engine's expression is kept whole");
                 CHECK_MSG(character_forward.find("1.0 + strength * (z1 - 1.0)") == std::string::npos,
@@ -3438,6 +3465,20 @@ int32_t main() {
                 // `kind` MUST be `slot`: only that kind reaches `slots`, and a `texture` row would leave the mask
                 // slot undefined - the paper trail is the point, because the failure is silent
                 CHECK_MSG(sidecar.find("_GooRSMask\ttexture") == std::string::npos, "RS A7: the mask rows are `slot` rows, never `texture`");
+
+                // STEP 14 (mechanism table #7, arm (a)): THE HAIR'S CARRIER ROW - the one end-to-end assertion this step
+                // adds, and the only one here that would notice a sidecar which simply does not carry the row at all.
+                // Every other pin on `_GooNormalStrength` is CPU-side (the lane's row name, its neutral, the decoder's
+                // form), so all of them stay green while lane 24 reads the `-1000` sentinel and the hair silently keeps
+                // the old `rgb*2-1` decode. The row is inserted at the END of the `_GooNormalStrength` run, after the
+                // cloth's, so it is pinned VERBATIM with the same tabs the file uses rather than as a loose "0.5".
+                CHECK_MSG(sidecar.find("M_actor_laevat_hair_01\tfloat\t_GooNormalStrength\t0.5") != std::string::npos,
+                          "14-A7: the shipped sidecar carries the hair `_GooNormalStrength` row");
+            } else {
+                // A MISSING BUILD TREE IS NOT A FAILURE (this block is guarded rather than CHECKed for existence), but
+                // it must not be SILENT either: on a clean clone the carrier assertion above does not run, and a reader
+                // of the log has to be able to tell that from a run in which it did.
+                vk_test::write_line("14-A7: sidecar artefact absent at {} - the hair carrier row was NOT checked", sidecar_path);
             }
         }
     }
