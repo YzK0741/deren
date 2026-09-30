@@ -186,6 +186,18 @@ namespace vulkan {
 
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
         glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE); // resizing recreates the swapchain via render_frame's OUT_OF_DATE handling
+        // ---- AND WHETHER ANYONE IS EVER SHOWN THIS WINDOW, which is a creation-time answer: GLFW has no
+        //      "create it and never show it" afterwards that does not flash. A scripted capture passes
+        //      window_visible = false, and the reason is not cosmetic: `--capture-frames` is run by the
+        //      gate (20 launches) and by the A/B batches (dozens more), with nobody watching, and the
+        //      hidden-console STARTUPINFO the capture scripts use is a CONSOLE mechanism - a GUI process
+        //      ignores it, which is why the flashing survived it. What the window shows cannot matter to
+        //      the result: the screenshot is a vkCmdCopyImageToBuffer read-back of the SWAPCHAIN IMAGE
+        //      (runtime::record_screenshot_copy), i.e. of the render target, not of the window, so no
+        //      presented-window state can change a byte of it - measured, not asserted: the gate's ten
+        //      references and the four recorded A/B anchors are byte-identical either way.
+        //      GLFW_VISIBLE before glfwCreateWindow is the whole mechanism; GLFW's default is TRUE.
+        glfwWindowHint(GLFW_VISIBLE, this->create_options.window_visible ? GLFW_TRUE : GLFW_FALSE);
 
         window = glfwCreateWindow(
             width,
@@ -193,6 +205,19 @@ namespace vulkan {
             window_name.empty() ? "vulkan" : window_name.data(),
             nullptr,
             nullptr);
+
+        if (window != nullptr) {
+            // ---- BELT AND BRACES, and each is needed for its own reason: `glfwShowWindow` is called for
+            //      the visible case because a platform is allowed to ignore the hint as well, and
+            //      `glfwHideWindow` for the hidden case for the same one from the other side. Calling
+            //      them unconditionally makes the window's visibility a property of this flag on every
+            //      platform rather than of the platform's hint handling. Both are idempotent.
+            if (this->create_options.window_visible) {
+                glfwShowWindow(window);
+            } else {
+                glfwHideWindow(window);
+            }
+        }
 
         register_cleanup([this] {
             if (window) {
@@ -536,7 +561,11 @@ namespace vulkan {
             utility::log("swapchain: present mode {} (vsync {}, {} modes offered)", name, this->create_options.vsync, present_modes.size());
         }
 
-        VkExtent2D const extent = choose_swap_extent(capabilities, this->window);
+        // `create_options`' own window size is passed as the fallback extent: this is the size init_window
+        // asked glfwCreateWindow for two calls up, and it is what choose_swap_extent uses when the surface
+        // leaves the extent to the application AND the window reports no framebuffer (a hidden or not yet
+        // mapped window can). See that function: the value is the caller's, not one invented there.
+        VkExtent2D const extent = choose_swap_extent(capabilities, this->window, this->create_options.window_width, this->create_options.window_height);
 
         uint32_t image_count = capabilities.minImageCount + 1;
 

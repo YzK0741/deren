@@ -328,12 +328,15 @@ export VkSurfaceFormatKHR choose_swap_surface_format(std::vector<VkSurfaceFormat
 
 /**
  * @ingroup vulkan_init_utils
- * @brief choose the swap chain extent, clamped to the surface capabilities
+ * @brief choose the swap chain extent: the surface's own answer when it has one, else the window's
+ *        framebuffer size, else the size the window was REQUESTED at
  * @param capabilities surface capabilities
  * @param window the GLFW window, used to query the framebuffer size
+ * @param requested_width the width `glfwCreateWindow` was asked for, as the fallback
+ * @param requested_height the height `glfwCreateWindow` was asked for, as the fallback
  * @return the chosen extent
  */
-export VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window) noexcept;
+export VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -1133,21 +1136,51 @@ VkSurfaceFormatKHR choose_swap_surface_format(std::vector<VkSurfaceFormatKHR> co
     return available_formats[0];
 }
 
-VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window) noexcept {
+VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept {
+    // ONE LINE, AND IT IS THE MEASUREMENT RATHER THAN A TIDY-UP: this function has two paths and only one
+    // of them asks the window anything. VK_EXT_headless_surface and Wayland report `currentExtent` as
+    // UINT32_MAX and leave the extent to the application; the Win32 surface this renderer runs on ANSWERS
+    // the question, and the branch below this line is then never entered - measured, `surface currentExtent
+    // 1080x960 (the surface answers, the window is not consulted)` for a HIDDEN 1080x960 window, i.e. a
+    // window's visibility is not what this surface reads. That matters to the hidden-window path, because
+    // this branch is the one place a zero extent could come from: on a surface that does not answer, a
+    // window that is not shown (or is minimized, or has not been mapped yet) can report a 0x0 framebuffer,
+    // and this renderer sizes its whole frame from that number. The log makes which path ran a fact of
+    // every run rather than something deduced from the platform.
+    utility::log("swapchain extent: surface currentExtent {}x{} ({})",
+                 capabilities.currentExtent.width,
+                 capabilities.currentExtent.height,
+                 capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() ? "the surface answers, the window is not consulted" : "unspecified - the window is consulted");
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
         return capabilities.currentExtent;
     }
-    int32_t width;
-    int32_t height;
+    int32_t width = 0;
+    int32_t height = 0;
     glfwGetFramebufferSize(window, &width, &height);
 
-    // Ensure width and height are non-zero
-    width = std::max(width, 1);
-    height = std::max(height, 1);
+    // A ZERO (OR ABSURD) FRAMEBUFFER SIZE IS A REAL ANSWER FROM A WINDOW NOBODY HAS SHOWN, and it must not
+    // become the frame. `glfwGetFramebufferSize` reports what the window currently has: a hidden window, a
+    // window that has not been mapped yet and a minimized one can all report 0x0, and this path is entered
+    // exactly when the surface does not pin the extent. This file used to `std::max(width, 1)` - a
+    // 1x1 swapchain, i.e. a silently different frame at every other resolution, or a validation failure
+    // when the driver's minimum image extent is larger than 1. The fallback is instead the size the window
+    // was REQUESTED at (`glfwCreateWindow`'s own arguments, which GLFW keeps whatever it can report for
+    // the framebuffer): the caller already decided that extent, so it is the size this run asked for and
+    // not a value invented here. `requested_*` is clamped up only so that the fallback cannot itself be a
+    // zero-sized image on a config that asks for 0.
+    if (width <= 0 || height <= 0) {
+        utility::log("swapchain extent: the window reports a {}x{} framebuffer (surface extent unspecified), so the {}x{} the window was REQUESTED at is used instead",
+                     width,
+                     height,
+                     requested_width,
+                     requested_height);
+        width = requested_width;
+        height = requested_height;
+    }
 
     VkExtent2D actual_extent = {
-        .width = static_cast<uint32_t>(width),
-        .height = static_cast<uint32_t>(height),
+        .width = static_cast<uint32_t>(std::max(width, 1)),
+        .height = static_cast<uint32_t>(std::max(height, 1)),
     };
 
     actual_extent.width = std::clamp(actual_extent.width,

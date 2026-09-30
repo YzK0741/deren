@@ -215,6 +215,25 @@ namespace vulkan {
         // above are ignored in this mode. The core still installs nothing on the window itself
         // (no GLFW callbacks), so any caller-side callbacks keep working.
         std::optional<GLFWwindow*> window = std::nullopt;
+        /**
+         * @brief whether the window this core creates itself is SHOWN (`glfwCreateWindow` with
+         *        `GLFW_VISIBLE`), or created hidden (`GLFW_VISIBLE = GLFW_FALSE` plus an explicit
+         *        `glfwHideWindow`, which is what a platform that ignores the hint needs)
+         *
+         * A SCRIPTED CAPTURE HAS NO HUMAN TO SHOW A WINDOW TO. `--capture-frames N` renders N frames,
+         * saves a screenshot through the F12 read-back path and quits - the run is the project's own
+         * "headless-ish, no human" case (see the runtime's frame-loop notes) - and the gate and the A/B
+         * batches launch it dozens of times in a row, so a visible window is a row of flashes on the
+         * screen of whoever is using the machine. The pixels cannot notice: the screenshot is a
+         * `vkCmdCopyImageToBuffer` of the SWAPCHAIN IMAGE the frame rendered into (see
+         * runtime::record_screenshot_copy), not a capture of the window, so hiding the window changes no
+         * value the read-back can read. That claim is MEASURED, not asserted: the gate's references and
+         * the four recorded A/B anchors are byte-identical with this false and with it true.
+         *
+         * Ignored when `window` above is set: a caller's window is bound as-is and its visibility stays
+         * the caller's business.
+         */
+        bool window_visible = true;
     };
 
     /**

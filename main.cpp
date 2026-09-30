@@ -306,6 +306,15 @@ int main(int argc, char** argv) {
     // render target is created with (see core_create_info::render_scale): it has to be in the options the
     // core is constructed from, and it applies from the first frame.
     core_options.render_scale = settings.render.render_scale;
+    // ---- A SCRIPTED CAPTURE GETS NO WINDOW, which is the one place a human would have seen one. The
+    //      capture flags exist so a visual check needs nobody at the keyboard (see capture_options above),
+    //      and the gate / the A/B batches then run this binary twenty to a hundred times in a row: with a
+    //      visible window that is a row of flashes on the screen of whoever is using the machine. The
+    //      result is unaffected BY CONSTRUCTION - the screenshot is a read-back of the swapchain image the
+    //      frame rendered into, not a capture of the window - and the gate's references plus the four
+    //      recorded A/B anchors are byte-identical with this line and without it, which is the measurement
+    //      behind the claim. The interactive path (`capture.frames == 0`) is untouched: a normal window.
+    core_options.window_visible = capture.frames == 0;
     vulkan::runtime runtime{core_options};
     runtime.clear_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
     // shadow is applied after enable_shadows() below (it needs the shadow maps to exist)
