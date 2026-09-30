@@ -2354,10 +2354,10 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float3 face_direct_diffuse = goo_inverse_pi * face_ramp_colour * face_diffuse_colour * face_light_color * main_light_final;
         // `directLighting_specular`, the FACE's own wiring: `clampedNdotL ⊙ (原 ⊙ F) ⊙ SpecularColor ⊙ 混合.005 ⊙
         // dirLight_lightColor ⊙ directOcclusion(=[1,1,1]) ⊙ (1/reflectivity)`. THREE THINGS DIFFER FROM STEP 5'S
-        // BODY EXPRESSION and each is the graph's: the shadow factor is `混合.005` (the PRE-sigmoid lerp, NOT
-        // `转接点.016`), the product carries `Vector Math.013 = 能量补偿 + 1 = 1/reflectivity` (see the report - the
-        // body's landed expression omits it, and on this material BOTH are moot because `SmoothnessMax = 1.0` makes
-        // the lobe's `a2 = 0` and the whole term zero), and `Abs_NdotL`'s slot is fed `|L·H|`.
+        // BODY EXPRESSION, each the graph's: the shadow factor is `混合.005` (the PRE-sigmoid lerp, NOT
+        // `转接点.016`), the face carries the energy compensation `E1 = (1,1,1) + (1/LUT.G - 1) ⊙ F0` where the body
+        // omits it (the older shorthand `E1 = 1/reflectivity` holds ONLY at `F0 = 1` - see `goo_debt_a_e1_factor.md`),
+        // and `Abs_NdotL` is fed `|L·H|`. On this material all of it is moot: `SmoothnessMax = 1.0` ⇒ `a2 = 0`.
         const float face_clamped_ndotv = max(face_ndotv, goo_fgd_ndotv_floor);
         const float face_perceptual_roughness = 1.0 - saturate(face_smoothness_max);
         const float face_clamped_roughness = face_perceptual_roughness * face_perceptual_roughness;
