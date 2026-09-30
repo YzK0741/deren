@@ -221,6 +221,20 @@ namespace {
     /// writing it into the neutral would apply the step to the hair and the face.
     constexpr float k_desaturation_neutral = 1.0f;
 
+    /// `DecodeNormal :: 运算.002.Value_001` - the MAXIMUM the reconstructed `z` is floored at, spelled to all
+    /// seventeen digits because `shaders/character_forward.slang`'s `goo_normal_z_floor` is the same literal and a
+    /// "cleaned up" `1e-16f` would be a different float32.
+    constexpr float k_goo_normal_z_floor = 1.0000000168623835e-16f;
+    /// `DecodeNormal :: interface[]` - `NormalStrength`'s own group default, `1.0`: the value a
+    /// `PBRToonBase` instance inherits when nothing is patched into the socket.
+    constexpr float k_goo_normal_strength_default = 1.0f;
+    /// `M_actor_laevat_body_01` / `M_actor_laevat_body_02 :: 法线贴图.Strength`, both `1.25` VERBATIM.
+    constexpr float k_goo_normal_strength_body = 1.25f;
+    /// `M_actor_laevat_cloth_01` .. `cloth_05 :: 法线贴图.Strength`, all `1.4458599090576172` - the same float32
+    /// the reference's `chen_cloth_01` states, which is how the value was first recognised as a family constant
+    /// rather than an authored tweak.
+    constexpr float k_goo_normal_strength_cloth = 1.4458599090576172f;
+
     /// @brief the reference's `DeSaturation` closed form: `lerp(luma(colour).xxx, colour, desaturation)`.
     ///
     /// EIGHT OF THE ELEVEN NODES (`组输入` + `合并 XYZ.002` + four `ShaderNodeVectorMath` + two `NodeReroute`):
@@ -1790,6 +1804,142 @@ int32_t main() {
         vec3 const a12_none = recalculate_normal(vec3{0.0f, 0.0f, 1.0f}, vec3{0.0f, 0.0f, 0.0f}, vec3{1.0f, 0.0f, 0.0f}, 0.0f, 0.0f);
         CHECK_MSG(std::abs(a12_none.x - 1.0f) < 1e-6f, "A12': strength 0 (the socket's own default) is the model's normal as well - the behaviour the port had before this step");
     }
+    // ---- 8t. STEP 8: THE REFERENCE'S `DecodeNormal` - THE FORM, AND THE z = -1 REGRESSION ----
+    //
+    // THE DUMP FIXES THE DECODE AND LEAVES EXACTLY ONE THING OPEN. `nodes.json` states every node of the group down
+    // to the floor: `合并 XYZ` `(x, y, 0)`, a MULTIPLY_ADD `*(2,2,0) + (-1,-1,0)`, a DOT_PRODUCT of that vector with
+    // itself, `钳制` `clamp(d, 0, 1)`, `运算` `1 - d`, `运算.001` `sqrt`, `运算.002` `max(.., 1.0000000168623835e-16)`
+    // and `运算.003` `0.5*z1 + 0.5` - so the map is read as `xy = (2R-1, 2G-1)` and the reconstructed `z` is
+    // `z1 = max(sqrt(1 - clamp(x² + y², 0, 1)), 1.0000000168623835e-16)`, with `合并 XYZ.001` handing the
+    // `ShaderNodeNormalMap` the `Color = (x_raw, y_raw, 0.5*z1 + 0.5)`, i.e. `2*Color - 1 = (xy, z1)`, and the node's
+    // `Strength` fed from the group input.
+    //
+    // THE NORMAL MAP NODE ITSELF IS A BLACK BOX IN THE DUMP, BUT NOT IN THE ENGINE'S SOURCE. The strength's form comes
+    // from the reference engine's own implementation of that node - `goo-engine-v4.2-release`,
+    // `source/blender/gpu/shaders/material/gpu_shader_material_normal_map.glsl`, a local copy at
+    // `zmd-ab/goo_engine_node_normal_map.glsl` - which applies the strength IN TANGENT SPACE, to the `(xy, z1)` that
+    // `color_to_normal_new_shading` (`2*color - 1`) produced:
+    //
+    //     texnormal.xy *= strength;
+    //     texnormal.z = mix(1.0, texnormal.z, saturate(strength));
+    //
+    // i.e. `n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))))`. The assertions below therefore
+    // do three jobs rather than restating one: (a) the decode half the dump DOES state, (b) that this expression
+    // differs from the WEIGHT form `1 + strength*(z1 - 1)` that an earlier revision of this port shipped - at the
+    // body's own strength the two are 11.31 degrees apart and only one of them keeps `z` positive - and (c) the
+    // `saturate`'s edge cases, which are why the engine's expression is kept whole instead of being folded to `z1` for
+    // the `strength >= 1` this step ports. The decode evidence was read with `zmd-ab/_normal_probe5.py` (which
+    // resolves a `ShaderNodeGroup` INSTANCE through its `node_tree`, not through its own name) and is dumped in full
+    // at `zmd-ab/_step8_decode_normal.txt`.
+    {
+        // THE SHADER'S OWN ARITHMETIC, re-derived. It returns the PRE-NORMALIZE `(x, y, z1)` so the two candidate
+        // forms can be told apart by their components and not only by the direction they end up pointing.
+        auto const decode_xy = [](float const r, float const g) {
+            float const x = (r * 2.0f) - 1.0f;
+            float const y = (g * 2.0f) - 1.0f;
+            float const d = std::min(std::max((x * x) + (y * y), 0.0f), 1.0f);
+            float const z1 = std::max(std::sqrt(1.0f - d), k_goo_normal_z_floor);
+            return std::array<float, 3u>{x, y, z1};
+        };
+        // THE SHIPPED FORM, which is the engine's own two lines: `texnormal.xy *= strength` and
+        // `texnormal.z = mix(1.0, z1, saturate(strength))`.
+        auto const shipped = [&decode_xy](float const r, float const g, float const strength) {
+            std::array<float, 3u> const xy = decode_xy(r, g);
+            float const saturated = std::min(std::max(strength, 0.0f), 1.0f);
+            return normalize3(vec3{strength * xy[0], strength * xy[1], 1.0f + (saturated * (xy[2] - 1.0f))});
+        };
+        // ... AND THE FORM THIS PORT SHIPPED BEFORE THE CORRECTION - the same expression WITHOUT the `saturate` - kept
+        // so the discriminating case below can name both sides instead of asserting a number against nothing.
+        auto const weight_candidate = [&decode_xy](float const r, float const g, float const strength) {
+            std::array<float, 3u> const xy = decode_xy(r, g);
+            return normalize3(vec3{strength * xy[0], strength * xy[1], 1.0f + (strength * (xy[2] - 1.0f))});
+        };
+
+        // THE DECODE ITSELF, which is the half the dump DOES state: `z1 = sqrt(1 - x² - y²)`, clamped and floored.
+        CHECK_MSG(std::abs(decode_xy(0.75f, 0.5f)[2] - 0.8660254038f) < 1e-6f,
+                  "A1: z1(0.75, 0.5) = sqrt(1 - 0.25) = 0.8660254038");
+        CHECK_MSG(std::abs(decode_xy(0.5f, 0.5f)[2] - 1.0f) < 1e-6f, "A1: the neutral texel is the flat normal");
+        CHECK_MSG(std::abs(decode_xy(1.0f, 1.0f)[2] - k_goo_normal_z_floor) < 1e-30f,
+                  "A1: a texel pair on or outside the unit disc lands on the FLOOR rather than on a NaN - the parent measured R/G INSIDE the disc at 1.0000, so this is the boundary the floor exists for");
+
+        // THE TWO ENDS THE ENGINE'S EXPRESSION IS BUILT TO HIT EXACTLY: at `strength = 0` the mix answers the flat
+        // normal for ANY texel, and at `strength = 1` it answers the decode itself. A port that inverted the mix
+        // (`1 + (1-strength)*(z1-1)`) fails the first line and passes the second, which is what separates the two
+        // mistakes.
+        vec3 const flat = shipped(0.75f, 0.6f, 0.0f);
+        CHECK_MSG(std::abs(flat.x) < 1e-6f && std::abs(flat.y) < 1e-6f && std::abs(flat.z - 1.0f) < 1e-6f,
+                  "A2: strength 0 gives (0, 0, 1) - the flat normal, for any texel");
+        vec3 const at_one = shipped(0.75f, 0.6f, 1.0f);
+        vec3 const raw_decode = normalize3(vec3{0.5f, 0.2f, 0.8426149773f});
+        CHECK_MSG(dot3(at_one, raw_decode) > 0.999999f,
+                  "A2: strength 1 IS the reference's decode, normalize(xy, z1)");
+
+        // A3: THE DISCRIMINATING CASE, and the pin that guards the CORRECTION rather than the decode. `xy = (1, 0)` is
+        // a texel at the map's own extreme, so `z1` lands on the floor and the two forms are furthest apart; `1.25` is
+        // the reference's `M_actor_laevat_body_01/_02 :: 法线贴图.Strength`. Because `saturate(1.25) == 1`, the engine's
+        // form answers the SAME vector as the plainly scaled one, `(1, 0, 0)`, while the weight form this port shipped
+        // before answers `(0.9805806757, 0, -0.1961161351)`: 11.3099 degrees away, and a `z` that has crossed THROUGH
+        // the surface. Both sides are asserted, so a future edit that folds the `saturate` away is caught by the first
+        // check and one that goes back to the weight form by the second and third.
+        vec3 const body = shipped(1.0f, 0.5f, k_goo_normal_strength_body);
+        CHECK_MSG(std::abs(body.x - 1.0f) < 1e-6f && std::abs(body.y) < 1e-6f && std::abs(body.z) < 1e-6f,
+                  "A3: the engine's form at the body's strength 1.25 answers (1, 0, 0)");
+        vec3 const body_weight = weight_candidate(1.0f, 0.5f, k_goo_normal_strength_body);
+        CHECK_MSG(std::abs(body_weight.x - 0.9805806757f) < 1e-6f && std::abs(body_weight.y) < 1e-6f &&
+                      std::abs(body_weight.z + 0.1961161351f) < 1e-6f,
+                  "A3: while the weight form answers (0.9805806757, 0, -0.1961161351) - the form this port shipped before the correction");
+        CHECK_MSG(dot3(body, body_weight) < 0.99f,
+                  "A3: the two are 11.31 degrees apart (dot 0.9805807), so this pin can actually fail");
+        CHECK_MSG(body.z >= 0.0f && body_weight.z < 0.0f,
+                  "A3: and the weight form is the one that crosses the horizon at a strength the asset states - the whole visible difference between the two");
+
+        // A4: THE DEFECT THIS STEP FIXES, as an assertion rather than a story. Every shipped normal map of this
+        // asset stores B = 0 (the parent measured B uniq = 1, constant 0, on all four maps), so the decode the port
+        // used until now - `rgb*2 - 1` - answered `z = -1` for EVERY texel and the shading normal pointed INTO the
+        // surface. The old expression is reproduced here and the two sides of zero are the assertion.
+        auto const old_decode = [](float const r, float const g, float const b) {
+            return normalize3(vec3{(r * 2.0f) - 1.0f, (g * 2.0f) - 1.0f, (b * 2.0f) - 1.0f});
+        };
+        vec3 const old_texel = old_decode(0.75f, 0.5f, 0.0f);
+        CHECK_MSG(std::abs(old_texel.x - 0.4472135955f) < 1e-6f && std::abs(old_texel.z + 0.8944271910f) < 1e-6f,
+                  "A4: the OLD decode on a texel with B = 0 answers (0.4472135955, 0, -0.8944271910) - z is negative for EVERY texel of these maps");
+        vec3 const new_texel = shipped(0.75f, 0.5f, k_goo_normal_strength_cloth);
+        CHECK_MSG(new_texel.z > 0.5f, "A4: and the new decode on the SAME texel answers an OUTWARD normal");
+        CHECK_MSG(std::abs(new_texel.x - 0.6408339783f) < 1e-6f && std::abs(new_texel.z - 0.7676794984f) < 1e-6f,
+                  "A4: to the digit - (0.6408339783, 0, 0.7676794984) at the cloth's own strength 1.4458599090576172");
+        CHECK_MSG(old_texel.z < new_texel.z, "A4: the regression is a SIGN, so the comparison is the check that survives a re-tuning of either number");
+
+        // A5: THE `saturate`'S OWN EDGE CASES, which are why the engine's expression is kept whole instead of being
+        // folded into `z1` for the `strength >= 1` this step ports: below 1 the mix bends `z` TOWARDS the flat normal
+        // while `xy` keeps the raw scale, and at or below 0 it answers the flat `z` with - for a negative strength - a
+        // flipped `xy`. The port passes no such value today (the smallest the reference states for this asset is the
+        // hair's `0.5`, which is deliberately NOT ported - see this block's note in `character_forward.slang`), so
+        // these pins are what keeps the expression honest if one ever arrives.
+        vec3 const at_half = shipped(0.75f, 0.5f, 0.5f);
+        CHECK_MSG(std::abs(at_half.x - 0.2588190451f) < 1e-6f && std::abs(at_half.z - 0.9659258263f) < 1e-6f,
+                  "A5: at the hair's recorded strength 0.5 the z term is 1 + 0.5*(z1 - 1), so the mix below 1 is NOT the scale");
+        vec3 const at_three = shipped(0.75f, 0.5f, 3.0f);
+        CHECK_MSG(std::abs(at_three.x - 0.8660254038f) < 1e-6f && std::abs(at_three.z - 0.5f) < 1e-6f,
+                  "A5: at strength 3 the xy scale is the RAW 3 (the engine does not clamp it) while z is z1 - (0.8660254038, 0, 0.5)");
+        vec3 const negative = shipped(0.75f, 0.5f, -1.0f);
+        CHECK_MSG(std::abs(negative.x + 0.4472135955f) < 1e-6f && std::abs(negative.z - 0.8944271910f) < 1e-6f,
+                  "A5: at a negative strength `saturate` answers 0, so z is the flat 1 and only xy flips - (-0.4472135955, 0, 0.8944271910)");
+        // ... AND THE PROPERTY THE CORRECTION BUYS: with the `saturate` in place, `z` is `z1` or flatter for every
+        // strength at or below 1 and exactly `z1` above it, so the STRENGTH CANNOT DRIVE `z` NEGATIVE - the old form's
+        // `1.25*z1 - 0.25` went below zero for every texel with `z1 < 0.2`. An over-disc texel pair, the case the floor
+        // exists for, is the sharpest version of that.
+        vec3 const over_disc = shipped(1.0f, 1.0f, k_goo_normal_strength_cloth);
+        CHECK_MSG(std::isfinite(over_disc.x) && std::isfinite(over_disc.y) && std::isfinite(over_disc.z),
+                  "A5': an over-disc texel stays finite");
+        CHECK_MSG(std::abs(dot3(over_disc, over_disc) - 1.0f) < 1e-5f, "A5': and it is still a unit vector");
+        CHECK_MSG(over_disc.z >= 0.0f && weight_candidate(1.0f, 1.0f, k_goo_normal_strength_cloth).z < 0.0f,
+                  "A5': and with the saturate the reconstructed z stays on or above the floor, while the old weight form drove THIS texel negative as well");
+
+        // A6: THE GROUP'S OWN DEFAULT, quoted for the same reason step 6's `k_desaturation_default` is: the port
+        // deliberately answers the `-1000` SENTINEL for a material with no row rather than this `1.0` (see
+        // `toon_colour_lane::goo_normal_strength`), so the number that was NOT taken has to be written down.
+        CHECK_MSG(k_goo_normal_strength_default == 1.0f, "A6: `DecodeNormal`'s `interface[]` default for NormalStrength is 1.0");
+    }
     // ---- 9. THE SYNC POINTS: the places a lane has to be spelled, plus the shader's constants ----
     //
     // These are the checks a compiler cannot make. Adding a texture lane without its format-table entry is a
@@ -1852,7 +2002,8 @@ int32_t main() {
             CHECK_MSG(enum_at != std::string::npos, "the colour lane's enum is where this test looks for it");
             std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             CHECK_MSG(colour_enum.find("goo_eye_brightness = 6,") != std::string::npos, "the colour lane's enum entry");
-            CHECK_MSG(colour_enum.find("count = 24,") != std::string::npos, "the colour lane's enum count (step 5's four lanes and step 7's four)");
+            // STEP 8 MOVED THIS FROM 24 TO 25 (the entry below is lane 24, `goo_normal_strength`).
+            CHECK_MSG(colour_enum.find("count = 25,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four and step 8's one)");
         }
         CHECK_MSG(app.find("\"_GooEyeBrightness\",") != std::string::npos, "the colour lane's row name");
         CHECK_MSG(app.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != std::string::npos, "the colour lane's neutral in the lookup");
@@ -1949,7 +2100,7 @@ int32_t main() {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
             std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             for (char const* const spelling : {"goo_specular_fgd = 16,", "goo_light_color = 17,", "goo_ambient_tint = 18,",
-                                               "goo_specular_color = 19,", "count = 24,"}) {
+                                               "goo_specular_color = 19,", "count = 25,"}) {
                 CHECK_MSG(colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooSpecularFGD\",", "\"_GooLightColor\",", "\"_GooAmbientTint\",", "\"_GooSpecularColor\","}) {
@@ -1969,9 +2120,9 @@ int32_t main() {
                 CHECK_MSG(constructor.find(by_name) != std::string::npos, by_name.c_str());
             }
             // THE SHADER SIDE: the lanes are read BY INDEX (`+ 16u` .. `+ 19u`) through the stage's own stride, and
-            // the constant that has to move with them is `character_toon_colour_lanes` (24, pinned by
+            // the constant that has to move with them is `character_toon_colour_lanes` (25 since step 8, pinned by
             // `test_toon_material_sidecar` against the enum from the other side too).
-            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 24u") != std::string::npos, "the surface stage's stride copy");
+            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 25u") != std::string::npos, "the surface stage's stride copy");
             for (char const* const index : {"colour_base + 16u", "colour_base + 17u", "colour_base + 18u", "colour_base + 19u"}) {
                 CHECK_MSG(character_forward.find(index) != std::string::npos, index);
             }
@@ -2131,7 +2282,7 @@ int32_t main() {
                 CHECK_MSG(goo_rim.find(spelling) != std::string::npos, spelling);
             }
             // ... AND THE LANES IT READS, by index, through ITS OWN copy of the stride
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 24u") != std::string::npos, "the rim stage's own stride copy");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 25u") != std::string::npos, "the rim stage's own stride copy");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 7u") != std::string::npos, "the rim stage reads lane 7 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 8u") != std::string::npos, "the rim stage reads lane 8 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 9u") != std::string::npos, "the rim stage reads lane 9 (the widths) by that index");
@@ -2172,7 +2323,7 @@ int32_t main() {
             std::size_t const face_enum_at = primitive.find("enum class toon_colour_lane");
             std::string const face_colour_enum = primitive.substr(face_enum_at, primitive.find("};", face_enum_at) - face_enum_at);
             for (char const* const spelling : {"goo_face_scalars_a = 20,", "goo_face_scalars_b = 21,", "goo_face_nose_shadow = 22,",
-                                               "goo_face_front_r = 23,", "count = 24,"}) {
+                                               "goo_face_front_r = 23,", "goo_normal_strength = 24,", "count = 25,"}) {
                 CHECK_MSG(face_colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooFaceScalarsA\",", "\"_GooFaceScalarsB\",", "\"_GooFaceNoseShadow\",", "\"_GooFaceFrontR\","}) {
@@ -2186,8 +2337,59 @@ int32_t main() {
                       "the nose shadow's neutral is BLACK in the GPU table");
             CHECK_MSG(constructor.find("toon_colour_lane::goo_face_front_r)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);") != std::string::npos,
                       "...and so is `Front R Color`'s");
-            CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),\n         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)}};") != std::string::npos,
-                      "the lookup's table ends with step 7's four neutrals, in lane order");
+            CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),\n         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),\n") != std::string::npos,
+                      "step 7's four neutrals are still in lane order after step 5's (step 8's single lane now follows them)");
+            // (c8) STEP 8'S ONE COLOUR LANE, `_GooNormalStrength`, AND THE DECODE IT FEEDS. The lane half is the
+            // mechanical half a compiler cannot check; the shader half is the half that decides whether the lane
+            // reaches a pixel at all - and this lane has a failure mode the older ones do not: the lane is read
+            // INSIDE A FUNCTION THAT ONLY THE REWRITTEN CHAIN COMPILES, so a lane that is written and never read
+            // leaves the frame exactly as it was (the failure mode the two previous steps both hit).
+            {
+                std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
+                std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+                CHECK_MSG(colour_enum.find("goo_normal_strength = 24,") != std::string::npos, "the strength lane's enum entry");
+                CHECK_MSG(app.find("\"_GooNormalStrength\",") != std::string::npos, "the strength lane's row name");
+                // THE ROW IS A `float`, so it lands in `material_sidecar::scalars` and the GENERIC lane path (which
+                // reads `others`) cannot reach it: the lane needs a branch of its own, like the two `extras` lanes.
+                CHECK_MSG(app.find("lane == vulkan::toon_colour_lane::goo_normal_strength") != std::string::npos,
+                          "the app resolves the strength lane through its own branch");
+                CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], strength.x)") != std::string::npos,
+                          "and reads it with `material_sidecar::scalar` rather than `others.find`");
+                CHECK_MSG(app.find("_GooNormalStrength = {:.10g} | lane 24") != std::string::npos,
+                          "the startup log prints the value BY NAME, because the sidecar's own diagnostic walks SLOTS and counts scalars without naming them");
+                CHECK_MSG(constructor.find("toon_colour_lane::goo_normal_strength)] =\n                    glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);") != std::string::npos,
+                          "the strength lane's neutral in the GPU table's initialiser");
+                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)}};") != std::string::npos,
+                          "and the lookup's table now ENDS on it - lane order is the contract");
+                // ... AND THE DECODE ITSELF: the constants, the three guards, the ENGINE'S strength expression and the
+                // frame. The expression is pinned to the digit because it is a transcription of the reference engine's
+                // own GLSL (`zmd-ab/goo_engine_node_normal_map.glsl`), not a derivation that a later reader can
+                // re-check from the dump.
+                for (char const* const spelling : {"static const float goo_normal_z_floor = 1.0000000168623835e-16;",
+                                                   "static const float goo_normal_strength_default = 1.0;",
+                                                   "float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, const float2 uv, const float3 port_normal)",
+                                                   "if ((mat.flags & 1u) == 0u) {",
+                                                   "if (!(strength > goo_lane_absent_threshold)) {",
+                                                   "const float2 xy = heap_sample(mat.tex_indices.z, uv).rg * 2.0 - 1.0;",
+                                                   "const float d = clamp(dot(xy, xy), 0.0, 1.0);",
+                                                   "const float z1 = max(sqrt(1.0 - d), goo_normal_z_floor);",
+                                                   "const float3 n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))));",
+                                                   "decoded = normalize(mat3(sdir, tdir, normal) * n_ts);"}) {
+                    CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
+                }
+                CHECK_MSG(character_forward.find("const float3 n_ts = normalize(float3(strength * xy, z1));") == std::string::npos,
+                          "the saturate-folded `normalize(strength*xy, z1)` form is NOT what the port ships - the engine's expression is kept whole");
+                CHECK_MSG(character_forward.find("1.0 + strength * (z1 - 1.0)") == std::string::npos,
+                          "and the WEIGHT form this port shipped before the correction is gone from the shader");
+                CHECK_MSG(character_forward.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal))") != std::string::npos,
+                          "the surface stage's own `main` passes the decoded normal");
+                CHECK_MSG(shader.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal))") != std::string::npos,
+                          "and so does `goo_toon_frag_main`, which is the entry point the Goo frame actually runs");
+                // THE GUARD IS THE ANCHOR'S OWN MECHANISM: the two INCLUDE-ONLY readers must keep the argument they
+                // had, so they must not name the helper at all (they compile the `#else` branch of its body).
+                CHECK_MSG(outline.find("goo_toon_shading_normal") == std::string::npos, "the outline stage does not name the decoder");
+                CHECK_MSG(pbr.find("goo_toon_shading_normal") == std::string::npos, "and neither does the PBR stage");
+            }
             // ---- `headCenter`: THE ONE PIECE OF NEW DATA, and the stride is the failure class ----
             CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos, "`head_ubo` gained the position");
             CHECK_MSG(primitive.find("static_assert(sizeof(head_ubo) == 64);") != std::string::npos, "and its size is asserted at FOUR vec4s, not three");

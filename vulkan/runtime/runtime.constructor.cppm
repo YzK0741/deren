@@ -476,6 +476,14 @@ namespace vulkan {
                     glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
                 neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_face_front_r)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                // STEP 8'S ONE LANE IS A `-1000` SENTINEL AND NOT THE REFERENCE'S GROUP DEFAULT `1.0`, because the
+                // lane does not carry a tint or a factor that has a neutral - it carries the SWITCH that decides
+                // whether the Goo chain's normal decode runs at all. A material with no row therefore keeps the
+                // normal the chain had before this step, which is what `laevatain_no_sidecar` and the old chain's
+                // frames are pinned on; `NormalStrength = 0` is a value the reference states on some materials, so
+                // `0` could not be the "not stated" answer (see `goo_normal_strength`).
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_normal_strength)] =
+                    glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
             }
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(neutral_colours)),

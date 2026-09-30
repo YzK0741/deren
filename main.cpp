@@ -596,6 +596,18 @@ int main(int argc, char** argv) {
         "_GooFaceScalarsB",
         "_GooFaceNoseShadow",
         "_GooFaceFrontR",
+        // ---- STEP 8: THE NORMAL DECODE'S STRENGTH ----
+        //
+        // ONE ROW, ONE SCALAR, and it is the reference's `DecodeNormal :: 组输入.NormalStrength`: the weight between
+        // the FLAT tangent normal and the one the map's `xy` decodes to. It is a `float` row rather than a `color`
+        // one (the port's rule for a lane whose payload is `.x` alone), so it does NOT go through the generic
+        // `others` path below - its `float` kind lands in `material_sidecar::scalars`, which only `scalar()` reads,
+        // and that is why `toon_colour` has a branch of its own for it, the way `_Specular` and `_ParallaxScale` do.
+        //
+        // THE VALUES ARE THE REFERENCE'S, NOT THE GLTF'S: `normalTexture.scale` is `1.0` on all 11 materials of
+        // `chars\laevatain_goo.glb`, so it cannot be the source (the `_Specular` lane's `extras` precedence exists
+        // for a property the asset really states; this one it does not).
+        "_GooNormalStrength",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -638,6 +650,17 @@ int main(int argc, char** argv) {
                 // supplies the parameters) and the renderer (which selects them) cannot disagree about which
                 // family a material is: there is one classifier and both sides ask it.
                 utility::log("  '{}' -> family {} | {} slot(s), {} scalar(s)", material.name, static_cast<uint32_t>(gltf::toon_family_of(material.name)), material.slots.size(), material.scalars.size());
+                // STEP 8'S `float` ROW IS PRINTED BY NAME, because the loop below walks `material.slots` ONLY: a
+                // `float` property is counted in the `{} scalar(s)` above and never named, so a human reading this
+                // log could not tell "the file states nothing" from "the reader dropped the row" - the two look
+                // identical in every other line. `ABSENT` means the chain's previous normal stands for this
+                // material; a value means lane 24 carries it into the Goo chain's decode (see
+                // `toon_colour_lane::goo_normal_strength`).
+                if (auto const normal_strength = material.scalars.find("_GooNormalStrength"); normal_strength != material.scalars.end()) {
+                    utility::log("      _GooNormalStrength = {:.10g} | lane 24 (the reference's DecodeNormal strength)", static_cast<double>(normal_strength->second));
+                } else {
+                    utility::log("      _GooNormalStrength = ABSENT | lane 24 keeps the chain's previous normal");
+                }
                 for (auto const& [slot_name, texture_name] : material.slots) {
                     std::optional<uint16_t> const index = scenes->texture_index_by_name(texture_name);
                     utility::log("      {} = '{}' -> {} | {}", slot_name, texture_name, index.has_value() ? std::format("texture #{}", *index) : std::string("ABSENT from this model"), material.enabled_by_flag(toon_flag_for(slot_name)) ? "ON" : "off");
@@ -1345,7 +1368,13 @@ int main(int argc, char** argv) {
          // in the reference's own interface ARE black - white would be the strongest possible statement about a
          // nose shadow (`混合.017`'s A side) and about `Front transparent red`'s tint.
          glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
-         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f)}};
+         glm::vec4(0.0f, 0.0f, 0.0f, 1.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+         // STEP 8'S ONE. A `-1000` SENTINEL RATHER THAN THE REFERENCE'S GROUP DEFAULT `1.0`, and that is the whole
+         // of this lane's contract: an absent row leaves the chain's previous normal in place instead of switching
+         // the decode on for a material the port carried no measured value for. `NormalStrength = 0` is a value the
+         // reference's own materials state (`chen_body_01.001` is `1.3184...` with `Use NormalTex? = 0`), so a `0`
+         // neutral would be a statement; `-1000` is outside the socket's range and passes only as "not stated".
+         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)}};
     auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);
         toon_lookup_state const& state = *static_cast<toon_lookup_state*>(owner);
@@ -1391,6 +1420,26 @@ int main(int argc, char** argv) {
         toon::material_sidecar const* const material = state.sidecar->find(material_name);
         if (material == nullptr) {
             return toon_colour_neutral[lane_index];
+        }
+        // ---- STEP 8'S NORMAL STRENGTH, WHICH IS A `float` ROW AND THEREFORE NEEDS THIS BRANCH ----
+        //
+        // The generic path at the bottom of this lambda reads `material->others`, and a `float`-kind row does not
+        // land there: `toon_material_sidecar.cpp` routes `slot` to `slots`, `float` to `scalars` and every other
+        // kind to `others`, and only `scalar()` reads `scalars`. So a `_GooNormalStrength` row written as a `color`
+        // row would be parsed by the generic path and a row written as the `float` row it is would be invisible -
+        // hence this branch, and hence it sits before the outline branch rather than inside the generic one.
+        //
+        // THE `>= 0.0f` TEST IS THE SAME ONE THE SPECULAR LANE MAKES, for the same reason: the value is a positive
+        // strength on every material either dump states, so a row that parsed negative is a row this lane cannot
+        // express and the neutral (the sentinel, i.e. "not stated") answers instead of a strength that would flip
+        // the normal's `xy`.
+        if (lane == vulkan::toon_colour_lane::goo_normal_strength) {
+            glm::vec4 strength = toon_colour_neutral[lane_index]; // -1000 in every component until a row says otherwise
+            float const value = material->scalar(toon_colour_row[lane_index], strength.x);
+            if (value >= 0.0f) {
+                strength.x = value;
+            }
+            return strength;
         }
         // THE OUTLINE LANE IS THE ONE LANE FED BY TWO ROWS OF TWO DIFFERENT KINDS, so it does not go through the
         // single-row path below: `.rgb` is the `color _OutlineTintColor` row (the game's name for the author's

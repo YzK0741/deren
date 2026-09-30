@@ -365,7 +365,12 @@ float4 goo_toon_frag_main(
     // belongs on, and the rim that lands on top of it keeps its own saturation, which is the reference's own
     // arrangement. The value is the identity for every family this arm does not take.
     float desaturation = 0.0;
-    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, normalize(s.normal), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
+    // STEP 8'S DECODE stands here rather than inside `toon_diffuse`, because the shading normal is an ARGUMENT and
+    // the reference decodes it where the normal map is sampled. `goo_toon_shading_normal` (defined in
+    // `character_forward.slang`, which this file defines `VR_GOO_TOON_CHAIN` for before including it) answers the
+    // `normalize(s.normal)` this call used to pass unless the material reads a normal map and its lane 24 row states
+    // a strength, so a material with no row shades exactly as before.
+    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal)), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
     const float3 lit = goo_hsv_desaturate(colour + s.emissive, desaturation);
     const bool toon_transparent = (s.flags & 256u) != 0u;
     const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;

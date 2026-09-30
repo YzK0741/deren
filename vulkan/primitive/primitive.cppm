@@ -1070,7 +1070,34 @@ namespace vulkan {
          * B side is this colour, so black leaves the albedo as the albedo.
          */
         goo_face_front_r = 23, // `_GooFaceFrontR`: `Front R Color` (`.rgb`; BLACK = the group's default)
-        count = 24,
+        /**
+         * `_GooNormalStrength`: the `DecodeNormal` group's own `NormalStrength` input, i.e. the strength the reference
+         *'s normal decode applies to the normal map's `xy` before it is turned into a tangent-space normal.
+         *
+         * IT IS NOT A PROPERTY THE GLTF CARRIES, and that is why it needs a lane: `normalTexture.scale` is `1.0` on
+         * every material of every character in this repository, while the values the reference states for the same
+         * materials are `1.25` (the body), `1.4458599090576172` (the cloth) and `1.0` (everything else). It is a
+         * socket of a `ShaderNodeGroup` instance inside each material's tree (`DecodeNormal :: 组输入.NormalStrength`),
+         * so the sidecar is the only channel that can carry it.
+         *
+         * `.x` IS THE STRENGTH AND THE OTHER THREE COMPONENTS ARE UNUSED - the port's scalar-lane convention (see
+         * `specular_strength` and `parallax_scale`). THE SENTINEL IS `-1000` ON EVERY COMPONENT rather than `-1` on
+         * `.x` alone, because `-1` is a strength the group's own range does not contain but `0` IS a value the
+         * reference really states (`M_actor_chen_body_01.001` carries `1.3184714317321777` with `Use NormalTex? = 0`,
+         * so a decode is switched off there by the material's own gate rather than by a zero strength): see
+         * `goo_lane_absent` in `shaders/character_forward.slang` for the audit rule this follows.
+         *
+         * A MATERIAL WITH NO ROW KEEPS THE PREVIOUS NORMAL RATHER THAN GETTING THE REFERENCE'S GROUP DEFAULT `1.0`,
+         * which is a deliberate deviation from "the reference's default" and the reason is measured: the shipped
+         * normal maps store `x` and `y` with a CONSTANT blue channel (uniq(B) = 1 on the body and the cloth), so the
+         * old `rgb*2-1` decode is inward-pointing on every one of them - i.e. the previous normal is not "the
+         * reference at strength 1", it is a different (wrong) picture. Switching every material with no measured row
+         * onto the decode would move models this step did not measure (chen's cloth has a `NormalStrength` in the
+         * reference but no row here), so a row is what turns the decode on. The FACE, BROW and IRIS materials have no
+         * normal texture at all, so for them "no row" and "the reference's default" are the same frame.
+         */
+        goo_normal_strength = 24, // `_GooNormalStrength`: `DecodeNormal`'s `NormalStrength` (`.x`; `-1000` = no row)
+        count = 25,
     };
 
     /**

@@ -490,12 +490,18 @@ static const float character_shadow_lut_tiles = 32.0;
 /// numbers already had carriers by SAME SOCKET NAME - `BaseColor` on 10, the four `SigmoidSharp`/`MetallicMax`
 /// scalars on 11/12, the three light colours on 17/18/19 and `Rim_Color` on 7 - which is the audit the step's own
 /// spec asked for before minting a lane.
+/// LANE 24 IS STEP 8'S, AND IT IS THE FIRST LANE THIS STAGE'S OWN ENTRY POINT USES A NEW WAY RATHER THAN READS: it
+/// carries `_GooNormalStrength`, the `DecodeNormal` group's `NormalStrength` - the strength the reference's normal
+/// decode applies to the map's `xy` before it becomes a tangent-space normal. The decode itself is
+/// `goo_toon_shading_normal` below, which the two entry points call in place of `normalize(s.normal)` (see its note
+/// for the formula and for why the G-buffer's own normal is deliberately left alone). The lane's `.x` is the number;
+/// its neutral is `-1000` on every component, so a material the port carried no value for keeps the normal it had.
 /// THE STRIDE CHANGED HERE AND IN THREE OTHER FILES, WHICH IS THE PART THAT IS EASY TO MISS: this constant,
 /// `goo_rim.slang`'s `goo_rim_colour_lanes`, `pbr.slang`'s `pbr_toon_colour_lanes` and (through the `#include` at
 /// the top of it) `outline.slang` all address the SAME table, so a stale copy in any one of them reads another
 /// material's lanes - a plausible wrong picture rather than an error. `tests/test_toon_material_sidecar.cpp` and
 /// `tests/test_goo_toon_math.cpp` pin all four against `vulkan::toon_colour_lane::count`.
-static const uint character_toon_colour_lanes = 24u;
+static const uint character_toon_colour_lanes = 25u;
 
 /// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
 ///
@@ -976,6 +982,131 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
     const float3 low = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, float2(u, in_tile_y)).rgb;
     const float3 high = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + lane), heap_sampler_texture, float2(u + 1.0 / character_shadow_lut_tiles, in_tile_y)).rgb;
     return lerp(low, high, tile_lerp);
+}
+
+// ============================================================================================================
+// STEP 8: THE REFERENCE'S `DecodeNormal` - THE PORT'S TANGENT-SPACE NORMAL, RECONSTRUCTED FROM X AND Y
+// ============================================================================================================
+//
+// THE DEFECT THIS REPLACES IS MEASURED, NOT SUSPECTED. `surface.glsl`'s decode (which is UNCHANGED by this step)
+// samples the normal map as `heap_sample(...).rgb * 2.0 - 1.0`, i.e. it trusts the blue channel to be the tangent
+// normal's `z`. Every normal map this asset ships stores `x` and `y` and a CONSTANT blue - measured per channel over
+// the shipped PNGs: `T_actor_laevat_body_01_N` R uniq 233 / G uniq 136 / B uniq 1 (constant 0), `cloth_01_N` B uniq
+// 1, `cloth_02_N` B uniq 1, `T_wpn_misc_0016_01_N` B uniq 1 (the one exception in the model is the hair's `_HN`,
+// which is a live-RGB map; hair is NOT given a lane here, see the note at the end of this block). So `rgb*2-1` yields
+// `z = -1` for every texel of every one of them and the shading normal points INTO the surface - a plausible-looking
+// frame whose lighting is simply wrong.
+//
+// THE REFERENCE NEVER READS THE BLUE CHANNEL. Its `DecodeNormal` group (`Arknights: Endfield_PBRToonBase`, one
+// instance, 12 nodes, `users = 3`) reconstructs `z` from `x` and `y`; read node by node out of
+// `zmd-ab/gooblender/nodes.json`:
+//
+//     Vector Math       (MULTIPLY_ADD)  = (2x-1, 2y-1, 0)            from the group's X / Y inputs
+//     Vector Math.001   (DOT_PRODUCT)   = d = (2x-1)^2 + (2y-1)^2
+//     钳制              (CLAMP)         = clamp(d, 0.0, 1.0)
+//     运算              (SUBTRACT)      = 1.0 - clamp(d, 0, 1)
+//     运算.001          (SQRT)          = sqrt(1.0 - clamp(d, 0, 1))
+//     运算.002          (MAXIMUM)       = z1 = max(sqrt(...), 1.0000000168623835e-16)   [Value_001 = that literal]
+//     运算.003          (MULTIPLY_ADD)  = 0.5*z1 + 0.5                                   [0.5*z1 + 0.5, verbatim]
+//     合并 XYZ.001      (COMBINE_XYZ)   = Color = (x_raw, y_raw, 0.5*z1 + 0.5)
+//     法线贴图          (ShaderNodeNormalMap, Strength <- 组输入.NormalStrength, Color <- the combine above)
+//     组输出            (GROUP_OUTPUT)  -> NormalWS
+//
+// The `1.0000000168623835e-16` floor is the group's own literal (`~sqrt(float32_min_normal)`, the same shape the
+// article's eye hemisphere uses at `1e-16` above); it stops a `1 - d` of exactly zero from producing a normal the
+// NormalMap node would then divide by.
+//
+// THE NORMAL MAP NODE IS A BLACK BOX IN THE DUMP, but the REFERENCE ENGINE'S OWN IMPLEMENTATION of that node is not:
+// the strength's form comes from the Goo engine's source rather than from a reading of the graph -
+// `goo-engine-v4.2-release`, `source/blender/gpu/shaders/material/gpu_shader_material_normal_map.glsl` (a local copy
+// is kept at `zmd-ab/goo_engine_node_normal_map.glsl`), whose `node_normal_map` applies the strength IN TANGENT SPACE
+// to the `(xy, z1)` that `color_to_normal_new_shading` (`2*color - 1`) has already produced:
+//
+//     texnormal.xy *= strength;
+//     texnormal.z = mix(1.0, texnormal.z, saturate(strength));
+//
+// so this port ships `n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))))`. FOR EVERY STRENGTH
+// THIS STEP PORTS (`>= 1`: the body's 1.25, the cloth's 1.4458599090576172) `saturate(strength)` is exactly 1 and the
+// z term is `z1` - "scale xy, keep z" - which is also the form the AUTHOR'S OWN Unity port uses
+// (`zmd-ab/author_src/ZmdToonUtils.hlsl:9-16`, `UnpackNormalFromTex`: `normal.xy *= scale;` after the same z
+// reconstruction), so two independent sources agree. AN EARLIER REVISION OF THIS BLOCK SHIPPED
+// `1.0 + strength*(z1 - 1.0)`, and the engine's `saturate` is exactly what excludes it: at the body's own `strength`
+// that expression answers `z = -0.1961161351` for a texel at the map's extreme - a normal bent THROUGH the surface,
+// 11.31 degrees away - and it treats the strength as a WEIGHT for every `strength != 1`, not as a scale. BOTH SIDES
+// ARE PINNED IN A UNIT TEST, together with the `saturate`'s own edge cases (a strength below 1, and a negative one).
+//
+// WHERE THIS IS APPLIED AND WHERE IT IS NOT: only the TWO ENTRY POINTS THAT DRAW THE REWRITTEN CHAIN call this
+// (`character_forward.slang`'s own `main` and `shaders/goo_toon.slang`'s `goo_toon_frag_main`), and the body is
+// compiled out entirely unless `VR_GOO_TOON_CHAIN` is defined - so `outline.slang` and `pbr.slang`, which include
+// this file WITHOUT the define, keep the old argument and the article chain's frames stay byte-identical. THE
+// G-BUFFER'S NORMAL IS DELIBERATELY NOT CHANGED (`shaders/gbuffer.slang` still writes the `surface.glsl` decode's
+// result, and `surface.glsl` itself is untouched): the toon stage takes the geometric normal and reads the map
+// itself, so the two can disagree for a normal-mapped material - a recorded, deliberate asymmetry, because moving
+// the G-buffer's normal would move the article chain, every SSAO/shadow consumer of it and four pinned frames.
+//
+// HAIR: the reference gives `M_actor_laevat_hair_01` a `NormalStrength` of `0.5`, and the rewritten chain DOES draw
+// hair (its rim lanes 7/8/9 have `M_actor_laevat_hair_01` rows in the sidecar and the old-rim guard covers
+// `VR_FAMILY_HAIR`), but NO ROW IS ADDED FOR IT HERE and this is a decision rather than an omission: the hair's
+// `_HN` map is the ONE normal map in the model with a live blue channel, so the port's existing `rgb*2-1` decode is
+// already correct for it, while the reference's hair instance of `DecodeNormal` is fed by a DIFFERENT input mapping
+// (`[Arknights: Endfield_PBRToonBaseHair] :: 群组.011`: `X <- 分离 XYZ.Z`, `Y <- 转接点.118`) that this step did not
+// measure. A row of `0.5` here would apply the body's decode to the hair and make it worse; see the result
+// document's uncertainty section, where the socket's value is recorded rather than dropped.
+static const float goo_normal_z_floor = 1.0000000168623835e-16;
+/// the reference's group default for a material that states none - recorded here because `toon_diffuse`'s arm and the
+/// sidecar's diagnostics both quote it, NOT because an absent lane falls back to it (see the lane's own note).
+static const float goo_normal_strength_default = 1.0;
+
+/// @brief the reference's `DecodeNormal`, applied to the material's normal map; the port's normal when it cannot be
+/// @param world_pos world-space position, for the uv-derivative tangent frame
+/// @param geo_normal the INTERPOLATED GEOMETRIC normal (the entry point's `v_normal`), which is what the frame's
+///        third axis is - `surface_sample` does not carry it any more, and `s.normal` cannot be inverted back to it
+/// @param uv the material's uv
+/// @param port_normal `normalize(s.normal)`, i.e. what the caller would have passed before this step
+///
+/// THE THREE WAYS THIS ANSWERS THE PORT'S OWN NORMAL, in the order they are tested: the material has no normal
+/// texture (`mat.flags & 1u` - the port's boolean for "this material reads a normal map at all", see the uncertainty
+/// section of the result document for the reference's `Use NormalTex?` gate this approximates); lane 24 is absent
+/// (the material has no `_GooNormalStrength` row); or the uv-derivative frame is degenerate (`surface_tbn` returns
+/// false, the same fallback `surface.glsl` takes on a collapsed triangle).
+float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, const float2 uv, const float3 port_normal) {
+#if defined(VR_GOO_TOON_CHAIN)
+    const Material mat = material_at(heap_slots_materials, push.material_index);
+    if ((mat.flags & 1u) == 0u) {
+        return port_normal;
+    }
+    const float strength = toon_colour_at(heap_slots_toon_colours, (push.material_index * character_toon_colour_lanes) + 24u).x;
+    if (!(strength > goo_lane_absent_threshold)) {
+        return port_normal;
+    }
+    const float3 normal = normalize(geo_normal);
+    float3 sdir = float3(1.0, 0.0, 0.0);
+    float3 tdir = float3(0.0, 1.0, 0.0);
+    // THE SAME FRAME `surface.glsl` BUILDS, and the same fallback when the derivatives are degenerate: the article's
+    // own note says the uv-derivative frame is what the reference's maths corresponds to, so no vertex tangent and no
+    // vertex-format change is needed.
+    float3 decoded = normal;
+    if (surface_tbn(world_pos, uv, sdir, tdir)) {
+        const float2 xy = heap_sample(mat.tex_indices.z, uv).rg * 2.0 - 1.0;
+        const float d = clamp(dot(xy, xy), 0.0, 1.0);
+        const float z1 = max(sqrt(1.0 - d), goo_normal_z_floor);
+        // THE STRENGTH'S FORM COMES FROM THE REFERENCE ENGINE'S OWN GLSL and not from the dump's black-box node: `xy`
+        // is scaled by the RAW strength while `z` is mixed towards the flat normal by `saturate(strength)` - see the
+        // note above. For every strength this step ports (`>= 1`) that is exactly `float3(strength*xy, z1)`, and the
+        // `saturate` is kept rather than folded away because it is the engine's own expression, it is what a strength
+        // below 1 would need, and it is what makes `z` strictly positive for every strength.
+        const float3 n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))));
+        decoded = normalize(mat3(sdir, tdir, normal) * n_ts);
+    }
+    // THE DOUBLE-SIDED FLIP IS APPLIED TO THE RESULT AND NOT TO THE FRAME, which is `surface.glsl`'s own order: the
+    // frame's third axis is the RAW geometric normal and the flip is the last thing that happens to the normal.
+    if ((mat.flags & 8u) != 0u && !gl_FrontFacing) {
+        decoded = -decoded;
+    }
+    return decoded;
+#else
+    return port_normal;
+#endif
 }
 
 /**
@@ -3187,7 +3318,11 @@ float4 main(
     // `色相/饱和度/明度.Saturation`, and it is applied to the FINISHED PIXEL below rather than to this stage's
     // rim-inclusive colour, because the reference's own chain adds emission between the two.
     float desaturation = 0.0;
-    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, normalize(s.normal), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
+    // STEP 8'S DECODE, in place of the argument this call used to pass: `goo_toon_shading_normal` answers
+    // `normalize(s.normal)` unchanged unless the Goo chain is the one being compiled, the material reads a normal
+    // map and lane 24 states a strength - see its note for the reference's formula, the dump nodes it was read from
+    // and the reason the G-buffer's own normal is deliberately left where it is.
+    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal)), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
 
     // ---- THE EMISSIVE TERM, ADDED AFTER THE LIGHTING LIKE EVERY OTHER STAGE'S ----
     //

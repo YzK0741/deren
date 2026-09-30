@@ -152,7 +152,10 @@ struct GooRimPush
 /// failure would be a rim in the wrong colour, with the wrong width, gated by somebody else's hair flag.
 /// STEP 7 RAISED IT TO 24 WITH THE OTHER THREE COPIES (the FACE container's four lanes), which is the same edit in
 /// four files and the reason the sidecar test compares all of them rather than one.
-static const uint goo_rim_colour_lanes = 24u;
+/// STEP 8 RAISED IT TO 25 WITH THE SAME THREE (`_GooNormalStrength`, the reference's `DecodeNormal.NormalStrength`,
+/// which THIS stage does not read: it is the surface stage's, and the lane is counted here for the stride's sake,
+/// exactly as lane 6 is counted there).
+static const uint goo_rim_colour_lanes = 25u;
 
 // ============================ THE REFERENCE'S GROUP-INTERNAL CONSTANTS ============================
 //
