@@ -341,10 +341,13 @@ namespace {
             std::string const primitive{std::istreambuf_iterator<char>{primitive_file}, std::istreambuf_iterator<char>{}};
             // STEP 8 RAISED ALL FOUR OF THESE FROM 24 TO 25 (lane 24 is `_GooNormalStrength`); STEP 10 RAISED THEM
             // AGAIN TO 26 (lane 25 is `_GooAnisoGate`); STEP 12 RAISED THEM ONCE MORE TO 27 (lane 26 is
-            // `_GooAnisoRough`, the anisotropic lobe's two roughnesses). Each time the numbers moved together with
-            // the enum, the host's two tables and the shaders' reads.
-            CHECK(shader.find("character_toon_colour_lanes = 27u") != std::string::npos);
-            CHECK(primitive.find("count = 14,") != std::string::npos);
+            // `_GooAnisoRough`, the anisotropic lobe's two roughnesses); STEP 13 RAISED THEM TO 29 (lanes 27/28 are
+            // `_GooRSScalars` / `_GooRSTint`, mechanism table #14's `RS EFF`). Each time the numbers moved together
+            // with the enum, the host's two tables and the shaders' reads. THE TEXTURE LANE'S COUNT MOVED A SECOND
+            // TIME TOO AND IS CHECKED ON THE SAME LINE: step 13 spent `toon_slot::count`'s last-but-one slot on
+            // `_GooRSMask`, so `count = 14,` became `count = 15,`.
+            CHECK(shader.find("character_toon_colour_lanes = 29u") != std::string::npos);
+            CHECK(primitive.find("count = 15,") != std::string::npos);
             // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
             // stage cannot include `character_forward.slang` without inheriting its entry point: the outline's
             // geometry stage. It reads ONE lane of the table and still needs the whole stride - a copy left at an
@@ -353,7 +356,7 @@ namespace {
             CHECK(pbr_file.good());
             if (pbr_file.good()) {
                 std::string const pbr{std::istreambuf_iterator<char>{pbr_file}, std::istreambuf_iterator<char>{}};
-                CHECK(pbr.find("pbr_toon_colour_lanes = 27u") != std::string::npos);
+                CHECK(pbr.find("pbr_toon_colour_lanes = 29u") != std::string::npos);
             }
             // ... AND THE THIRD READER, which step 3 added: the REWRITTEN chain's rim is a fullscreen stage of its
             // own (`shaders/goo_rim.slang`) and it reads FIVE lanes of this table, so a copy left at the old count
@@ -364,7 +367,7 @@ namespace {
             CHECK(goo_rim_file.good());
             if (goo_rim_file.good()) {
                 std::string const goo_rim{std::istreambuf_iterator<char>{goo_rim_file}, std::istreambuf_iterator<char>{}};
-                CHECK(goo_rim.find("goo_rim_colour_lanes = 27u") != std::string::npos);
+                CHECK(goo_rim.find("goo_rim_colour_lanes = 29u") != std::string::npos);
             }
             // AND THE LANE BLOCK COUNT, the same shape one level down: lanes 8..11 ride a SECOND `uvec4` of the same
             // table, addressed as `material * blocks + 1`, so a block count that drifts reads a neighbouring
@@ -504,6 +507,51 @@ namespace {
         if (toon_inputs_at != std::string::npos) {
             CHECK(primitive.find("glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f)", toon_inputs_at) != std::string::npos);
         }
+        // ... AND THE INITIALISER STATES EXACTLY ONE ELEMENT PER LANE, which is the property nothing else checks.
+        // `toon_inputs::colours` is a POSITIONAL aggregate default, so A SHORT LIST IS NOT A COMPILE ERROR AND NOT
+        // A WARNING: the elements that are not written are VALUE-INITIALISED, and every lane after the omission
+        // silently takes another lane's declared default. That is not hypothetical here - the table stated 23 of
+        // the 29 before this check existed, with lanes 23..28 reading plain zero instead of the sentinels and the
+        // opaque black their own lanes document, and no frame anywhere could show it.
+        //
+        // THE EXPECTED NUMBER IS THE ENUM'S OWN `count`, read out of the same file rather than restated: the two
+        // are the contract, and a host number written here a second time would be a third copy to drift. The
+        // check on `expected == 29u` is the parse's own guard - it fails if the search below found no number at
+        // all, which would otherwise make every comparison trivially true.
+        std::size_t const colours_at = primitive.find("toon_colour_lane::count)> colours = {");
+        CHECK(colours_at != std::string::npos);
+        if (colours_at != std::string::npos) {
+            std::size_t const colours_end = primitive.find("};", colours_at);
+            CHECK(colours_end != std::string::npos);
+            if (colours_end != std::string::npos) {
+                std::string_view const block{primitive.data() + colours_at, colours_end - colours_at};
+                std::size_t stated = 0;
+                for (std::size_t at = 0; at < block.size();) {
+                    std::size_t const line_end = block.find('\n', at);
+                    std::string_view line = block.substr(at, (line_end == std::string_view::npos ? block.size() : line_end) - at);
+                    at = (line_end == std::string_view::npos) ? block.size() : line_end + 1;
+                    std::size_t const comment_at = line.find("//");
+                    if (comment_at != std::string_view::npos) {
+                        line = line.substr(0, comment_at);
+                    }
+                    for (std::size_t hit = line.find("glm::vec4("); hit != std::string_view::npos; hit = line.find("glm::vec4(", hit + 1)) {
+                        ++stated;
+                    }
+                }
+                std::size_t const lane_enum_at = primitive.find("enum class toon_colour_lane");
+                CHECK(lane_enum_at != std::string::npos);
+                std::size_t expected = 0;
+                if (lane_enum_at != std::string::npos) {
+                    std::size_t const count_at = primitive.find("count = ", lane_enum_at);
+                    CHECK(count_at != std::string::npos);
+                    if (count_at != std::string::npos) {
+                        expected = static_cast<std::size_t>(std::strtoul(primitive.c_str() + count_at + 8, nullptr, 10));
+                    }
+                }
+                CHECK(expected == 29u);
+                CHECK(stated == expected);
+            }
+        }
         std::size_t const fill_at = runtime.find("toon_colour_lane::specular_strength");
         CHECK(fill_at != std::string::npos);
         if (fill_at != std::string::npos) {
@@ -585,9 +633,11 @@ namespace {
         CHECK(runtime.find(key_type) != std::string::npos);
         // ... AND IT IS THE ENUM RATHER THAN A NUMBER, which is the drift this repository has already paid for
         // once: `count = 10` today, and a hand-written 4 or 5 would leave the NEWEST lanes - the two the asset's
-        // own `extras` block speaks for, the rewritten chain's iris brightnesses, its two rim lanes and its
-        // screen-space rim widths - out of the key while every existing asset continued to look right.
-        CHECK(primitive.find("count = 14,") != std::string::npos);
+        // own `extras` block speaks for, the rewritten chain's iris brightnesses, its two rim lanes, its
+        // screen-space rim widths, step 10/12's anisotropy pair and step 13's two `RS EFF` lanes - out of the key
+        // while every existing asset continued to look right. THIS IS THE TEXTURE LANE'S COUNT (`toon_slot`), not
+        // the colour lane's: step 13 raised it to 15 for `_GooRSMask`.
+        CHECK(primitive.find("count = 15,") != std::string::npos);
         CHECK(primitive.find("toon_lane_blocks = 3") != std::string::npos);
 
         // (b) THE BYTES ACTUALLY GO IN, from the array the table is filled from: keying anything else (the

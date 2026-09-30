@@ -507,6 +507,27 @@ namespace vulkan {
                 // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_aniso_rough`.
                 neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_aniso_rough)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                // STEP 13'S TWO ARE `(0, 0, 0, 0)` AS WELL, and unlike the two above them the value is not the
+                // reference's group default but the BRANCH'S OWN SWITCH: `_GooRSScalars.x` is `Use RS_Eff?`, so a
+                // material whose sidecar states no `_GooRSScalars` row has to read `Use = 0` and the stage's gate
+                // then leaves its colour untouched. Lane 28's `.w` is the mask's `SmoothStep.max`, where zero
+                // means "unstated" rather than a zero-width window - the stage maps it to `1.0` so that this
+                // neutral cannot divide by zero (see `toon_colour_lane::goo_rs_tint`, spec U7). Keep the spelling
+                // of this initialiser and the two hosts' tables in step, because `tests/test_goo_toon_math.cpp`
+                // pins all three.
+                //
+                // THEY ARE DEFENSIVE RATHER THAN LOAD-BEARING, AND THE COMMENT USED TO SAY OTHERWISE ELSEWHERE:
+                // these are the BUFFER'S INITIAL CONTENT. `register_material` writes every one of the
+                // `toon_colour_lane::count` lanes of every material it registers from `info.toon.colours` (the
+                // loop that ends this table's use of `neutral_colours` - see the `colours[lane] =
+                // info.toon.colours[lane]` loop in that function), and the host's `toon_colour_neutral` in
+                // `main.cpp` is what answers a row that is absent. So this entry is not what makes the twenty
+                // `Use RS_Eff? = 0` materials unchanged; it is the honest statement of the neutral plus a guard
+                // against a future consumer that reads the buffer before any material is registered.
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rs_scalars)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rs_tint)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(neutral_colours)),
@@ -1389,6 +1410,16 @@ namespace vulkan {
             // is `G`, and it is read through a `GREATER_THAN(·, 0.5)` - a comparison whose whole answer is the
             // comparison, so the upload's transfer function decides which side of 0.5 a texel lands on.
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_csumt)], VK_FORMAT_R8G8B8A8_UNORM},
+            // `_M` IS UNORM AS WELL, and for the same statement once more: the `RS EFF` mask of mechanism table #14
+            // is a MASK (`_M（非色彩）` in the reference's own node name), read through a luminance dot and then a
+            // smoothstep, and its image's colorspace is Non-Color. A `_SRGB` upload would gamma-decode the very
+            // quantity the smoothstep thresholds. See `toon_slot::goo_rs_mask`.
+            //
+            // THIS ENTRY IS NOT OPTIONAL AND NOT A TIDINESS: the array's size is `5 + toon_slot::count`, so adding
+            // the enum lane above without this line value-initialises the LAST element to `{nullptr,
+            // VK_FORMAT_UNDEFINED}` and the loop below dereferences `slots[i].first`. Measured: the renderer died
+            // with an access violation inside `register_material` (see the block comment above this array).
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM},
         };
 
         std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
@@ -1617,9 +1648,23 @@ namespace vulkan {
         // THE THIRD BLOCK, WHICH STEP 7 ADDED AND WHICH IS WHY `toon_lane_blocks` IS 3: the FACE container's three
         // masks are lanes 11..13, and lane 11 was the last free component of the block above. `w` is reserved and
         // zeroed, the same contract every other block follows ("a lane nobody set reads DO NOT READ").
+        //
+        // STEP 13'S `goo_rs_mask` TAKES `.z`, AND THE LANE WAS DEAD UNTIL IT DID. `toon_slot::goo_rs_mask` was
+        // added to the enum, given a format in `register_material` and named in the application's vocabulary, and
+        // the sidecar resolved the image -- and the frame did not move by one pixel, because THIS is where a slot
+        // becomes a number the shader can see and this line still packed `0u`. The shader tests `block3.z != 0u`
+        // before it samples (slot 0 is the white fallback, so zero means "do not read"), so the mask branch was
+        // skipped for every material and `rs_eff` was zero. That is EXACTLY the failure this block's comment above
+        // records for the matcap lane at step 1 ("the host never wrote the lane and the shader read 0"), and it is
+        // the second time the enum-to-lane-table join has been the last edit missing rather than the first: an
+        // enum value, a format table entry and a vocabulary row are all compile-visible, and a component of a
+        // `glm::uvec4` is not.
+        //
+        // `test_goo_toon_math` pins this line by name, next to the matcap one that was pinned after step 1, so a
+        // further lane cannot be added to the enum and forgotten here either.
         glm::uvec4 const toon_lanes_extra3(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_cm)],
                                            texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_csumt)],
-                                           0u,
+                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_rs_mask)],
                                            0u);
         // ---- AND THE COLOUR LANES, THE SAME FIX ONE TABLE FURTHER ALONG ----
         //

@@ -510,12 +510,21 @@ static const float character_shadow_lut_tiles = 32.0;
 /// reference's own `interface[20]` / `[21]` default - so a material that states no row gets `rT = rB = 1`, which is
 /// the lobe the graph itself describes for a caller that states nothing, and NOT the mirror an unoverridden
 /// `glm::vec4(1.0f)` would give.
+/// LANES 27 AND 28 ARE STEP 13'S, `_GooRSScalars` AND `_GooRSTint`, and they carry mechanism table #14 (`RS EFF`) -
+/// the reference's `_M ⊙ RS ColorTint` pass. They are the stage's OWN lanes in the sense that matters: neither the
+/// OLD chain (`character_forward.slang`'s `main`) nor any other stage reads them, and only
+/// `shaders/goo_toon.slang`'s non-eye branch does (see the STEP 13 block there). `.x / .y / .z` of the first are
+/// `Use RS_Eff?` / `RS Multiply Value` / `RS Model`, its `.w` is reserved; `.rgb` of the second is `RS ColorTint`
+/// and its `.w` is the `_M` smoothstep's `max`, which is NOT part of the tint. Both neutrals are `(0, 0, 0, 0)`,
+/// and here the zero is the switch rather than a group default - so a material with no row reads `Use = 0` and the
+/// branch is off. `min` of that smoothstep is `0` on every material measured and is not carried at all, and a
+/// stated `.w <= 0` is read as `1.0` so that the neutral cannot divide by zero (spec U7/U11).
 /// THE STRIDE CHANGED HERE AND IN THREE OTHER FILES, WHICH IS THE PART THAT IS EASY TO MISS: this constant,
 /// `goo_rim.slang`'s `goo_rim_colour_lanes`, `pbr.slang`'s `pbr_toon_colour_lanes` and (through the `#include` at
 /// the top of it) `outline.slang` all address the SAME table, so a stale copy in any one of them reads another
 /// material's lanes - a plausible wrong picture rather than an error. `tests/test_toon_material_sidecar.cpp` and
 /// `tests/test_goo_toon_math.cpp` pin all four against `vulkan::toon_colour_lane::count`.
-static const uint character_toon_colour_lanes = 27u;
+static const uint character_toon_colour_lanes = 29u;
 
 /// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
 ///

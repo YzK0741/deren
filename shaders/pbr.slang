@@ -323,7 +323,7 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 /// `character_forward.slang`'s `character_toon_colour_lanes`, which is the spelling the host's
 /// `toon_colour_lane::count` is checked against by `test_toon_material_sidecar`.
 static const uint pbr_outline_edge_lane = 3u;
-// THE STRIDE IS THE HOST'S LANE COUNT, so it is 27 (`vulkan::toon_colour_lane::count`) and NOT the number of lanes
+// THE STRIDE IS THE HOST'S LANE COUNT, so it is 29 (`vulkan::toon_colour_lane::count`) and NOT the number of lanes
 // THIS STAGE reads - which is one. A stride left at an older count would address a NEIGHBOURING MATERIAL's lane:
 // the hull of material 4 would be expanded by material 1's width, silently, with the frame merely looking wrong.
 // `test_toon_material_sidecar` pins this spelling against `character_toon_colour_lanes`. STEP 7 MOVED BOTH, and
@@ -332,7 +332,11 @@ static const uint pbr_outline_edge_lane = 3u;
 // MOVED THEM ONCE MORE for `_GooAnisoGate`, the surface stage's twenty-sixth, which this one does not read either;
 // and STEP 12 MOVED THEM ONCE MORE for `_GooAnisoRough`, the surface stage's twenty-seventh (the anisotropic
 // lobe's two roughnesses), which this one does not read either.
-static const uint pbr_toon_colour_lanes = 27u;
+// STEP 13 MOVED THEM ONCE MORE for `_GooRSScalars` / `_GooRSTint`, the surface stage's twenty-eighth and
+// twenty-ninth lanes (mechanism table #14, `RS EFF`), which this pass must NOT read: the RS term belongs to the
+// stage that owns the emission term and adding it to the outline hull would make the outline carry a colour the
+// pixel behind it does not.
+static const uint pbr_toon_colour_lanes = 29u;
 
 [shader("mesh")]
 [outputtopology("triangle")]

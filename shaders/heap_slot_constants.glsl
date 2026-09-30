@@ -102,7 +102,8 @@ const uint heap_slots_toon_rig = heap_slot_base + 751u;
 // THE MATERIAL COLOURS: `toon_colour_lane::count` `vec4`s per material, `material_index`-addressed. Read through
 // the stage's own `character_toon_colour_lanes`, which must match `vulkan::toon_colour_lane::count` EXACTLY - all
 // four of the spellings of it (`character_forward.slang`, `pbr.slang`, `goo_rim.slang` and `outline.slang` through
-// its `#include` of `pbr.slang`) are pinned against both the host enum and each other, most recently at 27 by step
+// its `#include` of `pbr.slang`) are pinned against both the host enum and each other, most recently at 29 by step
+// 13 (two `RS EFF` lanes, `_GooRSScalars` / `_GooRSTint`), before that at 27 by step
 // 12 (`_GooAnisoRough`, the anisotropic lobe's two roughnesses). A copy left at an older count reads ANOTHER
 // MATERIAL's lanes rather than failing.
 const uint heap_slots_toon_colours = heap_slot_base + 752u;

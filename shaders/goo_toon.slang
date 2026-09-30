@@ -371,8 +371,83 @@ float4 goo_toon_frag_main(
     // `normalize(s.normal)` this call used to pass unless the material reads a normal map and its lane 24 row states
     // a strength, so a material with no row shades exactly as before.
     const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal)), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
-    const float3 lit = goo_hsv_desaturate(colour + s.emissive, desaturation);
+    // THE EMISSIVE TERM IS ADDED HERE RATHER THAN INSIDE THE `goo_hsv_desaturate` ARGUMENT so that the RS pass
+    // below has something to be the LEFT operand of. It is the same sum the old entry point performs at the same
+    // place (`character_forward.slang`'s `const float3 lit = colour + s.emissive;`), and for the same reason: the
+    // G-buffer pass added `s.emissive` into the scene colour and this pass overwrites that pixel. It is named
+    // `lit_base` rather than `lit` because `lit_final` below is NOT this value any more - the RS block sits
+    // between them - and a reader who greps for `lit` should not have to decide which of the two he found.
+    const float3 lit_base = colour + s.emissive;
+
+    // ==================== STEP 13: `RS EFF` (MECHANISM TABLE #14) ====================
+    //
+    // WHAT THE REFERENCE DOES HERE, in its own node names: `混合.038 = _M ⊙ RS ColorTint` produces a colour which
+    // `混合.029` (LIGHTEN, i.e. `mix(A, max(A, B), clamp(fac, 0, 1))`) combines with the shaded colour at factor
+    // `RS Multiply Value`, and `混合.030` (MIX) then blends that result back over the shaded colour at factor
+    // `Use RS_Eff?`. It sits AFTER the emission add and BEFORE `色相/饱和度/明度`, which is where the old entry
+    // point's `lit` sits - the reference's own order.
+    //
+    // `_M` IS NOT A BARE TEXTURE and this is the part that is easy to get wrong: on both materials this asset
+    // switches the pass on for, `_M` is the output of an `Arknights: Endfield_SmoothStep` subgroup instantiated
+    // with `min = 0` and a PER-MATERIAL `max` (`0.9900000095367432` for `M_actor_laevat_cloth_02`, `1.0` for
+    // `M_actor_laevat_cloth_05`), whose `x` is `float_from_vec4(图像纹理.Color)`. `float_from_vec4` is
+    // `dot(v.rgb, vec3(0.2126, 0.7152, 0.0722))` - Rec.709 luminance, NOT the `(r + g + b) / 3` average the
+    // reference's *other* helper (`float_from_vec3`) computes - and `t * t * (3 - 2t)` is the subgroup's own
+    // smoothstep, expanded here rather than called as a built-in so the op order is the reference's. The mask lane
+    // holds the RAW image (uploaded UNORM: it is a Non-Color mask and the reference decodes no sRGB for it), and
+    // the `max` rides `_GooRSTint.w` rather than being baked at upload time.
+    //
+    // `min` IS HARD-CODED `0.0` (spec U11): it is `0.0` on every material measured, the port carries no component
+    // for it, and a material with a non-zero `min` would need a lane of its own. `max <= 0` is read as `1.0`,
+    // which is a DELIBERATE deviation (spec U7): the neutral lane is `(0, 0, 0, 0)`, so without it the divide
+    // below would be by zero.
+    //
+    // `armA` IS NOT PORTED, DELIBERATELY (spec F2). The reference's `RS EFF` has two arms - `RS Model = 0` takes
+    // the two 256x1 `_RS` sheets, `RS Model = 1` takes `_M ⊙ RS ColorTint` - and only the second is here, so a
+    // material with `RS Model == 0` keeps its base colour UNCHANGED instead of taking `arm0`. That is an
+    // infidelity to mechanism table #14, not an oversight: of the three materials in the dumps with
+    // `Use RS_Eff? = 1`, exactly one is `RS Model = 0` (`M_actor_yvonne_cloth_03`, which is in no captured asset
+    // either), so the only observable difference is that this branch does not fire for it. `RS Model` is still
+    // carried on the lane so the gate is the reference's own predicate rather than a count of materials.
+    //
+    // WHY AN `if` AND NOT A `mix`: the identity is required to be BITWISE. `mix(a, a, f)` expands to
+    // `a * (1 - f) + a * f`, which is `a` only if both products round back to `a` exactly - true for `f == 0`
+    // and `f == 1`, and NOT true in between. Nothing here needs a value in between: `Use RS_Eff?` is the branch's
+    // switch, and with it at zero the reference's `混合.030` returns its A input at a factor of 0. So the gate is
+    // taken with a branch and `rs_final` starts as a plain COPY of `lit_base`, which performs no floating-point
+    // operation at all on the twenty materials that state no row. This is the same trade the old entry point
+    // makes for the same reason.
+    const uint rs_colour_base = push.material_index * character_toon_colour_lanes;
+    const float4 rs_scalars = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 27u); // `_GooRSScalars`
+    const float4 rs_tint_lane = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 28u); // `_GooRSTint`
+    const float rs_use = rs_scalars.x;
+    float3 rs_final = lit_base;
+    if (rs_use > 0.0f && rs_scalars.z != 0.0f) { // `!= 0.0f`, never `== 1.0f`: a boolean socket travels as a float
+        // THE MASK'S LANE IS SLOT 14, i.e. `.z` OF THE THIRD `uvec4` BLOCK, and `0` means "do not read" - the
+        // same contract every other lane uses. It is load-bearing HERE for a second reason: texture index 0 is the
+        // WHITE fallback, so a material with no `_M` would otherwise get `_M = 1` everywhere, i.e. the strongest
+        // possible statement about a pass it never switched on (spec F5). The UV is `v_uv`, UV0, which is the
+        // coordinate the reference's own texture node takes, and the sampler is the same LINEAR one every other
+        // toon texture read in this stage uses.
+        float rs_mask = 0.0f;
+        const uint4 rs_block3 = toon_lanes3_at(heap_slots_toon_lanes, push.material_index);
+        if (rs_block3.z != 0u) {
+            const float4 rs_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + rs_block3.z), heap_sampler_texture, v_uv);
+            // `float_from_vec4`, in the reference's op order: dot with the Rec.709 weights, subtract the min,
+            // divide by `(max - min)`, clamp, then `t * t * (3 - 2t)`.
+            const float rs_luma = dot(rs_texel.rgb, float3(0.2126f, 0.7152f, 0.0722f));
+            const float rs_smin = 0.0f;
+            const float rs_smax = (rs_tint_lane.w > 0.0f) ? rs_tint_lane.w : 1.0f;
+            const float t = saturate((rs_luma - rs_smin) / (rs_smax - rs_smin));
+            rs_mask = t * t * (3.0f - 2.0f * t);
+        }
+        const float3 rs_eff = rs_mask * rs_tint_lane.rgb;                                                       // `混合.038`
+        const float3 mixed029 = mix(lit_base, max(lit_base, rs_eff), saturate(rs_scalars.y));                   // `混合.029`, LIGHTEN
+        rs_final = mix(lit_base, mixed029, saturate(rs_use));                                                   // `混合.030`, MIX
+    }
+
+    const float3 lit_final = goo_hsv_desaturate(rs_final, desaturation);
     const bool toon_transparent = (s.flags & 256u) != 0u;
     const float out_alpha = ((s.flags & 32u) != 0u || toon_transparent) ? s.alpha : 1.0;
-    return float4(lit, out_alpha);
+    return float4(lit_final, out_alpha);
 }

@@ -160,7 +160,12 @@ struct GooRimPush
 /// STEP 12 RAISED IT TO 27 FOR `_GooAnisoRough` (the anisotropic lobe's two roughnesses, `Aniso_SmoothnessMaxT` /
 /// `Aniso_SmoothnessMaxB`, built into `roughnessT` / `roughnessB` by the surface stage), again counted and not
 /// read here.
-static const uint goo_rim_colour_lanes = 27u;
+/// STEP 13 RAISED IT TO 29 FOR `_GooRSScalars` / `_GooRSTint` (mechanism table #14, `RS EFF`: `Use RS_Eff?` /
+/// `RS Multiply Value` / `RS Model`, then `RS ColorTint` and the `_M` smoothstep's `max`). THIS PASS READS NEITHER
+/// OF THEM and must not: the whole RS branch belongs to the surface stage that owns the emission term, and adding
+/// the RS term here as well would apply it twice. The number is here only because this file addresses the same
+/// lane table, so a stale count would land this pass's rim reads (lanes 7/8/9) on another material's lanes.
+static const uint goo_rim_colour_lanes = 29u;
 
 // ============================ THE REFERENCE'S GROUP-INTERNAL CONSTANTS ============================
 //

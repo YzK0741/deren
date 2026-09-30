@@ -469,6 +469,20 @@ int main(int argc, char** argv) {
         {"_GooFaceSDF", "_UseGooFaceSDF"},
         {"_GooFaceCmM", "_UseGooFaceCmM"},
         {"_GooFaceCsutm", "_UseGooFaceCsutm"},
+        // ---- STEP 13: THE `RS EFF` MASK ----
+        //
+        // THE CONVENTION HOLDS, for the matcap-lane reason rather than an asset's: the reference samples `_M`
+        // INSIDE its `Arknights: Endfield_PBRToonBase` group - it is a `组输入` socket, not a `_`-prefixed game
+        // property - so there is no game-side `_Use...` row to copy and `_UseGooRSMask` is this sidecar's own
+        // switch. `_M` is the LEFT input of `混合.038 = _M ⊙ RS ColorTint` (mechanism table #14); its texel is a
+        // Non-Color mask (uploaded UNORM) and the smoothstep that turns it into a factor is the shader's, because
+        // its `max` is per material and rides `_GooRSTint.w`. See `toon_slot::goo_rs_mask`.
+        //
+        // IT MUST BE IN THIS TABLE RATHER THAN ONLY IN THE SIDECAR: the lookup below resolves a lane's name here
+        // first and returns the WHITE fallback before the flag is even asked, so a lane missing from this table
+        // reads `slot_name` as empty, resolves no texture, and the branch is silently off - no warning, no
+        // compile error, only a frame that does not move.
+        {"_GooRSMask", "_UseGooRSMask"},
     }};
     // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `vulkan::toon_colour_lane`, in lane order - the
     // same arrangement the texture table above uses and for the same reason: the asset pipeline's spelling belongs
@@ -635,6 +649,25 @@ int main(int argc, char** argv) {
         // lambda reads, and the four comma-separated components arrive one at a time. Its neutral is `(0,0,0,0)`
         // - the reference's own group default rather than a sentinel - see `toon_colour_lane::goo_aniso_rough`.
         "_GooAnisoRough",
+        // ---- STEP 13: THE TWO `RS EFF` LANES ----
+        //
+        // `_GooRSScalars` is `.x Use RS_Eff?` / `.y RS Multiply Value` / `.z RS Model` and `_GooRSTint` is
+        // `.rgb RS ColorTint` / `.w SmoothStep.max` (mechanism table #14). BOTH ARE `color` ROWS AND BOTH TAKE THE
+        // GENERIC TAIL OF `toon_colour`, so this table is the whole host-side change: they land in
+        // `material_sidecar::others` and their four comma-separated components are parsed one at a time, exactly
+        // as `_GooAnisoGate`'s and `_GooAnisoRough`'s are - no branch, no sentinel, no new sidecar grammar.
+        //
+        // THEY ARE IN THIS TABLE BECAUSE THE TABLE *IS* THE BINDING: the lambda derives the row name from the LANE
+        // and the lane from the enum, so an enum lane with no name here makes every `_GooRSScalars` /
+        // `_GooRSTint` row in every sidecar unreachable - the lookup finds nothing, falls back to
+        // `toon_colour_neutral` (zero), and the RS branch is off with no warning and no compile error.
+        //
+        // THE NEUTRAL OF BOTH IS `(0,0,0,0)`, which is a value and not a placeholder: `.x` of lane 27 is the
+        // branch's switch, and zero there is what makes the stage's identity BITWISE (see the `float3
+        // rs_final = lit;` / `if (rs_use > 0.0f && ...)` pair in `shaders/goo_toon.slang`, which does no
+        // floating-point work at all when the gate is shut).
+        "_GooRSScalars",
+        "_GooRSTint",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -1426,6 +1459,25 @@ int main(int argc, char** argv) {
          // load-bearing in the same way: that table starts every lane at `glm::vec4(1.0f)`, and an unoverridden
          // lane 26 would give every rowless material `rT = (1 - 1)^2 = 0`. See
          // `toon_colour_lane::goo_aniso_rough`.
+         glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+         // STEP 13'S TWO ARE `(0, 0, 0, 0)` AS WELL, AND HERE THE ZERO IS NOT A GROUP DEFAULT BUT THE SWITCH
+         // ITSELF: `_GooRSScalars.x` is `Use RS_Eff?`, so a material whose sidecar states no such row must read
+         // `Use = 0` - the reference's own `interface[]` default for that socket - and the stage's gate then
+         // leaves the material's colour UNTOUCHED. Lane 28's `.w` is the mask's `SmoothStep.max` and zero there
+         // means "unstated" rather than a literal zero-sized window, which the stage turns into `1.0` precisely so
+         // that this neutral cannot divide by zero (see `toon_colour_lane::goo_rs_tint`, spec U7).
+         //
+         // THESE TWO ARE WRITTEN OUT RATHER THAN LEFT TO THE ARRAY'S TAIL, and that is not style: this array's
+         // length is now `toon_colour_lane::count`, and what a VALUE-INITIALISED tail holds depends on GLM's
+         // `GLM_FORCE_CTOR_INIT` - so "27 entries plus a tail that happens to be zero" is a claim about a build
+         // configuration rather than about this table. Stated zeros cannot drift with a define.
+         //
+         // AND THEY ARE NOT WHAT KEEPS THE TWENTY `Use RS_Eff? = 0` MATERIALS UNCHANGED. That is a property of
+         // the three mirror tables' common stride (`material_index * toon_colour_lane::count + lane`), which
+         // `register_material` overwrites lane by lane for every material it registers. These entries are the
+         // honest statement of the neutral, and the guard against a future consumer that reads the table before
+         // registration - not the mechanism of the identity gate.
+         glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};
     auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);

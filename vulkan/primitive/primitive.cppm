@@ -575,7 +575,37 @@ namespace vulkan {
          * evaluated at all (see `toon_diffuse`'s face arm).
          */
         goo_face_csumt = 13, // `_GooFaceCsutm`: `CsutmMask`, whose `G` selects the Face container's brightness
-        count = 14,
+        /**
+         * `_GooRSMask`: the `_M（非色彩）` mask of the reference's mechanism table #14 (`RS EFF`), i.e. the LEFT
+         * input of `混合.038 = _M ⊙ RS ColorTint` (`zmd-ab/goo_step13_rs_eff_spec_s.md` §2.1/§3.2, F4).
+         *
+         * IT IS THE RAW IMAGE AND THE TRANSFER FUNCTION IS THE SHADER'S, which is the one thing about this lane
+         * that cannot be read off its name: `_M` is NOT the texel on any material this port has measured. The two
+         * materials that switch the branch on (`M_actor_laevat_cloth_02`, `M_actor_laevat_cloth_05`) both feed
+         * their `_M` from an `Arknights: Endfield_SmoothStep` subgroup instantiated with `min = 0` and a
+         * PER-MATERIAL `max` (`0.9900000095367432` and `1.0` respectively), and its `x` is
+         * `float_from_vec4(图像纹理.Color)` = `dot(rgb, (0.2126, 0.7152, 0.0722))` - Rec.709 luminance, not the
+         * `(r+g+b)/3` average (`float_from_vec3` is that one, and it is not the node here). The `max` rides
+         * `toon_colour_lane::goo_rs_tint`'s `.w`, so no part of the mapping is baked into the upload either.
+         *
+         * UNORM, AND THAT IS A COLOUR-SPACE DECISION RATHER THAN A FORMAT DETAIL: the image's own colorspace is
+         * Non-Color, its channels are a MASK, and the reference reads them through no sRGB decode - a `_SRGB`
+         * upload would bend every texel by 2.2 gamma before the luminance dot, which is the quantity the
+         * smoothstep thresholds. See `runtime.constructor.cppm`'s format table, where this lane sits beside
+         * `goo_face_sdf` / `goo_face_cm` / `goo_face_csumt` for exactly that reason.
+         *
+         * A LANE OF 0 MEANS "DO NOT READ", the same contract every other lane uses, and here it is load-bearing
+         * for a second reason: index 0 is the WHITE fallback texture, so a material with no `_M` would otherwise
+         * read a pure-white mask, i.e. `_M = 1` everywhere, i.e. the strongest possible statement about a branch
+         * the material never switched on (spec F5).
+         *
+         * SLOT 15 IS DELIBERATELY LEFT EMPTY: the reference's `RS EFF` has a second, unported input (`armA`, the
+         * two 256x1 `_RS` sheets), and `toon_colour_lane`'s sibling note records that the lane ceiling is
+         * `toon_record_lanes + toon_lane_blocks * 4` = 16. Spending the last lane now would make the next texture
+         * lane cost a `toon_lane_blocks` raise and widened accessors.
+         */
+        goo_rs_mask = 14, // `_GooRSMask`: the Non-Color `_M` mask of mechanism table #14 (`RS EFF`), UNORM
+        count = 15,
     };
     // THE LANES SPLIT INTO TWO GROUPS, and the split is a fact about the material record rather than a
     // convenience: lanes 0..3 ride `material_record::toon_indices`, and every lane from 4 on is carried BESIDE
@@ -1159,7 +1189,61 @@ namespace vulkan {
          * `rT = 0`, a mirror the reference never describes.
          */
         goo_aniso_rough = 26, // `_GooAnisoRough`: `Aniso_SmoothnessMaxT` [x] / `Aniso_SmoothnessMaxB` [y] (zw reserved)
-        count = 27,
+        /**
+         * `_GooRSScalars`: the three scalars of the reference's mechanism table #14 (`RS EFF`) that the branch's
+         * own gates and its LIGHTEN factor are built from, in the reference's socket order - `.x = Use RS_Eff?`,
+         * `.y = RS Multiply Value`, `.z = RS Model`. `.w` is unused and reserved (`0.0`).
+         *
+         * IT IS A `color` ROW AND TAKES THE GENERIC PATH, so `main.cpp`'s `toon_colour` needs no branch for it:
+         * the four comma-separated components arrive one at a time through `material_sidecar::others`, exactly as
+         * `_GooAnisoGate`'s and `_GooAnisoRough`'s do. The three sockets are BOOLEANS AND NUMBERS rather than a
+         * colour, which is why the row is spelled as a raw list (`1.0,1.0,1.0,0.0`) and not as an RGBA tint.
+         *
+         * THE BOOLEANS TRAVEL AS `0.0` / `1.0` AND THE STAGE TESTS `> 0.0f` RATHER THAN `== 1.0`, because a
+         * boolean socket's value is a float in this sidecar and any positive value that is not exactly one would
+         * be read as "off" by an equality test (`goo_step13_rs_eff_spec_s.md` §2.1).
+         *
+         * `.z` IS `RS Model`, AND IT IS CARRIED WITHOUT BEING HONOURED: the reference's `RS EFF` is a two-arm
+         * selector (`RS Model`: 0 = `armA`, the two 256x1 `_RS` sheets; 1 = `armB`, `_M ⊙ RS ColorTint`) and only
+         * `armB` is ported, so the stage keeps the base unchanged when `.z == 0.0` instead of taking `arm0`.
+         * That is a DELIBERATE infidelity, it is the reason the socket is carried at all (so the branch cannot
+         * switch on for the one material in the dumps that has `RS Model = 0`), and it is stated at the port site
+         * in `shaders/goo_toon.slang` (spec F2).
+         *
+         * WHY IT IS A LANE AND NOT A CONSTANT: all three are per material. `Use RS_Eff?` is `1` on exactly three
+         * of the 23 `PBRToonBase` instances in `gooblender/nodes.json`, and `RS Model` is `0` on one of those
+         * three - so a constant would either switch the branch on for 20 materials that never asked for it or off
+         * for the two this asset ships.
+         */
+        goo_rs_scalars = 27, // `_GooRSScalars`: `Use RS_Eff?` [x] / `RS Multiply Value` [y] / `RS Model` [z] (w reserved)
+        /**
+         * `_GooRSTint`: `.rgb = RS ColorTint` (the RIGHT input of `混合.038 = _M ⊙ RS ColorTint`) and
+         * `.w = SmoothStep.max`, the upper edge of the `Arknights: Endfield_SmoothStep` subgroup that produces
+         * `_M` itself.
+         *
+         * THE TWO HALVES ARE ONE LANE BECAUSE THEY ARE ONE MATERIAL'S ONE STATEMENT, which is the shape
+         * `_GooEyeBrightness` and `_GooRimScalars` already use: a `color` row is four floats, and the port has
+         * exactly two numbers to carry here.
+         *
+         * `.w` IS NOT PART OF THE TINT AND MUST NOT BE READ AS ONE. It is the second argument of the smoothstep
+         * that maps the mask's Rec.709 luminance to a factor, and it is PER MATERIAL: the two materials this
+         * asset switches the branch on for state `0.9900000095367432` (`M_actor_laevat_cloth_02`) and `1.0`
+         * (`M_actor_laevat_cloth_05`). A single constant would be wrong for one of them, and the two are close
+         * enough that the error would be invisible in a log. The smoothstep's `min` is `0.0` on both and is NOT
+         * carried (spec U11) - if a third material with a non-zero `min` ever lands, this lane has no component
+         * left and the mapping needs a lane of its own.
+         *
+         * `.w <= 0` IS READ AS `1.0` BY THE STAGE, which is a deviation from the reference and is deliberate: the
+         * GPU table's default for an unstated lane is `(0,0,0,0)`, and a literal `max = 0` would divide by zero in
+         * the smoothstep's `(luma - min) / (max - min)` (spec U7). It is stated at the port site.
+         *
+         * THE TWO MATERIALS' TINTS DIFFER IN `.y` BY 3.6e-6 (`1.4143484830856323` vs `1.4143449068069458`), and
+         * that is a real difference between two authored values rather than a rounding of one: they must not be
+         * unified, and a test pins both. `M_actor_laevat_cloth_05`'s `_M` also comes from an image named
+         * `T_actor_laevat_cloth_03_M` - the image name is NOT the material name (spec §4.4 trap 1).
+         */
+        goo_rs_tint = 28, // `_GooRSTint`: `RS ColorTint` [rgb] / `SmoothStep.max` [w]
+        count = 29,
     };
 
     /**
@@ -1214,6 +1298,26 @@ namespace vulkan {
          * author states at zero or below - `CastShadow_center` is `-0.1` on both `body_01` and `body_02` - and
          * their fallbacks are that same group's interface defaults, resolved component by component in the stage.
          * See `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion`.
+         *
+         * THE INITIALISER BELOW IS A POSITIONAL AGGREGATE DEFAULT AND IT MUST STATE EXACTLY
+         * `toon_colour_lane::count` ELEMENTS - one per lane, in `toon_colour_lane` order, none repeated,
+         * none reordered, none omitted. A SHORT LIST IS NOT A COMPILE ERROR AND NOT A WARNING: the elements
+         * that are not written are VALUE-INITIALISED, so omitting one silently renumbers the defaults of
+         * every lane after it. This table once stated 23 of the 29, and lanes 23..28 read plain zero instead
+         * of the sentinels and the opaque black their own lanes document - a defect that was invisible in
+         * every frame and visible only in the text. `tests/test_toon_material_sidecar.cpp` now counts these
+         * elements for exactly that reason.
+         *
+         * `main.cpp`'s `toon_colour_neutral` IS THE AUTHORITATIVE COPY of this table - the application
+         * answers a material's missing row from it, lane by lane, through the `toon_lookup::colour` callback
+         * - and this member is its mirror. The two must agree element for element; the runtime keeps a third
+         * copy in `runtime.constructor.cppm`.
+         *
+         * CHANGING THIS TABLE CHANGES NO FRAME, WHICH IS NOT AN EXCUSE FOR IT TO BE WRONG: the runtime
+         * overwrites EVERY lane of every registered material from the callback (the loop
+         * `lane < static_cast<uint32_t>(toon_colour_lane::count)` in `runtime.declarations.cppm`), so what
+         * the stage reads is the callback's answer and never this default. This default is what a consumer
+         * with no callback installed would read.
          */
         std::array<glm::vec4, static_cast<std::size_t>(toon_colour_lane::count)> colours = {glm::vec4(1.0f),
                                                                                             glm::vec4(1.0f),
@@ -1268,6 +1372,35 @@ namespace vulkan {
                                                                                             // row. White is also the reference's own `interface[]` default for
                                                                                             // the socket, so "not stated" and "stated as white" agree.
                                                                                             glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                            // ---- STEP 7'S FOUR LANES (`toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`) ----
+                                                                                            //
+                                                                                            // THE TWO SCALAR LANES ARE `-1000` SENTINELS AND THE TWO COLOUR LANES ARE
+                                                                                            // OPAQUE BLACK, each for its own lane's reason: the scalars' zero is a value the
+                                                                                            // graph really uses (`SmoothnessMax = 0` is "perfectly rough", and the two
+                                                                                            // brightnesses are multiplied into the pixel), while the two colours ARE the
+                                                                                            // reference's own `interface[]` defaults - white would be the strongest possible
+                                                                                            // statement about a nose shadow (`混合.017`'s A side) and about `Front transparent
+                                                                                            // red`'s tint. See `toon_colour_lane::goo_face_scalars_a` .. `goo_face_front_r`.
+                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
+                                                                                            // ---- STEP 8'S ONE LANE (`toon_colour_lane::goo_normal_strength`) ----
+                                                                                            //
+                                                                                            // A `-1000` SENTINEL RATHER THAN THE GROUP'S OWN `1.0`, because an absent row
+                                                                                            // has to leave the chain's previous normal in place instead of switching the
+                                                                                            // decode on for a material the port carried no measured value for - and not a
+                                                                                            // `0`, because `NormalStrength = 0` is a value the reference's own materials
+                                                                                            // state. See `toon_colour_lane::goo_normal_strength`.
+                                                                                            glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+                                                                                            // ---- STEP 10'S ONE LANE (`toon_colour_lane::goo_aniso_gate`) ----
+                                                                                            //
+                                                                                            // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT AND IS NOT A SENTINEL:
+                                                                                            // `Use anisotropy?`, `Anisotropic mask` and `Use Toonaniso?` are all `0.0` in
+                                                                                            // the dump, so a material that states no `_GooAnisoGate` row gets the arm the
+                                                                                            // graph gives a caller that states nothing. See
+                                                                                            // `toon_colour_lane::goo_aniso_gate`.
+                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
                                                                                             // ---- STEP 12'S ONE LANE (`toon_colour_lane::goo_aniso_rough`) ----
                                                                                             //
                                                                                             // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN `interface[]` DEFAULT,
@@ -1276,6 +1409,24 @@ namespace vulkan {
                                                                                             // what a caller that states nothing gets, and `rT = 1` follows from it),
                                                                                             // so there is no state it could stand in for. See
                                                                                             // `toon_colour_lane::goo_aniso_rough`.
+                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                            // ---- STEP 13'S TWO LANES (`toon_colour_lane::goo_rs_scalars` / `goo_rs_tint`) ----
+                                                                                            //
+                                                                                            // `(0, 0, 0, 0)` IS THE POINT HERE, not a placeholder: `.x` of lane 27 is `Use RS_Eff?`, and a material
+                                                                                            // whose sidecar states no `_GooRSScalars` row must read `Use = 0` so the stage's gate leaves its colour
+                                                                                            // UNTOUCHED. The stage defaults to zero for exactly this reason - see the `float3 rs_final = lit;` /
+                                                                                            // `if (rs_use > 0.0f && ...)` pair in `shaders/goo_toon.slang`, which performs NO floating-point
+                                                                                            // operation at all when `Use` is zero, so this value is what makes that identity BITWISE rather than
+                                                                                            // approximate.
+                                                                                            //
+                                                                                            // IT IS ONE OF THE `count` STATED ENTRIES RATHER THAN PART OF AN INITIALIZER TAIL, and
+                                                                                            // that is not tidiness either: what a value-initialised `std::array` tail holds depends on
+                                                                                            // GLM's `GLM_FORCE_CTOR_INIT`, so a table that stopped short of `count` would be leaving
+                                                                                            // the values of its last lanes to a build configuration. A stated zero cannot drift.
+                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                            // Lane 28's `.w` is the mask's `SmoothStep.max`, so zero here also has to mean "unstated" rather than a
+                                                                                            // literal `max = 0`: the stage reads `.w <= 0` as `1.0`, which is the divide-by-zero guard the port
+                                                                                            // needs precisely because this neutral is `(0,0,0,0)` (see `toon_colour_lane::goo_rs_tint`, spec U7).
                                                                                             glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)};
         /**
          * THE AUTHOR'S TRANSPARENT VARIANT (`_TRANSPARENT_ON`), which its sidecar selects with the PAIR
