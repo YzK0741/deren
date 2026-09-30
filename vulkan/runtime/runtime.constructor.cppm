@@ -484,6 +484,18 @@ namespace vulkan {
                 // `0` could not be the "not stated" answer (see `goo_normal_strength`).
                 neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_normal_strength)] =
                     glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
+                // STEP 10'S ONE IS `(0, 0, 0, 0)`, AND HERE - UNLIKE EVERY OTHER LANE ABOVE - THE NEUTRAL IS
+                // DOING TWO JOBS AT ONCE. It IS the reference's own group default, so a material that states no
+                // `_GooAnisoGate` row gets the answer the graph gives a caller that states nothing
+                // (`ng[2].interface[3]` `Use anisotropy?` = `0.0`, `interface[45]` `Anisotropic mask` = `0.0`,
+                // `interface[4]` `Use Toonaniso?` = `0.0`); AND it is the OVERRIDE that keeps that true, because
+                // this table starts EVERY lane at `glm::vec4(1.0f)` (the constructor's first line), so an
+                // unoverridden lane 25 would hand every such material `Use anisotropy? = 1.0` - the arm the
+                // reference does not take - instead of the `0.0` it does. `.z` is recorded and unused, `.w`
+                // reserved; keep the spelling of this initialiser and the two hosts' tables in step, because
+                // `tests/test_goo_toon_math.cpp` pins all three.
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_aniso_gate)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(neutral_colours)),

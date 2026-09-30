@@ -1097,7 +1097,43 @@ namespace vulkan {
          * normal texture at all, so for them "no row" and "the reference's default" are the same frame.
          */
         goo_normal_strength = 24, // `_GooNormalStrength`: `DecodeNormal`'s `NormalStrength` (`.x`; `-1000` = no row)
-        count = 25,
+        // ---- STEP 10: THE TWO SWITCHES THAT DECIDE WHICH ARM OF `混合.016` THE DIRECT SPECULAR TAKES ----
+        // The sockets are `Use anisotropy?` / `Anisotropic mask` / `Use Toonaniso?` of `Arknights:
+        // Endfield_PBRToonBase` (`ng[2]`), all three plain `组输入` inputs with an `interface[]` default of `0.0`
+        // (`interface[3]`, `[45]`, `[4]`). They were constant in this port until step 10 (`goo_use_anisotropy_default`
+        // / `goo_anisotropic_mask_default` in `shaders/character_forward.slang`), which made the stage return the
+        // WRONG ARM for the one material of this asset that states `Use anisotropy? = 1`. The census (all 23 `ng[2]`
+        // instances, `goo_step9_verify.md` §7.6 / `zmd-ab/_s9_aniso3.py` §C) is what the lane's values in
+        // `chars/laevatain_goo.glb.toon.tsv` are filed against.
+        /**
+         * `_GooAnisoGate`: the TWO switches of `PBRToonBase`'s `混合.016` / `混合.017`, plus the third one that
+         * selects the lobe `混合.020` mixes in.
+         *
+         * `混合.016 = MIX(f = 组输入.Use anisotropy?, A = DV_SmithJointGGX_Aniso.original × F_Schlick, B =
+         * 混合.017)`, `混合.017 = MULTIPLY(A = 混合.020, B = 组输入.Anisotropic mask)` (its `MULTIPLY` factor is the
+         * unlinked-but-`enabled` `1.0`, so it is exactly `A*B`) and `混合.020 = MIX(f = 组输入.Use Toonaniso?, A =
+         * 群组.007.anisotropy × F_Schlick, B = 钳制.Result)`. All three sockets are plain `组输入` inputs of `ng[2]`
+         * - there is no texture channel and no other node on the factor chain (verified: `混合.016.Factor`'s only
+         * `from` is `组输入.Use anisotropy?`, so there is NO polarity node either).
+         *
+         * `.x = Use anisotropy?`, `.y = Anisotropic mask`, `.z = Use Toonaniso?`, `.w` RESERVED AND UNUSED. `.z` IS
+         * RECORDED AND NOT CONSUMED: `混合.020` is not implemented here (its `钳制.Result` arm,
+         * `clamp(dot(cross(N, Tangent), Incoming), 0, 1)`, and its lobe `群组.007.anisotropy` are both live only for
+         * a material with `Anisotropic mask ≠ 0`, and this asset has none - see `混合.016`'s block in
+         * `shaders/character_forward.slang`).
+         *
+         * THE NEUTRAL IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a chosen number:
+         * `ng[2].interface[3]` (`Use anisotropy?`) `default = 0.0`, `interface[45]` (`Anisotropic mask`)
+         * `default = 0.0` and `interface[4]` (`Use Toonaniso?`) `default = 0.0`. A material that states no row
+         * therefore gets the group's own answer, which - since `混合.016` returns its A arm at 0 - is the isotropic
+         * product. THE GPU TABLE'S DEFAULT IS `glm::vec4(1.0f)` FOR EVERY LANE, so this lane MUST be overridden in
+         * `runtime.constructor.cppm`; with no override a material with no row would read flag 1 and get the masked
+         * arm instead. The census behind the values this asset states: all 23 `ng[2]` instances, flag `1.0` only on
+         * `M_actor_laevat_cloth_05` and `M_actor_chen_cloth_01.001`, mask non-zero only on `M_actor_chen_cloth_01.001`
+         * (linked) and `M_actor_yvonne_cloth_03` (`goo_step9_verify.md` §7.6; `zmd-ab/_s9_aniso3.py` §C reprints it).
+         */
+        goo_aniso_gate = 25, // `_GooAnisoGate`: `Use anisotropy?` [x] / `Anisotropic mask` [y] / `Use Toonaniso?` [z] (w reserved)
+        count = 26,
     };
 
     /**

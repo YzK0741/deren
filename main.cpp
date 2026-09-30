@@ -608,6 +608,19 @@ int main(int argc, char** argv) {
         // `chars\laevatain_goo.glb`, so it cannot be the source (the `_Specular` lane's `extras` precedence exists
         // for a property the asset really states; this one it does not).
         "_GooNormalStrength",
+        // ---- STEP 10: THE ANISOTROPY GATE ----
+        //
+        // ONE ROW FOR THREE SIBLING SOCKETS OF `PBRToonBase`, in the reference's own order, which is the shape
+        // `_GooRimScalars` and `_GooEyeBrightness` already use and the shape one `vec4` forces: `.x = Use
+        // anisotropy?`, `.y = Anisotropic mask`, `.z = Use Toonaniso?`, `.w` reserved. `混合.016` (the direct
+        // specular's arm selector) reads the first, `混合.017` multiplies by the second, and `混合.020` - the
+        // anisotropic lobe this port does NOT implement - switches on the third.
+        //
+        // IT IS A `color` ROW AND NOT A `float` ONE, so it needs NO branch in `toon_colour`: unlike step 8's
+        // `_GooNormalStrength` (whose `float` kind lands in `material_sidecar::scalars` and is therefore invisible to
+        // the generic `others` path below), this row parses through that path like every other colour lane, and its
+        // four comma-separated components arrive component by component.
+        "_GooAnisoGate",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -1374,7 +1387,23 @@ int main(int argc, char** argv) {
          // the decode on for a material the port carried no measured value for. `NormalStrength = 0` is a value the
          // reference's own materials state (`chen_body_01.001` is `1.3184...` with `Use NormalTex? = 0`), so a `0`
          // neutral would be a statement; `-1000` is outside the socket's range and passes only as "not stated".
-         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)}};
+         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),
+         // STEP 10'S ONE IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a sentinel and not a
+         // chosen number: `ng[2].interface[3]` (`Use anisotropy?`) is `0.0`, `interface[45]` (`Anisotropic mask`) is
+         // `0.0` and `interface[4]` (`Use Toonaniso?`) is `0.0`. So a material that states no `_GooAnisoGate` row
+         // gets the answer the graph gives a caller that states nothing - and because `混合.016` returns its A arm
+         // at a factor of 0, that answer is the isotropic product (`.y = 0` also makes the masked arm zero, so the
+         // two agree here as they do in the dump). The ZERO IS ALSO LOAD-BEARING FOR THE OTHER DIRECTION: the GPU
+         // table starts every lane at `glm::vec4(1.0f)`, so without this entry a material with no row would read
+         // `Use anisotropy? = 1` and take the arm the reference does not. See `toon_colour_lane::goo_aniso_gate`.
+         //
+         // IT NEEDS NO BRANCH IN `toon_colour` BELOW AND GETS NO START-UP DIAGNOSTIC, and both follow from the same
+         // fact: it is a `color` row with three components the reference states as plain numbers, so it carries no
+         // sentinel - step 8's lane needed its own branch only because a `float` row cannot travel the generic
+         // `others` path, and its `-1000` needed the `>= 0.0f` test because a sentinel has to be read as "not
+         // stated". Here `0.0` IS a stated value (it is the reference's own default), there is nothing to test for,
+         // and the generic path at the end of `toon_colour` carries the row as it carries `_GooSpecularColor`.
+         glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};
     auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);
         toon_lookup_state const& state = *static_cast<toon_lookup_state*>(owner);

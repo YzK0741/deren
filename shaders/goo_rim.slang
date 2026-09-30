@@ -155,7 +155,9 @@ struct GooRimPush
 /// STEP 8 RAISED IT TO 25 WITH THE SAME THREE (`_GooNormalStrength`, the reference's `DecodeNormal.NormalStrength`,
 /// which THIS stage does not read: it is the surface stage's, and the lane is counted here for the stride's sake,
 /// exactly as lane 6 is counted there).
-static const uint goo_rim_colour_lanes = 25u;
+/// STEP 10 RAISED IT TO 26 FOR `_GooAnisoGate` (`Use anisotropy?` / `Anisotropic mask` / `Use Toonaniso?` of
+/// `PBRToonBase`), again counted and not read here.
+static const uint goo_rim_colour_lanes = 26u;
 
 // ============================ THE REFERENCE'S GROUP-INTERNAL CONSTANTS ============================
 //

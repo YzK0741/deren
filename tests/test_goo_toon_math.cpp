@@ -2184,7 +2184,7 @@ int32_t main() {
             std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             CHECK_MSG(colour_enum.find("goo_eye_brightness = 6,") != std::string::npos, "the colour lane's enum entry");
             // STEP 8 MOVED THIS FROM 24 TO 25 (the entry below is lane 24, `goo_normal_strength`).
-            CHECK_MSG(colour_enum.find("count = 25,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four and step 8's one)");
+            CHECK_MSG(colour_enum.find("count = 26,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four, step 8's one and step 10's one)");
         }
         CHECK_MSG(app.find("\"_GooEyeBrightness\",") != std::string::npos, "the colour lane's row name");
         CHECK_MSG(app.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != std::string::npos, "the colour lane's neutral in the lookup");
@@ -2281,7 +2281,7 @@ int32_t main() {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
             std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             for (char const* const spelling : {"goo_specular_fgd = 16,", "goo_light_color = 17,", "goo_ambient_tint = 18,",
-                                               "goo_specular_color = 19,", "count = 25,"}) {
+                                               "goo_specular_color = 19,", "count = 26,"}) {
                 CHECK_MSG(colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooSpecularFGD\",", "\"_GooLightColor\",", "\"_GooAmbientTint\",", "\"_GooSpecularColor\","}) {
@@ -2303,21 +2303,22 @@ int32_t main() {
             // THE SHADER SIDE: the lanes are read BY INDEX (`+ 16u` .. `+ 19u`) through the stage's own stride, and
             // the constant that has to move with them is `character_toon_colour_lanes` (25 since step 8, pinned by
             // `test_toon_material_sidecar` against the enum from the other side too).
-            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 25u") != std::string::npos, "the surface stage's stride copy");
+            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 26u") != std::string::npos, "the surface stage's stride copy");
             for (char const* const index : {"colour_base + 16u", "colour_base + 17u", "colour_base + 18u", "colour_base + 19u"}) {
                 CHECK_MSG(character_forward.find(index) != std::string::npos, index);
             }
             // ... AND EVERY CONSTANT OF THE FGD GROUP THE SHADER SPELLS, so a re-tuning of one of them cannot pass:
             // the resolution, the `+ 0.5` offset, the dielectric F0, the NoV floor, the group's `1/(2pi)`, and the
-            // two interface defaults for `specularFGD Strength` / `Use anisotropy?`.
+            // interface default for `specularFGD Strength`. STEP 10 REMOVED THE OTHER TWO INTERFACE DEFAULTS FROM
+            // THIS LIST (`goo_use_anisotropy_default` / `goo_anisotropic_mask_default`), because they no longer
+            // exist: the two switches are lane 25's `.x` / `.y` now, and the pair is pinned by the step-10 block
+            // below instead.
             for (char const* const spelling : {"static const float goo_fgd_resolution = 64.0;",
                                                "static const float goo_fgd_diffuse_offset = 0.5;",
                                                "static const float goo_fgd_dielectric_f0 = 0.07999999821186066;",
                                                "static const float goo_fgd_ndotv_floor = 9.999999747378752e-05;",
                                                "static const float goo_dv_half_inverse_pi = 0.3183099925518036 * 0.5;",
-                                               "static const float goo_specular_fgd_strength_default = 1.0;",
-                                               "static const float goo_use_anisotropy_default = 0.0;",
-                                               "static const float goo_anisotropic_mask_default = 0.0;"}) {
+                                               "static const float goo_specular_fgd_strength_default = 1.0;"}) {
                 CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
             }
             // THE OFFSET IS `0.5` AND THE TERM USES IT - THE ASSERTION THIS FILE ONCE MADE INVERTED. The step
@@ -2463,7 +2464,7 @@ int32_t main() {
                 CHECK_MSG(goo_rim.find(spelling) != std::string::npos, spelling);
             }
             // ... AND THE LANES IT READS, by index, through ITS OWN copy of the stride
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 25u") != std::string::npos, "the rim stage's own stride copy");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 26u") != std::string::npos, "the rim stage's own stride copy");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 7u") != std::string::npos, "the rim stage reads lane 7 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 8u") != std::string::npos, "the rim stage reads lane 8 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 9u") != std::string::npos, "the rim stage reads lane 9 (the widths) by that index");
@@ -2504,7 +2505,7 @@ int32_t main() {
             std::size_t const face_enum_at = primitive.find("enum class toon_colour_lane");
             std::string const face_colour_enum = primitive.substr(face_enum_at, primitive.find("};", face_enum_at) - face_enum_at);
             for (char const* const spelling : {"goo_face_scalars_a = 20,", "goo_face_scalars_b = 21,", "goo_face_nose_shadow = 22,",
-                                               "goo_face_front_r = 23,", "goo_normal_strength = 24,", "count = 25,"}) {
+                                               "goo_face_front_r = 23,", "goo_normal_strength = 24,", "goo_aniso_gate = 25,", "count = 26,"}) {
                 CHECK_MSG(face_colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooFaceScalarsA\",", "\"_GooFaceScalarsB\",", "\"_GooFaceNoseShadow\",", "\"_GooFaceFrontR\","}) {
@@ -2540,8 +2541,8 @@ int32_t main() {
                           "the startup log prints the value BY NAME, because the sidecar's own diagnostic walks SLOTS and counts scalars without naming them");
                 CHECK_MSG(constructor.find("toon_colour_lane::goo_normal_strength)] =\n                    glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);") != std::string::npos,
                           "the strength lane's neutral in the GPU table's initialiser");
-                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f)}};") != std::string::npos,
-                          "and the lookup's table now ENDS on it - lane order is the contract");
+                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),") != std::string::npos,
+                          "and the lookup's table still holds it - STEP 10 APPENDED its own lane AFTER this one, so this entry now carries a comma rather than closing the table");
                 // ... AND THE DECODE ITSELF: the constants, the three guards, the ENGINE'S strength expression and the
                 // frame. The expression is pinned to the digit because it is a transcription of the reference engine's
                 // own GLSL (`zmd-ab/goo_engine_node_normal_map.glsl`), not a derivation that a later reader can
@@ -2570,6 +2571,56 @@ int32_t main() {
                 // had, so they must not name the helper at all (they compile the `#else` branch of its body).
                 CHECK_MSG(outline.find("goo_toon_shading_normal") == std::string::npos, "the outline stage does not name the decoder");
                 CHECK_MSG(pbr.find("goo_toon_shading_normal") == std::string::npos, "and neither does the PBR stage");
+            }
+            // (c9) STEP 10'S ONE COLOUR LANE, `_GooAnisoGate`, AND THE TWO SWITCHES IT FEEDS. This lane is the one
+            // that turned a PIXEL-VISIBLE defect into a per-material answer: before it, `混合.016`'s factor and
+            // `混合.017`'s mask were two hardcoded `0.0` constants, so the port returned the zero arm for the one
+            // material of this asset that states `Use anisotropy? = 1` - the exact inversion this step's E1 fixed.
+            {
+                std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
+                std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+                CHECK_MSG(colour_enum.find("goo_aniso_gate = 25,") != std::string::npos, "the gate lane's enum entry, APPENDED at 25 so no earlier index moves");
+                CHECK_MSG(colour_enum.find("count = 26,") != std::string::npos, "and the enum's count with it");
+                CHECK_MSG(app.find("\"_GooAnisoGate\",") != std::string::npos, "the gate lane's row name - CamelCase, as the sidecar spells it");
+                // THE ROW IS A `color` ONE, WHICH IS THE DIFFERENCE FROM STEP 8's: it parses through the GENERIC
+                // `others` path, so the lane must NOT be given a branch of its own in `toon_colour` - and the way to
+                // assert "no branch" is to assert that the lane's enum spelling does not appear in `main.cpp` at all
+                // (the row table above is by ROW NAME, and the only other mention is a prose reference in the lookup's
+                // table's own comment). It also gets NO start-up diagnostic line, and that is the same fact read the
+                // other way: `main.cpp` names a row only when the row's KIND is invisible in its own log (step 8's
+                // `float` lands in `scalars`, which the log counts and never names), while no `color` row of this
+                // sidecar has ever been printed. The lane's own diagnostic is the frame.
+                CHECK_MSG(app.find("vulkan::toon_colour_lane::goo_aniso_gate") == std::string::npos,
+                          "the gate lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
+                // ... AND THE SHADER HALF, which is where the lane has to arrive: the read, the two components, and the
+                // ARM ORDER of the lerp (the defect this step's E1 fixed - the first argument is the ISOTROPIC
+                // product, the second the masked side, because `混合.016.A = 原 * F_Schlick`).
+                CHECK_MSG(character_forward.find("const float4 goo_aniso_gate = toon_colour_at(heap_slots_toon_colours, colour_base + 25u);") != std::string::npos,
+                          "the gate lane is read at `colour_base + 25u`");
+                CHECK_MSG(character_forward.find("const float goo_use_anisotropy = goo_aniso_gate.x;") != std::string::npos,
+                          "`.x` is `Use anisotropy?` - `混合.016`'s factor");
+                CHECK_MSG(character_forward.find("const float goo_anisotropic_mask = goo_aniso_gate.y;") != std::string::npos,
+                          "`.y` is `Anisotropic mask` - `混合.017`'s second operand");
+                CHECK_MSG(character_forward.find("const float3 goo_specular_chosen = lerp(goo_dv_original * goo_schlick_f, goo_anisotropic_masked, goo_use_anisotropy);") != std::string::npos,
+                          "and the lerp takes the reference's arm order: A = `原 * F`, B = the masked side, f = the flag");
+                CHECK_MSG(character_forward.find("lerp(goo_anisotropic_masked, goo_dv_original * goo_schlick_f, goo_use_anisotropy)") == std::string::npos,
+                          "the INVERTED order the port carried through step 9 is gone");
+                // ... AND THE TWO CONSTANTS THAT ORDER REPLACED: they must not come back, because a second source for
+                // the same switch is exactly the defect this lane closed.
+                CHECK_MSG(character_forward.find("goo_use_anisotropy_default") == std::string::npos,
+                          "the hardcoded `Use anisotropy?` default is deleted, not merely unused");
+                CHECK_MSG(character_forward.find("goo_anisotropic_mask_default") == std::string::npos,
+                          "and so is the hardcoded `Anisotropic mask` default");
+                // THE TWO HOST TABLES, whose neutrals are `(0, 0, 0, 0)` - the reference's own `interface[]` default
+                // for all three sockets. The GPU one is the LOAD-BEARING half: the table starts every lane at
+                // `glm::vec4(1.0f)`, so without this override every material that states no row would read
+                // `Use anisotropy? = 1` and take the arm the reference does not.
+                CHECK_MSG(constructor.find("toon_colour_lane::goo_aniso_gate)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos,
+                          "the gate lane's neutral in the GPU table's initialiser, at ALL FOUR components");
+                CHECK_MSG(app.find("glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f),\n") != std::string::npos,
+                          "step 8's neutral is still in the lookup's table (the gate lane is appended after it)");
+                CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != std::string::npos,
+                          "and the lookup's table now ENDS on step 10's - lane order is the contract");
             }
             // ---- `headCenter`: THE ONE PIECE OF NEW DATA, and the stride is the failure class ----
             CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos, "`head_ubo` gained the position");

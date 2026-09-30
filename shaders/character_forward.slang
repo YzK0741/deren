@@ -496,12 +496,20 @@ static const float character_shadow_lut_tiles = 32.0;
 /// `goo_toon_shading_normal` below, which the two entry points call in place of `normalize(s.normal)` (see its note
 /// for the formula and for why the G-buffer's own normal is deliberately left alone). The lane's `.x` is the number;
 /// its neutral is `-1000` on every component, so a material the port carried no value for keeps the normal it had.
+/// LANE 25 IS STEP 10'S, `_GooAnisoGate`: the THREE `PBRToonBase` group inputs that decide the direct specular's
+/// arm - `.x = Use anisotropy?` (the factor of `混合.016`, which chooses between `DV_SmithJointGGX_Aniso.original *
+/// F_Schlick` and the `混合.017` masked side), `.y = Anisotropic mask` (`混合.017`'s second operand) and
+/// `.z = Use Toonaniso?` (RECORDED AND NOT READ: it switches `混合.020`, the anisotropic lobe this port does not
+/// implement). `.w` is reserved. The neutral is `(0, 0, 0, 0)`, which is the reference's own `interface[]` default
+/// for all three sockets - so an unstated material reads the arm the graph itself would take, and the lane is also
+/// what finally replaced the two hardcoded `Use anisotropy?` / `Anisotropic mask` defaults this stage carried
+/// until step 10 (both deleted with the switch-over, rather than left as a second source for the same switch).
 /// THE STRIDE CHANGED HERE AND IN THREE OTHER FILES, WHICH IS THE PART THAT IS EASY TO MISS: this constant,
 /// `goo_rim.slang`'s `goo_rim_colour_lanes`, `pbr.slang`'s `pbr_toon_colour_lanes` and (through the `#include` at
 /// the top of it) `outline.slang` all address the SAME table, so a stale copy in any one of them reads another
 /// material's lanes - a plausible wrong picture rather than an error. `tests/test_toon_material_sidecar.cpp` and
 /// `tests/test_goo_toon_math.cpp` pin all four against `vulkan::toon_colour_lane::count`.
-static const uint character_toon_colour_lanes = 25u;
+static const uint character_toon_colour_lanes = 26u;
 
 /// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
 ///
@@ -655,18 +663,6 @@ static const float goo_dv_half_inverse_pi = 0.3183099925518036 * 0.5;
 /// `PBRToonBase :: 组输入.specularFGD Strength`'s `interface[]` default, for a material whose container has no
 /// such socket at all (the Face and Hair containers do not - spec §5.1).
 static const float goo_specular_fgd_strength_default = 1.0;
-/// `PBRToonBase :: 组输入.Use anisotropy?`'s default. `0.0` means `混合.016` takes its A branch
-/// (`原 * F_Schlick`), which is the isotropic path - see the `directLighting_specular` block in `toon_diffuse`.
-static const float goo_use_anisotropy_default = 0.0;
-/// `PBRToonBase :: 组输入.Anisotropic mask`'s default, the factor on `混合.017`.
-///
-/// IT IS `0.0` ON ALL SEVEN MATERIALS THIS STEP COVERS (nodes.json, `M_actor_laevat_*`), and that is the whole
-/// reason the reference's anisotropic branch is not implemented here: `cloth_05` is the ONE material whose
-/// `Use anisotropy?` is `1.0`, and its `混合.016` therefore selects `混合.017 = 混合.020 ⊙ Anisotropic mask =
-/// <anything> ⊙ 0.0 = 0`. The spec leaves `钳制.Result` (the other input of `混合.020`) UNEXPANDED (§6.2), so
-/// there is no closed form to implement even if the mask were non-zero - and the answer this asset needs is the
-/// one the graph gives. `tests/test_goo_toon_math.cpp` pins both halves.
-static const float goo_anisotropic_mask_default = 0.0;
 
 // ============================================================================================================
 // STEP 6: THE REFERENCE'S DARK-SIDE DESATURATION - `DeSaturation` + `色相/饱和度/明度`
@@ -2694,16 +2690,46 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // port's own `roughness2`-and-not-`roughness` - the ONE place the squared value IS the right one, which is
         // why both names are in scope here.
         //
-        // THE ANISOTROPIC BRANCH IS RESOLVED BY A MATERIAL NUMBER RATHER THAN IMPLEMENTED, and that is a measured
-        // property of THIS asset rather than a shortcut: `Use anisotropy?` is `0.0` on `body_01/02` and
-        // `cloth_01..04` and `1.0` ONLY on `cloth_05`, whose selector then takes `混合.017 = 混合.020 ⊙
-        // Anisotropic mask` - and `Anisotropic mask` is `0.0` ON ALL SEVEN MATERIALS (nodes.json's
-        // `M_actor_laevat_*`). So the reference's own answer for `cloth_05` is ZERO too. The spec leaves the
-        // `钳制.Result` branch unexpanded (§6.2: "另一个支（未在本步展开）"), and this port therefore writes the
-        // product the graph yields - `lerp(masked, original*F, use_anisotropy)` - without pretending to compute an
-        // anisotropic lobe the spec does not give.
-        const float goo_anisotropic_mask = goo_anisotropic_mask_default;
-        const float goo_use_anisotropy = goo_use_anisotropy_default;
+        // ---- ARMS, AND A STUB THAT IS EXACT HERE BECAUSE OF THE CENSUS, NOT BECAUSE OF A GUESS ----
+        //
+        // `混合.016 = MIX(f = 组输入.Use anisotropy?, A = 转接点.035, B = 混合.017)`, and `转接点.035 =
+        // Vector Math.003 = 群组.007.original × 群组.008.输出` - i.e. the ISOTROPIC product `原 * F_Schlick`, which
+        // is what this port computes below. `lerp` in the reference's socket order therefore returns the FIRST
+        // argument at `Use anisotropy? = 0`, and an earlier version of this block passed the two arms the other way
+        // round: it returned the masked side at 0 and `原 * F` at 1, which is `混合.016`'s truth table INVERTED and
+        // made the whole of `goo_direct_specular` identically zero (step 9's own note below records the symptom).
+        // The order below is the reference's.
+        //
+        // THE MASKED ARM IS STILL A STUB, AND THAT IS EXACT FOR EVERY INSTANCE THIS REPOSITORY RENDERS. Be precise
+        // about what the stub claims: `goo_anisotropic_masked` is "`混合.017` at `Anisotropic mask = 0`", NOT
+        // "`混合.017`" - `混合.017 = MULTIPLY(A = 混合.020, B = 组输入.Anisotropic mask)` with the `MULTIPLY`'s
+        // unlinked-but-enabled factor `1.0`, so the mask multiplies the WHOLE branch away and a mask of 0 makes the
+        // reference's B arm ZERO whatever the anisotropic lobe would have been. REACHABILITY, with its census
+        // (`goo_step9_verify.md` §7.6, all 23 `ng[2]` instances): the stub is only reached when
+        // `Use anisotropy? = 1` AND `Anisotropic mask ≠ 0` together; among the asset's seven `M_actor_laevat_*`
+        // materials (`body_01/02`, `cloth_01..05`) the flag is `1.0` only on `cloth_05`, whose mask is `0.0`, and the
+        // mask is `0.0` on all seven - so `cloth_05`'s reference answer is exactly ZERO and the stub reproduces it.
+        // The ONLY `ng[2]` instance in the dump with both is `M_actor_chen_cloth_01.001` (`1.0`/`1.0`, its mask
+        // LINKED to `分离 XYZ.002.X`), and it is NOT a material of this asset (`laevatain_goo.glb`). The value is also
+        // unobservable here: `混合.020 = MIX(f = 组输入.Use Toonaniso?, A = 群组.007.anisotropy × 群组.008.输出,
+        // B = 钳制.Result = clamp(dot(cross(N, Tangent), Incoming), 0, 1))` is not implemented, and the probe that
+        // swaps the arms (step 9's marker G, 74 640 px = 7.199% of the frame) cannot tell the two apart because on
+        // this asset the mask zeroes the arm either way.
+        // ---- STEP 10: WHERE THE TWO SWITCHES COME FROM ----
+        //
+        // THEY ARE PER MATERIAL, AND UNTIL THIS STEP THE PORT HARDCODED THEM. `混合.016`'s factor is
+        // `组输入.Use anisotropy?` and `混合.017`'s second operand is `组输入.Anisotropic mask` (its `MULTIPLY`
+        // factor is the unlinked-but-`enabled` `1.0`, so `混合.017 = 混合.020 * mask` exactly). Both are plain group
+        // inputs of `PBRToonBase` (`ng[2]`), with NO other node on either chain - step 9's `_s9_aniso2.py` /
+        // `_s9_aniso3.py` §B checked `混合.016.inputs[0].from` and it is the group input itself, so there is no
+        // polarity node to invert - and they ride lane 25 (`_GooAnisoGate`) as `.x` and `.y`. `.z` (`Use Toonaniso?`)
+        // is RECORDED THERE AND NOT READ HERE: it switches `混合.020`, which this port does not implement (see the
+        // block below). The lane's neutral is `(0, 0, 0, 0)`, which is the reference's own `interface[]` default for
+        // all three sockets, so a material that states no row reads exactly what the graph returns for a caller that
+        // states nothing.
+        const float4 goo_aniso_gate = toon_colour_at(heap_slots_toon_colours, colour_base + 25u);
+        const float goo_use_anisotropy = goo_aniso_gate.x;
+        const float goo_anisotropic_mask = goo_aniso_gate.y;
         const float3 goo_half_dir = normalize(l + v);
         const float goo_ndoth = saturate(dot(n, goo_half_dir));
         const float goo_ndotl_clamped = saturate(dot(l, n));
@@ -2731,8 +2757,11 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // therefore `钳制.Result * mask`, and with `mask = 0.0` on all seven materials it is zero whichever
         // `Use Toonaniso?` says - so the `mask` is the factor that decides, and the `Use anisotropy?` flag only
         // chooses between `原*F` and that zero.
+        // `混合.016` IN THE REFERENCE'S ARM ORDER: `lerp(A = 原 * F, B = 混合.017, f = Use anisotropy?)` - NOT the
+        // masked side first. See the block above for the census that makes the stub exact here, and for the fact
+        // that step 9 measured the two swapped arms as a 74 640 px (7.199%) frame difference.
         const float3 goo_anisotropic_masked = float3(0.0, 0.0, 0.0) * goo_anisotropic_mask;
-        const float3 goo_specular_chosen = lerp(goo_anisotropic_masked, goo_dv_original * goo_schlick_f, goo_use_anisotropy);
+        const float3 goo_specular_chosen = lerp(goo_dv_original * goo_schlick_f, goo_anisotropic_masked, goo_use_anisotropy);
         // `转接点.077 <- 组输入.SpecularColor` - PER MATERIAL AND HDR (not a tint): `body_01` is
         // `[4.2092814445495605, 3.7652196884155273, 3.7652196884155273]`, `cloth_02` is
         // `[1.0, 0.8945042490959167, 0.8945042490959167]`. The spec's §7.3 item 5 says why it CANNOT be skipped or
@@ -2765,18 +2794,20 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // `energyCompensation` - that is step 5's line and the reference does the same - and since the two products
         // are added ONCE EACH at `toon_colour` (`:3289`), the asymmetry is a difference of FACTOR, not a double
         // count. Before this line the direct path had no factor at all, which is the defect this step closes.
-        // WHAT THIS FACTOR MEASURABLY DOES ON THIS ASSET: NOTHING. All three poses are byte-identical before and
-        // after this step (three runs each; `goo_step9_result.md` §3), and the cause is the TERM above the factor,
-        // not the factor: `goo_specular_chosen` (`:2731`) is `lerp(goo_anisotropic_masked, goo_dv_original *
-        // goo_schlick_f, goo_use_anisotropy)` with `goo_use_anisotropy` pinned to the constant 0.0 (`:660`, `:2702`),
-        // and `lerp` returns its FIRST argument at 0 - here `goo_anisotropic_masked = float3(0,0,0) * 0.0`. The
-        // reference's `混合.016` returns the ISOTROPIC product (`dv * F`) at `Use anisotropy? = 0`, so the port's two
-        // arms are swapped, the direct specular is identically zero, and scaling the whole product by 50x still moves
-        // no pixel. THIS STEP WAS NOT GIVEN THAT BUG AND DOES NOT FIX IT. What is left is a property of the FORM: the
-        // body's FGD carries `LUT.G = 1.0`, so `goo_energy_compensation` is 0.0 EXACTLY and this factor is exactly
-        // `1 + 0*0.08` on every body pixel - while the cloth's `1.0407` is a PREDICTION from its reported
-        // `LUT.G = 0.968313694` (`fresnel0 = 1.2424540519714355` on a metal texel), unverifiable while the term it
-        // scales is dead.
+        // WHAT THIS FACTOR MEASURABLY DID WHEN STEP 9 LANDED: NOTHING - all three poses were byte-identical before
+        // and after it (three runs each; `goo_step9_result.md` §3) - and the cause was the TERM above the factor,
+        // never the factor: `goo_specular_chosen` was `lerp(goo_anisotropic_masked, goo_dv_original *
+        // goo_schlick_f, goo_use_anisotropy)` with `goo_use_anisotropy` pinned to a hardcoded 0.0 constant (step 10
+        // replaced it with lane 25's `.x`), and `lerp`
+        // returns its FIRST argument at 0 - which was `goo_anisotropic_masked = float3(0,0,0) * 0.0`, i.e. the
+        // `混合.016` arms swapped. Scaling the whole product by 50x moved no pixel; replacing the lerp's zero arm by
+        // `float3(0.25)` moved 74 640 px, so the term was dead, not small. **STEP 10 SWAPPED THOSE ARMS** (the two
+        // lines above this block) and the factor is now live on every pixel the direct specular reaches. What
+        // remains a property of the FORM rather than a measurement: the body's FGD carries `LUT.G = 1.0`, so
+        // `goo_energy_compensation` is 0.0 EXACTLY and this factor is exactly `1 + 0*0.08` on every body pixel -
+        // while the cloth's `1.0407` is a PREDICTION from its reported `LUT.G = 0.968313694`
+        // (`fresnel0 = 1.2424540519714355` on a metal texel). Step 10 measured the revived term's own frame share as
+        // ~+0.02/255 in the frame mean (`goo_step10_result.md` §3).
         const float3 goo_direct_specular = goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * cast_shadow_sigmoid * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0);
 
         // ---- `IBL_specular` AND `IBL_diffuse` (§7.1) ----
