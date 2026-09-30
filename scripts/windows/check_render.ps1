@@ -23,16 +23,18 @@
 # Check mode runs every scenario TWICE and requires the two runs to agree before comparing against the
 # reference, so "flaky" is reported as flaky instead of as a regression.
 #
-#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the ten scenarios defined below,
+#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the thirteen scenarios defined below,
 #     one per pipeline family a wiring change can break - because every scenario is TWO runs (the
-#     determinism check below), so the full list costs 20 renders a round and the extra five mostly
-#     answer questions the core five also answer. A core round is 5 x 2 = 10 renders. The five that
-#     are `tier = "extra"` are still checked on demand: `-Full` runs all ten, `-Only <name>` runs one.
+#     determinism check below), so the full list costs 26 renders a round and the extra eight mostly
+#     answer questions the core five also answer. A core round is 5 x 2 = 10 renders. The eight that
+#     are `tier = "extra"` are still checked on demand: `-Full` runs all thirteen, `-Only <name>` runs one.
 #     They are worth naming here so the choice to skip them is deliberate: `deferred_taa_fxaa` is the
-#     AA stage, `deferred_ssao_off` and `shadow_single` vary one optional stage each, and
+#     AA stage, `deferred_ssao_off` and `shadow_single` vary one optional stage each,
 #     `metal_rough_glossy` / `glossy_motion` are the material sweep (the second one with a MOVING
-#     camera). Run `-Full` after a driver update or before re-baselining, so no reference goes stale
-#     unwatched: -Update only re-baselines the scenarios it actually ran.
+#     camera), and the three `laevatain_*` scenarios are the REWRITTEN TOON CHAIN's net - the chain on,
+#     the same chain on an asset whose per-material sidecar is MISSING (the fallback control), and the OLD
+#     chain on the first asset (the byte-identity criterion). Run `-Full` after a driver update or before
+#     re-baselining, so no reference goes stale unwatched: -Update only re-baselines the scenarios it ran.
 #
 #  4. WHICH BUILD IT RUNS: the Release build, and only the Release build. Pointed at a Debug or an
 #     ASan+UBSan build, two runs of one binary DIFFER - measured on TWO scenarios, `sponza` and
@@ -50,14 +52,18 @@
 #
 # Usage:
 #   pwsh -File scripts/windows/check_render.ps1                 # the CORE set (5 scenarios x 2 runs)
-#   pwsh -File scripts/windows/check_render.ps1 -Full           # all TEN scenarios
+#   pwsh -File scripts/windows/check_render.ps1 -Full           # all THIRTEEN scenarios
 #   pwsh -File scripts/windows/check_render.ps1 -Update         # accept the current output as reference
 #   pwsh -File scripts/windows/check_render.ps1 -Only deferred_taa_fxaa
 #   pwsh -File scripts/windows/check_render.ps1 -List
 #
 # References live OUTSIDE the repository (they are machine-specific; committing them would be red for
 # everyone else and would tie every accepted change to a multi-megabyte commit). Override the location
-# with VR_RENDER_BASELINE_DIR.
+# with VR_RENDER_BASELINE_DIR. The three `laevatain_*` scenarios are seeded the same way as every other
+# one - `-Update` copies the frame it just drew to `<baseDir>\<scenario>.png` - and there is no separate
+# seeding path for them; -List prints the directory. NOTE that their ASSETS do not live in the repository
+# either (see $charDir), so those three references are reproducible only on a machine that has the
+# `chars\` assets under its build directory.
 
 param(
     [switch]$Update,
@@ -95,7 +101,7 @@ $workDir = Join-Path $BuildDir "render-check"
 # the frame count; the camera, model and extent are shared above so a scenario only varies what it
 # means to - a scenario may override `model` / `camera` when it has to (see transparent_blend).
 #
-# `tier` is what the default run selects: `core` (five) or `extra` (five, i.e. -Full or -Only). The
+# `tier` is what the default run selects: `core` (five) or `extra` (eight, i.e. -Full or -Only). The
 # core five are one scenario per pipeline family whose WIRING has broken before: the deferred
 # G-buffer and its lighting (deferred), the forward unlit pipeline (unlit), the forward default
 # pipeline with a BLEND leaf and a MASK discard (transparent_blend), the heavy scene that adds
@@ -103,7 +109,21 @@ $workDir = Join-Path $BuildDir "render-check"
 # DEFORMING mesh, whose frame is the motion channel itself (deformation). A tier is required of every
 # scenario - the check below fails on a missing or unknown one, so adding a scenario means deciding
 # whether it earns a place in the default round rather than silently never running.
+#
+# THE THREE `laevatain_*` SCENARIOS ARE ALL `extra`, and that is a decision this file owes a reason for:
+# they exist to put the REWRITTEN TOON CHAIN inside this gate (its seven landed steps were accepted by
+# hand-run A/B captures, which is not a net) and to hold the chain's two arms apart - the rewritten one on
+# the sidecar-carrying asset, the same chain on an asset with NO sidecar (the fallback control), and the OLD
+# chain on the first asset (the byte-identity criterion). They are all ONE character at ONE pose, so they
+# answer a question the core five do not; `-Full` is where they run, and `-Only laevatain_goo_toon` runs one.
 # ---------------------------------------------------------------------------------------------
+# WHERE THE CHARACTER SCENARIOS' ASSETS COME FROM, and the reason it is derived rather than absolute: these
+# glbs and their `.toon.tsv` sidecars are LOCALLY AUTHORED assets that were never committed (the whole build
+# directory is gitignored), so the only portable statement is "beside the build this script is gating".
+# `laevatain_goo.glb.toon.tsv` is the file that carries the per-material rows the rewritten toon chain reads;
+# `laevatain.glb` is the same character WITHOUT one, and that is what makes it the fallback's control.
+$charDir = Join-Path $BuildDir "chars"
+
 $scenarios = @(
     # `deferred` overrides NOTHING, so its reference IS the compiled defaults - the frame a stock
     # `config.toml` renders. Every other scenario is that frame plus the one difference its name claims,
@@ -164,6 +184,53 @@ $scenarios = @(
        model = "$repo\tests\fixtures\animated_skin_plane.gltf"
        camera = "0,0,4,0,0,0"
        animation_sweep = "0.02" }
+    # THE REWRITTEN TOON CHAIN ON A CHARACTER (`[render] character_forward` + `[render] goo_toon`), and the
+    # reason it exists is that the seven landed steps of that rewrite (iris / screen rim / base+skin+cloth+hair
+    # diffuse / specular / face - see goo_toon_plan.md) were accepted by a HAND-RUN A/B: capture the arm, capture
+    # the other arm, read the difference. That is not a net. This scenario is the same frame the A/B used, so
+    # from here on a change to that chain has to move a RECORDED reference or it is not a change.
+    #
+    # `character_forward = true` IS PART OF THE SCENARIO AND NOT AN OPTION: with it off no material is drawn
+    # through the character pipeline at all ([render] character_forward's own note), so `goo_toon` would select
+    # nothing and the frame would be the deferred one - a green scenario that measures the wrong thing. The pose
+    # is the A/B's own close pose, the one every step 2..7 reproduced exactly.
+    #
+    # THE ASSET IS THE ONE THAT CARRIES THE DATA: `laevatain_goo.glb` and its `.toon.tsv` sidecar, whose rows are
+    # every per-material value the rewritten chain reads (the reference's own Goo node presets). It lives under
+    # the BUILD directory because it is a locally-authored asset, not a committed fixture - see the note on
+    # $charDir above - so a `-BuildDir` pointing elsewhere needs the same `chars\` beside it, and this scenario
+    # then fails loudly ("no screenshot" / exit code) rather than passing green against a frame it never drew.
+    @{ name = "laevatain_goo_toon"; desc = "the REWRITTEN toon chain on the goo character"; tier = "extra";
+       extra = @{ character_forward = "true"; goo_toon = "true" }
+       model = "$charDir\laevatain_goo.glb"
+       camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
+    # THE FALLBACK ARM, and it is the negative control the chain's own contract asks for: `laevatain.glb` is the
+    # SAME character with NO `.toon.tsv` sidecar, so every per-material value the rewritten chain reads is
+    # ABSENT and the chain must come back to the reference's own socket defaults rather than guess (a zeroed or
+    # stale lane read as a value). The two assets are the same geometry and the same 11 materials, measured with
+    # this repository's own `zmd-ab/glb_info.py`: the goo file adds only the extra IMAGES the sidecar's rows
+    # resolve, and a copy of it with no sidecar beside it renders THIS scenario's frame exactly (92473A82…), so
+    # the sidecar is the whole of the difference and not the textures.
+    #
+    # THE FALLBACK IS AN IDENTITY ON THIS ASSET, MEASURED: at this pose a sidecar-less `laevatain.glb` renders
+    # `12A0A363…` with `goo_toon = true` AND with `goo_toon = false` (×2, 60 frames) - i.e. with nothing to
+    # read the rewritten chain draws the old chain's frame, which is what "fall back rather than guess" means
+    # for a pixel. That is also what makes this scenario DO something: the goo arm above is NOT that frame, so
+    # a chain that went inert on the ASSET THAT HAS DATA is exactly what this pair detects.
+    @{ name = "laevatain_no_sidecar"; desc = "the same character WITHOUT a toon sidecar (fallback)"; tier = "extra";
+       extra = @{ character_forward = "true"; goo_toon = "true" }
+       model = "$charDir\laevatain.glb"
+       camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
+    # THE OLD CHAIN ON THE SAME CHARACTER at the same pose, which is the arm the four byte-identity anchors are
+    # taken on: `goo_toon = false` is the chain the rewrite must leave EXACTLY as it found it, so this scenario
+    # is the recorded version of that criterion (the anchors are hand-run captures, re-verified at this commit;
+    # this one runs in every -Full round). One variable separates it from `laevatain_goo_toon`: the chain.
+    # NOTE that it is NOT the identity against the scenario above - measured, the two differ - because the
+    # sidecar it reads is present, and that difference IS the rewrite's own output on a real character.
+    @{ name = "laevatain_old_chain"; desc = "the OLD toon chain on the same goo character"; tier = "extra";
+       extra = @{ character_forward = "true"; goo_toon = "false" }
+       model = "$charDir\laevatain_goo.glb"
+       camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
 )
 
 # A tier is REQUIRED, and the failure it prevents is a scenario that silently never runs: the default
@@ -388,7 +455,7 @@ Write-Host "  references: $baseDir"
 if ($ran -eq 0) { Write-Host "  ERROR: no scenario ran, so NOTHING was verified (check -Only / the scenario names)" -ForegroundColor Red; exit 1 }
 if ($missing -gt 0) { Write-Host "  ERROR: $missing scenario(s) have no reference - run with -Update once to seed them" -ForegroundColor Red; exit 1 }
 # A default (core) round says so, because "changed : 0" over five scenarios is NOT the same statement as
-# "changed : 0" over all ten - the other five only ran if -Full asked for them.
+# "changed : 0" over all thirteen - the other eight only ran if -Full asked for them.
 if (-not $Full -and $onlyNames.Count -eq 0 -and $skipped -gt 0) {
     Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs all $($scenarios.Count)" -ForegroundColor DarkGray
 }
