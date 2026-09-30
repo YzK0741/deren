@@ -208,13 +208,18 @@ $scenarios = @(
        extra = @{ character_forward = "true"; goo_toon = "true" }
        model = "$charDir\laevatain_goo.glb"
        camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
-    # THE SAME ARM AT THE BODY POSE, and the reason is a MEASURED blind spot rather than a second opinion:
-    # the two materials whose sidecar rows carry `_GooRSScalars` / `_GooRSTint` (mechanism table #14, `RS EFF`)
-    # are `M_actor_laevat_cloth_02` and `M_actor_laevat_cloth_05`, and at the close pose above the chain draws
-    # NEITHER of them - step 13 measured a full-black mask arm and a full-white mask arm rendering THE SAME
-    # BYTES there (0 px differ), so a change to the RS block could not move that reference. At this pose those
-    # two materials are on screen: the same A/B moves 2 686 px (0.259066%) on this asset. That is what this
-    # scenario adds to the gate - a RECORDED frame the RS mechanism can actually break.
+    # THE SAME ARM AT THE BODY POSE, and the reason is a MEASURED blind spot rather than a second opinion: the two
+    # materials whose sidecar rows carry `_GooRSScalars` / `_GooRSTint` (mechanism table #14, `RS EFF`) are
+    # `M_actor_laevat_cloth_02` and `M_actor_laevat_cloth_05`, and at the close pose above the chain draws NEITHER
+    # of them - the step-13 mask arms prove it: `s13fin_white_close_r1` vs `s13fin_black_close_r1` (a full-white
+    # `_M` vs a full-black `_M`) differ by 0 px there, so a change to the RS block could not move that reference.
+    # At this pose those materials ARE on screen and the chain responds: the same white-vs-black mask A/B moves
+    # 75 217 px (7.254726%, bbox x263..826 y549..959), and the shipped asset's real `_M` against a zeroed mask
+    # moves 2 686 px (0.259066%, bbox (294,553)-(809,959)). Both numbers are transcribed from
+    # `zmd-ab/s13_v6_report.txt:14` / `:9` and were RECOMPUTED by the Lead from the on-disk frames
+    # `zmd-ab/laevat/s13fin_{white,black,on}_body_r1.png` (the first draft of this comment misattributed the
+    # 2 686 to the white-vs-black pair; corrected 2026-10-01, see `zmd-ab/goo_debt_lead_audit.md` §3-1).
+    # That is what this scenario adds to the gate - a RECORDED frame the RS mechanism can actually break.
     @{ name = "laevatain_goo_toon_body"; desc = "the REWRITTEN toon chain at the BODY pose (the RS materials)"; tier = "extra";
        extra = @{ character_forward = "true"; goo_toon = "true" }
        model = "$charDir\laevatain_goo.glb"
