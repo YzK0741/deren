@@ -23,16 +23,17 @@
 # Check mode runs every scenario TWICE and requires the two runs to agree before comparing against the
 # reference, so "flaky" is reported as flaky instead of as a regression.
 #
-#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the thirteen scenarios defined below,
+#  3. WHICH SCENARIOS RUN: the DEFAULT run is the CORE set - five of the fourteen scenarios defined below,
 #     one per pipeline family a wiring change can break - because every scenario is TWO runs (the
-#     determinism check below), so the full list costs 26 renders a round and the extra eight mostly
-#     answer questions the core five also answer. A core round is 5 x 2 = 10 renders. The eight that
-#     are `tier = "extra"` are still checked on demand: `-Full` runs all thirteen, `-Only <name>` runs one.
+#     determinism check below), so the full list costs 28 renders a round and the extra nine mostly
+#     answer questions the core five also answer. A core round is 5 x 2 = 10 renders. The nine that
+#     are `tier = "extra"` are still checked on demand: `-Full` runs all fourteen, `-Only <name>` runs one.
 #     They are worth naming here so the choice to skip them is deliberate: `deferred_taa_fxaa` is the
 #     AA stage, `deferred_ssao_off` and `shadow_single` vary one optional stage each,
 #     `metal_rough_glossy` / `glossy_motion` are the material sweep (the second one with a MOVING
-#     camera), and the three `laevatain_*` scenarios are the REWRITTEN TOON CHAIN's net - the chain on,
-#     the same chain on an asset whose per-material sidecar is MISSING (the fallback control), and the OLD
+#     camera), and the four `laevatain_*` scenarios are the REWRITTEN TOON CHAIN's net - the chain on,
+#     the same chain at the BODY pose (the only pose whose frame the RS mechanism can move), the same
+#     chain on an asset whose per-material sidecar is MISSING (the fallback control), and the OLD
 #     chain on the first asset (the byte-identity criterion). Run `-Full` after a driver update or before
 #     re-baselining, so no reference goes stale unwatched: -Update only re-baselines the scenarios it ran.
 #
@@ -52,7 +53,7 @@
 #
 # Usage:
 #   pwsh -File scripts/windows/check_render.ps1                 # the CORE set (5 scenarios x 2 runs)
-#   pwsh -File scripts/windows/check_render.ps1 -Full           # all THIRTEEN scenarios
+#   pwsh -File scripts/windows/check_render.ps1 -Full           # all FOURTEEN scenarios
 #   pwsh -File scripts/windows/check_render.ps1 -Update         # accept the current output as reference
 #   pwsh -File scripts/windows/check_render.ps1 -Only deferred_taa_fxaa
 #   pwsh -File scripts/windows/check_render.ps1 -List
@@ -101,7 +102,7 @@ $workDir = Join-Path $BuildDir "render-check"
 # the frame count; the camera, model and extent are shared above so a scenario only varies what it
 # means to - a scenario may override `model` / `camera` when it has to (see transparent_blend).
 #
-# `tier` is what the default run selects: `core` (five) or `extra` (eight, i.e. -Full or -Only). The
+# `tier` is what the default run selects: `core` (five) or `extra` (nine, i.e. -Full or -Only). The
 # core five are one scenario per pipeline family whose WIRING has broken before: the deferred
 # G-buffer and its lighting (deferred), the forward unlit pipeline (unlit), the forward default
 # pipeline with a BLEND leaf and a MASK discard (transparent_blend), the heavy scene that adds
@@ -110,12 +111,15 @@ $workDir = Join-Path $BuildDir "render-check"
 # scenario - the check below fails on a missing or unknown one, so adding a scenario means deciding
 # whether it earns a place in the default round rather than silently never running.
 #
-# THE THREE `laevatain_*` SCENARIOS ARE ALL `extra`, and that is a decision this file owes a reason for:
-# they exist to put the REWRITTEN TOON CHAIN inside this gate (its seven landed steps were accepted by
+# THE FOUR `laevatain_*` SCENARIOS ARE ALL `extra`, and that is a decision this file owes a reason for:
+# they exist to put the REWRITTEN TOON CHAIN inside this gate (its landed steps were accepted by
 # hand-run A/B captures, which is not a net) and to hold the chain's two arms apart - the rewritten one on
-# the sidecar-carrying asset, the same chain on an asset with NO sidecar (the fallback control), and the OLD
-# chain on the first asset (the byte-identity criterion). They are all ONE character at ONE pose, so they
-# answer a question the core five do not; `-Full` is where they run, and `-Only laevatain_goo_toon` runs one.
+# the sidecar-carrying asset, the same chain on an asset with NO sidecar (the fallback control), the OLD
+# chain on the first asset (the byte-identity criterion), and the rewritten chain ONE POSE FURTHER IN, at
+# the body, where alone the two `_GooRSScalars` / `_GooRSTint` materials are drawn (see its own note).
+# The first three are one character at ONE pose, so they answer a question the core five do not; the fourth
+# exists because that one pose cannot see that mechanism at all. `-Full` is where they run, and
+# `-Only laevatain_goo_toon` runs one.
 # ---------------------------------------------------------------------------------------------
 # WHERE THE CHARACTER SCENARIOS' ASSETS COME FROM, and the reason it is derived rather than absolute: these
 # glbs and their `.toon.tsv` sidecars are LOCALLY AUTHORED assets that were never committed (the whole build
@@ -204,6 +208,17 @@ $scenarios = @(
        extra = @{ character_forward = "true"; goo_toon = "true" }
        model = "$charDir\laevatain_goo.glb"
        camera = "-30.3668,-14.3239,0.6,0.0,-0.57,0.0" }
+    # THE SAME ARM AT THE BODY POSE, and the reason is a MEASURED blind spot rather than a second opinion:
+    # the two materials whose sidecar rows carry `_GooRSScalars` / `_GooRSTint` (mechanism table #14, `RS EFF`)
+    # are `M_actor_laevat_cloth_02` and `M_actor_laevat_cloth_05`, and at the close pose above the chain draws
+    # NEITHER of them - step 13 measured a full-black mask arm and a full-white mask arm rendering THE SAME
+    # BYTES there (0 px differ), so a change to the RS block could not move that reference. At this pose those
+    # two materials are on screen: the same A/B moves 2 686 px (0.259066%) on this asset. That is what this
+    # scenario adds to the gate - a RECORDED frame the RS mechanism can actually break.
+    @{ name = "laevatain_goo_toon_body"; desc = "the REWRITTEN toon chain at the BODY pose (the RS materials)"; tier = "extra";
+       extra = @{ character_forward = "true"; goo_toon = "true" }
+       model = "$charDir\laevatain_goo.glb"
+       camera = "0,0,2.4,0,-0.9,0" }
     # THE FALLBACK ARM, and it is the negative control the chain's own contract asks for: `laevatain.glb` is the
     # SAME character with NO `.toon.tsv` sidecar, so every per-material value the rewritten chain reads is
     # ABSENT and the chain must come back to the reference's own socket defaults rather than guess (a zeroed or
@@ -247,7 +262,7 @@ foreach ($s in $scenarios) {
 if ($List) {
     $coreCount = @($scenarios | Where-Object { $_.tier -eq "core" }).Count
     Write-Host "scenarios ($($scenarios.Count), of which $coreCount core - the default run):"
-    foreach ($s in $scenarios) { "  {0,-20} {1,-6} {2}" -f $s.name, $s.tier, $s.desc }
+    foreach ($s in $scenarios) { "  {0,-26} {1,-6} {2}" -f $s.name, $s.tier, $s.desc }
     Write-Host "`n  -Full runs all $($scenarios.Count); -Only <name> runs one whatever its tier"
     Write-Host "`nreferences: $baseDir"
     exit 0
@@ -455,7 +470,7 @@ Write-Host "  references: $baseDir"
 if ($ran -eq 0) { Write-Host "  ERROR: no scenario ran, so NOTHING was verified (check -Only / the scenario names)" -ForegroundColor Red; exit 1 }
 if ($missing -gt 0) { Write-Host "  ERROR: $missing scenario(s) have no reference - run with -Update once to seed them" -ForegroundColor Red; exit 1 }
 # A default (core) round says so, because "changed : 0" over five scenarios is NOT the same statement as
-# "changed : 0" over all thirteen - the other eight only ran if -Full asked for them.
+# "changed : 0" over all fourteen - the other nine only ran if -Full asked for them.
 if (-not $Full -and $onlyNames.Count -eq 0 -and $skipped -gt 0) {
     Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs all $($scenarios.Count)" -ForegroundColor DarkGray
 }
