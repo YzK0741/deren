@@ -499,17 +499,23 @@ static const float character_shadow_lut_tiles = 32.0;
 /// LANE 25 IS STEP 10'S, `_GooAnisoGate`: the THREE `PBRToonBase` group inputs that decide the direct specular's
 /// arm - `.x = Use anisotropy?` (the factor of `混合.016`, which chooses between `DV_SmithJointGGX_Aniso.original *
 /// F_Schlick` and the `混合.017` masked side), `.y = Anisotropic mask` (`混合.017`'s second operand) and
-/// `.z = Use Toonaniso?` (RECORDED AND NOT READ: it switches `混合.020`, the anisotropic lobe this port does not
-/// implement). `.w` is reserved. The neutral is `(0, 0, 0, 0)`, which is the reference's own `interface[]` default
+/// `.z = Use Toonaniso?` (it switches `混合.020`, and it is the THIRD switch the port reads: the lobe's own
+/// selector, whose lane-26 operand arrived in step 12 - see the block at the arm). `.w` is reserved. The neutral is `(0, 0, 0, 0)`, which is the reference's own `interface[]` default
 /// for all three sockets - so an unstated material reads the arm the graph itself would take, and the lane is also
 /// what finally replaced the two hardcoded `Use anisotropy?` / `Anisotropic mask` defaults this stage carried
 /// until step 10 (both deleted with the switch-over, rather than left as a second source for the same switch).
+/// LANE 26 IS STEP 12'S, `_GooAnisoRough`: the two `PBRToonBase` roughnesses the ANISOTROPIC LOBE is built from -
+/// `.x = Aniso_SmoothnessMaxT`, `.y = Aniso_SmoothnessMaxB`, from which the stage's `goo_aniso_roughness_t` /
+/// `goo_aniso_roughness_b` are `(1 - socket)^2`. `.z` / `.w` are reserved. The neutral is `(0, 0, 0, 0)`, the
+/// reference's own `interface[20]` / `[21]` default - so a material that states no row gets `rT = rB = 1`, which is
+/// the lobe the graph itself describes for a caller that states nothing, and NOT the mirror an unoverridden
+/// `glm::vec4(1.0f)` would give.
 /// THE STRIDE CHANGED HERE AND IN THREE OTHER FILES, WHICH IS THE PART THAT IS EASY TO MISS: this constant,
 /// `goo_rim.slang`'s `goo_rim_colour_lanes`, `pbr.slang`'s `pbr_toon_colour_lanes` and (through the `#include` at
 /// the top of it) `outline.slang` all address the SAME table, so a stale copy in any one of them reads another
 /// material's lanes - a plausible wrong picture rather than an error. `tests/test_toon_material_sidecar.cpp` and
 /// `tests/test_goo_toon_math.cpp` pin all four against `vulkan::toon_colour_lane::count`.
-static const uint character_toon_colour_lanes = 26u;
+static const uint character_toon_colour_lanes = 27u;
 
 /// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
 ///
@@ -659,6 +665,19 @@ static const float goo_fgd_ndotv_floor = 9.999999747378752e-05;
 /// group's `original` carries `1/(2π)`, NOT this file's `goo_inverse_pi` - and the two are different numbers
 /// (`0.31830987334251404` against `0.3183099925518036`), so the group's own spelling is what is used.
 static const float goo_dv_half_inverse_pi = 0.3183099925518036 * 0.5;
+/// @brief the ANISOTROPIC LOBE's own `1/(2π)` - `运算.013` of `DV_SmithJointGGX_Aniso`'s second instance
+///
+/// IT IS A SECOND CONSTANT AND NOT A REUSE OF THE ONE ABOVE, because the two are DIFFERENT float32s and they come
+/// from two different subtrees of the same group: `0.3183099925518036 * 0.5` above is `混合.016`'s A arm (the
+/// isotropic `original`), while the lobe multiplies by `0.31830987334251404 * 0.5` = `0.15915493667125702`
+/// (bit pattern `0x3E22F983`, against the other's `0x3E22F987`). Step 9's plan note warns about exactly this
+/// mix-up; the two values are asserted separately in `tests/test_goo_toon_math.cpp`.
+static const float goo_aniso_half_inverse_pi = 0.31830987334251404 * 0.5;
+/// @brief `运算.017`'s MAXIMUM literal on the lobe's denominator, VERBATIM from the dump
+///
+/// `0x3A83126F`, i.e. the float32 nearest `1.0e-3` - the same literal the isotropic `original` uses at the arm
+/// above, spelled separately because the two nodes are separate. It is `max(den, this)` and NOT a clamp on `s2`.
+static const float goo_aniso_denominator_floor = 0.0010000000474974513;
 
 /// `PBRToonBase :: 组输入.specularFGD Strength`'s `interface[]` default, for a material whose container has no
 /// such socket at all (the Face and Hair containers do not - spec §5.1).
@@ -2804,7 +2823,108 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // `混合.016` IN THE REFERENCE'S ARM ORDER: `lerp(A = 原 * F, B = 混合.017, f = Use anisotropy?)` - NOT the
         // masked side first. See the block above for the census that makes the stub exact here, and for the fact
         // that step 9 measured the two swapped arms as a 74 640 px (7.199%) frame difference.
-        const float3 goo_anisotropic_masked = float3(0.0, 0.0, 0.0) * goo_anisotropic_mask;
+        // ---- STEP 12: THE LOBE ITSELF, IN PLACE OF THE ZERO STUB ----
+        //
+        // WHAT WAS HERE UNTIL THIS STEP: `float3(0.0, 0.0, 0.0) * goo_anisotropic_mask` - "`混合.017` at
+        // `Anisotropic mask = 0`", which was exact for every material of this asset (all seven masks are 0.0) and
+        // which the note above still describes correctly. It was exact and it was a STUB: for any material whose
+        // mask is non-zero - `M_actor_chen_cloth_01.001`, not in this repository's render set - the port returned
+        // zero where the reference returns a lobe, and its self-description said so.
+        //
+        // THE REFERENCE'S THREE LAYERS, read node by node out of `gooblender/nodes.json` (`ng[17]`
+        // `DV_SmithJointGGXAniso` / `ng[25] GetSmithJointGGXAnisoPartLambdaV`, re-derived by
+        // `zmd-ab/_s12v_trace.py`, spec `goo_step12_aniso_spec.md` and brief `goo_step12_impl_brief.md` §1):
+        //
+        //     层 1  群组.007.anisotropy = LOBE = 0.15915493667125702 * num / max(den, 0.0010000000474974513)
+        //                            num = 1.0 * p^3,  den = ( |W|*NdotV + Lam*NdotL ) * s2^2
+        //     层 2  混合.020 = MIX(f = Use Toonaniso?, A = LOBE ⊙ F_Schlick, B = 钳制.Result)
+        //             钳制.Result = clamp(dot(cross(N, Tangent), Incoming), 0, 1)
+        //     层 3  混合.017 = 混合.020 ⊙ Anisotropic mask
+        //
+        // ... AND THREE THINGS ABOUT THAT ARE WORTH SPELLING, because each one is a place the port's earlier
+        // reading of this group (`goo_step11_anisodv_spec.md`, whose §3 list of the iso group's arithmetic is
+        // FALSIFIED - see the brief's §6) got it wrong:
+        //
+        //   (1) `S`'s THIRD COMPONENT IS `NdotH * p` AND `W` IS THE LIGHT-SIDE VECTOR. `S = (rB*TdotH, rT*BdotH,
+        //       NdotH*p)` and `W = (rT*TdotL, rB*BdotL, NdotL)` - note the CROSSED roughnesses, which is the
+        //       reference's own and not a typo - so `|W|` is built from the LIGHT vector and `Lam` from the VIEW
+        //       vector. Swapping them is invisible in a unit test written from the same misreading, which is why
+        //       the test points are pinned against the trace's own numbers rather than against a formula.
+        //   (2) `num = 1.0 * p^3`, where the `1.0` is `合并 XYZ.003.X` - an ENABLED, UNLINKED literal that nothing
+        //       links (the trace prints it; it is why the numerator is a MULTIPLY node and not a single value).
+        //   (3) `Lam = length([rT*TdotV, rB*BdotV, NdotV])` - the WHOLE of `ng[25]`'s body, NOT `λV` and NOT the
+        //       `|NoL|*(a2 + (1-a2)*NoV^2)` shape the plan's 层 1 sketch carries. `W` and `Lam` are summed
+        //       exactly once, in the denominator, and `W` is NOT re-used as a numerator factor.
+        //
+        // `roughnessT` / `roughnessB` COME FROM LANE 26 (`_GooAnisoRough`, `(1 - Aniso_SmoothnessMax{x})^2`), and
+        // the LAUNDERING IS DELIBERATELY NOT APPLIED: the reference folds `roughness = lerp(0, Aniso_SmoothnessMax,
+        // _P.A)` before the square, and `_P.A` (a `非色彩Non_Color` factor) has no lane in this port. `_P.A` is
+        // LINKED on all five cloth materials and its source is not exported by the dump, so this is a NAMED
+        // APPROXIMATION rather than an oversight: see the result document's uncertainty section. It cannot move a
+        // pixel of any frame this repository renders, because `混合.017`'s mask is `0.0` on every material of this
+        // asset - which is also why the acceptance for this step is "byte-identical frames", not "a nicer picture".
+        // `p = rT*rB` IS THE PORT'S `a2` HERE AND NOT `roughness^4`: the two shares a name because the reference
+        // reuses the socket, and the ARM's `goo_a2` above is the ISOTROPIC `clampedRoughness^2` - a different
+        // number from a different material input. Do not merge them.
+        const float4 goo_aniso_rough_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 26u);
+        const float goo_aniso_roughness_t = (1.0 - goo_aniso_rough_lane.x) * (1.0 - goo_aniso_rough_lane.x);
+        const float goo_aniso_roughness_b = (1.0 - goo_aniso_rough_lane.y) * (1.0 - goo_aniso_rough_lane.y);
+        const float goo_lobe_p = goo_aniso_roughness_t * goo_aniso_roughness_b;
+        // THE TANGENT FRAME, FROM `surface_tbn` - THE SAME ONE STEP 8'S NORMAL DECODE USES, and the ONE substitution
+        // in this term that is the PORT's rather than the graph's: the reference's Tangent is a `ShaderNodeTangent`
+        // whose uv_map / direction / axis are NOT exported by the dump, and this renderer carries no vertex tangent
+        // attribute, so the uv-derivative frame is what the article's own note says the reference's maths
+        // corresponds to. `surface_tbn`'s OUT parameters are taken as they arrive: the reference recomputes its
+        // bitangent as `N × T`, and reconstructing one here too would double-count the flip the function already
+        // applied. The FALLBACK is the function's own literal `(1,0,0)` / `(0,1,0)` basis, used WITHOUT
+        // normalising - the brief's §3.4 says why: a zero vector there would put a NaN into a lobe that this arm
+        // evaluates for EVERY pixel and then multiplies by zero.
+        float3 goo_lobe_t = float3(1.0, 0.0, 0.0);
+        float3 goo_lobe_b = float3(0.0, 1.0, 0.0);
+        surface_tbn(world_pos, uv, goo_lobe_t, goo_lobe_b);
+        // `TdotH` / `BdotH` / `TdotL` / `BdotL` / `TdotV` / `BdotV`, against the SAME vectors the block above
+        // already uses (`l`, `v`, `goo_half_dir`, `n`). No `saturate`, because the reference has none on them:
+        // `dot` is signed here and `s2` / `|W|` are sums of squares, so a negative dot is a real input.
+        const float goo_lobe_t_dot_h = dot(goo_lobe_t, goo_half_dir);
+        const float goo_lobe_b_dot_h = dot(goo_lobe_b, goo_half_dir);
+        const float goo_lobe_t_dot_l = dot(goo_lobe_t, l);
+        const float goo_lobe_b_dot_l = dot(goo_lobe_b, l);
+        const float goo_lobe_t_dot_v = dot(goo_lobe_t, v);
+        const float goo_lobe_b_dot_v = dot(goo_lobe_b, v);
+        // `s2 = dot(S, S)` and `|W|`, both SPELLED OUT as the two MULTIPLY nodes plus the ADD the graph uses,
+        // rather than as `dot(...)` of a temporary: this is the one place in this block where the graph's own
+        // node count is visible in the answer (step 11's trace showed a last-bit difference between the FMA and
+        // the split form), and the split form is the graph's.
+        const float goo_lobe_s2 = (goo_aniso_roughness_b * goo_lobe_t_dot_h) * (goo_aniso_roughness_b * goo_lobe_t_dot_h) +
+                                  (goo_aniso_roughness_t * goo_lobe_b_dot_h) * (goo_aniso_roughness_t * goo_lobe_b_dot_h) +
+                                  (goo_ndoth * goo_lobe_p) * (goo_ndoth * goo_lobe_p);
+        const float goo_lobe_w_length = sqrt((goo_aniso_roughness_t * goo_lobe_t_dot_l) * (goo_aniso_roughness_t * goo_lobe_t_dot_l) +
+                                             (goo_aniso_roughness_b * goo_lobe_b_dot_l) * (goo_aniso_roughness_b * goo_lobe_b_dot_l) +
+                                             goo_ndotl_clamped * goo_ndotl_clamped);
+        // `Lam` - `ng[25]`'s WHOLE body, on the VIEW side (see (1) and (3) above). `goo_clamped_ndotv` is the
+        // arm's own `clamp(dot(N, V), 0, 1)`, the same one `goo_dv_lambda_l` above uses, and it is NOT `abs`ed:
+        // `ng[25]` takes the view dot as it arrives.
+        const float goo_lobe_lambda = sqrt((goo_aniso_roughness_t * goo_lobe_t_dot_v) * (goo_aniso_roughness_t * goo_lobe_t_dot_v) +
+                                           (goo_aniso_roughness_b * goo_lobe_b_dot_v) * (goo_aniso_roughness_b * goo_lobe_b_dot_v) +
+                                           goo_clamped_ndotv * goo_clamped_ndotv);
+        const float goo_lobe_denominator = (goo_lobe_w_length * goo_clamped_ndotv + goo_lobe_lambda * goo_ndotl_clamped) * goo_lobe_s2 * goo_lobe_s2;
+        // THE FLOOR IS `运算.017`'s MAXIMUM ON THE WHOLE DENOMINATOR (the reference's own guard, spelled as its
+        // own constant rather than shared with the arm above). It cannot bind for a unit direction frame - `s2` is
+        // a convex combination of `{rB^2, rT^2, p^2}` and so is `> 0`, and `roughness -> 0` drives `num` to zero
+        // faster than `den` can - but it is what makes the lobe's own `0 * NaN` path impossible, which is the
+        // property this arm needs because it evaluates the lobe for mesh-visible pixels AND THEN multiplies by a
+        // mask that is zero for every one of them.
+        const float goo_lobe = goo_aniso_half_inverse_pi * ((goo_lobe_p * goo_lobe_p * goo_lobe_p) / max(goo_lobe_denominator, goo_aniso_denominator_floor));
+        // `钳制.Result`, THE CLAMP ARM - `clamp(dot(cross(N, Tangent), Incoming), 0, 1)` with `Incoming` the view
+        // vector. IT IS NOT INVARIANT UNDER `T -> -T`, unlike everything else in this lobe and unlike `Lam` / `s2`
+        // / the dots above; the dump does not export the tangent's direction/axis, so whether the reference's
+        // `cross(N, T)` handedness matches `surface_tbn`'s is UNVERIFIABLE here (plan U4). On this asset it is
+        // unreachable anyway: `混合.017` multiplies the whole of `混合.020` by a mask that is 0.0 everywhere.
+        const float goo_lobe_toon_aniso = saturate(dot(cross(n, goo_lobe_t), v));
+        // `混合.020` AT THE REFERENCE'S OWN ARM ORDER, `lerp(A = LOBE ⊙ F_Schlick, B = clamp arm, f = Use
+        // Toonaniso?)` - the same reading of factor 0 as `混合.016` above takes, and the third switch of lane 25
+        // is now genuinely consumed rather than recorded.
+        const float3 goo_anisotropic_masked = lerp(goo_lobe * goo_schlick_f, float3(goo_lobe_toon_aniso, goo_lobe_toon_aniso, goo_lobe_toon_aniso), goo_aniso_gate.z) * goo_anisotropic_mask;
         const float3 goo_specular_chosen = lerp(goo_dv_original * goo_schlick_f, goo_anisotropic_masked, goo_use_anisotropy);
         // `转接点.077 <- 组输入.SpecularColor` - PER MATERIAL AND HDR (not a tint): `body_01` is
         // `[4.2092814445495605, 3.7652196884155273, 3.7652196884155273]`, `cloth_02` is

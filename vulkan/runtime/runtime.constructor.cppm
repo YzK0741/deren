@@ -496,6 +496,17 @@ namespace vulkan {
                 // `tests/test_goo_toon_math.cpp` pins all three.
                 neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_aniso_gate)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                // STEP 12'S ONE IS `(0, 0, 0, 0)` TOO, AND THE TWO JOBS IT DOES ARE STEP 10'S OWN: it IS the
+                // reference's group default (`ng[2].interface[20]` `Aniso_SmoothnessMaxT` = `0.0`,
+                // `interface[21]` `Aniso_SmoothnessMaxB` = `0.0`, so a material with no `_GooAnisoRough` row gets
+                // `rT = rB = 1` - the anisotropic lobe at full roughness, which is what the graph answers a
+                // caller that states nothing); AND it is the override that keeps that true, because this table
+                // starts EVERY lane at `glm::vec4(1.0f)`, so an unoverridden lane 26 would hand every rowless
+                // material `rT = (1 - 1)^2 = 0` - a mirror - instead of the `0.0` the graph means. `.z` / `.w`
+                // are reserved. Keep the spelling of this initialiser and the two hosts' tables in step, because
+                // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_aniso_rough`.
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_aniso_rough)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(neutral_colours)),

@@ -340,9 +340,10 @@ namespace {
         if (primitive_file.good()) {
             std::string const primitive{std::istreambuf_iterator<char>{primitive_file}, std::istreambuf_iterator<char>{}};
             // STEP 8 RAISED ALL FOUR OF THESE FROM 24 TO 25 (lane 24 is `_GooNormalStrength`); STEP 10 RAISED THEM
-            // AGAIN TO 26 (lane 25 is `_GooAnisoGate`). Each time the numbers moved together with the enum, the
-            // host's two tables and the shaders' reads.
-            CHECK(shader.find("character_toon_colour_lanes = 26u") != std::string::npos);
+            // AGAIN TO 26 (lane 25 is `_GooAnisoGate`); STEP 12 RAISED THEM ONCE MORE TO 27 (lane 26 is
+            // `_GooAnisoRough`, the anisotropic lobe's two roughnesses). Each time the numbers moved together with
+            // the enum, the host's two tables and the shaders' reads.
+            CHECK(shader.find("character_toon_colour_lanes = 27u") != std::string::npos);
             CHECK(primitive.find("count = 14,") != std::string::npos);
             // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
             // stage cannot include `character_forward.slang` without inheriting its entry point: the outline's
@@ -352,7 +353,7 @@ namespace {
             CHECK(pbr_file.good());
             if (pbr_file.good()) {
                 std::string const pbr{std::istreambuf_iterator<char>{pbr_file}, std::istreambuf_iterator<char>{}};
-                CHECK(pbr.find("pbr_toon_colour_lanes = 26u") != std::string::npos);
+                CHECK(pbr.find("pbr_toon_colour_lanes = 27u") != std::string::npos);
             }
             // ... AND THE THIRD READER, which step 3 added: the REWRITTEN chain's rim is a fullscreen stage of its
             // own (`shaders/goo_rim.slang`) and it reads FIVE lanes of this table, so a copy left at the old count
@@ -363,7 +364,7 @@ namespace {
             CHECK(goo_rim_file.good());
             if (goo_rim_file.good()) {
                 std::string const goo_rim{std::istreambuf_iterator<char>{goo_rim_file}, std::istreambuf_iterator<char>{}};
-                CHECK(goo_rim.find("goo_rim_colour_lanes = 26u") != std::string::npos);
+                CHECK(goo_rim.find("goo_rim_colour_lanes = 27u") != std::string::npos);
             }
             // AND THE LANE BLOCK COUNT, the same shape one level down: lanes 8..11 ride a SECOND `uvec4` of the same
             // table, addressed as `material * blocks + 1`, so a block count that drifts reads a neighbouring

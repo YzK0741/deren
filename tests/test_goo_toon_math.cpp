@@ -1549,6 +1549,80 @@ int32_t main() {
         CHECK_MSG(std::abs(k_dv_half_inverse_pi - 0.1591549962759018f) < 1e-9f, "the DV group's 运算.013 * 0.5 = 1/(2pi) = 0.1591549962759018");
         CHECK_MSG(std::abs(k_dv_half_inverse_pi * 2.0f - 0.3183099925518036f) < 1e-9f, "i.e. the group's own 1/pi, which is not the diffuse term's 0.31830987334251404");
     }
+    // ---- 8r3. STEP 12: THE ANISOTROPIC LOBE (`混合.020`'s `A` arm), AS `ng[17]` / `ng[25]` WRITE IT ----
+    //
+    // `ng[17] DV_SmithJointGGXAniso` is a SECOND instance of the group step 11's block above reads, and this is
+    // its OTHER output: `组输出.anisotropy`, the value `混合.016`'s B arm chooses instead of the `原 * F_Schlick`
+    // product. The chain, verbatim out of the dump and re-derived by `zmd-ab/_s12v_trace.py all`:
+    //
+    //     p   = rT*rB                                                             # `组输入.roughnessT/B`
+    //     S   = (rB*TdotH, rT*BdotH, NoH*p)                                       # `合并 XYZ.002`
+    //     s2  = dot(S, S)                                                         # `运算.004`
+    //     W   = (rT*TdotL, rB*BdotL, NoL)                                         # `合并 XYZ.003`
+    //     |W| = length(W)                                                         # `矢量运算.006`
+    //     Lam = length((rT*TdotV, rB*BdotV, NoV))                                 # `ng[25]`'s whole body
+    //     叶  = 0.15915493667125702 * (1.0 * p^3) / max((|W|*NoV + Lam*NoL)*s2^2, 0.0010000000474974513)
+    //
+    // THE `1.0` IN `num` IS `合并 XYZ.003.X`, an ENABLED UNLINKED LITERAL - that is why the numerator is a
+    // MULTIPLY node and why the expression below spells it rather than dropping it. `rT = (1 - Aniso_SmoothnessMaxT)^2`
+    // and `rB` likewise (`ng[17]`'s two `Power` nodes). `0.15915493667125702` is `运算.013`'s
+    // `0.31830987334251404 * 0.5` and it is a DIFFERENT float32 from the isotropic arm's `0.1591549962759018` -
+    // pinned as such at the bottom of this block, because the plan's U2 note records exactly that mix-up.
+    //
+    // THE THREE POINTS ARE THE TRACE'S OWN (`_s12v_trace.py all` prints `Lam` and `叶` for each), so this is a
+    // RE-DERIVATION rather than an oracle in the same sense section 8r2's note describes; what it catches is drift.
+    // The returned array is `{p, s2, |W|, Lam, floored denominator, 叶}` so the SHAPE is pinned and not only the
+    // answer - a re-arrangement that kept `叶` right would still have to answer for `Lam` and `s2`.
+    {
+        auto const aniso_parts = [](double const rt, double const rb, double const th, double const bh, double const nh,
+                                    double const tl, double const bl, double const nl, double const tv, double const bv,
+                                    double const nv) {
+            double const p = rt * rb;
+            double const sz = nh * p;
+            double const s2 = (rb * th) * (rb * th) + (rt * bh) * (rt * bh) + sz * sz;
+            double const w = std::sqrt((rt * tl) * (rt * tl) + (rb * bl) * (rb * bl) + nl * nl);
+            double const lam = std::sqrt((rt * tv) * (rt * tv) + (rb * bv) * (rb * bv) + nv * nv);
+            double const denominator = (w * nv + lam * nl) * s2 * s2;
+            double const floored = std::max(denominator, 0.0010000000474974513);
+            return std::array<double, 6u>{p, s2, w, lam, floored, 0.15915493667125702 * (1.0 * p * p * p) / floored};
+        };
+        // (1) POINT A - the trace's first sample, where the lobe is at its largest of the three.
+        std::array<double, 6u> const a = aniso_parts(0.5, 0.5, 0.6, 0.5, 0.7, 0.3, 0.4, 0.8, 0.35, 0.45, 0.75);
+        CHECK_MSG(std::abs(a[1] - 0.18312499999999998) < 1e-15,
+                  "A's `s2` = (0.5*0.6)^2 + (0.5*0.5)^2 + (0.7*0.25)^2 = 0.183125 - and the CROSSED roughnesses are load-bearing: the same point with them un-swapped gives 0.169125");
+        CHECK_MSG(std::abs(a[2] - 0.83815273071201057) < 1e-15, "A's |W| = sqrt(0.3^2 + 0.2^2 + 0.8^2) = 0.83815273071201057");
+        CHECK_MSG(std::abs(a[3] - 0.80234032679406064) < 1e-15, "A's Lam = sqrt(0.35^2 + 0.45^2 + 0.75^2) = 0.80234032679406064 (the trace's own print)");
+        CHECK_MSG(std::abs(a[4] - 0.042605477385205544) < 1e-15, "A's floored denominator = (|W|*NoV + Lam*NoL)*s2^2 = 0.042605477385205544");
+        CHECK_MSG(std::abs(a[5] - 0.058367985482352877) < 1e-15, "A's 叶 = 0.058367985482352884 (the trace's print; f32 0.058367975)");
+        // (2) POINT B - a small lobe, and the point where `T` and `B` are on OPPOSITE sides of the halfway vector.
+        std::array<double, 6u> const b = aniso_parts(0.2, 0.6, 0.9, 0.1, 0.3, 0.5, 0.2, 0.85, 0.6, 0.15, 0.8);
+        CHECK_MSG(std::abs(b[3] - 0.81394102980498539) < 1e-15, "B's Lam = 0.81394102980498539 (the trace's own print; f32 0.81394106149673462)");
+        CHECK_MSG(std::abs(b[5] - 0.0023112930334865441) < 1e-15, "B's 叶 = 0.0023112930334865454 (the trace's print; f32 0.0023112926)");
+        // (3) POINT C - the degenerate corner the per-material defaults sit on: `rT = rB = 1` with the frame
+        //     aligned to `H`, so every dot is 0 or 1. It is also the value the NUMERATOR alone gives at `p = 1`
+        //     (`0.15915493667125702 / 2`) and the one place the floor is furthest from binding.
+        std::array<double, 6u> const c = aniso_parts(1.0, 1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
+        CHECK_MSG(std::abs(c[3] - 1.0) < 1e-15, "C's Lam = 1.0 exactly");
+        CHECK_MSG(std::abs(c[4] - 2.0) < 1e-15, "C's denominator = (1*1 + 1*1)*1*1 = 2.0, so the floor is nowhere near it");
+        CHECK_MSG(std::abs(c[5] - 0.07957746833562851) < 1e-15, "C's 叶 = 0.07957746833562851 (the trace's print; f32 0.07957747)");
+        // (4) THE FLOOR, AS A PROPERTY RATHER THAN A HOPE: `s2` is a convex combination of `{rB^2, rT^2, p^2}` for
+        //     a unit frame, so the un-floored denominator is strictly positive there and the floor can only be
+        //     reached by a frame that is NOT unit (which `surface_tbn` can produce nothing of, but which the
+        //     reference still guards). Pinned so that "the floor never binds" is a statement this file has tested.
+        std::array<double, 6u> const tiny = aniso_parts(1e-4, 1e-4, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 1.0);
+        CHECK_MSG(tiny[4] == 0.0010000000474974513,
+                  "a near-zero roughness drives the whole denominator under the reference's floor, and `max` is what answers it");
+        CHECK_MSG(std::isfinite(tiny[5]) && tiny[5] > 0.0,
+                  "so the lobe is a POSITIVE FINITE number even there - which is the NaN property the arm needs, because it evaluates the lobe for every pixel and multiplies by a mask that is zero for all of them (`0 * NaN` would not be saved by the mask)");
+        // (5) THE TWO `1/(2π)` CONSTANTS ARE NOT INTERCHANGEABLE, at the precision the shader builds them in.
+        float const iso_constant = 0.3183099925518036f * 0.5f;
+        float const lobe_constant = 0.31830987334251404f * 0.5f;
+        CHECK_MSG(iso_constant != lobe_constant,
+                  "`0.3183099925518036f * 0.5f` and `0.31830987334251404f * 0.5f` are different float32s (0x3E22F987 vs 0x3E22F983), so the lobe must NOT reuse `goo_dv_half_inverse_pi`");
+        CHECK_MSG(std::abs(static_cast<double>(lobe_constant) - 0.15915493667125702) < 1e-17,
+                  "and the lobe's is the one the expectation above is built from");
+    }
+
     // ---- 8r2. STEP 11: `DV_SmithJointGGX_Aniso.original`'s DENOMINATOR, AS THE GRAPH WRITES IT ----
     //
     // THIS BLOCK REPLACES NO PINS, BECAUSE THERE WERE NONE TO REPLACE: the old expression was pinned nowhere in
@@ -2297,7 +2371,8 @@ int32_t main() {
             std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             CHECK_MSG(colour_enum.find("goo_eye_brightness = 6,") != std::string::npos, "the colour lane's enum entry");
             // STEP 8 MOVED THIS FROM 24 TO 25 (the entry below is lane 24, `goo_normal_strength`).
-            CHECK_MSG(colour_enum.find("count = 26,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four, step 8's one and step 10's one)");
+            // ... AND STEP 12 MOVED IT FROM 26 TO 27 (the entry below is lane 26, `goo_aniso_rough`).
+            CHECK_MSG(colour_enum.find("count = 27,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four, step 8's one, step 10's one and step 12's one)");
         }
         CHECK_MSG(app.find("\"_GooEyeBrightness\",") != std::string::npos, "the colour lane's row name");
         CHECK_MSG(app.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != std::string::npos, "the colour lane's neutral in the lookup");
@@ -2394,7 +2469,7 @@ int32_t main() {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
             std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             for (char const* const spelling : {"goo_specular_fgd = 16,", "goo_light_color = 17,", "goo_ambient_tint = 18,",
-                                               "goo_specular_color = 19,", "count = 26,"}) {
+                                               "goo_specular_color = 19,", "count = 27,"}) {
                 CHECK_MSG(colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooSpecularFGD\",", "\"_GooLightColor\",", "\"_GooAmbientTint\",", "\"_GooSpecularColor\","}) {
@@ -2416,7 +2491,7 @@ int32_t main() {
             // THE SHADER SIDE: the lanes are read BY INDEX (`+ 16u` .. `+ 19u`) through the stage's own stride, and
             // the constant that has to move with them is `character_toon_colour_lanes` (25 since step 8, pinned by
             // `test_toon_material_sidecar` against the enum from the other side too).
-            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 26u") != std::string::npos, "the surface stage's stride copy");
+            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 27u") != std::string::npos, "the surface stage's stride copy");
             for (char const* const index : {"colour_base + 16u", "colour_base + 17u", "colour_base + 18u", "colour_base + 19u"}) {
                 CHECK_MSG(character_forward.find(index) != std::string::npos, index);
             }
@@ -2577,7 +2652,7 @@ int32_t main() {
                 CHECK_MSG(goo_rim.find(spelling) != std::string::npos, spelling);
             }
             // ... AND THE LANES IT READS, by index, through ITS OWN copy of the stride
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 26u") != std::string::npos, "the rim stage's own stride copy");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 27u") != std::string::npos, "the rim stage's own stride copy");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 7u") != std::string::npos, "the rim stage reads lane 7 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 8u") != std::string::npos, "the rim stage reads lane 8 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 9u") != std::string::npos, "the rim stage reads lane 9 (the widths) by that index");
@@ -2618,7 +2693,8 @@ int32_t main() {
             std::size_t const face_enum_at = primitive.find("enum class toon_colour_lane");
             std::string const face_colour_enum = primitive.substr(face_enum_at, primitive.find("};", face_enum_at) - face_enum_at);
             for (char const* const spelling : {"goo_face_scalars_a = 20,", "goo_face_scalars_b = 21,", "goo_face_nose_shadow = 22,",
-                                               "goo_face_front_r = 23,", "goo_normal_strength = 24,", "goo_aniso_gate = 25,", "count = 26,"}) {
+                                               "goo_face_front_r = 23,", "goo_normal_strength = 24,", "goo_aniso_gate = 25,",
+                                               "goo_aniso_rough = 26,", "count = 27,"}) {
                 CHECK_MSG(face_colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooFaceScalarsA\",", "\"_GooFaceScalarsB\",", "\"_GooFaceNoseShadow\",", "\"_GooFaceFrontR\","}) {
@@ -2693,7 +2769,7 @@ int32_t main() {
                 std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
                 std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
                 CHECK_MSG(colour_enum.find("goo_aniso_gate = 25,") != std::string::npos, "the gate lane's enum entry, APPENDED at 25 so no earlier index moves");
-                CHECK_MSG(colour_enum.find("count = 26,") != std::string::npos, "and the enum's count with it");
+                CHECK_MSG(colour_enum.find("count = 27,") != std::string::npos, "and the enum's count with it (step 12 appended lane 26 after this one)");
                 CHECK_MSG(app.find("\"_GooAnisoGate\",") != std::string::npos, "the gate lane's row name - CamelCase, as the sidecar spells it");
                 // THE ROW IS A `color` ONE, WHICH IS THE DIFFERENCE FROM STEP 8's: it parses through the GENERIC
                 // `others` path, so the lane must NOT be given a branch of its own in `toon_colour` - and the way to
@@ -2734,6 +2810,70 @@ int32_t main() {
                           "step 8's neutral is still in the lookup's table (the gate lane is appended after it)");
                 CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != std::string::npos,
                           "and the lookup's table now ENDS on step 10's - lane order is the contract");
+            }
+            // (c10) STEP 12'S ONE COLOUR LANE, `_GooAnisoRough`, AND THE LOBE IT FEEDS. This is the lane that turned
+            // `混合.016`'s B arm from a self-declared zero stub into the reference's own function, and it is the
+            // lane whose two values ARE the lobe's two roughnesses rather than any kind of switch - which is why
+            // the block below pins the ARITHMETIC's spellings as well as the lane's, and why the three trace
+            // anchors live in the closed-form half of this file (section 8r3) instead.
+            {
+                std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
+                std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
+                CHECK_MSG(colour_enum.find("goo_aniso_rough = 26,") != std::string::npos, "the rough lane's enum entry, APPENDED at 26 so no earlier index moves");
+                CHECK_MSG(colour_enum.find("count = 27,") != std::string::npos, "and the enum's count with it");
+                CHECK_MSG(app.find("\"_GooAnisoRough\",") != std::string::npos, "the rough lane's row name - CamelCase, as the sidecar spells it");
+                // A `color` ROW, SO NO BRANCH AND NO DIAGNOSTIC - the same two facts step 10's block asserts for its
+                // own lane, asserted the same way (by the enum spelling being absent from `main.cpp` outside the
+                // row table's ORDER comment).
+                CHECK_MSG(app.find("vulkan::toon_colour_lane::goo_aniso_rough") == std::string::npos,
+                          "the rough lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
+                // THE TWO HOST TABLES. The lookup's ends on this lane now; the GPU one has to override it, because
+                // that table starts every lane at `glm::vec4(1.0f)` and a lane left there would hand every material
+                // with no row `rT = (1 - 1)^2 = 0` - a mirror - instead of the reference's own `(0, 0, 0, 0)`.
+                CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != std::string::npos,
+                          "the lookup's neutral table still ENDS on this lane's `(0, 0, 0, 0)` - lane order is the contract");
+                CHECK_MSG(constructor.find("toon_colour_lane::goo_aniso_rough)] =\n                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos,
+                          "the rough lane's neutral in the GPU table's initialiser, at ALL FOUR components");
+                // ... AND THE SHADER HALF: the read at lane 26, the two squares, and the two constants the lobe
+                // needs that are NOT the isotropic arm's.
+                CHECK_MSG(character_forward.find("const float4 goo_aniso_rough_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 26u);") != std::string::npos,
+                          "the rough lane is read at `colour_base + 26u`");
+                CHECK_MSG(character_forward.find("const float goo_aniso_roughness_t = (1.0 - goo_aniso_rough_lane.x) * (1.0 - goo_aniso_rough_lane.x);") != std::string::npos,
+                          "`.x` is `Aniso_SmoothnessMaxT` and `rT` is `(1 - it)^2`");
+                CHECK_MSG(character_forward.find("const float goo_aniso_roughness_b = (1.0 - goo_aniso_rough_lane.y) * (1.0 - goo_aniso_rough_lane.y);") != std::string::npos,
+                          "`.y` is `Aniso_SmoothnessMaxB` and `rB` likewise");
+                CHECK_MSG(character_forward.find("static const float goo_aniso_half_inverse_pi = 0.31830987334251404 * 0.5;") != std::string::npos,
+                          "the lobe's own `1/(2pi)`, spelled as its own constant rather than reusing the isotropic arm's");
+                CHECK_MSG(character_forward.find("static const float goo_aniso_denominator_floor = 0.0010000000474974513;") != std::string::npos,
+                          "and `运算.017`'s floor on the lobe's denominator, at the dump's own precision");
+                // THE ARITHMETIC, in the two places the earlier reading of this group got it wrong: `S`'s third
+                // component and the fact that the CROSSED roughnesses sit on the tangent/bitangent dots.
+                CHECK_MSG(character_forward.find("(goo_ndoth * goo_lobe_p) * (goo_ndoth * goo_lobe_p)") != std::string::npos,
+                          "`S.z = NoH * p` - NOT `Lam * p`, which is the reading the brief's §6 corrects");
+                CHECK_MSG(character_forward.find("sqrt((goo_aniso_roughness_t * goo_lobe_t_dot_v) * (goo_aniso_roughness_t * goo_lobe_t_dot_v) +") != std::string::npos,
+                          "`Lam` is the WHOLE of `ng[25]` on the VIEW side (rT against TdotV), not a denominator term");
+                CHECK_MSG(character_forward.find("(goo_aniso_roughness_t * goo_lobe_t_dot_l) * (goo_aniso_roughness_t * goo_lobe_t_dot_l) +") != std::string::npos,
+                          "and `|W|` is the LIGHT side - the two vectors are swapped, which is the second correction");
+                CHECK_MSG(character_forward.find("const float goo_lobe_denominator = (goo_lobe_w_length * goo_clamped_ndotv + goo_lobe_lambda * goo_ndotl_clamped) * goo_lobe_s2 * goo_lobe_s2;") != std::string::npos,
+                          "the denominator is `(|W|*NoV + Lam*NoL) * s2^2`, summed once - neither half is a numerator factor");
+                CHECK_MSG(character_forward.find("const float goo_lobe = goo_aniso_half_inverse_pi * ((goo_lobe_p * goo_lobe_p * goo_lobe_p) / max(goo_lobe_denominator, goo_aniso_denominator_floor));") != std::string::npos,
+                          "and the lobe is `1/(2pi) * p^3 / max(den, floor)` - `p^3` and NOT `p^3 * Lam`, the third correction");
+                // THE CLAMP ARM AND THE ARM ORDER OF `混合.020`: `A` is the lobe times F_Schlick, `B` is the
+                // `钳制` result, `f` is lane 25's `.z` - and the whole of it is then multiplied by the mask
+                // (`混合.017`), which is what makes this step frame-invisible on this asset.
+                CHECK_MSG(character_forward.find("const float goo_lobe_toon_aniso = saturate(dot(cross(n, goo_lobe_t), v));") != std::string::npos,
+                          "`钳制.Result = clamp(dot(cross(N, Tangent), Incoming), 0, 1)`");
+                CHECK_MSG(character_forward.find("lerp(goo_lobe * goo_schlick_f, float3(goo_lobe_toon_aniso, goo_lobe_toon_aniso, goo_lobe_toon_aniso), goo_aniso_gate.z) * goo_anisotropic_mask;") != std::string::npos,
+                          "`混合.020`'s arm order, and `混合.017`'s mask on the outside");
+                CHECK_MSG(character_forward.find("surface_tbn(world_pos, uv, goo_lobe_t, goo_lobe_b);") != std::string::npos,
+                          "the tangent frame comes from `surface_tbn`, the same function step 8's normal decode uses");
+                //     The search is for the DEFINITION WITH ITS `const float3` IN FRONT, because the derivation
+                //     comment above the lobe quotes the old line verbatim (it is how this port records what it
+                //     replaced) - a plain `find` on the right-hand side alone would match that quotation.
+                CHECK_MSG(character_forward.find("const float3 goo_anisotropic_masked = float3(0.0, 0.0, 0.0) * goo_anisotropic_mask;") == std::string::npos,
+                          "and the zero stub the lane replaced is GONE as a definition, not merely commented out");
+                CHECK_MSG(character_forward.find("const float3 goo_anisotropic_masked = lerp(goo_lobe * goo_schlick_f,") != std::string::npos,
+                          "the definition that replaced it is the lobe's");
             }
             // ---- STEP 11: THE DENOMINATOR'S TEXT, so a "simplification" of it cannot pass either ----
             {

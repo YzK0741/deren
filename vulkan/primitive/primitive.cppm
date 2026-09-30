@@ -1117,10 +1117,11 @@ namespace vulkan {
          * `from` is `组输入.Use anisotropy?`, so there is NO polarity node either).
          *
          * `.x = Use anisotropy?`, `.y = Anisotropic mask`, `.z = Use Toonaniso?`, `.w` RESERVED AND UNUSED. `.z` IS
-         * RECORDED AND NOT CONSUMED: `混合.020` is not implemented here (its `钳制.Result` arm,
-         * `clamp(dot(cross(N, Tangent), Incoming), 0, 1)`, and its lobe `群组.007.anisotropy` are both live only for
-         * a material with `Anisotropic mask ≠ 0`, and this asset has none - see `混合.016`'s block in
-         * `shaders/character_forward.slang`).
+         * RECORDED HERE AND READ AT THE ARM: `混合.020` mixes the anisotropic lobe against its `钳制` clamp arm, and
+         * BOTH the lobe (step 12's lane 26) and the clamp arm are implemented - but the whole of `混合.020` is
+         * multiplied by `Anisotropic mask` in `混合.017`, and this asset's mask is `0.0` on every material, so no
+         * pixel of any frame this repository renders can reach either arm (see `混合.016`'s block in
+         * `shaders/character_forward.slang`). It was recorded without a reader from step 10 until step 12.
          *
          * THE NEUTRAL IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a chosen number:
          * `ng[2].interface[3]` (`Use anisotropy?`) `default = 0.0`, `interface[45]` (`Anisotropic mask`)
@@ -1133,7 +1134,32 @@ namespace vulkan {
          * (linked) and `M_actor_yvonne_cloth_03` (`goo_step9_verify.md` §7.6; `zmd-ab/_s9_aniso3.py` §C reprints it).
          */
         goo_aniso_gate = 25, // `_GooAnisoGate`: `Use anisotropy?` [x] / `Anisotropic mask` [y] / `Use Toonaniso?` [z] (w reserved)
-        count = 26,
+        /**
+         * `_GooAnisoRough` in `.x` / `.y`: THE ANISOTROPIC LOBE's TWO ROUGHNESSES - `Aniso_SmoothnessMaxT` and
+         * `Aniso_SmoothnessMaxB`, the two `PBRToonBase` sockets `roughnessT` and `roughnessB` are built from
+         * (`rT = (1 - Aniso_SmoothnessMaxT)^2`, `rB = (1 - Aniso_SmoothnessMaxB)^2`). `.z` / `.w` are unused and
+         * reserved.
+         *
+         * WHY IT IS A LANE AND NOT A CONSTANT: the two sockets are PER MATERIAL and nothing else in this renderer
+         * can carry them - the material record is full (see the note at the top of this enum) and both are plain
+         * `组输入` numbers rather than textures or colours. The values this asset states are NOT the group's
+         * defaults: `Aniso_SmoothnessMaxT = 0.2197451889514923` and `Aniso_SmoothnessMaxB = 0.668789803981781` on
+         * all five `M_actor_laevat_cloth_*` materials, against `ng[2].interface[20]` / `[21]` = `0.0` / `0.0`. A
+         * constant here would therefore be wrong for every material the reference's own author tuned, in both
+         * directions (a default of 0 gives `rT = rB = 1`, a plausible-looking but unauthored answer).
+         *
+         * THE NEUTRAL IS `(0.0, 0.0, 0.0, 0.0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a chosen number -
+         * the same shape lane 25 above uses and for the same reason. `Aniso_SmoothnessMaxT = 0` makes `rT = 1`,
+         * i.e. a fully rough anisotropic lobe, which is exactly what `ng[2]` returns for a caller that states
+         * nothing; and because `0.0` here is a stated value the reference really has, it cannot double as "absent",
+         * so NO sentinel is needed and the lookup's generic `color` path answers `toon_colour_neutral` unchanged
+         * (see `main.cpp`'s `toon_colour`, which needs no branch for this lane). THE GPU TABLE'S DEFAULT IS
+         * `glm::vec4(1.0f)` FOR EVERY LANE, so this lane MUST be overridden in `runtime.constructor.cppm` exactly
+         * as lane 25 is; with no override a material with no row would read `Aniso_SmoothnessMaxT = 1.0`, i.e.
+         * `rT = 0`, a mirror the reference never describes.
+         */
+        goo_aniso_rough = 26, // `_GooAnisoRough`: `Aniso_SmoothnessMaxT` [x] / `Aniso_SmoothnessMaxB` [y] (zw reserved)
+        count = 27,
     };
 
     /**
@@ -1241,7 +1267,16 @@ namespace vulkan {
                                                                                             // 0 would DELETE the direct specular of every material that states no
                                                                                             // row. White is also the reference's own `interface[]` default for
                                                                                             // the socket, so "not stated" and "stated as white" agree.
-                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f)};
+                                                                                            glm::vec4(1.0f, 1.0f, 1.0f, 1.0f),
+                                                                                            // ---- STEP 12'S ONE LANE (`toon_colour_lane::goo_aniso_rough`) ----
+                                                                                            //
+                                                                                            // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN `interface[]` DEFAULT,
+                                                                                            // exactly as lane 25's is, and NOT the `-1` / `-1000` sentinel shape:
+                                                                                            // `Aniso_SmoothnessMaxT = 0` is a value the graph really uses (it is
+                                                                                            // what a caller that states nothing gets, and `rT = 1` follows from it),
+                                                                                            // so there is no state it could stand in for. See
+                                                                                            // `toon_colour_lane::goo_aniso_rough`.
+                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)};
         /**
          * THE AUTHOR'S TRANSPARENT VARIANT (`_TRANSPARENT_ON`), which its sidecar selects with the PAIR
          * `_SrcBlend 5` / `_DstBlend 10` - Unity's `SrcAlpha` / `OneMinusSrcAlpha`.

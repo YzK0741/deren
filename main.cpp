@@ -614,13 +614,27 @@ int main(int argc, char** argv) {
         // `_GooRimScalars` and `_GooEyeBrightness` already use and the shape one `vec4` forces: `.x = Use
         // anisotropy?`, `.y = Anisotropic mask`, `.z = Use Toonaniso?`, `.w` reserved. `混合.016` (the direct
         // specular's arm selector) reads the first, `混合.017` multiplies by the second, and `混合.020` - the
-        // anisotropic lobe this port does NOT implement - switches on the third.
+        // anisotropic lobe - switches on the third, which step 12 implemented (the lobe's own roughnesses ride
+        // the lane below); the mask is `0.0` on every material of this asset, so none of it is reachable in a
+        // frame this repository renders.
         //
         // IT IS A `color` ROW AND NOT A `float` ONE, so it needs NO branch in `toon_colour`: unlike step 8's
         // `_GooNormalStrength` (whose `float` kind lands in `material_sidecar::scalars` and is therefore invisible to
         // the generic `others` path below), this row parses through that path like every other colour lane, and its
         // four comma-separated components arrive component by component.
         "_GooAnisoGate",
+        // ---- STEP 12: THE ANISOTROPIC LOBE'S TWO ROUGHNESSES ----
+        //
+        // ONE `color` ROW FOR THE TWO SIBLING SOCKETS `roughnessT` / `roughnessB` ARE BUILT FROM, spelled
+        // `Aniso_SmoothnessMaxT` / `Aniso_SmoothnessMaxB` in the reference's own graph (`.x` / `.y`, in that
+        // order; `.z` / `.w` reserved). The port's lobe computes `rT = (1 - lane.x)^2`, `rB = (1 - lane.y)^2`,
+        // which is the two `Power` nodes the snapshot calls `roughnessT` / `roughnessB`.
+        //
+        // IT IS THE SAME KIND OF ROW AS `_GooAnisoGate` ABOVE AND TAKES THE SAME PATH, so it needs no branch in
+        // `toon_colour`: a `color` row lands in `material_sidecar::others`, which is what the generic tail of that
+        // lambda reads, and the four comma-separated components arrive one at a time. Its neutral is `(0,0,0,0)`
+        // - the reference's own group default rather than a sentinel - see `toon_colour_lane::goo_aniso_rough`.
+        "_GooAnisoRough",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -1403,6 +1417,15 @@ int main(int argc, char** argv) {
          // `others` path, and its `-1000` needed the `>= 0.0f` test because a sentinel has to be read as "not
          // stated". Here `0.0` IS a stated value (it is the reference's own default), there is nothing to test for,
          // and the generic path at the end of `toon_colour` carries the row as it carries `_GooSpecularColor`.
+         glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+         // STEP 12'S ONE IS ALSO `(0, 0, 0, 0)`, AND FOR STEP 10'S REASON RATHER THAN BY IMITATION: `ng[2].interface[20]`
+         // (`Aniso_SmoothnessMaxT`) is `0.0` and `interface[21]` (`Aniso_SmoothnessMaxB`) is `0.0`, so a material
+         // that states no `_GooAnisoRough` row reads the roughnesses - `rT = rB = 1` - that the graph itself gives
+         // a caller that states nothing. It too is a `color` row, so it too needs no branch below, and the value
+         // `0.0` is a real one the reference uses, so it is not a sentinel. The GPU-side override is
+         // load-bearing in the same way: that table starts every lane at `glm::vec4(1.0f)`, and an unoverridden
+         // lane 26 would give every rowless material `rT = (1 - 1)^2 = 0`. See
+         // `toon_colour_lane::goo_aniso_rough`.
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};
     auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);

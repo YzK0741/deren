@@ -157,7 +157,10 @@ struct GooRimPush
 /// exactly as lane 6 is counted there).
 /// STEP 10 RAISED IT TO 26 FOR `_GooAnisoGate` (`Use anisotropy?` / `Anisotropic mask` / `Use Toonaniso?` of
 /// `PBRToonBase`), again counted and not read here.
-static const uint goo_rim_colour_lanes = 26u;
+/// STEP 12 RAISED IT TO 27 FOR `_GooAnisoRough` (the anisotropic lobe's two roughnesses, `Aniso_SmoothnessMaxT` /
+/// `Aniso_SmoothnessMaxB`, built into `roughnessT` / `roughnessB` by the surface stage), again counted and not
+/// read here.
+static const uint goo_rim_colour_lanes = 27u;
 
 // ============================ THE REFERENCE'S GROUP-INTERNAL CONSTANTS ============================
 //
