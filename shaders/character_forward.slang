@@ -2373,10 +2373,33 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float3 face_half_dir = normalize(l + v);
         const float face_ndoth = saturate(dot(face_shading_normal, face_half_dir));
         const float face_ldoth = saturate(dot(l, face_half_dir));
-        const float face_d = face_a2 / max(pow(face_ndoth * face_ndoth * (face_a2 - 1.0) + 1.0, 2.0), 1e-12);
-        const float face_lambda_v = abs(face_ldoth) * sqrt(max(face_a2 + (1.0 - face_a2) * face_clamped_ndotv * face_clamped_ndotv, 0.0));
-        const float face_gv = 1.0 / (1.0 + face_lambda_v);
-        const float face_dv_original = goo_dv_half_inverse_pi * face_d * face_gv;
+        // ---- `原`, AND THE SECOND COPY OF STEP 11's ARITHMETIC (欠账 (e), 2026-09-30) ----
+        //
+        // THIS ARM CARRIED THE PRE-STEP-11 EXPRESSION A SECOND TIME, which `zmd-ab/goo_step11_armA_result.md` §7
+        // item 2 reports and does not fix ("脸 arm 里还有同一段错算术的第二份副本 ... 若脸 arm 将来复活，它的镜面
+        // 同样偏暗 1.78 倍且下限仍在 S^2 上"). It is fixed here, and it is now THE SAME ARITHMETIC, TERM FOR TERM,
+        // as the body arm's landed block at `goo_dv_s`: `S`, the UN-rooted `|NoL|` half, the ROOTED `NoV` half,
+        // their ADD, `MAXIMUM(S^2 * λ, 1.1754899742869237e-35)`, then `1/(2pi) * (a2 / that)`. The four defects the
+        // removed copy carried are the body's own pre-step-11 ones: `pow(S, 2)` with a `1e-12` floor on `S^2`
+        // alone, a `sqrt` around the half that is NOT rooted, no `λL` half at all, and a `Gv = 1/(1 + λ)` the
+        // reference has no node for (its denominator is the ADD of the two halves, with no `+1` in it).
+        //
+        // ONE TOKEN DIFFERS FROM THE BODY'S LINES, AND IT IS THE REFERENCE'S OWN WIRING: this arm's `Abs_NdotL`
+        // slot is fed `|L·H|` (see the note above the `原` consumer), so the `NoL` operand is `face_ldoth` and not
+        // `NoL` itself. That substitution is the REMOVED copy's own (`abs(face_ldoth)`) and is not introduced here.
+        //
+        // IT IS DEAD CODE ON THIS ASSET, TWICE OVER, which is why the step is expected to be pixel-neutral: the
+        // gate above needs the SDF lane (`goo_face_block2.w`, lane 11 = `_GooFaceSDF`), the shipped sidecar names no
+        // `_GooFaceSDF` row, and the loader prints no resolved `_GooFaceSDF` slot for ANY material while both
+        // sibling masks do resolve; and even if that row existed, this material's `_GooFaceScalarsA.w` is `1.0`, so
+        // `SmoothnessMax = 1.0`, `a2 = 0`, and BOTH spellings return exactly `+0.0` because the numerator is the zero
+        // `a2`. Section `8r4` of `tests/test_goo_toon_math.cpp` pins the text, the same-source property, that neutrality.
+        const float face_dv_s = face_ndoth * face_ndoth * (face_a2 - 1.0) + 1.0;
+        const float face_dv_lambda_v = abs(face_ldoth) * (face_a2 + (1.0 - face_a2) * face_clamped_ndotv * face_clamped_ndotv);
+        const float face_dv_lambda_l = face_clamped_ndotv * sqrt(face_a2 + (1.0 - face_a2) * face_ldoth * face_ldoth);
+        const float face_dv_lambda = face_dv_lambda_v + face_dv_lambda_l;   // `运算.012`: an ADD, with NO `+1` in it
+        const float face_dv_denominator = max(face_dv_s * face_dv_s * face_dv_lambda, 1.1754899742869237e-35);
+        const float face_dv_original = goo_dv_half_inverse_pi * (face_a2 / face_dv_denominator);
         const float face_schlick_x = 1.0 - face_ldoth;
         const float face_schlick_x5 = face_schlick_x * face_schlick_x * face_schlick_x * face_schlick_x * face_schlick_x;
         const float3 face_schlick_f = face_fresnel0 + (1.0 - face_fresnel0) * face_schlick_x5; // f90 = 1.0

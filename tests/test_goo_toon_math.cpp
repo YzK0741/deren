@@ -3107,6 +3107,92 @@ int32_t main() {
                 CHECK_MSG(character_forward.find("const float goo_gv = ") == std::string::npos,
                           "no `goo_gv` is computed at all, so no reader can mistake λ for a Smith `Gv`");
             }
+            // ---- 8r4. 欠账 (e): STEP 11's SECOND COPY, IN THE FACE ARM ----
+            //
+            // STEP 11 FIXED THE `原` DENOMINATOR IN THE BODY ARM; THE FACE ARM KEPT THE OLD EXPRESSION, and
+            // `zmd-ab/goo_step11_armA_result.md` §7 item 2 reports that rather than fixing it. What this block
+            // guards is the property the fix is FOR: the two copies are THE SAME ARITHMETIC under the arm's own
+            // names, so an edit to either one alone fails HERE rather than in a frame nobody compares.
+            {
+                // (1) THE SAME SOURCE, LINE BY LINE. Each of the six lines is pulled out of the shader text by its
+                //     own definition, the BODY's line is then renamed into the FACE arm's vocabulary, and the two
+                //     are compared CHARACTER FOR CHARACTER. The names below are the whole difference between the
+                //     arms - `goo_ndotl_clamped` -> `face_ldoth` is the reference's own wiring of this arm's
+                //     `Abs_NdotL` socket and not a rename of convenience. A dropped `sqrt`, a re-added `+1`, a floor
+                //     moved back onto `S^2` or a `pow(..., 2.0)` re-appearing all change ONE side and fail here.
+                auto const line_with = [&character_forward](char const* const needle) {
+                    std::size_t const at = character_forward.find(needle);
+                    if (at == std::string::npos) {
+                        return std::string{};
+                    }
+                    std::size_t const start = character_forward.rfind('\n', at);
+                    std::size_t const stop = character_forward.find(';', at);
+                    if (stop == std::string::npos) {
+                        return std::string{};
+                    }
+                    std::size_t const begin = start == std::string::npos ? 0u : start + 1u;
+                    return character_forward.substr(begin, stop + 1u - begin);
+                };
+                auto const body_as_face = [](std::string text) {
+                    for (auto const& names : {std::pair{"goo_dv_lambda_v", "face_dv_lambda_v"},
+                                              std::pair{"goo_dv_lambda_l", "face_dv_lambda_l"},
+                                              std::pair{"goo_dv_lambda", "face_dv_lambda"},
+                                              std::pair{"goo_dv_denominator", "face_dv_denominator"},
+                                              std::pair{"goo_dv_original", "face_dv_original"},
+                                              std::pair{"goo_dv_s", "face_dv_s"},
+                                              std::pair{"goo_ndotl_clamped", "face_ldoth"},
+                                              std::pair{"goo_clamped_ndotv", "face_clamped_ndotv"},
+                                              std::pair{"goo_ndoth", "face_ndoth"},
+                                              std::pair{"goo_a2", "face_a2"}}) {
+                        std::string const from{names.first};
+                        std::string const to{names.second};
+                        for (std::size_t at = text.find(from); at != std::string::npos; at = text.find(from, at + to.size())) {
+                            text.replace(at, from.size(), to);
+                        }
+                    }
+                    return text;
+                };
+                for (char const* const name : {"dv_s", "dv_lambda_v", "dv_lambda_l", "dv_lambda", "dv_denominator", "dv_original"}) {
+                    std::string const body_line = line_with(("const float goo_" + std::string{name} + " = ").c_str());
+                    std::string const face_line = line_with(("const float face_" + std::string{name} + " = ").c_str());
+                    std::string const message = "8r4: the face arm's `const float face_" + std::string{name} +
+                                                " = ` line is the body arm's line under the arm's own names";
+                    CHECK_MSG(!body_line.empty() && !face_line.empty() && body_as_face(body_line) == face_line, message.c_str());
+                }
+                // (2) THE VALUE, THROUGH THE FACE ARM'S OWN SPELLING. The closed form is re-derived here (`8r2`'s
+                //     helper is out of scope) and it is the same function of `(a2, NoV, NoL, NoH)` that `8r2`
+                //     pins; `NoL` is passed `|L·H|` because that is what this arm's `Abs_NdotL` socket is fed.
+                auto const face_parts = [](double const r, double const nov, double const nol, double const noh) {
+                    double const cr = r * r;
+                    double const a2 = cr * cr;
+                    double const s = 1.0 + noh * noh * (a2 - 1.0);
+                    double const lv = std::abs(nol) * (a2 + (1.0 - a2) * nov * nov);
+                    double const ll = nov * std::sqrt(a2 + (1.0 - a2) * nol * nol);
+                    double const lambda = lv + ll;
+                    double const floored = std::max(s * s * lambda, static_cast<double>(k_dv_denominator_floor));
+                    return std::array<double, 4u>{s, lambda, floored, 0.1591549962759018 * a2 / floored};
+                };
+                // ... AND THE DELETED FACE COPY, kept only to state the defect it carried: `S^2` floored at `1e-12`,
+                // the `sqrt` on the half that is not rooted, and the invented `Gv`'s `+1`. Nothing below asserts
+                // that any shader still computes this.
+                auto const face_old = [](double const r, double const nov, double const nol, double const noh) {
+                    double const cr = r * r;
+                    double const a2 = cr * cr;
+                    double const s2 = noh * noh * (a2 - 1.0) + 1.0;
+                    double const lambda_v = std::abs(nol) * std::sqrt(std::max(a2 + (1.0 - a2) * nov * nov, 0.0));
+                    return 0.1591549962759018 * (a2 / std::max(s2 * s2, 1e-12)) * (1.0 / (1.0 + lambda_v));
+                };
+                CHECK_MSG(std::abs(face_parts(0.25, 0.7, 0.7, 0.95)[3] - 7.29172301067769e-02) < 1e-15,
+                          "8r4: the face arm's fixed expression gives the body's 7.29172301067769e-02 at the arbitrated point");
+                CHECK_MSG(std::abs(face_old(0.25, 0.7, 0.7, 0.95) / face_parts(0.25, 0.7, 0.7, 0.95)[3] - 0.5602899861504124) < 1e-12,
+                          "8r4: and the copy removed from it was the SAME 0.5602899861504124x of that - 1.7847900635717335x too dark");
+                // (3) THE NEUTRALITY, WHICH IS WHY THIS STEP CANNOT MOVE A PIXEL on this asset: the shipped face
+                //     material's `_GooFaceScalarsA.w` is `1.0`, so `perceptualRoughness = 1 - saturate(1) = 0`,
+                //     `clampedRoughness = 0` and `a2 = 0`. Both spellings then have the ZERO numerator and agree
+                //     EXACTLY - not approximately - so the difference the fix removes is multiplied by that zero.
+                CHECK_MSG(face_parts(0.0, 0.7, 0.7, 0.95)[3] == 0.0 && face_old(0.0, 0.7, 0.7, 0.95) == 0.0,
+                          "8r4: at a2 = 0 both spellings are exactly 0 - the fix is pixel-neutral by construction");
+            }
             // ---- `headCenter`: THE ONE PIECE OF NEW DATA, and the stride is the failure class ----
             CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos, "`head_ubo` gained the position");
             CHECK_MSG(primitive.find("static_assert(sizeof(head_ubo) == 64);") != std::string::npos, "and its size is asserted at FOUR vec4s, not three");
@@ -3474,6 +3560,20 @@ int32_t main() {
                 // cloth's, so it is pinned VERBATIM with the same tabs the file uses rather than as a loose "0.5".
                 CHECK_MSG(sidecar.find("M_actor_laevat_hair_01\tfloat\t_GooNormalStrength\t0.5") != std::string::npos,
                           "14-A7: the shipped sidecar carries the hair `_GooNormalStrength` row");
+
+                // 欠账 (e): THE FACE ARM'S GATE, ON THE ASSET ITSELF. Two rows decide whether the arm step 11's
+                // second copy lived in can run at all, and both are pinned here - the material's
+                // `_GooFaceScalarsA.w` (which makes `SmoothnessMax = 1.0`, `a2 = 0`, and the whole `原` term zero
+                // whichever spelling computes it) plus the ABSENCE of `_GooFaceSDF`: lane 11, the gate's
+                // `goo_face_block2.w`, stays 0 because a mask resolves only when its row is present.
+                // The absence is pinned on purpose: if a future asset adds that row the arm goes LIVE, and this
+                // check firing is the reminder that its specular then has to be re-measured instead of assumed
+                // neutral. `8r4` in the source-text half pins the text and the neutrality; THESE two are the
+                // asset-side half of the same claim.
+                CHECK_MSG(sidecar.find("M_actor_laevat_face_01\tcolor\t_GooFaceScalarsA\t0.5,0.10000000149011612,1.0,1.0") != std::string::npos,
+                          "欠账 (e): the shipped face material's `_GooFaceScalarsA.w` is 1.0, so its lobe's a2 is 0");
+                CHECK_MSG(sidecar.find("_GooFaceSDF") == std::string::npos,
+                          "欠账 (e): and no row names `_GooFaceSDF`, so lane 11 stays 0 and the face arm's gate cannot open");
             } else {
                 // A MISSING BUILD TREE IS NOT A FAILURE (this block is guarded rather than CHECKed for existence), but
                 // it must not be SILENT either: on a clean clone the carrier assertion above does not run, and a reader
