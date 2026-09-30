@@ -2678,10 +2678,32 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // `原 = DV_SmithJointGGX_Aniso.original`, FROM THE MULTI-SCATTER SMITH JOINT GGX (Blender's, which this
         // reference and the chen dump both carry as the LTS-derived `DV_SmithJointGGX_Aniso`):
         //
-        //     lambdaV = |NoL| * sqrt(a2 + (1 - a2)*NoV^2)        # per the group's own nodes
-        //     Gv      = 1 / (1 + lambdaV)                        # `运算.018`, `运算.012`, `运算.019`
-        //     D       = a2 / (NdotH^2*(a2 - 1) + 1)^2            # `运算.001` .. `运算.003`, `运算.017`, `运算.018`
-        //     原      = (0.3183099 * 0.5) * D * Gv              # `运算.013` = MULTIPLY(1/pi, 1/2)
+        //     S  = 1 + NoH^2 * (a2 - 1)                                    # `运算.011` squares it, `运算.016` x λ
+        //     λ  = |NoL| * (a2 + (1 - a2)*NoV^2)                           # UN-rooted, `运算.005` / `运算.006`
+        //         + NoV * sqrt(a2 + (1 - a2)*NoL^2)                        # rooted, `运算.009` / `运算.010` / `运算.019`
+        //     原 = (0.3183099 * 0.5) * a2 / max(S^2 * λ, 1.1754899742869237e-35)   # `运算.013` .. `运算.018`
+        //
+        // FOUR THINGS IN THAT EXPRESSION ARE NOT THE TEXTBOOK SMITH-JOINT GGX, AND STEP 11 EXISTS BECAUSE THE PORT
+        // HAD TRANSCRIBED IT AS THE TEXTBOOK ONE. It pinned nothing either, so 1.78479x of missing highlight was
+        // invisible to a 13/13 suite; the node-by-node arbitration is `zmd-ab/goo_step11_armA_raw.md` and the
+        // measurement is `zmd-ab/goo_step11_armA_result.md`.
+        //
+        //   1. THERE IS NO `+1`. The denominator is `S^2 * λ`, not `S^2 * (1 + λ)`: `运算.012` adds the two halves
+        //      of `λ` and `运算.018` divides by the result with no ADD of 1.0 anywhere between them. The port's
+        //      `Gv = 1/(1 + lambdaV)` was worth a factor of λ/(1 + λ) = 0.3293069768 at the arbitrated point.
+        //   2. THE TWO HALVES OF `λ` ARE ASYMMETRIC. `运算.010` is a SQRT node and it sits on the **NoL** bracket,
+        //      multiplied by `NoV`; the `NoV` bracket is multiplied by `|NoL|` with no root, no POWER node and no
+        //      second SQRT anywhere in the group's chain. λ therefore went from 0.4909950834 to 0.8353896146 at
+        //      the arbitrated point - a factor of 1.7014215476 - while the expression's SHAPE barely moved.
+        //   3. THE FLOOR IS ON THE WHOLE DENOMINATOR at the dump's own literal `1.1754899742869237e-35`
+        //      (`运算.017 = MAXIMUM(运算.016, ...)`), not a `1e-12` on `S^2`. See the constant's own note below.
+        //   4. NO GUARD INSIDE THE SQRT, and step 2 above is why that is safe rather than lucky.
+        //
+        // UNCERTAIN, AND STATED RATHER THAN HIDDEN: whether the reference's runtime evaluates `运算.010`'s SQRT in
+        // float32 or in half precision is NOT recorded anywhere in the dump - it stores nodes, not qualifiers - so
+        // this port evaluates it in float32. Even in float32 the arbitrated point moves by 3.0e-7 relative
+        // (7.291723011e-02 as a closed form, 7.291720808e-02 when the trace executed the graph in float32), which
+        // is the largest model-dependence in this term and is recorded rather than rounded away.
         //
         // and the `(1/pi)*(1/2)` is the group's OWN constant (`运算.013.Value = 0.3183099925518036` then
         // `运算.015 = MULTIPLY(运算.013, 运算.018)`), NOT this port's `goo_inverse_pi` - it is `1/(2pi)`, which is
@@ -2745,10 +2767,32 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // one this port must not "fix" with a floor.
         const float goo_clamped_roughness = roughness * roughness;
         const float goo_a2 = goo_clamped_roughness * goo_clamped_roughness;
-        const float goo_d = goo_a2 / max(pow(goo_ndoth * goo_ndoth * (goo_a2 - 1.0) + 1.0, 2.0), 1e-12);
-        const float goo_lambda_v = abs(goo_ndotl_clamped) * sqrt(max(goo_a2 + (1.0 - goo_a2) * goo_clamped_ndotv * goo_clamped_ndotv, 0.0));
-        const float goo_gv = 1.0 / (1.0 + goo_lambda_v);
-        const float goo_dv_original = goo_dv_half_inverse_pi * goo_d * goo_gv;
+        // `S = 1 + NoH^2*(a2 - 1)`. `运算.011` multiplies this value by ITSELF and `运算.016` multiplies that
+        // product by `λ`; it is spelled out here rather than passed through `pow(..., 2.0)` because the graph's
+        // `运算.011` is a MULTIPLY node and the two round differently in the last bit.
+        const float goo_dv_s = goo_ndoth * goo_ndoth * (goo_a2 - 1.0) + 1.0;
+        // THE TWO HALVES OF `λ`, AND THEY ARE NOT SYMMETRIC - this is the asymmetry step 11's trace arbitrated:
+        //   `群组.partLambdaV = a2 + (1 - a2)*NoV^2`, multiplied by `Abs_NdotL` (`运算.005`, `运算.006`):
+        //   UN-rooted, and this port's name for that half used to be the single `goo_lambda_v`;
+        //   `NoV * SQRT(a2 + (1 - a2)*NoL^2)` (`运算.009`, `运算.010`, `运算.019`): THE ONE ROOT ON THIS PATH,
+        //   and it is on the NoL bracket.
+        const float goo_dv_lambda_v = abs(goo_ndotl_clamped) * (goo_a2 + (1.0 - goo_a2) * goo_clamped_ndotv * goo_clamped_ndotv);
+        const float goo_dv_lambda_l = goo_clamped_ndotv * sqrt(goo_a2 + (1.0 - goo_a2) * goo_ndotl_clamped * goo_ndotl_clamped);
+        const float goo_dv_lambda = goo_dv_lambda_v + goo_dv_lambda_l;   // `运算.012`: an ADD, with NO `+1` in it
+        // THE FLOOR IS ON THE WHOLE DENOMINATOR AND NOT ON `S^2`: `运算.016 = S^2 * λ`, then `运算.017 =
+        // MAXIMUM(运算.016, <the literal below>)`. The literal is the dump's, VERBATIM, and it is `f32(1.17549e-35)`
+        // (bit pattern 0x0579FFC3, i.e. 999.9962768554688 * FLT_MIN): NOT FLT_MIN, not `1000 * FLT_MIN` and not
+        // `f32(1e-35)`, each of which is a different float32.
+        const float goo_dv_denominator = max(goo_dv_s * goo_dv_s * goo_dv_lambda, 1.1754899742869237e-35);
+        // NO `max(·, 0)` INSIDE THE SQRT, because the reference has none and the argument cannot go negative:
+        // `a2` is in [0, 1] and `NoL^2` is in [0, 1], so `a2 + (1 - a2)*NoL^2` is a convex combination of two
+        // non-negative numbers for every input this term can receive. The clamp the port used to carry there was
+        // never load-bearing, and removing it keeps the expression the graph's.
+        // WHETHER THE REFERENCE'S RUNTIME EVALUATES THAT SQRT IN FLOAT32 OR IN HALF IS UNDETERMINED - the dump
+        // records nodes, not precision qualifiers - so this port evaluates it in float32, this shader's default.
+        // `运算.014 = a2 * 1.0` is the DIVIDE's numerator and `运算.018 = 运算.014 / 运算.017`; `运算.015` then
+        // multiplies THAT by `运算.013`'s `1/(2pi)`, which is the order spelled below.
+        const float goo_dv_original = goo_dv_half_inverse_pi * (goo_a2 / goo_dv_denominator);
         const float goo_schlick_x = 1.0 - goo_ldoth;
         const float goo_schlick_x5 = goo_schlick_x * goo_schlick_x * goo_schlick_x * goo_schlick_x * goo_schlick_x;
         const float3 goo_schlick_f = goo_fresnel0 + (1.0 - goo_fresnel0) * goo_schlick_x5;

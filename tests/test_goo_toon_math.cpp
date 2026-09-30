@@ -205,6 +205,11 @@ namespace {
     /// project's `goo_inverse_pi` (`0.31830987334251404`) - the reference's stored value differs at the 8th digit
     /// and it is the one multiplied into `D * Gv`.
     constexpr float k_dv_half_inverse_pi = 0.3183099925518036f * 0.5f;
+    /// `DV_SmithJointGGX_Aniso :: 运算.017` - the MAXIMUM's floor, `f32(1.17549e-35)`. The dump stores it at full
+    /// precision as `1.1754899742869237e-35` (bit pattern `0x0579FFC3`, i.e. `999.9962768554688 * FLT_MIN`), and
+    /// `shaders/character_forward.slang` spells the same literal, because a "cleaned up" `1.17549e-35` is a
+    /// different float32 and `1e-35` a different one again. It is NOT `FLT_MIN`.
+    constexpr float k_dv_denominator_floor = 1.1754899742869237e-35f;
 
     /// `DeSaturation :: 合并 XYZ.002.X/.Y/.Z` - the reference's luma weights, VERBATIM and UNROUNDED. They are
     /// `dot(颜色, (0.21267299354076385, 0.7151520252227783, 0.07217500358819962))` and the test pins the spelling
@@ -1544,6 +1549,114 @@ int32_t main() {
         CHECK_MSG(std::abs(k_dv_half_inverse_pi - 0.1591549962759018f) < 1e-9f, "the DV group's 运算.013 * 0.5 = 1/(2pi) = 0.1591549962759018");
         CHECK_MSG(std::abs(k_dv_half_inverse_pi * 2.0f - 0.3183099925518036f) < 1e-9f, "i.e. the group's own 1/pi, which is not the diffuse term's 0.31830987334251404");
     }
+    // ---- 8r2. STEP 11: `DV_SmithJointGGX_Aniso.original`'s DENOMINATOR, AS THE GRAPH WRITES IT ----
+    //
+    // THIS BLOCK REPLACES NO PINS, BECAUSE THERE WERE NONE TO REPLACE: the old expression was pinned nowhere in
+    // this file (no `find()` on it, no closed form), which is exactly how a 1.78479x error in every specular pixel
+    // of every material shipped in step 10 and passed 13/13. What is pinned now is the chain that
+    // `zmd-ab/goo_step11_armA_raw.md` records verbatim out of the dump:
+    //
+    //     S  = 1 + NoH^2*(a2 - 1)                                              # `运算.011`
+    //     λ  = |NoL|*(a2 + (1 - a2)*NoV^2) + NoV*sqrt(a2 + (1 - a2)*NoL^2)     # `运算.005/006` + `运算.009/010/019`
+    //     原 = 0.1591549962759018 * a2 / max(S^2 * λ, 1.1754899742869237e-35)  # `运算.013` .. `运算.018`
+    //
+    // The expectations are float64 closed forms rounded to 12+ significant digits, and the arbitrated point's
+    // `7.291723011e-02` is the trace's own number to the digit. `dv_parts` returns `{S, λ, floored denominator, 原}`
+    // so the SHAPE of the fix is pinned and not only its value: a re-arrangement that happened to keep `原` right
+    // would still have to answer for `λ` and `S`.
+    {
+        auto const dv_parts = [](double const r, double const nov, double const nol, double const noh) {
+            double const cr = r * r;
+            double const a2 = cr * cr;                                       // `a2 = perceptualRoughness^4`
+            double const s = 1.0 + noh * noh * (a2 - 1.0);                   // `运算.011`'s own input
+            double const lv = std::abs(nol) * (a2 + (1.0 - a2) * nov * nov); // `运算.005/006`, UN-rooted
+            double const ll = nov * std::sqrt(a2 + (1.0 - a2) * nol * nol);  // `运算.009/010/019`, rooted
+            double const lambda = lv + ll;                                   // `运算.012`
+            double const denominator = s * s * lambda;                       // `运算.016`
+            double const floored = std::max(denominator, static_cast<double>(k_dv_denominator_floor));
+            return std::array<double, 4u>{s, lambda, floored, 0.1591549962759018 * a2 / floored};
+        };
+        // ... AND THE OLD EXPRESSION, KEPT ONLY TO STATE THE DEFECT AND ITS TWO FACTORS - it is not any shader's
+        // arithmetic any more, and nothing below asserts that it is.
+        auto const old_lambda = [](double const r, double const nov, double const nol) {
+            double const cr = r * r;
+            double const a2 = cr * cr;
+            return std::abs(nol) * std::sqrt(std::max(a2 + (1.0 - a2) * nov * nov, 0.0));
+        };
+        auto const old_original = [&old_lambda](double const r, double const nov, double const nol, double const noh) {
+            double const cr = r * r;
+            double const a2 = cr * cr;
+            double const s2 = noh * noh * (a2 - 1.0) + 1.0;
+            return 0.1591549962759018 * (a2 / std::max(s2 * s2, 1e-12)) * (1.0 / (1.0 + old_lambda(r, nov, nol)));
+        };
+        // (1) THE ARBITRATED POINT: `R = 0.25, NoV = NoL = 0.7, NoH = 0.95`, the trace's own sample.
+        std::array<double, 4u> const point = dv_parts(0.25, 0.7, 0.7, 0.95);
+        CHECK_MSG(std::abs(point[3] - 7.29172301067769e-02) < 1e-15,
+                  "原 at R 0.25 / NoV = NoL 0.7 / NoH 0.95 = 7.29172301067769e-02 (the trace's own print was 7.291723011e-02, rounded)");
+        CHECK_MSG(std::abs(point[0] - 0.101025390625) < 1e-15,
+                  "with S = 1 + 0.9025*(a2 - 1) = 0.101025390625 at a2 = 0.25^4 = 0.00390625");
+        CHECK_MSG(std::abs(point[1] - 0.835389614601147) < 1e-15,
+                  "and λ = 0.7*b + 0.7*sqrt(b) = 0.835389614601147 at b = a2 + (1 - a2)*0.49");
+        //     The tolerance below is 3 ulp of the value, not an exact match: at `-O3` clang contracts
+        //     `a2 + (1 - a2)*x*x` into an FMA, which moves this denominator down by exactly 1 ulp (measured with
+        //     `zmd-ab/_s11_den.cpp`: 0.0085260946321240003998 contracted vs 0.0085260946321240038692 with
+        //     `-ffp-contract=off`, i.e. the literal). The shader itself is fp32, so no fp64 ulp is load-bearing.
+        CHECK_MSG(std::abs(point[2] - 8.526094632124004e-03) < 1e-17,
+                  "so the denominator S^2 * λ = 8.526094632124004e-03: this point is thirty-two orders ABOVE the floor");
+        CHECK_MSG(std::abs(old_original(0.25, 0.7, 0.7, 0.95) - 4.085479384665246e-02) < 1e-15,
+                  "the OLD expression gave 4.085479384665246e-02 here - what step 10 shipped for every specular pixel");
+        CHECK_MSG(std::abs(old_original(0.25, 0.7, 0.7, 0.95) / point[3] - 0.5602899861504124) < 1e-12,
+                  "i.e. 0.5602899861504124x the reference's value");
+        CHECK_MSG(std::abs(point[3] / old_original(0.25, 0.7, 0.7, 0.95) - 1.7847900635717335) < 1e-12,
+                  "which is the brief's `1.78x too dark`, at 1.7847900635717335x");
+        // (2) THE TWO DEFECTS SEPARATELY. They are ratios that MULTIPLY to the one above, because the fix is
+        //     `old/new = [λ_new/λ_old] * [λ_old/(1 + λ_old)]`: the first factor is the STRUCTURE (the missing root
+        //     and the |NoL| half), the second is the `+1`. The trace's rounded `1.7014` / `0.3293` are not what is
+        //     asserted - the closed forms are, to 12+ digits.
+        double const lambda_old = old_lambda(0.25, 0.7, 0.7);
+        CHECK_MSG(std::abs(lambda_old - 0.4909950833511471) < 1e-15,
+                  "the OLD λ at the arbitrated point is 0.4909950833511471");
+        CHECK_MSG(std::abs(point[1] / lambda_old - 1.701421547644496) < 1e-12,
+                  "so the STRUCTURE alone is 1.701421547644496x - the trace's 1.7014");
+        CHECK_MSG(std::abs(lambda_old / (1.0 + lambda_old) - 0.3293069768195285) < 1e-12,
+                  "and the `+1` alone is 0.3293069768195285x - the trace's 0.3293");
+        CHECK_MSG(std::abs((point[1] / lambda_old) * (lambda_old / (1.0 + lambda_old)) - 0.5602899861504124) < 1e-12,
+                  "whose product IS the shipped/reference ratio: the two defects are independent factors of it");
+        // (3) THE DEGENERATE AND BOUNDARY POINTS, one per clause of the expression.
+        //     a2 = 0, i.e. the body's `perceptualRoughness = 0.0`: the NUMERATOR is 0, so 原 is 0 for every
+        //     direction - no floor can rescue it and none is asked to.
+        CHECK_MSG(dv_parts(0.0, 0.7, 0.7, 0.95)[3] == 0.0,
+                  "roughness 0 -> a2 0 -> 原 is EXACTLY 0 (the body's own answer, not a floor)");
+        //     `roughness = 1` -> `a2 = 1`: both brackets collapse to 1, so `λ = |NoL| + NoV` and `S = 1`.
+        std::array<double, 4u> const flat = dv_parts(1.0, 0.7, 0.7, 0.95);
+        CHECK_MSG(flat[0] == 1.0 && flat[1] == 1.4,
+                  "roughness 1 -> a2 1 -> S = 1 and λ = |NoL| + NoV = 1.4 exactly");
+        CHECK_MSG(std::abs(flat[3] - 0.11368214019707272) < 1e-15,
+                  "and 原 = 0.1591549962759018 * 1 / 1.4 = 0.11368214019707272");
+        //     `NoH = 0` -> `S = 1`: THE SQUARE IS ON `S`, so the denominator degenerates to `λ` itself and not to
+        //     `λ^2` - which is the reading a `D * Gv` transcription gets wrong in a way that still looks plausible.
+        CHECK_MSG(dv_parts(0.25, 0.7, 0.7, 0.0)[0] == 1.0 && dv_parts(0.25, 0.7, 0.7, 0.0)[2] == 0.835389614601147,
+                  "NoH 0 -> S 1 -> the denominator is λ = 0.835389614601147, NOT λ^2");
+        //     AND THE FLOOR, WHICH NO PHYSICAL INPUT CAN REACH (at R 0.05 / NoV = NoL 0.05 / NoH 0.999 it is
+        //     1.056884557344398e-08, still twenty-seven orders above the literal), so it is CONSTRUCTED: `a2 = 1e-8` with
+        //     `NoV = NoL = 0` gives `λ = 0` EXACTLY, and the reference's MAXIMUM is what stands between that and a
+        //     division by zero.
+        std::array<double, 4u> const zero_lambda = dv_parts(0.01, 0.0, 0.0, 0.5);
+        CHECK_MSG(zero_lambda[1] == 0.0,
+                  "a2 = 1e-8 with NoV = NoL = 0 gives λ = 0 exactly, so the un-floored denominator is 0");
+        CHECK_MSG(zero_lambda[2] == static_cast<double>(k_dv_denominator_floor),
+                  "and 运算.017 replaces it with 1.1754899742869237e-35, the dump's literal");
+        CHECK_MSG(std::isfinite(zero_lambda[3]) && std::abs(zero_lambda[3] - 1.3539460119381151e+26) < 1e+16,
+                  "so 原 comes back FINITE: 0.1591549962759018 * 1e-8 / 1.1754899742869237e-35 = 1.3539460119381151e+26");
+        //     ... AND A SECOND, NON-ZERO CASE UNDER THE FLOOR, so the pin is about the MAXIMUM and not about the
+        //     special value 0: `NoV = NoL = 1e-32` leaves `λ = 1.0001e-36`, whose `S^2`-weighted value
+        //     5.625562537503751e-37 is still below the literal.
+        std::array<double, 4u> const sub_floor = dv_parts(0.01, 1e-32, 1e-32, 0.5);
+        CHECK_MSG(std::abs(sub_floor[1] - 1.0001e-36) < 1e-42,
+                  "λ = 1.0001e-36 at NoV = NoL = 1e-32: non-zero, so the floor is not merely a zero guard");
+        CHECK_MSG(sub_floor[2] == static_cast<double>(k_dv_denominator_floor),
+                  "and S^2 * λ = 5.625562537503751e-37 is below 1.1754899742869237e-35, so the MAXIMUM fires here too");
+    }
     // ---- 8s. STEP 6: `DeSaturation` AND ITS CONSUMER, `色相/饱和度/明度` ----
     //
     // THE TWO NODES ARE ONE LINE, and that is the finding rather than a simplification. `DeSaturation` is
@@ -2621,6 +2734,29 @@ int32_t main() {
                           "step 8's neutral is still in the lookup's table (the gate lane is appended after it)");
                 CHECK_MSG(app.find("glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};") != std::string::npos,
                           "and the lookup's table now ENDS on step 10's - lane order is the contract");
+            }
+            // ---- STEP 11: THE DENOMINATOR'S TEXT, so a "simplification" of it cannot pass either ----
+            {
+                CHECK_MSG(character_forward.find("const float goo_dv_lambda_v = abs(goo_ndotl_clamped) * (goo_a2 + (1.0 - goo_a2) * goo_clamped_ndotv * goo_clamped_ndotv);") != std::string::npos,
+                          "the UN-rooted half of λ is multiplied by |NoL| - `运算.005`'s own shape");
+                CHECK_MSG(character_forward.find("const float goo_dv_lambda_l = goo_clamped_ndotv * sqrt(goo_a2 + (1.0 - goo_a2) * goo_ndotl_clamped * goo_ndotl_clamped);") != std::string::npos,
+                          "and the ROOTED half is multiplied by NoV: the ONE root, on the NoL bracket");
+                CHECK_MSG(character_forward.find("const float goo_dv_lambda = goo_dv_lambda_v + goo_dv_lambda_l;") != std::string::npos,
+                          "the two halves are ADDED (`运算.012`) and nothing is added to them");
+                CHECK_MSG(character_forward.find("max(goo_dv_s * goo_dv_s * goo_dv_lambda, 1.1754899742869237e-35)") != std::string::npos,
+                          "the floor is 运算.017's MAXIMUM on the WHOLE denominator, at the dump's own precision");
+                CHECK_MSG(character_forward.find("const float goo_dv_original = goo_dv_half_inverse_pi * (goo_a2 / goo_dv_denominator);") != std::string::npos,
+                          "and 原 is the group's 1/(2pi) times `运算.018`'s `a2 / denominator`, in that order");
+                // ... AND THE TWO DEFECTS THEMSELVES, PINNED ABSENT - each spelling is the port's OWN old line, not a
+                // paraphrasing of it, so a partial revert fails here.
+                CHECK_MSG(character_forward.find("max(pow(goo_ndoth * goo_ndoth * (goo_a2 - 1.0) + 1.0, 2.0), 1e-12)") == std::string::npos,
+                          "the old `pow(S, 2)` with a `1e-12` floor on it is gone from the body arm");
+                CHECK_MSG(character_forward.find("sqrt(max(goo_a2 + (1.0 - goo_a2)") == std::string::npos,
+                          "and so is the clamp inside the SQRT, which the reference does not have");
+                CHECK_MSG(character_forward.find("1.0 + goo_dv_lambda") == std::string::npos,
+                          "and the `+1` in the denominator is gone: there is no `Gv` in this term any more");
+                CHECK_MSG(character_forward.find("const float goo_gv = ") == std::string::npos,
+                          "no `goo_gv` is computed at all, so no reader can mistake λ for a Smith `Gv`");
             }
             // ---- `headCenter`: THE ONE PIECE OF NEW DATA, and the stride is the failure class ----
             CHECK_MSG(primitive.find("glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);") != std::string::npos, "`head_ubo` gained the position");
