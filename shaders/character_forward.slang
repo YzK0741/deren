@@ -3004,7 +3004,16 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // while the cloth's `1.0407` is a PREDICTION from its reported `LUT.G = 0.968313694`
         // (`fresnel0 = 1.2424540519714355` on a metal texel). Step 10 measured the revived term's own frame share as
         // ~+0.02/255 in the frame mean (`goo_step10_result.md` §3).
-        const float3 goo_direct_specular = goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * cast_shadow_sigmoid * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0);
+        //
+        // ---- DEBT (q), THE VISIBILITY TOKEN (spec §3.1) ----
+        // The reference's direct specular multiplies `Shader Info.Cast Shadows`'s RAW output (`Vector Math.005.in[1]`
+        // <- `Shader Info#1 out[1]`), NOT its post-`SigmoidSharp` value: `cast_shadow_sigmoid` (`:2524`) belongs to
+        // the RAMP, which is why `:2526 ramp_u = min(cast_shadow_sigmoid, remap_half_lambert_sigmoid)` keeps it and
+        // this line does not. The two differ by the cast curve itself (`:924-930`), and the substitution is
+        // TWO-SIDED - it darkens where `sig(v) > v` and brightens where `sig(v) < v` (body's fixpoint is
+        // `v* = 0.833766073`; cloth/face's is `0.997142116`) - so do not read it as "the highlight only gets darker"; the closed form and the
+        // fixpoint are pinned in `tests/test_goo_toon_math.cpp`. Nothing else on this line moved.
+        const float3 goo_direct_specular = goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * shadow_used * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0);
 
         // ---- `IBL_specular` AND `IBL_diffuse` (§7.1) ----
         //

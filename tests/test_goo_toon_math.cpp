@@ -2704,7 +2704,7 @@ int32_t main() {
                                                "const float goo_energy_compensation = 1.0 / goo_fgd_reflectivity - 1.0;",
                                                "goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation;",
                                                "goo_diff_ibl = irradiance_sample(n) * goo_ambient_tint * goo_diffuse_fgd * goo_diffuse_colour;",
-                                               "goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * cast_shadow_sigmoid * goo_light_color * direct_occlusion"}) {
+                                               "goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * shadow_used * goo_light_color * direct_occlusion"}) {
                 CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
             }
             // ---- THE FGD LUT'S OWN SYNC POINTS: TWO SLOT TABLES AND ONE UPLOADER ----
@@ -3258,8 +3258,8 @@ int32_t main() {
                 ++occurrences;
             }
             CHECK_MSG(occurrences == 1u, "the direct specular's energy-compensation factor appears EXACTLY once in the shader");
-            CHECK_MSG(character_forward.find("goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * cast_shadow_sigmoid * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0)") != std::string::npos,
-                      "and it multiplies the RAW direct product's own tail, not some other term - the reference's `Vector Math.014` is `directLighting_specular ⊙ (1 + ec ⊙ f0)` and nothing else");
+            CHECK_MSG(character_forward.find("goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * shadow_used * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0)") != std::string::npos,
+                      "and it multiplies the RAW direct product's own tail, not some other term - the reference's `Vector Math.014` is `directLighting_specular ⊙ (1 + ec ⊙ f0)` and nothing else. DEBT (q): the visibility operand is `shadow_used`, the PRE-sigmoid output, and this string was updated with the shader when that token moved");
             CHECK_MSG(character_forward.find("goo_specular_color * (1.0 + goo_energy_compensation") == std::string::npos,
                       "the factor does NOT re-multiply `goo_specular_color`: the raw product already applied that tint, and `Vector Math.014`'s factor is built from `energyCompensation` and `fresnel0` alone");
             // ... AND THE OTHER PATH IS STEP 5'S, UNTOUCHED. This is the check that makes "no double count" a
@@ -3268,6 +3268,110 @@ int32_t main() {
                       "the IBL specular keeps the BARE factor - step 5's own line, unchanged by this step");
             CHECK_MSG(character_forward.find("goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation *") == std::string::npos,
                       "and it carries no SECOND factor after that one - the spec's §A7 negative assertion, spelled as a check");
+            // ---- DEBT (q): THE VISIBILITY OPERAND IS THE PRE-SIGMOID ONE (spec §3.1, §4.1) ----
+            //
+            // The reference's direct specular reads `Shader Info.Cast Shadows`'s RAW output, so the post-`SigmoidSharp`
+            // curve has exactly ONE legitimate consumer left in the port, `:2526`'s `ramp_u`. Both directions are pinned
+            // HERE rather than in the header block above, and the closed form (not a monotonicity claim) carries the
+            // content: `new - old = T ⊙ (v - sig(v))` is TWO-SIDED, so a check that only said "the shadow side gets
+            // darker" would pass with the sign of the fix INVERTED. The fixpoint and both extremes are asserted instead,
+            // for all three lane groups the shipped sidecar can produce.
+            CHECK_MSG(character_forward.find("goo_specular_color) * cast_shadow_sigmoid * goo_light_color") == std::string::npos,
+                      "DEBT (q): the direct specular no longer multiplies the POST-sigmoid visibility");
+            CHECK_MSG(character_forward.find("goo_specular_color) * shadow_used * goo_light_color") != std::string::npos,
+                      "DEBT (q): it multiplies `shadow_used` (`:1521-1523`) - the reference's `Cast Shadows` output, pre-sigmoid");
+            CHECK_MSG(character_forward.find("ramp_u = min(cast_shadow_sigmoid, remap_half_lambert_sigmoid)") != std::string::npos,
+                      "DEBT (q): and `cast_shadow_sigmoid` still feeds `ramp_u` (`:2526`) - its one legitimate consumer, NOT deleted");
+            // `goo_sigmoid_sharp` (`:924-930`) in fp64, independent of the shader's fp32:
+            auto const q_sig = [](double const v, double const center, double const sharp) {
+                return 1.0 / (1.0 + std::pow(100000.0, -3.0 * sharp * (v - center)));
+            };
+            auto const q_fixpoint = [&q_sig](double const center, double const sharp) {
+                double lo = 0.0;
+                double hi = 1.0;
+                for (int i = 0; i < 200; ++i) {
+                    double const mid = 0.5 * (lo + hi);
+                    if (q_sig(mid, center, sharp) > mid) {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                return 0.5 * (lo + hi);
+            };
+            // TOLERANCE NOTE: these are fp64 evaluations of the shipped fp32 expression, and the spec's own table
+            // (§4.1) prints fp32-rounded constants, so the last digits differ from a pure fp64 recomputation (spec
+            // U5). The pins therefore carry a 1e-6 tolerance. See the cloth pair below for the one place where the
+            // spec's number is a SAMPLE POINT rather than the maximum - an earlier draft of this file read it as an
+            // error in the spec and was itself wrong.
+            CHECK_MSG(std::abs(q_fixpoint(-0.1, 0.05) - 0.833766073) < 1e-6,
+                      "DEBT (q) P1: body_01/02's `cast_center = -0.1, cast_sharp = 0.05` turns over at v* = 0.833766073 (spec §4.1 prints 0.833766078; 5e-9 is fp32-vs-fp64, spec U5)");
+            CHECK_MSG(std::abs((q_sig(0.0, -0.1, 0.05) - 0.0) - 0.543066492) < 1e-6,
+                      "DEBT (q) P1: fully shadowed, the swap makes the highlight DARKER by 0.543066492 (138.48 codes)");
+            CHECK_MSG(std::abs((1.0 - q_sig(1.0, -0.1, 0.05)) - 0.130150051) < 1e-6,
+                      "DEBT (q) P1: fully LIT it makes it BRIGHTER by 0.130150051 (33.19 codes) - the fix is two-sided, NOT 'only darker'");
+            CHECK_MSG(std::abs(q_fixpoint(0.0, 0.17) - 0.997142116) < 1e-6,
+                      "DEBT (q) P1: cloth_01..05 and face_01 `(0.0, 0.17)` turn over at v* = 0.997142116");
+            CHECK_MSG(std::abs((q_sig(0.21875, 0.0, 0.17) - 0.21875) - 0.564449648) < 1e-6,
+                      "DEBT (q) P1: cloth's darkening AT THE SPEC'S SAMPLE POINT v = 0.21875 is 0.564449648 (143.93 codes; spec §4.1 prints 0.564449650)");
+            {
+                // ... AND THE MAXIMUM, WHICH IS A DIFFERENT POINT. The spec's table is tabulated at a sample point;
+                // the Lead's m02206 quotes the true worst case (`0.564451022`), and a 10^6-point scan agrees with it to
+                // 3e-9 while locating it at `v = 0.2178405`. Pinning only the sampled value would let a reader believe
+                // the worst darkening is 1.4e-6 smaller than it is, and pinning only the scan would lose the tie to
+                // the spec's own table entry - so both are here, each labelled as what it is.
+                double worst = 0.0;
+                double worst_v = 0.0;
+                for (int i = 0; i <= 1000000; ++i) {
+                    double const v = static_cast<double>(i) / 1000000.0;
+                    double const darkening = q_sig(v, 0.0, 0.17) - v;
+                    if (darkening > worst) {
+                        worst = darkening;
+                        worst_v = v;
+                    }
+                }
+                CHECK_MSG(std::abs(worst - 0.564451019) < 1e-6 && std::abs(worst_v - 0.2178405) < 1e-4,
+                          "DEBT (q) P1: the TRUE worst cloth darkening is 0.564451019 at v = 0.2178405 (measured by a 10^6-point scan, matching m02206's 0.564451022 to 3e-9 - it is NOT the tabulated sample point)");
+            }
+            CHECK_MSG(std::abs((1.0 - q_sig(1.0, 0.0, 0.17)) - 0.002810462) < 1e-6,
+                      "DEBT (q) P1: and cloth's brightening band is only 0.002810462 (0.72 codes) wide - which is why the A/B can see it on the body and barely on cloth");
+            CHECK_MSG(std::abs(q_fixpoint(0.0, 0.0) - 0.5) < 1e-12 && std::abs((q_sig(0.0, 0.0, 0.0) - 0.0) - 0.5) < 1e-12,
+                      "DEBT (q) P1: the absent-lane fallback (`sharp = 0` -> the guarded 0.5) turns over at exactly v = 0.5");
+            {
+                // WHAT MAKES THE DIRECTION SPLIT A THRESHOLD. NOT monotonicity of `v - sig(v)` - cloth's lane group is
+                // measurably NON-monotone (it dips to its worst darkening at v = 0.21875 and only crosses zero at
+                // 0.9971), so a "strictly increasing" pin would have been FALSE for cloth while still passing for the
+                // body. What is pinned instead is the property P1 actually needs: the cast curve is monotonically
+                // non-decreasing in visibility, and `v - sig(v)` changes sign EXACTLY ONCE per lane group.
+                auto const q_sign_changes = [&q_sig](double const center, double const sharp) {
+                    int changes = 0;
+                    bool previous_positive = (0.0 - q_sig(0.0, center, sharp)) > 0.0;
+                    for (int i = 1; i <= 4000; ++i) {
+                        double const v = static_cast<double>(i) / 4000.0;
+                        bool const positive = (v - q_sig(v, center, sharp)) > 0.0;
+                        if (positive != previous_positive) {
+                            ++changes;
+                        }
+                        previous_positive = positive;
+                    }
+                    return changes;
+                };
+                auto const q_sig_monotone = [&q_sig](double const center, double const sharp) {
+                    double previous = q_sig(0.0, center, sharp);
+                    for (int i = 1; i <= 4000; ++i) {
+                        double const current = q_sig(static_cast<double>(i) / 4000.0, center, sharp);
+                        if (current < previous - 1e-15) {
+                            return false;
+                        }
+                        previous = current;
+                    }
+                    return true;
+                };
+                CHECK_MSG(q_sign_changes(-0.1, 0.05) == 1 && q_sign_changes(0.0, 0.17) == 1 && q_sign_changes(0.0, 0.0) == 1,
+                          "DEBT (q) P1: `v - sig(v)` changes sign EXACTLY ONCE for every lane group, so 'which way does this pixel move' has a single threshold answer (darkening below the fixpoint, brightening above)");
+                CHECK_MSG(q_sig_monotone(-0.1, 0.05) && q_sig_monotone(0.0, 0.17) && q_sig_monotone(0.0, 0.0),
+                          "DEBT (q) P1: and the cast curve itself never decreases in visibility, which is what makes that fixpoint unique rather than one of several crossings");
+            }
             // ---- E2 + E3: THE TWO ARGUMENTS OF `ComputeFresnel0`, WHICH ARE THE TWO THE DIFFUSE TERM ALREADY READS ----
             CHECK_MSG(character_forward.find("lerp(float3(goo_fgd_dielectric_f0), albedo * goo_base_colour, metallic * metallic_max)") != std::string::npos,
                       "E2 + E3: `fresnel0`'s metal end is `albedo * goo_base_colour` - the SAME product `goo_diffuse_colour` uses - and its factor is `metallic * metallic_max`");
