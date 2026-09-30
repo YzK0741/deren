@@ -2605,11 +2605,22 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // component-wise lerp and not a dot product. LUT.B DOES NOT PARTICIPATE.
         //
         // `fresnel0 = ComputeFresnel0 = lerp(0.07999999821186066, BaseColor, metallic)` - the REFERENCE's own
-        // function, with the port's `metallic` and the reference's `BaseColor` (which the port carries as
-        // `goo_base_colour`, because its own albedo has no `baseColorFactor`). The port's `albedo` and the
-        // reference's `BaseColor` are different factors of the same surface and BOTH are needed: the F0's metal end
-        // is the artist's tint, exactly as `goo_diffuse_colour` above is.
-        const float3 goo_fresnel0 = lerp(float3(goo_fgd_dielectric_f0), goo_base_colour, metallic);
+        // function, and BOTH of its arguments are now the two quantities `goo_diffuse_colour` above reads, because
+        // the reference feeds both of its consumers from ONE output: `ComputeFresnel0.Input_0` is `转接点.090 =
+        // _D(sRGB) ⊙ BaseColor`, the SAME value `转接点.045` hands to `ComputeDiffuseColor.albedo` (spec §1 item 3;
+        // the second dump's B2/Input_0) - so the metal end is `albedo * goo_base_colour` and not the lane's tint
+        // alone. Its factor is `metallic * metallic_max`, the same scaling `:2493` applies, because the reference's
+        // `metallic` is `混合.002 = MetallicMax ⊙ clamp(_P.R, 0, 1)` (spec §1 item 1) while the port's own `metallic`
+        // (`:1442`, `orm.x`) does not carry `MetallicMax`. `:2491`'s claim that on this asset it is already
+        // `lerp(0, MetallicMax, _P.R)` is the PORT's own reading and this step neither verifies nor changes it.
+        // WHAT MOVES WHEN THESE TWO ARGUMENTS MOVE: on this asset, NOTHING - measured. E2 is a no-op because all 23
+        // `PBRToonBase` instances carry `MetallicMax = 1.0` (the verifier's B1), and E3 is a no-op because
+        // `metallic * (1 - albedo)` stays under the 8-bit floor even amplified 1000x, i.e. `albedo` is 1 (to ~1e-5)
+        // wherever `metallic` is not 0. Both arguments are still the reference's own and stay, because the port's
+        // `metallic` (`:1442`) and `albedo` (`surface.glsl`'s `base_color_factor * texture`) are ASSET-DERIVED: an
+        // asset whose metal texels are not white does move under E3, and one with `MetallicMax != 1` under E2.
+        // `goo_step9_result.md` §4 has the probes.
+        const float3 goo_fresnel0 = lerp(float3(goo_fgd_dielectric_f0), albedo * goo_base_colour, metallic * metallic_max);
         const float3 goo_specular_fgd = lerp(float3(goo_fgd_texel.r), float3(goo_fgd_texel.g), goo_fresnel0);
         // `reflectivity = 分离 XYZ.001.Y = LUT.G` (`组输出.Output_5`). NOTE THE NAME CLASH WITH THE PORT'S OWN
         // `reflectivity` (`orm.y`, the article's channel): they are DIFFERENT QUANTITIES - the article's is an F0
@@ -2746,7 +2757,27 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // `转接点.044 = 混合.005 = MIX(A = directOcclusionColor, B = white, f = 转接点.046)` - the SAME
         // `direct_occlusion` step 4 computes for the diffuse (`:1787`), whose factor is the reference's
         // `Is Skin?`-selected occlusion and the port's `ao_used`. ONE PORT READ, TWO REFERENCE CONSUMERS.
-        const float3 goo_direct_specular = goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * cast_shadow_sigmoid * goo_light_color * direct_occlusion;
+        //
+        // ---- `Vector Math.014`, THE DIRECT PATH'S ENERGY COMPENSATION (spec §3.3) ----
+        // The reference multiplies the DIRECT specular by `1 + energyCompensation ⊙ fresnel0`, where
+        // `energyCompensation = 1/reflectivity - 1` with `reflectivity = LUT.G` (both are `:2639` and `:2625` above).
+        // The factor is COMPONENT-WISE because `fresnel0` is a float3. The IBL product below keeps the BARE
+        // `energyCompensation` - that is step 5's line and the reference does the same - and since the two products
+        // are added ONCE EACH at `toon_colour` (`:3289`), the asymmetry is a difference of FACTOR, not a double
+        // count. Before this line the direct path had no factor at all, which is the defect this step closes.
+        // WHAT THIS FACTOR MEASURABLY DOES ON THIS ASSET: NOTHING. All three poses are byte-identical before and
+        // after this step (three runs each; `goo_step9_result.md` §3), and the cause is the TERM above the factor,
+        // not the factor: `goo_specular_chosen` (`:2731`) is `lerp(goo_anisotropic_masked, goo_dv_original *
+        // goo_schlick_f, goo_use_anisotropy)` with `goo_use_anisotropy` pinned to the constant 0.0 (`:660`, `:2702`),
+        // and `lerp` returns its FIRST argument at 0 - here `goo_anisotropic_masked = float3(0,0,0) * 0.0`. The
+        // reference's `混合.016` returns the ISOTROPIC product (`dv * F`) at `Use anisotropy? = 0`, so the port's two
+        // arms are swapped, the direct specular is identically zero, and scaling the whole product by 50x still moves
+        // no pixel. THIS STEP WAS NOT GIVEN THAT BUG AND DOES NOT FIX IT. What is left is a property of the FORM: the
+        // body's FGD carries `LUT.G = 1.0`, so `goo_energy_compensation` is 0.0 EXACTLY and this factor is exactly
+        // `1 + 0*0.08` on every body pixel - while the cloth's `1.0407` is a PREDICTION from its reported
+        // `LUT.G = 0.968313694` (`fresnel0 = 1.2424540519714355` on a metal texel), unverifiable while the term it
+        // scales is dead.
+        const float3 goo_direct_specular = goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * cast_shadow_sigmoid * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0);
 
         // ---- `IBL_specular` AND `IBL_diffuse` (§7.1) ----
         //

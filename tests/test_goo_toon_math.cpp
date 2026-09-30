@@ -1940,6 +1940,187 @@ int32_t main() {
         // `toon_colour_lane::goo_normal_strength`), so the number that was NOT taken has to be written down.
         CHECK_MSG(k_goo_normal_strength_default == 1.0f, "A6: `DecodeNormal`'s `interface[]` default for NormalStrength is 1.0");
     }
+
+    // ---- 8t. STEP 9: `metallic`, THE TWO ENDS OF `fresnel0`, AND THE DIRECT SPECULAR'S ENERGY COMPENSATION ----
+    //
+    // THE REFERENCE'S ARITHMETIC, read out of `Arknights: Endfield_PBRToonBase` (spec §1; the independent second
+    // dump's B1/B2 in `goo_step9_verify.md`):
+    //
+    //     metallic   = MetallicMax * clamp(_P.R, 0, 1)   `混合.002` is a FLOAT MIX whose `A_Float` is UNLINKED (so
+    //                                                    its 0.0 default) and whose `B_Float` is `组输入.MetallicMax`,
+    //                                                    with `clamp_factor` on - so the mix IS a product and the
+    //                                                    clamp is on `_P.R`. All 23 instances of the group state
+    //                                                    `MetallicMax = 1.0` and every one leaves it unlinked (B1).
+    //     BaseColor  = `转接点.090` = `_D(sRGB) ⊙ BaseColor`   the SAME value `转接点.045` hands to
+    //                                                    `ComputeDiffuseColor.albedo` (B2, `Input_0`) - one product,
+    //                                                    two consumers, which is what "same-source" means here.
+    //     fresnel0   = lerp(0.07999999821186066, BaseColor, metallic)                     `ComputeFresnel0`
+    //     reflectiv. = LUT.G                                                             `分离 XYZ.001.Y`
+    //     energyComp = 1/LUT.G - 1
+    //     direct_out = direct_raw ⊙ (1 + energyComp ⊙ fresnel0)                           `Vector Math.014`
+    //     IBL_spec   = specularFGD * Strength * energyComp                               THE BARE FACTOR
+    //
+    // THE ASYMMETRY BETWEEN THOSE LAST TWO LINES IS THE WHOLE STEP. The direct path's factor is `1 + ec⊙f0` and the
+    // IBL path's is `ec` alone; the two are then ADDED once each (`混合.011`), so NOTHING IS COUNTED TWICE - the
+    // double-count reading is the one B2 rejected. AND ON THIS ASSET THE FIRST PATH IS THE IDENTITY: `LUT.G = 1.0`
+    // at the body rows, so `ec = 0.0` EXACTLY and the factor is `1 + 0*0.08 = 1.0` EXACTLY on every body pixel.
+    // That is why the frame-level criterion for the body is BYTE-IDENTITY rather than a bound, and why the cloth
+    // (`LUT.G = 0.968313694`) is the row that can move - by ~+4% on its metal texels and ~+0.26% on its dielectric
+    // ones, because `fresnel0` is the PER-CHANNEL factor of that compensation.
+    //
+    // A4 (the roughness chain) is already pinned by §8q and A8's four `F_Schlick` rows by §8r, so neither is
+    // repeated here. What this block takes from A8 is its COUNTERFACTUAL - because the shipped expression subtracts
+    // from a LITERAL `1.0` rather than from `f90`, and the two only disagree once `f90 != 1`.
+    {
+        // A1: `混合.002` IS A PRODUCT AND NOT A LERP - `A_Float` is unlinked at its 0.0 default, which is what makes
+        // `clamp_factor` a clamp on `_P.R` alone instead of on a mix of two channels.
+        auto const metallic_of = [](float const metallic_max, float const metallic_channel) {
+            float const factor = std::min(std::max(metallic_channel, 0.0f), 1.0f); // 混合.002's `clamp_factor`
+            return 0.0f * (1.0f - factor) + metallic_max * factor;                 // `A_Float` = 0.0, `B_Float` = MetallicMax
+        };
+        CHECK_MSG(metallic_of(1.0f, 1.0f) == 1.0f, "A1: (MetallicMax 1.0, _P.R 1.0) -> 1.0 - the body/cloth path");
+        CHECK_MSG(metallic_of(1.0f, 0.0f) == 0.0f,
+                  "A1: (1.0, 0.0) -> 0.0 - the BODY's own case: it carries no `_P` map at all, so `_P.R` is the unlinked 0.0");
+        CHECK_MSG(metallic_of(1.0f, 0.25f) == 0.25f, "A1: (1.0, 0.25) -> 0.25 - with A = 0 the mix degenerates to the product");
+        CHECK_MSG(metallic_of(0.0f, 1.0f) == 0.0f, "A1: (0.0, 1.0) -> 0.0 - the Hair/Face override drives the whole term to zero");
+        CHECK_MSG(metallic_of(0.5f, 1.0f) == 0.5f, "A1: (0.5, 1.0) -> 0.5 - and it is linear in `MetallicMax`");
+        CHECK_MSG(metallic_of(1.0f, 1.5f) == 1.0f, "A1: (1.0, 1.5) -> 1.0 - `clamp_factor`'s UPPER clamp, which a bare product would not have");
+        CHECK_MSG(metallic_of(1.0f, -0.5f) == 0.0f, "A1: (1.0, -0.5) -> 0.0 - and its lower one");
+
+        // A2: `ComputeDiffuseColor = BaseColor ⊙ (1 - metallic)`, with body_01's own `BaseColor`. The decimals are
+        // the spec's §A2 table, which recomputed them in DOUBLE precision, so the tolerance is `1e-6` and not
+        // `1e-9` (spec §A2's own note). This is the SAME `BaseColor` E3 gives `fresnel0`, so these rows are also the
+        // assertion that the diffuse term and the F0's metal end are ONE surface's colour and not two tints.
+        vec3 const base_colour_body01{1.162847876548767f, 0.9887527227401733f, 1.0280101299285889f};
+        auto const near3 = [](vec3 const a, vec3 const b, float const tolerance) {
+            return std::abs(a.x - b.x) <= tolerance && std::abs(a.y - b.y) <= tolerance && std::abs(a.z - b.z) <= tolerance;
+        };
+        auto const diffuse_of = [&base_colour_body01](float const metallic) {
+            return scale3(base_colour_body01, 1.0f - metallic);
+        };
+        CHECK_MSG(near3(diffuse_of(0.0f), base_colour_body01, 1e-7f),
+                  "A2: metallic 0 leaves BaseColor untouched - body_01's own row, whose `_P` is unlinked");
+        CHECK_MSG(near3(diffuse_of(1.0f), vec3{}, 1e-7f), "A2: metallic 1 drives it to black EXACTLY");
+        CHECK_MSG(near3(diffuse_of(0.5f), vec3{0.5814239382743835f, 0.49437636137008668f, 0.5140050649642944f}, 1e-6f),
+                  "A2: metallic 0.5 halves it, component by component");
+        CHECK_MSG(near3(diffuse_of(0.25f), vec3{0.8721359074115753f, 0.74156454205513f, 0.7710075974464417f}, 1e-6f),
+                  "A2: and 0.25 quarters it - the two intermediate rows are what separate this discount from a threshold");
+
+        // A3: `ComputeFresnel0 = lerp(0.07999999821186066, BaseColor, metallic)`. The DIELECTRIC end is a constant
+        // and the METAL end is the surface's own BaseColor - the half E3 makes same-source with `goo_diffuse_colour`.
+        auto const fresnel0_of = [](vec3 const base_colour, float const metallic) {
+            float const dielectric = k_fgd_dielectric_f0;
+            return vec3{dielectric + (base_colour.x - dielectric) * metallic,
+                        dielectric + (base_colour.y - dielectric) * metallic,
+                        dielectric + (base_colour.z - dielectric) * metallic};
+        };
+        vec3 const fresnel0_dielectric = fresnel0_of(base_colour_body01, 0.0f);
+        CHECK_MSG(fresnel0_dielectric.x == k_fgd_dielectric_f0 && fresnel0_dielectric.y == k_fgd_dielectric_f0 && fresnel0_dielectric.z == k_fgd_dielectric_f0,
+                  "A3: metallic 0 -> EVERY channel is the dielectric F0 0.07999999821186066, exactly and not approximately");
+        CHECK_MSG(near3(fresnel0_of(base_colour_body01, 1.0f), base_colour_body01, 1e-7f),
+                  "A3: metallic 1 -> BaseColor itself, which is the end that makes a metal's F0 its own albedo");
+        CHECK_MSG(near3(fresnel0_of(vec3{1.0f, 1.0f, 1.0f}, 0.5f), vec3{0.5399999991059303f, 0.5399999991059303f, 0.5399999991059303f}, 1e-7f),
+                  "A3: white at metallic 0.5 -> 0.5399999991059303 = 0.5*(0.07999999821186066 + 1.0)");
+        // ... AND THE CONSEQUENCE THE BODY'S BYTE-IDENTITY RESTS ON: with `_P.R = 0` the result does not depend on
+        // `BaseColor` AT ALL, so this step's E3 cannot move a body pixel even though the body's F0 is fully opaque
+        // to what its albedo is. The tolerance is `0.0f` on purpose - this is an equality, not a bound.
+        float const metallic_body = metallic_of(1.0f, 0.0f);
+        CHECK_MSG(near3(fresnel0_of(base_colour_body01, metallic_body), fresnel0_of(vec3{5.0f, 5.0f, 5.0f}, metallic_body), 0.0f),
+                  "A3: and with `_P.R = 0` (the body's own case) `fresnel0` is the dielectric F0 whatever BaseColor is - for the body 'f0 = 0.08' is a CONCLUSION, not an approximation");
+
+        // A5: THE FGD COORDINATE'S HALF-TEXEL REMAP (`Remap01ToHalfTexelCoord`, N = 64) is `coord*0.984375 +
+        // 0.0078125`, and all three rows are EXACT in float32 - `0.984375` and `0.0078125` are both binary
+        // fractions and `0.5*0.984375 + 0.0078125 = 0.5` - which is what lets a fetch come to rest on a texel CENTRE.
+        CHECK_MSG(remap_to_half_texel(0.0f) == 0.0078125f, "A5: coord 0 -> 0.0078125, the bias itself");
+        CHECK_MSG(remap_to_half_texel(0.5f) == 0.5f, "A5: coord 0.5 -> 0.5 exactly, i.e. the image's own centre");
+        CHECK_MSG(remap_to_half_texel(1.0f) == 0.9921875f, "A5: coord 1 -> 0.9921875, half a texel short of the edge");
+        CHECK_MSG(std::abs(std::sqrt(k_fgd_ndotv_floor) - 0.0099999997764826f) < 1e-9f,
+                  "A5: `clampedNdotV`'s floor 9.999999747378752e-05 takes the square root to 0.0099999997764826, i.e. 0.01 to eight digits");
+        CHECK_MSG(remap_to_texel(std::sqrt(k_fgd_ndotv_floor)) > remap_to_texel(0.0f),
+                  "A5: and the floor is what keeps a grazing fragment OFF texel 0 - without it `sqrt(clampedNdotV)` is exactly 0 and the x coordinate lands on the image's first column");
+
+        // A6: THE THREE FGD OUTPUTS' ALGEBRA, with a SYMBOLIC LUT texel - because the spec's §6-U2 records that the
+        // PNG's own contents were NOT read this step, so nothing here may depend on a particular texel's value.
+        float const lut_r = 0.75f;
+        float const lut_g = 0.5f;
+        float const lut_b = 0.25f;
+        auto const specular_fgd_of = [lut_r, lut_g](float const f0) { return lut_r * (1.0f - f0) + lut_g * f0; };
+        float const reflectivity = lut_g; // `分离 XYZ.001.Y`
+        CHECK_MSG(specular_fgd_of(0.0f) == lut_r, "A6: fresnel0 0 -> specularFGD is LUT.R itself");
+        CHECK_MSG(specular_fgd_of(1.0f) == lut_g, "A6: fresnel0 1 -> LUT.G itself, and LUT.B does not enter the mix at all");
+        CHECK_MSG(specular_fgd_of(0.5f) == 0.5f * (lut_r + lut_g), "A6: fresnel0 0.5 -> the midpoint 0.5*(Lr + Lg), per channel");
+        CHECK_MSG(lut_b + k_fgd_diffuse_offset == 0.75f, "A6: diffuseFGD = LUT.B + 0.5 whatever fresnel0 is");
+        CHECK_MSG(specular_fgd_of(1.0f) == reflectivity,
+                  "A6: `reflectivity` is LUT.G - the SAME channel the specular mix's far end reads (a port that took LUT.R here would still look plausible)");
+        CHECK_MSG(std::abs((1.0f / reflectivity - 1.0f) - 1.0f) < 1e-7f, "A6: and energyCompensation = 1/reflectivity - 1 = 1.0 at this texel");
+
+        // A7: THE CORE OF THIS STEP, and the reason the body's acceptance is BYTE-identity rather than a bound.
+        auto const energy_compensation_of = [](float const reflectivity_value) { return 1.0f / reflectivity_value - 1.0f; };
+        auto const direct_factor_of = [](float const ec, float const f0) { return 1.0f + ec * f0; }; // `Vector Math.014`
+        CHECK_MSG(energy_compensation_of(1.0f) == 0.0f,
+                  "A7: reflectivity 1.0 - the body's rows - -> energyCompensation 0.0 EXACTLY, so on 100% of that surface the new factor is the identity");
+        CHECK_MSG(std::abs(energy_compensation_of(0.968313694f) - 0.0327231884f) < 1e-7f, "A7: the cloth's LUT.G 0.968313694 -> 0.0327231884");
+        // ... AND A ROW WHERE THE SPEC'S OWN DECIMALS ARE OFF, which is worth more than silently widening a
+        // tolerance. Spec §A7's table gives `1/0.91568625 - 1 = 0.0920838...`; recomputing that same expression in
+        // double precision gives 0.09207711702561872, so the spec's fifth decimal is wrong by 6.7e-6 (the spec marks
+        // the entry with a `...`, i.e. as an approximation, and `goo_step9_result.md` records the discrepancy). The
+        // check below therefore pins the RECOMPUTED value at 1e-7, which the spec's digits cannot satisfy: if a later
+        // editor "corrects" this line back to 0.0920838 it fails, on purpose.
+        CHECK_MSG(std::abs(energy_compensation_of(0.91568625f) - 0.09207711702561872f) < 1e-7f,
+                  "A7: the NoV 1.0 / perceptualRoughness 0.5 row -> 0.09207711702561872 (double-precision recomputation; spec §A7 prints 0.0920838...)");
+        CHECK_MSG(direct_factor_of(0.0f, k_fgd_dielectric_f0) == 1.0f && direct_factor_of(0.0f, 1.2424540519714355f) == 1.0f,
+                  "A7: energyCompensation 0 makes the factor 1.0 for EVERY fresnel0 - 'the identity on this asset' is a statement about the FORM, not about one sample");
+        CHECK_MSG(std::abs(direct_factor_of(0.0327231884f, k_fgd_dielectric_f0) - 1.0026178551f) < 1e-6f,
+                  "A7: ec 0.0327231884 with the dielectric F0 0.08 -> 1.0026178551, i.e. +0.26% on a dielectric");
+        // ... AND THE ROW THAT NEEDS A COMMENT. `1.2424540519714355` is an ABOVE-ONE `fresnel0`, which is what a
+        // metal end can be here: `albedo * goo_base_colour` is a product of two unclamped factors and this asset's
+        // own values carry it over 1. The spec's §A7 gives the number and its §6-U2 records that its exact decimals
+        // depend on a LUT sample this step did not read; WHAT THE CHECK NEEDS IS ONLY THAT IT EXCEEDS 1, which is
+        // the condition for the compensation to push the factor ABOVE 1 at all - so the tolerance is `1e-5`.
+        CHECK_MSG(std::abs(direct_factor_of(0.0327231884f, 1.2424540519714355f) - 1.040657f) < 1e-5f,
+                  "A7: and the same ec with a metal's F0 -> 1.040657, i.e. +4% - which is why only the cloth's METAL texels move much");
+        CHECK_MSG(std::abs(direct_factor_of(29.0f, k_fgd_dielectric_f0) - 3.32f) < 1e-6f,
+                  "A7: a synthetic ec 29 with f0 0.08 -> 3.32 - the formula's SHAPE asserted away from any asset value, so a re-tuning of LUT.G cannot carry this line with it");
+
+        // A8'S COUNTERFACTUAL, the half §8r does not take. `运算.004` subtracts from a LITERAL `1.0`, so a call with
+        // `f90 = 0.0` still answers `f0 + (1 - f0)*x5` and NOT `f0 + (0 - f0)*x5`. The INSTANCE says `f90 = 1.0` and
+        // the interface default says `0.0`; with the literal both give the same number, which is exactly why the
+        // dump alone cannot tell the two forms apart - and why this check has to be written as a counterfactual.
+        auto const schlick_with_f90 = [](float const f0, float const f90, float const u) {
+            float const x = 1.0f - u;
+            return f0 + (f90 - f0) * x * x * x * x * x;
+        };
+        auto const schlick_literal = [](float const f0, float const u) {
+            float const x = 1.0f - u;
+            return f0 + (1.0f - f0) * x * x * x * x * x;
+        };
+        CHECK_MSG(schlick_literal(k_fgd_dielectric_f0, 0.5f) != schlick_with_f90(k_fgd_dielectric_f0, 0.0f, 0.5f),
+                  "A8: with `f90 = 0.0` the `f90 - x5` form answers a DIFFERENT number, so the literal `1.0` is load-bearing rather than a coincidence of the instance's value");
+        CHECK_MSG(std::abs(schlick_literal(k_fgd_dielectric_f0, 0.5f) - schlick_with_f90(k_fgd_dielectric_f0, 1.0f, 0.5f)) < 1e-7f,
+                  "A8: while at the INSTANCE's own `f90 = 1.0` the two agree to the digit - the trap the spec's §A8 names");
+
+        // A9: THE COMPOSITION, in the reference's own order, with every `ec` counted ONCE per path. The terms are
+        // chosen so each one is identifiable in the sum: the direct product is grey, so the component-wise factor
+        // collapses to a scalar and the arithmetic below is the reference's algebra rather than a rendering of it.
+        float const ec_cloth = energy_compensation_of(0.968313694f);
+        float const specular_fgd = 0.2f;
+        float const direct_raw = 0.5f;
+        float const direct_diffuse = 0.1f;
+        float const strength = 1.0f;
+        float const mixed_011 = direct_raw * direct_factor_of(ec_cloth, k_fgd_dielectric_f0) + direct_diffuse + specular_fgd * strength * ec_cloth;
+        CHECK_MSG(std::abs(mixed_011 - 0.6078535652f) < 1e-6f,
+                  "A9: 混合.011 = raw*(1 + ec*f0) + directLighting_diffuse + specularFGD*Strength*ec = 0.6078535652, with `ec` ONCE on each path");
+        // ... AND THE COUNTERFACTUAL THAT GIVES THAT ARITHMETIC MEANING: a port that "fixed" the IBL path by giving
+        // it the SAME `1 + ec*f0` factor lands ~0.19 away, so "one `ec` per path" is a measurable claim and not a
+        // restatement of the formula. (`goo_spec_ibl`'s own text is pinned in the sync-point half below.)
+        float const doubled_011 = direct_raw * direct_factor_of(ec_cloth, k_fgd_dielectric_f0) + direct_diffuse + specular_fgd * strength * direct_factor_of(ec_cloth, k_fgd_dielectric_f0);
+        CHECK_MSG(doubled_011 > mixed_011 + 0.1f, "A9: while a variant that gives the IBL path the DIRECT path's factor lands ~0.19 higher - the two readings are distinguishable");
+        float const mixed_004 = mixed_011 * 0.25f; // `混合.004`'s gate
+        CHECK_MSG(std::abs(mixed_004 - 0.1519633913f) < 1e-6f, "A9: 混合.004 = 混合.011 ⊙ gate, a pure scale of the finished sum");
+        float const toon_colour_goo = (0.3f * 0.5f + mixed_004) * 0.8f + 0.05f + 0.02f;
+        CHECK_MSG(std::abs(toon_colour_goo - 0.3115707130f) < 1e-6f,
+                  "A9: toon_colour_goo = (direct*blend + 混合.004)*goo_factor + eye_highlight + rim, in that order - the ADD's two non-article terms are OUTSIDE the factor, which is what `:3289` spells");
+    }
     // ---- 9. THE SYNC POINTS: the places a lane has to be spelled, plus the shader's constants ----
     //
     // These are the checks a compiler cannot make. Adding a texture lane without its format-table entry is a
@@ -2432,6 +2613,59 @@ int32_t main() {
                       "the front-red gate IS the SDF's flip bit - A9's two-mirrors claim, in the source");
             CHECK_MSG(character_forward.find("const float face_rim_threshold = (face_cm_a * face_mirror_uv) - face_angle_threshold;") != std::string::npos,
                       "and the face's rim gate SUBTRACTS the angle threshold rather than scaling by it");
+        }
+        // ---- (c9) STEP 9: THE DIRECT SPECULAR'S FACTOR, THE TWO ARGUMENTS E2/E3 MOVE, AND WHAT DOES *NOT* MOVE ----
+        //
+        // THE SENTENCE THIS BLOCK EXISTS TO MAKE FALSE IS "the port already had the energy compensation". It had it
+        // on ONE path - the IBL product at `:2790`, step 5's line - and the DIRECT product at `:2770` had NO factor
+        // at all, which is the whole defect (spec §3.3, and the frame that shows it is `goo_step9_result.md`'s).
+        // So the checks below are deliberately split three ways: the new factor is spelled EXACTLY ONCE and tied to
+        // the raw product's own tail, the IBL line is required to be UNCHANGED, and the two arguments E2/E3 move are
+        // required to be the SAME two quantities `goo_diffuse_colour` already reads.
+        {
+            // THE FACTOR ITSELF. The spec's §A10 example spelling is `goo_direct_specular * (1.0 + ...)`, i.e. the
+            // raw product in its own variable; the parent's brief for this step instead rules that the factor is
+            // APPENDED to `:2770`'s own expression, and §A10 explicitly leaves the exact spelling to the
+            // implementation ("具体拼写实现时定稿"). What §A10 does NOT leave open is the requirement, so that is
+            // what is asserted: ONE occurrence, carrying BOTH operands, and the raw product's own tail in front of
+            // it - so the factor cannot be dropped, doubled, or moved onto another term without this failing.
+            char const* const factor = "(1.0 + goo_energy_compensation * goo_fresnel0)";
+            std::size_t occurrences = 0u;
+            for (std::size_t at = character_forward.find(factor); at != std::string::npos;
+                 at = character_forward.find(factor, at + 1u)) {
+                ++occurrences;
+            }
+            CHECK_MSG(occurrences == 1u, "the direct specular's energy-compensation factor appears EXACTLY once in the shader");
+            CHECK_MSG(character_forward.find("goo_ndotl_clamped * (goo_specular_chosen * goo_specular_color) * cast_shadow_sigmoid * goo_light_color * direct_occlusion * (1.0 + goo_energy_compensation * goo_fresnel0)") != std::string::npos,
+                      "and it multiplies the RAW direct product's own tail, not some other term - the reference's `Vector Math.014` is `directLighting_specular ⊙ (1 + ec ⊙ f0)` and nothing else");
+            CHECK_MSG(character_forward.find("goo_specular_color * (1.0 + goo_energy_compensation") == std::string::npos,
+                      "the factor does NOT re-multiply `goo_specular_color`: the raw product already applied that tint, and `Vector Math.014`'s factor is built from `energyCompensation` and `fresnel0` alone");
+            // ... AND THE OTHER PATH IS STEP 5'S, UNTOUCHED. This is the check that makes "no double count" a
+            // property of the source rather than a claim in a report: the IBL product keeps the BARE factor.
+            CHECK_MSG(character_forward.find("goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation;") != std::string::npos,
+                      "the IBL specular keeps the BARE factor - step 5's own line, unchanged by this step");
+            CHECK_MSG(character_forward.find("goo_spec_ibl = goo_specular_fgd * goo_specular_fgd_strength * goo_energy_compensation *") == std::string::npos,
+                      "and it carries no SECOND factor after that one - the spec's §A7 negative assertion, spelled as a check");
+            // ---- E2 + E3: THE TWO ARGUMENTS OF `ComputeFresnel0`, WHICH ARE THE TWO THE DIFFUSE TERM ALREADY READS ----
+            CHECK_MSG(character_forward.find("lerp(float3(goo_fgd_dielectric_f0), albedo * goo_base_colour, metallic * metallic_max)") != std::string::npos,
+                      "E2 + E3: `fresnel0`'s metal end is `albedo * goo_base_colour` - the SAME product `goo_diffuse_colour` uses - and its factor is `metallic * metallic_max`");
+            CHECK_MSG(character_forward.find("lerp(float3(goo_fgd_dielectric_f0), goo_base_colour, metallic)") == std::string::npos,
+                      "and the pre-step-9 spelling - which dropped the metallic map from the factor and the glTF albedo from the colour - is GONE, not merely accompanied");
+            CHECK_MSG(character_forward.find("const float3 goo_diffuse_colour = albedo * goo_base_colour * (1.0 - metallic * metallic_max);") != std::string::npos,
+                      "`goo_diffuse_colour` is UNCHANGED by this step, which is what makes the two same-source rather than merely similar");
+            CHECK_MSG(character_forward.find("const float metallic_max = goo_diffuse_b.z > goo_lane_absent_threshold ? goo_diffuse_b.z : goo_metallic_max_default;") != std::string::npos,
+                      "`MetallicMax` still arrives on step 5's own lane component (`goo_diffuse_b.z`): this step added NO lane, NO heap slot and NO texture binding");
+            CHECK_MSG(character_forward.find("static const float goo_metallic_max_default = 1.0;") != std::string::npos,
+                      "the group's own `MetallicMax` default is the 1.0 the port falls back to - and the 23 instances all state exactly this (verify B1)");
+            CHECK_MSG(character_forward.find("static const float goo_fgd_dielectric_f0 = 0.07999999821186066;") != std::string::npos,
+                      "and the dielectric end is the FGD group's own F0 - now load-bearing for the COMPENSATION too, because `fresnel0` is a factor of it");
+            // ---- WHAT THIS STEP DELIBERATELY DOES NOT MOVE ----
+            // `energy_distribution_metallic` is a 0-HIT string in BOTH dumps (spec §1 item 3, verify B3), so the
+            // article's own `0.96 - 0.96 * metallic` at `:1956` is NOT this mechanism and the brief forbids touching
+            // it. Its presence is pinned so that "we left it alone" is visible in the source rather than only in a
+            // report - and so that a later reader who greps for `metallic` finds the boundary next to the factor.
+            CHECK_MSG(character_forward.find("const float energy_distribution_metallic = 0.96 - 0.96 * metallic;") != std::string::npos,
+                      "the article's `0.96 - 0.96 * metallic` is still there and still NOT this step's mechanism (its group's `energy_distribution_metallic` is a 0-hit string in both dumps)");
         }
         // (d) THE SWITCH, which is the A/B's own instrument: it must be a `[render]` key, because that is the only
         // section the capture script can override - a key anywhere else would make the A/B unrunnable.
