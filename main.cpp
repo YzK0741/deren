@@ -375,12 +375,63 @@ int main(int argc, char** argv) {
     auto const irr_size = settings.lighting.irr_size;
     auto const lut_size = settings.lighting.lut_size;
     auto const startup_start = std::chrono::steady_clock::now();
+
+    // ---- THE ENVIRONMENT IMAGE, WHEN THE CONFIG NAMES ONE ([lighting] environment_hdr) ----
+    //
+    // This is the reference package's own route to an environment: its world is an equirectangular HDRI
+    // (`lighting/studio_01_1k.exr`) that its manifest gives a `world_strength` of 0.35, not a procedural
+    // sky. The engine's decoder is `stb_image` (see the include note at the top of this file), which reads
+    // Radiance `.hdr` and NOT OpenEXR, so the package's file is converted once, offline, into exactly that
+    // format - `zmd-ab/bg/_hdr_convert.py`, which is also where its own statistics were measured. The
+    // engine gains no dependency: it gains a file it could already read.
+    //
+    // The pixels are MOVED into the async task that bakes the cubemap, so no buffer here has to outlive the
+    // statement that loaded it. An empty path means the analytic sky, untouched.
+    std::vector<float> environment_pixels = {};
+    int32_t environment_width = 0;
+    int32_t environment_height = 0;
+    if (!settings.lighting.environment_hdr.empty()) {
+        std::filesystem::path environment_path = settings.lighting.environment_hdr;
+        if (environment_path.is_relative()) {
+            // relative to the EXECUTABLE's directory, the same rule [render] background_glb follows
+            environment_path = utility::executable_directory() / environment_path;
+        }
+        int32_t channels = 0;
+        float* const decoded = stbi_loadf(environment_path.string().c_str(), &environment_width, &environment_height, &channels, 4); // 4 = force RGBA, the layout the bake reads
+        if (decoded == nullptr) {
+            utility::panic(std::source_location::current(), "failed to load the environment HDRI '{}': {}", environment_path.string(), stbi_failure_reason());
+        }
+        environment_pixels.assign(decoded, decoded + static_cast<std::size_t>(environment_width) * static_cast<std::size_t>(environment_height) * 4);
+        stbi_image_free(decoded);
+        // The image's own mean radiance is logged BEFORE the bake, because it turns the multiplier's effect
+        // on the ambience into arithmetic instead of a guess - and it is the number the offline conversion
+        // script prints for the same file, which is how the two ends are checked against each other.
+        double luma_sum = 0.0;
+        for (std::size_t i = 0; i + 2 < environment_pixels.size(); i += 4) {
+            luma_sum += 0.2126 * environment_pixels[i] + 0.7152 * environment_pixels[i + 1] + 0.0722 * environment_pixels[i + 2];
+        }
+        double const texel_count = static_cast<double>(environment_width) * static_cast<double>(environment_height);
+        double const luma_mean = texel_count > 0.0 ? luma_sum / texel_count : 0.0;
+        utility::log("environment: '{}' loaded as {}x{} RGBA float, linear luma mean {:.5f}; intensity {:.2f} (the reference package's own world_strength) scales it to {:.5f}",
+                     environment_path.string(),
+                     environment_width,
+                     environment_height,
+                     luma_mean,
+                     settings.lighting.environment_intensity,
+                     luma_mean * settings.lighting.environment_intensity);
+        utility::log("environment: the procedural sky's gradient and its baked sun are off for the IBL; the DIRECT light ([lighting] sun_direction) still drives the shadows, the shading and the visible disc");
+    }
+
     // THE SUN, AS ONE VECTOR FOR EVERYTHING THAT HAS TO AGREE ABOUT IT: the light UBO built from it (the
     // shading's `light_dir` and the shadow cascades), the disc the sky draws - which reads that UBO's
     // `light_dir`, so the sky cannot put its sun where the shadows do not fall - and the env cubemap baked
     // below, whose sun has to sit in the same place for a reflection's glint to match the sky it reflects.
+    // (That last consumer is the analytic sky's alone: an environment image carries its own lights, and the
+    // direct light is not baked into it a second time.)
     auto const& sun_direction = settings.lighting.sun_direction;
-    auto env_future = vulkan::generate_environment_cubemap_async(env_size, sun_direction);
+    auto env_future = environment_pixels.empty()
+                          ? vulkan::generate_environment_cubemap_async(env_size, sun_direction)
+                          : vulkan::generate_environment_cubemap_from_equirect_async(std::move(environment_pixels), environment_width, environment_height, env_size, settings.lighting.environment_intensity);
     auto load_future = gltf::load_model_async(model_path);
 
     // 5. Construct vulkan::runtime from the startup render settings (window size / title /

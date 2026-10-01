@@ -23,6 +23,8 @@ namespace {
         CHECK(settings.render.shadow_map_size == 1024);
         CHECK(!settings.render.clustered_lights); // fixture turns the M5 cluster pass off
         CHECK(settings.lighting.demo_lights == 3);
+        CHECK(settings.lighting.environment_hdr == "hdr/test-environment.hdr"); // the fixture's own path, taken verbatim
+        CHECK(settings.lighting.environment_intensity > 0.79f && settings.lighting.environment_intensity < 0.81f);
         CHECK(!settings.render.ssao); // fixture turns the M6 screen-space AO off
         CHECK(settings.render.ssao_radius > 1.49f && settings.render.ssao_radius < 1.51f);
         CHECK(settings.render.ssao_intensity > 0.49f && settings.render.ssao_intensity < 0.51f);
@@ -94,6 +96,11 @@ namespace {
         CHECK(!settings.render.taa);
         CHECK(settings.lighting.demo_lights == 0);
         CHECK(settings.lighting.env_size == 256);
+        // environment_hdr empty is the contract that keeps the procedural sky (and therefore every frame
+        // taken before the key existed) byte-identical; the intensity default is the reference package's
+        // own world_strength, so pointing the key at the converted studio HDR needs no second setting.
+        CHECK(settings.lighting.environment_hdr.empty());
+        CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
         CHECK(settings.gui.show);
     }
 
@@ -108,6 +115,7 @@ namespace {
         CHECK(settings.lighting.env_mip_count == 5);
         CHECK(settings.lighting.irr_size == 32);
         CHECK(settings.lighting.lut_size == 256);
+        CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f); // -1.0 -> the default
     }
 
     // scripts/make_config.py WRITES config.toml, so every value it can emit has to be a value
@@ -173,6 +181,8 @@ namespace {
         CHECK(settings.lighting.env_mip_count == 5);
         CHECK(settings.lighting.irr_size == 32);
         CHECK(settings.lighting.lut_size == 256);
+        CHECK(settings.lighting.environment_hdr.empty()); // the generator's own default: the procedural sky
+        CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
     }
 
     void test_model_ask_sentinel_is_recognized_and_never_a_path() {

@@ -72,3 +72,5 @@ env_size = 256
 env_mip_count = 5
 irr_size = 32
 lut_size = 256
+environment_hdr = ""
+environment_intensity = 0.35

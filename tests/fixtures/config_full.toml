@@ -47,6 +47,8 @@ env_mip_count = 5
 irr_size = 64
 lut_size = 128
 demo_lights = 3
+environment_hdr = "hdr/test-environment.hdr"
+environment_intensity = 0.8
 
 [gui]
 show = false

@@ -198,6 +198,8 @@ def write_toml(path: str, cfg: dict) -> None:
         f"env_mip_count = {cfg['env_mip_count']}",
         f"irr_size = {cfg['irr_size']}",
         f"lut_size = {cfg['lut_size']}",
+        f"environment_hdr = {fmt_toml_string(cfg['environment_hdr'])}",
+        f"environment_intensity = {cfg['environment_intensity']}",
         "",
     ]
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
@@ -342,6 +344,14 @@ def ask_all(output_dir: str) -> dict:
     env_mip_count = ask_int("lighting.env_mip_count", 5, 2, 12, hint="prefiltered env mip chain length")
     irr_size = ask_int("lighting.irr_size", 32, 1, 1024, hint="irradiance cubemap size")
     lut_size = ask_int("lighting.lut_size", 256, 1, 1024, hint="BRDF LUT size")
+    # environment_hdr: an equirectangular .hdr used as the IBL instead of the procedural sky. It is a
+    # PATH, so it must survive the round trip verbatim - write_toml quotes it - and a missing file is a
+    # hard startup error rather than a fallback, which is why the default is the empty string (the
+    # procedural sky) rather than a path that may not exist on this machine.
+    environment_hdr = ask_text("lighting.environment_hdr", "", hint="equirect .hdr path ('' = the procedural sky)")
+    environment_intensity = ask_float(
+        "lighting.environment_intensity", 0.35, 0.0, hint="multiplier on the loaded HDR (the reference's world_strength)"
+    )
 
     print(f"\nwriting config.toml to: {output_dir}")
     return {
@@ -390,6 +400,8 @@ def ask_all(output_dir: str) -> dict:
         "env_mip_count": env_mip_count,
         "irr_size": irr_size,
         "lut_size": lut_size,
+        "environment_hdr": environment_hdr,
+        "environment_intensity": environment_intensity,
     }
 
 

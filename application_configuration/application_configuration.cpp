@@ -411,6 +411,19 @@ namespace app_config {
                     }
                 }
             }
+            // The environment image and its multiplier (see the struct's own note). The path is taken
+            // VERBATIM and left relative here; the host resolves it against the executable's directory,
+            // because that is where the assets live and this module has no business guessing.
+            if (toml::node const* node = lighting->get("environment_hdr")) {
+                if (std::optional<std::string> const value = node->value<std::string>()) {
+                    settings.lighting.environment_hdr = *value;
+                }
+            }
+            if (toml::node const* node = lighting->get("environment_intensity")) {
+                if (std::optional<double> const value = node->value<double>()) {
+                    settings.lighting.environment_intensity = static_cast<float>(*value);
+                }
+            }
             if (toml::node const* node = lighting->get("demo_lights")) {
                 if (std::optional<int64_t> const value = node->value<int64_t>()) {
                     settings.lighting.demo_lights = static_cast<int32_t>(*value);
@@ -523,6 +536,13 @@ namespace app_config {
         if (settings.lighting.lut_size < 1 || settings.lighting.lut_size > 1024) {
             utility::log("app_config: invalid lut_size {} (use 1..1024), falling back to 256", settings.lighting.lut_size);
             settings.lighting.lut_size = 256;
+        }
+        // The environment multiplier scales radiance: a negative one would mirror the image into nonsense
+        // and a NaN would poison every texel of the IBL it feeds. Both fall back to the reference's own
+        // number instead of rendering an environment nobody chose. (`!(x >= 0)` is the NaN test.)
+        if (!(settings.lighting.environment_intensity >= 0.0f)) {
+            utility::log("app_config: invalid environment_intensity {} (use a finite value >= 0), falling back to 0.35", settings.lighting.environment_intensity);
+            settings.lighting.environment_intensity = 0.35f;
         }
         if (settings.lighting.demo_lights < 0 || settings.lighting.demo_lights > static_cast<int32_t>(max_demo_lights)) {
             utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);

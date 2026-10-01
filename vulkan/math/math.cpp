@@ -105,6 +105,37 @@ namespace vulkan {
             return glm::vec3(data[offset], data[offset + 1], data[offset + 2]);
         }
 
+        // Equirectangular (lat-long) lookup: the direction -> (u, v) mapping that
+        // generate_environment_cubemap_from_equirect() documents, plus bilinear interpolation in texel
+        // space. Row 0 of the buffer is the image's TOP row (the decoder's order) and v = 0 (the zenith)
+        // lands there; u wraps around the seam, v clamps at the poles.
+        glm::vec3 sample_equirect(std::span<float const> const pixels, int32_t const width, int32_t const height, glm::vec3 const& dir) {
+            float const u = 0.5f + std::atan2(dir.x, dir.z) / (2.0f * k_pi);
+            float const v = std::acos(std::clamp(dir.y, -1.0f, 1.0f)) / k_pi;
+            // texel-centre convention: texel i covers [i, i+1) and is sampled at i + 0.5
+            float const fx = u * static_cast<float>(width) - 0.5f;
+            float const fy = v * static_cast<float>(height) - 0.5f;
+            float const x0f = std::floor(fx);
+            float const y0f = std::floor(fy);
+            float const tx = fx - x0f;
+            float const ty = fy - y0f;
+            int32_t const y0 = std::clamp(static_cast<int32_t>(y0f), 0, height - 1);
+            int32_t const y1 = std::clamp(static_cast<int32_t>(y0f) + 1, 0, height - 1);
+            auto const wrap = [width](int32_t const x) {
+                int32_t const w = x % width;
+                return w < 0 ? w + width : w;
+            };
+            int32_t const x0 = wrap(static_cast<int32_t>(x0f));
+            int32_t const x1 = wrap(static_cast<int32_t>(x0f) + 1);
+            auto const texel = [&](int32_t const x, int32_t const y) {
+                size_t const offset = (static_cast<size_t>(y) * static_cast<size_t>(width) + static_cast<size_t>(x)) * 4;
+                return glm::vec3(pixels[offset], pixels[offset + 1], pixels[offset + 2]);
+            };
+            glm::vec3 const top = glm::mix(texel(x0, y0), texel(x1, y0), tx);
+            glm::vec3 const bottom = glm::mix(texel(x0, y1), texel(x1, y1), tx);
+            return glm::mix(top, bottom, ty);
+        }
+
         // Van der Corput sequence (second component of Hammersley)
         float radical_inverse_vdc(uint32_t bits) {
             bits = (bits << 16u) | (bits >> 16u);
@@ -156,6 +187,31 @@ namespace vulkan {
                     float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
                     glm::vec3 const color = environment_color(cube_face_direction(face, u, v), sun_direction);
+                    size_t const offset = (static_cast<size_t>(face) * size * size + static_cast<size_t>(y) * size + x) * 4;
+                    data[offset + 0] = color.r;
+                    data[offset + 1] = color.g;
+                    data[offset + 2] = color.b;
+                    data[offset + 3] = 1.0f;
+                }
+            }
+        }
+        return data;
+    }
+
+    std::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> const equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
+        // The source is required, and a degenerate one would otherwise be read out of bounds: the one
+        // caller panics before getting here, so this is the belt to that pair of braces rather than a
+        // silent fallback to a sky nobody asked for.
+        if (width <= 0 || height <= 0 || equirect.size() < static_cast<size_t>(width) * static_cast<size_t>(height) * 4 || size <= 0) {
+            return std::vector<float>(static_cast<size_t>(std::max(size, 0)) * std::max(size, 0) * 6 * 4, 0.0f);
+        }
+        std::vector<float> data(static_cast<size_t>(6) * size * size * 4);
+        for (int32_t face = 0; face < 6; ++face) {
+            for (int32_t y = 0; y < size; ++y) {
+                for (int32_t x = 0; x < size; ++x) {
+                    float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
+                    float const v = (static_cast<float>(y) + 0.5f) / static_cast<float>(size) * 2.0f - 1.0f;
+                    glm::vec3 const color = sample_equirect(equirect, width, height, cube_face_direction(face, u, v)) * intensity;
                     size_t const offset = (static_cast<size_t>(face) * size * size + static_cast<size_t>(y) * size + x) * 4;
                     data[offset + 0] = color.r;
                     data[offset + 1] = color.g;
@@ -393,6 +449,13 @@ namespace vulkan {
     std::future<std::vector<float>> generate_environment_cubemap_async(int32_t const size, std::array<float, 3> const sun_direction) {
         // The direction is captured BY VALUE: the caller's vector may be gone by the time the async thread runs.
         return std::async(std::launch::async, [size, sun_direction] { return generate_environment_cubemap(size, sun_direction); });
+    }
+
+    std::future<std::vector<float>> generate_environment_cubemap_from_equirect_async(std::vector<float> equirect, int32_t const width, int32_t const height, int32_t const size, float const intensity) {
+        // The pixels are MOVED in, not viewed: see the declaration's own note.
+        return std::async(std::launch::async, [equirect = std::move(equirect), width, height, size, intensity] {
+            return generate_environment_cubemap_from_equirect(equirect, width, height, size, intensity);
+        });
     }
 
     std::future<std::vector<float>> prefilter_environment_async(std::span<float const> const env, int32_t const env_size, int32_t const mip_count) {

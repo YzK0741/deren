@@ -1,6 +1,7 @@
 // Headless unit tests: vulkan.math module (pure CPU - IBL precompute helpers) ===
 #include "vk_test.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <glm/glm.hpp>
@@ -31,6 +32,152 @@ namespace {
         std::vector<float> const env = vulkan::generate_environment_cubemap(8);
         std::vector<float> const irr = vulkan::generate_irradiance_map(env, 8, 4);
         CHECK(irr.size() == cubemap_float_count(4));
+    }
+
+    // ---- THE EQUIRECTANGULAR ENVIRONMENT (vulkan::generate_environment_cubemap_from_equirect) ----
+    //
+    // The two axes of the lat-long mapping are the only thing here that can go wrong silently and neither
+    // is visible in a frame as an error: a flipped v lights the ground from the ceiling, a flipped u rotates
+    // the whole ambience. So the convention is pinned with sources whose texels SAY where they are, and the
+    // assertions read the result back through the ONE thing that is part of the output's documented layout -
+    // the face order (+X -X +Y -Y +Z -Z) - rather than through a second copy of the direction math.
+    //
+    // Source A is a ramp: red = the column's u, green = the row's v (row 0 = the image's top row, which is
+    // the decoder's order). Its face means are arithmetic:
+    //   +X face: u over 0.625..0.875 -> mean 0.75        -X face: 0.125..0.375 -> mean 0.25
+    //   +Z face: u over 0.375..0.625 -> mean 0.50        -Z face: straddles the seam -> values near 0.125
+    //                                                                  on one half and 0.875 on the other
+    //   +Y face: v over 0..0.196 -> mean ~0.10 (the cap around the zenith)
+    //   -Y face: v over 0.804..1 -> mean ~0.90 (the cap around the nadir, i.e. the image's bottom rows)
+    // The u direction (u grows toward +X) and the up axis (v = 0 is +Y) are both fixed by those numbers.
+    // Sources B and C are single bright stripes - at the image's centre column and at its seam column - and
+    // must light exactly one face each (+Z and -Z respectively), which is what makes the horizontal origin
+    // and the wrap unambiguous.
+    std::vector<float> make_equirect_ramp(int32_t const width, int32_t const height) {
+        std::vector<float> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+        for (int32_t y = 0; y < height; ++y) {
+            for (int32_t x = 0; x < width; ++x) {
+                std::size_t const at = (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4;
+                pixels[at + 0] = (static_cast<float>(x) + 0.5f) / static_cast<float>(width);  // u
+                pixels[at + 1] = (static_cast<float>(y) + 0.5f) / static_cast<float>(height); // v, row 0 = top
+                pixels[at + 2] = 0.25f;                                                       // a channel the mapping must not touch
+                pixels[at + 3] = 1.0f;
+            }
+        }
+        return pixels;
+    }
+
+    std::vector<float> make_equirect_stripe(int32_t const width, int32_t const height, float const u_centre, float const half_width) {
+        std::vector<float> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4, 0.0f);
+        for (int32_t y = 0; y < height; ++y) {
+            for (int32_t x = 0; x < width; ++x) {
+                float const u = (static_cast<float>(x) + 0.5f) / static_cast<float>(width);
+                float const distance = std::abs(u - u_centre);
+                float const wrapped = std::min(distance, 1.0f - distance); // the stripe wraps with the image
+                if (wrapped > half_width) {
+                    continue;
+                }
+                std::size_t const at = (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4;
+                pixels[at + 0] = 1.0f;
+                pixels[at + 3] = 1.0f;
+            }
+        }
+        return pixels;
+    }
+
+    struct face_ramp_stats {
+        double mean_r;
+        double mean_g;
+        double min_r;
+        double max_r;
+    };
+
+    face_ramp_stats face_stats(std::vector<float> const& cube, int32_t const size, int32_t const face) {
+        face_ramp_stats stats{0.0, 0.0, 1.0, 0.0};
+        int32_t const count = size * size;
+        for (int32_t i = 0; i < count; ++i) {
+            std::size_t const at = (static_cast<std::size_t>(face) * count + static_cast<std::size_t>(i)) * 4;
+            stats.mean_r += cube[at + 0];
+            stats.mean_g += cube[at + 1];
+            stats.min_r = std::min(stats.min_r, static_cast<double>(cube[at + 0]));
+            stats.max_r = std::max(stats.max_r, static_cast<double>(cube[at + 0]));
+        }
+        stats.mean_r /= static_cast<double>(count);
+        stats.mean_g /= static_cast<double>(count);
+        return stats;
+    }
+
+    void test_equirect_environment_axes() {
+        constexpr int32_t source_width = 128;
+        constexpr int32_t source_height = 64;
+        constexpr int32_t size = 16;
+        std::vector<float> const ramp = make_equirect_ramp(source_width, source_height);
+        std::vector<float> const cube = vulkan::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size);
+        CHECK(cube.size() == cubemap_float_count(size));
+
+        for (std::size_t i = 0; i + 3 < cube.size(); i += 4) {
+            CHECK(std::isfinite(cube[i]) && std::isfinite(cube[i + 1]) && std::isfinite(cube[i + 2]));
+            CHECK(cube[i + 3] == 1.0f);                   // alpha is filled, not sampled
+            CHECK(std::abs(cube[i + 2] - 0.25f) < 1e-6f); // blue passes through untouched
+        }
+
+        face_ramp_stats const px = face_stats(cube, size, 0);
+        face_ramp_stats const nx = face_stats(cube, size, 1);
+        face_ramp_stats const py = face_stats(cube, size, 2);
+        face_ramp_stats const ny = face_stats(cube, size, 3);
+        face_ramp_stats const pz = face_stats(cube, size, 4);
+        face_ramp_stats const nz = face_stats(cube, size, 5);
+        CHECK_MSG(px.mean_r > 0.70 && px.mean_r < 0.80, "+X face samples u around 0.75 (u grows toward +X)");
+        CHECK_MSG(nx.mean_r > 0.20 && nx.mean_r < 0.30, "-X face samples u around 0.25");
+        CHECK_MSG(pz.mean_r > 0.45 && pz.mean_r < 0.55, "+Z face samples u around 0.5 (the image's centre column)");
+        CHECK_MSG(nz.min_r < 0.20 && nz.max_r > 0.80, "-Z face straddles the image's seam, where u wraps from 1 to 0");
+        // The two caps are the v axis. Their means are NOT 0 and 1: a face spans 45..90 degrees of
+        // elevation, so - with texel centres uniform over the face's square - the caps average y = +-0.775,
+        // i.e. v = acos(0.775)/pi = 0.218 for +Y and 0.787 for -Y. The bounds below are loose around those
+        // two values on purpose; what they pin is that the pair STRADDLES the middle and sits on the
+        // expected side of it. A flipped v would swap them and fail both.
+        CHECK_MSG(py.mean_g < 0.30, "+Y samples the image's FIRST rows: v = 0 is the zenith");
+        CHECK_MSG(ny.mean_g > 0.70, "-Y samples the image's LAST rows: v = 1 is the nadir");
+        CHECK_MSG(ny.mean_g - py.mean_g > 0.5, "the two caps are half an image apart, not nearly equal");
+        // and the pair whose means would be equal if the mapping were handedness-flipped
+        CHECK(px.mean_r > nx.mean_r);
+
+        // The stripes: the centre column lights +Z and nothing else; the seam column lights -Z and nothing
+        // else. Together they fix the horizontal origin AND the wrap in one measurement each. Only the four
+        // SIDE faces are inspected: a cap spans every azimuth (its corners reach all four quadrants), so it
+        // sees every u value somewhere and cannot tell the stripes apart. The stripes are several columns
+        // wide - a sub-texel stripe is cut in half by the bilinear sample and reads as ~0.5, which is
+        // indistinguishable from "no stripe here".
+        auto const stripe_lights_only = [&](std::vector<float> const& stripe_cube, int32_t const expected) {
+            for (int32_t const face : {0, 1, 4, 5}) {
+                face_ramp_stats const stats = face_stats(stripe_cube, size, face);
+                if (face == expected) {
+                    CHECK_MSG(stats.max_r > 0.9, "the stripe's own face sees it");
+                } else {
+                    CHECK_MSG(stats.max_r < 0.01, "no other SIDE face sees the stripe");
+                }
+            }
+        };
+        stripe_lights_only(vulkan::generate_environment_cubemap_from_equirect(make_equirect_stripe(source_width, source_height, 0.5f, 4.0f / source_width), source_width, source_height, size), 4);
+        stripe_lights_only(vulkan::generate_environment_cubemap_from_equirect(make_equirect_stripe(source_width, source_height, 0.0f, 4.0f / source_width), source_width, source_height, size), 5);
+
+        // The intensity is a plain multiplier on every texel (the reference's world_strength). The ALPHA
+        // channel is the exception: it is filled with 1 by both runs, so it is compared for equality rather
+        // than for the ratio - a scaled alpha would be a wasted channel and a silent precision loss.
+        std::vector<float> const doubled = vulkan::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size, 4.0f);
+        CHECK(doubled.size() == cube.size());
+        for (std::size_t i = 0; i < cube.size(); i += 4) {
+            for (std::size_t channel = 0; channel < 3; ++channel) {
+                CHECK(std::abs(doubled[i + channel] - 4.0f * cube[i + channel]) < 1e-4f);
+            }
+            CHECK(doubled[i + 3] == cube[i + 3]);
+        }
+
+        // A degenerate source is a zero buffer of the right shape, never a read out of bounds: the caller
+        // panics long before this, and this is the belt to that pair of braces.
+        std::vector<float> const degenerate = vulkan::generate_environment_cubemap_from_equirect({}, 0, 0, 4);
+        CHECK(degenerate.size() == cubemap_float_count(4));
+        CHECK(std::all_of(degenerate.begin(), degenerate.end(), [](float const value) { return value == 0.0f; }));
     }
 
     void test_brdf_lut_shape() {
@@ -164,6 +311,7 @@ int32_t main() {
     test_irradiance_map_shape();
     test_brdf_lut_shape();
     test_prefiltered_environment_is_smooth();
+    test_equirect_environment_axes();
     test_orbit_camera_pan();
     return vk_test::finish("test_math");
 }

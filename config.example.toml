@@ -487,6 +487,39 @@ lut_size      = 256   # BRDF LUT size
 # array). 0 = overlay lights only.
 demo_lights = 0
 
+# environment_hdr: an EQUIRECTANGULAR (lat-long) floating-point sky, used as the image-based lighting
+# instead of the procedural gradient. Empty - the default - keeps the procedural sky, and a frame with
+# this unset is byte-identical to one from before the key existed: that is the contract, and every
+# other value here is only reachable through this key.
+#
+# It exists because the author's own preview renders were lit by a captured studio, not by a gradient:
+# their package's manifest names `lighting/studio_01_1k.exr` with `world_strength 0.35`, and that
+# light is what fills the shadows their area light casts (ours come out of the toon rig and the
+# environment, so the character's ambient is otherwise a blue-grey sky band). Converting that EXR to a
+# Radiance .hdr is a one-liner in Blender - see build-release-clang64/zmd-ab/bg/_hdr_convert.py, which
+# writes studio_01_1k.hdr next to the EXR - because the runtime reads .hdr and NOT .exr: stb_image
+# decodes Radiance but has no OpenEXR support, and the runtime has no other image decoder.
+#
+# What the key does, EXACTLY: it replaces the cubemap that the whole IBL precompute (irradiance,
+# prefiltered specular, BRDF LUT input) is built from. The procedural gradient disappears from the
+# IBL, INCLUDING the sun disc the gradient used to bake in, so a shadowed surface loses its sky band
+# and gains the room instead. It does NOT touch the direct light: `sun_direction` above still drives
+# the shadow map, the toon terminator and the visible sun disc, because the direct term is a light,
+# not part of the environment. The VISIBLE sky (the analytic gradient the sky shader draws behind
+# everything) is also untouched, since it is a per-pixel function rather than a cubemap fetch - with
+# a background dome in front of it, as `[render] background_glb` gives, it is hidden anyway.
+#
+# A relative path resolves against the executable's directory, exactly like `[render] background_glb`.
+# A missing or undecodable file is a hard startup error, not a fallback: finding out from a log line
+# that a frame was lit differently than intended is worse than not starting.
+environment_hdr = ""
+
+# environment_intensity: a plain multiplier on every texel of `environment_hdr`, and its default is
+# the reference package's own `world_strength` - so pointing the key at the converted studio HDR
+# reproduces the author's lighting level with nothing else to set. 1.0 = the file's raw radiance.
+# It has no effect while `environment_hdr` is empty (the procedural sky is not scaled by it).
+environment_intensity = 0.35
+
 # ---- [toon] the toon character stage's LIGHT RIG ----
 #
 # These are the 终末地 chain's GLOBAL numbers (see vulkan::toon_rig): the ones tuned once for a whole character

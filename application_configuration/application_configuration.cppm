@@ -68,6 +68,8 @@ import utility;
  * env_mip_count = 5    # prefiltered env mip chain length
  * irr_size     = 32    # irradiance cubemap size
  * lut_size     = 256   # BRDF LUT size
+ * environment_hdr = "" # equirect HDR image used as the IBL instead of the procedural sky ("" = the sky)
+ * environment_intensity = 0.35 # linear multiplier on that image (the reference's own world_strength)
  * @endcode
  */
 namespace app_config {
@@ -347,6 +349,35 @@ namespace app_config {
         // the frame it always did; it is a high sun (59 degrees of elevation, 31 of azimuth) and lowering the
         // elevation is what moves the shadows off a face and onto the ground behind it.
         std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f};
+        /**
+         * THE ENVIRONMENT IMAGE, i.e. the reference package's own way of describing its world.
+         *
+         * `environment_hdr`: path to an EQUIRECTANGULAR (lat-long) HDR image - in practice the reference
+         * package's `lighting/studio_01_1k.exr`, converted once, offline, into the one float format the
+         * engine's own decoder reads (Radiance `.hdr`, which is what `stb_image` handles; the conversion
+         * and its measurements are in `zmd-ab/bg/_hdr_convert.py`). It REPLACES the procedural sky above as
+         * the environment cubemap.
+         *
+         * EMPTY (THE DEFAULT) IS THE CONTRACT: with no image every path renders exactly what it rendered
+         * before this key existed, byte for byte. Relative paths resolve against the executable's
+         * directory, the same rule [render] background_glb follows.
+         *
+         * WHEN IT IS SET the procedural gradient AND its baked sun disc are both gone from the IBL - the
+         * image is the whole environment. The DIRECT light is untouched: `sun_direction` still drives the
+         * shadow cascades, the shading and the visible disc the sky draws, so the image is never asked to
+         * double as a sun. (The visible sky itself is still analytic; with the reference's backdrop dome
+         * present - see [render] background_glb - it is occluded anyway.)
+         */
+        std::string environment_hdr = {};
+        /**
+         * `environment_intensity`: a linear multiplier applied to every texel of that image - the same
+         * degree of freedom the reference package calls its world's `world_strength`.
+         *
+         * THE DEFAULT IS THE REFERENCE'S OWN NUMBER (0.35, from that package's manifest.json): pointing
+         * `environment_hdr` at its image and changing nothing else is meant to reproduce the reference's
+         * ambience. 1.0 is the file's raw radiance, which for a studio HDRI is a good deal brighter.
+         */
+        float environment_intensity = 0.35f;
         // demo_lights ([lighting] demo_lights): spawn this many procedural punctual lights around
         // the scene (a helix at the scene bounds, cycling colors). This is the clustered-light stress
         // mode: with the debug overlay's four light slots the cluster lists and the brute-force loop

@@ -39,6 +39,32 @@ namespace vulkan {
 
     /**
      * @ingroup vulkan_math
+     * @brief build the environment cubemap from an EQUIRECTANGULAR (lat-long) image instead of the
+     *        procedural sky: the reference package's own way of describing its world
+     * @param equirect linear-radiance texels, 4 floats each, row 0 = the image's TOP row (the order the
+     *        engine's decoder hands them over), `width` columns
+     * @param width source width in texels
+     * @param height source height in texels
+     * @param size the cubemap face size to produce; the output has the same layout and semantics as
+     *        generate_environment_cubemap() (RGBA32F, six faces packed in +X -X +Y -Y +Z -Z order, alpha 1)
+     * @param intensity a linear multiplier on every texel; 1 is the file's own radiance
+     *
+     * THE TWO AXES ARE THE ONLY THING THAT CAN GO WRONG HERE, so they are stated rather than implied:
+     *   - vertical: `v = acos(clamp(dir.y)) / pi`, so v = 0 is the image's first row and maps to +Y (up).
+     *     A studio HDRI is lit from above, so its upper half is the brighter one; if a future measurement
+     *     reports the opposite, THIS line is the bug and not the asset.
+     *   - horizontal: `u = 0.5 + atan2(dir.x, dir.z) / (2*pi)`, so u = 0.5 looks along +Z and u grows
+     *     toward +X. The reference world's own equirect puts the image's centre on its -Y, which after the
+     *     USD -> glTF axis conversion the background asset already went through is this engine's +Z: the
+     *     two agree by construction rather than by luck. u wraps around, v clamps at both poles.
+     * Sampling is bilinear in texel space. At the equator a 256-texel face over a 1024-wide source is near
+     * 1:1 and loses nothing; the polar rows are oversampled in the source and are the one place where a
+     * box average would beat this interpolation.
+     */
+    export std::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> equirect, int32_t width, int32_t height, int32_t size, float intensity = 1.0f);
+
+    /**
+     * @ingroup vulkan_math
      * @brief GGX importance-sampled prefilter of the environment into a mip chain, one mip level per
      *        roughness step, each sample averaged over the source mip that matches its own solid angle
      *        (so the coarse levels stay smooth instead of picking up isolated bright texels - one of
@@ -70,6 +96,14 @@ namespace vulkan {
     //       must stay alive until the returned future is consumed.
 
     export std::future<std::vector<float>> generate_environment_cubemap_async(int32_t size, std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
+    /**
+     * @ingroup vulkan_math
+     * @brief async twin of generate_environment_cubemap_from_equirect()
+     * @note UNLIKE the span-taking twins above, this one OWNS its input: the pixels come from a file the
+     *       caller loads a few lines earlier, and it would otherwise have to keep that buffer alive across
+     *       a whole startup stage - the exact lifetime a moved-in vector makes impossible to get wrong.
+     */
+    export std::future<std::vector<float>> generate_environment_cubemap_from_equirect_async(std::vector<float> equirect, int32_t width, int32_t height, int32_t size, float intensity = 1.0f);
     export std::future<std::vector<float>> prefilter_environment_async(std::span<float const> env, int32_t env_size, int32_t mip_count);
     export std::future<std::vector<float>> generate_irradiance_map_async(std::span<float const> env, int32_t env_size, int32_t irr_size);
     export std::future<std::vector<float>> generate_brdf_lut_async(int32_t size);
