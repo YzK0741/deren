@@ -978,6 +978,16 @@ namespace {
         float const exponent = clamped < 0.5f ? 2.0f * clamped : 0.5f / (1.0f - clamped);
         return 1.0f - std::pow(std::abs(dot_value), exponent);
     }
+    /// @brief the sheet coordinate the reference feeds the `_RS` sheet: `u = clamp(Facing + Offset, 0, 1)`
+    ///        (`build-release-clang64/zmd-ab/goo_step15_armA_spec.md:107`).
+    ///
+    /// DEBT (x), lead-found 2026-10-01: this composed form is what the SHADER's net must equal, and until the fix
+    /// the shader computed its COMPLEMENT. The two agree only at `b == 0` and at `|V.n| == 0.5`, which is exactly
+    /// why a suite built only on `b == 0` fixtures (all of them, at the time) could be green while the port was
+    /// inverted - see A10 below for the pins that compare them directly.
+    float rs_sheet_u(float const blend, float const dot_value, float const offset) {
+        return rs_clamp01(rs_facing(blend, dot_value) + offset);
+    }
     /// @brief the cast-shadow curve's leaf - pinned in step 13 as a BACKGROUND leaf ("armA only, not called by
     ///        step 13"); STEP 15 ported `armA`, so this is now live code's leaf too.
     ///
@@ -3682,10 +3692,42 @@ int32_t main() {
         CHECK_MSG(rs_arm0_channel(0.5f, 0.5f, 1.0f, 0.0f, 0.9971895217895508f, 1.0f) == 0.0f,
                   "RS A9: `saturate(NdotL)` at 0 zeroes it too - the arm goes dark where the sun is behind the surface");
         // L2: `Layer weight Value = 0` is this asset's value on BOTH cloth materials, and it makes the remap
-        // unreachable: `remap(0) = 0`, so `facing = 1 - |dot|^0 = 1 - 1 = 0` and `u = saturate(1 - 1 + 0) = 0`
+        // unreachable: `remap(0) = 0`, so `Facing = 1 - |dot|^0 = 1 - 1 = 0` and `u = saturate(0 + 0) = 0`
         // for every angle. Three incidences, because the claim is "for every angle" and not "at one".
-        CHECK_MSG(rs_facing(0.0f, 0.0f) == 0.0f && rs_facing(0.0f, 0.8f) == 0.0f && rs_facing(0.0f, 1.0f) == 0.0f,
-                  "RS A9: L2 - `Layer weight Value = 0` pins `u` to exactly 0 at every incidence, so the remap is unreachable ON THIS ASSET and no frame here can exercise it (A2 is all the coverage there is)");
+        // (`rs_sheet_u` is the composed `u`, so this pins `u` itself and not only its `Facing` leaf: debt (x)
+        // is exactly the mistake of pinning the leaf and never composing it.)
+        CHECK_MSG(rs_sheet_u(0.0f, 0.0f, 0.0f) == 0.0f && rs_sheet_u(0.0f, 0.8f, 0.0f) == 0.0f && rs_sheet_u(0.0f, 1.0f, 0.0f) == 0.0f &&
+                      rs_facing(0.0f, 0.0f) == 0.0f && rs_facing(0.0f, 0.8f) == 0.0f && rs_facing(0.0f, 1.0f) == 0.0f,
+                  "RS A9: L2 - `Layer weight Value = 0` pins `u` to exactly 0 at every incidence, so the remap is unreachable ON THIS ASSET and no frame here can exercise it (A10 is what covers the remap; A2 is its leaf)");
+
+        // ---- A10 (debt (x), lead-found 2026-10-01): the NET `u` FORM, and the polarity this port had BACKWARDS ----
+        //
+        // The reference's Layer Weight node ends in `facing = 1.0 - facing`
+        // (`_ref/gooengine_src/gpu_shader_material_layer_weight.glsl:24`), and the sheet is addressed with
+        // `u = clamp(Facing + Layer weight Value Offset, 0, 1)` (spec `:107`). So the net form is
+        //     u = 1 - |V.n|^remap(b) + w
+        // and NOT the complement `u = 1 - (1 - |V.n|)^remap(b) + w` that `shaders/goo_toon.slang` computed until
+        // 2026-10-01. The two agree ONLY at `b == 0` (both give `u == w`) and at `|V.n| == 0.5` (their one
+        // fixpoint), which is why every `b == 0` fixture in the world stays green under either form.
+        // Instrument: `zmd-ab/s15impl/u_net_form_check.py` (32-point grid over `b x |V.n| x w`, both forms, f64
+        // and f32) and the Lead's `zmd-ab/_lead_u_net_check.py`. The numbers below are the f32 values; each of the
+        // last six is quoted together with what the COMPLEMENT would have answered, because a pin that both forms
+        // satisfy cannot catch this class of defect.
+        CHECK_MSG(rs_sheet_u(0.0f, 0.8f, 0.0f) == 0.0f && rs_sheet_u(0.0f, 0.8f, 0.25f) == 0.25f,
+                  "RS A10 (debt (x)): `b = 0` is the AGREEMENT set - `Facing = 1 - |dot|^0 = 0`, so `u = w` on both forms");
+        CHECK_MSG(std::abs(rs_sheet_u(0.5f, 0.8f, 0.0f) - 0.199999988f) < 1e-6f,
+                  "RS A10 (debt (x)): `b = 0.5` takes the reference's no-pow branch, `u = 1 - |dot| + w` = 0.199999988 (the complement would say 0.800000012 - visible here, and this is also the reference's own `chen` value)");
+        CHECK_MSG(std::abs(rs_sheet_u(0.5f, 0.8f, 0.25f) - 0.449999988f) < 1e-6f,
+                  "RS A10 (debt (x)): the same branch with `Layer weight Value Offset = 0.25` = 0.449999988 (the complement saturates to 1.0; note the Lead's task text quotes 0.4 for this point - the closed form and his own instrument's `u_spec` give 0.45, pinned as such here)");
+        CHECK_MSG(std::abs(rs_sheet_u(0.2f, 0.8f, 0.0f) - 0.0853899121f) < 1e-6f,
+                  "RS A10 (debt (x)): `remap(0.2) = 0.4` -> 0.0853899121 (the complement said 0.474694431). Same f32 as the step-13 A2 leaf pin above, now reached through the composed `u`");
+        CHECK_MSG(std::abs(rs_sheet_u(0.8f, 0.8f, 0.0f) - 0.427566588f) < 1e-6f,
+                  "RS A10 (debt (x)): `remap(0.8) = 2.5` -> 0.427566588 (the complement said 0.982111454) - the two forms straddle the fixpoint, so `b` above and below 0.5 must both be pinned");
+        CHECK_MSG(rs_sheet_u(0.2f, 0.0f, 0.0f) == 1.0f && rs_sheet_u(0.2f, 1.0f, 0.0f) == 0.0f,
+                  "RS A10 (debt (x)): the endpoints - a grazing view gives `u = 1`, a head-on view gives `u = 0` (the complement has these two exactly swapped)");
+        CHECK_MSG(std::abs(rs_sheet_u(0.2f, 0.5f, 0.0f) - 0.242141724f) < 1e-6f &&
+                      std::abs(rs_sheet_u(0.8f, 0.5f, 0.0f) - 0.823223352f) < 1e-6f,
+                  "RS A10 (debt (x)): `|V.n| = 0.5` is the forms' ONLY fixpoint - both give `1 - 0.5^remap(b)` - and it is pinned on both sides of `b == 0.5` because a fixpoint is exactly where a polarity bug hides");
 
         // ---- A7: the host side loads the RS values into THREE colour lanes (step 13's two, step 15's third; the
         //          host data flow is generic, so `main.cpp` needs no new BRANCH - only the row names) ----
@@ -3832,10 +3874,19 @@ int32_t main() {
         CHECK_MSG(goo_toon.find("camera_at(heap_camera_slot)") != std::string::npos &&
                       goo_toon.find("const float rs_facing_abs = abs(dot(rs_to_camera, toon_shading_normal));") != std::string::npos &&
                       goo_toon.find("if (rs_lw_blend == 0.5f)") != std::string::npos &&
-                      goo_toon.find("rs_facing = pow(1.0f - rs_facing_abs, rs_exponent);") != std::string::npos &&
+                      goo_toon.find("rs_facing = 1.0f - pow(rs_facing_abs, rs_exponent);") != std::string::npos &&
+                      goo_toon.find("const float rs_sheet_u = saturate(rs_facing + rs_arm0_lane.w);") != std::string::npos &&
                       goo_toon.find("const float rs_blend_clamped = clamp(rs_lw_blend, 0.0f, 0.99999f);") != std::string::npos,
-                  "RS A8 (step 15): the facing half - `V` out of the camera slot, `|V.n|` UNSATURATED, the exact-0.5 "
-                  "branch that skips remap and pow, and the clamp at 0.99999 that keeps the divisor off zero");
+                  "RS A8 (step 15; text CORRECTED by debt (x), 2026-10-01): the facing half - `V` out of the camera "
+                  "slot, `|V.n|` UNSATURATED, the exact-0.5 branch that skips remap and pow, `Facing = 1 - |V.n|^e` "
+                  "(the reference's own last line, `facing = 1.0 - facing`), `u = saturate(Facing + Offset)`, and the "
+                  "clamp at 0.99999 that keeps the divisor off zero");
+        CHECK_MSG(goo_toon.find("pow(1.0f - rs_facing_abs") == std::string::npos &&
+                      goo_toon.find("saturate(1.0f - rs_facing") == std::string::npos,
+                  "RS A8 (debt (x)), NEGATIVE PIN: the COMPLEMENT form is GONE. `pow(1 - |V.n|, e)` under "
+                  "`saturate(1 - rs_facing + w)` gives `u = 1 - (1 - |V.n|)^e + w` where the reference has "
+                  "`1 - |V.n|^e + w`; the two agree only at `b = 0` and at `|V.n| = 0.5`. A revert here is INVISIBLE "
+                  "to every `b = 0` fixture - this pin and A10 are the only things that would say so");
         CHECK_MSG(goo_toon.find("if (rs_block3.w != 0u)") != std::string::npos,
                   "RS A8 (step 15): the SHEET is slot 15 - the third block's `.w`, the mask's own neighbour - and "
                   "index 0 is NOT read: a material with no sheet row must not sample the WHITE fallback, because that "

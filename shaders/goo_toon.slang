@@ -494,20 +494,45 @@ float4 goo_toon_frag_main(
             // actually matters).
             float3 rs_sheet = float3(0.0f, 0.0f, 0.0f);
             if (rs_block3.w != 0u) {
-                // `u` IS BUILT OFF THE LAYER WEIGHT, in the reference's own order: `V` is the INCOMING vector
-                // (`coordinate_incoming`, i.e. `normalize(camera_pos - world_pos)`, and NOT saturated);
-                // `abs(dot(V, n_rs))`; then `remap(b)` with `b = Layer weight Value`; then
-                // `u = clamp(1 - remapped + Offset, 0, 1)`. `v` IS THE CONSTANT `0.5` - the reference's
-                // `合并 XYZ.Y` - and it cannot matter on a `256x1` image, which is what every `_RS` sheet in the
-                // dumps is; it is written as the reference writes it rather than as this port's
-                // `character_ramp_band_v` for the reason `character_forward.slang`'s ramp read states.
+                // `u` IS BUILT OFF THE LAYER WEIGHT, AND `rs_facing` IS THAT NODE'S `Facing` OUTPUT. The
+                // reference fork's Layer Weight node is verbatim
+                // (`_ref/gooengine_src/gpu_shader_material_layer_weight.glsl:18-24`):
+                //     facing = abs(dot(V, N));
+                //     if (blend != 0.5) { blend = clamp(blend, 0.0, 0.99999);
+                //                          blend = (blend < 0.5) ? 2.0 * blend : 0.5 / (1.0 - blend);
+                //                          facing = pow(facing, blend); }
+                //     facing = 1.0 - facing;
+                // i.e. `Facing = 1 - |V.n|^remap(b)`, and the reference then feeds `u = clamp(Facing + Offset, 0, 1)`
+                // to the sheet. `V` is the INCOMING vector (`coordinate_incoming`, i.e.
+                // `normalize(camera_pos - world_pos)`, and NOT saturated); `n` is `n_rs`; `b` is
+                // `Layer weight Value` (`rs_arm0_lane.z`); the offset is `Layer weight Value Offset`
+                // (`rs_arm0_lane.w`). `v` IS THE CONSTANT `0.5` - the reference's `合并 XYZ.Y` - and it cannot
+                // matter on a `256x1` image, which is what every `_RS` sheet in the dumps is; it is written as the
+                // reference writes it rather than as this port's `character_ramp_band_v` for the reason
+                // `character_forward.slang`'s ramp read states.
                 //
-                // `remap` IS A REMAP AND NOT A POW, and it has a HOLE AT EXACTLY `0.5`: `2b` below the midpoint
-                // and `0.5 / (1 - b)` above it are both `1.0` at `b == 0.5`, so the reference's own graph collapses
-                // to a bare `facing` there and the port must skip the `pow` rather than compute `pow(x, 1.0)`,
-                // which is NOT bitwise `x` on this platform. `b` is clamped to `[0, 0.99999]` BEFORE the branch
-                // (which is why the test is on the raw `b` and not on the clamped one: clamping cannot produce
-                // `0.5` from a non-`0.5`, and the upper guard is what keeps the division finite).
+                // `remap` IS THAT INTRINSIC STEP OF THE REFERENCE'S OWN GLSL - the `2b` / `0.5/(1-b)` remap
+                // bracketing the `pow` - and NOT a claim that the node is "not a pow". It has a HOLE AT EXACTLY
+                // `0.5`: `2b` below the midpoint and `0.5 / (1 - b)` above it are both `1.0` at `b == 0.5`, so the
+                // reference's own graph collapses to a bare `facing` there and the port must skip the `pow`
+                // rather than compute `pow(x, 1.0)`, which is NOT bitwise `x` on this platform. `b` is clamped to
+                // `[0, 0.99999]` BEFORE the branch (which is why the test is on the raw `b` and not on the clamped
+                // one: clamping cannot produce `0.5` from a non-`0.5`, and the upper guard is what keeps the
+                // division finite).
+                //
+                // DEFECT (lead-found, 2026-10-01): UNTIL THIS FIX THE TWO LINES BELOW COMPUTED THE REFERENCE'S
+                // COMPLEMENT. `rs_facing` was assigned `pow(1 - |V.n|, e)` and `u` then subtracted it from 1,
+                // i.e. the net `u = 1 - (1 - |V.n|)^e + w` where the reference's `1 - |V.n|^e + w` is required.
+                // The two forms agree only at `b = 0` (both give `u = 0`) and at the single fixed point
+                // `|V.n| = 0.5`; everywhere else they are opposite (`b = 0.5`, `|V.n| = 0.8`: `0.200000000` correct
+                // vs `0.800000000` before; `b = 0.2`: `0.085389896` vs `0.474694439`; `b = 0.8`: `0.427566598`
+                // vs `0.982111456`). SHIPPING WAS UNAFFECTED FOR A REASON AND NOT BY LUCK: the shipped asset runs
+                // `RS Model = 1`, so armA is unreachable there, AND every fixture that existed at the time had
+                // `_GooRSArm0.z = 0`, where both forms give `u = 0` - which is why the suite, the gate and all 34
+                // pre/post frames stayed green. The branch is NOT dead in the reference's own files: `chen
+                // body/cloth` use `b = 0.5` and `M_actor_yvonne_cloth_03` uses `b = 0.7999999523162842` with
+                // offset `0.3999999761581421` (`zmd-ab/goo_ref_rs_sheet_sampling.md` §7, task-26). The `b != 0`
+                // fixtures are what puts this path under frame-level test from now on.
                 const float3 rs_to_camera = normalize(camera_at(heap_camera_slot).camera_pos.xyz - v_world_pos);
                 const float rs_facing_abs = abs(dot(rs_to_camera, toon_shading_normal));
                 const float rs_lw_blend = rs_arm0_lane.z;
@@ -517,9 +542,9 @@ float4 goo_toon_frag_main(
                 } else {
                     const float rs_blend_clamped = clamp(rs_lw_blend, 0.0f, 0.99999f);
                     const float rs_exponent = (rs_blend_clamped < 0.5f) ? (2.0f * rs_blend_clamped) : (0.5f / (1.0f - rs_blend_clamped));
-                    rs_facing = pow(1.0f - rs_facing_abs, rs_exponent);
+                    rs_facing = 1.0f - pow(rs_facing_abs, rs_exponent);
                 }
-                const float rs_sheet_u = saturate(1.0f - rs_facing + rs_arm0_lane.w);
+                const float rs_sheet_u = saturate(rs_facing + rs_arm0_lane.w);
                 // ---- THE SHEET'S ADDRESS MODE IS THE REFERENCE'S `EXTEND`, REPRODUCED HERE AS A UV CLAMP ----
                 // The node that feeds this sheet is `图像纹理.005` and it asks for
                 // `image_user.extension = "EXTEND"` (`gooblender/nodes.json:93653-93659`, the same six lines that
