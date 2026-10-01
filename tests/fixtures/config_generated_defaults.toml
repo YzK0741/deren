@@ -30,6 +30,7 @@ validation_layers = true
 shadow_cascades = 3
 shadow_map_size = 2048
 shadow_cascade_blend = 0.1
+toon_shadow_softness = 0
 
 # ---- [render] shading + post-processing features ----
 unlit = false

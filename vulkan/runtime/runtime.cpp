@@ -161,6 +161,28 @@ namespace vulkan {
         }
         this->screenshot_key_down = f12_down;
 
+        // ARROW KEYS PAN THE CAMERA. LEFT/RIGHT strafe along the camera's right vector, UP/DOWN walk
+        // along its horizontal view direction, and both translate `camera.target` - the point the eye
+        // orbits - so the rig slides without the view rotating (the arithmetic lives in
+        // orbit_camera_pan_delta, vulkan/primitive, next to the orbit sphere it is derived from).
+        // Unlike F1/F12 this is a CONTINUOUS input: the step is speed x elapsed time sampled off
+        // glfwGetTime, so the pan speed does not depend on the frame rate. There is deliberately no gui
+        // guard here - the debug overlay captures the MOUSE only (gui_content exposes wants_mouse), so
+        // nothing in it competes for the arrows; if a keyboard-capturing widget ever appears, the guard
+        // belongs here, next to the "gui priority over the camera" rule the mouse callbacks follow.
+        double const now = glfwGetTime();
+        double const elapsed = this->camera.last_pan_time > 0.0 ? now - this->camera.last_pan_time : 0.0;
+        this->camera.last_pan_time = now; // sampled every frame, so a key released for a while does not bank a jump
+        float const strafe = (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS ? 1.0f : 0.0f) -
+                             (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS ? 1.0f : 0.0f);
+        float const walk = (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS ? 1.0f : 0.0f) -
+                           (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS ? 1.0f : 0.0f);
+        bool const pan_fast = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
+        glm::vec3 const pan = orbit_camera_pan_delta(this->camera.yaw, this->camera.distance, strafe, walk, static_cast<float>(elapsed), pan_fast);
+        if (pan.x != 0.0f || pan.z != 0.0f) { // no arrow held (or a zero step) leaves the target UNTOUCHED, byte for byte
+            this->camera.target += pan;
+        }
+
         // Minimized: skip this frame (acquiring from an invalidated / 0-sized swapchain would
         //    fail); the restore transition is handled by recreate_if_minimized()
         if (glfwGetWindowAttrib(window, GLFW_ICONIFIED) == GLFW_TRUE) {

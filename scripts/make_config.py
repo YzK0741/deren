@@ -156,6 +156,7 @@ def write_toml(path: str, cfg: dict) -> None:
         f"shadow_cascades = {cfg['shadow_cascades']}",
         f"shadow_map_size = {cfg['shadow_map_size']}",
         f"shadow_cascade_blend = {cfg['shadow_cascade_blend']}",
+        f"toon_shadow_softness = {cfg['toon_shadow_softness']}",
         "",
         "# ---- [render] shading + post-processing features ----",
         f"unlit = {str(cfg['unlit']).lower()}",
@@ -256,6 +257,13 @@ def ask_all(output_dir: str) -> dict:
     shadow_cascade_blend = ask_float(
         "render.shadow_cascade_blend", 0.1, 0.0, 0.5, hint="fraction of a cascade's range blended into the next"
     )
+    toon_shadow_softness = ask_float(
+        "render.toon_shadow_softness",
+        0.0,
+        0.0,
+        4.0,
+        hint="toon chain shadow softness: 0 = shipped 3x3 PCF, 1..4 = wider kernels (softer edge, more light leak)",
+    )
 
     print("\n-- render (shading + post-processing; every one of these is also a live overlay toggle) --")
     unlit = ask_bool("render.unlit", False, hint="flat base color instead of PBR (a shading-free reference)")
@@ -354,6 +362,7 @@ def ask_all(output_dir: str) -> dict:
         "shadow_cascades": shadow_cascades,
         "shadow_map_size": shadow_map_size,
         "shadow_cascade_blend": shadow_cascade_blend,
+        "toon_shadow_softness": toon_shadow_softness,
         "unlit": unlit,
         "taa": taa,
         "taa_blend_static": taa_blend_static,

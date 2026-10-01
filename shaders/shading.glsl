@@ -334,6 +334,146 @@ float calc_shadow(vec3 world_pos, vec3 normal) {
 }
 
 /**
+ * @brief the same per-cascade visibility as @ref calc_shadow_cascade, on a WIDER unrotated tap grid
+ * @param world_pos receiver position in world space
+ * @param normal receiver world-space normal
+ * @param cascade the cascade to sample
+ * @param half_extent taps run from `-half_extent` to `+half_extent` on each axis
+ * @param spacing tap spacing in TEXELS (the shipped kernel is `half_extent 1, spacing 1`)
+ * @return raw per-cascade visibility, `1.0` outside the light frustum
+ *
+ * EVERY LINE EXCEPT THE LOOP IS @ref calc_shadow_cascade'S, deliberately: the normal offset, the bias, the
+ * frustum test and the sampler's compare semantics are the ones the shipped 3x3 lookup is measured with, so
+ * widening the kernel changes the tap footprint and nothing else. The grid stays UNROTATED for the reason
+ * the 3x3 one is (a rotated grid needs TAA to hide its per-pixel noise, and the forward path has none).
+ *
+ * THIS IS A SEPARATE FUNCTION RATHER THAN A PARAMETER ON THE EXISTING ONE because of `test_goo_toon_math`'s
+ * structure pins on `calc_shadow_cascade`'s body (it must stay the short raw-sampling path) AND because the
+ * OLD chain compiles this file too: `calc_shadow_cascade` has to stay bit-for-bit the shipped lookup for
+ * `shaders/goo_toon.slang`, so the wider kernel lives beside it instead of inside it.
+ */
+float calc_shadow_cascade_proto(vec3 world_pos, vec3 normal, int cascade, int half_extent, int spacing) {
+    float texel_uv = light_at(heap_light_slot).light_dir.w;                    // 1 / shadow map size
+    float texel_world = light_at(heap_light_slot).cascade_texel_world[cascade]; // world size of one texel of this cascade
+
+    // normal offset: shift the world position before projecting it into light space
+    vec3 offset_pos = world_pos + normal * (texel_world * 2.0);
+    vec4 light_clip = light_matrix_at(heap_light_slot, cascade) * vec4(offset_pos, 1.0);
+    vec3 ndc = light_clip.xyz / light_clip.w; // ortho projection: w == 1
+    vec2 uv = ndc.xy * 0.5 + 0.5;
+    float current_depth = ndc.z; // [0,1] (RH_ZO ortho)
+
+    // Outside the light frustum: fully lit (the shadow map covers the scene bounds only)
+    if (uv.x < 0.0 || uv.x > 1.0 || uv.y < 0.0 || uv.y > 1.0 || current_depth < 0.0 || current_depth > 1.0) {
+        return 1.0;
+    }
+
+    // The sampler's compareOp is LESS_OR_EQUAL, so lit = (ref - bias) <= stored depth.
+    float bias = 0.0004;
+    float step_uv = texel_uv * float(spacing);
+    float lit = 0.0;
+    float taps = 0.0;
+    for (int y = -half_extent; y <= half_extent; ++y) {
+        for (int x = -half_extent; x <= half_extent; ++x) {
+            vec2 tap = uv + vec2(float(x), float(y)) * step_uv;
+            lit += shadow_sample(heap_shadow_slot, tap, cascade, current_depth - bias);
+            taps += 1.0;
+        }
+    }
+    return lit / taps;
+}
+
+/**
+ * @brief @ref calc_shadow on the wider kernel of @ref calc_shadow_cascade_proto
+ * @param world_pos receiver position in world space
+ * @param normal receiver world-space normal
+ * @param half_extent taps run from `-half_extent` to `+half_extent` on each axis
+ * @param spacing tap spacing in texels
+ * @return 1.0 = fully lit, 0.0 = fully shadowed
+ *
+ * `half_extent <= 0` RETURNS @ref calc_shadow ITSELF, which is the whole guarantee behind the default
+ * `[render] toon_shadow_softness = 0`: that path is the shipped function, not a copy of it, so it cannot
+ * drift. The cascade selection and the `cascade_blend` mix are the shipped ones lane for lane - only which
+ * kernel the two (or one) samples go through differs.
+ */
+float calc_shadow_proto(vec3 world_pos, vec3 normal, int half_extent, int spacing) {
+    if (half_extent <= 0) {
+        return calc_shadow(world_pos, normal);
+    }
+    if (light_at(heap_light_slot).cascade_count < 1.5) {
+        return calc_shadow_cascade_proto(world_pos, normal, 0, half_extent, spacing); // single map: no selection to do
+    }
+    const float view_depth = -(camera_at(heap_camera_slot).view * vec4(world_pos, 1.0)).z; // positive distance along the view
+    int cascade = int(light_at(heap_light_slot).cascade_count + 0.5) - 1;                 // past the last split: the farthest
+    for (int i = 0; i < MAX_SHADOW_CASCADES; ++i) {
+        if (i >= int(light_at(heap_light_slot).cascade_count + 0.5)) {
+            break;
+        }
+        if (view_depth <= light_at(heap_light_slot).cascade_splits[i]) {
+            cascade = i;
+            break;
+        }
+    }
+    float shadow = calc_shadow_cascade_proto(world_pos, normal, cascade, half_extent, spacing);
+
+    // blend into the next cascade across the boundary band
+    const int next = cascade + 1;
+    if (next < int(light_at(heap_light_slot).cascade_count + 0.5)) {
+        const float boundary = light_at(heap_light_slot).cascade_splits[cascade];
+        const float band = max(boundary * light_at(heap_light_slot).cascade_blend, 1e-4);
+        if (view_depth > boundary - band) {
+            const float t = clamp((view_depth - (boundary - band)) / band, 0.0, 1.0);
+            shadow = mix(shadow, calc_shadow_cascade_proto(world_pos, normal, next, half_extent, spacing), t);
+        }
+    }
+    return shadow;
+}
+
+/**
+ * @brief the toon chain's shadow with the `[render] toon_shadow_softness` ladder applied
+ * @param world_pos receiver position in world space
+ * @param normal receiver world-space normal
+ * @param level the rig's softness lane: 0 = shipped, 1..4 = the ladder below (rounded and clamped here)
+ * @return 1.0 = fully lit, 0.0 = fully shadowed
+ *
+ * THE LADDER IS FROZEN and it is `(half_extent, spacing)` in texels: 1 = (2,2), 2 = (3,3), 3 = (5,4),
+ * 4 = (8,3), i.e. `(2*half_extent + 1)^2` = 25 / 49 / 121 / 289 taps. The number to quote for the width is
+ * the TEXEL SPAN the taps reach, `2*half_extent*spacing + 2` indices first-to-last (each hardware comparison
+ * tap carries its own 2x2 texel footprint, which is the same counting as this file's shipped `calc_shadow`
+ * note - "the 3x3 grid of hardware 2x2 comparison taps (4x4 texel footprint)" - and level 0 is exactly that
+ * lookup), so levels 1..4 span 10 / 20 / 42 / 50 and level 0 spans 4. The host publishes the level already
+ * sanitized (see the `[render] toon_shadow_softness` note in `config.example.toml`); the rounding and the
+ * clamp below are only a SECOND LINE OF DEFENCE FOR FINITE VALUES - a finite out-of-range level, or one that
+ * sits between two steps.
+ *
+ * NaN IS NOT HANDLED IN THIS SHADER, and no amount of rounding here could handle it: `floor(NaN + 0.5)`,
+ * `clamp` and the float-to-int conversion are each undefined on NaN, so a NaN reaching this lane is undefined
+ * behaviour. The guard that actually exists is the host's `std::isnan` gate (`application_configuration.cpp`,
+ * NaN -> 0) together with this lane's default of 0; the host's `std::clamp` also owns the infinities
+ * (+inf -> 4, -inf -> 0). So do NOT read the rule below as "any writer of the lane is safe" - it is false for
+ * NaN, and it is only true because the host sanitizes before publishing.
+ *
+ * LEVEL 0 RETURNS @ref calc_shadow UNCHANGED - no extra tap, no extra fetch, the shipped expression - which
+ * is the byte-identity guarantee, and it is why the call site can route the whole chain through here.
+ */
+float calc_shadow_soft(vec3 world_pos, vec3 normal, float level) {
+    int level_step = int(clamp(floor(level + 0.5), 0.0, 4.0));
+    if (level_step == 0) {
+        return calc_shadow(world_pos, normal); // THE SHIPPED PATH, not a copy of it
+    }
+    if (level_step == 1) {
+        return calc_shadow_proto(world_pos, normal, 2, 2);
+    }
+    if (level_step == 2) {
+        return calc_shadow_proto(world_pos, normal, 3, 3);
+    }
+    if (level_step == 3) {
+        return calc_shadow_proto(world_pos, normal, 5, 4);
+    }
+    return calc_shadow_proto(world_pos, normal, 8, 3);
+}
+
+/**
  * @brief GGX / Trowbridge-Reitz normal distribution (matches UE's D_GGX)
  * @param n world normal, @p h half vector, @p roughness perceptual roughness
  * @return the NDF value, finite even at a perfectly smooth specular hotspot (the denominator is

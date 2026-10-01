@@ -123,6 +123,25 @@ namespace app_config {
         // range's texel size. Applied BEFORE the scene import - see runtime::set_shadow_cascades.
         int32_t shadow_cascades = 3;
         float shadow_cascade_blend = 0.1f;
+        // THE TOON CHAIN'S GLOBAL SHADOW SOFTNESS ([render] toon_shadow_softness), a five-step ladder whose
+        // MEMBERS ARE `(half_extent, spacing)` IN TEXELS: 0 = (1,1) = the shipped lookup, 1 = (2,2), 2 = (3,3),
+        // 3 = (5,4), 4 = (8,3), so the tap count is `(2*half_extent + 1)^2` = 9 / 25 / 49 / 121 / 289. THE
+        // WIDTH TO QUOTE IS THE TEXEL SPAN THE TAPS REACH, `2*half_extent*spacing + 2` indices first-to-last -
+        // the counting the shipped `calc_shadow` note calls a "4x4 texel footprint" at level 0 - i.e. 4 / 10 /
+        // 20 / 42 / 50 for levels 0..4 (the continuous covered width is one texel less). 0 = OFF and
+        // BIT-IDENTICAL to the shipped run: the character chain's one shadow lookup is the same single 3x3
+        // hardware PCF it always had. The value rides `vulkan::toon_rig`'s ninth lane and
+        // is read by the ONE shadow call site inside `toon_diffuse` in `shaders/character_forward.slang` -
+        // a body that `shaders/goo_toon.slang` and `shaders/outline.slang` call as well, so those stages
+        // carry the same code; `goo_toon.slang`'s OWN `calc_shadow` call (its `rs_shadow`) is untouched, and
+        // at 0 the call site is the shipped `calc_shadow` itself. Float or integer; a non-integer is rounded,
+        // anything outside 0..4 is clamped, a NaN is read as 0, and each case is logged separately (see
+        // `analyse_config`). THE PER-LEVEL COST IS NOT REPEATED HERE ON PURPOSE: it has been re-measured twice
+        // and this comment went stale both times. The authority is the `toon_shadow_softness` block in
+        // `config.example.toml`, with the exact ROI and mask it used, measured on the welded asset
+        // `chars/laevatain_goo.glb` = 63,835,728 B /
+        // CE313E4D9515BC1887B4E0C783ABEA66A70FBFFF69ABD18992BDF33C8F5606F9.
+        float toon_shadow_softness = 0.0f;
         // Shadow depth bias ([render] shadow_bias_constant / shadow_bias_slope): the rasterization bias the
         // shadow pass pushes a caster's depth by, which is what keeps a lit surface from shadowing itself
         // (acne). The defaults are the runtime's own (runtime::shadow_depth_bias_constant/_slope), so a config

@@ -1,6 +1,8 @@
 module;
 
+#include <algorithm> // std::clamp / std::max in orbit_camera_pan_delta
 #include <array>
+#include <cmath> // std::sin / std::cos in the orbit camera maths
 #include <cstddef>
 #include <cstdio>
 #include <cstring>
@@ -358,6 +360,43 @@ namespace vulkan {
         ubo.proj = proj;
         ubo.camera_pos = eye;
         return ubo;
+    }
+
+    glm::vec3 orbit_camera_pan_delta(
+        float const yaw,
+        float const distance,
+        float const strafe,
+        float const walk,
+        float const dt,
+        bool const fast) {
+        // The camera's horizontal frame, taken from the very sphere make_orbit_camera_ubo places the eye on:
+        // eye sits at target + distance * (cp*sin yaw, sin pitch, cp*cos yaw), so the view direction's
+        // horizontal part is (-sin yaw, 0, -cos yaw) and its right vector is cross(forward, world up) =
+        // (cos yaw, 0, -sin yaw). Panning translates the TARGET - the point the eye orbits - which slides the
+        // whole rig and leaves yaw / pitch / distance untouched, so the view direction does not change.
+        glm::vec3 const forward(-std::sin(yaw), 0.0f, -std::cos(yaw));
+        glm::vec3 const right(std::cos(yaw), 0.0f, -std::sin(yaw));
+
+        // Normalize the two axes TOGETHER: a diagonal press must not move sqrt(2) times faster than a
+        // straight one. No key held is exactly zero, so an idle frame does not touch the camera at all.
+        float const length = glm::length(forward * walk + right * strafe);
+        if (length <= 0.0f) {
+            return glm::vec3(0.0f);
+        }
+
+        // Speed scales with the orbit distance (an orbit twice as far away pans twice as fast, so the
+        // on-screen rate is the same at any zoom) with a floor for a fully zoomed-in rig, and SHIFT multiplies
+        // it. Artistic units, not physical: 0.75 of the distance per second crosses a framed scene in ~1.3 s.
+        constexpr float pan_speed_per_distance = 0.75f;
+        constexpr float pan_speed_floor = 0.1f;
+        constexpr float fast_multiplier = 4.0f;
+        constexpr float max_step_seconds = 0.25f;
+        float const speed = std::max(pan_speed_floor, distance) * pan_speed_per_distance * (fast ? fast_multiplier : 1.0f);
+
+        // Clamp the step: a stalled frame (breakpoint, swapchain recreation, the first frame's unset clock)
+        // must not teleport the camera across the scene.
+        float const step = std::clamp(dt, 0.0f, max_step_seconds) * speed;
+        return (forward * walk + right * strafe) / length * step;
     }
 
     light_ubo make_directional_light_ubo(glm::vec3 const& sun_direction, glm::vec3 const& scene_center, float const scene_radius, float const shadow_map_size) {

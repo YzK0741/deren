@@ -1893,12 +1893,20 @@ int main(int argc, char** argv) {
         // THE FACE'S EXPRESSION INDEX rides the head light's colour block's fourth lane, which was unused and is
         // named in `vulkan::toon_rig` - the same zero-cost reuse the material record's `toon_family` makes.
         rig.other_colour.w = settings.toon.emotion_type;
+        // THE TOON CHAIN'S SHADOW SOFTNESS LADDER (`[render] toon_shadow_softness`, already rounded and clamped
+        // by `analyse_config`): 0 is the shipped 3x3 PCF and the default, so this line changes nothing unless a
+        // config asked for a wider kernel. The lane is read by the shared `toon_diffuse` body in
+        // `shaders/character_forward.slang`, which is compiled into the `character_forward`, `goo_toon` and
+        // `outline` stages (`goo_toon.slang`'s own `rs_shadow` lookup is a different call site and stays 3x3 at
+        // every level; `overlay` has no shadow sample at all).
+        rig.shadow_softness.x = settings.render.toon_shadow_softness;
         runtime.set_toon_rig(rig);
-        utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}",
+        utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
                      rig.day.x,
                      rig.other_light.y,
                      rig.other_light.x,
-                     rig.env.x);
+                     rig.env.x,
+                     static_cast<int>(rig.shadow_softness.x));
     }
 
     vulkan::scene_import_result const imported = runtime.import_scene(node_first, node_last, scene_first, scene_last, scene_import_shift);

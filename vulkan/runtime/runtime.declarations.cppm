@@ -75,6 +75,7 @@ namespace vulkan {
     /**
      * @ingroup vulkan_runtime
      * @brief orbit camera state, updated by the mouse callbacks registered in the runtime constructor
+     *        (the arrow keys pan it too - see runtime::poll_events and orbit_camera_pan_delta)
      */
     export struct orbit_camera {
         double last_x = 0.0;
@@ -88,6 +89,10 @@ namespace vulkan {
         // point the camera looks at and orbits around (default origin; main may sink it
         // together with the scene so the camera follows the primitive)
         glm::vec3 target = glm::vec3(0.0f);
+        // the clock reading of the last arrow-key pan (glfwGetTime seconds; 0 = never sampled). The pan
+        // is speed x elapsed time, so it needs a previous reading; keeping it HERE rather than in a local
+        // is what makes the step independent of the frame rate.
+        double last_pan_time = 0.0;
     };
 
     /**

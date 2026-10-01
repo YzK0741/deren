@@ -139,6 +139,59 @@ shadow_map_size = 2048
 # (0.1 = the last 10% of the range). 0 = a hard switch.
 shadow_cascade_blend = 0.1
 
+# toon_shadow_softness: how wide the TOON chain's shadow lookup is, as a five-step ladder. It is written to
+# the character stage's light rig (`vulkan::toon_rig`'s ninth lane) and read by exactly one call site - the
+# shadow lookup inside `toon_diffuse` (`shaders/character_forward.slang`). That body is SHARED: the same
+# file's entry point, `shaders/outline.slang` and `shaders/goo_toon.slang` (which includes
+# `character_forward.slang` for the rewritten chain) all call it, so at 1..4 the wide lookup is compiled
+# into and used by those three stages. `shaders/goo_toon.slang`'s OWN shadow read (its `rs_shadow`, the bare
+# `calc_shadow`) is untouched by every level, and the deferred/PBR paths never see the value at all.
+# 0 = OFF, the default, and byte-identical to a run without the key: `calc_shadow_soft(0)` calls the shipped
+# `calc_shadow` and nothing else - the same 3x3 grid of hardware 2x2 comparison taps that the shipped comment
+# in `shaders/shading.glsl` already documents as a "4x4 texel footprint" (9 taps), not a new path.
+# 1..4 widen the UNROTATED tap grid: taps spaced `spacing` texels apart, running `half` texels either way, so
+# the tap count is `(2*half + 1)^2` = 9 / 25 / 49 / 121 / 289. THE WIDTH COLUMN BELOW IS THE SPAN OF TEXEL
+# INDICES THE TAPS REACH, first and last included - the counting the shipped "4x4" uses: each hardware
+# comparison tap carries its own 2x2 texel footprint and its centre sits within `half*spacing` texels of the
+# sample uv, so the span is `2*half*spacing + 2` (the CONTINUOUS COVERED WIDTH is one texel less,
+# `2*half*spacing + 1`; the two must not be mixed up):
+#   level  (half, spacing)  taps       texel span (2*half*spacing + 2)
+#   0      (1, 1)           3x3   = 9    4   (the shipped lookup, not a new path)
+#   1      (2, 2)           5x5   = 25  10
+#   2      (3, 3)           7x7   = 49  20
+#   3      (5, 4)           11x11 = 121 42
+#   4      (8, 3)           17x17 = 289 50
+# MEASURED on the shoulder seam's ROI (camera A, ROI (216,416)-(406,596), skin mask erode4 = 34,571 px) on the
+# currently shipped welded asset. "steps" counts ROI skin pixels whose luma moved by at least 8 (or 17) code
+# values - the hard comb teeth in the shadow's termination; "brighter"/"darker" is the share of ROI skin pixels
+# that moved that far, one way; luma is the ROI skin's mean. Level 0 is the reference (the shipped lookup):
+#   level  steps>=8  steps>=17  mean luma  brighter>8  brighter>32  darker>8  marginal frame cost
+#   0       1,641     768        170.77     0 %         0 %          0 %       10.46 ms
+#   1         998      93        174.19     9.06 %      3.08 %       0.23 %    not measured
+#   2         429       0        175.80    18.48 %      7.90 %       1.19 %    not measured
+#   3          79       0        177.32    28.34 %     15.93 %       3.68 %    not measured
+#   4          79       0        177.61    29.94 %     17.44 %       4.42 %    11.69 ms (+11.8 %)
+# THESE FIVE NUMBERS ARE THE SHIPPED SAMPLE - the pinned values this example ships, not a live measurement.
+# `config.example.toml` is a template and `tests/test_app_config.cpp` parses it value by value, so keep the
+# numbers as fixtures and only change them together with a re-measurement. Every cell above, the ROI and the
+# erode4 mask were taken on the asset that ships in this tree:
+#   chars/laevatain_goo.glb  63,835,728 B
+#   sha256 CE313E4D9515BC1887B4E0C783ABEA66A70FBFFF69ABD18992BDF33C8F5606F9
+# This block is the AUTHORITY for the cost table: the two headers that describe the field
+# (`application_configuration/application_configuration.cppm`, `vulkan/primitive/primitive.cppm`) repeat no
+# number and point here instead, precisely because a copy of the table went stale twice.
+# The background changed by exactly 0 pixels in all three camera positions at every level, so the ladder only
+# touches the character. Levels 3 and 4 leave the same 79 hard steps: within this ROI 4 buys no extra
+# termination, it is merely softer elsewhere (more mean lift, more leak) - so do not read this ROI as "4 is
+# better than 3". The marginal cost is `(t120 - t40) / 80`, one extra frame's worth at that level; 10.46 ->
+# 11.69 ms is +11.8 % and sub-linear because the five levels already saturate this ROI. Level 3's own cost was
+# NOT measured, so nothing here may be interpolated between 0 and 4.
+# So stronger = fewer hard comb teeth at the shadow's edge AND more light leaking onto the lit skin - a taste
+# trade, which is why the default is off. Float or integer; a non-integer is rounded, anything outside 0..4 is
+# clamped, `nan` is read as 0, and each case is logged at startup with its own line. The inner loops are
+# dynamic, so the GPU cost of 1, 2 and 3 is NOT measured either.
+toon_shadow_softness = 0
+
 # shadow_bias_constant / shadow_bias_slope: the rasterization depth bias the shadow pass applies to a
 # caster's depth, which is what stops a lit surface from shadowing itself. These are the runtime's own
 # defaults, so omitting them changes nothing; `slope` scales with the depth gradient and is the one that

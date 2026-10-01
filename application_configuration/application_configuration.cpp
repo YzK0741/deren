@@ -1,5 +1,6 @@
 module;
 
+#include <cmath>
 #include <sstream>
 #include <toml++/toml.hpp>
 
@@ -199,6 +200,16 @@ namespace app_config {
             if (toml::node const* node = render->get("shadow_cascade_blend")) {
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.shadow_cascade_blend = static_cast<float>(*value);
+                }
+            }
+            if (toml::node const* node = render->get("toon_shadow_softness")) {
+                // FLOAT OR INTEGER: the five levels are a small ladder and both spellings read naturally in a
+                // config file, while toml11 keeps integers and floats in separate types - so both are asked
+                // for. Rounding and clamping happen in `analyse_config`, with the log line.
+                if (std::optional<int64_t> const integral = node->value<int64_t>()) {
+                    settings.render.toon_shadow_softness = static_cast<float>(*integral);
+                } else if (std::optional<double> const real = node->value<double>()) {
+                    settings.render.toon_shadow_softness = static_cast<float>(*real);
                 }
             }
             if (toml::node const* node = render->get("shadow_bias_constant")) {
@@ -445,6 +456,35 @@ namespace app_config {
         if (settings.render.shadow_map_size < 256 || settings.render.shadow_map_size > 8192) {
             utility::log("app_config: invalid shadow_map_size {} (use 256..8192), falling back to 2048", settings.render.shadow_map_size);
             settings.render.shadow_map_size = 2048;
+        }
+        // THE TOON SHADOW SOFTNESS LADDER ([render] toon_shadow_softness, 0..4): rounded to the nearest level
+        // and clamped into the range, with ONE log line whenever either happened - so a config that asks for
+        // 2.4 or 7 renders as a level the user can read back, rather than silently. 0 is the shipped lookup
+        // and the default; the value reaches the shader through `vulkan::toon_rig`'s ninth lane, and the one
+        // call site that reads it is the shadow lookup inside `toon_diffuse` (`shaders/character_forward.slang`).
+        //
+        // NAN IS HANDLED HERE BECAUSE `std::clamp` CANNOT HANDLE IT, which is the whole reason this block is not
+        // one line: clamp's comparison form returns its first argument unchanged when both comparisons are
+        // false, and for NaN both ARE false - so `clamp(round(nan), 0, 4)` is still NaN. That NaN then rides
+        // the rig lane into the shader's `int(clamp(floor(level + 0.5), 0.0, 4.0))`, and `int(NaN)` is
+        // UNDEFINED in SPIR-V: it may land on any level, including one whose dynamic PCF loop is long enough to
+        // hang the GPU. TOML can spell `nan`, so this is reachable rather than theoretical. A NaN is read as
+        // "no level stated" (0, the shipped lookup) and gets ITS OWN log line, kept distinct from the
+        // round/clamp line so the two cannot be confused after the fact. THE INFINITIES ARE NOT FOLDED INTO
+        // THAT CASE: `round(+inf)` stays `+inf` and clamps to the top of the ladder exactly as a very large
+        // finite number would, and `-inf` clamps to the bottom.
+        {
+            float const requested = settings.render.toon_shadow_softness;
+            bool const not_a_number = std::isnan(requested);
+            float const clamped = std::clamp(not_a_number ? 0.0f : std::round(requested), 0.0f, 4.0f);
+            if (not_a_number) {
+                utility::log("app_config: toon_shadow_softness is not a number (nan), using 0 (0 = shipped 3x3 PCF)");
+            } else if (clamped != requested) {
+                utility::log("app_config: toon_shadow_softness {} -> {} (0 = shipped 3x3 PCF, 1..4 = wider soft kernels)",
+                             requested,
+                             clamped);
+            }
+            settings.render.toon_shadow_softness = clamped;
         }
         if (settings.render.ssao_samples < 1 || settings.render.ssao_samples > 16) {
             utility::log("app_config: invalid ssao_samples {} (use 1..16), falling back to 8", settings.render.ssao_samples);

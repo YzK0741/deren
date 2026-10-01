@@ -4,6 +4,9 @@
 // build injects rather than relative to the working directory.
 #include "vk_test.h"
 
+#include <filesystem>
+#include <fstream>
+#include <string>
 #include <string_view>
 
 import application_configuration;
@@ -16,6 +19,7 @@ namespace {
         CHECK(!settings.render.shadow);
         CHECK(settings.render.shadow_cascades == 2);
         CHECK(settings.render.shadow_cascade_blend > 0.24f && settings.render.shadow_cascade_blend < 0.26f);
+        CHECK(settings.render.toon_shadow_softness == 0.0f); // the fixture omits the key: the compiled default
         CHECK(settings.render.shadow_map_size == 1024);
         CHECK(!settings.render.clustered_lights); // fixture turns the M5 cluster pass off
         CHECK(settings.lighting.demo_lights == 3);
@@ -125,6 +129,7 @@ namespace {
         CHECK(settings.render.shadow_cascades == 3);
         CHECK(settings.render.shadow_map_size == 2048);
         CHECK(settings.render.shadow_cascade_blend > 0.09f && settings.render.shadow_cascade_blend < 0.11f);
+        CHECK(settings.render.toon_shadow_softness == 0.0f); // generator default = the shipped lookup
         // [render] shading + post-processing: the eleven keys the generator used to omit. TWO OF THESE
         // ARE BOOLEANS WHOSE GENERATOR DEFAULT IS false, which is the compiled default as well - so
         // `CHECK(!taa)` proves the key is ACCEPTED, not that the parser read it (a parser that ignored
@@ -187,6 +192,37 @@ namespace {
         CHECK(!app_config::wants_model_dialog(near));
     }
 
+    // `[render] toon_shadow_softness` is a five-step ladder (0..4) sanitized in `analyse_config` on the way
+    // into `vulkan::toon_rig`'s ninth lane. THE CASE WORTH A TEST OF ITS OWN IS `nan`, because `std::clamp`
+    // CANNOT CATCH IT: clamp's comparison form returns its first argument unchanged when both comparisons are
+    // false, and for NaN both ARE false - so `clamp(round(nan), 0, 4)` is still NaN. That NaN then rides the
+    // lane into the shader's `int(clamp(floor(level + 0.5), 0.0, 4.0))`, and `int(NaN)` is UNDEFINED in
+    // SPIR-V: it may land on any level, including one whose dynamic PCF loop is long enough to hang the GPU.
+    // TOML can spell `nan`, so a real config file is the honest way to reach the case. The infinities are
+    // deliberately NOT folded into it: `round(+inf)` stays `+inf` and clamps to the top of the ladder like a
+    // very large finite number would.
+    void test_toon_shadow_softness_ladder_is_sanitized() {
+        auto const load_one = [](std::string const& body) {
+            std::filesystem::path const path{"test_app_config_toon_shadow_softness.toml"};
+            {
+                std::ofstream file(path, std::ios::binary | std::ios::trunc);
+                file << body;
+            }
+            app_config::app_settings const settings = app_config::load_settings(path.string());
+            std::filesystem::remove(path);
+            return settings.render.toon_shadow_softness;
+        };
+
+        CHECK(load_one("[render]\ntoon_shadow_softness = nan\n") == 0.0f);  // NaN -> the shipped lookup, not a level
+        CHECK(load_one("[render]\ntoon_shadow_softness = inf\n") == 4.0f);  // +inf clamps to the top of the ladder
+        CHECK(load_one("[render]\ntoon_shadow_softness = -inf\n") == 0.0f); // -inf clamps to the bottom
+        CHECK(load_one("[render]\ntoon_shadow_softness = -1\n") == 0.0f);   // integers are accepted too
+        CHECK(load_one("[render]\ntoon_shadow_softness = 5\n") == 4.0f);
+        CHECK(load_one("[render]\ntoon_shadow_softness = 2.4\n") == 2.0f); // rounded to the nearest level
+        CHECK(load_one("[render]\ntoon_shadow_softness = 3\n") == 3.0f);
+        CHECK(load_one("[render]\nshadow = true\n") == 0.0f); // absent key: the compiled default
+    }
+
     void test_resolve_from_argv_merges_config_and_positional() {
         char const* argv[] = {"vk_test", "Models/tri.gltf", "3"};
         app_config::app_settings const settings =
@@ -203,6 +239,7 @@ int32_t main() {
     test_lighting_sizes_are_clamped();
     test_generated_config_parses();
     test_model_ask_sentinel_is_recognized_and_never_a_path();
+    test_toon_shadow_softness_ladder_is_sanitized();
     test_resolve_from_argv_merges_config_and_positional();
     return vk_test::finish("test_app_config");
 }

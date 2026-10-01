@@ -223,8 +223,8 @@ struct HeadUBO {
     float4 center; // the head object's world position (the reference's `headCenter`); `.w` = "a centre is known"
 };
 
-/// THE TOON LIGHT RIG (scene block slot 750): the character stage's global numbers, declared BY THIS STAGE
-/// exactly as `HeadUBO` is. THE LAYOUT MUST MATCH `vulkan::toon_rig` - eight `float4`s, lane by lane named
+/// THE TOON LIGHT RIG (scene block slot 751): the character stage's global numbers, declared BY THIS STAGE
+/// exactly as `HeadUBO` is. THE LAYOUT MUST MATCH `vulkan::toon_rig` - nine `float4`s, lane by lane named
 /// here - and `runtime::set_toon_rig` is the only writer. A rig nobody writes is not a broken frame: the
 /// application always publishes one, and the host's defaults are the article's own values.
 struct ToonRigUBO {
@@ -249,6 +249,10 @@ struct ToonRigUBO {
     // x = the backlight compensation's weight, y = `_NoFStrength`, z = `_NoFPowStrength`,
     // w = `_RampColorNoLStrength`
     float4 misc;
+    // x = `[render] toon_shadow_softness`: 0 = the shipped single 3x3 PCF (BIT-IDENTICAL - the call site's
+    // `calc_shadow_soft` returns `calc_shadow` unchanged at 0), 1..4 = the wider unrotated PCF grids
+    // (2,2)/(3,3)/(5,4)/(8,3). y/z/w reserved.
+    float4 shadow_softness;
 };
 
 /// @brief the rig's lanes as a VALUE, which a heap handle cannot be
@@ -268,6 +272,7 @@ static ToonRigUBO toon_rig_value() {
     rig.sss = toon_rig_at(heap_slots_toon_rig).sss;
     rig.env = toon_rig_at(heap_slots_toon_rig).env;
     rig.misc = toon_rig_at(heap_slots_toon_rig).misc;
+    rig.shadow_softness = toon_rig_at(heap_slots_toon_rig).shadow_softness;
     return rig;
 }
 
@@ -1371,7 +1376,18 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // layer (`albedo * _ShadowColorBrightness` with `_ShadowColorSaturation` 1.4 on top) plus the ambient and the
     // matcap: a flat, dark, desaturated ball - which is what the eye looked like, and why the cornea normal, the
     // two trick colours and their `* 2.5` all measured as no-ops or near-no-ops before this line existed.
-    const float shadow = toon_indices.w != 0u ? 1.0 : calc_shadow(world_pos, n);
+    // THE ONE SHADOW CALL SITE OF THIS BODY, and the one place `[render] toon_shadow_softness` acts: the
+    // level rides the rig's ninth lane (read straight off the handle because the `rig` value below is bound
+    // AFTER this line) and `calc_shadow_soft` treats 0 as "call `calc_shadow` and nothing else", which is what
+    // keeps the default run byte-identical to the shipped one. THIS BODY HAS THREE CALLERS - this file's own
+    // entry point, `shaders/outline.slang` and `shaders/goo_toon.slang` (the rewritten chain reuses
+    // `toon_diffuse` for every non-eye family) - so the level is compiled into those three stages as well;
+    // that is a property of the shared body, not a second switch. `shaders/goo_toon.slang`'s OWN shadow call
+    // (its `rs_shadow`, the bare `calc_shadow`) is the one left byte-untouched, and none of the three stages
+    // changes a pixel at level 0.
+    const float shadow = toon_indices.w != 0u
+                             ? 1.0
+                             : calc_shadow_soft(world_pos, n, toon_rig_at(heap_slots_toon_rig).shadow_softness.x);
 
     // ---- THE CAMERA'S OWN BASIS, which the article's chain needs twice ----
     //
@@ -1985,7 +2001,34 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // light arrives at all (a crevice and a cast shadow are not additive - either one makes the fragment dark),
     // and a PRODUCT where both are required (the edge darkening wants the surface in shadow AND turned away).
     const float ao_shadow = ao_used * shadow_effect;
+#if defined(VR_GOO_TOON_CHAIN)
+    // THE FACE GETS THE ARTICLE'S GSBA GATE ON TOP OF THE THREE-WAY MIN (v2 spec §0.2/§1.4, P2 = the whole gate).
+    //
+    // The reference records the face's self-shadow as `S = saturate(SmoothStep(GSBA, 1.0, RampAlpha))`, whose floor
+    // is `S(0) = 0.6483564136266021` - the shadow may take at most 35% - and that `S` acts on a quantity where 0 is
+    // fully dark and 1 is fully lit.  The only such quantity on this path is the gate that feeds the `lerp` below,
+    // so the gate itself is remapped instead of multiplying the finished colour: `S <= 1`, so multiplying the
+    // result would only ever darken the face, which is the opposite of what the reference's floor states (v1's S1
+    // landed that way and measured a net -3.4 level drop).  `S(x) > x` for every `x` in `[0, 1)` and `S(1) = 1`
+    // (`|S'| <= 0.5996 < 1`, so `S - x` is strictly decreasing and ends at 0) - therefore this can only hold a
+    // fragment at its current brightness or push it toward the lit layer, never darken it.
+    //
+    // Lane 12 is `_GooDiffuseB`, the same key the Goo face arm reads at `:2258`.  Its absent value is the -1000
+    // sentinel a material with no such row carries, which fails `> goo_lane_absent_threshold` and so falls back to
+    // `goo_gsba_default` - the article's own group default, exactly as the Goo arm does.  Re-reading it here costs
+    // nothing at runtime: it is the same 64-byte colour line the tail of this function already fetches.
+    //
+    // The `#else` branch is the shipped line, verbatim: the three stages that include this file WITHOUT the Goo
+    // define (`character_forward`, `outline`, and the rest) compile the original text and keep their bytes.
+    const float4 face_diffuse_b_v2 = toon_colour_at(heap_slots_toon_colours, colour_base + 12u);
+    const float face_gsba_v2 = face_diffuse_b_v2.x > goo_lane_absent_threshold ? face_diffuse_b_v2.x : goo_gsba_default;
+    const float min_shadow_effect_article = min(min(ao_used, shadow_effect), ramp_weight);
+    const float min_shadow_effect = (family == VR_FAMILY_FACE)
+        ? saturate(goo_smoothstep(face_gsba_v2, 1.0, min_shadow_effect_article))
+        : min_shadow_effect_article;
+#else
     const float min_shadow_effect = min(min(ao_used, shadow_effect), ramp_weight);
+#endif
     const float ao_shadow_no_f = ao_shadow * no_f_weight;
 
     // THREE ALBEDOS RATHER THAN THREE MULTIPLIERS, because a toon character's dark side is a HUE shift as much as
@@ -3571,6 +3614,32 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // is the reference's last additive term before that node: `混合.026 = 混合.019 + emission`. The caller adds
     // `s.emissive` to what this returns, so the reference's desaturation - which sits AFTER `混合.026` - belongs at
     // the caller, one line down, where the pixel is finished. See `main`'s `lit`.
+#if defined(VR_GOO_TOON_CHAIN)
+    // ---- STEP 7's LAST NODE REACHES THE FACE ON THE PATH THE FACE ACTUALLY TAKES ----
+    //
+    // The reference multiplies a face's FINISHED colour by exactly one factor:
+    // `混合.020 = MIX(Face Final brightness, Eyes white Final brightness, f = CsutmMask.G > 0.5)`, the `Strength` of
+    // `自发光(发射)`. The Goo face arm above implements it at `:2494-2495` and returns at `:2500`, but that arm is
+    // gated off on this asset (`:2245`'s `goo_face_block2.w != 0` needs `_GooFaceSDF`, which the user's own step-8
+    // decision removed), so on the shipped sidecar the face never sees the node at all. The multiplicand is the same
+    // quantity the arm multiplies - the composed colour, post-rim (`:3583-3589`) - so landing here adds no deviation.
+    //
+    // EVERY NUMBER IS READ THE WAY THE ARM READS IT: lane 21 (`toon_colour_lane::goo_face_scalars_b`) carries
+    // `Face Final brightness` in `.x` and `Eyes white Final brightness` in `.y`, and its absent-row value is the
+    // `-1000` sentinel (`primitive.cppm`'s step-7 block), so an absent row answers the reference's own group default
+    // (`goo_face_brightness_default` = 1.15) instead of multiplying the pixel by zero.
+    if (family == VR_FAMILY_FACE) {
+        const float4 face_scalars_b_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 21u);
+        const float face_brightness = face_scalars_b_lane.x > goo_lane_absent_threshold ? face_scalars_b_lane.x : goo_face_brightness_default;
+        const float face_eye_brightness = face_scalars_b_lane.y > goo_lane_absent_threshold ? face_scalars_b_lane.y : goo_face_eye_brightness_default;
+        // `CsutmMask` is uploaded UNORM (`runtime.constructor.cppm:1423`), so `.g > 0.5` compares the STORED texel -
+        // the reference's own comparison, and the same read the face arm performs at `:2494`.
+        const float face_csumt_g = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + toon_lanes3_at(heap_slots_toon_lanes, material_index).y), heap_sampler_texture, uv).g;
+        const float face_emission_strength = face_csumt_g > 0.5 ? face_eye_brightness : face_brightness;
+        out_desaturation = goo_desaturation;
+        return toon_colour * face_emission_strength;
+    }
+#endif
     out_desaturation = goo_desaturation;
     return toon_colour;
 }

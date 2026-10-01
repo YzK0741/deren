@@ -32,7 +32,7 @@
 #include "surface.glsl"
 
 /// THE TOON LIGHT RIG, declared here exactly as `character_forward.slang` declares it - the layout must match
-/// `vulkan::toon_rig` (eight `float4`s) and `runtime::set_toon_rig` is the only writer.
+/// `vulkan::toon_rig` (nine `float4`s) and `runtime::set_toon_rig` is the only writer.
 ///
 /// THE OVERLAY STAGE NEEDS THE RIG FOR ONE LANE, and it is worth saying why that is not a layering mistake:
 /// `_DayStrength` is a MATERIAL property in the article's two overlay shaders, but this port already models
@@ -51,6 +51,10 @@ struct ToonRigUBO {
     float4 sss;
     float4 env;
     float4 misc;
+    // x = `[render] toon_shadow_softness` (0 = the shipped 3x3 PCF). UNUSED BY THIS STAGE, and present only
+    // because the struct's size is the shader's view of `vulkan::toon_rig`'s layout: the two mirrors and the
+    // C++ struct move together or the lanes after them read the wrong floats.
+    float4 shadow_softness;
 };
 
 /// THE OVERLAY RECORD'S FLAG BITS, named so the branch below reads as the article's two shaders rather than as

@@ -240,9 +240,29 @@ namespace vulkan {
         /// x = the backlight compensation's weight, y = `_NoFStrength`, z = `_NoFPowStrength`,
         /// w = `_RampColorNoLStrength`
         glm::vec4 misc = glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+        /// x = THE TOON SHADOW SOFTNESS LEVEL (`[render] toon_shadow_softness`, 0..4), y/z/w reserved.
+        ///
+        /// 0 IS THE SHIPPED PATH AND NOT ONE TAP MORE: the character chain's shadow then takes the same single
+        /// 3x3 hardware-PCF lookup it always has, so a config that omits the key renders byte-identically. The
+        /// ladder is the whole reason the field exists rather than a wider kernel being the default. Its members
+        /// are `(half_extent, spacing)` in texels - 0 = (1,1), 1 = (2,2), 2 = (3,3), 3 = (5,4), 4 = (8,3) - so
+        /// the taps are `(2*half_extent + 1)^2` = 9 / 25 / 49 / 121 / 289, and the WIDTH quoted below is the
+        /// texel SPAN the taps reach, `2*half_extent*spacing + 2` indices first-to-last (the counting the
+        /// shipped `calc_shadow` note calls a "4x4 texel footprint" at level 0). THE PER-LEVEL COST IS NOT
+        /// REPEATED HERE ON PURPOSE - a copy of that table went stale twice. The authority is the
+        /// `toon_shadow_softness` block in `config.example.toml`, with the exact ROI and mask it used, measured
+        /// on the welded asset `chars/laevatain_goo.glb` = 63,835,728 B /
+        /// CE313E4D9515BC1887B4E0C783ABEA66A70FBFFF69ABD18992BDF33C8F5606F9.
+        /// Stronger = fewer hard comb teeth at the shadow's termination, more light
+        /// leaking onto the whole skin - a taste trade the user picks per run, which is why the default is off.
+        ///
+        /// IT RIDES THE RIG, NOT THE PER-FRAME LIGHT BLOCK, for the rig's own reason: it is fixed for a run and
+        /// only the toon chain reads it (`shaders/character_forward.slang`'s one shadow call site). The rig's
+        /// other lanes let this be a per-run A/B knob with no rebuild - the same lever `_DayStrength` uses.
+        glm::vec4 shadow_softness = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
     };
-    // 128: eight vec4s, so the shader's copy is the same eight members with no padding to agree about.
-    static_assert(sizeof(toon_rig) == 8 * sizeof(glm::vec4));
+    // 144: nine vec4s, so the shader's copy is the same nine members with no padding to agree about.
+    static_assert(sizeof(toon_rig) == 9 * sizeof(glm::vec4));
 
     /**
      * @ingroup vulkan_primitive
@@ -2111,6 +2131,29 @@ namespace vulkan {
         glm::vec3 const& target,
         float scene_radius,
         float aspect);
+
+    /**
+     * @ingroup vulkan_primitive
+     * @brief the ARROW-KEY camera pan for one frame: the world-space translation to add to the orbit
+     *        camera's target (the point the eye orbits, so translating it slides the whole rig without
+     *        rotating the view).
+     * @param yaw the rig's yaw in radians - the same angle make_orbit_camera_ubo places the eye with,
+     *        so the camera's horizontal view direction is (-sin yaw, 0, -cos yaw) and its right vector
+     *        is (cos yaw, 0, -sin yaw)
+     * @param distance the rig's distance from the target; the pan speed scales with it, so a zoomed-out
+     *        view crosses the scene at the same on-screen rate as a close one
+     * @param strafe -1 (left) .. +1 (right): moves along the camera's right vector
+     * @param walk -1 (backward) .. +1 (forward): moves along the camera's horizontal view direction
+     * @param dt seconds since the previous frame; clamped inside (see the note) so a stalled frame
+     *        cannot teleport the camera
+     * @param fast true for the SHIFT speed multiplier (4x)
+     * @return the target's translation for this frame (world units; y is always 0 - the pan is horizontal)
+     * @note pure function: the runtime owns the time base (glfwGetTime) and the key state, so the
+     *       arithmetic is unit-testable headlessly. Both axes are normalized together, so a diagonal
+     *       press is not faster than a straight one, and no key held returns exactly zero (an idle
+     *       frame never touches the camera).
+     */
+    export glm::vec3 orbit_camera_pan_delta(float yaw, float distance, float strafe, float walk, float dt, bool fast);
 
     /**
      * @ingroup vulkan_primitive

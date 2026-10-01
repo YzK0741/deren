@@ -3,9 +3,11 @@
 
 #include <cmath>
 #include <cstddef>
+#include <glm/glm.hpp>
 #include <vector>
 
 import vulkan.math;
+import vulkan.primitive; // orbit_camera_pan_delta: the arrow-key camera pan
 
 namespace {
     constexpr std::size_t cubemap_float_count(int32_t size) {
@@ -93,10 +95,61 @@ namespace {
     }
 } // namespace
 
+// ---- ARROW-KEY CAMERA PAN (vulkan::orbit_camera_pan_delta) ----
+// The pan is the keyboard's camera movement. Three properties are the contract the runtime depends on:
+// a frame with no arrow held must not touch the camera AT ALL (an idle frame stays byte-identical, which
+// is how the pan stays provably inert for the pinned render frames), a diagonal press must not be faster
+// than a straight one, and the step must be speed x dt with the speed tied to the orbit distance and dt
+// clamped, so a stalled frame cannot teleport the rig. The expected vectors are recomputed here from the
+// orbit sphere (eye = target + distance * (cp*sin yaw, sin pitch, cp*cos yaw)) independently of the
+// implementation - the view direction's horizontal part and its right vector, for three yaws.
+void test_orbit_camera_pan() {
+    constexpr float half_pi = 1.5707963267948966f;
+    struct frame_case {
+        float yaw;
+        glm::vec3 forward; // where the camera looks (horizontal), i.e. what WALK = +1 moves along
+        glm::vec3 right;   // cross(forward, world up), i.e. what STRAFE = +1 moves along
+    };
+    frame_case const frame[] = {
+        {0.0f, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f}},
+        {half_pi, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}},
+        {3.0f, {-std::sin(3.0f), 0.0f, -std::cos(3.0f)}, {std::cos(3.0f), 0.0f, -std::sin(3.0f)}},
+    };
+
+    constexpr float distance = 2.0f; // above the 0.1 floor, so the speed is distance * 0.75
+    constexpr float clamped_dt = 0.25f;
+    float const step = distance * 0.75f * clamped_dt;
+
+    for (frame_case const& c : frame) {
+        // dt = 4 s is clamped to 0.25 s, so the step is the same as a well-paced frame's.
+        glm::vec3 const forward_move = vulkan::orbit_camera_pan_delta(c.yaw, distance, 0.0f, 1.0f, 4.0f, false);
+        glm::vec3 const right_move = vulkan::orbit_camera_pan_delta(c.yaw, distance, 1.0f, 0.0f, 4.0f, false);
+        CHECK(glm::length(forward_move - c.forward * step) < 1e-5f);
+        CHECK(glm::length(right_move - c.right * step) < 1e-5f);
+        CHECK(forward_move.y == 0.0f); // the pan is horizontal (the pitch is not an input to it)
+    }
+
+    // No arrow held: EXACTLY zero, so an idle frame never writes the target.
+    CHECK(vulkan::orbit_camera_pan_delta(0.7f, 2.0f, 0.0f, 0.0f, 0.016f, false) == glm::vec3(0.0f));
+    // A zero step is zero too (the first frame has no previous clock reading).
+    CHECK(vulkan::orbit_camera_pan_delta(0.7f, 2.0f, 1.0f, 1.0f, 0.0f, false) == glm::vec3(0.0f));
+
+    // The two axes are normalized TOGETHER: a diagonal press is not sqrt(2) times faster.
+    float const straight = glm::length(vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 0.0f, 0.016f, false));
+    float const diagonal = glm::length(vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 1.0f, 0.016f, false));
+    CHECK(std::abs(straight - diagonal) < 1e-6f);
+
+    // SHIFT multiplies by exactly 4, and the 0.1 floor keeps a fully zoomed-in rig (distance 0) moving.
+    float const fast = glm::length(vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 0.0f, 0.016f, true));
+    CHECK(std::abs(fast - 4.0f * straight) < 1e-6f);
+    CHECK(glm::length(vulkan::orbit_camera_pan_delta(0.4f, 0.0f, 1.0f, 0.0f, 1.0f, false)) > 0.0f);
+}
+
 int32_t main() {
     test_environment_cubemap_shape();
     test_irradiance_map_shape();
     test_brdf_lut_shape();
     test_prefiltered_environment_is_smooth();
+    test_orbit_camera_pan();
     return vk_test::finish("test_math");
 }
