@@ -1913,6 +1913,56 @@ int main(int argc, char** argv) {
     utility::log("imported {} primitives ({} new materials)", imported.primitive_count, imported.material_count);
     runtime.log_scene_tree();
 
+    // 12b. THE FRAME'S STATIC SURROUND, when the config names one ([render] background_glb): the SAME
+    //      importer runs a SECOND time into the SAME scene tree, flagged as environment. The flag is the
+    //      whole feature: it takes every leaf this import creates out of the toon character stage and out
+    //      of the shadow casters (and out of the shadow fit, see runtime::update_shadow_frustum), while the
+    //      scene pass draws them through the ordinary PBR/unlit path - which is where the reference's own
+    //      matte ground and emissive backdrop live. Nothing about the subject's own import changes.
+    //
+    //      WHY A SECOND IMPORT AND NOT A MODEL MERGE: the two files are authored separately, the background
+    //      is optional and off by default, and the importer already appends to the scene tree (it was built
+    //      to). Merging the GLBs offline would bake one machine's choice of background into the character
+    //      asset - and the asset is the artist's, not ours.
+    if (!settings.render.background_glb.empty()) {
+        std::filesystem::path background_path = settings.render.background_glb;
+        if (background_path.is_relative()) {
+            // relative to the EXECUTABLE's directory, which is where every other asset of this application
+            // is found (the shaders dir comes from the same place, see chores::analyse_config)
+            background_path = utility::executable_directory() / background_path;
+        }
+        auto background_load = gltf::load_model_async(background_path.string());
+        auto background_scenes = background_load.get();
+        if (!background_scenes) {
+            utility::panic(std::source_location::current(), "failed to load background model '{}': error code {}", background_path.string(), static_cast<int32_t>(background_scenes.error()));
+        }
+        gltf::scene_bounds const background_bounds = gltf::log_scene_diagnostics(*background_scenes);
+        auto background_resolve = gltf::resolve_materials_async(*background_scenes);
+        std::vector<gltf::resolved_material> const background_materials = background_resolve.get();
+        // THE OFFSET IS DERIVED FROM THE SUBJECT, NOT CONFIGURED: the background's own y = 0 is its author's
+        // GROUND plane and the subject's lowest point after ITS centering shift is `bounds.min.y +
+        // scene_import_shift.y`, so shifting the background by the subject's shift plus that minimum puts the
+        // ground exactly under the subject's feet. The two XZ centers coincide by construction: the subject's
+        // own import sends `scene_center` to `scene_sink`, whose XZ is 0, and the background is authored
+        // centered on its own origin. A background whose ground is not at its y = 0 does NOT land correctly -
+        // that assumption is stated rather than guessed at (see the config key's note).
+        glm::vec3 const background_shift = scene_import_shift + glm::vec3(0.0f, bounds.min.y, 0.0f);
+        gltf::scene_node_iterator const background_node_first = background_scenes->nodes_begin();
+        gltf::scene_node_iterator const background_node_last;
+        gltf::drawable_iterator const background_scene_first(*background_scenes, background_materials);
+        gltf::drawable_iterator const background_scene_last;
+        vulkan::scene_import_result const background_imported = runtime.import_scene(background_node_first, background_node_last, background_scene_first, background_scene_last, background_shift, true);
+        utility::log("background: '{}' imported as the frame's static surround - {} primitives ({} new materials), own bounds y [{:.3f}, {:.3f}], offset ({:.3f}, {:.3f}, {:.3f}); the toon character stage and the shadow casters skip it",
+                     background_path.string(),
+                     background_imported.primitive_count,
+                     background_imported.material_count,
+                     background_bounds.min.y,
+                     background_bounds.max.y,
+                     background_shift.x,
+                     background_shift.y,
+                     background_shift.z);
+    }
+
     // 12. Enable directional shadow mapping over the imported scene: the shadow frustum frames
     //      the sphere around where the primitives actually sit (they were translated by the import
     //      offset above, so their world-space center is scene_sink) with their original radius

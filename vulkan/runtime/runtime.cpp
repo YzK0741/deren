@@ -995,6 +995,15 @@ namespace vulkan {
                 if (leaf == nullptr) {
                     continue;
                 }
+                // THE FRAME'S STATIC SURROUND IS NOT FIT FOR (`primitive::environment`, the `[render]
+                // background_glb` import): a 34 m ground disc and a backdrop dome tens of metres across would
+                // drag the caster fit out to their own size, and the shadow map would spend its texels on
+                // geometry that cannot cast anything the camera sees. Leaving it out keeps the fit on the
+                // subject - the ground still RECEIVES the subject's shadow wherever that (unchanged) fit
+                // covers it, which is the only thing the surround is here for.
+                if (leaf->environment) {
+                    continue;
+                }
                 glm::vec3 wmin = {};
                 glm::vec3 wmax = {};
                 if (leaf->has_bounds) {
@@ -1713,6 +1722,12 @@ namespace vulkan {
         // read it. Read out of the SAME `toon_inputs` the shader's lane is built from, so the gate the frame
         // applies and the gate the outline mesh stage applies (`w > 0`) cannot disagree.
         result->outline_width = info.toon.colours[static_cast<std::size_t>(toon_colour_lane::outline_edge)].w;
+        // ... AND WHETHER THIS LEAF IS THE FRAME'S STATIC SURROUND (`[render] background_glb`), which is the
+        // third list-building fact carried onto the primitive and the only one that is not derived from the
+        // material at all: it comes from WHICH IMPORT created the leaf (see `runtime::import_scene`'s
+        // `environment` argument). Two lists read it - the toon character stage and the shadow casters -
+        // and both are built here, in the host, every frame.
+        result->environment = info.environment;
         return result;
     }
 

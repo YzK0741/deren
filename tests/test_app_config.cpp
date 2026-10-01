@@ -42,6 +42,10 @@ namespace {
         CHECK(settings.render.taa);
         CHECK(settings.render.taa_blend_static > 0.79f && settings.render.taa_blend_static < 0.81f);
         CHECK(settings.render.taa_blend_min > 0.19f && settings.render.taa_blend_min < 0.21f);
+        // the frame's static surround (`[render] background_glb`): a STRING key, so unlike the boolean
+        // switches above this CHECK cannot pass by accident - an empty compiled default would read back as
+        // "" and the comparison would fail
+        CHECK(settings.render.background_glb == "bg/test-background.glb");
         CHECK(!settings.gui.show);
         CHECK(settings.lighting.irr_size == 64);
         CHECK(settings.paths.shaders_dir == "shaders");
@@ -57,6 +61,8 @@ namespace {
         CHECK(!settings.render.gbuffer_debug);
         CHECK(settings.render.gbuffer_channel == 1);
         CHECK(!settings.render.taa);
+        // default: NO background model - the frame is the one import it always was (see the key's note)
+        CHECK(settings.render.background_glb.empty());
         CHECK(settings.render.shadow_cascades == 3); // default: three cascades
         CHECK(settings.render.shadow_cascade_blend > 0.09f && settings.render.shadow_cascade_blend < 0.11f);
         CHECK(settings.render.clustered_lights); // default: the cluster pass runs

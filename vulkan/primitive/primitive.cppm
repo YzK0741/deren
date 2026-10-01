@@ -1560,6 +1560,29 @@ namespace vulkan {
         uint32_t overlay_kind = 0;
 
         /**
+         * THE ENVIRONMENT FLAG (the `[render] background_glb` import): whether this leaf is the frame's
+         * STATIC SURROUND rather than its subject.
+         *
+         * SAME KIND OF FACT AS `overlay_kind` ABOVE, MIRRORED FOR THE SAME REASON: it decides WHICH PASS
+         * DRAWS THE LEAF, so the host reads it while it is building the frame's leaf lists and no shader
+         * ever sees it - and unlike `toon_family` it therefore has no business in `material_record`. The
+         * ground and the backdrop have an ordinary glTF material (a matte PBR ground, an emissive dome),
+         * and the only thing that makes them "background" is that the reference's toon chain was never
+         * handed them.
+         *
+         * IT CHANGES EXACTLY TWO LISTS (`vulkan/runtime/runtime.frames.cppm`):
+         *   * the TOON CHARACTER stage skips it (`make_character_forward_frame`), so the scene's static
+         *     surround is not re-shaded by a character pipeline that has no material data for it;
+         *   * it does NOT CAST SHADOWS (`shadow_casters`), so a 34 m backdrop dome cannot shade the
+         *     character the frame is about.
+         * It STAYS in `frame_visible`, which is the point: the scene pass draws it through the ordinary
+         * PBR/unlit path, where a matte ground and a glTF emissive backdrop belong.
+         *
+         * Default false, i.e. every model that is not a configured background behaves exactly as before.
+         */
+        bool environment = false;
+
+        /**
          * THE TOON TEXTURE INPUTS, filled by whoever installs a `toon_lookup` - the application, which is the
          * layer that reads the sidecar (see `runtime::set_toon_lookup`). Empty and flagless for a model with no
          * sidecar, which is every model that is not a character; then every lane points at the white fallback
@@ -1909,6 +1932,14 @@ namespace vulkan {
          * `_OutlineWidth` row, which is the whole character.
          */
         float outline_width = 0.0f;
+
+        /**
+         * THE STATIC SURROUND FLAG, mirrored from `primitive_create_info::environment` - see that field's
+         * note for what it is FOR and which two leaf lists it changes. Here rather than in the material
+         * record for the same reason as `overlay_kind` and `outline_width` above: the frame's leaf lists
+         * are built from primitives, before any shader could read a lane.
+         */
+        bool environment = false;
 
         // local-space AABB of this primitive's geometry (model space, i.e. before push.model);
         // filled by the runtime when the geometry is uploaded. has_bounds == false means "no

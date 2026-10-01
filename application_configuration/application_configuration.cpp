@@ -307,6 +307,15 @@ namespace app_config {
                     settings.render.goo_toon = *value;
                 }
             }
+            // THE STATIC SURROUND'S SECOND MODEL ([render] background_glb): an empty string is the default and
+            // means "this frame has no background model", which keeps every recorded reference valid. The path
+            // is NOT touched here - `main.cpp` resolves a relative one against the executable's directory,
+            // because that is where the assets are and the config loader has no idea where the exe sits.
+            if (toml::node const* node = render->get("background_glb")) {
+                if (std::optional<std::string> const value = node->value<std::string>()) {
+                    settings.render.background_glb = *value;
+                }
+            }
             // ---- THE TOON LIGHT RIG ([toon]) ----
             //
             // A TABLE OF ITS OWN rather than more keys under `[render]`, because these are the CHARACTER stage's art

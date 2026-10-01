@@ -305,6 +305,28 @@ namespace app_config {
         // OFF BY DEFAULT on the same terms as the flag above, and for a sharper reason: the rewrite lands one
         // reference group at a time, so a run that does not ask for it must get the frame the old chain produces.
         bool goo_toon = false;
+        /**
+         * THE FRAME'S STATIC SURROUND AS A SECOND MODEL ([render] background_glb): the path of a glTF/GLB
+         * whose geometry is the environment rather than the subject. Empty by default and that default is the
+         * feature's contract: with no path the frame is exactly the frame this renderer produced before the
+         * key existed (one import, one leaf set), which is what the render gate's recorded references are.
+         *
+         * THE PATH IS RESOLVED LIKE THE MODEL'S: a relative path is taken relative to the executable's own
+         * directory (see `utility::executable_directory()`), which is where the assets live, so the shipped
+         * config can name `chars/...` or a path under the build directory without being absolute.
+         *
+         * WHAT IT DOES, IN ONE SENTENCE: the same importer (`runtime::import_scene`) runs a second time into
+         * the same scene tree with `environment = true`, which flags every leaf it creates
+         * (`primitive::environment`) so the toon character stage skips it and it never casts a shadow - while
+         * the scene pass draws it through the ordinary PBR/unlit path, where a matte ground and a glTF
+         * emissive backdrop belong. Nothing else about the frame changes.
+         *
+         * THE OFFSET IS DERIVED, NOT CONFIGURED: the imported roots are translated so the background's own
+         * y = 0 plane (the author's ground) lands on the SUBJECT's lowest point after the subject's own
+         * centering shift - see the import in `main.cpp`. A background whose ground is not at y = 0 would need
+         * its own shift, which is why this is stated here rather than hidden in the loader.
+         */
+        std::string background_glb = {};
         bool validation_layers = default_validation_layers; // Vulkan validation layers + debug messenger ([render])
     };
 

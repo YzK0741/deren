@@ -424,6 +424,34 @@ character_forward = false
 # OFF by default, so a run that does not ask for it gets the frame the old chain produces.
 goo_toon = false
 
+# background_glb: A SECOND MODEL DRAWN AS THE FRAME'S STATIC SURROUND - the ground and the backdrop the
+# subject stands on - imported into the SAME scene tree by the same importer, one line after the subject.
+# Empty (the default) means "this frame has no background model", which is exactly the frame every recorded
+# reference was made from: one import, one leaf set.
+#
+# WHAT THE FLAG DOES, and it is deliberately one flag with two consequences rather than a material trick:
+# the leaves this import creates are marked `primitive::environment`, so (a) the toon CHARACTER stage skips
+# them - the character chain is the cartoon author's chain, written for one character's own material data,
+# and the reference never gave its ground or its dome a toon material - and (b) they are never shadow
+# CASTERS, nor part of the shadow fit, so a 34 m ground disc cannot spend the shadow map's texels on itself.
+# The SCENE pass draws them through the ordinary PBR/unlit path, where a matte ground and a glTF emissive
+# backdrop belong. Everything else about the frame is untouched.
+#
+# A RELATIVE PATH IS RESOLVED AGAINST THE EXECUTABLE'S DIRECTORY (where the other assets are), so a config
+# shipped beside the binary can name one without being absolute.
+#
+# THE OFFSET IS DERIVED, NOT CONFIGURED: the model is expected to have its GROUND at its own y = 0, and it
+# is translated so that plane lands under the subject's feet (the subject's own centering shift plus its own
+# lowest point). A background whose ground is not at y = 0 will sit at the wrong height - the assumption is
+# stated rather than guessed at.
+#
+# Example (the author's own `endfield-background`, a 34 m matte ground disc + emissive dome, converted to
+# glTF): background_glb = "zmd-ab/bg/endfield-background/export/background.glb"
+# NOTE ON THAT ASSET: it is licensed for LOCAL REFERENCE ONLY (attribution to 新杨XIYAG is required and it
+# must be replaced before any release - see its SOURCE_TERMS.txt), so it is a development stand-in and not
+# something to ship. The key itself is asset-agnostic.
+background_glb = ""
+
 # validation_layers: Vulkan validation layers + debug messenger (VK_LAYER_KHRONOS_validation).
 # Debug builds default to true, Release builds to false; override per build as needed (e.g.
 # turn it on in a Release build when tracking a problem, or off in Debug for raw speed).

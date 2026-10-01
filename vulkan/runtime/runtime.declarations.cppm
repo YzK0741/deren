@@ -1228,6 +1228,23 @@ namespace vulkan {
          * painted over the frame instead of a ring. Culling a leaf must therefore cull its outline with it.
          */
         std::pmr::vector<primitive const*> frame_outline = {};
+        /**
+         * THE TOON CHARACTER STAGE'S LEAVES: `frame_visible` MINUS THE FRAME'S STATIC SURROUND
+         * (`primitive::environment`, set by `import_scene(..., environment = true)` for the application's
+         * second import of `[render] background_glb`).
+         *
+         * WHY IT IS A LIST OF ITS OWN RATHER THAN A FILTER AT THE CALL SITE: the stage's frame hands the pass
+         * a `std::span` over a container that outlives the call (`character_forward_frame::leaves`), so the
+         * filtered set has to live somewhere for the frame being recorded - this member is that somewhere,
+         * rebuilt with the other per-frame lists.
+         *
+         * WHY THE SURROUND IS TAKEN OUT AT ALL: the toon chain is the CARTOON AUTHOR'S chain, written against
+         * one character's own material data (a family, a ramp, a sidecar) that the surround does not have -
+         * and the reference never gave it one: its ground and backdrop are ordinary lit/emissive surfaces that
+         * the reference's own deferred pass draws. This is also why the flag is NOT an "unlit" switch: the
+         * scene pass is free to draw the ground with the very same PBR path it draws everything else with.
+         */
+        std::pmr::vector<primitive const*> frame_character = {};
         // shadow-pass subset (rebuilt each frame before the shadow recording). SMALL scenes
         // (<= full_scene_shadow_leaf_limit leaves, begin_recording): EVERY leaf - exact and cheap
         // at that size. HEAVY scenes: the camera-visible leaves plus the leaves the BVH reports
@@ -1237,6 +1254,9 @@ namespace vulkan {
         // orthographic light), so - unlike the old camera-frustum-shifted-by-a-margin heuristic -
         // an off-screen caster such as the wall behind the camera is still included. Instanced /
         // bound-less leaves are always included.
+        // ... AND THE STATIC SURROUND IS NEVER ONE OF THEM (`primitive::environment`): a 34 m backdrop dome
+        // drawn as a caster would put the character inside a shadow it casts on itself, and the ground disc
+        // has nothing to cast onto that the frame can see. It is filtered where the list is built.
         std::pmr::vector<primitive const*> shadow_casters = {};
         // how far up-light of the camera frustum a caster still matters (its shadow can still
         // reach the view). Scene-scale heuristic: max(1, scene_radius / 8); see enable_shadows.
@@ -3051,6 +3071,12 @@ namespace vulkan {
          * The SAME leaf list the scene pass drew (`frame_visible`), because the pass re-shades those surfaces
          * rather than a set of its own: a leaf the scene pass culled has no lit pixel to overwrite, and a leaf
          * it drew but this list omitted would keep the deferred shading while its neighbours did not.
+         *
+         * WITH ONE EXCEPTION, AND IT IS A CONFIGURED ONE: the frame's STATIC SURROUND (`frame_character`, i.e.
+         * `frame_visible` minus `primitive::environment`) is left to the scene pass's own shading, because the
+         * toon chain is a character's chain and the `[render] background_glb` ground and backdrop have no
+         * material data for it - and no counterpart in the reference, whose ground and dome are ordinary lit
+         * and emissive surfaces. See `frame_character`.
          */
         [[nodiscard]] pass::character_forward_frame make_character_forward_frame() noexcept;
 
@@ -3561,6 +3587,11 @@ namespace vulkan {
          * @param dfirst,dlast iterator pair over the scene's drawables
          * @param offset translation applied to every scene ROOT node's local transform
          *        (e.g. -scene_center + sink); children inherit it through update_world
+         * @param environment true when this import IS the frame's static surround rather than a subject
+         *        (the application's second import of `[render] background_glb`): every leaf created here
+         *        is flagged `primitive::environment` and is then skipped by the toon character stage and
+         *        left out of the shadow casters, while the scene pass draws it as usual. Default false,
+         *        i.e. the subject's own import is untouched. See `primitive_create_info::environment`.
          * @return counts of imported primitives and materials
          * @note call before the first frame, or only while the runtime is idle (no frame in
          *       flight): importing registers materials, which appends texture entries to the heap's
@@ -3570,7 +3601,7 @@ namespace vulkan {
          */
         template <class NI, class DI>
             requires scene_node_iterator<NI> && scene_drawable_iterator<DI>
-        scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset) {
+        scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset, bool const environment = false) {
             if (this->bound_scene == nullptr) {
                 utility::panic("runtime::import_scene() called before set_scene() bound a scene");
             }
@@ -3660,6 +3691,10 @@ namespace vulkan {
                 }
                 primitive_create_info info = {};
                 fill_info(drawable, info);
+                // WHETHER THIS IMPORT IS THE FRAME'S SURROUND: one flag for the whole import, stamped on every
+                // leaf it creates (see the argument's note). It is a property of the CALL and not of the
+                // drawable, which is why the loader has nothing to say about it.
+                info.environment = environment;
                 ++drawable;
                 ++result.primitive_count;
                 std::unique_ptr<primitive> created = this->create_primitive("pbr", info);

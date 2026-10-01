@@ -447,6 +447,20 @@ namespace vulkan {
         float const aspect = this->current_aspect;
         camera_ubo const& ubo = this->current_ubo;
         std::pmr::vector<primitive const*> visible_leaves = this->frame_leaves; // fallback: no culling
+        // THE CASTER SET, MINUS THE FRAME'S STATIC SURROUND (`primitive::environment`, i.e. the
+        // `[render] background_glb` import - see `shadow_casters` in the class docs for why it must never
+        // cast). Written once here and used at every place the list is filled, because the caster set is
+        // built in four different branches below and a filter applied at three of them is a bug waiting for
+        // the fourth.
+        auto const fill_shadow_casters = [this](std::pmr::vector<primitive const*> const& source) {
+            this->shadow_casters.clear();
+            this->shadow_casters.reserve(source.size());
+            for (primitive const* const leaf : source) {
+                if (!leaf->environment) {
+                    this->shadow_casters.push_back(leaf);
+                }
+            }
+        };
         if (this->frustum_culling) {
             // camera identity: the orbit state that shapes the frustum
             bool const scene_changed_this_frame = this->bvh_dirty;
@@ -522,20 +536,20 @@ namespace vulkan {
                 //    than the whole scene.
                 constexpr std::size_t full_scene_shadow_leaf_limit = 1500;
                 if (frame_leaves.size() <= full_scene_shadow_leaf_limit) {
-                    this->shadow_casters = this->frame_leaves;
+                    fill_shadow_casters(this->frame_leaves);
                 } else if (!this->shadows_enabled) {
                     // no shadow frustum yet (enable_shadows() not called): the set is unused until
                     // the shadow pass records, so take the exact path instead of culling against a
                     // zeroed light matrix. enable_shadows() runs before the first frame in
                     // practice; if it does not, the camera moving refreshes this set.
-                    this->shadow_casters = this->frame_leaves;
+                    fill_shadow_casters(this->frame_leaves);
                 } else {
                     if (!this->shadow_heuristic_logged) {
                         this->shadow_heuristic_logged = true;
                         utility::log("shadow caster culling: scene exceeds {} leaves - shadow casters are the camera-visible plus shadow-frustum sets",
                                      full_scene_shadow_leaf_limit);
                     }
-                    this->shadow_casters = this->cull_visible;
+                    fill_shadow_casters(this->cull_visible);
                     if (this->cull_bvh.has_value()) {
                         // every cascade's frustum: a caster that only shadows the far range must still
                         // be drawn, so the union over the cascades is the exact caster set (a cull per
@@ -545,7 +559,10 @@ namespace vulkan {
                             auto const in_light = this->cull_bvh->frustum_cull(light_frustum);
                             this->shadow_casters.reserve(this->shadow_casters.size() + in_light.size());
                             for (auto const* node : in_light) {
-                                this->shadow_casters.push_back(node->extra_data);
+                                primitive const* const leaf = node->extra_data;
+                                if (!leaf->environment) {
+                                    this->shadow_casters.push_back(leaf);
+                                }
                             }
                         }
                         std::ranges::sort(this->shadow_casters);
@@ -556,7 +573,7 @@ namespace vulkan {
             visible_leaves = this->cull_visible;
         } else {
             // culling disabled: the shadow pass draws every scene leaf (see shadow_casters)
-            this->shadow_casters = this->frame_leaves;
+            fill_shadow_casters(this->frame_leaves);
         }
 
         // Split the visible set into OPAQUE leaves (frame_visible: drawn first, depth write on,
@@ -567,6 +584,7 @@ namespace vulkan {
         // with a static camera the input and thus the result are identical, so no extra cache.
         this->frame_visible.clear();
         this->frame_transparent.clear();
+        this->frame_character.clear();
         {
             glm::vec3 const eye = ubo.camera_pos;
             auto const distance_to = [&eye](primitive const* const m) -> float {
@@ -589,6 +607,12 @@ namespace vulkan {
             };
             for (primitive const* const m : visible_leaves) {
                 (m->transparent ? this->frame_transparent : this->frame_visible).push_back(m);
+                // ... AND THE TOON CHARACTER STAGE'S SUBSET, which is the opaque leaves minus the frame's
+                // static surround: the character chain re-shades the same surfaces the scene pass drew, and
+                // the background is the one thing in the frame that is NOT a subject (see `frame_character`).
+                if (!m->transparent && !m->environment) {
+                    this->frame_character.push_back(m);
+                }
             }
             std::ranges::sort(this->frame_transparent,
                               [&distance_to](primitive const* const a, primitive const* const b) {
@@ -2090,7 +2114,12 @@ namespace vulkan {
         // that overlap must compose in the order the asset authored them.
         this->frame_outline.clear();
         for (primitive const* const leaf : this->frame_visible) {
-            if (leaf->outline_width > 0.0f) {
+            // ... AND NEVER THE FRAME'S STATIC SURROUND: an environment leaf is not drawn by this stage at
+            // all (see `frame_character`), and a hull is confined to the outside of the surface this pass
+            // just re-shaded - with no re-shaded surface under it a hull would be an unlit shell over the
+            // background. The material gate already excludes it (`outline_width` is 0 for the ground and the
+            // backdrop), and stating it here keeps the rule in one place rather than in the asset.
+            if (!leaf->environment && leaf->outline_width > 0.0f) {
                 this->frame_outline.push_back(leaf);
             }
         }
@@ -2098,8 +2127,13 @@ namespace vulkan {
         // already drew, so it must see exactly that list. A leaf the culling dropped has no lit pixel to
         // overwrite, and one it kept but this frame omitted would keep the deferred shading while its
         // neighbours were re-shaded.
+        //
+        // ... AND IT IS `frame_character` RATHER THAN `frame_visible`, WHICH IS THE ONE DIFFERENCE: the
+        // frame's static surround (`[render] background_glb`) is an opaque scene leaf drawn by the scene pass
+        // and is deliberately NOT re-shaded here - see `frame_character` for why the reference has no toon
+        // material for a ground and a backdrop. Everything else in the list is literally `frame_visible`.
         return pass::character_forward_frame{
-            .leaves = this->frame_visible,
+            .leaves = this->frame_character,
             // ... AND THE OVERLAY LEAVES, which the collection step has already taken out of `frame_visible`
             // (see `frame_overlay`): they are not surfaces to re-shade, they are the article's two masks to
             // multiply over what this pass just wrote.
