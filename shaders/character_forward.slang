@@ -1350,10 +1350,15 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     }
     const float no_l = dot(shading_normal, l);
 
-    // `calc_shadow` returns the quantized term when the engine's cel knob is on and the raw one otherwise;
-    // either way it is the shadow factor for this fragment, and this stage does not band it a second time -
-    // that would quantize a quantized value, which collapses the bands to nothing on a frame where the knob
-    // is set.
+    // DEBT (s): `calc_shadow` returns the RAW per-cascade visibility, UNQUANTIZED - the reference never
+    // quantizes `Cast Shadows` and has no band generator on that chain (its `_RD` ramps are continuous
+    // remaps, not steps; see `zmd-ab/goo_debt_s_armA_verify.md` §2.4). Nor is any shadow/visibility/diffuse
+    // term in THIS shader quantized into a cel band: the only quantizers here are the SDF half-face
+    // expression, the tile-atlas lookup and the eye/emoji UV selection (`ceil`/`floor`/`frac`), none of
+    // them a cel band. The knob's leftover effect (the `ndotl` band plus the highlight block) lives inside
+    // `evaluate_direct_light`, whose only callers are the two direct-light sites in `shading.glsl` and the
+    // two in `megalights_trace.slang` - never `character_forward.slang` or `goo_toon.slang` - so on this
+    // path it lands on the deferred/pbr path only.
     //
     // AN EYE DOES NOT READ IT AT ALL, because the ARTICLE'S EYE SHADER HAS NO CAST-SHADOW TERM - its shading is
     // the toon ramp off the cornea normal, `NoF`, and the two-state light, and that is the whole list. This is not

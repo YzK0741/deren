@@ -3926,6 +3926,107 @@ int32_t main() {
                       goo_toon.find("if (rs_block3.z != 0u)") != std::string::npos,
                   "RS A8: the mask is slot 14 of the THIRD block, read through the accessor that names it, and index 0 is not read");
 
+        // ---- A8.t30: DEBT (s) - the cel band must NOT be applied to `Cast Shadows` ----
+        //
+        // The reference never quantizes its `Cast Shadows` output and has no band generator on that chain
+        // (its `_RD` ramps are continuous remaps, not steps; see `zmd-ab/goo_debt_s_armA_verify.md` §2.4):
+        // the engine's cel knob is port-side and OFF by default, so `calc_shadow_cascade` returns raw visibility.
+        {
+            std::string const shading = slurp("shaders/shading.glsl");
+
+            // STRUCTURE PIN: the raw per-cascade visibility is what `calc_shadow_cascade` returns.
+            // The anchor pair matters: a bare `find("return shadow;")` is toothless because `:325` in
+            // `calc_shadow` already spells it that way (before this change).
+            auto const cascade_sample = shading.find("float shadow = lit / 9.0;");
+            CHECK_MSG(cascade_sample != std::string::npos,
+                      "DEBT (s): the per-cascade visibility sample must stay in `calc_shadow_cascade`");
+            auto const cascade_return = shading.find("return shadow;", cascade_sample);
+            CHECK_MSG(cascade_return != std::string::npos,
+                      "DEBT (s): `calc_shadow_cascade` must return the raw per-cascade visibility");
+            CHECK_MSG(shading.substr(cascade_sample, cascade_return - cascade_sample).find("toon_band(") ==
+                          std::string::npos,
+                      "DEBT (s): no quantizer may sit between the visibility sample and its return");
+            CHECK_MSG(cascade_return - cascade_sample < 1024,
+                      "DEBT (s): `calc_shadow_cascade`'s tail must stay the short raw-sampling path");
+
+            // NEGATIVE PIN: the old landing spelling is gone.
+            CHECK_MSG(shading.find("return toon_band(shadow, light_at(heap_light_slot).toon_steps, "
+                                   "light_at(heap_light_slot).toon_softness);") == std::string::npos,
+                      "DEBT (s): `calc_shadow_cascade` must not band its own return value");
+
+            // NUMERIC PIN: `toon_band` keeps exactly TWO spellings - its definition and the ndotl call.
+            std::size_t toon_band_sites = 0;
+            for (auto at = shading.find("toon_band("); at != std::string::npos; at = shading.find("toon_band(", at + 1)) {
+                ++toon_band_sites;
+            }
+            CHECK_MSG(toon_band_sites == 2,
+                      "DEBT (s): `toon_band` must appear exactly twice (definition + the diffuse call)");
+
+            // The LEGITIMATE call site survives untouched.
+            CHECK_MSG(shading.find("ndotl = toon_band(ndotl, light_at(heap_light_slot).toon_steps, "
+                                   "light_at(heap_light_slot).toon_softness);") != std::string::npos,
+                      "DEBT (s): the diffuse-falloff band at the ndotl call site must stay");
+
+            // DRIFT GUARDS on the prose that promised a banded shadow factor.
+            CHECK_MSG(shading.find("(also passed through toon_band for cel shading)") == std::string::npos,
+                      "DEBT (s): `calc_shadow_cascade`'s @return no longer claims a banded value");
+            CHECK_MSG(character_forward.find("returns the quantized term when the engine's cel knob is on") ==
+                          std::string::npos,
+                      "DEBT (s): the `calc_shadow` call site no longer claims a quantized term");
+
+            // THE NAMED COST, which is the whole reason this is a fix and not a no-op. The structure pin
+            // above proves the quantizer is GONE; this one proves it was DOING something, so that removing
+            // it is a real behaviour change when the knob is on. A C++ mirror of `shaders/shading.glsl:223`
+            // (`toon_band`) is the falsifier: at the probe's own settings it must NOT be the identity.
+            auto const toon_band_mirror = [](float x, float steps, float softness) {
+                if (steps < 1.5f) {
+                    return x; // the shader's own early return: plain PBR, bit-identical
+                }
+                float const scaled = std::clamp(x, 0.0f, 1.0f) * steps;
+                float const base = std::floor(scaled);
+                float const frac = scaled - base;
+                float const t = std::clamp((frac - (0.5f - softness)) / (2.0f * softness), 0.0f, 1.0f);
+                float const edge = t * t * (3.0f - 2.0f * t); // GLSL smoothstep
+                return (base + edge) / steps;
+            };
+            // cel OFF (the shipped configuration: index 0 -> toon_steps = 0.0f) IS the identity, which is
+            // exactly why this change must be pixel-neutral on every recorded frame.
+            CHECK_MSG(toon_band_mirror(0.3f, 0.0f, 0.15f) == 0.3f,
+                      "DEBT (s): `toon_band` is bit-identical to its input when the cel knob is off");
+            // cel ON at index 1 (`toon_band_counts[1] = 2.0f` -> `toon_steps = 2.0f`) is NOT, and by far
+            // more than a rounding step - so returning the raw value MOVES the cel-on visibility.
+            float const banded2 = toon_band_mirror(0.3f, 2.0f, 0.15f);
+            CHECK_MSG(banded2 != 0.3f && std::abs(banded2 - 0.3f) > 0.1f,
+                      "DEBT (s) NAMED COST: with the cel knob on, the banded value is far from the raw one "
+                      "(the removed quantizer was NOT an identity)");
+            // and the cost SHRINKS as the band count rises, which is the closed form of the frame-level
+            // pair's criterion (the changed-pixel count must fall from 2 bands to 3).
+            float worst2 = 0.0f;
+            float worst3 = 0.0f;
+            float worst4 = 0.0f;
+            for (int i = 1; i < 20; ++i) {
+                float const v = 0.05f * static_cast<float>(i);
+                worst2 = std::max(worst2, std::abs(toon_band_mirror(v, 2.0f, 0.15f) - v));
+                worst3 = std::max(worst3, std::abs(toon_band_mirror(v, 3.0f, 0.15f) - v));
+                worst4 = std::max(worst4, std::abs(toon_band_mirror(v, 4.0f, 0.15f) - v));
+            }
+            CHECK_MSG(worst2 > worst3 && worst3 > worst4 && worst4 > 0.05f,
+                      "DEBT (s) NAMED COST: the removed band's worst-case deviation strictly shrinks with the "
+                      "band count (2 -> 3 -> 4), so a frame pair must show its changed-pixel count fall too");
+
+            // NUMERIC PIN on the shipped configuration: cel index 0 -> `toon_band_counts[0] = 0.0f`
+            // -> `runtime`'s `steps < 1.5f ? 0.0f` -> `toon_band`'s early return. That is the whole
+            // reason this fix must be pixel-neutral on every recorded frame.
+            CHECK_MSG(app.find("constexpr std::array<float, 7> toon_band_counts = "
+                               "{0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};") != std::string::npos,
+                      "DEBT (s): the cel band-count table must keep index 0 == 0.0f (plain PBR)");
+
+            std::string const runtime_cpp = slurp("vulkan/runtime/runtime.cpp");
+            CHECK_MSG(runtime_cpp.find("this->toon_steps = steps < 1.5f ? 0.0f : "
+                                       "std::round(std::clamp(steps, 2.0f, 8.0f));") != std::string::npos,
+                      "DEBT (s): `set_toon_shading` must keep the 0-step early out");
+        }
+
         // AND THE SIDECAR ITSELF, when this checkout has a build tree: the four new rows, verbatim. Guarded rather
         // than CHECKed for existence, because the file lives under the build directory (a fresh clone has none, and
         // a missing build tree is not a test failure); the implementation report carries the sha256 either way.
