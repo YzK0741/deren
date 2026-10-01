@@ -3084,6 +3084,82 @@ int32_t main() {
                 CHECK_MSG(character_forward.find("const float3 goo_anisotropic_masked = lerp(goo_lobe * goo_schlick_f,") != std::string::npos,
                           "the definition that replaced it is the lobe's");
             }
+            // (c11) DEBT (U): `specularFGD Strength` - LANE 16 - IS A `float` ROW, AND BOTH HALVES OF THE DEFECT
+            // ARE PINNED HERE. D1: the host had no branch for it, so a row that lives in `material_sidecar::scalars`
+            // was unreachable through the `material->others` path the generic arm reads, and lane 16 answered its
+            // neutral `-1.0` for EVERY material - measured, not assumed: both body materials state
+            // `0.7999999523162842` and every cloth states `1.0`. D2: the shader then read that neutral with the
+            // `-1000` sentinel's `> -999.0` comparison, which `-1.0` PASSES, so the reference's own group default
+            // `1.0` was never reached even for a material that stated nothing. A test can only see text - the
+            // shader's per-pixel behaviour is measured in the task-20 report - but the STRUCTURAL facts below are
+            // exactly what a "half fix" breaks, and the mirror predicates at the end are the defect itself.
+            {
+                // ---- D1: THE BRANCH, ITS PATH, AND WHERE IT SITS IN THE LAMBDA ----
+                std::size_t const branch_at = app.find("lane == vulkan::toon_colour_lane::goo_specular_fgd");
+                CHECK_MSG(branch_at != std::string::npos,
+                          "lane 16 has its own branch in `toon_colour`: a `float`-kind row lands in `scalars`, and only `scalar()` reads those");
+                CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], fgd.x)") != std::string::npos,
+                          "...and the branch reads the row through `scalar()`, not through `others`");
+                CHECK_MSG(app.find("if (value >= 0.0f)") != std::string::npos,
+                          "...with the same `>= 0.0f` guard step 5's and step 8's lanes use, so an unexpressible row answers the neutral");
+                // THE STRUCTURAL PIN: a branch placed AFTER the generic `others` path is dead code - `others` would
+                // answer first and D1 would be back with more lines than before.
+                std::size_t const generic_at = app.find("auto const row = material->others.find");
+                CHECK_MSG(generic_at != std::string::npos, "the generic `others` path is still there");
+                if (branch_at != std::string::npos && generic_at != std::string::npos) {
+                    CHECK_MSG(branch_at < generic_at,
+                              "lane 16's branch must sit BEFORE the generic `others` path - after it, the branch is unreachable");
+                }
+                CHECK_MSG(app.find("glm::vec4 fgd = toon_colour_neutral[lane_index]; // -1 in `.x` until a row says otherwise") != std::string::npos,
+                          "the branch starts from the lane's OWN neutral rather than a new number");
+                CHECK_MSG(app.find("_GooSpecularFGD = {:.10g} | lane 16") != std::string::npos,
+                          "the start-up dump names the row, because `{} scalar(s)` counts it without naming it - 'the file states nothing' and 'the reader dropped the row' must be distinguishable");
+                // ---- D2: THE SHADER'S CONTRACT, AND THE READING THAT MUST BE GONE ----
+                CHECK_MSG(character_forward.find("static bool goo_lane_stated(const float value) { return value >= 0.0; }") != std::string::npos,
+                          "the `< 0` contract is spelled once, as a named predicate");
+                CHECK_MSG(character_forward.find("static bool goo_lane_stated_sentinel(const float value) { return value > goo_lane_absent_threshold; }") != std::string::npos,
+                          "and the `-1000` sentinel's contract is spelled beside it, because the two are NOT the same comparison");
+                CHECK_MSG(character_forward.find("goo_lane_stated(goo_specular_fgd_lane.x)") != std::string::npos,
+                          "lane 16 is read through the `< 0` contract");
+                CHECK_MSG(character_forward.find("goo_specular_fgd_lane.x > goo_lane_absent_threshold") == std::string::npos,
+                          "lane 16's `-999` reading is GONE, not merely commented out: `-1.0 > -999.0` is what swallowed the neutral in the shipped build");
+                CHECK_MSG(character_forward.find("const float4 goo_specular_fgd_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 16u);") != std::string::npos,
+                          "...and it is still read at lane 16 of the surface stage's own stride");
+                // ---- THE TWO CONTRACTS, PER INPUT, AS MIRROR PREDICATES ----
+                // This is the half a text pin cannot express: the DIFFERENCE between the two predicates IS debt (u),
+                // and it lives exactly on the half-open interval `(-999, 0)`. Both spellings are mirrors of the
+                // shader's, and the shader's own text is pinned above.
+                auto const stated = [](float const v) { return v >= 0.0f; };            // step 5's four + lane 16
+                auto const stated_sentinel = [](float const v) { return v > -999.0f; }; // step 4's four, face's two, lane 24
+                CHECK(!stated(-1.0f));
+                CHECK(stated(0.0f));
+                CHECK(stated(1.0f));
+                CHECK(!stated(-1000.0f));
+                CHECK(stated_sentinel(-1.0f));
+                CHECK(stated_sentinel(0.0f));
+                CHECK(stated_sentinel(1.0f));
+                CHECK(!stated_sentinel(-1000.0f));
+                CHECK(stated(-1.0f) != stated_sentinel(-1.0f)); // the disagreement IS the defect
+                // WHERE THEY DISAGREE, EXACTLY - and this replaces the spec's second assertion, which is
+                // arithmetically impossible: `0.0f` is ACCEPTED by BOTH predicates (a stated `0` is a stated value,
+                // and `0 > -999`), so `stated(0.0f) != stated_sentinel(0.0f)` can never hold. The boundary pair
+                // below pins the same fact more sharply: they disagree throughout `(-999, 0)` and agree at both
+                // ends of it, which is the whole of D2's asymmetry.
+                CHECK(stated(-0.5f) != stated_sentinel(-0.5f));
+                CHECK(stated(-998.0f) != stated_sentinel(-998.0f));
+                CHECK(stated(0.0f) == stated_sentinel(0.0f));
+                CHECK(stated(-999.0f) == stated_sentinel(-999.0f));
+                for (float const v : {-1000.0f, -999.0f, 0.5f, 1.0f}) {
+                    CHECK(stated(v) == stated_sentinel(v));
+                }
+                // ---- AND THE FOUR `-1000` LANES ARE UNTOUCHED, which is why their call sites keep the old spelling ----
+                CHECK_MSG(character_forward.find("goo_diffuse_a.z > goo_lane_absent_threshold") != std::string::npos,
+                          "step 4's `CastShadow_center` still uses the sentinel's comparison");
+                CHECK_MSG(character_forward.find("goo_diffuse_b.x > goo_lane_absent_threshold") != std::string::npos,
+                          "and so does `GlobalShadowBrightnessAdjustment`");
+                CHECK_MSG(character_forward.find("goo_lane_stated(goo_diffuse_a.z)") == std::string::npos,
+                          "debt (u) must NOT be 'generalised' into the `-1000` lanes: `-1.8` is an authored value there, not an absence");
+            }
             // ---- STEP 11: THE DENOMINATOR'S TEXT, so a "simplification" of it cannot pass either ----
             {
                 CHECK_MSG(character_forward.find("const float goo_dv_lambda_v = abs(goo_ndotl_clamped) * (goo_a2 + (1.0 - goo_a2) * goo_clamped_ndotv * goo_clamped_ndotv);") != std::string::npos,
@@ -3664,6 +3740,24 @@ int32_t main() {
                 // cloth's, so it is pinned VERBATIM with the same tabs the file uses rather than as a loose "0.5".
                 CHECK_MSG(sidecar.find("M_actor_laevat_hair_01\tfloat\t_GooNormalStrength\t0.5") != std::string::npos,
                           "14-A7: the shipped sidecar carries the hair `_GooNormalStrength` row");
+
+                // DEBT (U): THE LANE-16 ROW, ON THE ASSET ITSELF - the asset-side half of the branch `main.cpp`
+                // gained. The row is a `float` row, so the parser routes it into `scalars` and NOT into `others`;
+                // the shipped build read lane 16 through `others`, found nothing, and answered every material that
+                // lane's neutral `-1.0`. Two materials state `0.7999999523162842` and five state `1.0`, so `-1.0`
+                // was never "the asset does not carry the row" - that IS debt (u)'s D1, visible here without a GPU.
+                // (The `color` form is pinned ABSENT on purpose: it is the one spelling that would put the row back
+                // into `others`, and with it the branch above would be unreachable again.)
+                CHECK_MSG(sidecar.find("M_actor_laevat_body_01\tfloat\t_GooSpecularFGD\t0.7999999523162842") != std::string::npos,
+                          "debt (u): the shipped body_01 states `_GooSpecularFGD = 0.7999999523162842` as a `float` row");
+                CHECK_MSG(sidecar.find("M_actor_laevat_body_02\tfloat\t_GooSpecularFGD\t0.7999999523162842") != std::string::npos,
+                          "debt (u): and so does body_02");
+                for (char const* const cloth : {"01", "02", "03", "04", "05"}) {
+                    std::string const row = std::string("M_actor_laevat_cloth_") + cloth + "\tfloat\t_GooSpecularFGD\t1.0";
+                    CHECK_MSG(sidecar.find(row) != std::string::npos, row.c_str());
+                }
+                CHECK_MSG(sidecar.find("\tcolor\t_GooSpecularFGD") == std::string::npos,
+                          "debt (u): no material spells the row as a `color` row, which is the one form the generic `others` path could have read");
 
                 // 欠账 (e): THE FACE ARM'S GATE, ON THE ASSET ITSELF. Two rows decide whether the arm step 11's
                 // second copy lived in can run at all, and both are pinned here - the material's

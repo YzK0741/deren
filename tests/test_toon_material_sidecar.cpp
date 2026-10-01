@@ -665,6 +665,59 @@ namespace {
         }
     }
 
+    /// DEBT (U) / D1's MECHANISM, pinned where a CPU test can reach it: `_GooSpecularFGD` - the reference's
+    /// `specularFGD Strength`, lane 16 - is a `float` row, so the parser routes it into `scalars` and it is
+    /// readable through `scalar()`. It is NOT in `others`, and `others` is what the shipped `toon_colour` read
+    /// every lane through: the row was in the file, the lookup was in the other container, and the answer was the
+    /// lane's neutral `-1.0` for every material - both body materials (which state `0.7999999523162842`) and all
+    /// five cloths (which state `1.0`) alike. That is the entire defect, and the two assertions below are its two
+    /// halves: the row IS reachable by the accessor the fix uses, and it was NOT reachable by the one the host
+    /// used. If the second assertion ever stops holding, the branch in `main.cpp` becomes redundant rather than
+    /// load-bearing and this test is the line that says so out loud.
+    ///
+    /// THE HONEST CEILING: the test binary cannot call the lambda that reads it - `toon_colour` lives in
+    /// `main.cpp` and this target does not link the application. The branch's EXISTENCE, its accessor and its
+    /// POSITION before the generic `others` path are pinned as text in `test_goo_toon_math.cpp`'s `(c11)` block,
+    /// and the shader's `< 0` contract is pinned there too; what could not be pinned anywhere else is this
+    /// routing, which is why it is a case of its own.
+    void test_the_goo_specular_fgd_row_is_a_readable_float_row() {
+        constexpr std::string_view text =
+            "material\tkind\tname\tvalue\n"
+            "M_x\tfloat\t_GooSpecularFGD\t0.8\n";
+        auto const parsed = toon::parse_sidecar(text);
+        CHECK(parsed.has_value());
+        if (!parsed.has_value()) {
+            return;
+        }
+        toon::material_sidecar const* const material = parsed->find("M_x");
+        CHECK(material != nullptr);
+        if (material == nullptr) {
+            return;
+        }
+        // (a) THE ACCESSOR THE FIX USES SEES THE ROW. `-1.0f` is passed as the fallback deliberately: it is the
+        // lane's own neutral, so a `-1.0` result here would be indistinguishable from "the row is missing", which
+        // is the failure mode being ruled out.
+        CHECK(material->scalar("_GooSpecularFGD", -1.0f) == 0.8f);
+
+        // (b) THE PATH THE HOST USED DOES NOT. A `float` row never lands in `others`, whatever its spelling as a
+        // `float` row - which is why "read lane 16 through `others`" could not work, rather than did not happen to.
+        CHECK(material->others.find("_GooSpecularFGD") == material->others.end());
+
+        // (c) AND THE VALUE SURVIVES THE ROUND TRIP AS THE ASSET WRITES IT, not merely as a short decimal: the two
+        // body materials ship `0.7999999523162842`, and a reader that quantised or re-parsed it through a display
+        // formatter would answer `0.8` here. Pinned against the SHIPPED spelling so the two cannot drift.
+        constexpr std::string_view shipped =
+            "material\tkind\tname\tvalue\n"
+            "M_actor_laevat_body_01\tfloat\t_GooSpecularFGD\t0.7999999523162842\n";
+        auto const shipped_parsed = toon::parse_sidecar(shipped);
+        CHECK(shipped_parsed.has_value());
+        if (shipped_parsed.has_value()) {
+            toon::material_sidecar const* const body = shipped_parsed->find("M_actor_laevat_body_01");
+            CHECK(body != nullptr);
+            CHECK(body != nullptr && body->scalar("_GooSpecularFGD", -1.0f) == 0.7999999523162842f);
+        }
+    }
+
 } // namespace
 
 int32_t main() {
@@ -682,6 +735,7 @@ int32_t main() {
     test_the_baked_ramp_and_the_shader_agree_on_its_width();
     test_the_matcap_slot_does_not_follow_the_use_slot_rule();
     test_the_two_asset_scalar_lanes_hold_on_both_sides();
+    test_the_goo_specular_fgd_row_is_a_readable_float_row();
     test_the_material_dedup_key_carries_the_colour_lanes();
     return vk_test::finish("test_toon_material_sidecar");
 }

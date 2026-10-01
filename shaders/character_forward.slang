@@ -605,6 +605,15 @@ static const uint character_toon_lane_blocks = 3u;
 static const float goo_lane_absent = -1000.0;
 /// the test's other half, spelled once: a component is STATED when it is strictly greater than this.
 static const float goo_lane_absent_threshold = -999.0;
+/// THE TWO ABSENCE CONTRACTS, NAMED. They are NOT the same comparison and the difference is not cosmetic:
+/// `-1.0` means "not stated" for step 5's four lanes (whose sockets are never negative in the reference's
+/// assets - see the neutral table in `main.cpp`, where their neutral is `(-1, 1, 1, 1)`) and means "an authored
+/// `-1.0`" for the four lanes whose sentinel is `-1000.0`. Debt (u) was this difference going unread: lane 16's
+/// contract is `< 0` (`goo_specular_fgd_strength_default` answers `-1.0`), but its one call site tested
+/// `> goo_lane_absent_threshold`, so the neutral `-1.0` passed as a STATED strength and the reference's own
+/// group default `1.0` was never reached. Both predicates stay named so the next lane has to pick one.
+static bool goo_lane_stated(const float value) { return value >= 0.0; }
+static bool goo_lane_stated_sentinel(const float value) { return value > goo_lane_absent_threshold; }
 static const float goo_inverse_pi = 0.31830987334251404;
 
 /// `SigmoidSharp :: 运算.002.Value` - the base of the power in the reference's own sigmoid.
@@ -2693,7 +2702,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // sentinel and the reference's own group default is the fallback - the same contract `goo_rim_scalars` uses,
         // and the reason it is not `>= 0`-with-zero: `0.0` would switch a material's IBL specular off.
         const float4 goo_specular_fgd_lane = toon_colour_at(heap_slots_toon_colours, colour_base + 16u);
-        const float goo_specular_fgd_strength = goo_specular_fgd_lane.x > goo_lane_absent_threshold ? goo_specular_fgd_lane.x : goo_specular_fgd_strength_default;
+        const float goo_specular_fgd_strength = goo_lane_stated(goo_specular_fgd_lane.x) ? goo_specular_fgd_lane.x : goo_specular_fgd_strength_default;
         // ... AND THE TWO COLOUR LANES THE SAME WAY, except that their fallback is per COMPONENT rather than behind
         // a sentinel: a light colour is a colour and there is no in-range value that means "absent". `1.0` is the
         // reference's own `interface[]` default for both (`dirLight_lightColor` and `AmbientLightColorTint`), and

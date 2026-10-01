@@ -721,6 +721,15 @@ int main(int argc, char** argv) {
                 } else {
                     utility::log("      _GooNormalStrength = ABSENT | lane 24 keeps the chain's previous normal");
                 }
+                // LANE 16'S `float` ROW IS PRINTED BY NAME FOR THE SAME REASON, and here the distinction is the
+                // whole of debt (u): `ABSENT` makes the stage answer the reference's own group default `1.0`, while
+                // a value is what this lane exists to carry. The two body materials state `0.7999999523162842` and
+                // every cloth states `1.0`, so a reader that sees `ABSENT` for them is looking at D1.
+                if (auto const specular_fgd = material.scalars.find("_GooSpecularFGD"); specular_fgd != material.scalars.end()) {
+                    utility::log("      _GooSpecularFGD = {:.10g} | lane 16 (the reference's `specularFGD Strength`)", static_cast<double>(specular_fgd->second));
+                } else {
+                    utility::log("      _GooSpecularFGD = ABSENT | lane 16 answers the reference's group default 1.0");
+                }
                 for (auto const& [slot_name, texture_name] : material.slots) {
                     std::optional<uint16_t> const index = scenes->texture_index_by_name(texture_name);
                     utility::log("      {} = '{}' -> {} | {}", slot_name, texture_name, index.has_value() ? std::format("texture #{}", *index) : std::string("ABSENT from this model"), material.enabled_by_flag(toon_flag_for(slot_name)) ? "ON" : "off");
@@ -1544,6 +1553,24 @@ int main(int argc, char** argv) {
                 strength.x = value;
             }
             return strength;
+        }
+        // `specularFGD Strength` IS A `float` ROW TOO, so it needs the same branch step 8's lane needed: a
+        // `float`-kind row lands in `material_sidecar::scalars` (see `toon_material_sidecar.cpp`), and the
+        // generic path below reads `material->others`, so without this branch the row is unreachable and the
+        // lane answers its neutral for every material - which is what shipped: both body materials state
+        // `0.7999999523162842` and every cloth states `1.0`, and the shader read `-1.0` for all of them.
+        //
+        // THE NEUTRAL'S `.x` IS THE SENTINEL (`-1.0`, "this material's container states nothing") and the
+        // shader resolves it to the reference's own group default `1.0` - see
+        // `vulkan::toon_colour_lane::goo_specular_fgd`, whose contract is `< 0` and NOT the `-1000` sentinel
+        // step 4's four lanes use.
+        if (lane == vulkan::toon_colour_lane::goo_specular_fgd) {
+            glm::vec4 fgd = toon_colour_neutral[lane_index]; // -1 in `.x` until a row says otherwise
+            float const value = material->scalar(toon_colour_row[lane_index], fgd.x);
+            if (value >= 0.0f) {
+                fgd.x = value;
+            }
+            return fgd;
         }
         // THE OUTLINE LANE IS THE ONE LANE FED BY TWO ROWS OF TWO DIFFERENT KINDS, so it does not go through the
         // single-row path below: `.rgb` is the `color _OutlineTintColor` row (the game's name for the author's
