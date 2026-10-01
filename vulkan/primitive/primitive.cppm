@@ -602,10 +602,14 @@ namespace vulkan {
          * SLOT 15 IS `armA`'s SHEET, AND TAKING IT SPENDS THE LAST LANE THIS TABLE HAS: the reference's `RS EFF`
          * selects between two arms (`RS Model`: 0 = `armA`, which samples the two 256x1 `_RS` character sheets;
          * 1 = `armB`, `_M ⊙ RS ColorTint`), and step 15 ports `armA`. `toon_colour_lane`'s sibling note records
-         * the lane ceiling as `toon_record_lanes + toon_lane_blocks * 4` = 16, so this is the last lane that fits:
-         * a SECOND sheet (the reference has one per character and `armA` mixes the two by `RS_Index`) has no lane
-         * left here and would cost a `toon_lane_blocks` raise plus widened accessors. That is why the arm is
-         * ported with ONE sheet while `RS_Index` is carried and unhonoured - see `toon_colour_lane::goo_rs_arm0`.
+         * the lane ceiling as `toon_record_lanes + toon_lane_blocks * 4` = 16, so this is the last lane that fits.
+         * THE SECOND SHEET IS NOT A LANE, AND THE CEILING IS NO LONGER WHY IT IS ABSENT: this arm still carries
+         * ONE sheet slot, and the reference's other `_RS` sheet rides the material record's NAME plus that
+         * sheet's OWN switch (`_GooRSSheet1` + `_UseGooRSSheet1`), which the HOST resolves from `RS_Index` when
+         * the texture is registered - `main.cpp`'s `toon_texture` picks one of the two names and the stage keeps
+         * sampling one slot, the same split `toon_colour_lane::goo_rs_arm0` describes for `.x`.
+         * `toon_lane_blocks` therefore stays 3 - raising it to 4 IS the rejected `Rb` (spec §3.5/§9.4) - and the
+         * ceiling above still bounds what a LANE could add rather than what the port does without one.
          *
          * SRGB RATHER THAN UNORM, AND THE DIFFERENCE IS THE SAMPLER AND NOT THE SHADER: an `_RS` sheet is a
          * COLOUR image (the reference multiplies it into a tint), so `VK_FORMAT_R8G8B8A8_SRGB` hands the stage
@@ -1263,10 +1267,16 @@ namespace vulkan {
          * coordinate: `u = clamp(1 - |V·n_rs|^remap(.z) + .w, 0, 1)`. The sheet's `v` is a constant `0.5` because
          * every `_RS` sheet in the dumps is 256x1.
          *
-         * `.x` IS CARRIED AND NOT HONOURED, and the reason is the lane ceiling above rather than an oversight: the
-         * port has ONE sheet slot, so a material with `RS_Index > 0` reads the first sheet instead of the second.
+         * `.x` IS CARRIED AND ANSWERED - BY THE HOST, NOT BY THE SHADER, and the split is the lane ceiling above
+         * rather than an oversight: the port has ONE sheet slot, so `RS_Index` cannot add a second sampler and
+         * cannot be a shader-side choice between two bound textures. `main.cpp`'s `toon_texture` therefore
+         * resolves which sheet the slot holds (`RS_Index >= 0.5` and an enabled, named, resolvable `_GooRSSheet1`
+         * read that sheet; every other case reads the first) and the shader samples one slot as it always did,
+         * never looking at `.x`. THE RULE IS A CHOICE AND NOT A REPRODUCTION: the reference blends its two sheets
+         * CONTINUOUSLY (`mix(A, B, clamp(RS_Index, 0, 1))`, `混合.032`), so an `RS_Index` between the endpoints is
+         * quantised to one - a named limitation of this route (`goo_step15_lane_rs_index_spec.md` §9.3 (z)(1)).
          * The dumps put `RS_Index = 1` on exactly one material (`M_actor_yvonne_cloth_03`, in no captured asset)
-         * and `0` on the two this asset ships, so the infidelity is stated rather than measured away.
+         * and `0` on the two this asset ships, so the deviation is stated rather than measured away.
          *
          * THE NEUTRAL IS `(0,0,0,0)` AND IT MAKES `armA` A NO-OP: `RS Strength = 0` zeroes `s023` and with it
          * `arm0`, which is what a material whose sidecar states no `_GooRSArm0` row must get. Note that is NOT

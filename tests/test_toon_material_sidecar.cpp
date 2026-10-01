@@ -261,6 +261,80 @@ namespace {
         CHECK(!model->texture_index_by_name("").has_value());
     }
 
+    void test_a_second_rs_sheet_is_only_another_slot_row() {
+        // S4 (step 15's `RS_Index`): THE SECOND `_RS` SHEET NEEDS NO NEW FIELD, NO WHITELIST AND NO PARSER
+        // BRANCH - and that is a claim about the READER, which is why it is executable here. `main.cpp` reads the
+        // second sheet by the LITERAL name `_GooRSSheet1` rather than through the lane vocabulary (`toon_lane[]`
+        // is sized by `toon_slot::count`, and a 17th entry there is the route
+        // `goo_step15_lane_rs_index_spec.md` §9.4 rejects), so the ONLY thing that makes the second sheet
+        // reachable at all is that a `slot` row is a name-to-name mapping with no fixed vocabulary.
+        //
+        // A WHITELIST WOULD HAVE BROKEN THIS SILENTLY: the failure mode is not a parse error, it is an `armA`
+        // block that reads the first sheet forever on exactly the materials that asked for the second one.
+        constexpr std::string_view two_sheets =
+            "material\tkind\tname\tvalue\n"
+            "M_actor_test_body_01\tslot\t_GooRSSheet\tT_actor_test_body_01_D\n"
+            "M_actor_test_body_01\tslot\t_GooRSSheet1\tT_actor_common_body_01_RD\n"
+            "M_actor_test_body_01\tfloat\t_UseGooRSSheet\t1.0\n"
+            "M_actor_test_body_01\tfloat\t_UseGooRSSheet1\t1.0\n"
+            "M_actor_test_body_01\tcolor\t_GooRSArm0\t1.0,1.0,0.0,0.0\n";
+        auto const parsed = toon::parse_sidecar(two_sheets);
+        CHECK(parsed.has_value());
+        if (!parsed.has_value()) {
+            return;
+        }
+        toon::material_sidecar const* const body = parsed->find("M_actor_test_body_01");
+        CHECK(body != nullptr);
+        if (body == nullptr) {
+            return;
+        }
+        CHECK(body->slot("_GooRSSheet") == "T_actor_test_body_01_D");
+        CHECK(body->slot("_GooRSSheet1") == "T_actor_common_body_01_RD");
+        // TWO NAMES, NOT ONE READ TWICE - the difference this whole route turns on
+        CHECK(body->slot("_GooRSSheet1") != body->slot("_GooRSSheet"));
+
+        // THE FLAG DERIVES FROM THE SLOT NAME, so the second sheet's switch needs no table either: the module's
+        // `_Use` + name-minus-leading-underscore rule is what makes `_UseGooRSSheet1` the file's own row.
+        CHECK(body->enabled("_GooRSSheet1"));
+        // ...AND IT IS A SEPARATE SWITCH FROM THE FIRST SHEET'S, which is exactly why the host has to ask twice:
+        // a material may name the second sheet and leave it off.
+        constexpr std::string_view named_but_off =
+            "material\tkind\tname\tvalue\n"
+            "M_actor_test_body_01\tslot\t_GooRSSheet1\tT_actor_common_body_01_RD\n";
+        auto const off_parsed = toon::parse_sidecar(named_but_off);
+        CHECK(off_parsed.has_value());
+        if (off_parsed.has_value()) {
+            toon::material_sidecar const* const off_body = off_parsed->find("M_actor_test_body_01");
+            CHECK(off_body != nullptr);
+            CHECK(off_body != nullptr && !off_body->enabled("_GooRSSheet1"));
+            CHECK(off_body != nullptr && off_body->slot("_GooRSSheet1") == "T_actor_common_body_01_RD");
+        }
+
+        // `RS_Index` IS THE `.x` OF A `color` ROW, SO IT IS TEXT IN `others` AND `scalar()` CANNOT SEE IT. A
+        // reader that asked `scalar("_GooRSArm0")` would answer "absent" - i.e. 0.0, i.e. the FIRST sheet - on
+        // exactly the materials that asked for the second one; this is the assertion that rules that path out.
+        auto const arm0 = body->others.find("_GooRSArm0");
+        CHECK(arm0 != body->others.end());
+        CHECK(arm0 != body->others.end() && arm0->second == "1.0,1.0,0.0,0.0");
+        CHECK(body->scalar("_GooRSArm0", -1.0f) == -1.0f);
+        // and a `slot` row is not text either, so the two vocabularies stay disjoint
+        CHECK(body->others.find("_GooRSSheet1") == body->others.end());
+
+        // THE JOIN IS THE SAME ONE THE FIRST SHEET ALREADY NEEDED: both names resolve through the model's IMAGE
+        // names, to two DIFFERENT images - no new lookup and no new failure mode (a name the model lacks still
+        // misses, which is the state the host downgrades to the first sheet from).
+        auto const model = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/named_texture.gltf");
+        CHECK(model.has_value());
+        if (!model.has_value()) {
+            return;
+        }
+        std::optional<uint16_t> const sheet_a = model->texture_index_by_name(body->slot("_GooRSSheet"));
+        std::optional<uint16_t> const sheet_b = model->texture_index_by_name(body->slot("_GooRSSheet1"));
+        CHECK(sheet_a.has_value());
+        CHECK(sheet_b.has_value());
+        CHECK(sheet_a.has_value() && sheet_b.has_value() && *sheet_a != *sheet_b);
+    }
+
     /// the value of the first `<name> = <number>` in @p text, or nothing - a five-line parser, because a regex
     /// or a build dependency would be more machinery than one shared constant is worth
     std::optional<float> float_constant_of(std::string_view const text, std::string_view const name) {
@@ -735,6 +809,7 @@ int32_t main() {
     test_a_file_on_disk_is_read_through_the_convention();
     test_a_malformed_file_on_disk_reports_its_path();
     test_the_sidecar_and_the_model_join_by_texture_name();
+    test_a_second_rs_sheet_is_only_another_slot_row();
     test_the_baked_ramp_and_the_shader_agree_on_its_width();
     test_the_matcap_slot_does_not_follow_the_use_slot_rule();
     test_the_two_asset_scalar_lanes_hold_on_both_sides();

@@ -415,12 +415,16 @@ float4 goo_toon_frag_main(
     // `_M ⊙ RS ColorTint` - and this block now takes whichever the component names, so the gate below is
     // `Use RS_Eff?` alone and the `RS Model` test lives INSIDE it:
     //
-    //   L1 - ONE SHEET, NOT TWO. The reference mixes two per-character `_RS` sheets by `RS_Index` (`混合.032`).
-    //        A sheet is a TEXTURE lane and slot 15 was the last one this table has (see
-    //        `vulkan::toon_slot::goo_rs_sheet`), so `RS_Index` rides lane 29's `.x` and is NOT honoured: a material
-    //        stating `RS_Index > 0` reads the first sheet instead of the second. On this asset that is invisible
-    //        (`RS_Index = 0` on both materials, and `M_actor_yvonne_cloth_03`, the only `RS_Index = 1` material in
-    //        the dumps, is in no captured asset), but it is an infidelity and not a simplification.
+    //   L1 - ONE SHEET PER DRAW, CHOSEN ON THE HOST, SO `RS_Index` IS QUANTISED TO AN ENDPOINT. The reference
+    //        MIXES two per-character `_RS` sheets CONTINUOUSLY - `mix(A, B, clamp(RS_Index, 0, 1))` (`混合.032`) -
+    //        and a sheet is a TEXTURE lane, slot 15 being the last one this table has (see
+    //        `vulkan::toon_slot::goo_rs_sheet`), so `RS_Index` rides lane 29's `.x` and is answered by the HOST
+    //        instead of here: `main.cpp` resolves the second sheet by name when `RS_Index >= 0.5` and this block
+    //        still samples exactly ONE sheet (`.x` is never read in this file). A material stating `RS_Index = 1`
+    //        therefore reads the second sheet; one stating a FRACTION between the endpoints is read as an endpoint
+    //        rather than as the reference's blend - a NAMED LIMITATION of this route (spec §9.3 (z)(1)), not a
+    //        reproduction. On the dumps it costs nothing: the `gooblender` dump has 23 `PBRToonBase` instances, 22 of
+    //        them `0.0` plus the only `RS_Index = 1` material `M_actor_yvonne_cloth_03` (in no captured asset), and `chen_dump` adds 4 more, all `0.0` - 27 across both dumps.
     //   L2 - THE `u` REMAP IS NOT REACHED BY ANY CAPTURED MATERIAL. `u` comes off `Layer weight Value`, and both
     //        materials state `0.0`/`0.0`, so `u = 0` here by construction and the `remap`/`pow` pair below has only
     //        the CPU test's evidence behind it (see `tests/test_goo_toon_math.cpp`), not a frame.
@@ -579,7 +583,9 @@ float4 goo_toon_frag_main(
                 const float4 rs_sheet_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + rs_block3.w), heap_sampler_texture, sheet_uv);
                 // LINEAR, AND THE DECODE IS THE SAMPLER'S: the lane is `VK_FORMAT_R8G8B8A8_SRGB` (see
                 // `vulkan::toon_slot::goo_rs_sheet`), so the texel arrives already decoded and a second decode
-                // here would double-apply the curve. `RS_Index` IS NOT READ: see L1 above.
+                // here would double-apply the curve. `RS_Index` IS NOT READ **HERE**: it selects WHICH sheet the
+                // host bound to this one slot (see L1 above), so by the time this line runs the choice is already
+                // made and lane 29's `.x` has nothing left to say.
                 rs_sheet = rs_sheet_texel.rgb;
             }
             // THE LIGHT DIRECTION AND THE TWO SIGMOID INPUTS ARE RECOMPUTED HERE rather than borrowed from

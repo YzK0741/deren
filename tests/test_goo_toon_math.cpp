@@ -3752,9 +3752,9 @@ int32_t main() {
                   "read from the _GooRSArm0 row - (1, 0, 0) on both cloth materials");
         CHECK_MSG(rs_arm0_index_of(lane29) == 0.0f && rs_arm0_index_of(neutral_lane29) == 0.0f &&
                       rs_arm0_strength_of(neutral_lane29) == 0.0f,
-                  "RS A7 (step 15): lane 29's .x is RS_Index and NOTHING READS IT (one sheet, spec L1). The neutral "
-                  "(0,0,0,0) therefore makes arm0 exactly 0 - a switch - and THAT is why a material with `Use = 1`, "
-                  "`RS Model = 0` and no sheet is not bitwise its base: 0 still goes through LIGHTEN (see A6)");
+                  "RS A7 (step 15): lane 29's .x is RS_Index and the SHADER never reads it - the HOST picks which sheet this "
+                  "slot holds (see A8.rsi). The neutral (0,0,0,0) makes arm0 exactly 0 - a switch - and THAT is why a material "
+                  "with `Use = 1`, `RS Model = 0` and no sheet is not bitwise its base: 0 still goes through LIGHTEN (A6)");
         CHECK_MSG(rs_use_of(neutral_lane27) == 0.0f && vec3_bitwise_equal(rs_tint_of(neutral_lane28), {0.0f, 0.0f, 0.0f}) &&
                       rs_smooth_max_of(neutral_lane28) == 0.0f,
                   "RS A7: both new lanes' HOST neutrals are (0,0,0,0) - a material with no row reads Use RS_Eff? = 0. "
@@ -4025,6 +4025,124 @@ int32_t main() {
             CHECK_MSG(runtime_cpp.find("this->toon_steps = steps < 1.5f ? 0.0f : "
                                        "std::round(std::clamp(steps, 2.0f, 8.0f));") != std::string::npos,
                       "DEBT (s): `set_toon_shading` must keep the 0-step early out");
+        }
+
+        // ---- A8.rsi (step 15, `RS_Index`): THE SECOND `_RS` SHEET IS RESOLVED BY THE HOST, BY NAME ----
+        //
+        // The route `goo_step15_lane_rs_index_spec.md` §9.1 adopts (`Rc`) is a HOST rule rather than a shader one,
+        // so what is pinned here is the SHAPE OF THE HOST EDIT: a name literal that is not a lane, a threshold and
+        // its tie direction, the lane ceiling that must not move, and the prose sites that used to say the feature
+        // was absent. The frames are the acceptance; these are the parts a frame cannot show - a `>= 0.5` quietly
+        // written `> 0.5` moves no pixel on any material in the dumps, because they state endpoints (§1.3: 22 of the 23
+        // `PBRToonBase` instances in the `gooblender` dump - 27 across both dumps, the 4 `chen_dump` ones all `0.0` - and the single `1.0` in no captured asset).
+        {
+            // S1: THE SECOND SHEET IS A NAME, NOT A LANE. The pin asks for the CONSTANT'S OWN LINE rather than for
+            // the substring `"_GooRSSheet1"`: `main.cpp` also mentions that spelling inside a comment beside the
+            // constant, so a substring pin would still pass with the literal itself renamed away - this one cannot.
+            CHECK_MSG(app.find("toon_rs_sheet_b = \"_GooRSSheet1\";") != std::string::npos,
+                      "RS A8.rsi (step 15, Rc): the host names the reference's second `_RS` sheet by LITERAL - "
+                      "`_GooRSSheet1` is the sidecar's own spelling, and there is no lane for it to come from");
+            std::size_t const lanes_at = app.find("toon_lane = {{");
+            std::size_t const lanes_end = lanes_at == std::string::npos ? std::string::npos : app.find("}};", lanes_at);
+            CHECK_MSG(lanes_at != std::string::npos && lanes_end != std::string::npos,
+                      "RS A8.rsi: `main.cpp` still declares the lane vocabulary as a braced table");
+            std::string const lane_table = (lanes_at == std::string::npos || lanes_end == std::string::npos)
+                                               ? std::string{}
+                                               : app.substr(lanes_at, lanes_end - lanes_at);
+            CHECK_MSG(lane_table.find("\"_GooRSSheet1\"") == std::string::npos,
+                      "RS A8.rsi, NEGATIVE PIN: `_GooRSSheet1` is NOT an entry in `toon_lane[]`. The port carries "
+                      "ONE sheet slot and the second sheet is the host's choice of NAME for that slot; a 17th entry "
+                      "would move `toon_slot::count` and with it the whole lane block - `toon_lane_blocks` 3 -> 4, "
+                      "one more `uint4` per lane in the same heap slot that already holds them "
+                      "(`vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) plus a FOURTH accessor "
+                      "beside `shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`. It is "
+                      "not a fourth descriptor set, and it is not the proposal "
+                      "(spec §9.4: the rejected route `Rb`, still unselected)");
+            CHECK_MSG(lane_table.find("{\"_GooRSSheet\", \"_UseGooRSSheet\"}") != std::string::npos,
+                      "RS A8.rsi: the ONE sheet lane keeps its `_GooRSSheet`/`_UseGooRSSheet` entry unchanged, so "
+                      "the second sheet inherits that lane's own gate rather than replacing it");
+
+            // S2: THE THRESHOLD, ITS TIE DIRECTION, AND WHERE THE INDEX IS READ FROM.
+            CHECK_MSG(app.find("!(rs_index >= 0.5f)") != std::string::npos,
+                      "RS A8.rsi (step 15, spec §9.2): selection is `>= 0.5f`, so the TIE - exactly 0.5, the "
+                      "reference's own 50/50 blend - goes to the SECOND sheet, and it is written negated so that a "
+                      "non-finite `RS_Index` cannot select it either");
+            CHECK_MSG(app.find("material.others.find(std::string(toon_rs_arm0_row))") != std::string::npos,
+                      "RS A8.rsi: `RS_Index` is read out of `others`. A `color` row is TEXT there and `scalar()` "
+                      "cannot see it, so a reader that asked `scalar(\"_GooRSArm0\")` would answer 0.0 - the first "
+                      "sheet - on exactly the materials that asked for the second");
+            CHECK_MSG(app.find("material.enabled(toon_rs_sheet_b)") != std::string::npos &&
+                          app.find("material.slot(toon_rs_sheet_b)") != std::string::npos,
+                      "RS A8.rsi: the second sheet needs BOTH its own `_UseGooRSSheet1` switch AND a non-empty "
+                      "name - naming it with the switch off reads the first sheet, and so does the reverse");
+            // ...AND THE BRANCH IS BEFORE THE GENERIC TAIL, which is the silent-failure shape spec §3.3 lists
+            // first: placed after `if (model_tex == nullptr)`, this whole route compiles, runs, and never fires.
+            std::size_t const branch_at = app.find("if (lane == vulkan::toon_slot::goo_rs_sheet) {");
+            std::size_t const tail_at = app.find("if (model_tex == nullptr) {");
+            CHECK_MSG(branch_at != std::string::npos && tail_at != std::string::npos && branch_at < tail_at,
+                      "RS A8.rsi: the sheet lane's new branch sits BEFORE `toon_texture`'s generic tail - after it, "
+                      "`model_tex` has already answered for that lane and the branch is dead code (spec §3.3 risk 1)");
+
+            // THE RULE ITSELF, re-derived from the host's three inputs: the index, whether the second sheet is
+            // NAMED, and whether its own switch is ON. `0.4999` is here because a frame cannot distinguish it from
+            // `0.5`; the NaN because the host's comparison is NEGATED (`!(x >= 0.5f)`) precisely so that it lands
+            // here rather than in the second sheet.
+            auto const rs_reads_second = [](float index, bool named, bool enabled) {
+                return index >= 0.5f && named && enabled;
+            };
+            CHECK_MSG(!rs_reads_second(0.0f, true, true), "RS A8.rsi: `RS_Index = 0` reads the FIRST sheet");
+            CHECK_MSG(!rs_reads_second(0.4999f, true, true), "RS A8.rsi: `RS_Index = 0.4999` reads the FIRST sheet");
+            CHECK_MSG(rs_reads_second(0.5f, true, true),
+                      "RS A8.rsi (the tie): `RS_Index = 0.5` reads the SECOND sheet, stated rather than inherited "
+                      "from an operator accident");
+            CHECK_MSG(rs_reads_second(1.0f, true, true), "RS A8.rsi: `RS_Index = 1.0` reads the SECOND sheet");
+            CHECK_MSG(!rs_reads_second(1.0f, false, true),
+                      "RS A8.rsi: `RS_Index = 1.0` with no `_GooRSSheet1` row reads the FIRST sheet - the NAME is "
+                      "what makes the second sheet reachable at all, and that is every shipped material's case");
+            CHECK_MSG(!rs_reads_second(1.0f, true, false),
+                      "RS A8.rsi: `RS_Index = 1.0` with `_UseGooRSSheet1 = 0` reads the FIRST sheet - the switch is "
+                      "the sidecar's second rule and it is asked under the SECOND SHEET'S own name");
+            CHECK_MSG(!rs_reads_second(std::nanf(""), true, true),
+                      "RS A8.rsi: a non-finite `RS_Index` reads the FIRST sheet - the host writes that comparison "
+                      "negated, so a NaN cannot select the second");
+
+            // S5: THE PROSE SITES THAT USED TO SAY THE FEATURE WAS ABSENT. A comment is not acceptance, which is
+            // exactly why these are pinned: the next reader trusts a note that says "not honoured" and
+            // re-implements the missing half - or trusts a note that says "read" while nothing reads it.
+            // THESE CHECKS ARE CASE-INSENSITIVE, AND THE HOLE THAT CLOSES IS MEASURED: the rejected spelling has a
+            // LOWERCASE sibling ("carried and unhonoured" / "not honoured"), and an uppercase-only
+            // `find("NOT honoured")` cannot see it - putting the lowercase sentence BACK left both suites green
+            // (task-43's mutation M6). So the rejected and the required spellings are compared in FOLDED text,
+            // which also keeps a pin from being satisfied by DELETING the note instead of fixing it. The fold is an
+            // explicit ASCII `A..Z` -> `a..z` loop, so it needs no `<cctype>` and cannot depend on the C locale.
+            auto const ascii_lower = [](std::string const& text) {
+                std::string folded = text;
+                for (char& c : folded) {
+                    if (c >= 'A' && c <= 'Z') {
+                        c = static_cast<char>(c + ('a' - 'A'));
+                    }
+                }
+                return folded;
+            };
+            std::string const goo_toon_folded = ascii_lower(goo_toon);
+            std::string const primitive_folded = ascii_lower(primitive);
+            CHECK_MSG(goo_toon_folded.find("not honoured") == std::string::npos &&
+                          goo_toon.find("`RS_Index`") != std::string::npos,
+                      "RS A8.rsi: `shaders/goo_toon.slang`'s L1 no longer claims `RS_Index` is not honoured in ANY "
+                      "casing, and still says what does happen to it");
+            CHECK_MSG(goo_toon.find("`RS_Index` IS NOT READ **HERE**") != std::string::npos,
+                      "RS A8.rsi: the sampling site's note says WHERE the index is answered instead of that it is "
+                      "ignored - this shader genuinely never reads it, so that note has to be exact");
+            CHECK_MSG(primitive_folded.find("not honoured") == std::string::npos,
+                      "RS A8.rsi: `vulkan/primitive/primitive.cppm` must not call `RS_Index` not-honoured in ANY "
+                      "casing; the lowercase sentence used to slip past this pin");
+            CHECK_MSG(primitive_folded.find("unhonoured") == std::string::npos &&
+                          primitive_folded.find("answered - by the host") != std::string::npos,
+                      "RS A8.rsi: `.x` is ANSWERED by the host rather than unhonoured - folded, so neither end of "
+                      "the casing range escapes");
+            CHECK_MSG(app.find("AND IT IS ONE OF THE REFERENCE'S TWO SHEETS") != std::string::npos,
+                      "RS A8.rsi: the lane table's own note explains why there is no second entry beside "
+                      "`_GooRSSheet` - the question the next reader will have");
         }
 
         // AND THE SIDECAR ITSELF, when this checkout has a build tree: the four new rows, verbatim. Guarded rather

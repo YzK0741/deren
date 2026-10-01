@@ -248,6 +248,95 @@ namespace {
                                               : std::string_view{"T_actor_common_cloth_04_RD"};
     }
 
+    /// THE `RS_Index` ROW'S NAME, which is the sidecar's contract rather than this table's: it is written here
+    /// because `toon_colour_row` (which carries the same name for lane 29) is declared BELOW this point, and the
+    /// parse below has to be the same parse that lane gets - see `toon_rs_sheet_of`.
+    static constexpr std::string_view toon_rs_arm0_row = "_GooRSArm0";
+
+    /// THE REFERENCE'S SECOND `_RS` SHEET SLOT - the one `RS_Index = 1` selects - AND IT IS NOT A LANE, nor may it
+    /// become one. `toon_lane` below is sized by `vulkan::toon_slot::count`, so a second sheet slot AS A LANE would
+    /// cost a 17th vocabulary entry, a wider lane block (`toon_lane_blocks` 3 -> 4, in the SAME heap slot:
+    /// `vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) and a FOURTH accessor beside the three that
+    /// exist (`shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`, one `uint4` column
+    /// each) - a fourth DESCRIPTOR SET is NOT the cost and was never the proposal
+    /// (`goo_step15_lane_rs_index_spec.md` §3.5/§9.4: the rejected `Rb`).
+    /// The reference needs none of that: `RS_Index` is a per-material CONSTANT (§1.3 - no material link in either
+    /// dump), so the choice is resolved here at registration time and the shader keeps reading ONE slot, exactly
+    /// like `RampSelect`/`RampIndex` above and for the same reason.
+    static constexpr std::string_view toon_rs_sheet_b = "_GooRSSheet1";
+
+    /// @brief what the `armA` sheet lane should resolve: a sidecar slot NAME, and whether it is the second sheet
+    struct toon_rs_sheet_choice {
+        /// the name to look up in the model; empty means this material names no sheet at all
+        std::string_view name = {};
+        /// true when `RS_Index` selected `_GooRSSheet1` AND that sheet's own `_UseGooRSSheet1` switch is on
+        bool second = false;
+    };
+
+    /// @brief which of the reference's two `_RS` sheets @p material reads, given its first sheet's name @p sheet_a
+    ///
+    /// THE RULE IS A CHOICE AND NOT A REPRODUCTION, and this paragraph is the whole reason the route is named the
+    /// way it is: the reference MIXES its two sheets CONTINUOUSLY - `mix(A, B, clamp(RS_Index, 0, 1))` in
+    /// `混合.032` (spec §1.1) - while this answers one of two names. An `RS_Index` strictly between the endpoints
+    /// is therefore QUANTISED TO AN ENDPOINT and is NOT the reference's blend. That is a named limitation of this
+    /// route (§9.3 (z)(1)) rather than an oversight, and it must not be written up as a faithful implementation.
+    ///
+    /// WHY `0.5`, AND WHY THE TIE GOES TO THE SECOND SHEET: the two dumps carry only the two endpoints (§1.3).
+    /// The count is 27 `PBRToonBase`-group instances in total, NOT 23: the `gooblender` dump has 23 (22 at `0.0`
+    /// plus the single `1.0`, `M_actor_yvonne_cloth_03`, which is in no captured asset) and `chen_dump` adds 4
+    /// more under `PBRToonBase.001`, ALL of them `0.0`. The union of those values is still `{0.0, 1.0}`, so ANY
+    /// threshold in `(0, 1)` agrees exactly; `0.5` is the reference's own 50/50 blend, i.e. the one value at which
+    /// neither sheet is closer than the other; and `>=` rather than `>` fixes the tie's direction here instead of
+    /// leaving it to an operator accident (§9.2).
+    ///
+    /// THE SECOND SHEET NEEDS ITS OWN SWITCH AS WELL AS THE LANE'S: `_UseGooRSSheet` was already asked by the
+    /// caller before this runs (see the flag gate at the top of `toon_texture`), and `_UseGooRSSheet1` is asked
+    /// here - absent means off, the sidecar module's contract for every optional slot. So a material that names
+    /// `_GooRSSheet1` without switching it on reads the FIRST sheet, and so does one that switches it on without
+    /// naming anything: `name` carries the answer and an empty `name` means the first sheet.
+    [[nodiscard]] toon_rs_sheet_choice toon_rs_sheet_of(toon::material_sidecar const& material, std::string_view const sheet_a) {
+        toon_rs_sheet_choice choice = {};
+        choice.name = sheet_a;
+        // `RS_Index` IS THE `.x` OF A `color` ROW, so it sits in `others` VERBATIM and `scalar()` cannot see it
+        // (the module keeps a `color` row as text on purpose). THE PARSE IS LANE 29's OWN RULE - comma separated
+        // components read with `from_chars` - but this function answers only the FIRST component (`.x`, the
+        // `substr` below), because the row's other components (`RS ColorTint`) are a different question. A missing
+        // or unparseable component keeps the NEUTRAL, which for this lane is 0.0, i.e. the first sheet. Reading the
+        // same row with a different rule would let this choice and the lane-29 colour lane disagree about one
+        // material.
+        // `from_chars` ALSO ACCEPTS `inf` AND `nan`: `nan` fails the `>= 0.5` test and keeps the first sheet, while
+        // `inf` WOULD select the second - neither is reachable from the reference data, whose two dumps carry only
+        // `0.0` and `1.0` (§1.3), so both are pinned here rather than measured away.
+        float rs_index = 0.0f;
+        if (auto const row = material.others.find(std::string(toon_rs_arm0_row)); row != material.others.end()) {
+            std::string_view const row_text = row->second;
+            std::string_view const first_component = row_text.substr(0, row_text.find(','));
+            float value = 0.0f;
+            if (auto const result = std::from_chars(first_component.data(), first_component.data() + first_component.size(), value);
+                result.ec == std::errc{}) {
+                rs_index = value;
+            }
+        }
+        // WRITTEN AS A NEGATED COMPARISON because that is also the NaN-safe direction: an `RS_Index` that is
+        // somehow not a number (a row this parser cannot produce, but a `nan` row it CAN) is NOT `>= 0.5`, so it
+        // answers the first sheet rather than silently selecting the second one.
+        if (!(rs_index >= 0.5f)) {
+            return choice;
+        }
+        // THE SECOND SWITCH, asked by the flag's own name: `enabled("_GooRSSheet1")` is `_UseGooRSSheet1`, absent
+        // meaning off (see the sidecar module's second rule).
+        if (!material.enabled(toon_rs_sheet_b)) {
+            return choice;
+        }
+        std::string_view const sheet_b = material.slot(toon_rs_sheet_b);
+        if (sheet_b.empty()) {
+            return choice;
+        }
+        choice.name = sheet_b;
+        choice.second = true;
+        return choice;
+    }
+
 } // namespace
 
 // `int`, NOT `int32_t`: the C++ standard requires main's own signature to use the keyword, and this is the one
@@ -490,6 +579,15 @@ int main(int argc, char** argv) {
         // reads it through a `组输入` socket, so there is no `_Use...` row to copy. A material with no row here and
         // `RS Model = 0` gets `arm0 = 0` - the branch must NOT fall back to the white texture at index 0. See
         // `toon_slot::goo_rs_sheet` and the `armA` block in `shaders/goo_toon.slang`.
+        //
+        // AND IT IS ONE OF THE REFERENCE'S TWO SHEETS, WHICH IS WHY THERE IS NO SECOND ENTRY HERE: `RS_Index`
+        // (`_GooRSArm0`'s `.x`, a `color` row) chooses between this sheet and the second one, and the host
+        // resolves that choice BY NAME in `toon_texture` (`toon_rs_sheet_of` above) instead of growing this
+        // table - a 17th entry would need `toon_slot::count` to move, i.e. a second texture lane, a
+        // `toon_lane_blocks` of 4 and a fourth descriptor set the shader would have to choose between. The shader
+        // therefore still reads ONE slot and still never looks at `rs_arm0_lane.x`: the second sheet is a
+        // MATERIAL's choice, not a frame's, which is the whole reason it can be answered here. See
+        // `goo_step15_lane_rs_index_spec.md` §9 and `toon_rs_sheet_b`.
         {"_GooRSSheet", "_UseGooRSSheet"},
     }};
     // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `vulkan::toon_colour_lane`, in lane order - the
@@ -1389,6 +1487,58 @@ int main(int argc, char** argv) {
             }
             return out;
         }
+        // ---- THE `armA` SHEET LANE HONOURS `RS_Index`: TWO NAMED SHEETS, AND THE HOST IS WHAT CHOOSES ----
+        //
+        // THE REFERENCE MIXES TWO PER-CHARACTER `_RS` SHEETS by `RS_Index` (`混合.032`; spec §1.1) and this port
+        // reads ONE sheet per material, so the choice has to be resolved HERE, before the shader sees a lane -
+        // which is what `toon_rs_sheet_of` above does. It may be resolved on the host for the same reason
+        // `RampSelect` may be (see the branch above): `RS_Index` has NO MATERIAL LINK in either dump, so it is a
+        // per-material CONSTANT and the answer cannot change inside a frame (spec §1.3, §9.1).
+        //
+        // WHY THIS IS A HOST RULE AND NOT A SHADER ONE: `rs_arm0_lane.x` stays UNREAD in `shaders/goo_toon.slang`
+        // (see the L1 note there) - the lane carries the reference's socket, the HOST answers it, and the shader's
+        // `u` derivation and its single `heap_texel` fetch are untouched by this step. THE `.spv` FILES ARE THE
+        // EVIDENCE: this branch must not move a single one of them.
+        //
+        // THE FALLBACK IS THE FIRST SHEET, IN EVERY DIRECTION. A name that is absent, or whose image this model
+        // does not carry, leaves the lane reading `_GooRSSheet` exactly as it read before this branch existed -
+        // which is also what keeps every existing fixture and every shipped material (`RS_Index = 0`, no
+        // `_GooRSSheet1` row at all) byte-identical. `_GooRSSheet1`'s own `_UseGooRSSheet1` switch is asked
+        // inside `toon_rs_sheet_of`, so "named but switched off" is the first sheet too.
+        if (lane == vulkan::toon_slot::goo_rs_sheet) {
+            toon_rs_sheet_choice const choice = toon_rs_sheet_of(*material, texture_name);
+            gltf::texture_data const* sheet_tex = nullptr;
+            if (!choice.name.empty()) {
+                if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(choice.name); index.has_value()) {
+                    gltf::texture_data const& candidate = state.scenes->textures[*index];
+                    if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
+                        sheet_tex = &candidate;
+                    }
+                }
+            }
+            // THE SECOND SHEET WAS NAMED, SWITCHED ON, AND STILL DID NOT RESOLVE: this model does not carry that
+            // image, so the material reads the first sheet instead - the same answer as every other miss, and the
+            // same distinction the tail below draws between "the sidecar names a map" and "the model has it". The
+            // alternative (an invalid lane) would silently punch a hole in the shading rather than degrade to the
+            // sheet the material would have read without `RS_Index` at all.
+            if (sheet_tex == nullptr && choice.second) {
+                if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
+                    gltf::texture_data const& candidate = state.scenes->textures[*index];
+                    if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
+                        sheet_tex = &candidate;
+                    }
+                }
+            }
+            if (sheet_tex != nullptr) {
+                out.data = std::span<uint8_t const>(sheet_tex->data.data(), sheet_tex->data.size());
+                out.width = sheet_tex->width;
+                out.height = sheet_tex->height;
+                out.mip_levels = 1;
+                out.valid = true;
+            }
+            return out;
+        }
+
         if (model_tex == nullptr) {
             return out; // the sidecar names a map this model does not have, or one that is present but unusable
         }
