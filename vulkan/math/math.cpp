@@ -92,19 +92,6 @@ namespace vulkan {
             }
         }
 
-        // Nearest-neighbor fetch of level 0. The irradiance bake and the base level use this; the
-        // prefilter samples a whole source mip chain instead - see prefilter_environment.
-        glm::vec3 sample_cubemap(std::span<float const> const data, int32_t const size, glm::vec3 const& dir) {
-            int32_t face = 0;
-            float u = 0.0f;
-            float v = 0.0f;
-            cube_face_uv(dir, face, u, v);
-            int32_t const px = std::clamp(static_cast<int32_t>((u * 0.5f + 0.5f) * static_cast<float>(size)), 0, size - 1);
-            int32_t const py = std::clamp(static_cast<int32_t>((v * 0.5f + 0.5f) * static_cast<float>(size)), 0, size - 1);
-            size_t const offset = (static_cast<size_t>(face) * size * size + static_cast<size_t>(py) * size + px) * 4;
-            return glm::vec3(data[offset], data[offset + 1], data[offset + 2]);
-        }
-
         // Equirectangular (lat-long) lookup: the direction -> (u, v) mapping that
         // generate_environment_cubemap_from_equirect() documents, plus bilinear interpolation in texel
         // space. Row 0 of the buffer is the image's TOP row (the decoder's order) and v = 0 (the zenith)
@@ -221,6 +208,17 @@ namespace vulkan {
             }
         }
         return data;
+    }
+
+    // The levels a cubemap of this size can carry at all: level 0 down to 1x1. The prefilter bake takes
+    // its depth from `[lighting] env_mip_count` (the SHADER's chain), while the irradiance bake is free to
+    // build the whole chain: it is the CPU side and each level is one 2x2 box filter of the level above.
+    int32_t environment_pyramid_levels(int32_t const env_size) {
+        int32_t levels = 1;
+        for (int32_t size = env_size; size > 1; size >>= 1) {
+            ++levels;
+        }
+        return levels;
     }
 
     // One box-filtered source mip chain: level k is 2^k times smaller than the environment. The
@@ -373,6 +371,20 @@ namespace vulkan {
         std::vector<float> result(static_cast<size_t>(6) * irr_size * irr_size * 4, 0.0f);
         // Loop-invariant constant: deliberately at function scope (not inside the loops)
         constexpr uint32_t sample_count = 512; // NOLINT (some toolchains flag the constant when scoped to the inner loop)
+        // AREA-AVERAGED TAPS, the cure `prefilter_environment` already applies to the specular chain and
+        // for the same measured reason: a point tap of level 0 either lands on a bright texel of the
+        // environment or misses it, so no finite tap count converges cleanly. An irradiance texel covers a
+        // large angle on screen (11 deg at the default irr_size 32), so that per-tap error reads as blobby
+        // banding, and a cylinder (a leg, an arm) stretches it into streaks. MEASURED on the character's
+        // thigh against the captured studio environment: fine-detail std 9.31 where the procedural sky gave
+        // 4.36, dropping to 4.86 only when the irradiance map is made coarse enough (irr_size 8) to hide
+        // the error, and rising to 10.29 at irr_size 128 (the error scales with the map, which is the
+        // signature of a SAMPLING fault and not of the environment's content). Each tap now reads the
+        // pyramid level whose texel footprint matches the solid angle it stands for (Karis, the same rule
+        // the specular prefilter uses): a VARIANCE fix, not an energy one - the level means and the thigh's
+        // mean luma stay where they were.
+        std::vector<std::vector<float>> const pyramid = build_environment_pyramid(env, env_size, environment_pyramid_levels(env_size));
+        float const texel_solid_angle = 4.0f * k_pi / (6.0f * static_cast<float>(env_size) * static_cast<float>(env_size));
         for (int32_t face = 0; face < 6; ++face) {
             for (int32_t y = 0; y < irr_size; ++y) {
                 for (int32_t x = 0; x < irr_size; ++x) {
@@ -391,7 +403,12 @@ namespace vulkan {
                         float const sin_theta = std::sqrt(std::max(1.0f - xi.y, 0.0f));
                         glm::vec3 const local(sin_theta * std::cos(phi), sin_theta * std::sin(phi), cos_theta);
                         glm::vec3 const l = glm::normalize(tangent * local.x + bitangent * local.y + n * local.z);
-                        sum += sample_cubemap(env, env_size, l) * cos_theta;
+                        // The tap is drawn cosine-weighted (pdf = cos/pi over the hemisphere), so it stands
+                        // for 1/(N*pdf) steradians; that is the footprint the source level has to average.
+                        float const pdf = std::max(cos_theta / k_pi, 1e-6f);
+                        float const sample_solid_angle = 1.0f / (static_cast<float>(sample_count) * pdf);
+                        float const lod = std::max(0.5f * std::log2(sample_solid_angle / texel_solid_angle), 0.0f);
+                        sum += sample_environment_trilinear(pyramid, env_size, l, lod) * cos_theta;
                         total_weight += cos_theta;
                     }
                     glm::vec3 const color = total_weight > 0.0f ? sum / total_weight : glm::vec3(0.0f);
