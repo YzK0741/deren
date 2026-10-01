@@ -342,12 +342,14 @@ namespace {
             // STEP 8 RAISED ALL FOUR OF THESE FROM 24 TO 25 (lane 24 is `_GooNormalStrength`); STEP 10 RAISED THEM
             // AGAIN TO 26 (lane 25 is `_GooAnisoGate`); STEP 12 RAISED THEM ONCE MORE TO 27 (lane 26 is
             // `_GooAnisoRough`, the anisotropic lobe's two roughnesses); STEP 13 RAISED THEM TO 29 (lanes 27/28 are
-            // `_GooRSScalars` / `_GooRSTint`, mechanism table #14's `RS EFF`). Each time the numbers moved together
-            // with the enum, the host's two tables and the shaders' reads. THE TEXTURE LANE'S COUNT MOVED A SECOND
-            // TIME TOO AND IS CHECKED ON THE SAME LINE: step 13 spent `toon_slot::count`'s last-but-one slot on
-            // `_GooRSMask`, so `count = 14,` became `count = 15,`.
-            CHECK(shader.find("character_toon_colour_lanes = 29u") != std::string::npos);
-            CHECK(primitive.find("count = 15,") != std::string::npos);
+            // `_GooRSScalars` / `_GooRSTint`, mechanism table #14's `RS EFF`); STEP 15 RAISED THEM TO 30 (lane 29 is
+            // `_GooRSArm0`, the same mechanism's `armA` sockets). Each time the numbers moved together
+            // with the enum, the host's two tables and the shaders' reads. THE TEXTURE LANE'S COUNT MOVED TWICE
+            // MORE TOO AND IS CHECKED ON THE SAME LINE: step 13 spent `toon_slot::count`'s last-but-one slot on
+            // `_GooRSMask`, so `count = 14,` became `count = 15,`; step 15 spent the LAST one on `_GooRSSheet`, so it
+            // is now `count = 16,` - and that is the ceiling, `toon_record_lanes + toon_lane_blocks * 4`.
+            CHECK(shader.find("character_toon_colour_lanes = 30u") != std::string::npos);
+            CHECK(primitive.find("count = 16,") != std::string::npos);
             // ... AND THE OTHER READER OF THE SAME TABLE, which carries its OWN copy of the stride because a
             // stage cannot include `character_forward.slang` without inheriting its entry point: the outline's
             // geometry stage. It reads ONE lane of the table and still needs the whole stride - a copy left at an
@@ -356,7 +358,7 @@ namespace {
             CHECK(pbr_file.good());
             if (pbr_file.good()) {
                 std::string const pbr{std::istreambuf_iterator<char>{pbr_file}, std::istreambuf_iterator<char>{}};
-                CHECK(pbr.find("pbr_toon_colour_lanes = 29u") != std::string::npos);
+                CHECK(pbr.find("pbr_toon_colour_lanes = 30u") != std::string::npos);
             }
             // ... AND THE THIRD READER, which step 3 added: the REWRITTEN chain's rim is a fullscreen stage of its
             // own (`shaders/goo_rim.slang`) and it reads FIVE lanes of this table, so a copy left at the old count
@@ -367,7 +369,7 @@ namespace {
             CHECK(goo_rim_file.good());
             if (goo_rim_file.good()) {
                 std::string const goo_rim{std::istreambuf_iterator<char>{goo_rim_file}, std::istreambuf_iterator<char>{}};
-                CHECK(goo_rim.find("goo_rim_colour_lanes = 29u") != std::string::npos);
+                CHECK(goo_rim.find("goo_rim_colour_lanes = 30u") != std::string::npos);
             }
             // AND THE LANE BLOCK COUNT, the same shape one level down: lanes 8..11 ride a SECOND `uvec4` of the same
             // table, addressed as `material * blocks + 1`, so a block count that drifts reads a neighbouring
@@ -516,8 +518,9 @@ namespace {
         //
         // THE EXPECTED NUMBER IS THE ENUM'S OWN `count`, read out of the same file rather than restated: the two
         // are the contract, and a host number written here a second time would be a third copy to drift. The
-        // check on `expected == 29u` is the parse's own guard - it fails if the search below found no number at
-        // all, which would otherwise make every comparison trivially true.
+        // check on `expected == 30u` is the parse's own guard - it fails if the search below found no number at
+        // all, which would otherwise make every comparison trivially true. (30 SINCE STEP 15, which added
+        // `_GooRSArm0` as lane 29; it was 29 from step 13 through step 14.)
         std::size_t const colours_at = primitive.find("toon_colour_lane::count)> colours = {");
         CHECK(colours_at != std::string::npos);
         if (colours_at != std::string::npos) {
@@ -548,7 +551,7 @@ namespace {
                         expected = static_cast<std::size_t>(std::strtoul(primitive.c_str() + count_at + 8, nullptr, 10));
                     }
                 }
-                CHECK(expected == 29u);
+                CHECK(expected == 30u);
                 CHECK(stated == expected);
             }
         }
@@ -636,8 +639,8 @@ namespace {
         // own `extras` block speaks for, the rewritten chain's iris brightnesses, its two rim lanes, its
         // screen-space rim widths, step 10/12's anisotropy pair and step 13's two `RS EFF` lanes - out of the key
         // while every existing asset continued to look right. THIS IS THE TEXTURE LANE'S COUNT (`toon_slot`), not
-        // the colour lane's: step 13 raised it to 15 for `_GooRSMask`.
-        CHECK(primitive.find("count = 15,") != std::string::npos);
+        // the colour lane's: step 13 raised it to 15 for `_GooRSMask` and STEP 15 raised it to 16 for `_GooRSSheet`.
+        CHECK(primitive.find("count = 16,") != std::string::npos);
         CHECK(primitive.find("toon_lane_blocks = 3") != std::string::npos);
 
         // (b) THE BYTES ACTUALLY GO IN, from the array the table is filled from: keying anything else (the

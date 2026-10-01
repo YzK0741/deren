@@ -528,6 +528,17 @@ namespace vulkan {
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
                 neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rs_tint)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                // STEP 15'S ONE IS `(0, 0, 0, 0)` FOR BOTH OF STEP 13'S REASONS, and both apply here verbatim: all
+                // four `armA` sockets default to `0.0` in the reference's `interface[]` (so a material stating no
+                // `_GooRSArm0` row reads what the graph gives a caller that states nothing), AND the value is the
+                // arm's own off switch, because `.y` is `RS Strength` and `s023 = s036 * RS Strength` zeroes the
+                // arm. It is ALSO the override that keeps the first statement true: this table starts every lane at
+                // `glm::vec4(1.0f)`, so an unoverridden lane 29 would hand every rowless material `RS Strength = 1`
+                // with `Layer weight Value = 1` - a `u` of `0.5` on sheet 0 for every material in the scene. Keep
+                // the spelling of this initialiser and the two hosts' tables in step, because
+                // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_rs_arm0`.
+                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rs_arm0)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(neutral_colours)),
@@ -1420,6 +1431,20 @@ namespace vulkan {
             // VK_FORMAT_UNDEFINED}` and the loop below dereferences `slots[i].first`. Measured: the renderer died
             // with an access violation inside `register_material` (see the block comment above this array).
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            // ---- STEP 15'S ONE, AND IT IS THE LANE THAT SPENDS THE TABLE'S LAST SLOT ----
+            //
+            // THE SHEET IS SRGB, AND THE STATEMENT IS THE OPPOSITE OF THE MASK LINE ABOVE RATHER THAN A COPY OF
+            // IT: an `_RS` sheet is COLOUR - the reference multiplies it into `RS ColorTint` and then into the
+            // shaded colour - so it takes the ramps' treatment, and uploading it UNORM would hand the shader a
+            // texel 2.2 gamma off in the very product this branch exists to make. The decode belongs to the
+            // SAMPLER: the shader must not decode it a second time (see `toon_slot::goo_rs_sheet`).
+            //
+            // AND THIS LINE IS NOT OPTIONAL FOR THE REASON THE COMMENT ABOVE GIVES, WHICH IS NOW A MEASURED ONE: the
+            // array's size is `5 + toon_slot::count`, and leaving this entry out value-initialises the last element
+            // to `{nullptr, VK_FORMAT_UNDEFINED}` - which the loop below dereferences. Step 15 raises `count` from 15
+            // to 16, so omitting this line is the same access violation inside `register_material` the RS mask's own
+            // note records.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], VK_FORMAT_R8G8B8A8_SRGB},
         };
 
         std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
@@ -1665,7 +1690,13 @@ namespace vulkan {
         glm::uvec4 const toon_lanes_extra3(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_cm)],
                                            texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_csumt)],
                                            texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_rs_mask)],
-                                           0u);
+                                           // STEP 15'S SHEET IS THIS BLOCK'S `.w`, and it is written HERE rather than
+                                           // left at the `0u` it used to be for the reason the block comment below
+                                           // gives at length: `0` is the shader's "do not read", so a slot packed as
+                                           // `0u` reads as a material that states no sheet. The mask one component to
+                                           // the left was left at `0u` for a whole step with the enum, the format row
+                                           // and the vocabulary row all present, and the frame did not move.
+                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_rs_sheet)]);
         // ---- AND THE COLOUR LANES, THE SAME FIX ONE TABLE FURTHER ALONG ----
         //
         // They are written BELOW, after the early return, which is the whole reason they have to be in the key:

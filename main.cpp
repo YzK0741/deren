@@ -483,6 +483,14 @@ int main(int argc, char** argv) {
         // reads `slot_name` as empty, resolves no texture, and the branch is silently off - no warning, no
         // compile error, only a frame that does not move.
         {"_GooRSMask", "_UseGooRSMask"},
+        // `_GooRSSheet` IS `armA`'s 256x1 `_RS` COLOUR SHEET, THE SIBLING OF THE MASK ABOVE AND THE OTHER HALF OF
+        // MECHANISM TABLE #14's FIRST ARM. It is a texture lane rather than a colour lane because it is an image,
+        // it is uploaded SRGB because it is a colour (the sampler decodes it, the shader does not), and it is
+        // `_GooRSSheet`/`_UseGooRSSheet` rather than a game property name for the mask's own reason: the reference
+        // reads it through a `组输入` socket, so there is no `_Use...` row to copy. A material with no row here and
+        // `RS Model = 0` gets `arm0 = 0` - the branch must NOT fall back to the white texture at index 0. See
+        // `toon_slot::goo_rs_sheet` and the `armA` block in `shaders/goo_toon.slang`.
+        {"_GooRSSheet", "_UseGooRSSheet"},
     }};
     // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `vulkan::toon_colour_lane`, in lane order - the
     // same arrangement the texture table above uses and for the same reason: the asset pipeline's spelling belongs
@@ -668,6 +676,14 @@ int main(int argc, char** argv) {
         // floating-point work at all when the gate is shut).
         "_GooRSScalars",
         "_GooRSTint",
+        // `_GooRSArm0` IS THE SAME MECHANISM'S OTHER ARM, and it is a COLOUR row rather than four `float` rows for
+        // the reason `_GooRSScalars` is one: it is four numbers (`RS_Index`, `RS Strength`, `Layer weight Value`,
+        // `Layer weight Value Offset`) off four `组输入` sockets of the same group, and the sidecar vocabulary has a
+        // four-component form for exactly that. Its neutral is `(0,0,0,0)`, which is ALSO the arm's off switch
+        // (`RS Strength = 0` zeroes the product), so a material that states no row gets an `armA` that changes
+        // nothing - but note it is not the same as `Use RS_Eff? = 0`: a zeroed `armA` still passes through the
+        // LIGHTEN below. See `toon_colour_lane::goo_rs_arm0` and the `armA` block in `shaders/goo_toon.slang`.
+        "_GooRSArm0",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
     // needs because it walks the whole file (`_BaseMap`, `_BumpMap`, the outline and SDF masks and the rest).
@@ -1487,6 +1503,17 @@ int main(int argc, char** argv) {
          // honest statement of the neutral, and the guard against a future consumer that reads the table before
          // registration - not the mechanism of the identity gate.
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+         glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+         // STEP 15'S ONE IS `(0, 0, 0, 0)`, WHICH IS BOTH THE REFERENCE'S GROUP DEFAULTS AND THE ARM'S OFF
+         // SWITCH: all four `armA` sockets default to `0.0` in `ng[2].interface[]`, `RS Strength = 0` zeroes the
+         // whole arm's product, and `RS_Index = 0` names the first sheet - so a material that states no
+         // `_GooRSArm0` row reads what the graph gives a caller that states nothing. It is a `color` row, so the
+         // generic path at the end of `toon_colour` carries it and no branch below is needed.
+         //
+         // IT IS NOT THE SAME AS `Use RS_Eff? = 0`, and the difference is stated rather than hidden: this lane's
+         // zero makes `armA`'s colour zero, and a zero colour still passes through `混合.029` (LIGHTEN), whose
+         // `max(base, 0)` is only bitwise `base` where `base >= 0`. The outer gate is what keeps a material with no
+         // RS row unchanged. See `toon_colour_lane::goo_rs_arm0`.
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};
     auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);

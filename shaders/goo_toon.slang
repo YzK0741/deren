@@ -370,7 +370,15 @@ float4 goo_toon_frag_main(
     // `character_forward.slang`, which this file defines `VR_GOO_TOON_CHAIN` for before including it) answers the
     // `normalize(s.normal)` this call used to pass unless the material reads a normal map and its lane 24 row states
     // a strength, so a material with no row shades exactly as before.
-    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal)), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
+    //
+    // NAMED RATHER THAN INLINED AS OF STEP 15, and the name is the reason: the `armA` branch of the `RS EFF` block
+    // below (mechanism table #14) needs the SAME shading normal, and the reference feeds it the same decoded normal
+    // this call takes. Hoisting the call is what keeps a single decode in the stage - a second
+    // `goo_toon_shading_normal(...)` would be a second `normalize` of the same three inputs and a second read of the
+    // normal map, which is exactly the kind of "second normal" the port must not grow. The value is unchanged: the
+    // call is evaluated once, exactly where it was, and passed by value.
+    const float3 toon_shading_normal = goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal));
+    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, toon_shading_normal, v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
     // THE EMISSIVE TERM IS ADDED HERE RATHER THAN INSIDE THE `goo_hsv_desaturate` ARGUMENT so that the RS pass
     // below has something to be the LEFT operand of. It is the same sum the old entry point performs at the same
     // place (`character_forward.slang`'s `const float3 lit = colour + s.emissive;`), and for the same reason: the
@@ -402,13 +410,38 @@ float4 goo_toon_frag_main(
     // which is a DELIBERATE deviation (spec U7): the neutral lane is `(0, 0, 0, 0)`, so without it the divide
     // below would be by zero.
     //
-    // `armA` IS NOT PORTED, DELIBERATELY (spec F2). The reference's `RS EFF` has two arms - `RS Model = 0` takes
-    // the two 256x1 `_RS` sheets, `RS Model = 1` takes `_M ⊙ RS ColorTint` - and only the second is here, so a
-    // material with `RS Model == 0` keeps its base colour UNCHANGED instead of taking `arm0`. That is an
-    // infidelity to mechanism table #14, not an oversight: of the three materials in the dumps with
-    // `Use RS_Eff? = 1`, exactly one is `RS Model = 0` (`M_actor_yvonne_cloth_03`, which is in no captured asset
-    // either), so the only observable difference is that this branch does not fire for it. `RS Model` is still
-    // carried on the lane so the gate is the reference's own predicate rather than a count of materials.
+    // `armA` IS PORTED AS OF STEP 15, WITH THREE LIMITS THAT ARE STATED HERE RATHER THAN DISCOVERED LATER. The
+    // reference's `RS EFF` has two arms - `RS Model = 0` takes the two 256x1 `_RS` sheets, `RS Model = 1` takes
+    // `_M ⊙ RS ColorTint` - and this block now takes whichever the component names, so the gate below is
+    // `Use RS_Eff?` alone and the `RS Model` test lives INSIDE it:
+    //
+    //   L1 - ONE SHEET, NOT TWO. The reference mixes two per-character `_RS` sheets by `RS_Index` (`混合.032`).
+    //        A sheet is a TEXTURE lane and slot 15 was the last one this table has (see
+    //        `vulkan::toon_slot::goo_rs_sheet`), so `RS_Index` rides lane 29's `.x` and is NOT honoured: a material
+    //        stating `RS_Index > 0` reads the first sheet instead of the second. On this asset that is invisible
+    //        (`RS_Index = 0` on both materials, and `M_actor_yvonne_cloth_03`, the only `RS_Index = 1` material in
+    //        the dumps, is in no captured asset), but it is an infidelity and not a simplification.
+    //   L2 - THE `u` REMAP IS NOT REACHED BY ANY CAPTURED MATERIAL. `u` comes off `Layer weight Value`, and both
+    //        materials state `0.0`/`0.0`, so `u = 0` here by construction and the `remap`/`pow` pair below has only
+    //        the CPU test's evidence behind it (see `tests/test_goo_toon_math.cpp`), not a frame.
+    //   L3 - NO SHIPPED ASSET TAKES THIS ARM. Both materials on the shipped asset state `RS Model = 1`, so `armB`
+    //        is what every shipped frame runs; `armA` is reached only by the `s13ctrl` fixture family. "Ported" here
+    //        means "the branch exists and is exercised by a fixture", not "the shipped asset exercises it".
+    //
+    // WHAT `armA` DOES, in the reference's own node names: `混合.036 = sheet ⊙ RS ColorTint`; `混合.023` scales it
+    // by `RS Strength` (with NO clamp, unlike the two later factors); `混合.027` multiplies by
+    // `saturate(dot(light_dir, n_rs))`; `混合.028` multiplies by the `Cast Shadows` sigmoid; `混合.033` multiplies
+    // by `_M`; and `混合.037` selects between the two arms by `clamp(RS Model, 0, 1)`. The multiplication ORDER is
+    // the reference's own nesting and is kept as written - `((((sheet * tint) * strength) * NdotL) * cast) * mask` -
+    // because floating-point multiplication is not associative and this port's whole point is bitwise fidelity.
+    //
+    // THE TWO ARMS SHARE `_M` AND THE `LIGHTEN`: `混合.037` feeds `混合.029` a SINGLE colour, so `_M` is read once
+    // (by whichever arm) and the LIGHTEN/MIX pair below is arm-agnostic. That is why the mask is computed before the
+    // branch rather than inside it.
+    //
+    // `RS Model` IS STILL CARRIED ON THE LANE for the reason the lane's own note gives: the branch is the
+    // reference's own predicate rather than a count of materials, and on the one material where the two arms differ
+    // the difference is now VISIBLE (the fixture frames) rather than suppressed.
     //
     // WHY AN `if` AND NOT A `mix`: the identity is required to be BITWISE. `mix(a, a, f)` expands to
     // `a * (1 - f) + a * f`, which is `a` only if both products round back to `a` exactly - true for `f == 0`
@@ -420,15 +453,22 @@ float4 goo_toon_frag_main(
     const uint rs_colour_base = push.material_index * character_toon_colour_lanes;
     const float4 rs_scalars = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 27u); // `_GooRSScalars`
     const float4 rs_tint_lane = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 28u); // `_GooRSTint`
+    const float4 rs_arm0_lane = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 29u); // `_GooRSArm0`
     const float rs_use = rs_scalars.x;
+    // `RS Model` IS NAMED HERE AS OF STEP 15 BECAUSE IT IS NO LONGER THE OUTER GATE: it selects the ARM below
+    // (0 = `armA`, the `_RS` sheet; 1 = `armB`, `_M ⊙ RS ColorTint`) and the outer gate is `Use RS_Eff?` alone.
+    const float rs_model = rs_scalars.z;
     float3 rs_final = lit_base;
-    if (rs_use > 0.0f && rs_scalars.z != 0.0f) { // `!= 0.0f`, never `== 1.0f`: a boolean socket travels as a float
+    if (rs_use > 0.0f) { // `!= 0.0f`, never `== 1.0f`: a boolean socket travels as a float
         // THE MASK'S LANE IS SLOT 14, i.e. `.z` OF THE THIRD `uvec4` BLOCK, and `0` means "do not read" - the
         // same contract every other lane uses. It is load-bearing HERE for a second reason: texture index 0 is the
         // WHITE fallback, so a material with no `_M` would otherwise get `_M = 1` everywhere, i.e. the strongest
         // possible statement about a pass it never switched on (spec F5). The UV is `v_uv`, UV0, which is the
         // coordinate the reference's own texture node takes, and the sampler is the same LINEAR one every other
         // toon texture read in this stage uses.
+        //
+        // IT IS READ BEFORE THE ARM BRANCH, not inside it: `混合.037` selects between the two arms and hands
+        // `混合.029` ONE colour, so the `_M` product is shared and must not be recomputed per arm.
         float rs_mask = 0.0f;
         const uint4 rs_block3 = toon_lanes3_at(heap_slots_toon_lanes, push.material_index);
         if (rs_block3.z != 0u) {
@@ -441,7 +481,112 @@ float4 goo_toon_frag_main(
             const float t = saturate((rs_luma - rs_smin) / (rs_smax - rs_smin));
             rs_mask = t * t * (3.0f - 2.0f * t);
         }
-        const float3 rs_eff = rs_mask * rs_tint_lane.rgb;                                                       // `混合.038`
+        float3 rs_eff = float3(0.0f, 0.0f, 0.0f);
+        if (rs_model == 0.0f) {
+            // ---- `armA` (`RS Model = 0`): the 256x1 `_RS` sheet, and the three limits are stated above ----
+            //
+            // THE SHEET'S LANE IS SLOT 15, i.e. `.w` OF THE THIRD `uvec4` BLOCK, and it follows `_M`'s `0 = do not
+            // read` contract for the same reason `_M` does: texture index 0 is the WHITE fallback, so a material
+            // with no `_GooRSSheet` row would otherwise sample white and light the cloth with it. A material that
+            // states no sheet gets `arm0 = 0` - the arm's neutral - which is what the reference's own group does
+            // for a caller that states nothing (lane 29's neutral is `(0,0,0,0)`, so `RS Strength = 0` zeroes the
+            // product even before this test; the test is what keeps the TEXTURE READ away, which is the part that
+            // actually matters).
+            float3 rs_sheet = float3(0.0f, 0.0f, 0.0f);
+            if (rs_block3.w != 0u) {
+                // `u` IS BUILT OFF THE LAYER WEIGHT, in the reference's own order: `V` is the INCOMING vector
+                // (`coordinate_incoming`, i.e. `normalize(camera_pos - world_pos)`, and NOT saturated);
+                // `abs(dot(V, n_rs))`; then `remap(b)` with `b = Layer weight Value`; then
+                // `u = clamp(1 - remapped + Offset, 0, 1)`. `v` IS THE CONSTANT `0.5` - the reference's
+                // `合并 XYZ.Y` - and it cannot matter on a `256x1` image, which is what every `_RS` sheet in the
+                // dumps is; it is written as the reference writes it rather than as this port's
+                // `character_ramp_band_v` for the reason `character_forward.slang`'s ramp read states.
+                //
+                // `remap` IS A REMAP AND NOT A POW, and it has a HOLE AT EXACTLY `0.5`: `2b` below the midpoint
+                // and `0.5 / (1 - b)` above it are both `1.0` at `b == 0.5`, so the reference's own graph collapses
+                // to a bare `facing` there and the port must skip the `pow` rather than compute `pow(x, 1.0)`,
+                // which is NOT bitwise `x` on this platform. `b` is clamped to `[0, 0.99999]` BEFORE the branch
+                // (which is why the test is on the raw `b` and not on the clamped one: clamping cannot produce
+                // `0.5` from a non-`0.5`, and the upper guard is what keeps the division finite).
+                const float3 rs_to_camera = normalize(camera_at(heap_camera_slot).camera_pos.xyz - v_world_pos);
+                const float rs_facing_abs = abs(dot(rs_to_camera, toon_shading_normal));
+                const float rs_lw_blend = rs_arm0_lane.z;
+                float rs_facing;
+                if (rs_lw_blend == 0.5f) {
+                    rs_facing = 1.0f - rs_facing_abs;
+                } else {
+                    const float rs_blend_clamped = clamp(rs_lw_blend, 0.0f, 0.99999f);
+                    const float rs_exponent = (rs_blend_clamped < 0.5f) ? (2.0f * rs_blend_clamped) : (0.5f / (1.0f - rs_blend_clamped));
+                    rs_facing = pow(1.0f - rs_facing_abs, rs_exponent);
+                }
+                const float rs_sheet_u = saturate(1.0f - rs_facing + rs_arm0_lane.w);
+                // ---- THE SHEET'S ADDRESS MODE IS THE REFERENCE'S `EXTEND`, REPRODUCED HERE AS A UV CLAMP ----
+                // The node that feeds this sheet is `图像纹理.005` and it asks for
+                // `image_user.extension = "EXTEND"` (`gooblender/nodes.json:93653-93659`, the same six lines that
+                // name `T_actor_aurora_cloth_03_RS.png`), i.e. CLAMP, NOT REPEAT. THIS PORT CANNOT HONOUR A
+                // PER-IMAGE ADDRESS MODE: the heap hands every texture ONE sampler, `heap_sampler_texture`
+                // (`shaders/heap_slot_constants.glsl:166-175`), whose address mode is REPEAT
+                // (`vulkan/core/core.cpp:436-437`), and there is no per-image sampler slot. So the reference's
+                // SEMANTICS are reproduced instead of its setting: `u` is pulled into the interval where REPEAT
+                // and CLAMP return the same texel. They are pointwise equal for this sheet - LINEAR filtering,
+                // a `256x1` image, and `u` already inside `[0, 1]` (it is `saturate`d above). At `u == 0` the
+                // EXTEND bilinear footprint has BOTH taps clamped to texel 0 and returns exactly `T0`, which is
+                // exactly what REPEAT returns at `u = 0.5/256`; `u == 1` and texel 255 are the mirror case; and
+                // strictly inside the interval the clamp is inactive and both modes filter the same texels.
+                // (The equality was MEASURED off the renderer by `zmd-ab/_lead_extend_equiv.py`: two bilinear
+                // mip-0 paths over the real sheet, 200001 sample points across `u` in `[0,1]`, max
+                // `|EXTEND - this inset|` = `0.000e+00`; `EXTEND @u=0` comes out `(0, 96, 255, 255)` = `T0` while
+                // `REPEAT @u=0` comes out `(43, 106, 255, 255)` = the seam average. That instrument reads the
+                // ASSET and not this shader - see the (w) limit below.)
+                //
+                // (w) THE PORT HAS ONE SAMPLER PER HEAP, SO THE REFERENCE'S PER-IMAGE `extension` IS IGNORED.
+                // The 162 image nodes in the reference dump are 155 `REPEAT`, 6 `EXTEND` and 1 `CLIP`; the
+                // Base/Face/Hair `_RD` ramps and `T_actor_laevat_cloth_02_M.png` are affected in principle and
+                // are NOT measured by this step. Only the `_RS` sheet gets the texel-centre clamp here.
+                //
+                // 256 IS THE SHEET'S OWN WIDTH and is not invented here: every `_RS` sheet in the dumps is
+                // `256x1`, and the slot documentation of `vulkan::toon_slot::goo_rs_sheet` states the same.
+                const float goo_rs_sheet_width = 256.0f;
+                const float2 sheet_uv = clamp(
+                    float2(rs_sheet_u, 0.5f),
+                    float2(0.5f / goo_rs_sheet_width, 0.5f),
+                    float2(1.0f - 0.5f / goo_rs_sheet_width, 0.5f));
+                const float4 rs_sheet_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + rs_block3.w), heap_sampler_texture, sheet_uv);
+                // LINEAR, AND THE DECODE IS THE SAMPLER'S: the lane is `VK_FORMAT_R8G8B8A8_SRGB` (see
+                // `vulkan::toon_slot::goo_rs_sheet`), so the texel arrives already decoded and a second decode
+                // here would double-apply the curve. `RS_Index` IS NOT READ: see L1 above.
+                rs_sheet = rs_sheet_texel.rgb;
+            }
+            // THE LIGHT DIRECTION AND THE TWO SIGMOID INPUTS ARE RECOMPUTED HERE rather than borrowed from
+            // `toon_diffuse`, and that is a LIMIT OF SCOPE rather than a choice: `goo_ndotl_clamped`
+            // (`character_forward.slang:2817`) and `cast_shadow_sigmoid` (`:2533`) are LOCALS of that function, so
+            // the RS block cannot see them. The expressions below are that function's own, leaf for leaf:
+            // `l = normalize(light_at(heap_light_slot).light_dir.xyz)` (`:1238`),
+            // `saturate(dot(l, n))` (`:2817`), `goo_sigmoid_sharp(shadow_used, cast_center, cast_sharp)` (`:2533`)
+            // with `cast_center`/`cast_sharp` off `_GooDiffuseA.z/.w` under the same `-1000` sentinel (`:2497-2498`,
+            // defaults `0.0`/`0.0`), and `shadow` is `:1369`'s `toon_indices.w != 0u ? 1.0 : calc_shadow(pos, n)`.
+            //
+            // ONE TERM OF `shadow_used` IS NOT PORTED HERE AND IT IS THE HAIR MODIFIER (`:1530-1532`'s
+            // `(toon_lanes2.x != 0u) ? lerp(1.0, shadow, orm.x) : shadow`): `orm` is a texture read INSIDE
+            // `toon_diffuse` (`:1475`) and is not in scope either, so this reads the bare `shadow`. On both
+            // materials this asset switches the arm on for, `toon_indices.w == 0` and `toon_lanes2.x == 0`, so the
+            // two spellings are bitwise the same value there; on a material with a split normal they would not be,
+            // and that is a stated gap rather than a silent one.
+            const float3 rs_light_dir = normalize(light_at(heap_light_slot).light_dir.xyz);
+            const float rs_ndotl = saturate(dot(rs_light_dir, toon_shading_normal));
+            const float4 rs_cast_lane = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 11u); // `_GooDiffuseA`
+            const float rs_cast_center = rs_cast_lane.z > goo_lane_absent_threshold ? rs_cast_lane.z : goo_castshadow_center_default;
+            const float rs_cast_sharp = rs_cast_lane.w > goo_lane_absent_threshold ? rs_cast_lane.w : goo_castshadow_sharp_default;
+            const float rs_shadow = (s.toon_indices.w != 0u) ? 1.0f : calc_shadow(v_world_pos, toon_shading_normal);
+            const float rs_cast_sigmoid = goo_sigmoid_sharp(rs_shadow, rs_cast_center, rs_cast_sharp);
+            // THE BRACKETING IS THE REFERENCE'S OWN (`混合.036` -> `混合.023` -> `混合.027` -> `混合.028` ->
+            // `混合.033`) and it is kept as nested parentheses rather than a flat product because
+            // floating-point multiplication is not associative. `RS Strength` (`.y`) IS NOT CLAMPED here, which is
+            // the reference's own arrangement: only `RS Multiply Value` and `Use RS_Eff?` are clamped, below.
+            rs_eff = ((((rs_sheet * rs_tint_lane.rgb) * rs_arm0_lane.y) * rs_ndotl) * rs_cast_sigmoid) * rs_mask;
+        } else {
+            rs_eff = rs_mask * rs_tint_lane.rgb;                                                                // `混合.038`, armB, UNCHANGED
+        }
         const float3 mixed029 = mix(lit_base, max(lit_base, rs_eff), saturate(rs_scalars.y));                   // `混合.029`, LIGHTEN
         rs_final = mix(lit_base, mixed029, saturate(rs_use));                                                   // `混合.030`, MIX
     }

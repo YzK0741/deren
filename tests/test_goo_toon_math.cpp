@@ -907,9 +907,13 @@ namespace {
     //     `(0.0, 0.2, 0.3)`, not the input). That is the reference's own behaviour and the port keeps it; it is
     //     also why the bitwise-identity criterion is stated on `Use = 0` and never on `mask = 0`.
     //
-    //   * `armA` IS NOT PORTED (spec F2), so `RS Model == 0` KEEPS THE BASE rather than mixing towards `arm0`.
-    //     `rs_final` below states that as the gate it is; A2/A4 pin the two `armA` leaves it would need, and are
-    //     marked `armA only, not called by step 13` - they must NOT be read as acceptance for this step.
+    //   * STEP 15 SPENT `armA`, so `RS Model == 0` NO LONGER KEEPS THE BASE. The gate is now the reference's own:
+    //     `Use RS_Eff?` on the OUTSIDE only, with `RS Model` selecting the arm inside it. A material with
+    //     `RS Model == 0` and no sheet now runs `arm0 = 0` into the same LIGHTEN, which is `max(lit, 0)` - a
+    //     half-wave rectifier, exactly as the `mask = 0` case above. The outside-only gate is what still keeps
+    //     the twenty materials that state no `RS` row bitwise: they leave at `Use = 0` before any of it runs.
+    //     A2/A4 were written as BACKGROUND pins for this branch ("armA only, not called by step 13"); the port
+    //     did not move a single one of their values, which is the whole reason they were pinned in step 13.
     //
     // EVERY EXPECTED VALUE in the assertions below was produced by `zmd-ab\_s13s_expect3.py` with an f32
     // round-trip, so it can be re-derived rather than trusted. `1e-6f` is used wherever the value passes through
@@ -957,7 +961,8 @@ namespace {
     float rs_effective_smax(float const smooth_max) {
         return smooth_max > 0.0f ? smooth_max : 1.0f;
     }
-    /// @brief `Layer Weight.Facing` - `armA only, not called by step 13` (spec F2)
+    /// @brief `Layer Weight.Facing` - pinned in step 13 as a BACKGROUND leaf ("armA only, not called by step 13");
+    ///        STEP 15 ported `armA`, so this is now live code's leaf and the values below are its acceptance too.
     ///
     /// `remap(b)`: clamp to `[0, 0.99999]`, then `b < 0.5 ? 2b : 0.5 / (1 - b)`; `facing = 1 - |dot|^remap(b)`.
     /// `blend` EXACTLY `0.5` takes the reference's other branch: no remap, no pow, so the answer is `1 - |dot|`
@@ -973,7 +978,8 @@ namespace {
         float const exponent = clamped < 0.5f ? 2.0f * clamped : 0.5f / (1.0f - clamped);
         return 1.0f - std::pow(std::abs(dot_value), exponent);
     }
-    /// @brief the cast-shadow curve's leaf - `armA only, not called by step 13` (spec F2)
+    /// @brief the cast-shadow curve's leaf - pinned in step 13 as a BACKGROUND leaf ("armA only, not called by
+    ///        step 13"); STEP 15 ported `armA`, so this is now live code's leaf too.
     ///
     /// `1 / (1 + 100000^(-3 * sharp * (x - center)))`; `sharp == 0` makes the exponent 0, `100000^0 = 1`, so the
     /// answer is the guarded `0.5` without a special case (the reference's own arrangement).
@@ -990,18 +996,32 @@ namespace {
         float const inverse = 1.0f - a;
         return {lit.x * inverse + target.x * a, lit.y * inverse + target.y * a, lit.z * inverse + target.z * a};
     }
-    /// @brief the FROZEN implementation form: the `if` gate, then `混合.038` -> `混合.029` -> `混合.030`
+    /// @brief the FROZEN implementation form: the `if` gate, the `RS Model` split, then `混合.038` -> `混合.029`
+    ///        -> `混合.030`
     ///
     /// The gate is a branch and not a branchless `mix(lit, mixed029, use)`, because the identity must be BITWISE:
     /// `mix(a, b, f)` is `a * (1 - f) + b * f`, which equals `a` exactly only when both products round back to
     /// `a` - true at the endpoints, not in between. Nothing here needs an in-between value, so the branch costs
     /// nothing and the twenty materials that state no `RS` row do ZERO floating-point work.
-    vec3 rs_final(vec3 const lit, float const mask, vec3 const tint, float const use, float const mult, float const model) {
-        if (!(use > 0.0f && model != 0.0f)) {
+    ///
+    /// STEP 15: the outer test is now `use > 0` ALONE (the reference's own gate), and `model` picks the arm -
+    /// `arm0` on the inside, the step-13 form `mask * tint` otherwise. `arm0` therefore has to be an INPUT here:
+    /// the caller states what the sheet, the strength, `saturate(NdotL)` and the cast curve multiplied out to.
+    vec3 rs_final(vec3 const lit, float const mask, vec3 const tint, float const use, float const mult, float const model,
+                  vec3 const arm0 = vec3{0.0f, 0.0f, 0.0f}) {
+        if (!(use > 0.0f)) {
             return lit;
         }
-        vec3 const rs = scale3(tint, mask);
+        vec3 const rs = (model == 0.0f) ? arm0 : scale3(tint, mask);
         return rs_lighten(lit, rs, mult);
+    }
+    /// @brief STEP 15's `armA` in its §1.3 landing form, one channel of it
+    ///
+    /// `arm0 = ((((sheet * tint.rgb) * RS Strength) * goo_ndotl_clamped) * cast_shadow_sigmoid) * mask` - the
+    /// parenthesis order is the reference's `混合.036 -> .023 -> .027 -> .028 -> .033`, and it is NOT
+    /// associative in f32, so the helper states it in that order rather than "cleaning it up".
+    float rs_arm0_channel(float const sheet, float const tint, float const strength, float const ndotl, float const cast, float const mask) {
+        return sheet * tint * strength * ndotl * cast * mask;
     }
     /// the three carriers as the HOST side reads them out of lane 27 (`.x`/`.y`/`.z`, `.w` reserved and unused)
     float rs_use_of(vec4 const lane) {
@@ -1019,6 +1039,23 @@ namespace {
         return {lane.x, lane.y, lane.z};
     }
     float rs_smooth_max_of(vec4 const lane) {
+        return lane.w;
+    }
+    /// lane 29 (`_GooRSArm0`), the four components of the reference's `armA` sockets: `RS_Index` [x],
+    /// `RS Strength` [y], `Layer weight Value` [z], `Layer weight Value Offset` [w]. `.x` is carried because the
+    /// reference carries it, but NOTHING reads it: this step ports ONE sheet, so there is no second one to index
+    /// into (spec L1). The reader-hostile part is that the neutral `(0,0,0,0)` therefore means "RS Strength = 0",
+    /// which zeroes `arm0` - a switch, where a `(1,1,1,1)` default would have turned the arm on for every material.
+    float rs_arm0_index_of(vec4 const lane) {
+        return lane.x;
+    }
+    float rs_arm0_strength_of(vec4 const lane) {
+        return lane.y;
+    }
+    float rs_arm0_lw_blend_of(vec4 const lane) {
+        return lane.z;
+    }
+    float rs_arm0_lw_offset_of(vec4 const lane) {
         return lane.w;
     }
     /// the mask slot index the host resolves for a material: 14 when the `_GooRSMask` row exists AND its
@@ -2519,7 +2556,7 @@ int32_t main() {
         }
         // (b) THE TEXTURE LANE, in all four places it has to exist
         CHECK_MSG(primitive.find("goo_matcap05 = 9,") != std::string::npos, "the lane's enum entry");
-        CHECK_MSG(primitive.find("count = 15,") != std::string::npos, "the lane's enum count (step 7's three face masks moved it from 11; step 13's `_GooRSMask` moved it from 14)");
+        CHECK_MSG(primitive.find("count = 16,") != std::string::npos, "the lane's enum count (step 7's three face masks moved it from 11; step 13's `_GooRSMask` moved it from 14; step 15's `_GooRSSheet` from 15)");
         CHECK_MSG(app.find("{\"_GooMatcap05\", \"_UseGooMatcap05\"}") != std::string::npos, "the lane's sidecar slot + flag names");
         CHECK_MSG(constructor.find("toon_slot::goo_matcap05)], VK_FORMAT_R8G8B8A8_SRGB") != std::string::npos, "the lane's upload format");
         // ... AND THAT IT IS ACTUALLY WRITTEN INTO THE RECORD'S SECOND BLOCK, which the format entry alone does
@@ -2545,7 +2582,7 @@ int32_t main() {
             CHECK_MSG(colour_enum.find("goo_eye_brightness = 6,") != std::string::npos, "the colour lane's enum entry");
             // STEP 8 MOVED THIS FROM 24 TO 25 (the entry below is lane 24, `goo_normal_strength`).
             // ... AND STEP 12 MOVED IT FROM 26 TO 27 (the entry below is lane 26, `goo_aniso_rough`).
-            CHECK_MSG(colour_enum.find("count = 29,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four, step 8's one, step 10's one, step 12's one and step 13's two)");
+            CHECK_MSG(colour_enum.find("count = 30,") != std::string::npos, "the colour lane's enum count (step 5's four, step 7's four, step 8's one, step 10's one, step 12's one, step 13's two and step 15's one)");
         }
         CHECK_MSG(app.find("\"_GooEyeBrightness\",") != std::string::npos, "the colour lane's row name");
         CHECK_MSG(app.find("glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f)") != std::string::npos, "the colour lane's neutral in the lookup");
@@ -2610,7 +2647,7 @@ int32_t main() {
                 CHECK_MSG(colour_enum.find(spelling) != std::string::npos, spelling);
             }
             CHECK_MSG(primitive.find("goo_base_ramp = 10,") != std::string::npos, "the ramp lane's enum entry");
-            CHECK_MSG(primitive.find("count = 15,") != std::string::npos, "the ramp lane moved the texture count to 11, step 7's three face masks moved it to 14 and step 13's `_GooRSMask` moved it to 15");
+            CHECK_MSG(primitive.find("count = 16,") != std::string::npos, "the ramp lane moved the texture count to 11, step 7's three face masks moved it to 14, step 13's `_GooRSMask` to 15 and step 15's `_GooRSSheet` to 16");
             for (char const* const row : {"\"_GooBaseColour\",", "\"_GooDiffuseA\",", "\"_GooDiffuseB\",",
                                           "\"_GooFresnelInside\",", "\"_GooFresnelOutside\",", "\"_GooDirectOcclusion\","}) {
                 CHECK_MSG(app.find(row) != std::string::npos, row);
@@ -2642,7 +2679,8 @@ int32_t main() {
             std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
             std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
             for (char const* const spelling : {"goo_specular_fgd = 16,", "goo_light_color = 17,", "goo_ambient_tint = 18,",
-                                               "goo_specular_color = 19,", "goo_rs_scalars = 27,", "goo_rs_tint = 28,", "count = 29,"}) {
+                                               "goo_specular_color = 19,", "goo_rs_scalars = 27,", "goo_rs_tint = 28,",
+                                               "goo_rs_arm0 = 29,", "count = 30,"}) {
                 CHECK_MSG(colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooSpecularFGD\",", "\"_GooLightColor\",", "\"_GooAmbientTint\",", "\"_GooSpecularColor\","}) {
@@ -2664,7 +2702,7 @@ int32_t main() {
             // THE SHADER SIDE: the lanes are read BY INDEX (`+ 16u` .. `+ 19u`) through the stage's own stride, and
             // the constant that has to move with them is `character_toon_colour_lanes` (25 since step 8, pinned by
             // `test_toon_material_sidecar` against the enum from the other side too).
-            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 29u") != std::string::npos, "the surface stage's stride copy");
+            CHECK_MSG(character_forward.find("character_toon_colour_lanes = 30u") != std::string::npos, "the surface stage's stride copy");
             for (char const* const index : {"colour_base + 16u", "colour_base + 17u", "colour_base + 18u", "colour_base + 19u"}) {
                 CHECK_MSG(character_forward.find(index) != std::string::npos, index);
             }
@@ -2834,7 +2872,7 @@ int32_t main() {
                 CHECK_MSG(goo_rim.find(spelling) != std::string::npos, spelling);
             }
             // ... AND THE LANES IT READS, by index, through ITS OWN copy of the stride
-            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 29u") != std::string::npos, "the rim stage's own stride copy");
+            CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 30u") != std::string::npos, "the rim stage's own stride copy");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 7u") != std::string::npos, "the rim stage reads lane 7 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 8u") != std::string::npos, "the rim stage reads lane 8 by that index");
             CHECK_MSG(goo_rim.find("goo_rim_colour_lanes) + 9u") != std::string::npos, "the rim stage reads lane 9 (the widths) by that index");
@@ -2847,11 +2885,13 @@ int32_t main() {
         // has to be spelled, plus the ones where a STALE COPY is the failure this project keeps recording.
         {
             // ---- THE TEXTURE LANES: the enum, the count, the block count and the sidecar vocabulary ----
-            for (char const* const spelling : {"goo_face_sdf = 11,", "goo_face_cm = 12,", "goo_face_csumt = 13,", "goo_rs_mask = 14,", "count = 15,"}) {
+            for (char const* const spelling : {"goo_face_sdf = 11,", "goo_face_cm = 12,", "goo_face_csumt = 13,", "goo_rs_mask = 14,",
+                                               "goo_rs_sheet = 15,", "count = 16,"}) {
                 CHECK_MSG(primitive.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const pair : {"{\"_GooFaceSDF\", \"_UseGooFaceSDF\"}", "{\"_GooFaceCmM\", \"_UseGooFaceCmM\"}",
-                                           "{\"_GooFaceCsutm\", \"_UseGooFaceCsutm\"}", "{\"_GooRSMask\", \"_UseGooRSMask\"}"}) {
+                                           "{\"_GooFaceCsutm\", \"_UseGooFaceCsutm\"}", "{\"_GooRSMask\", \"_UseGooRSMask\"}",
+                                           "{\"_GooRSSheet\", \"_UseGooRSSheet\"}"}) {
                 CHECK_MSG(app.find(pair) != std::string::npos, pair);
             }
             // THE FORMATS ARE A STATEMENT ABOUT THE CHANNELS, not a default: all three are NUMBERS (a distance
@@ -2860,7 +2900,13 @@ int32_t main() {
             for (char const* const format : {"toon_slot::goo_face_sdf)], VK_FORMAT_R8G8B8A8_UNORM",
                                              "toon_slot::goo_face_cm)], VK_FORMAT_R8G8B8A8_UNORM",
                                              "toon_slot::goo_face_csumt)], VK_FORMAT_R8G8B8A8_UNORM",
-                                             "toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM"}) {
+                                             "toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM",
+                                             // ... AND STEP 15'S SHEET INVERTS THE STATEMENT RATHER THAN REPEATING IT:
+                                             // an `_RS` sheet is COLOUR (the reference multiplies it into the tint),
+                                             // so it takes SRGB and the SAMPLER decodes it. An UNORM upload here would
+                                             // hand the shader a texel 2.2 gamma off inside the product this arm
+                                             // exists to make.
+                                             "toon_slot::goo_rs_sheet)], VK_FORMAT_R8G8B8A8_SRGB"}) {
                 CHECK_MSG(constructor.find(format) != std::string::npos, format);
             }
             // ... AND THE THIRD BLOCK, which is what the three lanes cost: the host constant, the stage's copy of
@@ -2891,13 +2937,19 @@ int32_t main() {
                 std::string const rs_lanes = constructor.substr(rs_lanes_at, constructor.find(");", rs_lanes_at) - rs_lanes_at);
                 CHECK_MSG(rs_lanes.find("toon_slot::goo_rs_mask") != std::string::npos,
                           "and step 13's slot 14 is one of its components");
+                // STEP 15'S SHEET IS SLOT 15, i.e. the SAME BLOCK'S `.w`, so it rides the same `toon_lanes_extra3`
+                // initialiser and the same "written nowhere reads DO NOT READ" failure applies to it verbatim -
+                // except that here `0` does not merely skip a mask, it would otherwise sample the WHITE fallback.
+                CHECK_MSG(rs_lanes.find("toon_slot::goo_rs_sheet") != std::string::npos,
+                          "and step 15's slot 15 is the fourth");
             }
             // ---- THE FOUR COLOUR LANES ----
             std::size_t const face_enum_at = primitive.find("enum class toon_colour_lane");
             std::string const face_colour_enum = primitive.substr(face_enum_at, primitive.find("};", face_enum_at) - face_enum_at);
             for (char const* const spelling : {"goo_face_scalars_a = 20,", "goo_face_scalars_b = 21,", "goo_face_nose_shadow = 22,",
                                                "goo_face_front_r = 23,", "goo_normal_strength = 24,", "goo_aniso_gate = 25,",
-                                               "goo_aniso_rough = 26,", "goo_rs_scalars = 27,", "goo_rs_tint = 28,", "count = 29,"}) {
+                                               "goo_aniso_rough = 26,", "goo_rs_scalars = 27,", "goo_rs_tint = 28,",
+                                               "goo_rs_arm0 = 29,", "count = 30,"}) {
                 CHECK_MSG(face_colour_enum.find(spelling) != std::string::npos, spelling);
             }
             for (char const* const row : {"\"_GooFaceScalarsA\",", "\"_GooFaceScalarsB\",", "\"_GooFaceNoseShadow\",", "\"_GooFaceFrontR\","}) {
@@ -2978,7 +3030,7 @@ int32_t main() {
                 std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
                 std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
                 CHECK_MSG(colour_enum.find("goo_aniso_gate = 25,") != std::string::npos, "the gate lane's enum entry, APPENDED at 25 so no earlier index moves");
-                CHECK_MSG(colour_enum.find("count = 29,") != std::string::npos, "and the enum's count with it (step 12 appended lane 26 and step 13 appended 27/28 after this one)");
+                CHECK_MSG(colour_enum.find("count = 30,") != std::string::npos, "and the enum's count with it (step 12 appended lane 26, step 13 appended 27/28 and step 15 appended 29 after this one)");
                 CHECK_MSG(app.find("\"_GooAnisoGate\",") != std::string::npos, "the gate lane's row name - CamelCase, as the sidecar spells it");
                 // THE ROW IS A `color` ONE, WHICH IS THE DIFFERENCE FROM STEP 8's: it parses through the GENERIC
                 // `others` path, so the lane must NOT be given a branch of its own in `toon_colour` - and the way to
@@ -3029,7 +3081,7 @@ int32_t main() {
                 std::size_t const enum_at = primitive.find("enum class toon_colour_lane");
                 std::string const colour_enum = primitive.substr(enum_at, primitive.find("};", enum_at) - enum_at);
                 CHECK_MSG(colour_enum.find("goo_aniso_rough = 26,") != std::string::npos, "the rough lane's enum entry, APPENDED at 26 so no earlier index moves");
-                CHECK_MSG(colour_enum.find("count = 29,") != std::string::npos, "and the enum's count with it (step 13 appended lanes 27/28 after this one)");
+                CHECK_MSG(colour_enum.find("count = 30,") != std::string::npos, "and the enum's count with it (step 13 appended lanes 27/28 and step 15 appended 29 after this one)");
                 CHECK_MSG(app.find("\"_GooAnisoRough\",") != std::string::npos, "the rough lane's row name - CamelCase, as the sidecar spells it");
                 // A `color` ROW, SO NO BRANCH AND NO DIAGNOSTIC - the same two facts step 10's block asserts for its
                 // own lane, asserted the same way (by the enum spelling being absent from `main.cpp` outside the
@@ -3520,8 +3572,13 @@ int32_t main() {
     // the old one), which stride literals moved, and the two row names without which every sidecar row is
     // unreachable while the build stays green.
     //
-    // A2 AND A4 ARE BACKGROUND PINS (`armA only, not called by step 13`): they pin the two leaves the unported
-    // `armA` branch would need, so a later port cannot drift them silently. They are NOT this step's acceptance.
+    // STEP 15 (one step later) PORTED `armA`, so that half of the mechanism is now live code: the outer gate is
+    // `Use RS_Eff?` alone, `RS Model` picks the arm, and A2/A4 - written here as BACKGROUND pins "armA only, not
+    // called by step 13" - became that branch's leaves without a single value moving. A9 below is the new half:
+    // the landing form's parenthesis order and the asset's own `arm0` number.
+    //
+    // A2 AND A4 ARE STEP 13'S BACKGROUND PINS: they pin the two leaves the then-unported `armA` branch would need,
+    // so a later port cannot drift them silently. They were NOT step 13's acceptance - they are step 15's.
     {
         auto const slurp = [](char const* const relative) {
             std::ifstream file(std::string(VR_TEST_SOURCE_DIR) + "/" + relative);
@@ -3547,13 +3604,13 @@ int32_t main() {
                   "RS A1: the division is (x - min) / (max - min), NOT x / max: min 0.25, max 0.75, x 0.4 -> 0.216000021 "
                   "(the wrong form would give 0.549925983)");
 
-        // ---- A2: `LayerWeight.Facing` - BACKGROUND, armA only, not called by step 13 ----
+        // ---- A2: `LayerWeight.Facing` - background in step 13, LIVE from step 15's `armA` ----
         CHECK_MSG(std::abs(rs_facing(0.5f, 0.8f) - 0.199999988f) < 1e-6f,
-                  "RS A2 (armA only, not called by step 13): blend == 0.5 exactly skips remap and pow, so facing = 1 - 0.8 = 0.199999988");
-        CHECK_MSG(rs_facing(0.0f, 0.8f) == 0.0f, "RS A2 (armA only, not called by step 13): blend 0 remaps to 0, so facing is exactly 0");
-        CHECK_MSG(std::abs(rs_facing(0.2f, 0.8f) - 0.0853899121f) < 1e-6f, "RS A2 (armA only, not called by step 13): remap(0.2) = 0.400000006");
-        CHECK_MSG(std::abs(rs_facing(0.8f, 0.8f) - 0.427566588f) < 1e-6f, "RS A2 (armA only, not called by step 13): remap(0.8) = 2.50000024");
-        CHECK_MSG(std::abs(rs_facing(1.0f, 0.8f) - 1.0f) < 1e-6f, "RS A2 (armA only, not called by step 13): blend clamps to 0.99999 -> remap 49932.1914");
+                  "RS A2 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): blend == 0.5 exactly skips remap and pow, so facing = 1 - 0.8 = 0.199999988");
+        CHECK_MSG(rs_facing(0.0f, 0.8f) == 0.0f, "RS A2 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): blend 0 remaps to 0, so facing is exactly 0");
+        CHECK_MSG(std::abs(rs_facing(0.2f, 0.8f) - 0.0853899121f) < 1e-6f, "RS A2 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): remap(0.2) = 0.400000006");
+        CHECK_MSG(std::abs(rs_facing(0.8f, 0.8f) - 0.427566588f) < 1e-6f, "RS A2 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): remap(0.8) = 2.50000024");
+        CHECK_MSG(std::abs(rs_facing(1.0f, 0.8f) - 1.0f) < 1e-6f, "RS A2 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): blend clamps to 0.99999 -> remap 49932.1914");
 
         // ---- A3: the `SmoothStep` subgroup - ON this step's `_M` chain, mandatory (spec §3.2b) ----
         CHECK_MSG(std::abs(rs_smooth_step(0.0f, 0.9900000095367432f, 0.49500000476837158f) - 0.5f) < 1e-6f,
@@ -3561,10 +3618,10 @@ int32_t main() {
         CHECK_MSG(std::abs(rs_smooth_step(0.0f, 1.0f, 0.25f) - 0.15625f) < 1e-6f, "RS A3: t = 0.25 -> 0.15625");
         CHECK_MSG(rs_smooth_step(0.25f, 0.75f, 0.1f) == 0.0f, "RS A3: below the lower edge the clamp returns exactly 0");
 
-        // ---- A4: `goo_sigmoid_sharp`, the cast-shadow curve - BACKGROUND, armA only, not called by step 13 ----
-        CHECK_MSG(rs_sigmoid_sharp(0.5f, 0.0f, 0.17000000178813934f) == 0.949587882f, "RS A4 (armA only, not called by step 13): x = 0.5, sharp = 0.17");
-        CHECK_MSG(rs_sigmoid_sharp(0.25f, 0.0f, 0.17000000178813934f) == 0.812737703f, "RS A4 (armA only, not called by step 13): x = 0.25");
-        CHECK_MSG(rs_sigmoid_sharp(0.9f, 0.0f, 0.0f) == 0.5f, "RS A4 (armA only, not called by step 13): sharp == 0 is the guarded 0.5");
+        // ---- A4: `goo_sigmoid_sharp`, the cast-shadow curve - background in step 13, LIVE from step 15's `armA` ----
+        CHECK_MSG(rs_sigmoid_sharp(0.5f, 0.0f, 0.17000000178813934f) == 0.949587882f, "RS A4 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): x = 0.5, sharp = 0.17");
+        CHECK_MSG(rs_sigmoid_sharp(0.25f, 0.0f, 0.17000000178813934f) == 0.812737703f, "RS A4 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): x = 0.25");
+        CHECK_MSG(rs_sigmoid_sharp(0.9f, 0.0f, 0.0f) == 0.5f, "RS A4 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): sharp == 0 is the guarded 0.5");
 
         // ---- A5: `混合.029` is LIGHTEN, and `fac = 0` returns A BITWISE ----
         // pinned sample (from `zmd-ab\_s13s_expect3.py`, f32 round-trip):
@@ -3584,7 +3641,11 @@ int32_t main() {
         CHECK_MSG(vec3_bitwise_equal(rs_final({0.1f, 0.2f, 0.3f}, 1.0f, {7.5f, 1.41434848f, 0.0f}, 0.0f, 1.0f, 1.0f), {0.1f, 0.2f, 0.3f}),
                   "RS A6: Use RS_Eff? = 0 is BITWISE the base - even with mask 1 and a huge tint (the 20 materials)");
         CHECK_MSG(vec3_bitwise_equal(rs_final({0.1f, 0.2f, 0.3f}, 1.0f, {7.5f, 1.41434848f, 0.0f}, 1.0f, 1.0f, 0.0f), {0.1f, 0.2f, 0.3f}),
-                  "RS A6: RS Model = 0 keeps the base (F2: armA is not ported, so there is no arm0 to mix towards)");
+                  "RS A6: RS Model = 0 with a ZERO arm0 (no sheet row) keeps the base HERE only because every channel is positive; it is max(lit,0), not an identity, and the assertion below is the case that sees it");
+        CHECK_MSG(vec3_bitwise_equal(rs_final({-0.1f, 0.2f, 0.3f}, 1.0f, {7.5f, 1.41434848f, 0.0f}, 1.0f, 1.0f, 0.0f), {0.0f, 0.2f, 0.3f}),
+                  "RS A6: ... a NEGATIVE channel under RS Model = 0 and no sheet is RECTIFIED to 0.0 since step 15 - which is exactly why the outer gate stays on `Use RS_Eff?` and never on `RS Model`");
+        CHECK_MSG(vec3_bitwise_equal(rs_final({0.1f, 0.2f, 0.3f}, 1.0f, {7.5f, 1.41434848f, 0.0f}, 1.0f, 0.0f, 0.0f, {2.0f, 3.0f, 4.0f}), {0.1f, 0.2f, 0.3f}),
+                  "RS A6: RS Multiply Value = 0 makes 混合.029 a no-op on the armA path too (arm0 = (2,3,4) never lands)");
         CHECK_MSG(vec3_bitwise_equal(rs_final({0.1f, 0.2f, 0.3f}, 1.0f, {7.5f, 1.41434848f, 0.0f}, 1.0f, 0.0f, 1.0f), {0.1f, 0.2f, 0.3f}),
                   "RS A6: RS Multiply Value = 0 makes 混合.029 a no-op, so the whole chain is bitwise the base");
         CHECK_MSG(vec3_bitwise_equal(rs_final({0.1f, 0.2f, 0.3f}, 0.5f, {7.5f, 1.41434848f, 0.0f}, 1.0f, 1.0f, 1.0f), {3.75f, 0.707174242f, 0.3f}),
@@ -3598,21 +3659,60 @@ int32_t main() {
         CHECK_MSG(vec3_bitwise_equal(rs_final({-0.1f, 0.2f, 0.3f}, 0.0f, {7.5f, 1.41434848f, 0.0f}, 1.0f, 1.0f, 1.0f), {0.0f, 0.2f, 0.3f}),
                   "RS A6: but with a NEGATIVE channel a mask of 0 rectifies it (0.0, not -0.1) - the reference does this too, keep it");
 
-        // ---- A7: the host side loads the RS values into TWO NEW colour lanes (this step's only host data flow;
-        //          `main.cpp` needs no new branch) ----
+        // ---- A9 (STEP 15): `armA`'s LANDING FORM and the asset's own number ----
+        //
+        // spec §1.3's landing line, written in the shader's own parenthesis order (the reference's `混合.036 ->
+        // .023 -> .027 -> .028 -> .033`, and f32 multiplication is NOT associative, so this is not cosmetic):
+        //   rs_eff = ((((rs_sheet * rs_tint_lane.rgb) * rs_arm0_lane.y) * rs_ndotl) * rs_cast_sigmoid) * rs_mask
+        // THIS ASSET's inputs, cloth_02: the `_RS` sheet is 256x1 and its whole `x = 0..148` run is sRGB
+        // (0, 96, 255), which the SAMPLER decodes to linear (0, 0.11697066575288773, 1) - a UNIFORM colour, so
+        // `u` cannot move it. That is a fact L2 rests on and it also means no frame on this asset can test `u`.
+        // tint.g = 1.4143484830856323 (cloth_05: 1.4143449068069458); RS Strength = 1; saturate(NdotL) = 1; the
+        // cast curve at `shadow = 1` is rs_sigmoid_sharp(1, 0, 0.17) = 0.9971895217895508; mask = 1.
+        CHECK_MSG(0.11697066575288773f * 1.4143484830856323f == 0.16543728113174438f,
+                  "RS A9: the asset's first two factors in f32 - the sheet's green X cloth_02's tint is exactly 0.16543728113174438");
+        CHECK_MSG(rs_arm0_channel(0.11697066575288773f, 1.4143484830856323f, 1.0f, 1.0f, 0.9971895217895508f, 1.0f) == 0.16497232019901276f,
+                  "RS A9: and through the whole landing line it is 0.16497232019901276 - the green of an `arm0` pixel at full light, full mask, `saturate(NdotL)` 1, RS Strength 1");
+        CHECK_MSG(rs_arm0_channel(0.11697066575288773f, 1.4143449068069458f, 1.0f, 1.0f, 0.9971895217895508f, 1.0f) == 0.16497190296649933f,
+                  "RS A9: cloth_05's tint gives a DIFFERENT f32 (0.16497190296649933), so the two materials must not share a constant here either");
+        CHECK_MSG(rs_arm0_channel(0.11697066575288773f, 1.4143484830856323f, 0.0f, 1.0f, 0.9971895217895508f, 1.0f) == 0.0f,
+                  "RS A9: a material with NO `_GooRSArm0` row is answered the neutral lane (0,0,0,0), i.e. RS Strength 0, so its arm0 is exactly 0 - a switch, not a fallback; the fixture states 1.0 explicitly");
+        CHECK_MSG(rs_arm0_channel(0.5f, 0.5f, 1.0f, 1.0f, 0.9971895217895508f, 0.0f) == 0.0f,
+                  "RS A9: and `_M = 0` (lane 0 = do not read) zeroes arm0 rather than sampling the WHITE fallback");
+        CHECK_MSG(rs_arm0_channel(0.5f, 0.5f, 1.0f, 0.0f, 0.9971895217895508f, 1.0f) == 0.0f,
+                  "RS A9: `saturate(NdotL)` at 0 zeroes it too - the arm goes dark where the sun is behind the surface");
+        // L2: `Layer weight Value = 0` is this asset's value on BOTH cloth materials, and it makes the remap
+        // unreachable: `remap(0) = 0`, so `facing = 1 - |dot|^0 = 1 - 1 = 0` and `u = saturate(1 - 1 + 0) = 0`
+        // for every angle. Three incidences, because the claim is "for every angle" and not "at one".
+        CHECK_MSG(rs_facing(0.0f, 0.0f) == 0.0f && rs_facing(0.0f, 0.8f) == 0.0f && rs_facing(0.0f, 1.0f) == 0.0f,
+                  "RS A9: L2 - `Layer weight Value = 0` pins `u` to exactly 0 at every incidence, so the remap is unreachable ON THIS ASSET and no frame here can exercise it (A2 is all the coverage there is)");
+
+        // ---- A7: the host side loads the RS values into THREE colour lanes (step 13's two, step 15's third; the
+        //          host data flow is generic, so `main.cpp` needs no new BRANCH - only the row names) ----
         std::string const app = slurp("main.cpp");
         // `_GooRSScalars` row = "1.0,1.0,1.0,0.0"                                -> lane 27
         // `_GooRSTint`     row = "7.5,1.4143484830856323,0.0,0.9900000095367432"  -> lane 28
+        // `_GooRSArm0`     row = "0.0,1.0,0.0,0.0" (the FIXTURE; the shipped asset states no such row) -> lane 29
         vec4 const lane27{1.0f, 1.0f, 1.0f, 0.0f};
         vec4 const lane28{7.5f, 1.4143484830856323f, 0.0f, 0.9900000095367432f};
-        vec4 const neutral_lane27{}; // the two host tables' explicit `(0,0,0,0)` (see `toon_colour_neutral`)
+        vec4 const lane29{0.0f, 1.0f, 0.0f, 0.0f};
+        vec4 const neutral_lane27{}; // the host tables' explicit `(0,0,0,0)` (see `toon_colour_neutral`)
         vec4 const neutral_lane28{};
+        vec4 const neutral_lane29{};
         vec4 const absent_row{}; // a material with no row is answered the neutral, NOT white
         CHECK_MSG(rs_use_of(lane27) == 1.0f && rs_mult_of(lane27) == 1.0f && rs_model_of(lane27) == 1.0f,
                   "RS A7: lane 27's .x/.y/.z = Use RS_Eff? / RS Multiply Value / RS Model, from the _GooRSScalars row");
         CHECK_MSG(lane27.w == 0.0f, "RS A7: _GooRSScalars.w stays 0.0 - SmoothStep.max has exactly ONE carrier (lane 28 .w)");
         CHECK_MSG(vec3_bitwise_equal(rs_tint_of(lane28), {7.5f, 1.41434848f, 0.0f}) && rs_smooth_max_of(lane28) == 0.9900000095367432f,
                   "RS A7: lane 28 = (RS ColorTint.rgb, SmoothStep.max), from the _GooRSTint row");
+        CHECK_MSG(rs_arm0_strength_of(lane29) == 1.0f && rs_arm0_lw_blend_of(lane29) == 0.0f && rs_arm0_lw_offset_of(lane29) == 0.0f,
+                  "RS A7 (step 15): lane 29's .y/.z/.w = RS Strength / Layer weight Value / Layer weight Value Offset, "
+                  "read from the _GooRSArm0 row - (1, 0, 0) on both cloth materials");
+        CHECK_MSG(rs_arm0_index_of(lane29) == 0.0f && rs_arm0_index_of(neutral_lane29) == 0.0f &&
+                      rs_arm0_strength_of(neutral_lane29) == 0.0f,
+                  "RS A7 (step 15): lane 29's .x is RS_Index and NOTHING READS IT (one sheet, spec L1). The neutral "
+                  "(0,0,0,0) therefore makes arm0 exactly 0 - a switch - and THAT is why a material with `Use = 1`, "
+                  "`RS Model = 0` and no sheet is not bitwise its base: 0 still goes through LIGHTEN (see A6)");
         CHECK_MSG(rs_use_of(neutral_lane27) == 0.0f && vec3_bitwise_equal(rs_tint_of(neutral_lane28), {0.0f, 0.0f, 0.0f}) &&
                       rs_smooth_max_of(neutral_lane28) == 0.0f,
                   "RS A7: both new lanes' HOST neutrals are (0,0,0,0) - a material with no row reads Use RS_Eff? = 0. "
@@ -3657,10 +3757,16 @@ int32_t main() {
                 }
             }
         }
-        CHECK_MSG(toon_colour_row.size() == 29u, "RS A7: the row table has one name per colour lane (29 after step 13)");
-        CHECK_MSG(toon_colour_row.size() > 28u && toon_colour_row[27] == "_GooRSScalars" && toon_colour_row[28] == "_GooRSTint",
-                  "RS A7: the two row names ARE the load-bearing host-side edit - WITHOUT them the generic `others` path "
+        CHECK_MSG(toon_colour_row.size() == 30u, "RS A7: the row table has one name per colour lane (30 after step 15)");
+        CHECK_MSG(toon_colour_row.size() > 29u && toon_colour_row[27] == "_GooRSScalars" && toon_colour_row[28] == "_GooRSTint" &&
+                      toon_colour_row[29] == "_GooRSArm0",
+                  "RS A7: the row names ARE the load-bearing host-side edit - WITHOUT them the generic `others` path "
                   "can never find the rows and RS is silently off (no warning, no compile error)");
+        // THE FOURTH NAME IS STEP 15'S, and it is checked here rather than only in the step-15 block below because
+        // this parse is the only place the table's LENGTH and its ORDER are read together: the array's size is
+        // `toon_colour_lane::count`, so a name appended in the wrong position would move every later lane's row. A
+        // missing name is the failure this test exists for (the `others` lookup finds nothing and the lane silently
+        // reads its neutral); a MISORDERED name is the same failure one lane over, and no frame can show either.
 
         // ---- A8: the source-text sync points (structure / boundary / reverse drift guards) ----
         // AFTER the landing-point correction every RS-block pin is taken on `goo_toon.slang` (the REWRITTEN chain);
@@ -3677,21 +3783,25 @@ int32_t main() {
                   "RS A8: it is the LIGHTEN form mix(lit_base, max(lit_base, rs_eff), ...), not a bare max");
         CHECK_MSG(goo_toon.find("3.0f - 2.0f * t") != std::string::npos,
                   "RS A8: the mask's SmoothStep is the hand-written polynomial t*t*(3-2t) (the _M chain, see 3.2b)");
-        CHECK_MSG(character_forward.find("character_toon_colour_lanes = 29u") != std::string::npos &&
-                      goo_toon.find("+ 27u") != std::string::npos && goo_toon.find("+ 28u") != std::string::npos,
-                  "RS A8: the two carriers are lanes 27/28 and the character stride is 29");
-        CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 29u") != std::string::npos &&
-                      pbr.find("pbr_toon_colour_lanes = 29u") != std::string::npos,
-                  "RS A8: the other two stride copies moved to 29 too (outline.slang reuses the character one)");
-        CHECK_MSG(primitive.find("count = 29,") != std::string::npos && primitive.find("goo_rs_scalars = 27,") != std::string::npos &&
-                      primitive.find("goo_rs_tint = 28,") != std::string::npos,
-                  "RS A8: toon_colour_lane grew by exactly two NAMED lanes and its count moved 27 -> 29");
-        CHECK_MSG(primitive.find("goo_rs_mask = 14,") != std::string::npos && primitive.find("count = 15,") != std::string::npos,
-                  "RS A8: the mask slot is the toon_slot enum's last entry and its count moved to 15");
-        CHECK_MSG(app.find("{\"_GooRSMask\", \"_UseGooRSMask\"}") != std::string::npos,
-                  "RS A8: the application vocabulary table names the mask slot and its flag");
-        CHECK_MSG(app.find("\"_GooRSScalars\"") != std::string::npos && app.find("\"_GooRSTint\"") != std::string::npos,
-                  "RS A8: toon_colour_row names lanes 27/28 (one row name per lane)");
+        CHECK_MSG(character_forward.find("character_toon_colour_lanes = 30u") != std::string::npos &&
+                      goo_toon.find("+ 27u") != std::string::npos && goo_toon.find("+ 28u") != std::string::npos &&
+                      goo_toon.find("+ 29u") != std::string::npos,
+                  "RS A8: the three carriers are lanes 27/28/29 and the character stride is 30 (it was 29 from step 13)");
+        CHECK_MSG(goo_rim.find("goo_rim_colour_lanes = 30u") != std::string::npos &&
+                      pbr.find("pbr_toon_colour_lanes = 30u") != std::string::npos,
+                  "RS A8: the other two stride copies moved to 30 too (outline.slang reuses the character one)");
+        CHECK_MSG(primitive.find("count = 30,") != std::string::npos && primitive.find("goo_rs_scalars = 27,") != std::string::npos &&
+                      primitive.find("goo_rs_tint = 28,") != std::string::npos && primitive.find("goo_rs_arm0 = 29,") != std::string::npos,
+                  "RS A8: toon_colour_lane's count moved 29 -> 30 for step 15's `_GooRSArm0` and the three earlier names are still there");
+        CHECK_MSG(primitive.find("goo_rs_mask = 14,") != std::string::npos && primitive.find("count = 16,") != std::string::npos &&
+                      primitive.find("goo_rs_sheet = 15,") != std::string::npos,
+                  "RS A8: step 15 spent `toon_slot`'s LAST slot (15 = goo_rs_sheet) and its count moved 15 -> 16");
+        CHECK_MSG(app.find("{\"_GooRSMask\", \"_UseGooRSMask\"}") != std::string::npos &&
+                      app.find("{\"_GooRSSheet\", \"_UseGooRSSheet\"}") != std::string::npos,
+                  "RS A8: the application vocabulary table names the mask slot, the sheet slot and both flags");
+        CHECK_MSG(app.find("\"_GooRSScalars\"") != std::string::npos && app.find("\"_GooRSTint\"") != std::string::npos &&
+                      app.find("\"_GooRSArm0\"") != std::string::npos,
+                  "RS A8: toon_colour_row names lanes 27/28/29 (one row name per lane)");
         CHECK_MSG(goo_toon.find("goo_hsv_desaturate(rs_final, desaturation)") != std::string::npos,
                   "RS A8: goo_toon.slang:374's FIRST argument is rs_final - the RS block has to reach 色相/饱和度/明度; "
                   "goo_hsv_desaturate(colour + s.emissive, ...) would silently drop the whole RS term while still compiling");
@@ -3704,8 +3814,63 @@ int32_t main() {
         CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") < goo_toon.find("rs_final =") &&
                       goo_toon.find("rs_final =") < goo_toon.find("goo_hsv_desaturate(rs_final, desaturation)"),
                   "RS A8: the RS block sits between 混合.026 (colour + s.emissive) and 色相/饱和度/明度 - its real position");
-        CHECK_MSG(goo_toon.find("armA") != std::string::npos,
-                  "RS A8: the block's comment names the unported armA branch (F2), so the next reader knows what is missing");
+        // STEP 15 REPLACES THE OLD "names the unported armA branch (F2)" PIN. That pin is now the reverse of the
+        // truth, so it is replaced by pins on the arm that landed - each one a piece of the reference's chain whose
+        // absence would leave a silently different picture rather than a build error.
+        CHECK_MSG(goo_toon.find("const float3 toon_shading_normal = goo_toon_shading_normal(") != std::string::npos &&
+                      goo_toon.find("s.toon_family, toon_shading_normal, v_world_pos") != std::string::npos,
+                  "RS A8 (step 15): the shading normal is HOISTED to one named value and passed to `toon_diffuse` - "
+                  "the armA path reuses that evaluation; a second `goo_toon_shading_normal(...)` inside the arm would "
+                  "be a second decode of the normal map and could not be bit-identical to the one the shading used");
+        CHECK_MSG(goo_toon.find("const float rs_model = rs_scalars.z;") != std::string::npos &&
+                      goo_toon.find("if (rs_model == 0.0f)") != std::string::npos,
+                  "RS A8 (step 15): `RS Model` is named and selects the arm INSIDE the gate - the reference's own "
+                  "arrangement (its `混合.033`), not the step-13 whole-block switch");
+        CHECK_MSG(goo_toon.find("if (rs_use > 0.0f && rs_scalars.z != 0.0f)") == std::string::npos,
+                  "RS A8 (step 15), REVERSE DRIFT GUARD: the OLD combined gate is GONE. It is the one line that made "
+                  "`RS Model = 0` skip the block entirely - if it comes back, armA stops running and only this pin says so");
+        CHECK_MSG(goo_toon.find("camera_at(heap_camera_slot)") != std::string::npos &&
+                      goo_toon.find("const float rs_facing_abs = abs(dot(rs_to_camera, toon_shading_normal));") != std::string::npos &&
+                      goo_toon.find("if (rs_lw_blend == 0.5f)") != std::string::npos &&
+                      goo_toon.find("rs_facing = pow(1.0f - rs_facing_abs, rs_exponent);") != std::string::npos &&
+                      goo_toon.find("const float rs_blend_clamped = clamp(rs_lw_blend, 0.0f, 0.99999f);") != std::string::npos,
+                  "RS A8 (step 15): the facing half - `V` out of the camera slot, `|V.n|` UNSATURATED, the exact-0.5 "
+                  "branch that skips remap and pow, and the clamp at 0.99999 that keeps the divisor off zero");
+        CHECK_MSG(goo_toon.find("if (rs_block3.w != 0u)") != std::string::npos,
+                  "RS A8 (step 15): the SHEET is slot 15 - the third block's `.w`, the mask's own neighbour - and "
+                  "index 0 is NOT read: a material with no sheet row must not sample the WHITE fallback, because that "
+                  "would turn the arm ON for every material that states no sheet");
+        CHECK_MSG(goo_toon.find("const float goo_rs_sheet_width = 256.0f;") != std::string::npos &&
+                      goo_toon.find("const float2 sheet_uv = clamp(") != std::string::npos &&
+                      goo_toon.find("float2(rs_sheet_u, 0.5f),") != std::string::npos &&
+                      goo_toon.find("float2(0.5f / goo_rs_sheet_width, 0.5f),") != std::string::npos &&
+                      goo_toon.find("float2(1.0f - 0.5f / goo_rs_sheet_width, 0.5f));") != std::string::npos,
+                  "RS A8 (step 15, EXTEND equivalence): the sheet's address mode is the reference's `EXTEND` "
+                  "(`gooblender/nodes.json:93653-93659`), and the port - which owns ONE sampler per heap and therefore "
+                  "cannot honour a per-image address mode - reproduces it by pulling `u` to the interval where REPEAT and "
+                  "CLAMP agree, i.e. half a texel inside each end of a 256-wide sheet. Both texel-centre offsets are "
+                  "spelled with `0.5f / goo_rs_sheet_width` rather than as folded literals so the width stays a single "
+                  "named number: a hard-coded `0.001953125f` twice would hide a sheet that is not 256 wide");
+        CHECK_MSG(goo_toon.find("heap_sampler_texture, sheet_uv);") != std::string::npos &&
+                      goo_toon.find("heap_sampler_texture, float2(rs_sheet_u, 0.5f)") == std::string::npos,
+                  "RS A8 (step 15), NEGATIVE PIN: the sheet is sampled AT `sheet_uv` and never at the raw `u`. The "
+                  "clamped and the unclamped coordinate differ only at the two ends of the sheet, so a revert to the raw "
+                  "`u` would change nothing except the frames that put a mask=1 pixel exactly at `u = 0` - which is the "
+                  "one place this step's whole V2 reading lives");
+        CHECK_MSG(goo_toon.find("const float rs_shadow = (s.toon_indices.w != 0u) ? 1.0f : calc_shadow(v_world_pos, toon_shading_normal);") != std::string::npos &&
+                      goo_toon.find("const float rs_cast_sigmoid = goo_sigmoid_sharp(rs_shadow, rs_cast_center, rs_cast_sharp);") != std::string::npos &&
+                      goo_toon.find("const float4 rs_cast_lane = toon_colour_at(heap_slots_toon_colours, rs_colour_base + 11u);") != std::string::npos,
+                  "RS A8 (step 15): the cast factor is the EXISTING `goo_sigmoid_sharp` over the EXISTING "
+                  "`calc_shadow`, fed from `_GooDiffuseA`'s own lane - not a second curve, not a second shadow lookup "
+                  "and not a re-tuned centre");
+        CHECK_MSG(goo_toon.find("ramp_u") == std::string::npos &&
+                      goo_toon.find("remap_half_lambert_sigmoid") == std::string::npos,
+                  "RS A8 (step 15), SPEC L3: NOT the `ramp_u = min(cast_sigmoid, remap_half_lambert_sigmoid)` consumer "
+                  "at character_forward.slang:2535 - that is a different quantity with a different curve, and reusing "
+                  "it here would be the easiest way to make this arm look plausible and be wrong");
+        CHECK_MSG(goo_toon.find("rs_eff = ((((rs_sheet * rs_tint_lane.rgb) * rs_arm0_lane.y) * rs_ndotl) * rs_cast_sigmoid) * rs_mask;") != std::string::npos,
+                  "RS A8 (step 15), SPEC §1.3: the landing line, VERBATIM and in the reference's parenthesis order "
+                  "(f32 multiplication is not associative, so the order is the mechanism, not formatting)");
         CHECK_MSG(goo_toon.find("toon_lanes3_at(heap_slots_toon_lanes, push.material_index)") != std::string::npos &&
                       goo_toon.find("if (rs_block3.z != 0u)") != std::string::npos,
                   "RS A8: the mask is slot 14 of the THIRD block, read through the accessor that names it, and index 0 is not read");
@@ -3731,6 +3896,17 @@ int32_t main() {
                 // `kind` MUST be `slot`: only that kind reaches `slots`, and a `texture` row would leave the mask
                 // slot undefined - the paper trail is the point, because the failure is silent
                 CHECK_MSG(sidecar.find("_GooRSMask\ttexture") == std::string::npos, "RS A7: the mask rows are `slot` rows, never `texture`");
+
+                // STEP 15 (spec L3): THE SHIPPED ASSET STATES NONE OF THE THREE NEW KEYS, and that IS the limit. Every
+                // shipping material is `RS Model = 1`, so none of them enters `armA`; the one fixture that does
+                // (`s13ctrl/laevatain_goo_rsz0.glb` and its own derived sidecar) is the only place these rows exist.
+                // Pinned as an ABSENCE with the same reading as the `_GooFaceSDF` pin below: if a future asset adds
+                // the rows, this fires, and that asset's `arm0` has to be MEASURED rather than inherited from here.
+                CHECK_MSG(sidecar.find("_GooRSSheet") == std::string::npos &&
+                              sidecar.find("_UseGooRSSheet") == std::string::npos &&
+                              sidecar.find("_GooRSArm0") == std::string::npos,
+                          "RS A9 (spec L3): the SHIPPED asset carries none of step 15's three keys - armA runs only on "
+                          "the derived fixture, and no shipped pixel is affected by this step");
 
                 // STEP 14 (mechanism table #7, arm (a)): THE HAIR'S CARRIER ROW - the one end-to-end assertion this step
                 // adds, and the only one here that would notice a sidecar which simply does not carry the row at all.

@@ -524,7 +524,7 @@ static const float character_shadow_lut_tiles = 32.0;
 /// the top of it) `outline.slang` all address the SAME table, so a stale copy in any one of them reads another
 /// material's lanes - a plausible wrong picture rather than an error. `tests/test_toon_material_sidecar.cpp` and
 /// `tests/test_goo_toon_math.cpp` pin all four against `vulkan::toon_colour_lane::count`.
-static const uint character_toon_colour_lanes = 29u;
+static const uint character_toon_colour_lanes = 30u;
 
 /// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
 ///

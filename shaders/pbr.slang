@@ -336,7 +336,10 @@ static const uint pbr_outline_edge_lane = 3u;
 // twenty-ninth lanes (mechanism table #14, `RS EFF`), which this pass must NOT read: the RS term belongs to the
 // stage that owns the emission term and adding it to the outline hull would make the outline carry a colour the
 // pixel behind it does not.
-static const uint pbr_toon_colour_lanes = 29u;
+// STEP 15 MOVED THEM ONCE MORE for `_GooRSArm0`, the surface stage's thirtieth lane (the same mechanism's `armA`
+// sockets: `RS_Index` / `RS Strength` / `Layer weight Value` / `Layer weight Value Offset`), which this pass must
+// NOT read either, for the reason immediately above.
+static const uint pbr_toon_colour_lanes = 30u;
 
 [shader("mesh")]
 [outputtopology("triangle")]

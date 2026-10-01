@@ -599,13 +599,23 @@ namespace vulkan {
          * read a pure-white mask, i.e. `_M = 1` everywhere, i.e. the strongest possible statement about a branch
          * the material never switched on (spec F5).
          *
-         * SLOT 15 IS DELIBERATELY LEFT EMPTY: the reference's `RS EFF` has a second, unported input (`armA`, the
-         * two 256x1 `_RS` sheets), and `toon_colour_lane`'s sibling note records that the lane ceiling is
-         * `toon_record_lanes + toon_lane_blocks * 4` = 16. Spending the last lane now would make the next texture
-         * lane cost a `toon_lane_blocks` raise and widened accessors.
+         * SLOT 15 IS `armA`'s SHEET, AND TAKING IT SPENDS THE LAST LANE THIS TABLE HAS: the reference's `RS EFF`
+         * selects between two arms (`RS Model`: 0 = `armA`, which samples the two 256x1 `_RS` character sheets;
+         * 1 = `armB`, `_M ⊙ RS ColorTint`), and step 15 ports `armA`. `toon_colour_lane`'s sibling note records
+         * the lane ceiling as `toon_record_lanes + toon_lane_blocks * 4` = 16, so this is the last lane that fits:
+         * a SECOND sheet (the reference has one per character and `armA` mixes the two by `RS_Index`) has no lane
+         * left here and would cost a `toon_lane_blocks` raise plus widened accessors. That is why the arm is
+         * ported with ONE sheet while `RS_Index` is carried and unhonoured - see `toon_colour_lane::goo_rs_arm0`.
+         *
+         * SRGB RATHER THAN UNORM, AND THE DIFFERENCE IS THE SAMPLER AND NOT THE SHADER: an `_RS` sheet is a
+         * COLOUR image (the reference multiplies it into a tint), so `VK_FORMAT_R8G8B8A8_SRGB` hands the stage
+         * texels the sampler has already decoded - a second decode in the shader would double-apply the curve.
+         * `_GooRSMask` above is UNORM for the opposite reason: its channels are a mask and are read through no
+         * decode at all.
          */
-        goo_rs_mask = 14, // `_GooRSMask`: the Non-Color `_M` mask of mechanism table #14 (`RS EFF`), UNORM
-        count = 15,
+        goo_rs_mask = 14,  // `_GooRSMask`: the Non-Color `_M` mask of mechanism table #14 (`RS EFF`), UNORM
+        goo_rs_sheet = 15, // `_GooRSSheet`: `armA`'s 256x1 `_RS` colour sheet (mechanism table #14), SRGB
+        count = 16,
     };
     // THE LANES SPLIT INTO TWO GROUPS, and the split is a fact about the material record rather than a
     // convenience: lanes 0..3 ride `material_record::toon_indices`, and every lane from 4 on is carried BESIDE
@@ -1203,17 +1213,17 @@ namespace vulkan {
          * boolean socket's value is a float in this sidecar and any positive value that is not exactly one would
          * be read as "off" by an equality test (`goo_step13_rs_eff_spec_s.md` §2.1).
          *
-         * `.z` IS `RS Model`, AND IT IS CARRIED WITHOUT BEING HONOURED: the reference's `RS EFF` is a two-arm
-         * selector (`RS Model`: 0 = `armA`, the two 256x1 `_RS` sheets; 1 = `armB`, `_M ⊙ RS ColorTint`) and only
-         * `armB` is ported, so the stage keeps the base unchanged when `.z == 0.0` instead of taking `arm0`.
-         * That is a DELIBERATE infidelity, it is the reason the socket is carried at all (so the branch cannot
-         * switch on for the one material in the dumps that has `RS Model = 0`), and it is stated at the port site
-         * in `shaders/goo_toon.slang` (spec F2).
+         * `.z` IS `RS Model`, AND SINCE STEP 15 IT IS HONOURED: the reference's `RS EFF` is a two-arm selector
+         * (`RS Model`: 0 = `armA`, the 256x1 `_RS` sheet sampled at the Layer Weight's `u`; 1 = `armB`,
+         * `_M ⊙ RS ColorTint`) and the stage takes the arm this component names. Before step 15 it was CARRIED
+         * WITHOUT BEING HONOURED - the stage kept the base unchanged when `.z == 0.0` - which was the deliberate
+         * infidelity the `armA` port removes; the port site and its three stated limits are in
+         * `shaders/goo_toon.slang`'s RS block and `toon_colour_lane::goo_rs_arm0`.
          *
          * WHY IT IS A LANE AND NOT A CONSTANT: all three are per material. `Use RS_Eff?` is `1` on exactly three
          * of the 23 `PBRToonBase` instances in `gooblender/nodes.json`, and `RS Model` is `0` on one of those
-         * three - so a constant would either switch the branch on for 20 materials that never asked for it or off
-         * for the two this asset ships.
+         * three (`M_actor_yvonne_cloth_03`, which no captured asset carries) - so a constant would either switch
+         * the branch on for 20 materials that never asked for it or off for the two this asset ships.
          */
         goo_rs_scalars = 27, // `_GooRSScalars`: `Use RS_Eff?` [x] / `RS Multiply Value` [y] / `RS Model` [z] (w reserved)
         /**
@@ -1243,7 +1253,29 @@ namespace vulkan {
          * `T_actor_laevat_cloth_03_M` - the image name is NOT the material name (spec §4.4 trap 1).
          */
         goo_rs_tint = 28, // `_GooRSTint`: `RS ColorTint` [rgb] / `SmoothStep.max` [w]
-        count = 29,
+        /**
+         * `_GooRSArm0`: the four `armA` sockets that are not a colour, one lane for the reason
+         * `_GooRSScalars` is one - a `color` row is four floats and this arm has exactly four numbers.
+         *
+         * `.x = RS_Index` (which of the reference's two `_RS` character sheets `混合.032` mixes towards),
+         * `.y = RS Strength` (`s023 = s036 * RS Strength`, unclamped in the reference),
+         * `.z = Layer weight Value` and `.w = Layer weight Value Offset`, the two that build the sheet's `u`
+         * coordinate: `u = clamp(1 - |V·n_rs|^remap(.z) + .w, 0, 1)`. The sheet's `v` is a constant `0.5` because
+         * every `_RS` sheet in the dumps is 256x1.
+         *
+         * `.x` IS CARRIED AND NOT HONOURED, and the reason is the lane ceiling above rather than an oversight: the
+         * port has ONE sheet slot, so a material with `RS_Index > 0` reads the first sheet instead of the second.
+         * The dumps put `RS_Index = 1` on exactly one material (`M_actor_yvonne_cloth_03`, in no captured asset)
+         * and `0` on the two this asset ships, so the infidelity is stated rather than measured away.
+         *
+         * THE NEUTRAL IS `(0,0,0,0)` AND IT MAKES `armA` A NO-OP: `RS Strength = 0` zeroes `s023` and with it
+         * `arm0`, which is what a material whose sidecar states no `_GooRSArm0` row must get. Note that is NOT
+         * the same as the lane being absent: the lane exists and is written for every material, and a zeroed
+         * `arm0` still passes through `armB`'s own LIGHTEN (`max(base, 0)`), which is why the outer gate stays
+         * `Use RS_Eff?` and only that - see the RS block's note in `shaders/goo_toon.slang`.
+         */
+        goo_rs_arm0 = 29, // `_GooRSArm0`: `RS_Index` [x] / `RS Strength` [y] / `Layer weight Value` [z] / `Offset` [w]
+        count = 30,
     };
 
     /**
@@ -1427,6 +1459,14 @@ namespace vulkan {
                                                                                             // Lane 28's `.w` is the mask's `SmoothStep.max`, so zero here also has to mean "unstated" rather than a
                                                                                             // literal `max = 0`: the stage reads `.w <= 0` as `1.0`, which is the divide-by-zero guard the port
                                                                                             // needs precisely because this neutral is `(0,0,0,0)` (see `toon_colour_lane::goo_rs_tint`, spec U7).
+                                                                                            glm::vec4(0.0f, 0.0f, 0.0f, 0.0f),
+                                                                                            // ---- STEP 15'S ONE LANE (`toon_colour_lane::goo_rs_arm0`) ----
+                                                                                            //
+                                                                                            // `(0, 0, 0, 0)` IS THE REFERENCE'S OWN GROUP DEFAULT for the
+                                                                                            // `armA` sockets AND it is the arm's off switch: `.y` is `RS Strength`,
+                                                                                            // and `s023 = s036 * RS Strength` zeroes the whole arm when it is zero.
+                                                                                            // A material with no `_GooRSArm0` row therefore gets an `arm0` of zero
+                                                                                            // rather than a guess. See `toon_colour_lane::goo_rs_arm0`.
                                                                                             glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)};
         /**
          * THE AUTHOR'S TRANSPARENT VARIANT (`_TRANSPARENT_ON`), which its sidecar selects with the PAIR

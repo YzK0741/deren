@@ -165,7 +165,10 @@ struct GooRimPush
 /// OF THEM and must not: the whole RS branch belongs to the surface stage that owns the emission term, and adding
 /// the RS term here as well would apply it twice. The number is here only because this file addresses the same
 /// lane table, so a stale count would land this pass's rim reads (lanes 7/8/9) on another material's lanes.
-static const uint goo_rim_colour_lanes = 29u;
+/// STEP 15 RAISED IT TO 30 FOR `_GooRSArm0` (`RS_Index` / `RS Strength` / `Layer weight Value` / `Layer weight
+/// Value Offset`), the four sockets the `armA` side of the same mechanism needs. THIS PASS STILL READS NONE OF THE
+/// RS LANES - the note above applies unchanged - and the number moves only because the table grew.
+static const uint goo_rim_colour_lanes = 30u;
 
 // ============================ THE REFERENCE'S GROUP-INTERNAL CONSTANTS ============================
 //
