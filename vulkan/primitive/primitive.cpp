@@ -366,20 +366,25 @@ namespace vulkan {
         float const yaw,
         float const distance,
         float const strafe,
-        float const walk,
+        float const rise,
         float const dt,
         bool const fast) {
         // The camera's horizontal frame, taken from the very sphere make_orbit_camera_ubo places the eye on:
-        // eye sits at target + distance * (cp*sin yaw, sin pitch, cp*cos yaw), so the view direction's
-        // horizontal part is (-sin yaw, 0, -cos yaw) and its right vector is cross(forward, world up) =
-        // (cos yaw, 0, -sin yaw). Panning translates the TARGET - the point the eye orbits - which slides the
-        // whole rig and leaves yaw / pitch / distance untouched, so the view direction does not change.
-        glm::vec3 const forward(-std::sin(yaw), 0.0f, -std::cos(yaw));
+        // eye sits at target + distance * (cp*sin yaw, sin pitch, cp*cos yaw), so the right vector is
+        // cross(horizontal view direction, world up) = (cos yaw, 0, -sin yaw).
         glm::vec3 const right(std::cos(yaw), 0.0f, -std::sin(yaw));
+        // UP/DOWN RISE ALONG WORLD UP, NOT ALONG THE VIEW DIRECTION. The first cut walked the eye along
+        // (-sin yaw, 0, -cos yaw) and was rejected by the user the moment it shipped: moving the eye toward
+        // the subject changes its apparent SIZE, so the arrow keys read as a zoom rather than as an up/down
+        // slide. World up keeps the two gestures distinct at every pitch; y is exactly 0 unless UP/DOWN is
+        // held, which is also what keeps the horizontal keys' output byte-identical to the first cut's.
+        glm::vec3 const up(0.0f, 1.0f, 0.0f);
 
         // Normalize the two axes TOGETHER: a diagonal press must not move sqrt(2) times faster than a
-        // straight one. No key held is exactly zero, so an idle frame does not touch the camera at all.
-        float const length = glm::length(forward * walk + right * strafe);
+        // straight one (the two axes are orthogonal, so this is sqrt(strafe^2 + rise^2)). No key held is
+        // exactly zero, so an idle frame does not touch the camera at all.
+        glm::vec3 const direction = right * strafe + up * rise;
+        float const length = glm::length(direction);
         if (length <= 0.0f) {
             return glm::vec3(0.0f);
         }
@@ -396,7 +401,7 @@ namespace vulkan {
         // Clamp the step: a stalled frame (breakpoint, swapchain recreation, the first frame's unset clock)
         // must not teleport the camera across the scene.
         float const step = std::clamp(dt, 0.0f, max_step_seconds) * speed;
-        return (forward * walk + right * strafe) / length * step;
+        return direction / length * step;
     }
 
     light_ubo make_directional_light_ubo(glm::vec3 const& sun_direction, glm::vec3 const& scene_center, float const scene_radius, float const shadow_map_size) {

@@ -2142,18 +2142,23 @@ namespace vulkan {
      *        is (cos yaw, 0, -sin yaw)
      * @param distance the rig's distance from the target; the pan speed scales with it, so a zoomed-out
      *        view crosses the scene at the same on-screen rate as a close one
-     * @param strafe -1 (left) .. +1 (right): moves along the camera's right vector
-     * @param walk -1 (backward) .. +1 (forward): moves along the camera's horizontal view direction
+     * @param strafe -1 (left) .. +1 (right): moves along the camera's right vector (horizontal)
+     * @param rise -1 (down) .. +1 (up): moves along WORLD up, (0, 1, 0). The first cut moved along the
+     *        horizontal view direction instead and was rejected on sight: pushing the eye toward the
+     *        subject reads as a zoom (the subject grows), not as the up/down slide the arrow keys ask
+     *        for. World up (not the camera's screen-up) keeps the gesture the same at every pitch and
+     *        degenerate at none.
      * @param dt seconds since the previous frame; clamped inside (see the note) so a stalled frame
      *        cannot teleport the camera
      * @param fast true for the SHIFT speed multiplier (4x)
-     * @return the target's translation for this frame (world units; y is always 0 - the pan is horizontal)
+     * @return the target's translation for this frame (world units; y is non-zero only while UP/DOWN
+     *         is held)
      * @note pure function: the runtime owns the time base (glfwGetTime) and the key state, so the
      *       arithmetic is unit-testable headlessly. Both axes are normalized together, so a diagonal
      *       press is not faster than a straight one, and no key held returns exactly zero (an idle
      *       frame never touches the camera).
      */
-    export glm::vec3 orbit_camera_pan_delta(float yaw, float distance, float strafe, float walk, float dt, bool fast);
+    export glm::vec3 orbit_camera_pan_delta(float yaw, float distance, float strafe, float rise, float dt, bool fast);
 
     /**
      * @ingroup vulkan_primitive

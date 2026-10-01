@@ -161,10 +161,12 @@ namespace vulkan {
         }
         this->screenshot_key_down = f12_down;
 
-        // ARROW KEYS PAN THE CAMERA. LEFT/RIGHT strafe along the camera's right vector, UP/DOWN walk
-        // along its horizontal view direction, and both translate `camera.target` - the point the eye
-        // orbits - so the rig slides without the view rotating (the arithmetic lives in
-        // orbit_camera_pan_delta, vulkan/primitive, next to the orbit sphere it is derived from).
+        // ARROW KEYS PAN THE CAMERA. LEFT/RIGHT strafe along the camera's right vector, UP/DOWN rise and
+        // fall along WORLD up, and both translate `camera.target` - the point the eye orbits - so the rig
+        // slides without the view rotating (the arithmetic lives in orbit_camera_pan_delta,
+        // vulkan/primitive, next to the orbit sphere it is derived from). UP/DOWN is world up rather than
+        // the view direction on purpose: the view-direction version pushed the eye toward the subject and
+        // read as a zoom, not as the up/down slide the keys promise.
         // Unlike F1/F12 this is a CONTINUOUS input: the step is speed x elapsed time sampled off
         // glfwGetTime, so the pan speed does not depend on the frame rate. There is deliberately no gui
         // guard here - the debug overlay captures the MOUSE only (gui_content exposes wants_mouse), so
@@ -175,11 +177,11 @@ namespace vulkan {
         this->camera.last_pan_time = now; // sampled every frame, so a key released for a while does not bank a jump
         float const strafe = (glfwGetKey(window, GLFW_KEY_RIGHT) == GLFW_PRESS ? 1.0f : 0.0f) -
                              (glfwGetKey(window, GLFW_KEY_LEFT) == GLFW_PRESS ? 1.0f : 0.0f);
-        float const walk = (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS ? 1.0f : 0.0f) -
+        float const rise = (glfwGetKey(window, GLFW_KEY_UP) == GLFW_PRESS ? 1.0f : 0.0f) -
                            (glfwGetKey(window, GLFW_KEY_DOWN) == GLFW_PRESS ? 1.0f : 0.0f);
         bool const pan_fast = glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS || glfwGetKey(window, GLFW_KEY_RIGHT_SHIFT) == GLFW_PRESS;
-        glm::vec3 const pan = orbit_camera_pan_delta(this->camera.yaw, this->camera.distance, strafe, walk, static_cast<float>(elapsed), pan_fast);
-        if (pan.x != 0.0f || pan.z != 0.0f) { // no arrow held (or a zero step) leaves the target UNTOUCHED, byte for byte
+        glm::vec3 const pan = orbit_camera_pan_delta(this->camera.yaw, this->camera.distance, strafe, rise, static_cast<float>(elapsed), pan_fast);
+        if (pan != glm::vec3(0.0f)) { // no arrow held (or a zero step) leaves the target UNTOUCHED, byte for byte
             this->camera.target += pan;
         }
 

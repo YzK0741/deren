@@ -96,25 +96,28 @@ namespace {
 } // namespace
 
 // ---- ARROW-KEY CAMERA PAN (vulkan::orbit_camera_pan_delta) ----
-// The pan is the keyboard's camera movement. Three properties are the contract the runtime depends on:
+// The pan is the keyboard's camera movement. Four properties are the contract the runtime depends on:
 // a frame with no arrow held must not touch the camera AT ALL (an idle frame stays byte-identical, which
 // is how the pan stays provably inert for the pinned render frames), a diagonal press must not be faster
-// than a straight one, and the step must be speed x dt with the speed tied to the orbit distance and dt
-// clamped, so a stalled frame cannot teleport the rig. The expected vectors are recomputed here from the
-// orbit sphere (eye = target + distance * (cp*sin yaw, sin pitch, cp*cos yaw)) independently of the
-// implementation - the view direction's horizontal part and its right vector, for three yaws.
+// than a straight one, the step must be speed x dt with the speed tied to the orbit distance and dt
+// clamped so a stalled frame cannot teleport the rig, and the two axes must stay the gestures the keys
+// name: LEFT/RIGHT strafes horizontally while UP/DOWN RISES ALONG WORLD UP. The last one is a rejection
+// recorded as a test: the first cut moved UP/DOWN along the horizontal view direction, which slides the eye
+// toward or away from the subject and therefore reads as a zoom. The expected vectors are recomputed here
+// from the orbit sphere (eye = target + distance * (cp*sin yaw, sin pitch, cp*cos yaw)) independently of
+// the implementation - the right vector and world up, for three yaws.
 void test_orbit_camera_pan() {
     constexpr float half_pi = 1.5707963267948966f;
     struct frame_case {
         float yaw;
-        glm::vec3 forward; // where the camera looks (horizontal), i.e. what WALK = +1 moves along
-        glm::vec3 right;   // cross(forward, world up), i.e. what STRAFE = +1 moves along
+        glm::vec3 right; // cross(horizontal view direction, world up), i.e. what STRAFE = +1 moves along
     };
     frame_case const frame[] = {
-        {0.0f, {0.0f, 0.0f, -1.0f}, {1.0f, 0.0f, 0.0f}},
-        {half_pi, {-1.0f, 0.0f, 0.0f}, {0.0f, 0.0f, -1.0f}},
-        {3.0f, {-std::sin(3.0f), 0.0f, -std::cos(3.0f)}, {std::cos(3.0f), 0.0f, -std::sin(3.0f)}},
+        {0.0f, {1.0f, 0.0f, 0.0f}},
+        {half_pi, {0.0f, 0.0f, -1.0f}},
+        {3.0f, {std::cos(3.0f), 0.0f, -std::sin(3.0f)}},
     };
+    glm::vec3 const up(0.0f, 1.0f, 0.0f); // what RISE = +1 moves along, at every yaw and every pitch
 
     constexpr float distance = 2.0f; // above the 0.1 floor, so the speed is distance * 0.75
     constexpr float clamped_dt = 0.25f;
@@ -122,12 +125,23 @@ void test_orbit_camera_pan() {
 
     for (frame_case const& c : frame) {
         // dt = 4 s is clamped to 0.25 s, so the step is the same as a well-paced frame's.
-        glm::vec3 const forward_move = vulkan::orbit_camera_pan_delta(c.yaw, distance, 0.0f, 1.0f, 4.0f, false);
+        glm::vec3 const rise_move = vulkan::orbit_camera_pan_delta(c.yaw, distance, 0.0f, 1.0f, 4.0f, false);
         glm::vec3 const right_move = vulkan::orbit_camera_pan_delta(c.yaw, distance, 1.0f, 0.0f, 4.0f, false);
-        CHECK(glm::length(forward_move - c.forward * step) < 1e-5f);
+        CHECK(glm::length(rise_move - up * step) < 1e-5f);
         CHECK(glm::length(right_move - c.right * step) < 1e-5f);
-        CHECK(forward_move.y == 0.0f); // the pan is horizontal (the pitch is not an input to it)
+        CHECK(right_move.y == 0.0f);                       // strafing never leaves the horizontal plane
+        CHECK(rise_move.x == 0.0f && rise_move.z == 0.0f); // and rising never drifts horizontally
     }
+
+    // The rejected axis, pinned as a NEGATIVE: at yaw 0 the horizontal view direction is (0, 0, -1), so a
+    // walk-style UP would have moved along -Z. Rising must have no Z component, DOWN must be exactly -UP,
+    // and the two axes must mix as an orthogonal pair (a (+1, +1) press is 45 degrees at the same length).
+    glm::vec3 const down_move = vulkan::orbit_camera_pan_delta(0.0f, distance, 0.0f, -1.0f, 4.0f, false);
+    CHECK(down_move.z == 0.0f);
+    CHECK(glm::length(down_move + up * step) < 1e-5f);
+    glm::vec3 const diagonal_move = vulkan::orbit_camera_pan_delta(0.0f, distance, 1.0f, 1.0f, 4.0f, false);
+    CHECK(std::abs(diagonal_move.x - step / std::sqrt(2.0f)) < 1e-5f);
+    CHECK(std::abs(diagonal_move.y - step / std::sqrt(2.0f)) < 1e-5f);
 
     // No arrow held: EXACTLY zero, so an idle frame never writes the target.
     CHECK(vulkan::orbit_camera_pan_delta(0.7f, 2.0f, 0.0f, 0.0f, 0.016f, false) == glm::vec3(0.0f));
