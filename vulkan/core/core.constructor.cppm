@@ -479,6 +479,13 @@ namespace vulkan {
             utility::panic("VK_KHR_unified_image_layouts is required but not supported by the device");
         }
 
+        // VK_EXT_host_image_copy is OPTIONAL, the opposite of the layout feature above: it lets an image read-back
+        // skip its staging buffer and its copy command, but every path that uses it still works without it, so this
+        // asks for it when the queried capability says it is usable and never refuses a device over it.
+        if (capabilities.host_image_copy_available) {
+            creation_info.extensions.push_back(VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME);
+        }
+
         if (!check_device_extension_support(physical_device, creation_info.extensions)) {
             utility::panic("Required device extensions not supported");
         }
@@ -501,6 +508,16 @@ namespace vulkan {
             // the indirect twin comes from the same extension and is resolved the same way; it answers null
             // independently, and the dispatch path treats that as "no indirect route" rather than as an error
             this->mesh_dispatch_indirect = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
+        }
+
+        // ---- HOST IMAGE COPY: the same shape as the mesh commands above (an extension entry point fetched through
+        //      vkGetDeviceProcAddr, because the loader's import library does not export it), except that a null here
+        //      is NOT a failure - it means "read images back through the staging path", which is why the capability
+        //      is recomputed from the entry point rather than copied. See docs/host_image_copy.md.
+        this->host_image_copy_available = capabilities.host_image_copy_available;
+        if (this->host_image_copy_available) {
+            this->copy_image_to_memory = reinterpret_cast<PFN_vkCopyImageToMemoryEXT>(vkGetDeviceProcAddr(device, "vkCopyImageToMemoryEXT"));
+            this->host_image_copy_available = this->copy_image_to_memory != nullptr;
         }
 
         // ---- THE DESCRIPTOR HEAP's LIMITS, recorded here and not created here: the heap's buffers come from the

@@ -294,6 +294,15 @@ namespace vulkan {
         /// the seam a COMPUTE culling pass needs - the counts are then decided on the GPU, after culling, rather
         /// than by the host that recorded the draw (see runtime::draw_mesh_tasks_indirect)
         PFN_vkCmdDrawMeshTasksIndirectEXT mesh_dispatch_indirect = nullptr;
+        /// VK_EXT_host_image_copy (OPTIONAL, see host_image_copy_available below): the copy between an image and
+        /// HOST memory that the IMPLEMENTATION performs - no command buffer, no staging buffer, no submission.
+        /// Resolved through vkGetDeviceProcAddr like the mesh commands above, because the loader's import library
+        /// does not export it; null means this device cannot perform one (see docs/host_image_copy.md).
+        PFN_vkCopyImageToMemoryEXT copy_image_to_memory = nullptr;
+        /// whether a host image copy is usable on THIS device AND for THIS renderer's images: the extension, its
+        /// hostImageCopy feature and GENERAL among the device's copy-source layouts - the three things the call
+        /// needs. Every caller tests it before choosing a host copy, so false always means the staging path.
+        bool host_image_copy_available = false;
         uint32_t graphics_family_index = 0;
         uint32_t present_family_index = 0;
         VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;

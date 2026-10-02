@@ -202,6 +202,25 @@ export struct device_capabilities {
     ///        silently falling back to per-layout transitions.
     bool unified_image_layouts_available = false;
 
+    // ---- VK_EXT_host_image_copy: a copy between image memory and host memory that the IMPLEMENTATION performs,
+    //      which is what lets a read-back skip the staging buffer and the copy command entirely (see
+    //      vulkan.readback). Unlike the unified layouts feature above it is OPTIONAL: a device without it keeps
+    //      the command-buffer read-back, so it is enabled when present and reported unavailable otherwise.
+    //      NOTE the feature bit is not the whole capability: a host copy may only read an image whose layout is
+    //      one of the device's VkPhysicalDeviceHostImageCopyPropertiesEXT::pCopySrcLayouts, and this renderer
+    //      keeps every image in GENERAL - so "available" here also means "GENERAL is in that list" (see query()).
+    VkPhysicalDeviceHostImageCopyFeaturesEXT host_image_copy_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES_EXT};
+    VkPhysicalDeviceHostImageCopyPropertiesEXT host_image_copy_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES_EXT};
+    /// @brief the layouts a host copy may read FROM (host_image_copy_properties.pCopySrcLayouts). A fixed array
+    ///        because the only question asked of it is "is GENERAL listed": if a device listed more layouts than
+    ///        fit here the tail would be invisible, whose worst case is a false "unavailable" (the staging path
+    ///        stays), never a copy issued in a layout the device does not accept.
+    static constexpr uint32_t host_image_copy_max_src_layouts = 16;
+    std::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_src_layouts = {};
+    /// @brief whether the device has VK_EXT_host_image_copy, its hostImageCopy feature AND GENERAL among its
+    ///        copy-source layouts - the three things a host copy of THIS renderer's images needs.
+    bool host_image_copy_available = false;
+
     // ---- Property chain (query only, for renderer decisions/diagnostics) ----
     VkPhysicalDeviceProperties2 properties_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     VkPhysicalDeviceDriverProperties driver_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
@@ -514,6 +533,10 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // unlike the heap and mesh shaders there is no shader-side consumer to gate - the whole renderer is written
     // against GENERAL, and a device without the feature is rejected at device creation (core.constructor).
     bool const unified_image_layouts_extension = has_extension(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
+    // VK_EXT_host_image_copy, an INDEPENDENT and OPTIONAL extension: it adds a host-side copy path (no command
+    // buffer, no staging buffer), but this renderer has a working fallback, so unlike the feature above its
+    // absence is a slower read-back rather than a device-creation refusal.
+    bool const host_image_copy_extension = has_extension(VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME);
 
     // ---- Feature pNext chain: features_2 -> 1_1 -> 1_2 -> 1_3 -> 1_4 (truncated by api_version),
     //      then the extension features when the device has them. The TAIL is tracked rather than
@@ -563,6 +586,10 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
         independent_tail->pNext = reinterpret_cast<VkBaseOutStructure*>(&unified_image_layouts_features);
         independent_tail = reinterpret_cast<VkBaseOutStructure*>(&unified_image_layouts_features);
     }
+    if (host_image_copy_extension) {
+        independent_tail->pNext = reinterpret_cast<VkBaseOutStructure*>(&host_image_copy_features);
+        independent_tail = reinterpret_cast<VkBaseOutStructure*>(&host_image_copy_features);
+    }
     independent_tail->pNext = ray_tracing_extensions ? reinterpret_cast<VkBaseOutStructure*>(&acceleration_structure_features) : nullptr;
     acceleration_structure_features.pNext = ray_tracing_extensions ? &ray_query_features : nullptr;
     // ... and the rest of the ray-tracing chain hangs off ray query, each link present only when its own
@@ -591,6 +618,10 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // that reports unifiedImageLayouts == VK_FALSE, and that device would create fine while still needing the
     // per-layout transitions the renderer no longer performs - so it must NOT count as available.
     unified_image_layouts_available = unified_image_layouts_extension && unified_image_layouts_features.unifiedImageLayouts == VK_TRUE;
+    // The host image copy flag needs two answers and only the first is known here: the feature bit (queried just
+    // above) and whether GENERAL is one of the layouts a host copy may read from (a PROPERTY, queried below with
+    // the rest of the property chain) - so this line is deliberately amended after that query.
+    host_image_copy_available = host_image_copy_extension && host_image_copy_features.hostImageCopy == VK_TRUE;
     this->untyped_pointers_dependency = untyped_pointers_available ? VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME : nullptr;
     this->descriptor_heap_dependency = descriptor_heap_available ? descriptor_heap_dependency : nullptr; // the member, set from the local of the same name
     // Rebuild the extension chain from the core tail with ONLY the available links: the extension may be
@@ -610,6 +641,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
         link(descriptor_heap_available, &descriptor_heap_features);
         link(mesh_shader_available, &mesh_shader_features);
         link(unified_image_layouts_available, &unified_image_layouts_features);
+        link(host_image_copy_available, &host_image_copy_features);
         link(ray_query_available, &acceleration_structure_features);
         link(ray_query_available, &ray_query_features);
         link(ray_tracing_pipeline_available, &ray_tracing_pipeline_features);
@@ -625,7 +657,13 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     driver_properties.pNext = &subgroup_properties;
     subgroup_properties.pNext = &descriptor_indexing_properties;
     descriptor_indexing_properties.pNext = &maintenance4_properties;
-    maintenance4_properties.pNext = descriptor_heap_extension ? reinterpret_cast<VkBaseOutStructure*>(&descriptor_heap_properties) : nullptr;
+    // the host image copy list is inserted BEFORE the descriptor heap link and hangs the rest of the chain off
+    // itself, so adding it cannot make any later property struct unreachable. It is a "count in, count out"
+    // query: copySrcLayoutCount comes back as the device's total and at most the number passed in is written.
+    host_image_copy_properties.pCopySrcLayouts = host_image_copy_src_layouts.data();
+    host_image_copy_properties.copySrcLayoutCount = static_cast<uint32_t>(host_image_copy_src_layouts.size());
+    maintenance4_properties.pNext = host_image_copy_extension ? reinterpret_cast<VkBaseOutStructure*>(&host_image_copy_properties) : nullptr;
+    host_image_copy_properties.pNext = descriptor_heap_extension ? reinterpret_cast<VkBaseOutStructure*>(&descriptor_heap_properties) : nullptr;
     // The mesh shader limits are queried on extension PRESENCE rather than availability: the printout must be
     // able to say what the device offers even when the feature is off, which is exactly the case the "of 0"
     // failure above came from (the PROPERTIES are zero then, and only the QUERY is honest about it).
@@ -635,6 +673,22 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     opacity_micromap_properties.pNext = ray_tracing_pipeline_available ? reinterpret_cast<VkBaseOutStructure*>(&ray_tracing_pipeline_properties) : nullptr;
     ray_tracing_pipeline_properties.pNext = nullptr;
     vkGetPhysicalDeviceProperties2(physical_device, &properties_2);
+
+    // ---- The rest of the host-image-copy capability. The feature bit promises the entry points work; it says
+    //      nothing about whether THIS renderer's images may be read that way. A host copy needs the image's actual
+    //      layout to be one of the device's copy-source layouts, and every image here is in GENERAL
+    //      (VK_KHR_unified_image_layouts), so a device whose list omits GENERAL gets the staging fallback instead
+    //      of a call that would be invalid. The count is clamped to the array for the same reason as above.
+    if (host_image_copy_available) {
+        uint32_t const listed = host_image_copy_properties.copySrcLayoutCount < host_image_copy_max_src_layouts
+                                    ? host_image_copy_properties.copySrcLayoutCount
+                                    : host_image_copy_max_src_layouts;
+        bool general_listed = false;
+        for (uint32_t index = 0; index < listed; ++index) {
+            general_listed = general_listed || host_image_copy_src_layouts[index] == VK_IMAGE_LAYOUT_GENERAL;
+        }
+        host_image_copy_available = general_listed;
+    }
 
     // ---- Feature policy: pass through driver support except explicitly disabled ones (take most features except ray tracing) ----
     features_1_1.protectedMemory = VK_FALSE; // protected memory not needed for now
@@ -897,6 +951,13 @@ void print_device_capabilities(device_capabilities const& capabilities) {
         utility::log(" unified layout: available (VK_KHR_unified_image_layouts, every image stays in GENERAL)");
     } else {
         utility::log(" unified layout: NOT available (this renderer requires it, device creation refuses)");
+    }
+
+    // ---- Host image copy: OPTIONAL, so this line records which read-back path is in use rather than a refusal --
+    if (capabilities.host_image_copy_available) {
+        utility::log(" host image copy: available (VK_EXT_host_image_copy, an image read-back skips the staging copy)");
+    } else {
+        utility::log(" host image copy: NOT available (an image read-back keeps its staging copy)");
     }
 
     utility::log("{}", box_line);
