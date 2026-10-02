@@ -520,6 +520,72 @@ environment_hdr = ""
 # It has no effect while `environment_hdr` is empty (the procedural sky is not scaled by it).
 environment_intensity = 0.35
 
+# area_light_*: the reference package's RECTANGULAR SOFT BOX, which its manifest
+# (build-release-clang64/zmd-ab/bg/endfield-background/manifest.json) names as the main light of the shot:
+#
+#     UsdLuxRectLight, size_m 30, power_w 4000, position_blender_m [-3, -4, 15], aim_at [0, 0, 0]
+#
+# Blender is Z-up and this engine is Y-up, so that position reads [-3, 15, 4] here: 15.8 m away and ~72
+# degrees up. A 30 m source that close to overhead is why the author's own preview is bright inside the
+# shadows a point light would leave black, and reproducing it is the point of these keys.
+#
+# THIS IS THE ENGINE'S MAIN LIGHT, NOT AN EXTRA ONE. The engine shades with exactly one directional light,
+# so the emitter is expressed THROUGH it: `area_light_position` (centre) becomes that light's DIRECTION and,
+# while `area_light_irradiance` is true, the emitter's radiance multiplies `[render] sun_intensity`.
+# `area_light_size` together with `area_light_irradiance` is therefore also the switch that decides whether
+# `[lighting] sun_direction` or the emitter sets the direction - while the emitter contributes energy it
+# wins, and the visible sun disc and the shadow cascades follow it. (In the dressed scene the analytic sky's
+# own sun then sits behind the `[render] background_glb` dome and is not visible; that is a consequence of
+# the emitter being the main light, not a second light being added.)
+#
+# POSITION AND TARGET ARE RELATIVE TO THE AUTHOR'S ORIGIN - the character's feet on the ground, world XZ = 0 -
+# and NOT to the scene's bounding-box centre. The manifest's numbers assume the character stands at the
+# origin, and in Blender that origin is on the ground under it. This engine sinks the imported model by its
+# radius, which lands the feet at `bounds.min.y + (-scene_center.y - scene_radius)`; for this character that
+# is (0, -2.198, 0) - the same point the background package's own import offset lands on. `world = author
+# origin + position` is what lets the manifest's numbers be copied verbatim: [-3, 15, 4] here becomes
+# (-3, 12.802, 4) in world space. The derivation is anchored there and main.cpp logs the origin it used, so a
+# frame can be audited against the number.
+#
+# ANCHORING ON THE BOUNDING-BOX CENTRE INSTEAD IS WRONG (an earlier version of this block did): the centre
+# sits half a body above the feet, ~0.85 m for this character, which tilts the visible emitter by ~6 degrees
+# of elevation and ~16 degrees of azimuth and moves its distance from 15.811388 m to 17.37 m. The DIRECTION
+# the sun comes from is the same either way - only the emitter's world position moves.
+#
+# SIZE 0 (THE DEFAULT) IS THE CONTRACT: no area light, both shading lanes written as zero, and a frame is
+# byte-identical to one rendered before these keys existed.
+#
+# WHAT THIS IS *NOT* (v1.1's honest boundary): the emitter does not get a shading pass of its own. It is
+# expressed through the engine's one directional light - the host points the sun's direction at it and scales
+# the sun's intensity by its radiance - and the shadow gets a world-space penumbra from
+# shaders/shading.glsl. An earlier version additionally corrected the direct term for the emitter's SIZE
+# (a polygon-Lambert term read out of the second light lane); measurement showed it drew the main light to
+# zero, and it has been deleted. It is not a full linearly-transformed-cosine area-light solver and the
+# penumbra is not PCSS: the soft edge is bounded by the shadow map's own resolution, and the emitter's own
+# shading (its falloff across the receiver) is not integrated. Treat it as "the soft box the reference
+# used", not as a physically complete area-light renderer.
+#
+area_light_size      = 0.0   # side of the square emitter in metres (0 = no area light; the whole block is inert)
+area_light_power     = 0.0   # total power in watts (the manifest's Blender unit)
+area_light_position  = [0.0, 0.0, 0.0]   # emitter centre, RELATIVE TO THE AUTHOR ORIGIN (the feet), Y-up metres
+area_light_target    = [0.0, 0.0, 0.0]   # aim point, same frame as `area_light_position`: sets the emitting side
+area_light_intensity = 1.0   # multiplier on the emitter's radiance; radiance = intensity * power / (pi * size^2)
+                             # 4000 W over a 30 m side reads 1.41471 - the reference package's own soft key.
+                             # IT CANNOT EXCEED 3.0: this value multiplies `[render] sun_intensity`, which the
+                             # runtime clamps to 0..3, so anything above ~2.12 on this key is clipped there.
+                             # (It reaches the sun only while `area_light_irradiance` is true.)
+area_light_irradiance = true # true = the emitter TAKES OVER the main light: its direction becomes
+                             # `[lighting] sun_direction` and its radiance multiplies `[render] sun_intensity`
+                             # (an A/B knob for "the soft box is the key light" vs. "the sun is")
+                             # false = the emitter contributes ONLY its penumbra; the sun keeps its own
+                             # direction and intensity and the block only softens the shadow
+area_light_shadow     = true # give the shadow a penumbra: while false the area light does not touch the shadow
+                             # term at all, so the shadow keeps the hard edge it has without this block
+area_light_softness   = 0.0  # the penumbra's world radius in metres; 0 = automatic, and the automatic value
+                             # is `0.05 * size / |position - target|` (0.094868 m for the reference soft box:
+                             # 0.05 * 30 / 15.811388) - a rough heuristic that grows with the source and
+                             # shrinks with the distance from the emitter to what it is aimed at
+
 # ---- [toon] the toon character stage's LIGHT RIG ----
 #
 # These are the 终末地 chain's GLOBAL numbers (see vulkan::toon_rig): the ones tuned once for a whole character

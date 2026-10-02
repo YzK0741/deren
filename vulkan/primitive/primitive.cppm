@@ -310,6 +310,28 @@ namespace vulkan {
         //   cluster_depth x = near view depth, y = far view depth the slices span (z/w unused)
         glm::vec4 cluster_grid = {};
         glm::vec4 cluster_depth = {};
+        // The rectangular area light ([lighting] area_light_*), APPENDED after cluster_depth so every offset
+        // above - and the SHORTER LightUBO copies that light_cluster.slang / rt_shadow.slang declare as
+        // prefixes of this block - stays exactly what it is. A std140 struct's tail is the one place a new
+        // member cannot move an existing one, which is why these two ride here rather than next to the sun.
+        //
+        // area_light      xyz = emitter centre in WORLD space (Y-up metres), w = HALF the emitter's side.
+        //                 THE SIGN OF w IS THE ENERGY SWITCH: w > 0 = the emitter is on and it TAKES OVER the
+        //                 main light (its direction and radiance drive the sun - v1.1), w < 0 = the emitter is
+        //                 on but contributes only its penumbra (the shader reads abs(w) as the half-side),
+        //                 w == 0 = NO AREA LIGHT AT ALL, which is the default and the contract that keeps a
+        //                 frame taken before these keys existed byte-identical. There is no spare lane in
+        //                 light_count for a boolean, and the sign is free.
+        //                 As of v1.1 (the A' ruling, 2026-10-02) NO SHADER READS THIS LANE ANY MORE: the
+        //                 polygon-Lambert size correction it used to feed was deleted after measurement showed
+        //                 it drove the main light to zero. The lane is kept because it is part of a pinned wire
+        //                 layout (and because a v2 area integral will want the centre and the half-side).
+        // area_light_axis xyz = the emitter's normal (centre -> target, unit), w = the penumbra's WORLD radius
+        //                 in metres. w <= 0 = the area light does not touch the shadow term, so the shading
+        //                 takes the same calc_shadow path it always took. THIS IS THE ONE AREA LANE v1.1 STILL
+        //                 READS (`calc_shadow_area`): a world-space radius, not an angle.
+        glm::vec4 area_light = {};
+        glm::vec4 area_light_axis = {};
     };
     // std140 layout guard against the GLSL LightUBO: four cascade matrices (256 B), the direction,
     // the two per-cascade vec4s (304 B), four floats, light_count (a glm::vec4 whose x carries the
@@ -322,7 +344,11 @@ namespace vulkan {
     static_assert(offsetof(light_ubo, punctual_lights) == max_shadow_cascades * sizeof(glm::mat4) + 6 * sizeof(glm::vec4));
     static_assert(offsetof(light_ubo, cluster_grid) == max_shadow_cascades * sizeof(glm::mat4) + 6 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(offsetof(light_ubo, cluster_depth) == max_shadow_cascades * sizeof(glm::mat4) + 7 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
-    static_assert(sizeof(light_ubo) == max_shadow_cascades * sizeof(glm::mat4) + 8 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
+    // The area light is APPENDED, so its offsets are the OLD end of the block: area_light starts where
+    // sizeof(light_ubo) used to end (8 * sizeof(glm::vec4)), and each new vec4 adds one more.
+    static_assert(offsetof(light_ubo, area_light) == max_shadow_cascades * sizeof(glm::mat4) + 8 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
+    static_assert(offsetof(light_ubo, area_light_axis) == max_shadow_cascades * sizeof(glm::mat4) + 9 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
+    static_assert(sizeof(light_ubo) == max_shadow_cascades * sizeof(glm::mat4) + 10 * sizeof(glm::vec4) + max_punctual_lights * sizeof(point_light));
     static_assert(sizeof(light_ubo) <= 16384, "the light UBO must stay inside the guaranteed maxUniformBufferRange (16 KB)");
     static_assert(sizeof(point_light) == 64);
 

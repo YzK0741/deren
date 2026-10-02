@@ -378,6 +378,72 @@ namespace app_config {
          * ambience. 1.0 is the file's raw radiance, which for a studio HDRI is a good deal brighter.
          */
         float environment_intensity = 0.35f;
+        /**
+         * THE REFERENCE PACKAGE'S AREA LIGHT - a 30 m x 30 m square soft box, 4000 W, which that package's
+         * `manifest.json` (`zmd-ab/bg/endfield-background/manifest.json`) names as the main light of the shot:
+         *
+         *     UsdLuxRectLight, size_m 30, power_w 4000, position_blender_m [-3, -4, 15], aim_at [0, 0, 0]
+         *
+         * Blender is Z-up and this engine is Y-up, so that position is `[-3, 15, 4]` here: 15.8 m away at ~72
+         * degrees of elevation. A source that big and that close to overhead is what makes the shadows it
+         * casts soft, and it is what fills the skirt's shadow in the author's preview - the thing OUR frame
+         * has been missing (see PROGRESS.md 3.5's honest boundary).
+         *
+         * IT IS THE ENGINE'S MAIN LIGHT, NOT A SECOND LIGHT. The engine has exactly one directional light -
+         * `sun_direction` drives the shading's `light_dir`, the shadow cascades, the visible disc and the
+         * environment bake's sun - and the area light is expressed THROUGH it: the emitter's direction
+         * becomes that light's direction and its radiance multiplies `[render] sun_intensity`. The shadow
+         * pass itself is untouched. The two appended `light_ubo` lanes carry the emitter's geometry so the
+         * shading can widen the shadow lookup into a penumbra.
+         *
+         * V1.1 (2026-10-02, the A' ruling): the polygon-Lambert "size correction" that used to scale the direct
+         * term by the emitter's SIZE is DELETED - measured, it drove the frame's main light to zero. What the
+         * keys mean now is "the emitter IS the main light": while `area_light_irradiance` is true the host aims
+         * `set_sun_direction` at the emitter and multiplies `set_sun_intensity` by its radiance; with it false
+         * the emitter contributes ONLY the penumbra and the sun keeps its own direction and intensity.
+         * Consequently the `area_light` lane is UNREAD by the v1.1 shaders (only `area_light_axis.w` still is -
+         * see `calc_shadow_area`); it is kept because the pinned wire layout must not move and because a v2
+         * area integral needs centre/half.
+         *
+         * POSITION AND TARGET ARE RELATIVE TO THE AUTHOR'S ORIGIN - THE CHARACTER'S FEET ON THE GROUND - AND NOT
+         * TO THIS ENGINE'S `scene_center`. The manifest's numbers are the reference package's "the character
+         * stands at the origin" frame, and in Blender that origin is on the ground under the character, so
+         * `[-3, -4, 15]` means 3 m to one side, 4 m behind and 15 m up. This engine imports the model with
+         * `scene_import_shift`, which puts the character's feet at `y = bounds.min.y - scene_center.y -
+         * scene_radius` (world XZ = 0) - measured as -2.198 m for this scene, and cross-checked against the
+         * background package's own import offset, whose ground lands on the same number. THAT point is the
+         * `scene_origin` the caller passes in, so `world = scene_origin + position` is what lets the manifest's
+         * numbers be copied verbatim.
+         *
+         * ANCHORING ON `scene_center` INSTEAD IS WRONG, and was the first version of this code: the two points
+         * are 0.85 m of height apart here, which moves the visible emitter's elevation by ~6 degrees and its
+         * azimuth by ~16 degrees (and the soft box's distance from 15.811388 m to 17.37 m). The direction the sun
+         * comes FROM is `position` either way; what moves is WHERE the 30 m emitter sits in the world, and the
+         * penumbra's heuristic is built from that position (measured on to the target - see
+         * `derive_area_light`).
+         *
+         * SIZE 0 (THE DEFAULT) IS THE CONTRACT: no emitter, both lanes written as a literal zero vec4, and a
+         * frame renders exactly what it rendered before these keys existed - byte for byte.
+         *
+         * `area_light_intensity` is a multiplier on the emitter's radiance, so the effective radiance is
+         * `intensity * power / (pi * size^2)`; 4000 W over a 30 m side reads 1.41471. IT CANNOT EXCEED 3.0:
+         * the value this multiplies is `[render] sun_intensity`, and `runtime::set_sun_intensity` clamps it
+         * to 0..3 (`vulkan/runtime/runtime.cpp`) - so an `area_light_intensity` above `3 / 1.41471` = ~2.12
+         * is clipped by that clamp. That is arithmetic in the runtime, not something this module can warn
+         * about; it is written down here so the number is never a surprise. As of v1.1 this product reaches the
+         * sun only while `area_light_irradiance` is true - with the emitter in penumbra-only mode it is still
+         * derived and logged, but the sun keeps its own intensity.
+         *
+         * `derive_area_light` below is the ONE place these keys become the frame's values.
+         */
+        float area_light_size = 0.0f;                                  // side of the square emitter, metres (0 = NO area light)
+        float area_light_power = 0.0f;                                 // watts (the manifest's Blender unit)
+        std::array<float, 3> area_light_position = {0.0f, 0.0f, 0.0f}; // emitter centre, RELATIVE TO THE AUTHOR ORIGIN (the feet)
+        std::array<float, 3> area_light_target = {0.0f, 0.0f, 0.0f};   // aim point, same frame as position
+        float area_light_intensity = 1.0f;                             // multiplier on the emitter's radiance (>= 0)
+        bool area_light_irradiance = true;                             // true = the emitter TAKES OVER the main light (its direction, its radiance)
+        bool area_light_shadow = true;                                 // the area light's own (soft) visibility
+        float area_light_softness = 0.0f;                              // penumbra world radius, metres; 0 = automatic
         // demo_lights ([lighting] demo_lights): spawn this many procedural punctual lights around
         // the scene (a helix at the scene bounds, cycling colors). This is the clustered-light stress
         // mode: with the debug overlay's four light slots the cluster lists and the brute-force loop
@@ -404,6 +470,54 @@ namespace app_config {
 
     /** @brief upper bound for [lighting] demo_lights (the UBO's light array is vulkan::max_punctual_lights) */
     export constexpr uint32_t max_demo_lights = 64;
+
+    /**
+     * @ingroup app_config
+     * @brief the area light's per-frame values, derived once per frame from `[lighting] area_light_*`
+     *
+     * Everything here is in the ENGINE's frame (Y-up, metres, world space). `enabled == false` means "no
+     * emitter at all": every field is zero, the caller writes a literal zero `light_ubo` pair and the frame
+     * keeps exactly the sun `[render] sun_intensity` and `[lighting] sun_direction` describe.
+     *
+     * `std::array<float, 3>` rather than `glm::vec3` on purpose: this module does not depend on glm (see the
+     * header block at the top of this file), and the one consumer, `main.cpp`, converts at its call site.
+     */
+    export struct area_light_derived {
+        bool enabled = false;                                   // false = no emitter: every field below is zero
+        std::array<float, 3> world_centre = {0.0f, 0.0f, 0.0f}; // the emitter's centre, world space
+        float half = 0.0f;                                      // half the emitter's side, metres
+        std::array<float, 3> axis = {0.0f, 0.0f, 0.0f};         // emitter normal (centre -> target), unit
+        std::array<float, 3> to_light_dir = {0.0f, 0.0f, 0.0f}; // author origin -> emitter, unit (the new sun direction)
+        float radiance = 0.0f;                                  // power / (pi * size^2): the emitter's Lambertian radiance
+        float penumbra = 0.0f;                                  // shadow penumbra radius, world metres (0 = no area-light shadow)
+    };
+
+    /**
+     * @ingroup app_config
+     * @brief turn `[lighting] area_light_*` into the frame's area light - PURE: no device, no globals, no I/O
+     *
+     * @param lighting      the parsed `[lighting]` table
+     * @param scene_origin  the AUTHOR'S origin: the character's feet on the ground (world XZ = 0), i.e. where the
+     *                      reference package's `manifest.json` measures its light from. `area_light_position` and
+     *                      `area_light_target` are relative to it, so the manifest's "character at the origin"
+     *                      numbers can be copied into a config verbatim. This is NOT `scene_center`: the
+     *                      bounding-box centre sits half a body above the feet, and this engine's own
+     *                      `scene_import_shift` puts the feet at `bounds.min.y - scene_center.y - scene_radius`
+     *                      (see the key documentation above for the measured value and the cross-check)
+     *
+     * The frozen derivation - `shaders/character_forward.slang` implements the other half of this contract, so
+     * changing a formula here without changing it there (or the other way around) is a bug, not a tuning:
+     *   half         = 0.5 * size                                (size <= 0 -> disabled)
+     *   world_centre = scene_origin + position
+     *   world_target = scene_origin + target
+     *   axis         = normalize(world_target - world_centre) (degenerate -> disabled)
+     *   to_light_dir = normalize(world_centre - scene_origin) (degenerate -> disabled)
+     *   radiance     = intensity * power / (pi * size^2)
+     *   penumbra     = shadow ? (softness > 0 ? softness : 0.05 * size / max(|position|, 1e-3)) : 0
+     *
+     * 4000 W over a 30 m side reads radiance == 1.41471, i.e. the reference package's soft key.
+     */
+    export area_light_derived derive_area_light(lighting_settings const& lighting, std::array<float, 3> const& scene_origin);
 
     /**
      * @ingroup app_config

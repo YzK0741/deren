@@ -49,6 +49,18 @@ lut_size = 128
 demo_lights = 3
 environment_hdr = "hdr/test-environment.hdr"
 environment_intensity = 0.8
+# The reference package's soft box (manifest: size 30 m, 4000 W, Blender [-3, -4, 15] -> Y-up [-3, 15, 4]),
+# with v1's two A/B switches deliberately OFF so a test reading this file proves the parser reads the
+# booleans instead of leaving their defaults behind. Position/target are relative to the AUTHOR'S ORIGIN
+# (the character's feet on the ground, world XZ = 0), not to the scene's bounding-box centre.
+area_light_size = 30.0
+area_light_power = 4000.0
+area_light_position = [-3.0, 15.0, 4.0]
+area_light_target = [0.0, 0.0, 0.0]
+area_light_intensity = 1.0
+area_light_irradiance = false
+area_light_shadow = false
+area_light_softness = 0.25
 
 [gui]
 show = false

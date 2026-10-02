@@ -4027,6 +4027,104 @@ int32_t main() {
                       "DEBT (s): `set_toon_shading` must keep the 0-step early out");
         }
 
+        // ---- AREA LIGHT v1 (goo_area_light_spec.md 1.2 / 3 / 5-B): THE SHADER-SIDE SWITCH IS ONE LANE ----
+        //
+        // v1.1 (spec 7): the A' decision deleted the per-point irradiance gain, so the area light contributes the
+        // sun's direction and radiance (host side, `[lighting] area_light_irradiance`, spec 7.2) plus the
+        // world-scale PCF below - and NOTHING in the shaders reads the `area_light` lane any more. The shadow
+        // switch still rides the light UBO's TAIL and nothing else: `area_light` / `area_light_axis` are appended
+        // after `cluster_depth`, so every offset above them - and the SHORTER prefix copies of `LightUBO` that
+        // `shaders/light_cluster.slang` and `shaders/rt_shadow.slang` declare - stays exactly what it is. The
+        // lane's SIGN encoding stays pinned: w == 0 (the default, `[lighting] area_light_size = 0`) means no area
+        // light at all, and a NEGATIVE half side means "the light exists but does not contribute energy", so both
+        // switch states land on the SHIPPED expression - kept for the wire layout and a v2 area integral, which
+        // needs centre/half back; the shadow route only ever reads `area_light_axis.w`.
+        //
+        // Nothing here re-implements the shader: what is pinned is the shape that keeps the SHADOW switchable -
+        // the shipped early out inside the kernel, the call-site route, and the ABSENCE of the deleted gain.
+        {
+            std::string const shading = slurp("shaders/shading.glsl");
+
+            // 1.2: the two lanes are the LAST members of the struct, in this order, and inside it.
+            std::size_t const cluster_depth = shading.find("vec4 cluster_depth;");
+            std::size_t const area_light = shading.find("vec4 area_light;");
+            std::size_t const area_light_axis = shading.find("vec4 area_light_axis;");
+            CHECK_MSG(cluster_depth != std::string::npos && area_light != std::string::npos &&
+                          area_light_axis != std::string::npos && cluster_depth < area_light &&
+                          area_light < area_light_axis,
+                      "AREA LIGHT 1.2: area_light / area_light_axis must be declared AFTER cluster_depth, in order");
+            std::size_t const struct_end = shading.find("};", cluster_depth);
+            CHECK_MSG(struct_end != std::string::npos &&
+                          shading.substr(cluster_depth, struct_end - cluster_depth).find("vec4 area_light;") !=
+                              std::string::npos,
+                      "AREA LIGHT 1.2: the two lanes must be INSIDE LightUBO (before its closing brace), not appended "
+                      "after the struct");
+            CHECK_MSG(shading.find("// xyz = emitter centre (WORLD, Y-up metres), w = half the side; w <= 0 = no area light") !=
+                              std::string::npos &&
+                          shading.find("// xyz = emitter normal (centre -> target); w = penumbra world radius (metres); "
+                                       "<= 0 = no area shadow") != std::string::npos,
+                      "AREA LIGHT 1.2: the units and the sign encoding ARE the interface, so the spec's comment on both "
+                      "lanes is a pin");
+
+            // 3.1 is GONE in v1.1 (spec 7.1 / 7.2): the per-point gain clamped the shipped main light to 0 in the
+            // six-arm measurement (face-frame p10 exactly 0, 39.63% / 33.59% of face pixels exactly 0), so the A'
+            // decision deleted it. This NEGATIVE pin is the guard: if the function ever comes back, the decision
+            // has been silently reverted and this test says so.
+            CHECK_MSG(shading.find("area_light_irradiance_gain") == std::string::npos,
+                      "AREA LIGHT 3.1 (v1.1): `area_light_irradiance_gain` was deleted by the A' decision and must "
+                      "not reappear in shading.glsl");
+
+            // 3.2: the shadow kernel. `<= 0` returns the SHIPPED calc_shadow itself, and the tap extent is the
+            // world radius converted per cascade - never a constant kernel width.
+            std::size_t const area_fn = shading.find("float calc_shadow_area(vec3 world_pos, vec3 normal) {");
+            std::size_t const radius_lane =
+                shading.find("const float radius_world = light_at(heap_light_slot).area_light_axis.w;", area_fn);
+            std::size_t const shipped_return = shading.find("return calc_shadow(world_pos, normal);", area_fn);
+            CHECK_MSG(area_fn != std::string::npos && radius_lane != std::string::npos &&
+                          shipped_return != std::string::npos && radius_lane < shipped_return &&
+                          shipped_return - area_fn < 400,
+                      "AREA LIGHT 3.2: for `area_light_axis.w <= 0` calc_shadow_area must return the SHIPPED "
+                      "calc_shadow itself, immediately after reading the radius - not a copy of it, and not after a tap");
+            CHECK_MSG(shading.find("const int spacing = 16;") != std::string::npos,
+                      "AREA LIGHT 3.2: the frozen tap spacing of 16 texels");
+            CHECK_MSG(shading.find("int(round(radius_world / (2.0 * float(spacing) * texel_world)))") != std::string::npos &&
+                          shading.find("int(round(radius_world / (2.0 * float(spacing) * "
+                                       "light_at(heap_light_slot).cascade_texel_world[cascade])))") != std::string::npos &&
+                          shading.find("int(round(radius_world / (2.0 * float(spacing) * "
+                                       "light_at(heap_light_slot).cascade_texel_world[next])))") != std::string::npos,
+                      "AREA LIGHT 3.2: the tap extent is round(radius_world / (2 * spacing * texel_world)), clamped "
+                      "[1, 8], and EACH cascade sizes its own kernel (single map / selected / blend target)");
+            CHECK_MSG(shading.find("THIS IS NOT PCSS AND NOT RAY TRACING") != std::string::npos,
+                      "AREA LIGHT 3.2: the honesty note must stay next to calc_shadow_area - the shadow map is a "
+                      "comparison sampler, so this is a world-scale PCF width and not a solved penumbra");
+
+            // 3.2: the call site. The route's third arm is switched by the lane and the SHIPPED arm is still the
+            // same single call - the one thing v1.1 must NOT disturb (the byte-identity gate for the defaults).
+            CHECK_MSG(character_forward.find("(light_at(heap_light_slot).area_light_axis.w > 0.0") != std::string::npos &&
+                          character_forward.find("? calc_shadow_area(world_pos, n)") != std::string::npos &&
+                          character_forward.find(": calc_shadow_soft(world_pos, n, "
+                                                 "toon_rig_at(heap_slots_toon_rig).shadow_softness.x)") !=
+                              std::string::npos,
+                      "AREA LIGHT 3.2: the shadow call site must keep the three-branch route with the shipped "
+                      "toon-softness call as the LAST arm");
+            std::size_t soft_sites = 0;
+            for (std::size_t at = character_forward.find("calc_shadow_soft(world_pos, n,"); at != std::string::npos;
+                 at = character_forward.find("calc_shadow_soft(world_pos, n,", at + 1)) {
+                ++soft_sites;
+            }
+            CHECK_MSG(soft_sites == 1,
+                      "AREA LIGHT 3.2: the shipped `calc_shadow_soft` call must appear EXACTLY ONCE - as the route's "
+                      "else arm - so no second call site can bypass the area light's own kernel");
+            // v1.1: and the shipped intensity line must be back to the ONE line the A' decision restores - no gain
+            // multiplying it, and no reader of the deleted function anywhere in this stage.
+            CHECK_MSG(character_forward.find("const float main_light_intensity = "
+                                             "max(0.001, light_at(heap_light_slot).sun_intensity);") !=
+                              std::string::npos &&
+                          character_forward.find("area_light_irradiance_gain") == std::string::npos,
+                      "AREA LIGHT v1.1: `main_light_intensity` must be the shipped one-liner and the deleted gain "
+                      "must not be called from character_forward.slang");
+        }
+
         // ---- A8.rsi (step 15, `RS_Index`): THE SECOND `_RS` SHEET IS RESOLVED BY THE HOST, BY NAME ----
         //
         // The route `goo_step15_lane_rs_index_spec.md` §9.1 adopts (`Rc`) is a HOST rule rather than a shader one,

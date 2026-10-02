@@ -2752,6 +2752,35 @@ namespace vulkan {
 
         /**
          * @ingroup vulkan_runtime
+         * @brief describe the frame's rectangular AREA LIGHT (the reference package's 30 m soft box)
+         *
+         * A SECOND LIGHT IS NOT A SECOND LIGHT IN THIS ENGINE. The shading, the shadows, the sky's disc and
+         * the environment bake all read ONE directional light out of the light UBO, so an emitter is expressed
+         * through it: `centre`/`axis` land in the two `area_light`/`area_light_axis` lanes appended after
+         * `cluster_depth`, and the CALLER separately points the sun at the emitter (`set_sun_direction`) and
+         * scales its radiance (`set_sun_intensity`). See `app_config::derive_area_light`.
+         *
+         * @param centre    emitter centre in world space (metres)
+         * @param half      HALF the emitter's side (metres); <= 0 means NO area light and writes zero to both
+         *                  lanes, which is the default and the byte-identical contract
+         * @param irradiance whether the emitter CONTRIBUTES ENERGY, i.e. whether the caller lets it take over
+         *                  the main light's direction and radiance (v1.1). The lane's `w` component carries the
+         *                  sign, because the block has no spare boolean: `half` when true, `-half` when false.
+         *                  A zero `half` still writes a literal `0`, never `-0`. Note that as of v1.1 no shader
+         *                  reads this lane any more (the polygon-Lambert size correction it used to gate was
+         *                  deleted); the sign is kept because the wire layout is pinned and the value is what a
+         *                  capture can be audited against.
+         * @param axis      the emitter's normal (centre -> target), unnormalized; only read while `half > 0`
+         * @param penumbra  the shadow's penumbra radius in WORLD metres (0 = the shadow keeps its hard edge)
+         * @note CPU-side and idempotent, copied into the light UBO every frame; unlike `set_sun_direction` it
+         *       does NOT invalidate the cached shadow fit - the cascades are fitted to the sun's direction, and
+         *       this only widens the lookup inside them. `enable_shadows` rebuilds `light_state` from scratch,
+         *       so a caller that enables shadows must call this AFTER that (the frame loop does).
+         */
+        void set_area_light(glm::vec3 const& centre, float half, bool irradiance, glm::vec3 const& axis, float penumbra) noexcept;
+
+        /**
+         * @ingroup vulkan_runtime
          * @brief bloom amount for the post-process pass (bright-pass threshold + blend weight)
          * @param intensity how much of the blurred bright pass is added back (0 disables bloom)
          * @param threshold linear luminance subtracted in the bright pass (visible range 0..0.75:

@@ -117,6 +117,26 @@ def ask_float3(prompt: str, default: tuple[float, float, float]) -> tuple[float,
         return values  # type: ignore[return-value]
 
 
+def ask_vec3(prompt: str, default: tuple[float, float, float], hint: str = "") -> tuple[float, float, float]:
+    """Three unconstrained floats: positions and aim points are in metres, so unlike ask_float3 (colour
+    channels) there is no 0..1 rule - the area light sits 15 m away and mostly above the scene."""
+    suffix = f"  [{hint}]" if hint else ""
+    while True:
+        raw = input(f"{prompt} (3 floats, default {default[0]}, {default[1]}, {default[2]}){suffix}\n> ").strip()
+        if not raw:
+            return default
+        parts = raw.replace(",", " ").split()
+        if len(parts) != 3:
+            print("  expected three numbers, e.g. -3 15 4")
+            continue
+        try:
+            values = tuple(float(p) for p in parts)
+        except ValueError:
+            print("  expected three numbers")
+            continue
+        return values  # type: ignore[return-value]
+
+
 def fmt_toml_string(s: str) -> str:
     # TOML basic strings: escape backslashes so Windows paths survive
     return s.replace("\\", "\\\\").replace('"', '\\"')
@@ -198,8 +218,19 @@ def write_toml(path: str, cfg: dict) -> None:
         f"env_mip_count = {cfg['env_mip_count']}",
         f"irr_size = {cfg['irr_size']}",
         f"lut_size = {cfg['lut_size']}",
-        f"environment_hdr = {fmt_toml_string(cfg['environment_hdr'])}",
+        # QUOTED like `model` above: `fmt_toml_string` escapes the contents but the CALLER supplies the quotes,
+        # and without them the empty default wrote `environment_hdr = ` - a line no TOML parser accepts, i.e.
+        # the generator's own default output was an unreadable config (found while adding area_light_*).
+        f"environment_hdr = \"{fmt_toml_string(cfg['environment_hdr'])}\"",
         f"environment_intensity = {cfg['environment_intensity']}",
+        f"area_light_size = {cfg['area_light_size']}",
+        f"area_light_power = {cfg['area_light_power']}",
+        f"area_light_position = [{cfg['area_light_position'][0]}, {cfg['area_light_position'][1]}, {cfg['area_light_position'][2]}]",
+        f"area_light_target = [{cfg['area_light_target'][0]}, {cfg['area_light_target'][1]}, {cfg['area_light_target'][2]}]",
+        f"area_light_intensity = {cfg['area_light_intensity']}",
+        f"area_light_irradiance = {str(cfg['area_light_irradiance']).lower()}",
+        f"area_light_shadow = {str(cfg['area_light_shadow']).lower()}",
+        f"area_light_softness = {cfg['area_light_softness']}",
         "",
     ]
     with open(path, "w", encoding="utf-8", newline="\n") as fh:
@@ -352,6 +383,38 @@ def ask_all(output_dir: str) -> dict:
     environment_intensity = ask_float(
         "lighting.environment_intensity", 0.35, 0.0, hint="multiplier on the loaded HDR (the reference's world_strength)"
     )
+    # area_light_*: the reference package's 30 m soft box, expressed through the frame's ONE directional light
+    # (see config.example.toml and app_config::derive_area_light). The DEFAULT IS SIZE 0 = off, and the
+    # generator must be able to write that off state, so 0 is a legal answer to the first question. The
+    # manifest's own numbers are size 30 / power 4000 / position [-3, 15, 4] (Blender's [-3, -4, 15] turned
+    # Y-up) aiming at [0, 0, 0], and position/target are measured from the AUTHOR'S ORIGIN - the character's
+    # feet on the ground - not from the scene's bounding-box centre; `irradiance` decides whether that emitter
+    # IS the main light (its direction and radiance drive the sun) or contributes only its penumbra, `shadow`
+    # is the second A/B switch and `softness` 0 = the automatic penumbra. None of these bounds is enforced here
+    # beyond "not negative": the loader is the one place that sanitizes (an infinity or a NaN written here is
+    # caught there, like every other key).
+    area_light_size = ask_float("lighting.area_light_size", 0.0, 0.0, hint="square emitter side in metres (0 = no area light)")
+    area_light_power = ask_float("lighting.area_light_power", 0.0, 0.0, hint="total power in watts")
+    area_light_position = ask_vec3(
+        "lighting.area_light_position", (0.0, 0.0, 0.0), hint="emitter centre, RELATIVE TO THE AUTHOR ORIGIN (the feet)"
+    )
+    area_light_target = ask_vec3(
+        "lighting.area_light_target", (0.0, 0.0, 0.0), hint="aim point, same frame as the position"
+    )
+    area_light_intensity = ask_float(
+        "lighting.area_light_intensity", 1.0, 0.0, hint="multiplier on the emitter's radiance (clipped at 3.0 by sun_intensity)"
+    )
+    area_light_irradiance = ask_bool(
+        "lighting.area_light_irradiance",
+        True,
+        hint="true = the emitter takes over the main light (direction + radiance); false = penumbra only",
+    )
+    area_light_shadow = ask_bool(
+        "lighting.area_light_shadow", True, hint="give the shadow a penumbra (false = the emitter does not touch it)"
+    )
+    area_light_softness = ask_float(
+        "lighting.area_light_softness", 0.0, 0.0, hint="penumbra world radius in metres (0 = automatic)"
+    )
 
     print(f"\nwriting config.toml to: {output_dir}")
     return {
@@ -402,6 +465,14 @@ def ask_all(output_dir: str) -> dict:
         "lut_size": lut_size,
         "environment_hdr": environment_hdr,
         "environment_intensity": environment_intensity,
+        "area_light_size": area_light_size,
+        "area_light_power": area_light_power,
+        "area_light_position": area_light_position,
+        "area_light_target": area_light_target,
+        "area_light_intensity": area_light_intensity,
+        "area_light_irradiance": area_light_irradiance,
+        "area_light_shadow": area_light_shadow,
+        "area_light_softness": area_light_softness,
     }
 
 

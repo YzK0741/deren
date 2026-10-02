@@ -527,6 +527,47 @@ int main(int argc, char** argv) {
     glm::vec3 const scene_center = bounds.min * 0.5f + bounds.max * 0.5f;
     float const scene_radius = glm::length(bounds.max - bounds.min) * 0.5f;
 
+    // 8a. THE AREA LIGHT, DERIVED ONCE (see `app_config::derive_area_light` and the `[lighting] area_light_*`
+    //     notes): the reference package's 30 m soft box, expressed through the frame's ONE directional light.
+    //     Its `position`/`target` keys are relative to the AUTHOR'S ORIGIN - the character's feet on the ground -
+    //     because that is the frame the manifest was authored in ("the character stands at the origin"), and in
+    //     Blender that origin is on the ground under it. This engine does not keep that origin as a quantity: it
+    //     sinks the whole model by `scene_radius` (see `scene_sink` below), which lands the feet at
+    //     `bounds.min.y + (-scene_center.y - scene_radius)`, with world XZ at 0. That point is what is handed
+    //     over here, and it is logged so the number can be audited against the frame. Anchoring on
+    //     `scene_center` instead was wrong: the bounding-box centre sits half a body higher, ~0.85 m here, which
+    //     moves the emitter's visible elevation by ~6 degrees and its azimuth by ~16 degrees.
+    //     Deriving it here rather than in the frame loop keeps the per-frame mirror below free of the maths;
+    //     the values themselves are constant for the whole run.
+    //
+    //     `area_light.enabled == false` (the default: `area_light_size = 0`) means every field is zero, and
+    //     the loop then multiplies the sun by 1.0 and writes a zero light_ubo pair - byte for byte the frame
+    //     that existed before these keys did.
+    //     The `std::array` is not decoration: `application_configuration` deliberately does not depend on glm
+    //     (the derivation is unit-tested there), so this is the one place the scene's origin crosses over.
+    float const scene_floor_y = bounds.min.y - scene_center.y - scene_radius;
+    app_config::area_light_derived const area_light =
+        app_config::derive_area_light(settings.lighting, std::array<float, 3>{0.0f, scene_floor_y, 0.0f});
+    // `world_centre - scene_origin`, i.e. the emitter's direction FROM the author's origin, normalised by the
+    // derivation: this is the sun's direction while the emitter TAKES OVER the main light, and it is why
+    // `[lighting] sun_direction` is not the last word on where the light comes from then.
+    //
+    // THE EMITTER TAKES OVER ONLY WHEN IT CONTRIBUTES ENERGY (v1.1, the A' ruling): `area_light_irradiance`
+    // is that switch, and `area_light_size == 0` (the default) is OFF outright. With `irradiance = false` the
+    // area light still widens the shadow into a penumbra, but the sun keeps `gui.sun_direction` and the plain
+    // `gui.sun_intensity` - the "penumbra only" mode, which is why `area_light_scale` is 1.0f there too.
+    bool const area_light_takes_over = area_light.enabled && settings.lighting.area_light_irradiance;
+    float const area_light_scale = area_light_takes_over ? area_light.radiance : 1.0f;
+    if (area_light.enabled) {
+        utility::log("area light: author origin [0.000, {:.3f}, 0.000], centre [{:.3f}, {:.3f}, {:.3f}] half {:.3f} m, "
+                     "axis [{:.3f}, {:.3f}, {:.3f}], radiance {:.5f}{}, penumbra {:.3f} m",
+                     scene_floor_y, area_light.world_centre[0], area_light.world_centre[1], area_light.world_centre[2],
+                     area_light.half, area_light.axis[0], area_light.axis[1], area_light.axis[2], area_light.radiance,
+                     area_light_takes_over ? " (TAKES OVER the main light: x sun_intensity, capped at 3.0 by set_sun_intensity)"
+                                           : " (penumbra only: the sun keeps its own direction and intensity)",
+                     area_light.penumbra);
+    }
+
     // Sink the model so it sits near the world horizon (y = 0) and move the camera target with it:
     // the camera then orbits/looks at the model's position instead of the scene origin.
     glm::vec3 const scene_sink(0.0f, -scene_radius, 0.0f);
@@ -2636,11 +2677,36 @@ int main(int argc, char** argv) {
         constexpr std::array<float, 7> toon_band_counts = {0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};
         auto const toon_index = static_cast<std::size_t>(std::clamp(gui.toon_bands_index, 0, static_cast<int32_t>(toon_band_counts.size()) - 1));
         runtime.set_toon_shading(toon_band_counts[toon_index], gui.toon_softness);
-        runtime.set_sun_intensity(gui.sun_intensity);
+        // The area light's radiance MULTIPLIES the sun, but ONLY while the emitter contributes energy
+        // (`area_light_takes_over` = `area_light_size > 0 && area_light_irradiance`), so `area_light_scale` is
+        // 1.0f for the default config and for the penumbra-only mode - i.e. exactly the line it always was.
+        // IT MUST STAY ON THIS LINE, IN THIS BLOCK: the mirror is replayed EVERY FRAME, so scaling once at
+        // startup would be overwritten by `gui.sun_intensity` from frame 2 onwards - and a capture at frame 40
+        // would not show it, because every frame but the first would be back to 1.0x. `set_sun_intensity`
+        // clamps to 0..3, so a radiance above 3.0 is a value the sun cannot express (see the
+        // `area_light_intensity` note).
+        runtime.set_sun_intensity(gui.sun_intensity * area_light_scale);
+        // The emitter's geometry goes to the two appended light-UBO lanes. Idempotent, and deliberately
+        // AFTER the shadow setup above: `enable_shadows` rebuilds the whole light UBO from the sun alone.
+        runtime.set_area_light(glm::vec3(area_light.world_centre[0], area_light.world_centre[1], area_light.world_centre[2]),
+                               area_light.half,
+                               settings.lighting.area_light_irradiance,
+                               glm::vec3(area_light.axis[0], area_light.axis[1], area_light.axis[2]),
+                               area_light.penumbra);
         // The sun's DIRECTION is mirrored the same way, from the config (`[lighting] sun_direction`). It is
         // safe to set every frame: the runtime compares against the direction it already has and only
         // invalidates the shadow cascade fit when it actually moved.
-        runtime.set_sun_direction(glm::vec3(sun_direction[0], sun_direction[1], sun_direction[2]));
+        //
+        // WITH AN AREA LIGHT CONTRIBUTING ENERGY (`area_light_takes_over`), THE EMITTER DECIDES THAT DIRECTION,
+        // because "the soft box is the frame's main light" is the whole point: the shading, the cascades and
+        // the sky's disc all follow it. With `irradiance = false` (penumbra only) the direction stays
+        // `gui.sun_direction`, and with the default `size = 0` this is the line it always was. A consequence
+        // worth knowing: this scene also carries a studio HDRI and a background dome, so the analytic sky's own
+        // sun ends up behind the dome and is invisible - documented rather than worked around, and why the
+        // environment stays the only other light in the frame.
+        runtime.set_sun_direction(area_light_takes_over
+                                      ? glm::vec3(area_light.to_light_dir[0], area_light.to_light_dir[1], area_light.to_light_dir[2])
+                                      : glm::vec3(sun_direction[0], sun_direction[1], sun_direction[2]));
         // F12 screenshot: the runtime reports the request (edge-triggered in poll_events), main
         // captures the presented swapchain image and writes it as a PNG (dependency-free encoder)
         if (runtime.consume_screenshot_request()) {

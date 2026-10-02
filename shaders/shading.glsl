@@ -151,6 +151,17 @@ struct LightUBO {
     //                 used by the cluster pass only)
     vec4 cluster_grid;
     vec4 cluster_depth;
+    // The reference pack's square area light ([lighting] area_light_*), APPENDED after cluster_depth so every
+    // offset above - and the SHORTER LightUBO copies that shaders/light_cluster.slang and shaders/rt_shadow.slang
+    // declare as prefixes - stays exactly what it is. `w` carries the switch rather than a separate flag:
+    // area_light.w <= 0 (the default, `[lighting] area_light_size = 0`) = no area light, i.e. today's behaviour.
+    // v1.1 (spec 7.2): NO shader reads the `area_light` lane any more - the area light now contributes the sun's
+    // direction and radiance (host side) and the world-scale PCF in `calc_shadow_area`; the shadow route below
+    // reads only `area_light_axis.w`. The lane stays because the wire layout is pinned by tests and a v2 area
+    // integral needs centre/half back, and its sign encoding (w > 0 = contributes energy) stays for the same
+    // reason - both signs land on the shipped expression while the feature is off.
+    vec4 area_light;      // xyz = emitter centre (WORLD, Y-up metres), w = half the side; w <= 0 = no area light
+    vec4 area_light_axis; // xyz = emitter normal (centre -> target); w = penumbra world radius (metres); <= 0 = no area shadow
 #ifndef VR_SLANG
 } light[];
 #else
@@ -424,6 +435,73 @@ float calc_shadow_proto(vec3 world_pos, vec3 normal, int half_extent, int spacin
         if (view_depth > boundary - band) {
             const float t = clamp((view_depth - (boundary - band)) / band, 0.0, 1.0);
             shadow = mix(shadow, calc_shadow_cascade_proto(world_pos, normal, next, half_extent, spacing), t);
+        }
+    }
+    return shadow;
+}
+
+/**
+ * @brief the area light's visibility: @ref calc_shadow_cascade_proto's kernel, sized in WORLD metres
+ * @param world_pos receiver position in world space
+ * @param normal receiver world-space normal
+ * @return 1.0 = fully lit, 0.0 = fully shadowed
+ *
+ * `area_light_axis.w <= 0` RETURNS @ref calc_shadow ITSELF - the shipped function, not a copy of it - which is
+ * the byte-identity guarantee for the default `[lighting] area_light_shadow = false` (and for `area_light_size
+ * = 0`). The cascade selection and the `cascade_blend` mix below are @ref calc_shadow_proto's, lane for lane;
+ * only the tap half-extent differs, and it is derived per cascade from the world penumbra radius.
+ *
+ * THE RADIUS IS CONVERTED TO A TAP COUNT, NOT SOLVED FOR: `area_light_axis.w` is the penumbra half-width in
+ * world metres (the host publishes it), the cascade's own `cascade_texel_world` says how many metres one texel
+ * covers there, and `spacing` texels between taps turn that into `half_extent = round(radius_world / (2 *
+ * spacing * texel_world))`, clamped to [1, 8] so the kernel is never degenerate and never wider than the
+ * ladder @ref calc_shadow_soft already ships. EACH CASCADE SIZES ITS OWN KERNEL: cascade N's texels cover
+ * more world metres than cascade 0's, so the same world radius is fewer taps there.
+ *
+ * THIS IS NOT PCSS AND NOT RAY TRACING, and it cannot become either without a new shadow representation: the
+ * shadow map is exposed only through a comparison sampler (shaders/heap_access.slang's `shadow_sample`, which
+ * returns the hardware-compared 0/1 for its own 2x2 footprint), so there is no readable blocker depth and the
+ * physical penumbra `(d_receiver - d_blocker) / d_blocker * size` cannot be reconstructed. The width is
+ * whatever `[lighting] area_light_softness` specifies (0 = the host's automatic "5 cm gap + source side" default),
+ * which is why the name here is a world-space PCF radius and nothing more. A real partially-occluded
+ * (area-integrated) visibility term is v2.
+ */
+float calc_shadow_area(vec3 world_pos, vec3 normal) {
+    const float radius_world = light_at(heap_light_slot).area_light_axis.w; // penumbra radius, world metres
+    if (radius_world <= 0.0) {
+        return calc_shadow(world_pos, normal); // THE SHIPPED PATH, not a copy of it
+    }
+    const int spacing = 16; // texels between taps: the kernel spans `2 * half_extent * spacing` texels
+    if (light_at(heap_light_slot).cascade_count < 1.5) {
+        const float texel_world = light_at(heap_light_slot).cascade_texel_world[0];
+        const int half_extent = clamp(int(round(radius_world / (2.0 * float(spacing) * texel_world))), 1, 8);
+        return calc_shadow_cascade_proto(world_pos, normal, 0, half_extent, spacing); // single map: no selection to do
+    }
+    const float view_depth = -(camera_at(heap_camera_slot).view * vec4(world_pos, 1.0)).z; // positive distance along the view
+    int cascade = int(light_at(heap_light_slot).cascade_count + 0.5) - 1;                 // past the last split: the farthest
+    for (int i = 0; i < MAX_SHADOW_CASCADES; ++i) {
+        if (i >= int(light_at(heap_light_slot).cascade_count + 0.5)) {
+            break;
+        }
+        if (view_depth <= light_at(heap_light_slot).cascade_splits[i]) {
+            cascade = i;
+            break;
+        }
+    }
+    const int half_extent = clamp(
+        int(round(radius_world / (2.0 * float(spacing) * light_at(heap_light_slot).cascade_texel_world[cascade]))), 1, 8);
+    float shadow = calc_shadow_cascade_proto(world_pos, normal, cascade, half_extent, spacing);
+
+    // blend into the next cascade across the boundary band (the next cascade sizes its own kernel)
+    const int next = cascade + 1;
+    if (next < int(light_at(heap_light_slot).cascade_count + 0.5)) {
+        const float boundary = light_at(heap_light_slot).cascade_splits[cascade];
+        const float band = max(boundary * light_at(heap_light_slot).cascade_blend, 1e-4);
+        if (view_depth > boundary - band) {
+            const float t = clamp((view_depth - (boundary - band)) / band, 0.0, 1.0);
+            const int next_half_extent = clamp(
+                int(round(radius_world / (2.0 * float(spacing) * light_at(heap_light_slot).cascade_texel_world[next]))), 1, 8);
+            shadow = mix(shadow, calc_shadow_cascade_proto(world_pos, normal, next, next_half_extent, spacing), t);
         }
     }
     return shadow;

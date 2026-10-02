@@ -1476,6 +1476,27 @@ namespace vulkan {
         this->shadow_frustum_valid = false;
     }
 
+    void runtime::set_area_light(glm::vec3 const& centre, float const half, bool const irradiance, glm::vec3 const& axis, float const penumbra) noexcept {
+        if (!(half > 0.0f)) {
+            // NO AREA LIGHT: both lanes are written as a LITERAL zero. `glm::vec4(0.0f)` rather than a
+            // computed expression because the shader's "is there an emitter" test is a comparison against
+            // zero, and a `-0.0f` from a negated zero would still compare equal - but nothing downstream
+            // should ever have to know that. This is also the byte-identical path: a frame that never asks
+            // for an area light carries the zeros it carried before this call existed.
+            this->light_state.area_light = glm::vec4(0.0f);
+            this->light_state.area_light_axis = glm::vec4(0.0f);
+            return;
+        }
+        // The sign of area_light.w is the energy switch, because the two appended lanes have no spare boolean
+        // and the shader can read a sign for free (see light_ubo's note).
+        float const signed_half = irradiance ? half : -half;
+        // A zero penumbra is "no penumbra" for the shader; `penumbra` arrives from derive_area_light as
+        // max(0, ...) already, and the clamp here is the last line of defence against a caller handing the
+        // shading a negative radius.
+        this->light_state.area_light = glm::vec4(centre, signed_half);
+        this->light_state.area_light_axis = glm::vec4(axis, std::max(penumbra, 0.0f));
+    }
+
     void runtime::set_toon_shading(float const steps, float const softness) noexcept {
         // 0 disables the cel path (plain PBR); the shader rounds to whole bands
         this->toon_steps = steps < 1.5f ? 0.0f : std::round(std::clamp(steps, 2.0f, 8.0f));

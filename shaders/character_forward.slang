@@ -1385,9 +1385,18 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // that is a property of the shared body, not a second switch. `shaders/goo_toon.slang`'s OWN shadow call
     // (its `rs_shadow`, the bare `calc_shadow`) is the one left byte-untouched, and none of the three stages
     // changes a pixel at level 0.
+    // THE AREA LIGHT'S SHADOW IS A THIRD ROUTE THROUGH THIS ONE CALL SITE (spec 3.2), and it is switched by
+    // the sign of the lane the light UBO already carries rather than by a new uniform: `area_light_axis.w > 0`
+    // is the host saying "this light has a penumbra of that many world metres", anything else (`<= 0`, the
+    // default with `[lighting] area_light_size = 0` AND with `area_light_shadow = false`) falls through to the
+    // EXACT expression that shipped - not a copy of it - so a default run compiles the same two functions it
+    // always did. `calc_shadow_area` itself returns `calc_shadow(world_pos, normal)` for `<= 0` as well, which
+    // makes the byte-identity guarantee hold at both levels.
     const float shadow = toon_indices.w != 0u
                              ? 1.0
-                             : calc_shadow_soft(world_pos, n, toon_rig_at(heap_slots_toon_rig).shadow_softness.x);
+                             : (light_at(heap_light_slot).area_light_axis.w > 0.0
+                                    ? calc_shadow_area(world_pos, n)
+                                    : calc_shadow_soft(world_pos, n, toon_rig_at(heap_slots_toon_rig).shadow_softness.x));
 
     // ---- THE CAMERA'S OWN BASIS, which the article's chain needs twice ----
     //

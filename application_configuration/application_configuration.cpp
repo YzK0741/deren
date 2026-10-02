@@ -439,6 +439,43 @@ namespace app_config {
                     }
                 }
             }
+            // The area light (see the struct's own note for the manifest these keys come from). The two
+            // vectors take exactly the shape sun_direction takes, and for the same reason: three numbers or
+            // nothing, because a partly-specified vector would mix this config's components with the default's
+            // and put a light somewhere nobody asked for.
+            auto const read_vec3 = [](toml::table const& source, char const* key, std::array<float, 3>& target) {
+                if (toml::node const* node = source.get(key)) {
+                    if (toml::array const* values = node->as_array()) {
+                        if (values->size() == target.size()) {
+                            for (std::size_t i = 0; i < values->size(); ++i) {
+                                if (std::optional<double> const component = (*values)[i].value<double>()) {
+                                    target[i] = static_cast<float>(*component);
+                                }
+                            }
+                        }
+                    }
+                }
+            };
+            read_vec3(*lighting, "area_light_position", settings.lighting.area_light_position);
+            read_vec3(*lighting, "area_light_target", settings.lighting.area_light_target);
+            for (auto const& [key, target] : {std::pair{"area_light_size", &settings.lighting.area_light_size},
+                                              std::pair{"area_light_power", &settings.lighting.area_light_power},
+                                              std::pair{"area_light_intensity", &settings.lighting.area_light_intensity},
+                                              std::pair{"area_light_softness", &settings.lighting.area_light_softness}}) {
+                if (toml::node const* node = lighting->get(key)) {
+                    if (std::optional<double> const value = node->value<double>()) {
+                        *target = static_cast<float>(*value);
+                    }
+                }
+            }
+            for (auto const& [key, target] : {std::pair{"area_light_irradiance", &settings.lighting.area_light_irradiance},
+                                              std::pair{"area_light_shadow", &settings.lighting.area_light_shadow}}) {
+                if (toml::node const* node = lighting->get(key)) {
+                    if (std::optional<bool> const value = node->value<bool>()) {
+                        *target = *value;
+                    }
+                }
+            }
         }
 
         if (toml::table const* gui = table.get_as<toml::table>("gui")) {
@@ -544,6 +581,41 @@ namespace app_config {
             utility::log("app_config: invalid environment_intensity {} (use a finite value >= 0), falling back to 0.35", settings.lighting.environment_intensity);
             settings.lighting.environment_intensity = 0.35f;
         }
+        // The area light's own numbers. A negative size/power means "no such emitter" rather than a negative
+        // one, a negative multiplier would give a negative radiance (a light that sucks photons out of the
+        // frame), and a NaN or infinity in ANY of them travels straight into the light UBO and then into every
+        // pixel - the same failure mode task-91 found for `toon_shadow_softness`. `!(x >= 0)` is the NaN test.
+        if (!(settings.lighting.area_light_size >= 0.0f)) {
+            utility::log("app_config: invalid area_light_size {} (use a finite value >= 0), falling back to 0 (no area light)", settings.lighting.area_light_size);
+            settings.lighting.area_light_size = 0.0f;
+        }
+        if (!(settings.lighting.area_light_power >= 0.0f)) {
+            utility::log("app_config: invalid area_light_power {} (use a finite value >= 0), falling back to 0", settings.lighting.area_light_power);
+            settings.lighting.area_light_power = 0.0f;
+        }
+        if (!(settings.lighting.area_light_intensity >= 0.0f)) {
+            utility::log("app_config: invalid area_light_intensity {} (use a finite value >= 0), falling back to 1", settings.lighting.area_light_intensity);
+            settings.lighting.area_light_intensity = 1.0f;
+        }
+        if (!(settings.lighting.area_light_softness >= 0.0f)) {
+            utility::log("app_config: invalid area_light_softness {} (use a finite value >= 0), falling back to 0 (automatic penumbra)", settings.lighting.area_light_softness);
+            settings.lighting.area_light_softness = 0.0f;
+        }
+        for (auto const& [key, target] : {std::pair{"area_light_position", &settings.lighting.area_light_position},
+                                          std::pair{"area_light_target", &settings.lighting.area_light_target}}) {
+            for (std::size_t i = 0; i < target->size(); ++i) {
+                if (!std::isfinite((*target)[i])) {
+                    utility::log("app_config: invalid {}[{}] (use finite numbers), falling back to 0", key, i);
+                    (*target)[i] = 0.0f;
+                }
+            }
+        }
+        if (settings.lighting.area_light_size > 0.0f && !(settings.lighting.area_light_power > 0.0f)) {
+            // Not an error (the user may be stripping the key light without deleting its geometry), but it is
+            // never what someone means, and the symptom - a frame lit only by the environment - looks like a
+            // broken area light rather than a zero power.
+            utility::log("app_config: area_light_size {} with area_light_power {}: the main light contributes nothing", settings.lighting.area_light_size, settings.lighting.area_light_power);
+        }
         if (settings.lighting.demo_lights < 0 || settings.lighting.demo_lights > static_cast<int32_t>(max_demo_lights)) {
             utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);
             settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<int32_t>(max_demo_lights));
@@ -563,6 +635,85 @@ namespace app_config {
             settings.render.camera_fit = "exterior";
         }
         return settings;
+    }
+
+    area_light_derived derive_area_light(lighting_settings const& lighting, std::array<float, 3> const& scene_origin) {
+        constexpr float pi = 3.14159265358979323846f;
+        area_light_derived derived = {};
+
+        // size <= 0 is the OFF switch AND the byte-identical contract: nothing below runs, `derived` stays
+        // zero-filled, the caller writes a zero light_ubo pair and leaves the sun exactly as configured.
+        if (!(lighting.area_light_size > 0.0f)) {
+            return derived;
+        }
+
+        // position/target are relative to the AUTHOR'S ORIGIN (the feet / the ground - see the key notes), so
+        // world = scene_origin + key. That is what makes the reference package's numbers copyable verbatim.
+        derived.world_centre = {scene_origin[0] + lighting.area_light_position[0],
+                                scene_origin[1] + lighting.area_light_position[1],
+                                scene_origin[2] + lighting.area_light_position[2]};
+        std::array<float, 3> const world_target = {scene_origin[0] + lighting.area_light_target[0],
+                                                   scene_origin[1] + lighting.area_light_target[1],
+                                                   scene_origin[2] + lighting.area_light_target[2]};
+
+        auto const normalised = [](std::array<float, 3> const& direction) {
+            float const length_sq = direction[0] * direction[0] + direction[1] * direction[1] + direction[2] * direction[2];
+            if (!(length_sq > 0.0f)) {
+                return std::array<float, 3>{0.0f, 0.0f, 0.0f};
+            }
+            float const inverse_length = 1.0f / std::sqrt(length_sq);
+            return std::array<float, 3>{direction[0] * inverse_length, direction[1] * inverse_length, direction[2] * inverse_length};
+        };
+
+        // The direction the frame's ONE light gets: from the author's origin towards the emitter. This is what
+        // makes the reference package's soft box the sun - main.cpp hands it to runtime.set_sun_direction while
+        // the emitter contributes energy (`area_light_irradiance`).
+        std::array<float, 3> const origin_to_light = {derived.world_centre[0] - scene_origin[0],
+                                                      derived.world_centre[1] - scene_origin[1],
+                                                      derived.world_centre[2] - scene_origin[2]};
+        // The emitter's own normal, i.e. the side that emits: centre -> target. It is the penumbra's direction
+        // (the second UBO lane's xyz) and the axis the shadow is offset along - see `calc_shadow_area`.
+        std::array<float, 3> const to_target = {world_target[0] - derived.world_centre[0],
+                                                world_target[1] - derived.world_centre[1],
+                                                world_target[2] - derived.world_centre[2]};
+        std::array<float, 3> const to_light = normalised(origin_to_light);
+        std::array<float, 3> const axis = normalised(to_target);
+        if ((to_light[0] == 0.0f && to_light[1] == 0.0f && to_light[2] == 0.0f) ||
+            (axis[0] == 0.0f && axis[1] == 0.0f && axis[2] == 0.0f)) {
+            // An emitter AT the author's origin (no direction to light) or aimed at itself (no emitting side).
+            // There is no honest direction to hand the sun, so the area light stays off: a zero light_ubo pair
+            // is the only answer that cannot invent a frame.
+            utility::log("app_config: area light at [{}, {}, {}] with target [{}, {}, {}] has no usable direction, ignoring it",
+                         lighting.area_light_position[0], lighting.area_light_position[1], lighting.area_light_position[2],
+                         lighting.area_light_target[0], lighting.area_light_target[1], lighting.area_light_target[2]);
+            return derived;
+        }
+
+        derived.half = 0.5f * lighting.area_light_size;
+        derived.axis = axis;
+        derived.to_light_dir = to_light;
+        // The emitter's Lambertian radiance: its power over its emitting area, divided by pi because a
+        // Lambertian emitter radiates into a hemisphere with a cosine falloff. 4000 W over a 30 m side = 1.41471.
+        derived.radiance = lighting.area_light_intensity * lighting.area_light_power /
+                           (pi * lighting.area_light_size * lighting.area_light_size);
+        // The penumbra is a WORLD radius in metres, not an angle: a 30 m emitter 15.8 m away subtends most of a
+        // hemisphere, so its shadow's edge is soft by metres. `0.05 * size / |position - target|` is the rough
+        // heuristic v1 freezes (it grows with the source and shrinks with its distance); an explicit softness
+        // replaces it, and area_light_shadow = false asks for a hard edge.
+        //
+        // THE DISTANCE IS MEASURED TO THE TARGET, NOT TO THE AUTHOR'S ORIGIN (spec 2:47, the F2 correction):
+        // the heuristic is about how far the light travels to what it is AIMED at. The two agree for the
+        // shipping keys, whose target is the origin itself (|[-3, 15, 4]| = 15.811388 => 0.094868 m), and part
+        // company as soon as the emitter aims somewhere else.
+        float const distance_to_target = std::sqrt(to_target[0] * to_target[0] + to_target[1] * to_target[1] +
+                                                   to_target[2] * to_target[2]);
+        derived.penumbra = lighting.area_light_shadow
+                               ? (lighting.area_light_softness > 0.0f
+                                      ? lighting.area_light_softness
+                                      : 0.05f * lighting.area_light_size / std::max(distance_to_target, 1e-3f))
+                               : 0.0f;
+        derived.enabled = true;
+        return derived;
     }
 
     bool wants_model_dialog(app_settings const& settings) {

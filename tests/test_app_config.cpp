@@ -4,6 +4,7 @@
 // build injects rather than relative to the working directory.
 #include "vk_test.h"
 
+#include <array>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -50,6 +51,19 @@ namespace {
         CHECK(settings.render.background_glb == "bg/test-background.glb");
         CHECK(!settings.gui.show);
         CHECK(settings.lighting.irr_size == 64);
+        // [lighting] area_light_*: the reference package's soft box, with BOTH v1 A/B switches at their
+        // NON-default value (false) - so these two CHECKs prove the parser reads the booleans instead of
+        // leaving the compiled defaults (true) in place.
+        CHECK(settings.lighting.area_light_size > 29.99f && settings.lighting.area_light_size < 30.01f);
+        CHECK(settings.lighting.area_light_power > 3999.0f && settings.lighting.area_light_power < 4001.0f);
+        CHECK(settings.lighting.area_light_position[0] > -3.01f && settings.lighting.area_light_position[0] < -2.99f);
+        CHECK(settings.lighting.area_light_position[1] > 14.99f && settings.lighting.area_light_position[1] < 15.01f);
+        CHECK(settings.lighting.area_light_position[2] > 3.99f && settings.lighting.area_light_position[2] < 4.01f);
+        CHECK(settings.lighting.area_light_target[0] == 0.0f && settings.lighting.area_light_target[1] == 0.0f && settings.lighting.area_light_target[2] == 0.0f);
+        CHECK(settings.lighting.area_light_intensity > 0.99f && settings.lighting.area_light_intensity < 1.01f);
+        CHECK(!settings.lighting.area_light_irradiance);
+        CHECK(!settings.lighting.area_light_shadow);
+        CHECK(settings.lighting.area_light_softness > 0.24f && settings.lighting.area_light_softness < 0.26f);
         CHECK(settings.paths.shaders_dir == "shaders");
         CHECK(settings.paths.screenshot_dir == "captures");
     }
@@ -101,6 +115,16 @@ namespace {
         // own world_strength, so pointing the key at the converted studio HDR needs no second setting.
         CHECK(settings.lighting.environment_hdr.empty());
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
+        // [lighting] area_light_*: the example DOCUMENTS the reference package's soft box but ships it OFF
+        // (`area_light_size = 0`), which is the byte-identical contract - a config copied from this file
+        // renders what the repository rendered before the keys existed, and the block is one edit away.
+        CHECK(settings.lighting.area_light_size == 0.0f);
+        CHECK(settings.lighting.area_light_power == 0.0f);
+        CHECK(settings.lighting.area_light_position[0] == 0.0f && settings.lighting.area_light_position[1] == 0.0f && settings.lighting.area_light_position[2] == 0.0f);
+        CHECK(settings.lighting.area_light_intensity > 0.99f && settings.lighting.area_light_intensity < 1.01f);
+        CHECK(settings.lighting.area_light_irradiance);
+        CHECK(settings.lighting.area_light_shadow);
+        CHECK(settings.lighting.area_light_softness == 0.0f);
         CHECK(settings.gui.show);
     }
 
@@ -116,6 +140,13 @@ namespace {
         CHECK(settings.lighting.irr_size == 32);
         CHECK(settings.lighting.lut_size == 256);
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f); // -1.0 -> the default
+        // The area light's own numbers: a negative size/power means "no such emitter" rather than a negative
+        // one, `nan` on the multiplier would ride the light UBO into every pixel (clamp cannot catch a NaN),
+        // and a negative softness would ask the shading for a negative penumbra radius.
+        CHECK(settings.lighting.area_light_size == 0.0f);
+        CHECK(settings.lighting.area_light_power == 0.0f);
+        CHECK(settings.lighting.area_light_intensity > 0.99f && settings.lighting.area_light_intensity < 1.01f);
+        CHECK(settings.lighting.area_light_softness == 0.0f);
     }
 
     // scripts/make_config.py WRITES config.toml, so every value it can emit has to be a value
@@ -183,6 +214,16 @@ namespace {
         CHECK(settings.lighting.lut_size == 256);
         CHECK(settings.lighting.environment_hdr.empty()); // the generator's own default: the procedural sky
         CHECK(settings.lighting.environment_intensity > 0.349f && settings.lighting.environment_intensity < 0.351f);
+        // [lighting] area_light_*: OFF by default, and the generator writes all eight keys out, so this is
+        // also the check that the two files (generator + fixture) have not drifted apart.
+        CHECK(settings.lighting.area_light_size == 0.0f);
+        CHECK(settings.lighting.area_light_power == 0.0f);
+        CHECK(settings.lighting.area_light_position[0] == 0.0f && settings.lighting.area_light_position[1] == 0.0f && settings.lighting.area_light_position[2] == 0.0f);
+        CHECK(settings.lighting.area_light_target[0] == 0.0f && settings.lighting.area_light_target[1] == 0.0f && settings.lighting.area_light_target[2] == 0.0f);
+        CHECK(settings.lighting.area_light_intensity > 0.99f && settings.lighting.area_light_intensity < 1.01f);
+        CHECK(settings.lighting.area_light_irradiance);
+        CHECK(settings.lighting.area_light_shadow);
+        CHECK(settings.lighting.area_light_softness == 0.0f);
     }
 
     void test_model_ask_sentinel_is_recognized_and_never_a_path() {
@@ -239,6 +280,116 @@ namespace {
         CHECK(load_one("[render]\nshadow = true\n") == 0.0f); // absent key: the compiled default
     }
 
+    // The area light's maths lives in ONE pure function (`app_config::derive_area_light`), so the reference
+    // package's own numbers can be pinned without a device: 4000 W over a 30 m side IS the author's soft key,
+    // and this derivation is what turns it into the frame's radiance, direction and penumbra. Three cases
+    // carry the contract - the reference numbers, size 0 (the byte-identical path: `enabled == false` and
+    // every field zero), and the degenerate geometry that would otherwise normalise a zero vector and put a
+    // NaN direction through the sun, the cascades and every pixel.
+    void test_area_light_derivation_matches_the_reference_package() {
+        // The AUTHOR'S ORIGIN - where the manifest measures from, i.e. the ground under the character. At the
+        // origin the manifest's numbers are the world numbers, which is why this case reads `scene_origin = 0`.
+        std::array<float, 3> const scene_origin = {0.0f, 0.0f, 0.0f};
+        app_config::lighting_settings lighting = {};
+        lighting.area_light_size = 30.0f;
+        lighting.area_light_power = 4000.0f;
+        // the manifest's Blender position [-3, -4, 15] turned Y-up: 15.8 m away, ~72 degrees of elevation
+        lighting.area_light_position = {-3.0f, 15.0f, 4.0f};
+        lighting.area_light_target = {0.0f, 0.0f, 0.0f};
+
+        app_config::area_light_derived const derived = app_config::derive_area_light(lighting, scene_origin);
+        CHECK(derived.enabled);
+        CHECK(derived.half > 14.99f && derived.half < 15.01f);
+        CHECK(derived.world_centre[0] > -3.01f && derived.world_centre[0] < -2.99f);
+        CHECK(derived.world_centre[1] > 14.99f && derived.world_centre[1] < 15.01f);
+        CHECK(derived.world_centre[2] > 3.99f && derived.world_centre[2] < 4.01f);
+        // radiance = intensity * power / (pi * size^2) = 4000 / (pi * 900) = 1.41471: the soft key's own value
+        CHECK(derived.radiance > 1.41471f - 1.0e-4f && derived.radiance < 1.41471f + 1.0e-4f);
+        // the sun points FROM the scene AT the emitter ([-3, 15, 4], |v| = 15.8114): up, to the left, forward
+        CHECK(derived.to_light_dir[0] < 0.0f);
+        CHECK(derived.to_light_dir[1] > 0.9f);
+        CHECK(derived.to_light_dir[2] > 0.0f);
+        float const to_light_length = derived.to_light_dir[0] * derived.to_light_dir[0] +
+                                      derived.to_light_dir[1] * derived.to_light_dir[1] +
+                                      derived.to_light_dir[2] * derived.to_light_dir[2];
+        CHECK(to_light_length > 0.999f && to_light_length < 1.001f); // normalised, not just scaled
+        // axis = centre -> target = [3, -15, -4]: the emitting side faces DOWN into the scene
+        CHECK(derived.axis[1] < 0.0f);
+        // the automatic penumbra: 0.05 * 30 / 15.8114 = 0.09487 m
+        CHECK(derived.penumbra > 0.0948f && derived.penumbra < 0.0950f);
+
+        // THE MEASURED AUTHOR ORIGIN OF THIS SCENE: the character's feet land at y = -2.198 (that is
+        // `main.cpp`'s `scene_floor_y`), so the same manifest numbers must land at [-3, 12.802, 4] - 15.8114 m
+        // from the origin, which is why the radius and the direction the sun gets are both unchanged by the
+        // shift. Anchoring on the bounding-box centre instead put the emitter at [-1.422, 15.546, 3.798] and
+        // tilted the visible light by ~6 degrees of elevation and ~16 of azimuth; this case is what stops that
+        // from coming back.
+        std::array<float, 3> const feet_origin = {0.0f, -2.198f, 0.0f};
+        app_config::area_light_derived const at_feet = app_config::derive_area_light(lighting, feet_origin);
+        CHECK(at_feet.enabled);
+        CHECK(at_feet.world_centre[0] > -3.01f && at_feet.world_centre[0] < -2.99f);
+        CHECK(at_feet.world_centre[1] > 12.80f && at_feet.world_centre[1] < 12.81f);
+        CHECK(at_feet.world_centre[2] > 3.99f && at_feet.world_centre[2] < 4.01f);
+        CHECK(at_feet.to_light_dir[1] > 0.9f); // `to_light_dir` is `position` normalised, origin or no origin
+        CHECK(at_feet.penumbra > 0.0948f && at_feet.penumbra < 0.0950f);
+
+        // size 0 (the default) is OFF, and OFF means ZERO - the caller writes both lanes as
+        // glm::vec4(0) and multiplies the sun by 1.0, so the frame is the one from before the keys existed.
+        app_config::lighting_settings const off = {};
+        app_config::area_light_derived const disabled = app_config::derive_area_light(off, scene_origin);
+        CHECK(!disabled.enabled);
+        CHECK(disabled.half == 0.0f && disabled.radiance == 0.0f && disabled.penumbra == 0.0f);
+        CHECK(disabled.world_centre[0] == 0.0f && disabled.world_centre[1] == 0.0f && disabled.world_centre[2] == 0.0f);
+        CHECK(disabled.axis[0] == 0.0f && disabled.to_light_dir[1] == 0.0f && disabled.to_light_dir[2] == 0.0f);
+
+        // an explicit softness replaces the automatic value, and `shadow = false` removes the penumbra
+        // entirely - a hard edge is what that switch asks for, not a smaller soft one.
+        lighting.area_light_softness = 0.4f;
+        CHECK(app_config::derive_area_light(lighting, scene_origin).penumbra == 0.4f);
+        lighting.area_light_shadow = false;
+        CHECK(app_config::derive_area_light(lighting, scene_origin).penumbra == 0.0f);
+
+        // An emitter AT the author's origin has no direction to give the sun, and one aimed at itself has no
+        // emitting side: both are OFF rather than normalise(0) = NaN.
+        app_config::lighting_settings degenerate = {};
+        degenerate.area_light_size = 30.0f;
+        degenerate.area_light_power = 4000.0f;
+        app_config::area_light_derived const no_direction = app_config::derive_area_light(degenerate, scene_origin);
+        CHECK(!no_direction.enabled);
+        CHECK(no_direction.to_light_dir[0] == 0.0f && no_direction.axis[0] == 0.0f);
+
+        // ... and position/target really are RELATIVE to that origin: with the origin at [10, 0, -2] the same key
+        // gives a world centre 10 m to the right, which is what lets the manifest's numbers be copied over.
+        std::array<float, 3> const moved_origin = {10.0f, 0.0f, -2.0f};
+        app_config::lighting_settings relative = {};
+        relative.area_light_size = 4.0f;
+        relative.area_light_power = 100.0f;
+        relative.area_light_position = {1.0f, 2.0f, 3.0f};
+        app_config::area_light_derived const shifted = app_config::derive_area_light(relative, moved_origin);
+        CHECK(shifted.enabled);
+        CHECK(shifted.world_centre[0] > 10.99f && shifted.world_centre[0] < 11.01f);
+        CHECK(shifted.world_centre[1] > 1.99f && shifted.world_centre[1] < 2.01f);
+        CHECK(shifted.world_centre[2] > 0.99f && shifted.world_centre[2] < 1.01f);
+        // surface -> emitter is [+1, +2, +3] there: still normalised, still pointing at the emitter
+        CHECK(shifted.to_light_dir[0] > 0.0f && shifted.to_light_dir[1] > 0.0f && shifted.to_light_dir[2] > 0.0f);
+        CHECK(shifted.penumbra > 0.0534f && shifted.penumbra < 0.0535f); // 0.05 * 4 / |[1, 2, 3]|
+
+        // F2 (v1.1): the automatic penumbra's distance is measured to the TARGET, not to the author's origin.
+        // This emitter sits 15 m from the origin but 30 m from what it is aimed at, so the two readings differ
+        // by 2x - the case pins the one that shipped: 0.05 * 30 / 30 = 0.05, NOT 0.05 * 30 / 15 = 0.1.
+        app_config::lighting_settings aimed = {};
+        aimed.area_light_size = 30.0f;
+        aimed.area_light_power = 4000.0f;
+        aimed.area_light_position = {0.0f, 0.0f, 15.0f};
+        aimed.area_light_target = {0.0f, 0.0f, -15.0f};
+        app_config::area_light_derived const aimed_away = app_config::derive_area_light(aimed, feet_origin);
+        CHECK(aimed_away.enabled);
+        CHECK(aimed_away.world_centre[2] > 14.99f && aimed_away.world_centre[2] < 15.01f);
+        CHECK(aimed_away.penumbra > 0.0499f && aimed_away.penumbra < 0.0501f); // 0.05 * 30 / |[0, 0, -30]|
+        // ... and NOT the 0.1 an origin-anchored distance would give:
+        CHECK(aimed_away.penumbra < 0.0999f);
+    }
+
     void test_resolve_from_argv_merges_config_and_positional() {
         char const* argv[] = {"vk_test", "Models/tri.gltf", "3"};
         app_config::app_settings const settings =
@@ -256,6 +407,7 @@ int32_t main() {
     test_generated_config_parses();
     test_model_ask_sentinel_is_recognized_and_never_a_path();
     test_toon_shadow_softness_ladder_is_sanitized();
+    test_area_light_derivation_matches_the_reference_package();
     test_resolve_from_argv_merges_config_and_positional();
     return vk_test::finish("test_app_config");
 }
