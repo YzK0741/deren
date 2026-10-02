@@ -61,8 +61,11 @@ DOXYFILE_ENCODING      = UTF-8
 # project for which the documentation is generated. This name is used in the
 # title of most generated pages and in a few other places.
 # The default value is: My Project.
+#
+# Kept in step with CMakeLists.txt's project() name ("deren") and with the repository
+# name; the manual's title is the first place a reader sees it.
 
-PROJECT_NAME           = "vulkan render"
+PROJECT_NAME           = "deren"
 
 # The PROJECT_NUMBER tag can be used to enter a project or revision number. This
 # could be handy for archiving the generated documentation or if some version
@@ -2273,8 +2276,16 @@ LATEX_FOOTER           =
 # style sheet in the list overrules the setting of the previous ones in the
 # list).
 # This tag requires that the tag GENERATE_LATEX is set to YES.
+#
+# docs/latex_unicode.sty is required, not cosmetic: the doxygen input is not ASCII-only
+# (comments quote the reference toon graph by its own node labels and the gltf loader
+# quotes model part names), and a pdflatex run aborts with "Unicode character ... not set
+# up for use with LaTeX" on such a character. tests/test_docs.cpp only forces the
+# markdown pages under docs/ to be ASCII, so the stylesheet is what keeps the PDF half of
+# `scripts/windows/build_docs.ps1` buildable. The file documents which characters it
+# declares and how to extend it.
 
-LATEX_EXTRA_STYLESHEET =
+LATEX_EXTRA_STYLESHEET = docs/latex_unicode.sty
 
 # The LATEX_EXTRA_FILES tag can be used to specify one or more extra images or
 # other source files which should be copied to the LATEX_OUTPUT output

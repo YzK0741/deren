@@ -1,8 +1,8 @@
 # deren
 
-A Vulkan renderer written in modern C++23 (C++20 modules / `.cppm`), implementing a glTF 2.0 PBR (metallic-roughness) pipeline with CPU-precomputed split-sum IBL lighting, a scene tree with BVH frustum culling, directional shadows, and a Dear ImGui debug overlay.
+**deren** is a Vulkan 1.3 renderer written in modern C++23 (C++20 modules / `.cppm`), implementing a glTF 2.0 PBR (metallic-roughness) pipeline with CPU-precomputed split-sum IBL lighting, a scene tree with BVH frustum culling, directional shadows, and a Dear ImGui debug overlay.
 
-> **Renamed on 2026-10-02: this project is `deren`** (it was `vulkan_render`). The executable, the version macros, the reference-frame directory and the GitHub repository were renamed with it; the working directory is renamed last, from outside a session that holds it open. Module namespaces still read `vulkan.*` and four doxygen groups still read `vulkan_render_*` on purpose: renaming those is a separate, still-open decision tied to the backend boundary. See `docs/mainpage.md` for the full note.
+> **Renamed on 2026-10-02: this project is `deren`** (it was `vulkan_render`). The executable, the version macros, the reference-frame directory and the GitHub repository were renamed with it; the working directory was renamed last, from outside a session that held it open, and the old path no longer exists. Module namespaces still read `vulkan.*` and four doxygen groups still read `vulkan_render_*` on purpose: renaming those is a separate, still-open decision tied to the backend boundary. See `docs/mainpage.md` for the full note.
 
 <p align="center">
   <img src="snapshot/DamagedHelmet.png" width="49%" alt="DamagedHelmet with PBR + IBL + shadows" />
@@ -109,14 +109,13 @@ powershell -ExecutionPolicy Bypass -File scripts/windows/build_docs.ps1
 sh scripts/posix/build_docs.sh
 ```
 
-Raw equivalent: `doxygen Doxyfile` (HTML only).
+Raw equivalent: `doxygen Doxyfile` (HTML only). `Doxyfile` names the project `deren` (kept in step with `project()` in `CMakeLists.txt`), uses `docs/mainpage.md` as the manual's front page, and lists the `docs/*.md` pages one at a time rather than pointing at the whole directory - `docs/` also holds doxygen's own output and the two reference sets that are not this project's prose, so a new page has to be added to its `INPUT`, and the order of those lines is the manual's chapter order.
 
-Output: `docs/html/` (open `docs/html/index.html`) and `docs/latex/` + `docs/latex/refman.pdf` (all gitignored). The LaTeX step needs a TeX distribution (`pdflatex`/`makeindex`; `make`, `latexmk`, or bare `pdflatex` all work — MiKTeX's per-user install under `%LOCALAPPDATA%` is found automatically).
+Output: `docs/html/` (open `docs/html/index.html`) and `docs/latex/` + `docs/latex/refman.pdf` (all gitignored). The LaTeX step needs a TeX distribution (`pdflatex`/`makeindex`; `make`, `latexmk`, or bare `pdflatex` all work — MiKTeX's per-user install under `%LOCALAPPDATA%` is found automatically). The non-ASCII characters the sources are allowed to keep are what the new `docs/latex_unicode.sty` is for: `Doxyfile` sets `LATEX_EXTRA_STYLESHEET` to it, and pdflatex stops on the first such character without it.
 
 Related source docs (tracked in the repo):
 
 - [gltf_loader usage guide](docs/gltf_loader_usage.md) (API semantics, data formats, Vulkan integration examples)
-- [scene tree design notes](docs/scene_tree_design.md) (design history of the scene-tree / import rework)
 - [shader reference](docs/shaders.md) (the pass chain, the shared scene set, push constants, conventions) — also the Doxygen `shaders` group description
 - [Lumen reference studies](docs/reference/) (`lumen_radiance_cache.md`, `lumen_surface_cache.md`, `lumen_reflection_denoiser.md`, `megalights_stochastic_lighting.md`: what UE 5.8.2 does, as a mechanism reference)
 - [MegaLights: stochastic punctual lighting](docs/megalights.md) (the feature, its acceptance numbers and what it cost)
@@ -134,11 +133,11 @@ Related source docs (tracked in the repo):
 │                            #   add_instancing_grid, shader loading
 ├── CMakeLists.txt           # CMake 4.3, C++23 modules build
 ├── config.example.toml      # Annotated startup-config reference (copy to config.toml)
-├── Doxyfile                 # Doxygen config (PROJECT_NAME: "vulkan render")
-├── app_config/              # app_config module (TOML startup config + argv merge)
+├── Doxyfile                 # Doxygen config (PROJECT_NAME: "deren")
+├── application_configuration/  # app_config module (TOML startup config + argv merge)
 ├── vulkan/                  # vulkan modules (core / vma / handles / init_utils / pipeline / spirv_parser / math /
 │                            #   runtime / bindings / pipelines / profiling / shadow_fit / readback /
-│                            #   scene_tree / render_environment / gui / animation)
+│                            #   scene_tree / render_environment / graphical_user_interface / animation)
 ├── utility/                 # utility module (data_block / better_pmr / BVH / thread_pool / frame_clock)
 ├── gltf_loader/             # gltf_loader module (CPU-side glTF/GLB loading)
 ├── vstd/                     # vstd module — modified from libc++ (LLVM), trimmed to the project's
@@ -155,17 +154,18 @@ Related source docs (tracked in the repo):
 │                            #   plus config generators and measure/ (the instruments every number in
 │                            #   the feature docs came out of; see measure/README.md);
 │                            #   build_docs = windows/build_docs.ps1 + posix/build_docs.sh
-└── third_party/             # Vendored dependencies (spirv-reflect, imgui, xxhash, fastgltf, simdjson, stb_image, mimalloc)
+└── third_party/             # Vendored dependencies (spirv-reflect, imgui, xxhash, fastgltf, simdjson, stb, vma, mimalloc)
 ```
 
 ## Dependencies & Build
 
 ### Requirements
 
-- CMake ≥ 4.3 and a compiler with C++23 / C++20 modules support (this project uses MSYS2 clang64's clang)
-- [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) (includes `glslc`; also provides VMA, `vma/vk_mem_alloc.h`, under its `Include/`)
+- CMake ≥ 4.3 and a compiler with C++23 / C++20 modules support (this project builds with MSYS2 clang64's clang + libc++, the toolchain `vstd/vstd.cppm` and `.github/workflows/ci.yml` are both tied to)
+- [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): what `find_package(Vulkan REQUIRED)` resolves against, and one of the places `slangc` can come from (`Bin/slangc.exe`; MSYS2 ships no Slang package). VMA is **not** taken from its `Include/`: `vulkan.core:vma` includes the vendored `third_party/vma/vk_mem_alloc.h`, preferred because distro Vulkan packages do not ship that header
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
 - Everything else is vendored under `third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode) and **mimalloc** (allocator behind `utility:better_pmr`, compiled into a `mimalloc_vendored` static target). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. The **Windows Release** executable links fully static (`-static`: libc++ / libc++abi / libunwind, glfw3, mimalloc are all pulled in statically), so `build-release-clang64/deren.exe` is a single portable file — only the OS's own DLLs (kernel32, the UCRT, `vulkan-1.dll`) remain dynamic. Debug builds stay dynamic for faster iteration.
+- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/windows/build.ps1` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `vstd/vstd_msvc.cppm` instead of `vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - which is why an MSVC Release exe is not the single self-contained file the clang64 Release exe is.
 
 ### Scripts
 
@@ -321,15 +321,18 @@ The Dear ImGui debug overlay is on **by default** — disable it with `[gui] sho
 
 ### Recompile shaders
 
-The build does this for you, and it is the only path that matters: `CMakeLists.txt` requires `glslc`
-(the Vulkan SDK's shader compiler, which CMake's `FindVulkan` reports as `Vulkan_GLSLC_EXECUTABLE`)
-and regenerates every `shaders/*.spv` from its GLSL source as part of `cmake --build` - the shared
-includes (`surface.glsl`, `shading.glsl`, `sky.glsl`) are dependencies, so editing one recompiles the
+The build does this for you, and it is the only path that matters: `CMakeLists.txt` requires `slangc`
+(Slang's compiler; MSYS2 ships no Slang package, so it comes from `PATH`, from the Vulkan SDK's
+`Bin/slangc.exe`, or from a `-DVR_SLANGC_EXECUTABLE=...` override, and configuring fails without it)
+and regenerates every `shaders/*.spv` from its `.slang` source as part of `cmake --build` - `slangc` is
+the only shader compiler the project has, since every stage is built from a `.slang` source and the
+GLSL stage sources are gone. The `.glsl` files several of them share (`surface.glsl`,
+`material_record.glsl`, `shading.glsl`, `sky.glsl`, ...) are dependencies, so editing one recompiles the
 shaders that pull it in. The compiled directory is then mirrored next to the executable, and that
 copy is what the runtime loads, so the shaders a run uses are always the ones its own build produced.
 
 The `.spv` binaries are **not tracked in the repository** - they are a build output, so there is
-nothing to commit, gitignore-by-hand, or forget to recompile. `glslc` is required rather than
+nothing to commit, gitignore-by-hand, or forget to recompile. `slangc` is required rather than
 optional: without a shader compiler there is nothing to run, and an optional step is exactly how a
 stale binary gets loaded without anyone noticing.
 

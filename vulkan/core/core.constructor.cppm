@@ -229,7 +229,7 @@ namespace vulkan {
     void core::init_instance() noexcept {
         VkApplicationInfo app_info = {};
         app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-        app_info.pApplicationName = "vulkan render";
+        app_info.pApplicationName = "deren"; // must agree with project() in CMakeLists.txt and the window title
         // version injected by CMake (project(VERSION) in CMakeLists.txt) - the single source
         app_info.applicationVersion = VK_MAKE_VERSION(DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
         app_info.pEngineName = "";

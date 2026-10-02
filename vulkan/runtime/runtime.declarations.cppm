@@ -2211,8 +2211,9 @@ namespace vulkan {
          *        declares, before vkCmdBeginRendering - dynamic rendering has no automatic
          *        transitions the way a render pass does
          * @param command_buffer the frame's primary command buffer
-         * @param gbuffer_pass true for the deferred path's single-sampled G-buffer target set, false
-         *                     the G-buffer targets and the scene color
+         * @note the set is the G-buffer mode's three single-sampled surface targets, the motion-vector
+         *       target and the scene color the emissive goes into, plus the pass's own 1x depth image;
+         *       the main HDR target is not touched here
          */
         void record_scene_attachments(VkCommandBuffer command_buffer);
 
@@ -2231,18 +2232,16 @@ namespace vulkan {
          * @ingroup vulkan_runtime
          * @brief record the opaque scene into @p command_buffer: one secondary per task-pool worker
          *        segment (or a single one for a small frame), each inheriting the instance's color +
-         *        depth attachments, plus the transparent secondary when @p draw_transparent - the
+         *        depth attachments, plus the transparent secondary where the frame records one - the
          *        primary executes them in order inside the rendering instance
          * @param command_buffer the frame's primary command buffer
-         * @param gbuffer_pass true when the leaves bind the G-buffer pipelines (deferred path)
-         * @param draw_transparent record and execute the alpha-blended leaves inside THIS instance
-         *        (the transparent half, which shades as it draws and therefore already has an image to
-         *        blend over). The deferred path passes false and records them in an instance of its
-         *        own after the lighting stage - see record_transparent_pass()
+         * @note neither the G-buffer choice nor the transparent half is a parameter of this entry
+         *       point: the leaves' pipelines and the optional extras are chosen inside the frame's own
+         *       recording path (see record_main_segment() and record_transparent_pass())
          *
          * Shared by the opaque and transparent halves on purpose - the segmentation, the per-segment secondary
          * lifetime and the execute order are the same work in either; only the pipelines the leaves
-         * bind (chosen in record_main_segment() from @p gbuffer_pass) and the two optional extras
+         * bind (chosen in record_main_segment()) and the two optional extras
          * differ.
          */
         void record_opaque_scene(VkCommandBuffer command_buffer);
@@ -2382,8 +2381,12 @@ namespace vulkan {
          *        so any number of them can coexist in one scene (leaves choose by name).
          * @param pipeline_name the pipeline's name (used by primitives to request it, and by
          *        render_environment to bind it); must be unique
-         * @param vertex_shader_code raw SPIR-V binary of the vertex shader
          * @param fragment_shader_code raw SPIR-V binary of the fragment shader
+         * @param mesh_vertex_shader_code raw SPIR-V binary of the MESH stage, which IS the vertex stage
+         *        since step 4 (docs/mesh_shaders.md): a name without a mesh module is an ERROR rather
+         *        than a fallback
+         * @param meshlet_shader_code the meshlet form of that stage - one workgroup per meshlet, culled
+         *        against the camera; optional, and preferred over the mesh form where it exists
          * @return success, or an error message on failure
          * @note thread-safe (registry guarded), but call OUTSIDE the frame loop: recording
          *       workers read the registry lock-free during a frame (see record_main_segment's
@@ -2393,13 +2396,13 @@ namespace vulkan {
         std::expected<void, std::string> make_pipeline(
             std::string_view pipeline_name,
             std::span<uint8_t const> fragment_shader_code,
-            /// THE MESH FORM, which is the pipeline itself since step 4 (docs/mesh_shaders.md): the vertex stage is
-            /// gone, so a name without a mesh module is an ERROR rather than a fallback. Stored under @p pipeline_name
-            /// in `mesh_pipelines`, which is what a session that binds by name looks in first.
+            // THE MESH FORM, which is the pipeline itself since step 4 (docs/mesh_shaders.md): the vertex stage is
+            // gone, so a name without a mesh module is an ERROR rather than a fallback. Stored under @p pipeline_name
+            // in `mesh_pipelines`, which is what a session that binds by name looks in first.
             std::span<uint8_t const> mesh_vertex_shader_code,
-            /// ... AND THE MESHLET FORM OF IT (docs/mesh_shaders.md step 3), the same shape again one level in: one
-            /// workgroup per meshlet, culled against the camera, stored in `meshlet_pipelines` under the same name
-            /// and preferred by the named sessions over the mesh form.
+            // ... AND THE MESHLET FORM OF IT (docs/mesh_shaders.md step 3), the same shape again one level in: one
+            // workgroup per meshlet, culled against the camera, stored in `meshlet_pipelines` under the same name
+            // and preferred by the named sessions over the mesh form.
             std::span<uint8_t const> meshlet_shader_code = {});
 
         /**
@@ -2933,7 +2936,7 @@ namespace vulkan {
          *       depth buffer's own surface and cannot be shaded from its geometry - so it is granted only
          *       where all three hold, and the pass is not even recorded otherwise (which is what makes the
          *       knob-off frame byte-identical by construction rather than by arithmetic).
-         * @param radius how far the rays reach as a fraction of the scene radius
+         * @note how far the rays reach as a fraction of the scene radius
          *        coarse to find anything between them. Measured on Sponza, the lobe's effect is -0.907 at
          *        0.12 (the marched default, i.e. 39% of what is available), -2.126 at 0.5 and -2.350 at
          *        2.0, the cost rising +0.94 ms from the first to the second and not at all after it.
@@ -3083,10 +3086,14 @@ namespace vulkan {
         /**
          * @ingroup vulkan_runtime
          * @brief create the G-buffer pipeline: the deferred path's surface-only fragment stage
-         * @param vertex_shader_code raw SPIR-V of pbr.vert (the G-buffer reuses the forward vertex
-         *        stage: instancing / skinning / morphing / tangents are identical, only the shading
-         *        half differs)
          * @param fragment_shader_code raw SPIR-V of gbuffer.frag
+         * @param mesh_vertex_shader_code raw SPIR-V of the MESH stage that feeds the surface write: the
+         *        G-buffer reuses the forward vertex stage's work (instancing / skinning / morphing /
+         *        tangents are identical, only the shading half differs), and it is required because the
+         *        vertex form is gone (docs/mesh_shaders.md step 4)
+         * @param meshlet_vertex_shader_code the MESHLET form of that stage - one workgroup per meshlet,
+         *        culled against the camera before it emits anything; optional, and the pass keeps the
+         *        mesh form when it is empty
          * @return success, or an error message on failure
          * @note the pipeline declares the three core::gbuffer_formats targets plus the depth format,
          *       so it is only valid inside a rendering instance with exactly those attachments - the
@@ -3211,17 +3218,18 @@ namespace vulkan {
 
         /**
          * @ingroup vulkan_runtime
-         * @brief enable/disable temporal anti-aliasing and set its two blend weights
+         * @brief enable/disable temporal anti-aliasing
          * @param enabled when true (and the deferred path is the active render mode) the projection is
          *        jittered every frame, the G-buffer's motion vectors are resolved against a reprojected
          *        history, and the result is what the post chain processes. This is the deferred path's
          *        anti-aliasing: it resolves sub-pixel detail no edge filter can, AND the
          *        shimmer in motion that no edge filter can remove. The pass builds its own pipeline
          *        (vulkan.pass.taa); without it the flag has no effect.
-         * @param blend_static history weight for a pixel that did not move (0.9 = 10% of the current
-         *        frame per frame; higher converges smoother but reacts slower to lighting changes)
-         * @param blend_min history weight floor once a pixel moves a pixel or more per frame (lower =
-         *        trusts the current frame more under motion, which trades smoothing for less ghosting)
+         * @note the pass's two history weights are its own, set through `taa_pass::set_blend()`: a pixel
+         *       that did not move blends 0.9 of the history (10% of the current frame per frame; higher
+         *       converges smoother but reacts slower to lighting changes), and one that moves a pixel or
+         *       more per frame falls to the floor - lower trusts the current frame more under motion,
+         *       which trades smoothing for less ghosting
          * @note there is no PER-OBJECT motion vector to clamp against yet, only the camera:
          *       fix for it. The G-buffer motion vectors are camera-only at this milestone, so a
          *       deformed (skinned/morphed) object can ghost slightly - see gbuffer.frag.
@@ -3236,7 +3244,7 @@ namespace vulkan {
          *       heap slot, the depth pass's rendering instance and the shadow pipeline's viewport
          *       are all created from it, so it must be called before the scene import (the resources
          *       are created lazily by the first primitive that asks for the scene). A later call is ignored with a log line
-         *       rather than silently taking effect on the next resize.</note>
+         *       rather than silently taking effect on the next resize.
          */
         void set_shadow_map_size(uint32_t size) noexcept;
 

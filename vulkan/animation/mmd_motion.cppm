@@ -15,7 +15,7 @@
  * Names are kept as the raw Shift-JIS bytes the file stores.  Converting them would need a
  * Shift-JIS codec (there is no portable one in the standard library), and guessing an encoding
  * silently is worse than preserving bytes: a retarget table compares these bytes verbatim.
- * @ref escape_mmd_name renders them for logs without assuming a codepage.
+ * @ref vulkan::animation::escape_mmd_name renders them for logs without assuming a codepage.
  */
 module;
 #include <cstdint>
@@ -140,6 +140,7 @@ namespace vulkan::animation {
      * @brief a parsed VMD motion: named tracks, sampled on demand over MMD's 30 fps timeline
      */
     export struct mmd_motion {
+        /** @brief MMD's timeline rate: the 30 fps a VMD counts its frame numbers at */
         static constexpr float frames_per_second = 30.0f;
 
         std::string model_name = {};              // the model name the motion was authored against
@@ -163,6 +164,8 @@ namespace vulkan::animation {
 
         /**
          * @brief sample @p name at @p frame; fractional frames interpolate with each channel's easing
+         * @param name the bone name to look up (MMD names are byte-exact)
+         * @param frame the timeline position, in frames; fractional values interpolate
          * @param out receives the pose only when the call succeeds
          * @return false when there is no such track, leaving @p out untouched
          */
@@ -229,7 +232,7 @@ namespace vulkan::animation {
     /**
      * @brief resolve every bone of @p motion against @p joint_names
      *
-     * Matching goes through @ref mmd_bone_aliases, so a skeleton only has to name its joints after
+     * Matching goes through @ref vulkan::animation::mmd_bone_aliases, so a skeleton only has to name its joints after
      * that table (mmd_head, mmd_wrist_l, ...).  Bones with no alias - the cloth, hair, accessory
      * and finger chains a motion may also carry - stay unmapped and are reported rather than
      * guessed at.
@@ -268,11 +271,18 @@ namespace vulkan::animation {
     /**
      * @brief aim a hip->knee->ankle chain at @p target_world, returning LOCAL joint rotations
      *
-     * @ref solve_two_bone works in world space, but a glTF joint carries a LOCAL rotation, so the
+     * @ref vulkan::animation::solve_two_bone works in world space, but a glTF joint carries a LOCAL rotation, so the
      * solved directions have to be turned back into the parent's frame - first for the hip, then
      * for the knee whose parent is the hip's NEW world rotation.  Chain geometry arrives as the
      * two local offsets and the two local rotations, which is exactly what the node tree holds.
      *
+     * @param hip_local the hip's local rotation, in the parent's frame as the node tree holds it
+     * @param knee_offset the knee's local offset from the hip
+     * @param knee_local the knee's local rotation, relative to the hip
+     * @param ankle_offset the ankle's local offset from the knee
+     * @param parent_world the world rotation of the hip's parent - the frame the hip comes back in
+     * @param hip_world the hip's world position
+     * @param target_world the IK target, in world space
      * @param pole_world  which way the knee should bend; pass the FK knee's own direction so the
      *                    knee keeps the facing the animator gave it instead of guessing an axis
      */

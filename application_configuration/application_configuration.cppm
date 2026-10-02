@@ -28,7 +28,7 @@ import utility;
  * @file application_configuration.cppm
  * @defgroup app_config Application Startup Config
  * @brief load deren startup settings from a TOML file, merged with command-line
- *        arguments (--config <path> overrides the default file; explicit argv values for the
+ *        arguments (`--config <path>` overrides the default file; explicit argv values for the
  *        model / grid override the file). Pure CPU, no Vulkan dependency.
  *
  * Example config.toml:
@@ -620,9 +620,9 @@ namespace app_config {
 
     /**
      * @ingroup app_config
-     * @brief resolve the effective startup settings from argv: a --config <path> argument picks
+     * @brief resolve the effective startup settings from argv: a `--config <path>` argument picks
      *        the config file (default: "config.toml" in the working directory if present), then
-     *        positional argv values (with --config <path> consumed as an option) override the
+     *        positional argv values (with `--config <path>` consumed as an option) override the
      *        file: positional[0] = model path, positional[1] = grid side (numeric)
      * @return the merged settings (see app_settings notes for the "not specified" semantics)
      */

@@ -133,12 +133,15 @@ layout(push_constant) uniform PushConstants {
  * own in the game's split-normal texture. A second copy of this arithmetic would be the second implementation this
  * file's neighbours keep refusing, and a caller that needs no frame does not pay for one.
  *
- * @param normal the unit geometric normal - the frame's Z axis, and the caller's fallback
+ * @param world_pos the surface point whose screen-space derivatives are one half of the frame
+ * @param uv the surface point's texture coordinates, the other half of the same derivative pair
  * @param tangent receives the world-space tangent direction (normalised)
  * @param bitangent receives the world-space bitangent direction (normalised)
  * @return FALSE when the UV derivatives are degenerate - a zero-area triangle or a UV seam, where no frame exists.
  *         The caller must then fall back to the geometric normal: a NaN frame would silently poison the normal it
  *         is multiplied into, and the two directions written above are a defined answer rather than a guess.
+ * @note the frame's Z axis is the unit geometric normal the caller already has, and that normal is also the
+ *       caller's fallback; this function writes the two axes above and nothing else.
  */
 bool surface_tbn(vec3 world_pos, vec2 uv, out vec3 tangent, out vec3 bitangent) {
     const vec3 dp1 = dFdx(world_pos);

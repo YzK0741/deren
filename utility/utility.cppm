@@ -182,7 +182,7 @@ namespace utility {
      * `std::format` itself comes from `vstd` (which exports it) - the one standard facility this family needs
      * and does not implement.
      *
-     * @param stream the stream to write to (`standard_output()`, `stderr` from a TU that includes <cstdio>, or
+     * @param stream the stream to write to (`standard_output()`, `stderr` from a TU that includes `<cstdio>`, or
      *        any other)
      * @param fmt the format string, checked at compile time
      * @param args the arguments it formats
@@ -196,7 +196,9 @@ namespace utility {
         detail::write_text(stream, std::format(fmt, std::forward<Args>(args)...));
     }
 
-    /// @copydoc print(std::FILE*, std::format_string<Args...>, Args&&...)
+    /// @brief the same as `print` above, written to `standard_output()`
+    /// @param fmt the format string, checked at compile time
+    /// @param args the arguments it formats
     export template <typename... Args>
     void print(std::format_string<Args...> fmt, Args&&... args) {
         // QUALIFIED, and that is not decoration: an unqualified call here is AMBIGUOUS against
@@ -214,7 +216,9 @@ namespace utility {
         detail::write_text(stream, text);
     }
 
-    /// @copydoc println(std::FILE*, std::format_string<Args...>, Args&&...)
+    /// @brief the same as `println` above, written to `standard_output()`
+    /// @param fmt the format string, checked at compile time
+    /// @param args the arguments it formats
     export template <typename... Args>
     void println(std::format_string<Args...> fmt, Args&&... args) {
         // Qualified for the same measured reason as `print` above: libc++'s <print> has a `std::println(FILE*,
