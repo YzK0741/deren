@@ -4,8 +4,8 @@ A Vulkan renderer written in modern C++23 (C++20 modules / `.cppm`), built with
 CMake 4.3 + Ninja on MSYS2 clang64.
 
 > **Renamed on 2026-10-02: this project is `deren`.** It was `vulkan_render` until then, and the
-> executable, the version macros and the reference-frame directory were renamed with it; the git
-> repository and this working directory are renamed in the same pass. Two things were deliberately left alone: the C++ module
+> executable, the version macros, the reference-frame directory and the git repository were renamed
+> with it; the working directory is renamed last, from outside a session that holds it open. Two things were deliberately left alone: the C++ module
 > namespaces still read `vulkan.*`, and four doxygen groups still read `vulkan_render_*`. Renaming
 > those is a separate, still-open decision - it belongs with the backend-boundary question (what is
 > the Vulkan backend versus what is the engine), and doing it now would settle that question by

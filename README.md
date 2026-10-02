@@ -2,7 +2,7 @@
 
 A Vulkan renderer written in modern C++23 (C++20 modules / `.cppm`), implementing a glTF 2.0 PBR (metallic-roughness) pipeline with CPU-precomputed split-sum IBL lighting, a scene tree with BVH frustum culling, directional shadows, and a Dear ImGui debug overlay.
 
-> **Renamed on 2026-10-02: this project is `deren`** (it was `vulkan_render`). The executable, the version macros and the reference-frame directory were renamed with it; the GitHub repository and this working directory are renamed in the same pass. Module namespaces still read `vulkan.*` and four doxygen groups still read `vulkan_render_*` on purpose: renaming those is a separate, still-open decision tied to the backend boundary. See `docs/mainpage.md` for the full note.
+> **Renamed on 2026-10-02: this project is `deren`** (it was `vulkan_render`). The executable, the version macros, the reference-frame directory and the GitHub repository were renamed with it; the working directory is renamed last, from outside a session that holds it open. Module namespaces still read `vulkan.*` and four doxygen groups still read `vulkan_render_*` on purpose: renaming those is a separate, still-open decision tied to the backend boundary. See `docs/mainpage.md` for the full note.
 
 <p align="center">
   <img src="snapshot/DamagedHelmet.png" width="49%" alt="DamagedHelmet with PBR + IBL + shadows" />
