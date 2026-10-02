@@ -23,7 +23,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& transparent_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view transparent_pass::feature() const noexcept {
@@ -43,11 +43,11 @@ namespace vulkan::pass {
     }
 
     void transparent_pass::set_frame(transparent_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void transparent_pass::record(resolved_io const& io) {
-        if (this->frame_.make_environment == nullptr || this->frame_.secondary == VK_NULL_HANDLE || this->frame_.leaves.empty() || io.targets.size() < 2) {
+        if (this->pass_frame.make_environment == nullptr || this->pass_frame.secondary == VK_NULL_HANDLE || this->pass_frame.leaves.empty() || io.targets.size() < 2) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_transparent_pass)
         }
         VkImageView const target_view = io.targets[0].view; // the scene colour target (declaration order)
@@ -70,16 +70,16 @@ namespace vulkan::pass {
         // The leaves go into the frame slot's transparent secondary, with inheritance matching the instance
         // below: ONE colour attachment at 1x. A secondary does not inherit state from its primary, so it binds
         // the shared scene block for itself - the same bind the scene pass's segments make.
-        std::array<VkFormat, 1> const color_formats = {this->frame_.color_format};
+        std::array<VkFormat, 1> const color_formats = {this->pass_frame.color_format};
         VkCommandBufferInheritanceRenderingInfo const inheritance =
-            make_inheritance_rendering_info(color_formats.data(), 1, this->frame_.depth_format, VK_SAMPLE_COUNT_1_BIT);
+            make_inheritance_rendering_info(color_formats.data(), 1, this->pass_frame.depth_format, VK_SAMPLE_COUNT_1_BIT);
         // The heaps are inherited (see scene.cpp's segment begin): a secondary is validated on its own, so the
         // primary's heap bind does not reach it.
         VkBindHeapInfoEXT resource_bind = {};
         VkBindHeapInfoEXT sampler_bind = {};
-        bool const inherit_heaps = this->frame_.fill_heap_bind != nullptr;
+        bool const inherit_heaps = this->pass_frame.fill_heap_bind != nullptr;
         if (inherit_heaps) {
-            this->frame_.fill_heap_bind(this->frame_.owner, resource_bind, sampler_bind);
+            this->pass_frame.fill_heap_bind(this->pass_frame.owner, resource_bind, sampler_bind);
         }
         VkCommandBufferInheritanceDescriptorHeapInfoEXT const heap_inheritance = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
@@ -90,14 +90,14 @@ namespace vulkan::pass {
         VkCommandBufferInheritanceInfo const secondary_inherit = make_inheritance_info(&heap_inheritance);
         VkCommandBufferBeginInfo const secondary_begin = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT, &secondary_inherit);
         bool recorded = false;
-        if (vkBeginCommandBuffer(this->frame_.secondary, &secondary_begin) == VK_SUCCESS) {
-            render_environment env = this->frame_.make_environment(this->frame_.owner, this->frame_.secondary, /*gbuffer=*/false);
+        if (vkBeginCommandBuffer(this->pass_frame.secondary, &secondary_begin) == VK_SUCCESS) {
+            render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, this->pass_frame.secondary, /*gbuffer=*/false);
             // No set to bind (see scene_pass::record_segment): every slot these leaves read comes from the heaps,
             // which the runtime binds on this same secondary before executing it.
-            for (primitive const* const leaf : this->frame_.leaves) {
+            for (primitive const* const leaf : this->pass_frame.leaves) {
                 leaf->draw(env);
             }
-            vkEndCommandBuffer(this->frame_.secondary);
+            vkEndCommandBuffer(this->pass_frame.secondary);
             recorded = true;
         } else {
             utility::log("transparent pass: secondary begin failed - transparent leaves skipped this frame");
@@ -108,10 +108,10 @@ namespace vulkan::pass {
         VkRenderingAttachmentInfo const color_attachment = make_load_color_attachment_info(target_view);
         VkRenderingAttachmentInfo const depth_attachment = make_load_depth_attachment_info(depth_view);
         VkRenderingInfo const rendering_info =
-            make_rendering_info(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT, {{0, 0}, this->frame_.extent}, &color_attachment, 1, &depth_attachment);
+            make_rendering_info(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT, {{0, 0}, this->pass_frame.extent}, &color_attachment, 1, &depth_attachment);
         vkCmdBeginRendering(io.cmd, &rendering_info);
         if (recorded) {
-            vkCmdExecuteCommands(io.cmd, 1, &this->frame_.secondary);
+            vkCmdExecuteCommands(io.cmd, 1, &this->pass_frame.secondary);
         }
         vkCmdEndRendering(io.cmd);
 

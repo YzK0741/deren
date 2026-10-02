@@ -108,7 +108,9 @@ export namespace vulkan::pass {
         static constexpr std::string_view fragment_shader_name = "toon_screen_rim.frag.spv";
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"toon-screen-rim"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the contour is drawn at the frame's resolution
             .extent_of = resource_id::none,
@@ -117,12 +119,14 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
-        float rim_width_ = 1.0f;
-        float rim_scale_ = 4.0f;
-        float rim_strength_ = 0.55f;
-        float rim_colour_[3] = {1.0f, 0.94f, 0.90f};
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        float rim_width = 1.0f;
+        float rim_scale = 4.0f;
+        float rim_strength = 0.55f;
+        float rim_colour[3] = {1.0f, 0.94f, 0.90f};
     };
 
     /// the pass's own block: the eight composed values plus the colour, and the framework appends the two heap

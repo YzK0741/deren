@@ -84,7 +84,7 @@ if ($Model) {
     # THE `model` LINE IS COUNTED AS WELL AS REPLACED, because "the text did not change" is TWO different
     # situations and only one of them is a mistake: a `-Model` the base file does not have a line for (the
     # typo this guard exists for), and a `-Model` the base file ALREADY names. The second is the normal case
-    # on a step whose asset is part of its base config - `zmd-ab/laevat/ab_goo.toml` names the goo asset - and
+    # on a step whose asset is part of its base config - `deren-ab/laevat/ab_goo.toml` names the goo asset - and
     # it used to abort the run with "no change: -Model matched no line", which is false about the file.
     $model_lines = 0
     $replaced = foreach ($line in ($cfgText -split "`n")) {

@@ -37,6 +37,7 @@
 #include "vk_test.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <filesystem>
 #include <fstream>
@@ -53,7 +54,9 @@ namespace {
         char const* name;
         char const* reason;
     };
-    constexpr exception_entry not_in_manual[] = {};
+    // `std::array<..., 0>`, not `exception_entry[]`: the list is empty BY DESIGN above, and a zero-length array is
+    // an MSVC error (C2466 + C2131) where clang accepts it as an extension. The range-for below reads it unchanged.
+    constexpr std::array<exception_entry, 0> not_in_manual = {};
 
     /// `heap_slots_<name>` spellings the documents use that are NOT slot names, with the reason.
     struct identifier_exception {

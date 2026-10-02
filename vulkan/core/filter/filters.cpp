@@ -21,12 +21,12 @@ namespace vulkan {
     // =============================================================================================
 
     user_filter::user_filter(std::shared_ptr<core> owner) noexcept
-        : owner_(std::move(owner))
-        , vk_core(this->owner_.get()) {
+        : owner_share(std::move(owner))
+        , vk_core(this->owner_share.get()) {
     }
 
     VkDevice user_filter::get_device() const noexcept {
-        return this->vk_core->device;
+        return this->vk_core->logical_device;
     }
 
     GLFWwindow* user_filter::get_window() const noexcept {
@@ -86,12 +86,12 @@ namespace vulkan {
     // =============================================================================================
 
     pass_filter::pass_filter(std::shared_ptr<core> owner) noexcept
-        : owner_(std::move(owner))
-        , vk_core(this->owner_.get()) {
+        : owner_share(std::move(owner))
+        , vk_core(this->owner_share.get()) {
     }
 
     VkDevice pass_filter::device() const noexcept {
-        return this->vk_core->device;
+        return this->vk_core->logical_device;
     }
 
     VkFormat pass_filter::swap_chain_image_format() const noexcept {
@@ -111,18 +111,18 @@ namespace vulkan {
         // registration of the same key REPLACES the first, because the owner re-publishing a resource after a
         // rebuild is the same statement as publishing it.
         uint32_t const key = (static_cast<uint32_t>(id) << 8u) | (element & 0xFFu);
-        for (auto& [existing, existing_handles] : this->registered_) {
+        for (auto& [existing, existing_handles] : this->registered) {
             if (existing == key) {
                 existing_handles = handles;
                 return;
             }
         }
-        this->registered_.emplace_back(key, handles);
+        this->registered.emplace_back(key, handles);
     }
 
     resource_handles pass_filter::resource(render_resource::resource_id const id, uint32_t const element) const noexcept {
         uint32_t const key = (static_cast<uint32_t>(id) << 8u) | (element & 0xFFu);
-        for (auto const& [existing, handles] : this->registered_) {
+        for (auto const& [existing, handles] : this->registered) {
             if (existing == key) {
                 return handles;
             }

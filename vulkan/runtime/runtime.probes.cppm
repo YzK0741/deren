@@ -63,7 +63,7 @@ namespace vulkan {
         if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
-        auto const built = pipelines::build_heap_probe(vk.device, spirv);
+        auto const built = pipelines::build_heap_probe(vk.logical_device, spirv);
         if (!built.has_value()) {
             utility::log("descriptor heap: the heap-native probe's pipeline was refused: {}", built.error());
             return;
@@ -77,14 +77,14 @@ namespace vulkan {
             return;
         }
         VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = answer_detail->buffer};
-        uint64_t const answer_address = vkGetBufferDeviceAddress(vk.device, &address_info);
+        uint64_t const answer_address = vkGetBufferDeviceAddress(vk.logical_device, &address_info);
 
-        VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = vk.graphics_family_index};
+        VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = vk.graphics_queue_family_index};
         VkCommandPool pool = VK_NULL_HANDLE;
-        vkCreateCommandPool(vk.device, &pool_info, nullptr, &pool);
+        vkCreateCommandPool(vk.logical_device, &pool_info, nullptr, &pool);
         VkCommandBufferAllocateInfo const allocate = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .pNext = nullptr, .commandPool = pool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1};
         VkCommandBuffer command_buffer = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(vk.device, &allocate, &command_buffer);
+        vkAllocateCommandBuffers(vk.logical_device, &allocate, &command_buffer);
         VkCommandBufferBeginInfo const begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = nullptr, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, .pInheritanceInfo = nullptr};
         vkBeginCommandBuffer(command_buffer, &begin);
         // The heaps first: they are command-buffer state, and this buffer holds nothing else.
@@ -104,7 +104,7 @@ namespace vulkan {
 
         VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
         VkFence fence = VK_NULL_HANDLE;
-        vkCreateFence(vk.device, &fence_info, nullptr, &fence);
+        vkCreateFence(vk.logical_device, &fence_info, nullptr, &fence);
         VkSubmitInfo const submit = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                                      .pNext = nullptr,
                                      .waitSemaphoreCount = 0,
@@ -114,8 +114,8 @@ namespace vulkan {
                                      .pCommandBuffers = &command_buffer,
                                      .signalSemaphoreCount = 0,
                                      .pSignalSemaphores = nullptr};
-        vkQueueSubmit(vk.graphics_queue, 1, &submit, fence);
-        vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkQueueSubmit(vk.graphics_queue_handle, 1, &submit, fence);
+        vkWaitForFences(vk.logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
 
         uint32_t const readback = *static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData);
         uint32_t const material_readback = static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData)[1];
@@ -127,8 +127,8 @@ namespace vulkan {
                      readback >> 16u,
                      material_readback & 0xFFFFu);
 
-        vkDestroyFence(vk.device, fence, nullptr);
-        vkDestroyCommandPool(vk.device, pool, nullptr);
+        vkDestroyFence(vk.logical_device, fence, nullptr);
+        vkDestroyCommandPool(vk.logical_device, pool, nullptr);
     }
 
     void runtime::run_heap_graphics_probe(uint32_t const material_slot, bool const mesh_shader) {
@@ -150,14 +150,14 @@ namespace vulkan {
             return;
         }
         constexpr VkFormat probe_format = VK_FORMAT_R8G8B8A8_UNORM;
-        auto const built = pipelines::build_heap_probe_graphics(vk.device, probe_format, vertex_code, fragment_code, mesh_shader ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT);
+        auto const built = pipelines::build_heap_probe_graphics(vk.logical_device, probe_format, vertex_code, fragment_code, mesh_shader ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT);
         // vkCmdDrawMeshTasksEXT IS AN EXTENSION ENTRY POINT and is loaded the way this project loads every other
         // one (see acceleration_structure.cpp): the loader's import library does not export it, so it arrives
         // through vkGetDeviceProcAddr - and a null there is the honest "this device cannot run this probe"
         // instead of a link error. It is fetched only for the mesh arm, so the vertex arm cannot be affected.
         PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks = nullptr;
         if (mesh_shader) {
-            draw_mesh_tasks = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(vk.device, "vkCmdDrawMeshTasksEXT"));
+            draw_mesh_tasks = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkCmdDrawMeshTasksEXT"));
             if (draw_mesh_tasks == nullptr) {
                 utility::log("descriptor heap: the MESH probe is skipped - vkGetDeviceProcAddr returned null for vkCmdDrawMeshTasksEXT");
                 return;
@@ -208,12 +208,12 @@ namespace vulkan {
             return;
         }
 
-        VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = vk.graphics_family_index};
+        VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = vk.graphics_queue_family_index};
         VkCommandPool pool = VK_NULL_HANDLE;
-        vkCreateCommandPool(vk.device, &pool_info, nullptr, &pool);
+        vkCreateCommandPool(vk.logical_device, &pool_info, nullptr, &pool);
         VkCommandBufferAllocateInfo const allocate = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .pNext = nullptr, .commandPool = pool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1};
         VkCommandBuffer command_buffer = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(vk.device, &allocate, &command_buffer);
+        vkAllocateCommandBuffers(vk.logical_device, &allocate, &command_buffer);
         VkCommandBufferBeginInfo const begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = nullptr, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, .pInheritanceInfo = nullptr};
         vkBeginCommandBuffer(command_buffer, &begin);
         vk.descriptor_heaps.record_bind(command_buffer);
@@ -296,7 +296,7 @@ namespace vulkan {
 
         VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
         VkFence fence = VK_NULL_HANDLE;
-        vkCreateFence(vk.device, &fence_info, nullptr, &fence);
+        vkCreateFence(vk.logical_device, &fence_info, nullptr, &fence);
         VkSubmitInfo const submit = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
                                      .pNext = nullptr,
                                      .waitSemaphoreCount = 0,
@@ -306,8 +306,8 @@ namespace vulkan {
                                      .pCommandBuffers = &command_buffer,
                                      .signalSemaphoreCount = 0,
                                      .pSignalSemaphores = nullptr};
-        vkQueueSubmit(vk.graphics_queue, 1, &submit, fence);
-        vkWaitForFences(vk.device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkQueueSubmit(vk.graphics_queue_handle, 1, &submit, fence);
+        vkWaitForFences(vk.logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
 
         // ---- the host copy itself: no command records it and no queue runs it, and it is legal HERE because the
         //      barrier above has been submitted and waited on (the render's writes are visible to the host stage and
@@ -334,11 +334,11 @@ namespace vulkan {
                                                        .srcImageLayout = VK_IMAGE_LAYOUT_GENERAL,
                                                        .regionCount = 1,
                                                        .pRegions = &host_region};
-            VkResult const copied = vk.copy_image_to_memory(vk.device, &copy_info);
+            VkResult const copied = vk.copy_image_to_memory(vk.logical_device, &copy_info);
             if (copied != VK_SUCCESS) {
                 utility::log("descriptor heap: the heap-native {} probe's HOST image copy failed (VkResult {})", mesh_shader ? "MESH" : "GRAPHICS", static_cast<int>(copied));
-                vkDestroyFence(vk.device, fence, nullptr);
-                vkDestroyCommandPool(vk.device, pool, nullptr);
+                vkDestroyFence(vk.logical_device, fence, nullptr);
+                vkDestroyCommandPool(vk.logical_device, pool, nullptr);
                 return;
             }
             pixel = host_pixels.data();
@@ -358,8 +358,8 @@ namespace vulkan {
                      mesh_shader ? "MESH" : "GRAPHICS",
                      use_host_copy ? "HOST IMAGE COPY (no staging buffer, no copy command)" : "staging buffer (vkCmdCopyImageToBuffer)");
 
-        vkDestroyFence(vk.device, fence, nullptr);
-        vkDestroyCommandPool(vk.device, pool, nullptr);
+        vkDestroyFence(vk.logical_device, fence, nullptr);
+        vkDestroyCommandPool(vk.logical_device, pool, nullptr);
     }
 
 } // namespace vulkan

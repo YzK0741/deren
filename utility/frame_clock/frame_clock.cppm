@@ -37,23 +37,23 @@ namespace utility {
         /** @brief record the current steady time as the new frame stamp (frame owner thread) */
         void stamp() noexcept {
             uint64_t const now = now_ns();
-            uint64_t const previous = this->last_ns_.load(std::memory_order_relaxed);
+            uint64_t const previous = this->last_ns_value.load(std::memory_order_relaxed);
             // First stamp (previous == 0, the clock's zero value): there is no previous frame,
             // so the delta is 0 - NOT now - 0, which would be the machine's uptime and make the
             // first delta_seconds() jump the animation to a random phase.
             uint64_t const delta = (previous == 0) ? 0 : now - previous;
-            this->delta_ns_.store(delta, std::memory_order_relaxed);
-            this->last_ns_.store(now, std::memory_order_relaxed);
+            this->delta_ns_value.store(delta, std::memory_order_relaxed);
+            this->last_ns_value.store(now, std::memory_order_relaxed);
         }
 
         /** @brief nanoseconds (steady origin) of the most recent stamp */
         [[nodiscard]] uint64_t last_ns() const noexcept {
-            return this->last_ns_.load(std::memory_order_relaxed);
+            return this->last_ns_value.load(std::memory_order_relaxed);
         }
 
         /** @brief nanoseconds elapsed between the two most recent stamps (0 until the second one) */
         [[nodiscard]] uint64_t delta_ns() const noexcept {
-            return this->delta_ns_.load(std::memory_order_relaxed);
+            return this->delta_ns_value.load(std::memory_order_relaxed);
         }
 
         /** @brief seconds of the most recent stamp (float; convenience) */
@@ -72,7 +72,9 @@ namespace utility {
         }
 
     private:
-        std::atomic<uint64_t> last_ns_{0};
-        std::atomic<uint64_t> delta_ns_{0};
+        // called last_ns_value, not last_ns: the last_ns() method of this class would collide with a member of that name
+        std::atomic<uint64_t> last_ns_value{0};
+        // called delta_ns_value, not delta_ns: the delta_ns() method of this class would collide with a member of that name
+        std::atomic<uint64_t> delta_ns_value{0};
     };
 } // namespace utility

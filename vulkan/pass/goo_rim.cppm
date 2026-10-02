@@ -94,7 +94,9 @@ export namespace vulkan::pass {
         static constexpr std::string_view fragment_shader_name = "goo_rim.frag.spv";
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"goo-rim"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the rim is drawn at the frame's resolution
             .extent_of = resource_id::none,
@@ -103,8 +105,10 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
     };
 
     /// the pass's own block: the frame's inverse view-projection and its two depth-linearization terms, and the

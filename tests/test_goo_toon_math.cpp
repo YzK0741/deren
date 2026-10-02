@@ -7,7 +7,7 @@
 // So there are two halves here, and they answer two different questions:
 //
 //   1. THE CLOSED FORMS, evaluated in C++ on the arithmetic read out of the reference's own node graph
-//      (`build-release-clang64/zmd-ab/gooblender/nodes.json`, `Arknights: Endfield_PBRToon_irisBase` and the
+//      (`build-release-clang64/deren-ab/gooblender/nodes.json`, `Arknights: Endfield_PBRToon_irisBase` and the
 //      `calculateAngel` group it instantiates). Every constant below is quoted with the NODE it comes from, so
 //      the number can be re-read rather than trusted. This half pins the DERIVATION: the sign of the forward
 //      axis, which way the albedo window clamps, that the second layer is an ADD weighted by its factor (and
@@ -26,7 +26,7 @@
 //
 // NOTHING HERE ASSERTS A PIXEL. The frame-level acceptance - "with `goo_toon` off the frame is what it was, with
 // it on only the iris moves" - is a capture, and it is recorded in
-// `build-release-clang64/zmd-ab/goo_step1_result.md`.
+// `build-release-clang64/deren-ab/goo_step1_result.md`.
 #include "vk_test.h"
 
 #include <algorithm>
@@ -173,7 +173,7 @@ namespace {
     // ================================================================================================
     //
     // THE ONE HALF OF THIS FILE THAT IS NOT A RE-DERIVATION FROM THE GRAPH: the expectations are read out of the
-    // REFERENCE'S OWN PNG (`zmd-ab/gooblender/images/PreIntegratedFGD_GGXDisneyDiffuse.png`, 5234 B, 64x64 RGBA8)
+    // REFERENCE'S OWN PNG (`deren-ab/gooblender/images/PreIntegratedFGD_GGXDisneyDiffuse.png`, 5234 B, 64x64 RGBA8)
     // by `png_rgba8`, so they are the FILE's texels rather than a transcription of them. The spec's §3.3 is why
     // that matters more here than anywhere else in this file: these three numbers have NO closed form (measured
     // against Karis' fit and against a 120k-sample Disney diffuse FGD), so a test that "recomputed" them from a
@@ -193,7 +193,7 @@ namespace {
     /// here because it is the reason a reader will doubt this number. It is a PRIOR about the term, not evidence
     /// about the author's graph, and this author writes ambient floors too (step 4's
     /// `GlobalShadowBrightnessAdjustment`). See `goo_fgd_diffuse_offset` in the shader: one named constant, so the
-    /// experiment is one line. The measured consequence of `0.5` is in `zmd-ab/goo_step5_result.md` §12.
+    /// experiment is one line. The measured consequence of `0.5` is in `deren-ab/goo_step5_result.md` §12.
     constexpr float k_fgd_diffuse_offset = 0.5f;
     /// `ComputeFresnel0 :: 组输入.dielectricF0` on the Base container. Laevatain's ELEVEN materials all end up at
     /// `(0.08, 0.08, 0.08)`: `metallic = lerp(0, MetallicMax, _P.R)` and `_P.R` is `[0,0,0]` or a linked map whose
@@ -776,7 +776,7 @@ namespace {
     // ================================================================================================
     //
     // The five reference sub-groups' own closed forms, evaluated. Every constant below is quoted with the NODE
-    // it comes from so it can be re-read out of `zmd-ab/gooblender/nodes.json` rather than trusted, and the
+    // it comes from so it can be re-read out of `deren-ab/gooblender/nodes.json` rather than trusted, and the
     // arithmetic is written out under each expected value. THEY ARE THE SAME FIVE FUNCTIONS
     // `shaders/goo_toon.slang` implements, spelled a second time - so this half catches DRIFT (an edit to one
     // side that leaves the other alone), exactly as the iris half above does, and the source checks in section
@@ -797,7 +797,7 @@ namespace {
     // STEP 3: `DepthRim`, THE GROUP THAT TURNED THE RIM INTO A CONTOUR - spec §2.5 and the plan's §1.3.2
     // ================================================================================================
     //
-    // Everything below is a socket of `DepthRim` in `zmd-ab/gooblender/nodes.json`, or a formula
+    // Everything below is a socket of `DepthRim` in `deren-ab/gooblender/nodes.json`, or a formula
     // `goo_screenspace_info.md` READ OUT OF THE GOO ENGINE'S SOURCE (branch `goo-engine-v4.2-release` @
     // `844bc9d8110e695c56b02dae501323831ad5e730`): `View Position` is a camera-space position, `Scene Depth` is
     // `-get_view_z_from_depth(window depth)` - positive, in metres, along the camera's axis - and the offset is a
@@ -915,7 +915,7 @@ namespace {
     //     A2/A4 were written as BACKGROUND pins for this branch ("armA only, not called by step 13"); the port
     //     did not move a single one of their values, which is the whole reason they were pinned in step 13.
     //
-    // EVERY EXPECTED VALUE in the assertions below was produced by `zmd-ab\_s13s_expect3.py` with an f32
+    // EVERY EXPECTED VALUE in the assertions below was produced by `deren-ab\_s13s_expect3.py` with an f32
     // round-trip, so it can be re-derived rather than trusted. `1e-6f` is used wherever the value passes through
     // a division or a float multiply chain; `==` only where the result is provably exact (a copy, or `x * 1 + y * 0`).
 
@@ -979,7 +979,7 @@ namespace {
         return 1.0f - std::pow(std::abs(dot_value), exponent);
     }
     /// @brief the sheet coordinate the reference feeds the `_RS` sheet: `u = clamp(Facing + Offset, 0, 1)`
-    ///        (`build-release-clang64/zmd-ab/goo_step15_armA_spec.md:107`).
+    ///        (`build-release-clang64/deren-ab/goo_step15_armA_spec.md:107`).
     ///
     /// DEBT (x), lead-found 2026-10-01: this composed form is what the SHADER's net must equal, and until the fix
     /// the shader computed its COMPLEMENT. The two agree only at `b == 0` and at `|V.n| == 0.5`, which is exactly
@@ -1757,7 +1757,7 @@ int32_t main() {
     //
     // `ng[17] DV_SmithJointGGXAniso` is a SECOND instance of the group step 11's block above reads, and this is
     // its OTHER output: `组输出.anisotropy`, the value `混合.016`'s B arm chooses instead of the `原 * F_Schlick`
-    // product. The chain, verbatim out of the dump and re-derived by `zmd-ab/_s12v_trace.py all`:
+    // product. The chain, verbatim out of the dump and re-derived by `deren-ab/_s12v_trace.py all`:
     //
     //     p   = rT*rB                                                             # `组输入.roughnessT/B`
     //     S   = (rB*TdotH, rT*BdotH, NoH*p)                                       # `合并 XYZ.002`
@@ -1832,7 +1832,7 @@ int32_t main() {
     // THIS BLOCK REPLACES NO PINS, BECAUSE THERE WERE NONE TO REPLACE: the old expression was pinned nowhere in
     // this file (no `find()` on it, no closed form), which is exactly how a 1.78479x error in every specular pixel
     // of every material shipped in step 10 and passed 13/13. What is pinned now is the chain that
-    // `zmd-ab/goo_step11_armA_raw.md` records verbatim out of the dump:
+    // `deren-ab/goo_step11_armA_raw.md` records verbatim out of the dump:
     //
     //     S  = 1 + NoH^2*(a2 - 1)                                              # `运算.011`
     //     λ  = |NoL|*(a2 + (1 - a2)*NoV^2) + NoV*sqrt(a2 + (1 - a2)*NoL^2)     # `运算.005/006` + `运算.009/010/019`
@@ -1877,7 +1877,7 @@ int32_t main() {
                   "and λ = 0.7*b + 0.7*sqrt(b) = 0.835389614601147 at b = a2 + (1 - a2)*0.49");
         //     The tolerance below is 3 ulp of the value, not an exact match: at `-O3` clang contracts
         //     `a2 + (1 - a2)*x*x` into an FMA, which moves this denominator down by exactly 1 ulp (measured with
-        //     `zmd-ab/_s11_den.cpp`: 0.0085260946321240003998 contracted vs 0.0085260946321240038692 with
+        //     `deren-ab/_s11_den.cpp`: 0.0085260946321240003998 contracted vs 0.0085260946321240038692 with
         //     `-ffp-contract=off`, i.e. the literal). The shader itself is fp32, so no fp64 ulp is load-bearing.
         CHECK_MSG(std::abs(point[2] - 8.526094632124004e-03) < 1e-17,
                   "so the denominator S^2 * λ = 8.526094632124004e-03: this point is thirty-two orders ABOVE the floor");
@@ -2208,7 +2208,7 @@ int32_t main() {
     // THE NORMAL MAP NODE ITSELF IS A BLACK BOX IN THE DUMP, BUT NOT IN THE ENGINE'S SOURCE. The strength's form comes
     // from the reference engine's own implementation of that node - `goo-engine-v4.2-release`,
     // `source/blender/gpu/shaders/material/gpu_shader_material_normal_map.glsl`, a local copy at
-    // `zmd-ab/goo_engine_node_normal_map.glsl` - which applies the strength IN TANGENT SPACE, to the `(xy, z1)` that
+    // `deren-ab/goo_engine_node_normal_map.glsl` - which applies the strength IN TANGENT SPACE, to the `(xy, z1)` that
     // `color_to_normal_new_shading` (`2*color - 1`) produced:
     //
     //     texnormal.xy *= strength;
@@ -2219,9 +2219,9 @@ int32_t main() {
     // differs from the WEIGHT form `1 + strength*(z1 - 1)` that an earlier revision of this port shipped - at the
     // body's own strength the two are 11.31 degrees apart and only one of them keeps `z` positive - and (c) the
     // `saturate`'s edge cases, which are why the engine's expression is kept whole instead of being folded to `z1` for
-    // the `strength >= 1` this step ports. The decode evidence was read with `zmd-ab/_normal_probe5.py` (which
+    // the `strength >= 1` this step ports. The decode evidence was read with `deren-ab/_normal_probe5.py` (which
     // resolves a `ShaderNodeGroup` INSTANCE through its `node_tree`, not through its own name) and is dumped in full
-    // at `zmd-ab/_step8_decode_normal.txt`.
+    // at `deren-ab/_step8_decode_normal.txt`.
     {
         // THE SHADER'S OWN ARITHMETIC, re-derived. It returns the PRE-NORMALIZE `(x, y, z1)` so the two candidate
         // forms can be told apart by their components and not only by the direction they end up pointing.
@@ -2772,7 +2772,7 @@ int32_t main() {
             CHECK_MSG(app.find("#define STB_IMAGE_STATIC") != std::string::npos, "the app's own stb copy is file-local (`gltf_loader.cpp` defines the extern one)");
             CHECK_MSG(app.find("\"PreIntegratedFGD_GGXDisneyDiffuse.png\"") != std::string::npos, "the reference's own file name");
             CHECK_MSG(app.find("runtime.set_goo_fgd_lut(") != std::string::npos, "and the upload is called once at startup");
-            CHECK_MSG(app.find("zmd-ab\", \"gooblender\", \"images\"") != std::string::npos || app.find("\"zmd-ab\" / \"gooblender\" / \"images\"") != std::string::npos,
+            CHECK_MSG(app.find("deren-ab\", \"gooblender\", \"images\"") != std::string::npos || app.find("\"deren-ab\" / \"gooblender\" / \"images\"") != std::string::npos,
                       "from the reference's own directory under the build root");
 
             // ---- (c6) STEP 6'S ONE TERM, ITS ONE LANE COMPONENT, AND THE ONE FIXED NUMBER THAT IS **NOT** THERE ----
@@ -2999,7 +2999,7 @@ int32_t main() {
                           "and the lookup's table still holds it - STEP 10 APPENDED its own lane AFTER this one, so this entry now carries a comma rather than closing the table");
                 // ... AND THE DECODE ITSELF: the constants, the three guards, the ENGINE'S strength expression and the
                 // frame. The expression is pinned to the digit because it is a transcription of the reference engine's
-                // own GLSL (`zmd-ab/goo_engine_node_normal_map.glsl`), not a derivation that a later reader can
+                // own GLSL (`deren-ab/goo_engine_node_normal_map.glsl`), not a derivation that a later reader can
                 // re-check from the dump.
                 for (char const* const spelling : {"static const float goo_normal_z_floor = 1.0000000168623835e-16;",
                                                    "static const float goo_normal_strength_default = 1.0;",
@@ -3248,7 +3248,7 @@ int32_t main() {
             // ---- 8r4. 欠账 (e): STEP 11's SECOND COPY, IN THE FACE ARM ----
             //
             // STEP 11 FIXED THE `原` DENOMINATOR IN THE BODY ARM; THE FACE ARM KEPT THE OLD EXPRESSION, and
-            // `zmd-ab/goo_step11_armA_result.md` §7 item 2 reports that rather than fixing it. What this block
+            // `deren-ab/goo_step11_armA_result.md` §7 item 2 reports that rather than fixing it. What this block
             // guards is the property the fix is FOR: the two copies are THE SAME ARITHMETIC under the arm's own
             // names, so an edit to either one alone fails HERE rather than in a frame nobody compares.
             {
@@ -3548,7 +3548,7 @@ int32_t main() {
         CHECK_MSG(outline.find("VR_GOO_TOON_CHAIN") == std::string::npos, "`outline.slang` leaves the old rim switched on");
         CHECK_MSG(pbr.find("VR_GOO_TOON_CHAIN") == std::string::npos, "and so does `pbr.slang`");
         CHECK_MSG(rim_pass.find("return \"toon_screen_rim\";") != std::string::npos, "the screen rim asks under its own feature name");
-        CHECK_MSG(demo.find("self.runtime_->goo_toon_active()") != std::string::npos, "the rewritten chain switches the article's contour off");
+        CHECK_MSG(demo.find("self.runtime_owner->goo_toon_active()") != std::string::npos, "the rewritten chain switches the article's contour off");
         // (f) STEP 3'S OWN GATE, and it is the one this step's byte-identity criterion rests on: the new rim stage
         // must ask under ITS OWN feature name (so the owner can answer it), it must not record when that name is
         // false, and the owner's answer must be the SAME `goo_toon_active()` predicate that picks the character
@@ -3561,11 +3561,11 @@ int32_t main() {
         std::size_t const goo_rim_branch = demo.find("if (name == \"goo_rim\")");
         CHECK_MSG(goo_rim_branch != std::string::npos, "the feature table has a branch for it");
         std::string const goo_rim_answer = demo.substr(goo_rim_branch, demo.find("}\n", goo_rim_branch) - goo_rim_branch);
-        CHECK_MSG(goo_rim_answer.find("self.runtime_->goo_toon_active()") != std::string::npos, "answered with the SAME predicate the pipeline choice uses");
-        CHECK_MSG(goo_rim_answer.find("self.goo_rim_->ready() && goo_toon_active") != std::string::npos, "and true only when the rewritten chain is the one drawing");
+        CHECK_MSG(goo_rim_answer.find("self.runtime_owner->goo_toon_active()") != std::string::npos, "answered with the SAME predicate the pipeline choice uses");
+        CHECK_MSG(goo_rim_answer.find("self.goo_rim->ready() && goo_toon_active") != std::string::npos, "and true only when the rewritten chain is the one drawing");
         // ... and the frame loop records the stage after the character stage, gated on that name
         std::string const frames = slurp("vulkan/runtime/runtime.frames.cppm");
-        CHECK_MSG(frames.find("this->goo_rim_stage = {at(\"goo_rim\")};") != std::string::npos, "the stage is bound to the chain by name");
+        CHECK_MSG(frames.find("this->goo_rim_pass = {at(\"goo_rim\")};") != std::string::npos, "the stage is bound to the chain by name");
         CHECK_MSG(frames.find("pass::stage const goo_rim_stage = {.name = \"goo_rim\"") != std::string::npos, "and recorded as its own stage");
         // ... and the G-buffer's publication is gated on the same feature name, or a frame with `goo_toon` off
         // would transition images for a pass that never draws
@@ -3634,7 +3634,7 @@ int32_t main() {
         CHECK_MSG(rs_sigmoid_sharp(0.9f, 0.0f, 0.0f) == 0.5f, "RS A4 (background pin: written in step 13 for the then-unported armA; step 15 calls it live): sharp == 0 is the guarded 0.5");
 
         // ---- A5: `混合.029` is LIGHTEN, and `fac = 0` returns A BITWISE ----
-        // pinned sample (from `zmd-ab\_s13s_expect3.py`, f32 round-trip):
+        // pinned sample (from `deren-ab\_s13s_expect3.py`, f32 round-trip):
         //   lit = (0.1f, 0.2f, 0.3f);  rs = 0.5 * (7.5, 1.4143484830856323, 0) = (3.75, 0.7071742415428162, 0)
         CHECK_MSG(vec3_bitwise_equal(rs_lighten({0.1f, 0.2f, 0.3f}, {3.75f, 0.707174242f, 0.0f}, 1.0f), {3.75f, 0.707174242f, 0.3f}),
                   "RS A5: LIGHTEN takes the per-channel MAX of lit and rs");
@@ -3709,8 +3709,8 @@ int32_t main() {
         // and NOT the complement `u = 1 - (1 - |V.n|)^remap(b) + w` that `shaders/goo_toon.slang` computed until
         // 2026-10-01. The two agree ONLY at `b == 0` (both give `u == w`) and at `|V.n| == 0.5` (their one
         // fixpoint), which is why every `b == 0` fixture in the world stays green under either form.
-        // Instrument: `zmd-ab/s15impl/u_net_form_check.py` (32-point grid over `b x |V.n| x w`, both forms, f64
-        // and f32) and the Lead's `zmd-ab/_lead_u_net_check.py`. The numbers below are the f32 values; each of the
+        // Instrument: `deren-ab/s15impl/u_net_form_check.py` (32-point grid over `b x |V.n| x w`, both forms, f64
+        // and f32) and the Lead's `deren-ab/_lead_u_net_check.py`. The numbers below are the f32 values; each of the
         // last six is quoted together with what the COMPLEMENT would have answered, because a pin that both forms
         // satisfy cannot catch this class of defect.
         CHECK_MSG(rs_sheet_u(0.0f, 0.8f, 0.0f) == 0.0f && rs_sheet_u(0.0f, 0.8f, 0.25f) == 0.25f,
@@ -3929,7 +3929,7 @@ int32_t main() {
         // ---- A8.t30: DEBT (s) - the cel band must NOT be applied to `Cast Shadows` ----
         //
         // The reference never quantizes its `Cast Shadows` output and has no band generator on that chain
-        // (its `_RD` ramps are continuous remaps, not steps; see `zmd-ab/goo_debt_s_armA_verify.md` §2.4):
+        // (its `_RD` ramps are continuous remaps, not steps; see `deren-ab/goo_debt_s_armA_verify.md` §2.4):
         // the engine's cel knob is port-side and OFF by default, so `calc_shadow_cascade` returns raw visibility.
         {
             std::string const shading = slurp("shaders/shading.glsl");

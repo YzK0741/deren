@@ -18,6 +18,8 @@
  * so a build running unattended still starts.
  */
 
+#include "platform_functions.hpp" // the one declaration of utility_platform_ask_open_file; checked against the definition below
+
 #include <cstddef>
 #include <cstdint> // int32_t below, for the same measured reason as platform_path.cpp's include
 #include <cstdio>

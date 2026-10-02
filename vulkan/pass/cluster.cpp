@@ -29,7 +29,7 @@ namespace vulkan::pass {
     }
 
     void cluster_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& cluster_pass::io() const noexcept {
@@ -37,7 +37,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& cluster_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view cluster_pass::feature() const noexcept {
@@ -47,15 +47,15 @@ namespace vulkan::pass {
     }
 
     bool cluster_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline cluster_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void cluster_pass::set_frame(cluster_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void cluster_pass::prepare_frame(frame_facts const& facts) noexcept {
@@ -68,11 +68,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
@@ -88,7 +88,7 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->trace);
+        this->pass_pipeline = std::move(built->trace);
         utility::log("SUCCESS: clustered light pipeline created (the frame's punctual lights are binned per cluster)");
     }
 
@@ -98,8 +98,8 @@ namespace vulkan::pass {
     }
 
     void cluster_pass::record(resolved_io const& io) {
-        if (!this->pipeline_.has_value() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
-            io.barrier_buffers.size() < render_resource::cluster_barriers.size() || this->frame_.cluster_count == 0) {
+        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+            io.barrier_buffers.size() < render_resource::cluster_barriers.size() || this->pass_frame.cluster_count == 0) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_cluster_pass)
         }
         VkBuffer const counts = io.barrier_buffers[barrier_counts].buffer;
@@ -113,7 +113,7 @@ namespace vulkan::pass {
         // block carries pick the slot. A compute stage is not part of a rendering instance, so this still records
         // before vkCmdBeginRendering.
         vkCmdBindPipeline(io.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, io.pipelines[0]);
-        vkCmdDispatch(io.cmd, (this->frame_.cluster_count + group_size - 1u) / group_size, 1, 1);
+        vkCmdDispatch(io.cmd, (this->pass_frame.cluster_count + group_size - 1u) / group_size, 1, 1);
 
         // Hand the two buffers to the fragment stages that read them later in this submission (forward shading
         // inside the main instance, and the deferred lighting pass): a compute SHADER_WRITE is not visible to a

@@ -113,7 +113,9 @@ export namespace vulkan::pass {
         static constexpr std::string_view fragment_shader_name = "gbuffer_debug.frag.spv";
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"gbuffer-debug"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the view runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -122,10 +124,14 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        // called debug_channel, not channel: channel() and set_channel()'s channel parameter would hide it,
+        // and MSVC /W4 reports C4458 (an error under /WX).
         /// the channel the view shows (see set_channel); the default is the renderer's historical normal channel
-        int32_t channel_ = 1;
+        int32_t debug_channel = 1;
     };
 
     static_assert(sizeof(gbuffer_debug_pass::push_constants) == render_resource::gbuffer_debug_io.push->size,

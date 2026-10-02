@@ -138,7 +138,9 @@ export namespace vulkan::pass {
         static constexpr std::string_view fragment_shader_name = "deferred.frag.spv";
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"deferred"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the lighting runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -147,18 +149,26 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        // called ssao_active, not ssao_enabled: the class declares ssao_enabled() and a member of that name
+        // would duplicate it and hide the override.
         /// the SSAO parameters (see set_ssao): the defaults are the renderer's own historical ones
-        bool ssao_enabled_ = true;
-        float ssao_radius_ = 0.5f;
-        float ssao_intensity_ = 1.0f;
-        uint32_t ssao_samples_ = 8;
+        bool ssao_active = true;
+        float ssao_radius = 0.5f;
+        float ssao_intensity = 1.0f;
+        uint32_t ssao_samples = 8;
         /// view-depth bias that keeps a surface from occluding itself - a shader constant, never a knob
-        float ssao_bias_ = 0.02f;
+        float ssao_bias = 0.02f;
+        // called unlit_shading, not unlit: unlit() and set_unlit()'s unlit parameter would hide it, and
+        // MSVC /W4 reports C4458 (an error under /WX).
         /// the flat render mode (see set_unlit)
-        bool unlit_ = false;
-        deferred_frame frame_ = {};
+        bool unlit_shading = false;
+        // called pass_frame, not frame: set_frame()'s frame parameter in deferred.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        deferred_frame pass_frame = {};
     };
 
     static_assert(sizeof(deferred_pass::push_constants) == render_resource::deferred_io.push->size,

@@ -412,7 +412,7 @@ character_forward = false
 # goo_toon: WHICH SHADING MODEL the character stage above draws with. false = the chain written against the
 # author's article (`shaders/character_forward.slang`); true = the REWRITTEN chain whose authority is XIYAG's
 # Goo node presets (`shaders/goo_toon.slang`, registered as the `goo_toon` pipeline - see
-# vulkan::runtime::goo_toon_pipeline_name and build-release-clang64/zmd-ab/goo_toon_plan.md).
+# vulkan::runtime::goo_toon_pipeline_name and build-release-clang64/deren-ab/goo_toon_plan.md).
 #
 # IT IS NOT A SECOND WAY TO TURN THE STAGE ON: with `character_forward` off this selects nothing at all. The two
 # are separate because they answer two questions - whether the stage runs, and which model it runs - and the
@@ -446,7 +446,7 @@ goo_toon = false
 # stated rather than guessed at.
 #
 # Example (the author's own `endfield-background`, a 34 m matte ground disc + emissive dome, converted to
-# glTF): background_glb = "zmd-ab/bg/endfield-background/export/background.glb"
+# glTF): background_glb = "deren-ab/bg/endfield-background/export/background.glb"
 # NOTE ON THAT ASSET: it is licensed for LOCAL REFERENCE ONLY (attribution to 新杨XIYAG is required and it
 # must be replaced before any release - see its SOURCE_TERMS.txt), so it is a development stand-in and not
 # something to ship. The key itself is asset-agnostic.
@@ -496,7 +496,7 @@ demo_lights = 0
 # their package's manifest names `lighting/studio_01_1k.exr` with `world_strength 0.35`, and that
 # light is what fills the shadows their area light casts (ours come out of the toon rig and the
 # environment, so the character's ambient is otherwise a blue-grey sky band). Converting that EXR to a
-# Radiance .hdr is a one-liner in Blender - see build-release-clang64/zmd-ab/bg/_hdr_convert.py, which
+# Radiance .hdr is a one-liner in Blender - see build-release-clang64/deren-ab/bg/_hdr_convert.py, which
 # writes studio_01_1k.hdr next to the EXR - because the runtime reads .hdr and NOT .exr: stb_image
 # decodes Radiance but has no OpenEXR support, and the runtime has no other image decoder.
 #
@@ -521,7 +521,7 @@ environment_hdr = ""
 environment_intensity = 0.35
 
 # area_light_*: the reference package's RECTANGULAR SOFT BOX, which its manifest
-# (build-release-clang64/zmd-ab/bg/endfield-background/manifest.json) names as the main light of the shot:
+# (build-release-clang64/deren-ab/bg/endfield-background/manifest.json) names as the main light of the shot:
 #
 #     UsdLuxRectLight, size_m 30, power_w 4000, position_blender_m [-3, -4, 15], aim_at [0, 0, 0]
 #

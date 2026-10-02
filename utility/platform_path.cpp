@@ -16,8 +16,10 @@
  */
 
 #include <cstddef>
-#include <cstdint> // int32_t below: stated HERE rather than borrowed transitively - libc++'s <cstddef> happens to
-                   // provide it and libstdc++'s does not, which is a build that fails on one toolchain only
+#include <cstdint>                // int32_t below: stated HERE rather than borrowed transitively - libc++'s <cstddef> happens to
+                                  // provide it and libstdc++'s does not, which is a build that fails on one toolchain only
+#include "platform_functions.hpp" // the one declaration of utility_platform_executable_directory; checked against the definition below
+
 #include <iterator>
 
 #if defined(_WIN32)

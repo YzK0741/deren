@@ -76,8 +76,10 @@ export namespace vulkan {
      *        forwarded: they belong to the runtime
      */
     class user_filter {
+        // called owner_share, not owner: the owner parameter of the constructor would hide a member of that name and
+        // MSVC /W4 reports C4458, an error under /WX
         /// the share that keeps the device alive, and the raw pointer every method forwards through
-        std::shared_ptr<core> owner_;
+        std::shared_ptr<core> owner_share;
         core* vk_core = nullptr;
 
     public:
@@ -134,8 +136,10 @@ export namespace vulkan {
      * one out at create time would be the per-image-lifetime trap this branch has already paid for twice.
      */
     class pass_filter {
+        // called owner_share, not owner: the owner parameter of the constructor would hide a member of that name and
+        // MSVC /W4 reports C4458, an error under /WX
         /// the share that keeps the device alive, and the raw pointer every method forwards through
-        std::shared_ptr<core> owner_;
+        std::shared_ptr<core> owner_share;
         core* vk_core = nullptr;
         /**
          * What the OWNER (the runtime) has published for its passes to name.
@@ -145,7 +149,7 @@ export namespace vulkan {
          * one. A `resource_id` that was never registered resolves to a null handle, which is what a pass's
          * "this owner has none" branch already handles.
          */
-        std::vector<std::pair<uint32_t, resource_handles>> registered_;
+        std::vector<std::pair<uint32_t, resource_handles>> registered;
 
     public:
         explicit pass_filter(std::shared_ptr<core> owner) noexcept;

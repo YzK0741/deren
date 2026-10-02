@@ -250,7 +250,9 @@ namespace vulkan {
         core_create_info create_options = {};
 
         VkInstance instance = VK_NULL_HANDLE;
-        VkDevice device = VK_NULL_HANDLE;
+        // called logical_device, not device: the structured binding of that name in core.constructor.cppm
+        // would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        VkDevice logical_device = VK_NULL_HANDLE;
         VkPhysicalDevice physical_device = VK_NULL_HANDLE;
         // properties of the picked physical device (VkPhysicalDeviceProperties: limits such as
         // timestampPeriod, bufferImageGranularity, maxPushConstantsSize + the device name).
@@ -303,8 +305,12 @@ namespace vulkan {
         /// hostImageCopy feature and GENERAL among the device's copy-source layouts - the three things the call
         /// needs. Every caller tests it before choosing a host copy, so false always means the staging path.
         bool host_image_copy_available = false;
-        uint32_t graphics_family_index = 0;
-        uint32_t present_family_index = 0;
+        // called graphics_queue_family_index, not graphics_family_index: the structured binding of that name
+        // in core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        uint32_t graphics_queue_family_index = 0;
+        // called present_queue_family_index, not present_family_index: the structured binding of that name
+        // in core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        uint32_t present_queue_family_index = 0;
         VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
 
         GLFWwindow* window = nullptr;
@@ -315,8 +321,12 @@ namespace vulkan {
 
         VkSurfaceKHR surface = VK_NULL_HANDLE;
 
-        VkQueue graphics_queue = VK_NULL_HANDLE;
-        VkQueue present_queue = VK_NULL_HANDLE;
+        // called graphics_queue_handle, not graphics_queue: the structured binding of that name in
+        // core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        VkQueue graphics_queue_handle = VK_NULL_HANDLE;
+        // called present_queue_handle, not present_queue: the structured binding of that name in
+        // core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        VkQueue present_queue_handle = VK_NULL_HANDLE;
         uint32_t graphics_queue_family = VK_QUEUE_FAMILY_IGNORED;
 
         VkSwapchainKHR swap_chain = {};
@@ -492,7 +502,9 @@ namespace vulkan {
          *       that got one of those wrong would have an image the sampler refuses.
          */
 
-        VkFormat depth_format = {};
+        // called depth_attachment_format, not depth_format: make_depth_pipeline keeps a parameter named
+        // depth_format, which would hide the member of that name and MSVC /W4 reports C4458 (an error under /WX).
+        VkFormat depth_attachment_format = {};
         std::vector<VkImage> depth_images = {};
         std::vector<VkDeviceMemory> depth_image_memories = {};
         std::vector<VkImageView> depth_image_views = {};
@@ -593,6 +605,12 @@ namespace vulkan {
             return static_cast<VkDeviceSize>(slot) * heap_slot_stride;
         }
 
+        // NOT renamed, unlike the other members that round: `heap_slot_base` is a NAME CONTRACT with
+        // shaders/heap_slot_constants.glsl, which declares the same constant under the same name, and
+        // tests/test_render_resources.cpp parses both files and requires the names AND the values to match
+        // (tests/test_goo_toon_math.cpp greps this line by that name too). The C4458 that a lambda parameter of
+        // this name caused in core.constructor.cppm is fixed THERE instead, by renaming the parameter - a local,
+        // so the contract stays intact.
         static constexpr uint32_t heap_slot_base = 16384;  // 1 MiB / 64 B: the grid's slot 0
         static constexpr uint32_t heap_slot_count = 1024;  // 703 slots are in use, the rest is room to grow
         static constexpr uint32_t heap_image_capacity = 8; // per-swapchain-image arrays (3-4 images in practice)

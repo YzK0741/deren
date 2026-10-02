@@ -10,6 +10,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/quaternion.hpp>
 #include <optional>
+#include <string>
 #include <string_view>
 #include <vector>
 
@@ -312,7 +313,20 @@ namespace {
     // The 20 MB motion this parser was written against lives outside the repo, so the check that
     // needs it is opt-in: set VR_MMD_MOTION to its path to run it.
     void test_mmd_motion_real_file_when_available() {
+#if defined(_MSC_VER)
+        // MSVC's <cstdlib> marks std::getenv deprecated (C4996, an error under /WX), so the MSVC build asks the
+        // same question with its secure twin and owns the copy the CRT hands back; clang keeps std::getenv below.
+        char* value = nullptr;
+        std::size_t value_size = 0;
+        if (_dupenv_s(&value, &value_size, "VR_MMD_MOTION") != 0) {
+            value = nullptr;
+        }
+        std::string const value_text = value == nullptr ? std::string{} : std::string(value);
+        std::free(value);
+        char const* const path = value_text.empty() ? nullptr : value_text.c_str();
+#else
         char const* const path = std::getenv("VR_MMD_MOTION");
+#endif
         if (path == nullptr || *path == '\0') {
             vk_test::write_line("  (VR_MMD_MOTION is not set - the real-motion check was skipped)");
             return;

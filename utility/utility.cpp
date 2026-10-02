@@ -3,13 +3,12 @@ module;
 #include <cstdint>
 #include <cstdio> // utility::print(stderr, ...) below needs the stderr macro (not exportable via modules)
 #include <cstring>
-extern "C" void utility_platform_sleep_ns(std::int64_t nanoseconds); // implemented in platform_sleep.cpp (see its header comment for why it is not a module)
-// the running executable's directory, written into the caller's buffer; -1 = unavailable. Implemented
-// in platform_path.cpp, a plain TU for the same reason as the sleep above.
-extern "C" int32_t utility_platform_executable_directory(char* out, std::size_t capacity);
-// file dialog, the chosen path written into the caller's buffer; 1 = picked, 0 = cancelled, -1 = no
-// backend could ask. Implemented in platform_dialog.cpp, a plain TU for the same reason as the two above.
-extern "C" int32_t utility_platform_ask_open_file(char const* title, char const* filter_patterns, char* out, std::size_t capacity);
+// The three platform entry points are declared in a HEADER rather than here: a global module fragment
+// may only carry preprocessing directives, and MSVC enforces that (C5202 at /W4, fatal under /WX -
+// clang accepts a declaration in this position, which is why it lived here until MSVC was built).
+// See utility/platform_functions.hpp for the full note.
+#include "platform_functions.hpp"
+
 #include <xxhash.h>
 
 module utility;

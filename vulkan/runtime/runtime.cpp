@@ -49,13 +49,13 @@ namespace vulkan {
         // vkGetAccelerationStructureDeviceAddressKHR`, which is the same reason the acceleration
         // structure module loads its own entry points through vkGetDeviceProcAddr).
         static PFN_vkGetAccelerationStructureDeviceAddressKHR const get_structure_address =
-            reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(this->vulkan_core.device, "vkGetAccelerationStructureDeviceAddressKHR"));
+            reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(this->vulkan_core.logical_device, "vkGetAccelerationStructureDeviceAddressKHR"));
         VkAccelerationStructureDeviceAddressInfoKHR const tlas_address_info = {
             .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
             .pNext = nullptr,
             .accelerationStructure = tlas,
         };
-        VkDeviceAddress const tlas_address = get_structure_address != nullptr ? get_structure_address(this->vulkan_core.device, &tlas_address_info) : 0;
+        VkDeviceAddress const tlas_address = get_structure_address != nullptr ? get_structure_address(this->vulkan_core.logical_device, &tlas_address_info) : 0;
         if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
             utility::log("descriptor heap: the top level structure did not reach grid slot {}", core::heap_slots::tlas + frame_slot);
         }
@@ -66,7 +66,7 @@ namespace vulkan {
         VkBuffer const instance_table = this->structures.instance_table(frame_slot);
         if (instance_table != VK_NULL_HANDLE) {
             VkBufferDeviceAddressInfo const table_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = instance_table};
-            VkDeviceAddress const table_address = vkGetBufferDeviceAddress(this->vulkan_core.device, &table_address_info);
+            VkDeviceAddress const table_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &table_address_info);
             if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::mask_instances + frame_slot), table_address, this->structures.instance_table_size(frame_slot), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                 utility::log("descriptor heap: the instance table did not reach grid slot {}", core::heap_slots::mask_instances + frame_slot);
             }
@@ -110,7 +110,7 @@ namespace vulkan {
         // No G-buffer pipeline: no scene can be drawn. Open an empty instance anyway, so every frame
         // still has a matching vkCmdEndRendering and the post chain samples a defined target.
         VkClearValue clear_color = {};
-        clear_color.color = {{this->clear_color.r, this->clear_color.g, this->clear_color.b, 1.0f}};
+        clear_color.color = {{this->background_color.r, this->background_color.g, this->background_color.b, 1.0f}};
         VkRenderingAttachmentInfo const color_attachment = make_color_attachment_info(
             vk.hdr_image_views[image_index],
             clear_color,
@@ -227,14 +227,14 @@ namespace vulkan {
         // NOTHING OF THIS CLASS IS RETIRED HERE ANY MORE: the G-buffer and post descriptor families it used to
         // retire are gone with the sets (every stage reaches its images through the heap, whose slots name images
         // rather than sets), so the only per-generation state left is the PASSES' - and they are told below.
-        if (this->wiring_.recreated != nullptr) {
-            this->wiring_.recreated(this->wiring_.owner);
+        if (this->frame_wiring.recreated != nullptr) {
+            this->frame_wiring.recreated(this->frame_wiring.owner);
         }
         // AND THE PASSES ARE TOLD, by the runner rather than by a hand-kept list. That is the hazard this layer was
         // built to remove: a pass that keeps per-generation state cannot be missed, because it is not this function
         // that remembers - `recreate_stage` calls every pass in the stage, and a pass added to one is covered.
         {
-            pass::stage const taa_stage = {.name = "taa", .passes = this->taa_stage, .marks = false};
+            pass::stage const taa_stage = {.name = "taa", .passes = this->taa_pass, .marks = false};
             [[maybe_unused]] pass::run_report const taa_recreated = pass::recreate_stage(taa_stage, this->make_pass_host());
             // THE STAGES ADDED SINCE THIS LIST WAS WRITTEN, and now one call per chain: a pass whose per-image
             // first-use state describes a GENERATION is owed another first-use batch by a swapchain recreation.
@@ -347,9 +347,9 @@ namespace vulkan {
         info.window = vk.window;
         info.instance = vk.instance;
         info.physical_device = vk.physical_device;
-        info.device = vk.device;
-        info.graphics_queue_family = vk.graphics_family_index;
-        info.graphics_queue = vk.graphics_queue;
+        info.device = vk.logical_device;
+        info.graphics_queue_family = vk.graphics_queue_family_index;
+        info.graphics_queue = vk.graphics_queue_handle;
         info.color_format = vk.swap_chain_image_format;
         info.depth_format = VK_FORMAT_UNDEFINED; // the post/gui pass has no depth attachment
         info.frames_in_flight = static_cast<uint32_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT);
@@ -403,9 +403,9 @@ namespace vulkan {
         //      - the vertex pipeline that used to absorb a refusal does not exist any more.
         std::optional<vk_pipeline> mesh_result = std::nullopt;
         {
-            auto built = vulkan::make_pipeline(this->vulkan_core.device,
+            auto built = vulkan::make_pipeline(this->vulkan_core.logical_device,
                                                std::span<VkFormat const>(color_formats),
-                                               this->vulkan_core.depth_format,
+                                               this->vulkan_core.depth_attachment_format,
                                                mesh_vertex_shader_code,
                                                fragment_shader_code,
                                                VK_SAMPLE_COUNT_1_BIT,
@@ -432,9 +432,9 @@ namespace vulkan {
             // reads one meshlet per workgroup out of the heap table and culls it against the camera. Built exactly
             // like the mesh form - it IS a mesh stage - and a refusal leaves the mesh form as the answer, which is
             // why this is a third entry rather than a replacement.
-            auto built = vulkan::make_pipeline(this->vulkan_core.device,
+            auto built = vulkan::make_pipeline(this->vulkan_core.logical_device,
                                                std::span<VkFormat const>(color_formats),
-                                               this->vulkan_core.depth_format,
+                                               this->vulkan_core.depth_attachment_format,
                                                meshlet_shader_code,
                                                fragment_shader_code,
                                                VK_SAMPLE_COUNT_1_BIT,
@@ -721,11 +721,11 @@ namespace vulkan {
         // asks. With no owner wired every feature is off, which is the same "no owner, no frames" answer the stage
         // hooks give - a frame that records nothing.
         render_features f;
-        if (this->wiring_.feature_active == nullptr) {
+        if (this->frame_wiring.feature_active == nullptr) {
             return f;
         }
         feature_facts const facts = this->make_feature_facts();
-        auto const ask = [this, &facts](std::string_view const name) { return this->wiring_.feature_active(this->wiring_.owner, facts, name); };
+        auto const ask = [this, &facts](std::string_view const name) { return this->frame_wiring.feature_active(this->frame_wiring.owner, facts, name); };
         f.unlit = ask("unlit");
         f.gbuffer_debug = ask("gbuffer-debug");
         f.shadow = ask("shadow");
@@ -744,10 +744,10 @@ namespace vulkan {
     }
 
     bool runtime::feature_active(std::string_view const name) const noexcept {
-        if (this->wiring_.feature_active == nullptr) {
+        if (this->frame_wiring.feature_active == nullptr) {
             return false;
         }
-        return this->wiring_.feature_active(this->wiring_.owner, this->make_feature_facts(), name);
+        return this->frame_wiring.feature_active(this->frame_wiring.owner, this->make_feature_facts(), name);
     }
 
     void runtime::warn_missing_feature(std::string_view const key, std::string const& message) {
@@ -782,10 +782,10 @@ namespace vulkan {
         // THE CHAIN OWNER'S ANSWER, for the same reason the table above is: "can this feature run at all this
         // session" is composed from the passes that exist and the renderer's facts, and the owner of the passes is
         // the one that knows both. The overlay asks it to decide what to offer and `log_feature_status()` prints it.
-        if (this->wiring_.feature_available == nullptr) {
+        if (this->frame_wiring.feature_available == nullptr) {
             return false;
         }
-        return this->wiring_.feature_available(this->wiring_.owner, this->make_feature_facts(), name);
+        return this->frame_wiring.feature_available(this->frame_wiring.owner, this->make_feature_facts(), name);
     }
 
     void runtime::log_feature_status() const {
@@ -854,7 +854,7 @@ namespace vulkan {
         // A SOURCE, not per-frame state: it is read while `import_scene` builds each primitive's create info, so
         // installing one AFTER an import changes nothing about what was already imported - which is what the
         // declaration says, rather than something a caller has to discover.
-        this->toon_lookup_ = lookup;
+        this->toon_lookup_source = lookup;
     }
 
     void runtime::set_character_forward(bool const enabled) noexcept {
@@ -1028,7 +1028,7 @@ namespace vulkan {
         params.camera_pos = glm::vec3(this->current_ubo.camera_pos);
         params.light_dir = this->light_state.light_dir;
         params.scene_center = this->shadow_scene_center;
-        params.scene_radius = this->scene_radius;
+        params.scene_radius = this->scene_extent_radius;
         params.caster_extent = this->shadow_caster_extent;
         params.cascades = this->shadow_cascades;
         params.map_size = this->shadow_map_size;
@@ -1060,7 +1060,7 @@ namespace vulkan {
         // afterwards because it holds their array view. Shrinking keeps the layers (no second
         // rebuild when the user cycles the combo, and the spare ones simply go unused).
         if (!this->shadow_images.empty() && clamped > this->shadow_allocated_layers) {
-            vkDeviceWaitIdle(this->vulkan_core.device);
+            vkDeviceWaitIdle(this->vulkan_core.logical_device);
             this->shadow_images.clear();
             this->shadow_array_views.clear();
             this->shadow_layer_views.clear();
@@ -1081,7 +1081,7 @@ namespace vulkan {
     void runtime::enable_shadows(glm::vec3 const& scene_center, float const scene_radius) {
         // Remember the scene extent even if shadow setup below fails: the camera far plane
         // (make_orbit_camera_ubo) needs it to keep the whole scene visible when zooming in.
-        this->scene_radius = scene_radius;
+        this->scene_extent_radius = scene_radius;
         // shadow caster culling (begin_recording): casters up to ~1/8 of the scene radius
         // up-light of the camera frustum can still throw a shadow into the view
         this->shadow_caster_extent = std::max(1.0f, scene_radius * 0.125f);
@@ -1231,7 +1231,7 @@ namespace vulkan {
             return 0;
         }
         VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = buffer};
-        return vkGetBufferDeviceAddress(self->vulkan_core.device, &info);
+        return vkGetBufferDeviceAddress(self->vulkan_core.logical_device, &info);
     }
 
     bool runtime::push_geometry_block(void* const owner, VkCommandBuffer const command_buffer, uint32_t const offset, std::span<std::byte const> const bytes) {
@@ -1571,7 +1571,7 @@ namespace vulkan {
             }
             std::string marker = node.primitive_leaf != nullptr ? " [primitive]" : "";
             lines.push_back(std::format("{}{}{}", std::string(depth * 2, ' '),
-                                        node.name.empty() ? std::string("<unnamed>") : node.name, marker));
+                                        node.node_name.empty() ? std::string("<unnamed>") : node.node_name, marker));
             for (scene_tree::scene_node const& child : node.children) {
                 self(self, child, depth + 1);
             }
@@ -1643,7 +1643,7 @@ namespace vulkan {
         }
 
         result->index_type = info.index_type;
-        result->index_count = info.index_count;
+        result->draw_index_count = info.index_count;
         result->vertex_count = info.vertex_count;
         // Kept for the acceleration-structure build, which reads the vertex buffer directly and has to
         // be told the stride the interleaved layout uses (nothing else needs it after the upload: the
@@ -1762,7 +1762,7 @@ namespace vulkan {
         // attach the primitive as a new root leaf of the scene tree; the node's name records the
         // pipeline it draws with (the record path groups leaves by node name / pipeline)
         scene_tree::scene_node& leaf = this->get_scene().add_root();
-        leaf.name = std::string(pipeline_name);
+        leaf.node_name = std::string(pipeline_name);
         leaf.local = info.model_matrix;  // world = identity * local (root)
         leaf.attach(std::move(created)); // a vulkan::primitive is a scene_tree::primitive
         this->bvh_dirty = true;          // new leaf -> culling BVH must be rebuilt
@@ -1819,7 +1819,7 @@ namespace vulkan {
         result->outline_width = source.outline_width;
 
         scene_tree::scene_node& leaf = this->get_scene().add_root();
-        leaf.name = "pbr";
+        leaf.node_name = "pbr";
         primitive* const created = static_cast<primitive*>(leaf.attach(std::move(result)));
         this->bvh_dirty = true; // new leaf -> culling BVH must be rebuilt
         return created;

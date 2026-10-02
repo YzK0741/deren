@@ -221,7 +221,9 @@ export namespace vulkan::pass {
         /// variant the frame's TARGET needs (see composite_pipeline / hdr_pipeline) - two names here would make
         /// the runner bind both, and the second would win.
         static constexpr std::array<std::string_view, 1> pipeline_names = {"post_composite"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the composite runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -232,16 +234,20 @@ export namespace vulkan::pass {
         /// @brief compose the chain's push block for this frame's target choice (see resolve)
         [[nodiscard]] bool fill_push(resolved_io& out, bool writing_ldr) const;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> composite_ = std::nullopt;
-        std::optional<vk_pipeline> hdr_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        std::optional<vk_pipeline> composite = std::nullopt;
+        std::optional<vk_pipeline> hdr = std::nullopt;
         /// the surface's format, cached at create: the `encode_gamma` lane is a consequence of it (and of the
         /// frame's target choice), and a session-stable device fact is exactly what a create step may cache
-        VkFormat swap_chain_format_ = VK_FORMAT_UNDEFINED;
+        VkFormat swap_chain_format = VK_FORMAT_UNDEFINED;
+        // called overlay_callback, not overlay: set_overlay()'s overlay parameter in post.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
         /// the GI upsample's lane (see set_gi_upsample)
         /// the host's overlay hook, installed once (see set_overlay); the frame decides whether this pass uses it
-        draw_callback overlay_ = {};
-        composite_frame frame_ = {};
+        draw_callback overlay_callback = {};
+        // called pass_frame, not frame: set_frame()'s frame parameter in post.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        composite_frame pass_frame = {};
     };
 
     /**
@@ -280,9 +286,15 @@ export namespace vulkan::pass {
         /// five identical pipelines.
         static constexpr std::array<std::string_view, 1> pipeline_names = {post_composite_pass::bloom_pipeline_name};
 
-        uint32_t level_ = 0;
-        render_resource::pass_io const* io_ = nullptr;
-        vulkan::pass::behaviour behaviour_ = {};
+        // called bloom_level, not level: level() and the constructor's level parameter in post.cpp would
+        // hide it, and MSVC /W4 reports C4458 (an error under /WX).
+        uint32_t bloom_level = 0;
+        // called declared_io, not io: io() and record()'s io parameter in post.cpp would hide it, and
+        // MSVC /W4 reports C4458 (an error under /WX).
+        render_resource::pass_io const* declared_io = nullptr;
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        vulkan::pass::behaviour pass_behaviour = {};
     };
 
 } // namespace vulkan::pass

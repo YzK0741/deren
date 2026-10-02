@@ -1,7 +1,7 @@
 // shaders/outline.slang - the SLANG source of the TOON OUTLINE fragment stage (`outline.frag.spv`).
 //
 // WHAT IT IS: the fragment half of the article's `MyZmdOutlineShader` (the verbatim copy this port works from is
-// `build-release-clang64/zmd-ab/author_src/MyZmdOutlineShader.shader`; the numbers below are ITS line numbers).
+// `build-release-clang64/deren-ab/author_src/MyZmdOutlineShader.shader`; the numbers below are ITS line numbers).
 // Its whole mechanism is a BACK-FACE HULL drawn a second time: the geometry stage pushes every vertex out along
 // its normal (the author's `:134-170`, ported into `pbr.slang`'s `outline_mesh_main`), the pass rasterizes that
 // hull with its FRONT faces culled (the author's `:47` `Cull Front`), and what survives the depth test is a ring
@@ -61,7 +61,7 @@
 // for the width (its `> 0` gate is there), so the hull and the colour cannot disagree about whether a material
 // is outlined at all.
 //  - `_OutLineStrength` IS THE ARTICLE'S DEFAULT (1.0, `:16`): the game's parameter table carries no such row
-//    (measured with `zmd-ab/outline_rows.py`), so there is nothing to take from it.
+//    (measured with `deren-ab/outline_rows.py`), so there is nothing to take from it.
 //  - AND THE ARTICLE'S `_OutlineColor` DEFAULT (white, `:15`) IS ONLY THE FALLBACK the lane answers with when a
 //    material states no tint. The author is explicit that the colour is a taste rather than a reconstruction -
 //    his own words in the article (PDF p-53) are that the outline's配色 is "很暴力、你可以自己设计" - which is

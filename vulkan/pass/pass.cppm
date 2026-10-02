@@ -960,8 +960,8 @@ export namespace vulkan::pass {
     public:
         /// @brief forget everything: the caller is about to publish this frame's resources
         void clear() noexcept {
-            this->entries_.clear();
-            this->families_.clear();
+            this->entries.clear();
+            this->families.clear();
         }
 
         /**
@@ -983,14 +983,14 @@ export namespace vulkan::pass {
             if (views.empty() && images.empty()) {
                 return;
             }
-            for (family_entry& f : this->families_) {
+            for (family_entry& f : this->families) {
                 if (f.id == id && f.element == element) {
                     f.views = views;
                     f.images = images;
                     return;
                 }
             }
-            this->families_.push_back(family_entry{.id = id, .element = element, .views = views, .images = images});
+            this->families.push_back(family_entry{.id = id, .element = element, .views = views, .images = images});
         }
 
         /**
@@ -1003,13 +1003,13 @@ export namespace vulkan::pass {
          *       that publishes in two passes) ends with the last value rather than with two entries
          */
         void publish(render_resource::resource_id const id, uint32_t const element, uint32_t const instance, resolved_binding const binding) noexcept {
-            for (entry& e : this->entries_) {
+            for (entry& e : this->entries) {
                 if (e.id == id && e.element == element && e.instance == instance) {
                     e.binding = binding;
                     return;
                 }
             }
-            this->entries_.push_back(entry{.id = id, .element = element, .instance = instance, .binding = binding});
+            this->entries.push_back(entry{.id = id, .element = element, .instance = instance, .binding = binding});
         }
 
         /**
@@ -1022,12 +1022,12 @@ export namespace vulkan::pass {
          *       published once per frame from the owner's arrays
          */
         [[nodiscard]] resolved_binding find(render_resource::resource_id const id, uint32_t const element, uint32_t const instance) const noexcept {
-            for (entry const& e : this->entries_) {
+            for (entry const& e : this->entries) {
                 if (e.id == id && e.element == element && e.instance == instance) {
                     return e.binding;
                 }
             }
-            for (family_entry const& f : this->families_) {
+            for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element && instance < f.views.size()) {
                     VkImage const image = instance < f.images.size() ? f.images[instance] : VK_NULL_HANDLE;
                     return resolved_binding{.view = f.views[instance], .buffer = VK_NULL_HANDLE, .image = image};
@@ -1044,7 +1044,7 @@ export namespace vulkan::pass {
          *         the family instance by instance, which is what a single entry is for)
          */
         [[nodiscard]] std::span<VkImageView const> views_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
-            for (family_entry const& f : this->families_) {
+            for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
                     return f.views;
                 }
@@ -1054,18 +1054,18 @@ export namespace vulkan::pass {
 
         /// @brief how many things are published (a diagnostic: what a frame published, and what a test pins)
         [[nodiscard]] uint32_t size() const noexcept {
-            return static_cast<uint32_t>(this->entries_.size() + this->families_.size());
+            return static_cast<uint32_t>(this->entries.size() + this->families.size());
         }
 
         /// @brief how many instances of one (resource, element) are published - 0 when the owner has none
         [[nodiscard]] uint32_t instances_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
             uint32_t count = 0;
-            for (entry const& e : this->entries_) {
+            for (entry const& e : this->entries) {
                 if (e.id == id && e.element == element) {
                     ++count;
                 }
             }
-            for (family_entry const& f : this->families_) {
+            for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
                     count += static_cast<uint32_t>(std::max(f.views.size(), f.images.size()));
                 }
@@ -1092,8 +1092,8 @@ export namespace vulkan::pass {
         /// the honest one, and its order is the publishing order rather than a hash (this renderer's
         /// verification rests on byte-identical captures, and an iteration order that is an accident is exactly
         /// what the stage runner refuses to depend on).
-        std::vector<entry> entries_ = {};
-        std::vector<family_entry> families_ = {};
+        std::vector<entry> entries = {};
+        std::vector<family_entry> families = {};
     };
 
     // =============================================================================================

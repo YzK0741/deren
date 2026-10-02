@@ -216,9 +216,9 @@ $scenarios = @(
     # At this pose those materials ARE on screen and the chain responds: the same white-vs-black mask A/B moves
     # 75 217 px (7.254726%, bbox x263..826 y549..959), and the shipped asset's real `_M` against a zeroed mask
     # moves 2 686 px (0.259066%, bbox (294,553)-(809,959)). Both numbers are transcribed from
-    # `zmd-ab/s13_v6_report.txt:14` / `:9` and were RECOMPUTED by the Lead from the on-disk frames
-    # `zmd-ab/laevat/s13fin_{white,black,on}_body_r1.png` (the first draft of this comment misattributed the
-    # 2 686 to the white-vs-black pair; corrected 2026-10-01, see `zmd-ab/goo_debt_lead_audit.md` §3-1).
+    # `deren-ab/s13_v6_report.txt:14` / `:9` and were RECOMPUTED by the Lead from the on-disk frames
+    # `deren-ab/laevat/s13fin_{white,black,on}_body_r1.png` (the first draft of this comment misattributed the
+    # 2 686 to the white-vs-black pair; corrected 2026-10-01, see `deren-ab/goo_debt_lead_audit.md` §3-1).
     # That is what this scenario adds to the gate - a RECORDED frame the RS mechanism can actually break.
     @{ name = "laevatain_goo_toon_body"; desc = "the REWRITTEN toon chain at the BODY pose (the RS materials)"; tier = "extra";
        extra = @{ character_forward = "true"; goo_toon = "true" }
@@ -228,7 +228,7 @@ $scenarios = @(
     # SAME character with NO `.toon.tsv` sidecar, so every per-material value the rewritten chain reads is
     # ABSENT and the chain must come back to the reference's own socket defaults rather than guess (a zeroed or
     # stale lane read as a value). The two assets are the same geometry and the same 11 materials, measured with
-    # this repository's own `zmd-ab/glb_info.py`: the goo file adds only the extra IMAGES the sidecar's rows
+    # this repository's own `deren-ab/glb_info.py`: the goo file adds only the extra IMAGES the sidecar's rows
     # resolve, and a copy of it with no sidecar beside it renders THIS scenario's frame exactly (92473A82…), so
     # the sidecar is the whole of the difference and not the textures.
     #

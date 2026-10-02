@@ -13,9 +13,13 @@ module;
 
 #include <vulkan/vulkan.h>
 
-// GLFWwindow is used as an opaque pointer in gui_create_info; glfw3.h itself is only included
-// in graphical_user_interface.cpp (the platform backend calls). A forward declaration keeps this interface light.
-struct GLFWwindow;
+// GLFWwindow is used as an opaque pointer in gui_create_info. Include glfw3.h instead of
+// forward-declaring the type: MSVC rejects a declaration in the global module fragment
+// (warning C5202 "global module fragment can contain only preprocessing directives", which /WX
+// turns into an error), and an #include is exactly what the fragment is for. Every other unit of
+// this project that touches GLFWwindow* includes it here too, and the type is the real one either
+// way (glfw3.h is already included by graphical_user_interface.cpp).
+#include <GLFW/glfw3.h>
 
 export module vulkan.graphical_user_interface;
 export import vstd;

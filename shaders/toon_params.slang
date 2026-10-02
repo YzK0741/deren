@@ -96,7 +96,7 @@ struct toon_params {
     // is the article's default, so the per-family overrides are gone and the game's numbers stay recorded in the
     // provenance table above rather than being applied.
     //
-    // MEASURED, `zmd-ab/face_ref_b1_*`, against the previous arm - and the honest headline is that the ALGEBRA is
+    // MEASURED, `deren-ab/face_ref_b1_*`, against the previous arm - and the honest headline is that the ALGEBRA is
     // 1.6x on cloth/hair and 1.45x on face/skin/eye, while the PIXELS barely move, because the dark layer is only
     // reached where `min_shadow_effect` is small and the ramp already sends most of this character's lit area to
     // the light layer:
@@ -244,7 +244,7 @@ toon_params toon_params_for(uint family) {
     // THE TABLE STARTED AS THE REFERENCES' RELATIVE ORDER (see the note above). This pass replaced every number the
     // GAME ALSO STATES with the game's own, read from the per-material parameter table the export tools produce
     // (`_npr_package_20260925/_npr_recon/character/params/material-params.tsv`), restricted to the seven materials
-    // of `actor_chen` and kept in `build-release-clang64/zmd-ab/chen_params_digest.tsv`:
+    // of `actor_chen` and kept in `build-release-clang64/deren-ab/chen_params_digest.tsv`:
     //
     //   `spec_strength`          <- `_Specular`                (skin 0.454, cloth/face/hair 1.0, eye 0.0)
     //                               ** NOW A FALLBACK RATHER THAN THE SOURCE **: the value is per MATERIAL in the
@@ -358,7 +358,7 @@ toon_params toon_params_for(uint family) {
         // So it passes the artifact criteria (calmer, fewer hard edges) and is honest about its cost: the face is
         // dimmer against the neck and the hands, which keep this engine's sky. That cost is the article's own
         // arrangement rather than a tuning choice - its face main has no ambient read to give it. See
-        // `zmd-ab/face_shader_compare.md` §2.37 for the对照.
+        // `deren-ab/face_shader_compare.md` §2.37 for the对照.
         p.ambient_strength = 0.0;
     } else if (family == VR_FAMILY_CLOTH) {
         // a hard diffuse edge and a cool dark side: cloth's shadow reads as a fold, not a gradient. A BROAD,

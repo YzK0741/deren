@@ -103,7 +103,9 @@ export namespace vulkan::pass {
         static_assert(barrier_output + 1 == render_resource::megalights_trace_barriers.size(),
                       "the pass's barrier slots must match the declaration it indexes");
         static constexpr std::array<std::string_view, 1> pipeline_names = {"megalights_trace"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::compute,
             .group_size_x = group_size,
             .group_size_y = group_size,
@@ -115,13 +117,21 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        uint32_t samples_ = 4;
-        float min_weight_ = 0.001f;
-        float tmin_ = 0.01f;
-        float bias_floor_ = 0.01f;
-        float bias_grazing_ = 0.1f;
+        // called sample_count, not samples: set_estimator()'s samples parameter would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        uint32_t sample_count = 4;
+        // called weight_floor, not min_weight: set_estimator()'s min_weight parameter would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        float weight_floor = 0.001f;
+        float tmin = 0.01f;
+        // called floor_bias, not bias_floor: set_estimator()'s bias_floor parameter would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        float floor_bias = 0.01f;
+        // called grazing_bias, not bias_grazing: set_estimator()'s bias_grazing parameter would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        float grazing_bias = 0.1f;
         /// the emitter's angular radius in radians; 0 makes the shadows hard (see set_light_angle)
-        float light_angle_ = 0.0f;
+        float light_angle = 0.0f;
         /**
          * The ray sequence's frame counter, and it is the PASS's rather than the frame's because this chain
          * has no other reader: the chain's counter lives in the renderer because TWO of its stages trace
@@ -129,9 +139,11 @@ export namespace vulkan::pass {
          * same in both: a fixed sequence would feed the temporal resolve the same error in the same place
          * every frame instead of an average of different ones.
          */
-        uint32_t frame_index_ = 0;
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        uint32_t frame_index = 0;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
     };
 
     static_assert(sizeof(megalights_trace_pass::push_constants) == render_resource::megalights_trace_io.push->size,

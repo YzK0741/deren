@@ -28,8 +28,8 @@ namespace vulkan::pass {
     }
 
     void shadow_pass::release_owned() noexcept {
-        this->mesh_pipeline_.reset();
-        this->meshlet_pipeline_.reset();
+        this->mesh_pipeline.reset();
+        this->meshlet_pipeline.reset();
     }
 
     render_resource::pass_io const& shadow_pass::io() const noexcept {
@@ -37,7 +37,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& shadow_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view shadow_pass::feature() const noexcept {
@@ -51,11 +51,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE || context.depth_format == VK_FORMAT_UNDEFINED) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->mesh_pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->mesh_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
@@ -86,7 +86,7 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->mesh_pipeline_ = std::move(*mesh_built);
+        this->mesh_pipeline = std::move(*mesh_built);
         utility::log("SUCCESS: shadow MESH pipeline created (the depth-only pass, fed by mesh dispatches)");
         // ---- ... and the MESHLET form (docs/mesh_shaders.md step 3): only the MESH module differs (same fragment
         // stage), and a missing shader or a refusal is a log line - the mesh form above is a complete answer.
@@ -94,7 +94,7 @@ namespace vulkan::pass {
         if (!meshlet_spirv.empty()) {
             auto meshlet_built = pipelines::build_shadow(context.device, context.depth_format, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, VK_SHADER_STAGE_MESH_BIT_EXT);
             if (meshlet_built) {
-                this->meshlet_pipeline_ = std::move(*meshlet_built);
+                this->meshlet_pipeline = std::move(*meshlet_built);
                 utility::log("SUCCESS: shadow MESHLET pipeline created (one workgroup per meshlet, window read from the table)");
             } else {
                 utility::log("shadow: the meshlet pipeline was refused ({}), so the pass keeps the mesh form", meshlet_built.error());
@@ -110,46 +110,46 @@ namespace vulkan::pass {
     bool shadow_pass::pipeline_ready() const noexcept {
         // ONE FORM IS ENOUGH, and neither is the vertex one: the mesh form is required at create and the meshlet form
         // is preferred over it, so "ready" is "either was built" (docs/mesh_shaders.md step 4)
-        return this->meshlet_pipeline_.has_value() || this->mesh_pipeline_.has_value();
+        return this->meshlet_pipeline.has_value() || this->mesh_pipeline.has_value();
     }
 
     VkPipeline shadow_pass::pipeline() const noexcept {
         // THE MESHLET FORM WHEN THERE IS ONE, and the MESH form otherwise: they are the same pass (same targets, same
         // fragment stage, same casters), so which one draws is not the frame's business. There is NO vertex form
         // since step 4 (docs/mesh_shaders.md): a null here means no shadow map rather than a different rasterizer.
-        if (this->meshlet_pipeline_.has_value()) {
-            return this->meshlet_pipeline_->get_pipeline();
+        if (this->meshlet_pipeline.has_value()) {
+            return this->meshlet_pipeline->get_pipeline();
         }
-        if (this->mesh_pipeline_.has_value()) {
-            return this->mesh_pipeline_->get_pipeline();
+        if (this->mesh_pipeline.has_value()) {
+            return this->mesh_pipeline->get_pipeline();
         }
         return VK_NULL_HANDLE; // no mesh form, no shadow map: the vertex form is gone (see create)
     }
 
     void shadow_pass::set_frame(shadow_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void shadow_pass::record(resolved_io const& io) {
         if (!this->pipeline_ready() || io.targets.empty()) {
             return;
         }
-        if (this->frame_.record_cascade == nullptr || this->frame_.run_tasks == nullptr || this->frame_.map_size == 0u) {
+        if (this->pass_frame.record_cascade == nullptr || this->pass_frame.run_tasks == nullptr || this->pass_frame.map_size == 0u) {
             return;
         }
         // ONE LAYER PER CASCADE, and never more than the map has: the DECLARATION claims a RUN of cascade layers
         // (render_resource::shadow_targets) and the FRAME caps it at the layers the image actually has - so the
         // two counts meet here. The secondaries are the frame's own count, and they are what decides how many
         // layers this frame renders: a cascade with no secondary to record into is not rendered at all.
-        uint32_t const layers = static_cast<uint32_t>(std::min<std::size_t>(this->frame_.cascades.size(), io.targets.size()));
+        uint32_t const layers = static_cast<uint32_t>(std::min<std::size_t>(this->pass_frame.cascades.size(), io.targets.size()));
         if (layers == 0u) {
             return;
         }
         VkPipeline const pipeline = this->pipeline();
         // ... and HOW it must be fed travels with it: a mesh pipeline has no input assembler, so its casters are
         // dispatched rather than drawn (see the frame's record_cascade).
-        bool const meshlets = this->meshlet_pipeline_.has_value();
-        bool const mesh_stage = meshlets || this->mesh_pipeline_.has_value();
+        bool const meshlets = this->meshlet_pipeline.has_value();
+        bool const mesh_stage = meshlets || this->mesh_pipeline.has_value();
         // ---- THE CONTENT: one task per cascade, each into its OWN secondary ----
         // A VkCommandPool is not thread safe, which is why every cascade has its own {pool, buffer} pair (the same
         // rule the main pass's workers follow). Only the CONTENT moves off the primary thread: the barriers, the
@@ -160,17 +160,17 @@ namespace vulkan::pass {
         std::vector<bool> recorded(layers, false);
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
             tasks.emplace_back([this, cascade, pipeline, mesh_stage, meshlets, &recorded] {
-                VkCommandBuffer const secondary = this->frame_.cascades[cascade];
+                VkCommandBuffer const secondary = this->pass_frame.cascades[cascade];
                 if (secondary == VK_NULL_HANDLE) {
                     return;
                 }
-                recorded[cascade] = this->frame_.record_cascade(this->frame_.owner, secondary, cascade, pipeline, mesh_stage, meshlets);
+                recorded[cascade] = this->pass_frame.record_cascade(this->pass_frame.owner, secondary, cascade, pipeline, mesh_stage, meshlets);
             });
         }
-        this->frame_.run_tasks(this->frame_.owner, tasks);
+        this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
 
         // ---- ONE INSTANCE PER CASCADE, in the primary ----
-        VkExtent2D const map_extent = {this->frame_.map_size, this->frame_.map_size};
+        VkExtent2D const map_extent = {this->pass_frame.map_size, this->pass_frame.map_size};
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
             VkImageView const layer_view = io.targets[cascade].view;
             VkImage const layer_image = io.targets[cascade].image;
@@ -194,7 +194,7 @@ namespace vulkan::pass {
             // wedge the frame slot, which is what the recorded flags are for (a null buffer or a log line from the
             // callback leaves its flag false).
             if (recorded[cascade]) {
-                VkCommandBuffer const secondary = this->frame_.cascades[cascade];
+                VkCommandBuffer const secondary = this->pass_frame.cascades[cascade];
                 vkCmdExecuteCommands(io.cmd, 1, &secondary);
             }
             vkCmdEndRendering(io.cmd);

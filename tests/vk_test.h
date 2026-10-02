@@ -63,18 +63,27 @@ namespace vk_test {
     }
 } // namespace vk_test
 
-#define CHECK(cond)                                                                                                  \
-    do {                                                                                                             \
-        ++::vk_test::checks();                                                                                       \
-        if (!(cond)) {                                                                                               \
-            ::vk_test::report(#cond, __FILE__, __LINE__, nullptr);                                                   \
-        }                                                                                                            \
+// A check's condition is materialized in a local and the `if` tests THAT, rather than testing the expression inline
+// as `if (!(cond))`: MSVC /W4 reports C4127 ("conditional expression is constant") for a check over a constant
+// pinned at compile time - which the math tests do on purpose, e.g. `CHECK_MSG(k_desaturation_luma_r ==
+// 0.21267299354076385f, ...)` - and the `if constexpr` it suggests cannot stand in for one here, because this
+// harness also carries runtime conditions (`CHECK(file.is_open())`) and some pinned constants are not constant
+// expressions at all (a `float const` computed through a lambda). The check itself is unchanged: the condition is
+// still evaluated exactly once, the report text is the same, and so is the process exit code.
+#define CHECK(cond)                                                \
+    do {                                                           \
+        ++::vk_test::checks();                                     \
+        bool const check_failed = !(cond);                         \
+        if (check_failed) {                                        \
+            ::vk_test::report(#cond, __FILE__, __LINE__, nullptr); \
+        }                                                          \
     } while (false)
 
-#define CHECK_MSG(cond, message)                                                                                     \
-    do {                                                                                                             \
-        ++::vk_test::checks();                                                                                       \
-        if (!(cond)) {                                                                                               \
-            ::vk_test::report(#cond, __FILE__, __LINE__, (message));                                                 \
-        }                                                                                                            \
+#define CHECK_MSG(cond, message)                                     \
+    do {                                                             \
+        ++::vk_test::checks();                                       \
+        bool const check_failed = !(cond);                           \
+        if (check_failed) {                                          \
+            ::vk_test::report(#cond, __FILE__, __LINE__, (message)); \
+        }                                                            \
     } while (false)

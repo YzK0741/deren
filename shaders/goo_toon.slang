@@ -8,18 +8,18 @@
 // lives in `character_forward.slang`. The rewrite takes a DIFFERENT authority, decided by the person this port is
 // for: XIYAG's Goo node presets - the `Arknights: Endfield_PBRToon*` shader groups inside
 // `陈_佩丽卡_莱万汀_伊冯_1.2.1_GooBlender4.2+(请阅读RM)_ By 新杨XIYAG.blend`, dumped node-for-node to
-// `build-release-clang64/zmd-ab/gooblender/nodes.json`. Every constant and every connection below is read out of
-// that file; the specification is `zmd-ab/goo_toon_plan.md` and the per-material values are
-// `zmd-ab/goo_params_laevatain.tsv`.
+// `build-release-clang64/deren-ab/gooblender/nodes.json`. Every constant and every connection below is read out of
+// that file; the specification is `deren-ab/goo_toon_plan.md` and the per-material values are
+// `deren-ab/goo_params_laevatain.tsv`.
 //
 // WHERE THE TWO SOURCES DISAGREE, THE GOO PROJECT WINS. The port also holds a second dump of the same six groups
-// (`zmd-ab/endfield_addon/chen_dump/nodes.json`, the kkskaguya addon's `presets/Chen.blend`), and the two differ
+// (`deren-ab/endfield_addon/chen_dump/nodes.json`, the kkskaguya addon's `presets/Chen.blend`), and the two differ
 // in this very group - `Chen.blend` carries three extra nodes that modulate both emission layers by the Goo
 // engine's `Shader Info.Cast Shadows`, and states the albedo window's centre as `1.1` rather than `1.0`. The Goo
 // project is the authority because it is the file that HAS this character's materials in it (Laevatain's eleven
 // materials exist only there), and because it is the file named. Measured, not assumed: the four materials that
 // the Goo project attaches `PBRToon_irisBase` to are exactly the four `*_iris_01` materials of its four
-// characters, enumerated in `zmd-ab/goo_step1_result.md`.
+// characters, enumerated in `deren-ab/goo_step1_result.md`.
 //
 // ================================ WHY A SECOND STAGE RATHER THAN AN EDIT ================================
 //
@@ -78,7 +78,7 @@
 //   names: `T_actor_common_matcap_07_D.png`'s texel (0,0) is `(0, 0, 0)` - so the branch contributes exactly
 //   zero to every pixel of every material, and a port that carried it would carry a texture fetch, a lane and a
 //   constant in order to add black. The reference's own authors left the wire off; the evidence is recorded in
-//   `zmd-ab/goo_step1_result.md` rather than reproduced here.
+//   `deren-ab/goo_step1_result.md` rather than reproduced here.
 //
 // ---- `AngleThreshold`: the reference's `calculateAngel` GROUP, WHICH THE IRIS DECLARES AS A SUB-GROUP ----
 //
@@ -292,7 +292,7 @@ static float3 goo_iris_emission(const float3 albedo,
 // the depth an ATTACHMENT of this very pass, so this fragment cannot sample it - and the reference's composition
 // is a PRODUCT (`rim_term = C ⊙ (D · F · V · depth_factor)`) that cannot be split across two passes. The long
 // argument, the source citations and the per-node derivation are in `shaders/goo_rim.slang`'s header and
-// `zmd-ab/goo_step3_result.md`; this file keeps only the iris.
+// `deren-ab/goo_step3_result.md`; this file keeps only the iris.
 //
 // WHAT THIS FILE STILL OWNS, and it is unchanged: the iris' two matcap layers, the `VR_GOO_TOON_CHAIN` guard
 // that switches the OLD chain's rim off for the four families the Goo reference gives a rim to (a define that
@@ -308,7 +308,7 @@ static float3 goo_iris_emission(const float3 albedo,
 // `toon_family::eye`. Measured over every character glb in this repository: one eye-classified material per
 // character (two on `tangtang`), each an `*_iris_0*`, and no other material of any of them matches. So "family ==
 // eye" and "the reference uses the iris group" are the same set on every asset here, and the enumeration is in
-// `zmd-ab/goo_step1_result.md`.
+// `deren-ab/goo_step1_result.md`.
 //
 // NOTHING ELSE IN THIS ENTRY POINT DIFFERS FROM THE OLD ONE - same `gather_surface`, same family table, same
 // lane reads, same emissive term, same coverage rule, and for a non-eye material the same `toon_diffuse` call with
@@ -535,7 +535,7 @@ float4 goo_toon_frag_main(
                 // `_GooRSArm0.z = 0`, where both forms give `u = 0` - which is why the suite, the gate and all 34
                 // pre/post frames stayed green. The branch is NOT dead in the reference's own files: `chen
                 // body/cloth` use `b = 0.5` and `M_actor_yvonne_cloth_03` uses `b = 0.7999999523162842` with
-                // offset `0.3999999761581421` (`zmd-ab/goo_ref_rs_sheet_sampling.md` §7, task-26). The `b != 0`
+                // offset `0.3999999761581421` (`deren-ab/goo_ref_rs_sheet_sampling.md` §7, task-26). The `b != 0`
                 // fixtures are what puts this path under frame-level test from now on.
                 const float3 rs_to_camera = normalize(camera_at(heap_camera_slot).camera_pos.xyz - v_world_pos);
                 const float rs_facing_abs = abs(dot(rs_to_camera, toon_shading_normal));
@@ -562,7 +562,7 @@ float4 goo_toon_frag_main(
                 // EXTEND bilinear footprint has BOTH taps clamped to texel 0 and returns exactly `T0`, which is
                 // exactly what REPEAT returns at `u = 0.5/256`; `u == 1` and texel 255 are the mirror case; and
                 // strictly inside the interval the clamp is inactive and both modes filter the same texels.
-                // (The equality was MEASURED off the renderer by `zmd-ab/_lead_extend_equiv.py`: two bilinear
+                // (The equality was MEASURED off the renderer by `deren-ab/_lead_extend_equiv.py`: two bilinear
                 // mip-0 paths over the real sheet, 200001 sample points across `u` in `[0,1]`, max
                 // `|EXTEND - this inset|` = `0.000e+00`; `EXTEND @u=0` comes out `(0, 96, 255, 255)` = `T0` while
                 // `REPEAT @u=0` comes out `(43, 106, 255, 255)` = the seam average. That instrument reads the

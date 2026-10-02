@@ -169,16 +169,18 @@ export namespace vulkan {
         /// the typed references, looked up once by `attach` (a pass whose declaration is missing stays null)
         template <typename PassT>
         [[nodiscard]] PassT* find(std::string_view const name) noexcept {
-            return static_cast<PassT*>(this->passes_ != nullptr ? this->passes_->find(name) : nullptr);
+            return static_cast<PassT*>(this->passes != nullptr ? this->passes->find(name) : nullptr);
         }
 
-        pass::pass_chain* passes_ = nullptr;
+        pass::pass_chain* passes = nullptr;
         /**
          * THIS APPLICATION'S CHAIN, which this demo OWNS: `attach` constructs the passes into it and hands it to the
          * runtime (`set_pass_chain`), so the runtime holds no pass of its own and this object owns them all.
          */
-        pass::pass_chain chain_{"render"};
-        runtime* runtime_ = nullptr; // the flag halves of the knobs above are the runtime's policy
+        pass::pass_chain chain{"render"};
+        /// named `runtime_owner` rather than `runtime`: the type of this very pointer is `vulkan::runtime`, and
+        /// a member called `runtime` would hide that type inside this class's scope
+        runtime* runtime_owner = nullptr; // the flag halves of the knobs above are the runtime's policy
         /**
          * The frame's services, as last handed to `prepare`, and the reflection's family.
          *
@@ -187,37 +189,39 @@ export namespace vulkan {
          * frame's table, its constants) has to be reachable from the demo rather than passed through the pass. They
          * are a value of pointers to the runtime, valid for the frame that set them.
          */
-        pass::cluster_pass* cluster_ = nullptr;
-        pass::shadow_pass* shadow_ = nullptr;
-        pass::scene_pass* scene_ = nullptr;
-        pass::transparent_pass* transparent_ = nullptr;
+        pass::cluster_pass* cluster = nullptr;
+        pass::shadow_pass* shadow = nullptr;
+        pass::scene_pass* scene = nullptr;
+        pass::transparent_pass* transparent = nullptr;
         /// THE TOON CHARACTER STAGE: the same OPAQUE leaves again, through the character-forward pipeline, over
         /// the lit frame. Owned by the chain and looked up by its declaration name like every other pass here.
-        pass::character_forward_pass* character_forward_ = nullptr;
+        pass::character_forward_pass* character_forward = nullptr;
         /// THE TOON STAGE'S SECOND RIM: a fullscreen additive contour sampling the depth, run right after the
         /// surface stage. Gated by the SAME `character_forward` feature - the contour means nothing without the
         /// shading it outlines, so the two are one switch.
-        pass::toon_screen_rim_pass* toon_screen_rim_ = nullptr;
+        pass::toon_screen_rim_pass* toon_screen_rim = nullptr;
         /// THE REWRITTEN CHAIN'S RIM (`vulkan.pass.goo_rim`): the same fullscreen additive shape as the contour
         /// above, with the Goo reference's numbers instead of the article's, and MUTUALLY EXCLUSIVE with it - the
         /// feature table below answers this one with `goo_toon_active()` and that one with its negation.
-        pass::goo_rim_pass* goo_rim_ = nullptr;
-        pass::rt_shadow_pass* rt_shadow_ = nullptr;
-        pass::deferred_pass* deferred_ = nullptr;
-        pass::taa_pass* taa_ = nullptr;
-        pass::gbuffer_debug_pass* gbuffer_debug_ = nullptr;
+        pass::goo_rim_pass* goo_rim = nullptr;
+        pass::rt_shadow_pass* rt_shadow = nullptr;
+        pass::deferred_pass* deferred = nullptr;
+        pass::taa_pass* taa = nullptr;
+        /// named `gbuffer_debug_pass` rather than `gbuffer_debug`: `feature_active` keeps a local
+        /// `gbuffer_debug`, and a member of that name would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
+        pass::gbuffer_debug_pass* gbuffer_debug_pass = nullptr;
         /// the stochastic punctual lighting pass (docs/megalights.md): the estimator's parameters live on the
         /// pass, and this owner is what forwards them
-        pass::megalights_trace_pass* megalights_trace_ = nullptr;
+        pass::megalights_trace_pass* megalights_trace = nullptr;
         /// the chain's temporal resolve (docs/megalights.md): the accumulation policy is the pass's
-        pass::megalights_temporal_pass* megalights_temporal_ = nullptr;
-        pass::post_composite_pass* composite_ = nullptr;
-        pass::fxaa_pass* fxaa_ = nullptr;
+        pass::megalights_temporal_pass* megalights_temporal = nullptr;
+        pass::post_composite_pass* composite = nullptr;
+        pass::fxaa_pass* fxaa = nullptr;
         /// THE RESOLVE (vulkan.pass.upscale): the render chain's LDR image -> the presented swapchain, the
         /// frame's last writer whenever the chain runs below the output size. It is fed no frame by this owner
         /// - the overlay hook it carries is installed once in `attach`, like the composite's and FXAA's - so
         /// this view exists for that hook and for the feature table's relay.
-        pass::upscale_pass* upscale_ = nullptr;
+        pass::upscale_pass* upscale = nullptr;
     };
 
 } // namespace vulkan

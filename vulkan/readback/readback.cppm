@@ -53,7 +53,10 @@ namespace vulkan {
     export class readback {
         // non-const: the copies go through VMA and the queue, and VMA's detail lookups are not const
         // methods (they are the ones that hand out the raw VkBuffer and the mapped pointer)
-        core* vk = nullptr;
+        /// Deliberately NOT called `vk`: stage_for_copy() and read() bind a local `core& vk`, and that
+        /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
+        /// (clang does not warn: -Wshadow is not enabled there).
+        core* gpu = nullptr;
         /// host-visible + coherent + TRANSFER_DST, grown on demand (see stage_for_copy). The RAII
         /// owner keeps the allocation alive; the raw handle and the mapped pointer are cached beside
         /// it because VMA's details are what the copy commands need.

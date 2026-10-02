@@ -112,7 +112,7 @@ namespace vulkan {
 
         // Acquire the next swapchain image; on out-of-date (e.g. the window was resized)
         //    rebuild the swapchain and let the caller retry on the next iteration.
-        VkResult const acquire_result = vkAcquireNextImageKHR(vk.device,
+        VkResult const acquire_result = vkAcquireNextImageKHR(vk.logical_device,
                                                               vk.swap_chain,
                                                               UINT64_MAX,
                                                               vk.image_available_semaphores[frame_slot],
@@ -137,7 +137,7 @@ namespace vulkan {
         // that rounds the two axes differently would otherwise tilt the projection by a fraction of a
         // pixel's worth of aspect).
         this->current_aspect = static_cast<float>(vk.swap_chain_extent.width) / static_cast<float>(vk.swap_chain_extent.height);
-        this->current_ubo = make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_radius, this->current_aspect);
+        this->current_ubo = make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_extent_radius, this->current_aspect);
         // Motion-vector support: the G-buffer computes its vectors from the UNJITTERED pair, and the
         // previous matrix is the one THIS swapchain image's history was rendered with (not simply the
         // last frame's: several images are in rotation, so the last frame's camera is not what that
@@ -210,7 +210,7 @@ namespace vulkan {
                 if (!degenerate) {
                     float const camera_near = base_proj[3][2] / base_proj[2][2];
                     float const camera_far = base_proj[2][2] * camera_near / (1.0f + base_proj[2][2]);
-                    float const scene_far = glm::distance(glm::vec3(this->current_ubo.camera_pos), this->shadow_scene_center) + this->scene_radius;
+                    float const scene_far = glm::distance(glm::vec3(this->current_ubo.camera_pos), this->shadow_scene_center) + this->scene_extent_radius;
                     cluster_near = std::max(camera_near, 0.05f);
                     cluster_far = std::max(std::min(camera_far, scene_far), cluster_near * 2.0f);
                 }
@@ -397,9 +397,9 @@ namespace vulkan {
         this->advance_motion_deformations();
         // Collect the primitive leaves once (DFS over the whole scene): the shadow pass draws all
         // of them, the main pass draws the subset bound to each pipeline
-        this->frame_leaves.clear();
+        this->frame_leaves_buffer.clear();
         for (scene_tree::scene_node const& root : this->bound_scene->roots) {
-            collect_leaf_primitives(root, this->frame_leaves);
+            collect_leaf_primitives(root, this->frame_leaves_buffer);
         }
         // ---- AND THE OVERLAY LEAVES COME STRAIGHT BACK OUT OF THAT SET ----
         //
@@ -425,28 +425,28 @@ namespace vulkan {
         // leaves' order is the scene tree's, and two overlay quads that overlap must keep composing the way the
         // asset authored them.
         this->frame_overlay.clear();
-        for (primitive const* const leaf : this->frame_leaves) {
+        for (primitive const* const leaf : this->frame_leaves_buffer) {
             if (leaf->overlay_kind != 0u) {
                 this->frame_overlay.push_back(leaf);
             }
         }
-        std::erase_if(this->frame_leaves, [](primitive const* const leaf) { return leaf->overlay_kind != 0u; });
+        std::erase_if(this->frame_leaves_buffer, [](primitive const* const leaf) { return leaf->overlay_kind != 0u; });
 
         // Frustum culling for the main pass: build a BVH over every leaf that has a single
         //     world AABB (normal draw primitives, whose bounds follow push.model), then keep only
         //     the leaves inside the camera frustum. Instanced primitives spread over many
         //     transforms (no single AABB) and primitives without bounds are never culled. The
-        //     shadow pass below still draws the full frame_leaves set so no caster is lost.
+        //     shadow pass below still draws the full frame_leaves_buffer set so no caster is lost.
         //
         //     Two-level reuse: the BVH is rebuilt only when the scene changed (bvh_dirty), and
         //     when the camera also did not move the culled result is reused as-is (no rebuild, no
         //     frustum_cull). update_world() above rewrites the same world matrices each frame, so
         //     a non-dirty scene keeps identical world AABBs and the cached BVH stays valid.
         // local aliases into the per-frame state filled above (keeps the cull math unchanged)
-        std::pmr::vector<primitive const*> const& frame_leaves = this->frame_leaves;
+        std::pmr::vector<primitive const*> const& frame_leaves = this->frame_leaves_buffer;
         float const aspect = this->current_aspect;
         camera_ubo const& ubo = this->current_ubo;
-        std::pmr::vector<primitive const*> visible_leaves = this->frame_leaves; // fallback: no culling
+        std::pmr::vector<primitive const*> visible_leaves = this->frame_leaves_buffer; // fallback: no culling
         // THE CASTER SET, MINUS THE FRAME'S STATIC SURROUND (`primitive::environment`, i.e. the
         // `[render] background_glb` import - see `shadow_casters` in the class docs for why it must never
         // cast). Written once here and used at every place the list is filled, because the caster set is
@@ -536,13 +536,13 @@ namespace vulkan {
                 //    than the whole scene.
                 constexpr std::size_t full_scene_shadow_leaf_limit = 1500;
                 if (frame_leaves.size() <= full_scene_shadow_leaf_limit) {
-                    fill_shadow_casters(this->frame_leaves);
+                    fill_shadow_casters(this->frame_leaves_buffer);
                 } else if (!this->shadows_enabled) {
                     // no shadow frustum yet (enable_shadows() not called): the set is unused until
                     // the shadow pass records, so take the exact path instead of culling against a
                     // zeroed light matrix. enable_shadows() runs before the first frame in
                     // practice; if it does not, the camera moving refreshes this set.
-                    fill_shadow_casters(this->frame_leaves);
+                    fill_shadow_casters(this->frame_leaves_buffer);
                 } else {
                     if (!this->shadow_heuristic_logged) {
                         this->shadow_heuristic_logged = true;
@@ -573,7 +573,7 @@ namespace vulkan {
             visible_leaves = this->cull_visible;
         } else {
             // culling disabled: the shadow pass draws every scene leaf (see shadow_casters)
-            fill_shadow_casters(this->frame_leaves);
+            fill_shadow_casters(this->frame_leaves_buffer);
         }
 
         // Split the visible set into OPAQUE leaves (frame_visible: drawn first, depth write on,
@@ -657,7 +657,7 @@ namespace vulkan {
             // THE CLUSTER SORT records its own dispatch and its own two buffer barriers now
             // (vulkan.pass.cluster); what is this loop's is WHERE it runs - before the passes that read the
             // bins - and the frame data it is handed, which the chain's owner supplies (see prepare_stage).
-            pass::stage const cluster_stage = {.name = "cluster", .passes = this->cluster_stage, .marks = false};
+            pass::stage const cluster_stage = {.name = "cluster", .passes = this->cluster_pass, .marks = false};
             this->prepare_stage(cluster_stage, *command_buffer);
             [[maybe_unused]] pass::run_report const cluster_report = pass::record_stage(cluster_stage, this->make_pass_host());
         }
@@ -676,7 +676,8 @@ namespace vulkan {
         // (the refit's own failure turns `rt_skin_bake` off) is decided here.
         if (this->rt_structures_wanted()) {
             ray_tracing::build_inputs const inputs = this->make_structure_inputs();
-            uint32_t const frame_slot = static_cast<uint32_t>(this->vulkan_core.current_frame);
+            // structures_frame_slot, not frame_slot: the outer frame_slot is in scope; MSVC /W4 C4456, an error under /WX.
+            uint32_t const structures_frame_slot = static_cast<uint32_t>(this->vulkan_core.current_frame);
             if (auto const built = this->structures.build(*command_buffer, inputs); !built) {
                 utility::log("ray-traced shadows disabled: {}", built.error().message);
             }
@@ -684,7 +685,7 @@ namespace vulkan {
             // frame and a caster's world matrix can change (animation, a moved node), so the instance list
             // is frame data like any other. On the frame that builds the bottom levels it runs right after them;
             // from the next frame on it is the structure a shadow ray will traverse.
-            if (auto const updated = this->structures.update(*command_buffer, frame_slot, inputs); !updated) {
+            if (auto const updated = this->structures.update(*command_buffer, structures_frame_slot, inputs); !updated) {
                 utility::log("runtime: {}", updated.error().message);
                 if (updated.error().disable_skin_bake) {
                     this->rt_skin_bake = false;
@@ -696,10 +697,10 @@ namespace vulkan {
             // ONLY WHEN THE HANDLE CHANGES (see rt_binding_written): the unconditional write invalidated a frame that
             // was still in flight, which the validation layer reports as "VkDescriptorSet ... was destroyed or
             // updated without UPDATE_AFTER_BIND" followed by every later call on that command buffer failing.
-            VkAccelerationStructureKHR const tlas = this->structures.handle(frame_slot);
-            if (frame_slot < this->rt_binding_written.size() && this->rt_binding_written[frame_slot] != tlas) {
-                this->write_rt_structure_binding(tlas, frame_slot);
-                this->rt_binding_written[frame_slot] = tlas;
+            VkAccelerationStructureKHR const tlas = this->structures.handle(structures_frame_slot);
+            if (structures_frame_slot < this->rt_binding_written.size() && this->rt_binding_written[structures_frame_slot] != tlas) {
+                this->write_rt_structure_binding(tlas, structures_frame_slot);
+                this->rt_binding_written[structures_frame_slot] = tlas;
             }
         }
         // GPU timing: the structures' builds end here. Written UNCONDITIONALLY, like every other mark -
@@ -750,7 +751,7 @@ namespace vulkan {
                 // allocated layer, including the spare ones), and the bookkeeping that makes the next frame's reuse
                 // test true. The frame itself - the per-cascade secondaries, the map's edge and the two callbacks -
                 // is built HERE and handed to the pass by whoever owns it (see make_shadow_frame/prepare_stage).
-                pass::stage const shadow_stage = {.name = "shadow", .passes = this->shadow_stage, .marks = false};
+                pass::stage const shadow_stage = {.name = "shadow", .passes = this->shadow_pass, .marks = false};
                 {
                     this->prepare_stage(shadow_stage, *command_buffer);
                     [[maybe_unused]] pass::run_report const shadow_report = pass::record_stage(shadow_stage, this->make_pass_host());
@@ -823,7 +824,7 @@ namespace vulkan {
         // The secondary inherits ONLY the depth attachment (no colour one): dynamic rendering 1.3, single-sampled,
         // viewMask 0. The inheritance struct hangs off VkCommandBufferInheritanceInfo::pNext (NOT the begin info's),
         // and a secondary buffer must always provide inheritance info.
-        VkCommandBufferInheritanceRenderingInfo const inheritance = make_inheritance_rendering_info(false, nullptr, vk.depth_format, VK_SAMPLE_COUNT_1_BIT);
+        VkCommandBufferInheritanceRenderingInfo const inheritance = make_inheritance_rendering_info(false, nullptr, vk.depth_attachment_format, VK_SAMPLE_COUNT_1_BIT);
         // An inherited HEAP bind, for the same reason the scene pass's segments carry one (see
         // scene_frame::fill_heap_bind): this secondary is validated on its own, and the shadow shaders read the
         // light matrices and the shadow map straight out of the heaps.
@@ -866,7 +867,7 @@ namespace vulkan {
         // draw of the visible leaves, and closing the instance - all inside one function now (see
         // vulkan.pass.scene for why that is the point of this extraction).
         if (this->gbuffer_pass_active()) {
-            pass::stage const scene_stage = {.name = "scene", .passes = this->scene_stage, .marks = false};
+            pass::stage const scene_stage = {.name = "scene", .passes = this->scene_pass, .marks = false};
             this->prepare_stage(scene_stage, command_buffer);
             [[maybe_unused]] pass::run_report const scene_report = pass::record_stage(scene_stage, this->make_pass_host());
             return;
@@ -1232,7 +1233,7 @@ namespace vulkan {
         // its two declared targets, one secondary and the depth hand-back - all in one function now (see
         // vulkan.pass.transparent). Like the scene pass it is SKIPPED without resolving anything on a frame
         // whose culling left nothing blended, which is what keeps a frame with no blended leaves byte-exact.
-        pass::stage const transparent_stage = {.name = "transparent", .passes = this->transparent_stage, .marks = false};
+        pass::stage const transparent_stage = {.name = "transparent", .passes = this->transparent_pass, .marks = false};
         this->prepare_stage(transparent_stage, command_buffer);
         [[maybe_unused]] pass::run_report const transparent_report = pass::record_stage(transparent_stage, this->make_pass_host());
     }
@@ -1386,7 +1387,7 @@ namespace vulkan {
         // deferred lighting stage has to know whether to skip its raster punctual loop, and it has to give the
         // same answer the runner gives when it decides whether to record the pass - one predicate, one answer.
         // The flat render mode is excluded because this pass EVALUATES THE BRDF from the G-buffer and the flat
-        return this->megalights_on && this->pass_ready("megalights_trace") && this->deferred_lit_active() && !this->scene_unlit_;
+        return this->megalights_on && this->pass_ready("megalights_trace") && this->deferred_lit_active() && !this->scene_unlit;
     }
 
     bool runtime::set_megalights_enabled(bool const enabled) noexcept {
@@ -1441,7 +1442,7 @@ namespace vulkan {
         // THE CHAIN IS AN INPUT, and there is deliberately no fallback: with the passes constructed outside this
         // class, "no chain was handed over" means there is nothing to create or record, so the one honest answer is
         // to say so and return rather than to record a frame of this class's own empty stage sequence.
-        if (this->chain_ == nullptr) {
+        if (this->frame_chain == nullptr) {
             utility::log("no pass chain was handed over (see set_pass_chain): nothing to create or record");
             return;
         }
@@ -1452,7 +1453,7 @@ namespace vulkan {
         // THE FRAME'S STRUCTURE, FROM THE CHAIN BY DECLARATION NAME: the stage arrays and the two GI halves (see
         // bind_frame_chain). The chain is the application's (see set_pass_chain) - this class owns no passes, so
         // there is no chain of its own for this to bind.
-        this->bind_frame_chain(*this->chain_);
+        this->bind_frame_chain(*this->frame_chain);
         // ---- MESH SHADERS: MAY A PASS BUILD ONE ON THIS DEVICE? (docs/mesh_shaders.md) ----
         // THE THREE CONDITIONS ARE MEASURED HERE, once, before any pass is created - because a pass that already
         // built a mesh pipeline on a device that cannot run one is a validation ERROR at vkCreateShaderModule, and
@@ -1488,7 +1489,7 @@ namespace vulkan {
         // emplaced them. A pass that could not build itself reports its own name in `rejected` and stays INACTIVE
         // (its feature predicate is false), which is what makes a startup failure a log line rather than a broken
         // frame.
-        pass::pass_chain& recorded = *this->chain_; // the chain the application handed over (see set_pass_chain)
+        pass::pass_chain& recorded = *this->frame_chain; // the chain the application handed over (see set_pass_chain)
         pass::run_report const created = recorded.init(build);
         if (!created.rejected.empty()) {
             utility::log("pass '{}': its declaration was refused by the validator, so it does not run", created.rejected);
@@ -1498,11 +1499,13 @@ namespace vulkan {
         // caster list), but both are GPU-owning objects constructed from the same context, so they belong in the
         // same step. Before the pass filter existed each had its own entry point in this class, because a pass
         // could not name a resource the renderer owns; now it asks (see publish_pass_resources).
-        if (auto const created = this->mask_bake.create(build); !created) {
-            utility::log("alphaMode MASK bake unavailable: {} (the any-hit stage still cuts masked geometry per hit)", created.error());
+        // mask_bake_result, not created: `created` above is in scope and MSVC /W4 reports C4456 (an error under /WX).
+        if (auto const mask_bake_result = this->mask_bake.create(build); !mask_bake_result) {
+            utility::log("alphaMode MASK bake unavailable: {} (the any-hit stage still cuts masked geometry per hit)", mask_bake_result.error());
         }
-        if (auto const created = this->compute_skin.create(build); !created) {
-            utility::log("skinned shadow refit unavailable: {} (a traced shadow keeps the bind pose)", created.error());
+        // compute_skin_result, not created: same C4456 rule as the mask-bake job above - the outer `created` is in scope.
+        if (auto const compute_skin_result = this->compute_skin.create(build); !compute_skin_result) {
+            utility::log("skinned shadow refit unavailable: {} (a traced shadow keeps the bind pose)", compute_skin_result.error());
         }
     }
 
@@ -1565,7 +1568,7 @@ namespace vulkan {
         // this struct is how a per-pass entry point per job appears, which is what the pass filter exists to
         // remove - so there is one builder now, and everything that constructs a pass uses it.
         return pass::pass_context{
-            .device = this->vulkan_core.device,
+            .device = this->vulkan_core.logical_device,
             .samplers = this->shared_samplers(),
             .shader = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->registered_shader(name); },
             // The SBT numbers a tracing pass builds its table against, straight from the capability query (see
@@ -1587,7 +1590,7 @@ namespace vulkan {
                 }
                 VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
                 if (out_address != nullptr) {
-                    *out_address = vkGetBufferDeviceAddress(self->vulkan_core.device, &address_info);
+                    *out_address = vkGetBufferDeviceAddress(self->vulkan_core.logical_device, &address_info);
                 }
                 VkBuffer const handle = detail->buffer;
                 self->pass_upload_buffers.push_back(std::move(buffer));
@@ -1599,7 +1602,7 @@ namespace vulkan {
             .swap_chain_image_format = this->vulkan_core.swap_chain_image_format,
             // ... and the DEPTH format, which the shadow pass`s pipeline needs (it has a depth attachment and no
             // colour one): the same kind of session-stable device fact, and the second one a context carries.
-            .depth_format = this->vulkan_core.depth_format,
+            .depth_format = this->vulkan_core.depth_attachment_format,
             // ... and whether the device can run a MESH pipeline at all, which a pass must not try to find out by
             // attempting it (see the metric above and pass_context::mesh_shaders).
             .mesh_shaders = this->mesh_shaders,
@@ -1649,7 +1652,7 @@ namespace vulkan {
         this->frame_facts.inv_view_proj = this->current_inv_view_proj;
         this->frame_facts.camera_pos = glm::vec3(this->current_ubo.camera_pos);
         this->frame_facts.scene_center = this->shadow_scene_center;
-        this->frame_facts.scene_radius = this->scene_radius;
+        this->frame_facts.scene_radius = this->scene_extent_radius;
         // The sun, normalized here because the shader wants a
         // direction, the UBO's own lane stays as the app set it). A zero direction - nothing has set a light yet
         // - is kept as zero rather than turned into a NaN by normalize().
@@ -1887,7 +1890,7 @@ namespace vulkan {
             .owner = this,
             .fill_heap_bind = vk.descriptor_heaps.ready() ? &runtime::fill_heap_bind : nullptr,
             .color_formats = this->scene_color_formats,
-            .depth_format = vk.depth_format,
+            .depth_format = vk.depth_attachment_format,
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .gbuffer = true,
             .extent = vk.render_extent(),
@@ -2050,7 +2053,7 @@ namespace vulkan {
             .owner = this,
             .fill_heap_bind = vk.descriptor_heaps.ready() ? &runtime::fill_heap_bind : nullptr,
             .color_format = vulkan::hdr_format,
-            .depth_format = vk.depth_format,
+            .depth_format = vk.depth_attachment_format,
             .extent = vk.render_extent(),
         };
     }
@@ -2102,7 +2105,7 @@ namespace vulkan {
         // The article's ① 描边 is an inverted hull of a surface THIS PASS ALREADY DRAWS, so the list is a
         // SUBSET OF `frame_visible` and not a parallel list: a leaf whose material states an `_OutlineWidth`
         // is drawn once as the surface (the toon stage) and once as its hull (the outline group), and one that
-        // states 0 is drawn only as the surface. `frame_visible` rather than `frame_leaves` because the hull's
+        // states 0 is drawn only as the surface. `frame_visible` rather than `frame_leaves_buffer` because the hull's
         // outside-the-silhouette ring exists only where the surface it hugs was drawn and wrote depth - a hull
         // for a culled leaf would be an unoccluded shell over the whole frame (see `frame_outline`).
         //
@@ -2161,7 +2164,7 @@ namespace vulkan {
             // built, which the pass reads as "there is no outline to draw" (see `outline_ready` above).
             .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
             .color_format = vulkan::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
-            .depth_format = vk.depth_format,
+            .depth_format = vk.depth_attachment_format,
             .extent = vk.render_extent(),
         };
     }
@@ -2224,7 +2227,7 @@ namespace vulkan {
             .owner = this,
             .cmd = command_buffer,
             .image_index = static_cast<uint32_t>(this->current_image_index),
-            .device = this->vulkan_core.device,
+            .device = this->vulkan_core.logical_device,
             .samplers = this->shared_samplers(),
             .table = &this->frame_resources,
             .frame = this->pass_frame(),
@@ -2249,27 +2252,27 @@ namespace vulkan {
         // renderer's own work between the stages are written against), so it is filled here BY DECLARATION NAME out
         // of whichever chain the application handed over. A name the chain does not declare leaves that stage empty,
         // which the runner treats as "no pass here" rather than as an error.
-        this->chain_ = &chain;
+        this->frame_chain = &chain;
         auto const at = [&chain](std::string_view const name) -> pass::frame_pass* { return chain.find(name); };
-        this->cluster_stage = {at("cluster")};
-        this->shadow_stage = {at("shadow")};
-        this->scene_stage = {at("scene")};
-        this->transparent_stage = {at("transparent")};
-        this->character_forward_stage = {at("character_forward")};
-        this->toon_screen_rim_stage = {at("toon_screen_rim")};
-        this->goo_rim_stage = {at("goo_rim")};
+        this->cluster_pass = {at("cluster")};
+        this->shadow_pass = {at("shadow")};
+        this->scene_pass = {at("scene")};
+        this->transparent_pass = {at("transparent")};
+        this->character_forward_pass = {at("character_forward")};
+        this->toon_screen_rim_pass = {at("toon_screen_rim")};
+        this->goo_rim_pass = {at("goo_rim")};
         this->gbuffer_debug_stage = {at("gbuffer-debug")};
-        this->rt_shadow_stage = {at("rt_shadow")};
-        this->megalights_stage = {at("megalights_trace"), at("megalights_temporal")};
-        this->deferred_stage = {at("deferred")};
-        this->taa_stage = {at("taa")};
+        this->rt_shadow_pass = {at("rt_shadow")};
+        this->megalights_pass = {at("megalights_trace"), at("megalights_temporal")};
+        this->deferred_pass = {at("deferred")};
+        this->taa_pass = {at("taa")};
         this->post_composite_stage = {at("post_composite")};
-        this->bloom_stage = {at("post_bloom_0"), at("post_bloom_1"), at("post_bloom_2"), at("post_bloom_3")};
-        this->fxaa_stage = {at("fxaa")};
+        this->bloom_pass = {at("post_bloom_0"), at("post_bloom_1"), at("post_bloom_2"), at("post_bloom_3")};
+        this->fxaa_pass = {at("fxaa")};
         // ... and the resolve that scales the render chain back up to the output (vulkan.pass.upscale): the
         // frame's last writer whenever `render_scale < 1.0` and its pipeline exists. It is looked up like every
         // other stage here; the frame loop records it after the FXAA stage, with which it is mutually exclusive.
-        this->upscale_stage = {at("upscale")};
+        this->upscale_pass = {at("upscale")};
         // ... and the stochastic lighting chain's two passes, in the order the FRAME records them: the tracer
         // and its temporal resolve. Two passes rather than one because the frame has an ordering rule to
         // run BETWEEN them - it publishes the G-buffer depth and the motion-vector target that the resolve is the
@@ -2284,7 +2287,7 @@ namespace vulkan {
     }
 
     void runtime::set_chain_wiring(chain_wiring const wiring) noexcept {
-        this->wiring_ = wiring;
+        this->frame_wiring = wiring;
     }
 
     void runtime::prepare_stage(pass::stage const& stage, VkCommandBuffer const command_buffer) {
@@ -2292,24 +2295,24 @@ namespace vulkan {
         //     structure phase rebuilds DURING this frame (see make_frame_facts);
         //   * before the owner's `prepare`, so an owner that still wants to add to a frame (or override one)
         //     has the last word - the ordering the seam has always had.
-        this->stage_facts_ = this->make_frame_facts();
+        this->stage_facts = this->make_frame_facts();
         for (pass::frame_pass* const pass : stage.passes) {
             if (pass != nullptr) {
-                pass->prepare_frame(this->stage_facts_);
+                pass->prepare_frame(this->stage_facts);
             }
         }
-        if (this->wiring_.prepare == nullptr) {
+        if (this->frame_wiring.prepare == nullptr) {
             return; // no owner: the passes keep the frames they just built and record with them
         }
-        this->wiring_.prepare(this->wiring_.owner, this->make_frame_services(command_buffer), stage.name);
+        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(command_buffer), stage.name);
     }
 
     void runtime::collect_stage(std::string_view const stage) {
-        if (this->wiring_.collect == nullptr) {
+        if (this->frame_wiring.collect == nullptr) {
             return;
         }
         frame_results results = {};
-        this->wiring_.collect(this->wiring_.owner, stage, results);
+        this->frame_wiring.collect(this->frame_wiring.owner, stage, results);
         // WHAT THE FRAME LOOP DECIDES ON, once per stage that reports: the composite's GI weight is a frame
         // CONSTANT (the composite reads it while recording), and the two flags are the renderer's per-image
         // bookkeeping.
@@ -2455,7 +2458,7 @@ namespace vulkan {
             write_sampled_target(core::heap_slots::gbuffer_albedo + image_slot, this->vulkan_core.gbuffer_images[0][heap_image], vulkan::gbuffer_formats[0], VK_IMAGE_ASPECT_COLOR_BIT);
             write_sampled_target(core::heap_slots::gbuffer_normal + image_slot, this->vulkan_core.gbuffer_images[1][heap_image], vulkan::gbuffer_formats[1], VK_IMAGE_ASPECT_COLOR_BIT);
             write_sampled_target(core::heap_slots::gbuffer_material + image_slot, this->vulkan_core.gbuffer_images[2][heap_image], vulkan::gbuffer_formats[2], VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(core::heap_slots::gbuffer_depth + image_slot, this->vulkan_core.gbuffer_depth_images[heap_image], this->vulkan_core.depth_format, VK_IMAGE_ASPECT_DEPTH_BIT);
+            write_sampled_target(core::heap_slots::gbuffer_depth + image_slot, this->vulkan_core.gbuffer_depth_images[heap_image], this->vulkan_core.depth_attachment_format, VK_IMAGE_ASPECT_DEPTH_BIT);
             write_sampled_target(core::heap_slots::gbuffer_velocity + image_slot, this->vulkan_core.velocity_images[heap_image], vulkan::gbuffer_velocity_format, VK_IMAGE_ASPECT_COLOR_BIT);
             write_sampled_target(core::heap_slots::taa_current + image_slot, this->vulkan_core.scene_color_images[heap_image], vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
             write_sampled_target(core::heap_slots::post_color + image_slot, this->vulkan_core.hdr_images[heap_image], vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
@@ -2543,7 +2546,7 @@ namespace vulkan {
         // asked whether it built what it records with (see frame_pass::ready). This is the first of the renderer's
         // questions moved into the declaration vocabulary - the direction the handover needs, because a renderer
         // handed a chain from outside holds no typed member to ask.
-        return this->chain_ != nullptr && this->chain_->ready(name);
+        return this->frame_chain != nullptr && this->frame_chain->ready(name);
     }
 
     void runtime::fill_compute_skin_requests(std::span<ray_tracing::caster_level const> const casters) {
@@ -2614,7 +2617,7 @@ namespace vulkan {
             // Running it before the G-buffer pass would mean starting rays from the PREVIOUS frame's
             // surface, so the position is not a detail - it is the ordering constraint. The PASS owns the
             // recording (vulkan.pass.ray_traced_shadow); what is this loop's is the position and the off path below.
-            pass::stage const rt_shadow_stage = {.name = "rt_shadow", .passes = this->rt_shadow_stage, .marks = false};
+            pass::stage const rt_shadow_stage = {.name = "rt_shadow", .passes = this->rt_shadow_pass, .marks = false};
             // THIS STAGE'S ONE FRAME-ORDER DUTY, done by the chain's OWNER now that the passes are its: this stage
             // may be the first sampler of the stored surface this frame, and whoever samples it FIRST publishes the
             // G-buffer instance's attachment writes (the flags are the renderer's, and the idempotent `ensure_*`
@@ -2655,7 +2658,7 @@ namespace vulkan {
             // RECORDED FACT rather than a knob.
             this->megalights_resolved = false;
             if (this->megalights_active()) {
-                pass::stage const megalights_stage = {.name = "megalights", .passes = this->megalights_stage, .marks = false};
+                pass::stage const megalights_stage = {.name = "megalights", .passes = this->megalights_pass, .marks = false};
                 this->prepare_stage(megalights_stage, command_buffer);
                 pass::run_report const megalights_report = pass::record_stage(megalights_stage, this->make_pass_host());
                 this->megalights_resolved = megalights_report.recorded > 0;
@@ -2686,7 +2689,7 @@ namespace vulkan {
             // attachment writes. Both are the chain OWNER's now (see prepare_stage) - the runtime's `prepare` call
             // sits exactly where the pass's frame used to be set, and nothing is emitted between it and
             // `record_stage` (the stages carry no marks), so the command stream is unchanged.
-            pass::stage const deferred_stage = {.name = "deferred", .passes = this->deferred_stage, .marks = false};
+            pass::stage const deferred_stage = {.name = "deferred", .passes = this->deferred_pass, .marks = false};
             this->prepare_stage(deferred_stage, command_buffer);
             pass::run_report const deferred_report = pass::record_stage(deferred_stage, this->make_pass_host());
             if (deferred_report.recorded == 0) {
@@ -2712,7 +2715,7 @@ namespace vulkan {
             // character (`character_forward_pending`), which is what keeps every frame of every capture-gate
             // scenario byte-identical while the feature is off - the runner asks the pass's `feature()` before
             // it resolves the declaration, so the skip costs no barrier and no resolve.
-            pass::stage const character_forward_stage = {.name = "character_forward", .passes = this->character_forward_stage, .marks = false};
+            pass::stage const character_forward_stage = {.name = "character_forward", .passes = this->character_forward_pass, .marks = false};
             this->prepare_stage(character_forward_stage, command_buffer);
             [[maybe_unused]] pass::run_report const character_forward_report = pass::record_stage(character_forward_stage, this->make_pass_host());
 
@@ -2723,7 +2726,7 @@ namespace vulkan {
             //
             // IT IS GATED BY THE SAME FEATURE as the stage above (see its `feature()`), so a frame with no toon
             // character records neither and the two cannot come apart.
-            pass::stage const toon_screen_rim_stage = {.name = "toon_screen_rim", .passes = this->toon_screen_rim_stage, .marks = false};
+            pass::stage const toon_screen_rim_stage = {.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass, .marks = false};
             this->prepare_stage(toon_screen_rim_stage, command_buffer);
             [[maybe_unused]] pass::run_report const toon_screen_rim_report = pass::record_stage(toon_screen_rim_stage, this->make_pass_host());
 
@@ -2737,7 +2740,7 @@ namespace vulkan {
             // the article's contour and the Goo rim are alternatives - which is what "the rewritten chain must not
             // wear two rims" means here. It also means a frame with `[render] goo_toon = false` records neither
             // this stage's pass nor its preamble, which is what keeps every capture scenario byte-identical.
-            pass::stage const goo_rim_stage = {.name = "goo_rim", .passes = this->goo_rim_stage, .marks = false};
+            pass::stage const goo_rim_stage = {.name = "goo_rim", .passes = this->goo_rim_pass, .marks = false};
             this->prepare_stage(goo_rim_stage, command_buffer);
             [[maybe_unused]] pass::run_report const goo_rim_report = pass::record_stage(goo_rim_stage, this->make_pass_host());
         } else {
@@ -2762,7 +2765,7 @@ namespace vulkan {
         // runner gates the stage on - so the frame never touches them on a frame the pass does not run (clearing the
         // velocity flag for a frame with no resolve would make the GI tracer sample an image still in ATTACHMENT
         // layout). The runtime's call sits exactly where those two lines were.
-        pass::stage const taa_stage = {.name = "taa", .passes = this->taa_stage, .marks = false};
+        pass::stage const taa_stage = {.name = "taa", .passes = this->taa_pass, .marks = false};
         {
             this->prepare_stage(taa_stage, command_buffer);
             [[maybe_unused]] pass::run_report const taa_report = pass::record_stage(taa_stage, this->make_pass_host());
@@ -2969,7 +2972,7 @@ namespace vulkan {
         // pipeline being there - the same predicate that decides whether the composite adds a bloom sum (see
         // resolve_post_composite, where the weight is zeroed for the debug view - which is also what
         // `active_features().gbuffer_debug` means).
-        pass::stage const bloom_stage = {.name = "bloom", .passes = this->bloom_stage, .marks = false};
+        pass::stage const bloom_stage = {.name = "bloom", .passes = this->bloom_pass, .marks = false};
         pass::run_report const bloom_report = pass::record_stage(bloom_stage, this->make_pass_host());
         if (bloom_report.recorded == 0) {
             // THE OFF PATH, and it is the frame loop's because it is about the COMPOSITE's descriptor: its set
@@ -3009,7 +3012,7 @@ namespace vulkan {
         // half of the split the composite's frame above states. The runner gates it on the feature `fxaa`, which is
         // `post_fxaa_active()`: the same predicate that decided this frame's composite TARGET, so the pass runs
         // exactly when the LDR image is what the composite wrote.
-        pass::stage const fxaa_stage = {.name = "fxaa", .passes = this->fxaa_stage, .marks = false};
+        pass::stage const fxaa_stage = {.name = "fxaa", .passes = this->fxaa_pass, .marks = false};
         this->prepare_stage(fxaa_stage, command_buffer);
         [[maybe_unused]] pass::run_report const fxaa_report = pass::record_stage(fxaa_stage, this->make_pass_host());
         // GPU timing: the FXAA pass (and the overlay it carries when it is the last writer) is done. Without FXAA
@@ -3025,7 +3028,7 @@ namespace vulkan {
         // pair (`post_fxaa_active` is false whenever this one is true), and it has no timing mark of its own: on
         // the frames it runs its cost is reported in the interval after `fxaa_end`, which is where the frame's
         // remaining commands already are.
-        pass::stage const upscale_stage = {.name = "upscale", .passes = this->upscale_stage, .marks = false};
+        pass::stage const upscale_stage = {.name = "upscale", .passes = this->upscale_pass, .marks = false};
         this->prepare_stage(upscale_stage, command_buffer);
         [[maybe_unused]] pass::run_report const upscale_report = pass::record_stage(upscale_stage, this->make_pass_host());
 

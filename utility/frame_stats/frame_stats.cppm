@@ -47,7 +47,7 @@ namespace utility {
          * @param window_seconds window length; tick() reports when the window fills
          */
         explicit frame_stats(double window_seconds = 1.0) noexcept
-            : window_seconds_{window_seconds} {
+            : window_length{window_seconds} {
         }
 
         /**
@@ -57,23 +57,23 @@ namespace utility {
          */
         void tick() noexcept {
             auto const now = std::chrono::steady_clock::now();
-            if (this->last_frame_.time_since_epoch().count() == 0) {
-                this->last_frame_ = now; // first tick: no gap yet, start the baseline
+            if (this->last_frame.time_since_epoch().count() == 0) {
+                this->last_frame = now; // first tick: no gap yet, start the baseline
             } else {
-                this->window_elapsed_ += std::chrono::duration<double>(now - this->last_frame_).count();
-                this->last_frame_ = now;
-                this->window_frames_ += 1;
+                this->window_elapsed += std::chrono::duration<double>(now - this->last_frame).count();
+                this->last_frame = now;
+                this->window_frames += 1;
             }
-            if (this->window_elapsed_ >= this->window_seconds_ && this->window_frames_ > 0) {
+            if (this->window_elapsed >= this->window_length && this->window_frames > 0) {
                 // window filled: publish its final numbers (same formula the overlay showed
                 // live), then start a fresh window
-                this->window_fps_ = static_cast<double>(this->window_frames_) / this->window_elapsed_;
-                this->window_frame_ms_ = 1000.0 * this->window_elapsed_ / static_cast<double>(this->window_frames_);
-                this->window_elapsed_ = 0.0;
-                this->window_frames_ = 0;
-                this->rolled_ = true;
+                this->last_window_fps = static_cast<double>(this->window_frames) / this->window_elapsed;
+                this->last_window_frame_ms = 1000.0 * this->window_elapsed / static_cast<double>(this->window_frames);
+                this->window_elapsed = 0.0;
+                this->window_frames = 0;
+                this->rolled = true;
             } else {
-                this->rolled_ = false;
+                this->rolled = false;
             }
         }
 
@@ -82,8 +82,8 @@ namespace utility {
          *        baseline without counting a frame, so the pause never inflates the window
          */
         void on_skipped() noexcept {
-            this->last_frame_ = std::chrono::steady_clock::now();
-            this->rolled_ = false;
+            this->last_frame = std::chrono::steady_clock::now();
+            this->rolled = false;
         }
 
         /**
@@ -91,7 +91,7 @@ namespace utility {
          *        once-per-second reporting (log line) when this is true
          */
         [[nodiscard]] bool window_rolled() const noexcept {
-            return this->rolled_;
+            return this->rolled;
         }
 
         /**
@@ -99,26 +99,28 @@ namespace utility {
          *        overlay label); equals the completed window's fps right after a rollover
          */
         [[nodiscard]] double smoothed_fps() const noexcept {
-            return this->window_elapsed_ > 0.0 ? static_cast<double>(this->window_frames_) / this->window_elapsed_ : 0.0;
+            return this->window_elapsed > 0.0 ? static_cast<double>(this->window_frames) / this->window_elapsed : 0.0;
         }
 
         /** @brief fps of the last completed window (0.0 before the first rollover) */
         [[nodiscard]] double window_fps() const noexcept {
-            return this->window_fps_;
+            return this->last_window_fps;
         }
 
         /** @brief milliseconds per frame of the last completed window (0.0 before the first rollover) */
         [[nodiscard]] double window_frame_ms() const noexcept {
-            return this->window_frame_ms_;
+            return this->last_window_frame_ms;
         }
 
     private:
-        double window_seconds_ = 1.0;                        // rolling-window length
-        std::chrono::steady_clock::time_point last_frame_{}; // zero = no frame ticked yet
-        double window_elapsed_ = 0.0;                        // summed frame gaps in this window
-        uint32_t window_frames_ = 0;                         // frames counted in this window
-        bool rolled_ = false;                                // set when the last tick() filled a window
-        double window_fps_ = 0.0;                            // fps of the last completed window
-        double window_frame_ms_ = 0.0;                       // ms/frame of the last completed window
+        // called window_length, not window_seconds: the window_seconds parameter of the constructor would hide a
+        // member of that name and MSVC /W4 reports C4458, an error under /WX
+        double window_length = 1.0;                         // rolling-window length
+        std::chrono::steady_clock::time_point last_frame{}; // zero = no frame ticked yet
+        double window_elapsed = 0.0;                        // summed frame gaps in this window
+        uint32_t window_frames = 0;                         // frames counted in this window
+        bool rolled = false;                                // set when the last tick() filled a window
+        double last_window_fps = 0.0;                       // fps of the last completed window; called last_window_fps, not window_fps: the window_fps() method of this class would collide with a member of that name
+        double last_window_frame_ms = 0.0;                  // ms/frame of the last completed window; called last_window_frame_ms, not window_frame_ms: the window_frame_ms() method of this class would collide with a member of that name
     };
 } // namespace utility

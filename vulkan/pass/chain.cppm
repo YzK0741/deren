@@ -55,10 +55,12 @@ export namespace vulkan::pass {
      * report it produces are unchanged.
      */
     class pass_chain {
+        // called chain_name, not name: pass_chain::name() declares that name and a member of it would
+        // duplicate it and hide the accessor.
         /// the name the runner is handed for the whole chain (used by marks, which every chain here disables)
-        std::string_view name_ = {};
+        std::string_view chain_name = {};
         /// the passes, in the order they were added; fixed once the frame starts, so nothing allocates per frame
-        std::vector<frame_pass*> passes_ = {};
+        std::vector<frame_pass*> passes = {};
         /**
          * THE PASSES THIS CHAIN OWNS - and it is the chain's, not the renderer's, on purpose.
          *
@@ -69,16 +71,18 @@ export namespace vulkan::pass {
          * (the running order) the same thing as the lifetime order. `emplace` is how a renderer hands a pass
          * over; `add` still takes a pass it does NOT own, for a test or for a pass that lives elsewhere.
          */
-        std::vector<std::unique_ptr<frame_pass>> owned_ = {};
+        std::vector<std::unique_ptr<frame_pass>> owned = {};
+        // called writes_marks, not marks: the constructor's marks parameter would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
         /// whether the runner writes a mark pair around the chain (false for every chain in this renderer: the
         /// frame loop owns the marks and their positions are the timing report's contract)
-        bool marks_ = false;
+        bool writes_marks = false;
 
     public:
         pass_chain() = default;
         explicit pass_chain(std::string_view name, bool marks = false) noexcept
-            : name_(name)
-            , marks_(marks) {
+            : chain_name(name)
+            , writes_marks(marks) {
         }
 
         /**
@@ -89,13 +93,13 @@ export namespace vulkan::pass {
          * records without touching the lifetimes of the passes either chain owns.
          */
         void clear() noexcept {
-            this->passes_.clear();
+            this->passes.clear();
         }
 
         /// @brief append a pass to the end of the chain; the order of the calls IS the order of the stages
         /// @note the chain does NOT own it: see `emplace` for the owning form
         void add(frame_pass& pass) {
-            this->passes_.push_back(&pass);
+            this->passes.push_back(&pass);
         }
 
         /**
@@ -110,25 +114,25 @@ export namespace vulkan::pass {
         PassT& emplace(Args&&... args) {
             std::unique_ptr<PassT> pass = std::make_unique<PassT>(std::forward<Args>(args)...);
             PassT& reference = *pass;
-            this->owned_.push_back(std::move(pass));
-            this->passes_.push_back(&reference);
+            this->owned.push_back(std::move(pass));
+            this->passes.push_back(&reference);
             return reference;
         }
 
         [[nodiscard]] std::string_view name() const noexcept {
-            return this->name_;
+            return this->chain_name;
         }
         [[nodiscard]] std::size_t size() const noexcept {
-            return this->passes_.size();
+            return this->passes.size();
         }
         [[nodiscard]] bool empty() const noexcept {
-            return this->passes_.empty();
+            return this->passes.empty();
         }
 
         /// @brief the pass whose DECLARATION is called @p name, or nullptr (a lookup by the declaration's own
         ///        vocabulary, so a caller never has to know the chain's order to find one pass)
         [[nodiscard]] frame_pass* find(std::string_view const name) const noexcept {
-            for (frame_pass* const pass : this->passes_) {
+            for (frame_pass* const pass : this->passes) {
                 if (pass != nullptr && pass->io().name == name) {
                     return pass;
                 }
@@ -154,12 +158,12 @@ export namespace vulkan::pass {
         /// @note non-const because `stage::passes` carries MUTABLE pointers (a pass writes its own state in
         ///       `record`); the chain itself is fixed once the frame starts
         [[nodiscard]] stage as_stage() noexcept {
-            return stage{.name = this->name_, .passes = std::span<frame_pass*>(this->passes_.data(), this->passes_.size()), .marks = this->marks_};
+            return stage{.name = this->chain_name, .passes = std::span<frame_pass*>(this->passes.data(), this->passes.size()), .marks = this->writes_marks};
         }
         /// @brief the same view from a CONST chain, for a caller that only reads the list - the owner resolving a
         ///        pipeline name asks every pass in the chain, which is a read of the chain, not of a pass
         [[nodiscard]] stage as_stage() const noexcept {
-            return stage{.name = this->name_, .passes = std::span<frame_pass*>(const_cast<frame_pass**>(this->passes_.data()), this->passes_.size()), .marks = this->marks_};
+            return stage{.name = this->chain_name, .passes = std::span<frame_pass*>(const_cast<frame_pass**>(this->passes.data()), this->passes.size()), .marks = this->writes_marks};
         }
 
         /// @brief the runner's create step over every pass in the chain, in order

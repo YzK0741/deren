@@ -26,25 +26,25 @@ namespace vulkan::pass {
     }
 
     void compute_skin_job::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     bool compute_skin_job::ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline compute_skin_job::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     std::expected<void, std::string> compute_skin_job::create(pass_context const& context) {
         if (context.device == VK_NULL_HANDLE) {
             return std::unexpected(std::string("compute skin: no device"));
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
+        this->device = context.device;
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(std::string("compute skin: the owner has no ") + std::string(shader_name));
@@ -55,7 +55,7 @@ namespace vulkan::pass {
         if (!built) {
             return std::unexpected(std::move(built.error()));
         }
-        this->pipeline_ = std::move(built->trace);
+        this->pass_pipeline = std::move(built->trace);
         utility::log("SUCCESS: compute skinning pipeline created (skinned casters can be refitted per frame)");
         return {};
     }

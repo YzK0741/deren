@@ -198,6 +198,14 @@ module;
 #  endif // __has_include(<text_encoding>)
 #endif // _WIN32
 
+// THE PORTABILITY LAYER, PART 2, and the reason it sits exactly here rather than beside part 1: part 1
+// answers questions about the COMPILER and must run before any header; this one answers questions
+// about the LIBRARY (__cpp_lib_print, __cpp_lib_chrono) and can only run once a library header has
+// published those macros. Under libc++ it is a no-op - <__config> already answered them from libc++'s
+// own capability flags - so the module this project has been building stays the same module.
+// See vstd/vstd_lib_capabilities.inc for the measurement that put it here.
+#include "vstd_lib_capabilities.inc"
+
 export module vstd;
 
 

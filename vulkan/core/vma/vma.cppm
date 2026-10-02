@@ -177,8 +177,11 @@ namespace vulkan {
      */
     export class vma_allocator : utility::enable_handle_distribute {
         VmaAllocator allocator = {};
-        VkDevice device = VK_NULL_HANDLE;
-        VkQueue queue = VK_NULL_HANDLE;
+        // These two are named after the parameter that carries them, not after what they hold: init()`s device
+        // and queue parameters would hide members of those names and MSVC /W4 reports C4458, an error under
+        // /WX (clang does not warn: -Wshadow is not in the project flags).
+        VkDevice logical_device = VK_NULL_HANDLE;
+        VkQueue upload_queue = VK_NULL_HANDLE;
         std::vector<std::pair<VkCommandPool, VkCommandBuffer>> command_cache;
         std::vector<VkFence> fence_cache = {};
         std::map<uint64_t, buffer_detail> buffers = {};
@@ -199,7 +202,8 @@ namespace vulkan {
         VkDeviceSize buffer_size = 0;
         // The staging buffer is shared; writes and GPU copies must hold it exclusively
         std::mutex staging_mutex = {};
-        uint32_t queue_family_index = 0;
+        // see the note on logical_device above: the same C4458 rule for init()`s queue_family_index parameter
+        uint32_t upload_queue_family_index = 0;
 
         // ---- ownership: release/retain are private - the only public way to release a
         // buffer/image is to destroy (or reset) the vk_buffer / vk_image RAII owner that
@@ -824,9 +828,9 @@ namespace vulkan {
 
         vmaCreateAllocator(&vma_allocator_create_info, &this->allocator);
 
-        this->device = device;
-        this->queue = queue;
-        this->queue_family_index = queue_family_index;
+        this->logical_device = device;
+        this->upload_queue = queue;
+        this->upload_queue_family_index = queue_family_index;
         this->command_cache.push_back(this->create_command_pair());
     }
 
@@ -862,11 +866,11 @@ namespace vulkan {
             this->images.clear();
 
             for (auto const& fence : this->fence_cache) {
-                vkDestroyFence(this->device, fence, nullptr);
+                vkDestroyFence(this->logical_device, fence, nullptr);
             }
             this->fence_cache.clear();
             for (auto& command_pool : this->command_cache | std::views::keys) {
-                vkDestroyCommandPool(this->device, command_pool, nullptr);
+                vkDestroyCommandPool(this->logical_device, command_pool, nullptr);
                 command_pool = VK_NULL_HANDLE;
             }
             // Release the cached staging buffer
@@ -886,7 +890,7 @@ namespace vulkan {
         VkFence fence = VK_NULL_HANDLE;
 
         VkFenceCreateInfo fence_create_info = make_fence_info();
-        vkCreateFence(this->device, &fence_create_info, nullptr, &fence);
+        vkCreateFence(this->logical_device, &fence_create_info, nullptr, &fence);
 
         return fence;
     }
@@ -1012,13 +1016,13 @@ namespace vulkan {
         {
             // VkQueue is externally synchronized; submits must be serialized
             std::lock_guard guard(this->queue_mutex);
-            vkQueueSubmit(this->queue, 1, &submit_info, fence);
+            vkQueueSubmit(this->upload_queue, 1, &submit_info, fence);
         }
 
-        vkWaitForFences(this->device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
 
         // Cleanup
-        vkResetFences(this->device, 1, &fence);
+        vkResetFences(this->logical_device, 1, &fence);
         vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
         {
             std::lock_guard guard(this->cache_mutex);
@@ -1179,13 +1183,13 @@ namespace vulkan {
         {
             // VkQueue is externally synchronized; submits must be serialized
             std::lock_guard guard(this->queue_mutex);
-            vkQueueSubmit(this->queue, 1, &submit_info, fence);
+            vkQueueSubmit(this->upload_queue, 1, &submit_info, fence);
         }
 
-        vkWaitForFences(this->device, 1, &fence, VK_TRUE, UINT64_MAX);
+        vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
 
         // Cleanup
-        vkResetFences(this->device, 1, &fence);
+        vkResetFences(this->logical_device, 1, &fence);
         vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
         {
             std::lock_guard guard(this->cache_mutex);
@@ -1516,16 +1520,16 @@ namespace vulkan {
     }
 
     std::pair<VkCommandPool, VkCommandBuffer> vma_allocator::create_command_pair() const {
-        VkCommandPoolCreateInfo command_pool_create_info = make_command_pool_info(this->queue_family_index);
+        VkCommandPoolCreateInfo command_pool_create_info = make_command_pool_info(this->upload_queue_family_index);
 
         VkCommandPool command_pool;
-        if (vkCreateCommandPool(device, &command_pool_create_info, nullptr, &command_pool) != VK_SUCCESS) {
+        if (vkCreateCommandPool(this->logical_device, &command_pool_create_info, nullptr, &command_pool) != VK_SUCCESS) {
             utility::panic("Failed to create command pool");
         }
 
         VkCommandBuffer command_buffer;
         VkCommandBufferAllocateInfo buffer_allocate_info = make_command_buffer_allocate_info(command_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
-        if (vkAllocateCommandBuffers(this->device, &buffer_allocate_info, &command_buffer) != VK_SUCCESS) {
+        if (vkAllocateCommandBuffers(this->logical_device, &buffer_allocate_info, &command_buffer) != VK_SUCCESS) {
             utility::panic("Failed to create command buffer");
         }
         return {command_pool, command_buffer};

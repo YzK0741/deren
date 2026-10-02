@@ -26,7 +26,7 @@ namespace vulkan::pass {
     }
 
     void gbuffer_debug_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& gbuffer_debug_pass::io() const noexcept {
@@ -34,7 +34,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& gbuffer_debug_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view gbuffer_debug_pass::feature() const noexcept {
@@ -48,11 +48,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -68,7 +68,7 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->debug);
+        this->pass_pipeline = std::move(built->debug);
         utility::log("SUCCESS: gbuffer debug pipeline created (the stored surface, one channel at a time)");
     }
 
@@ -78,21 +78,21 @@ namespace vulkan::pass {
     }
 
     bool gbuffer_debug_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline gbuffer_debug_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void gbuffer_debug_pass::set_channel(int32_t const channel) noexcept {
         // The clamp came with the parameter: the count is the declaration's own `gbuffer_channel_count`, and a
         // channel outside it would index the shader's switch by a value it does not know.
-        this->channel_ = std::clamp(channel, 0, channel_count - 1);
+        this->debug_channel = std::clamp(channel, 0, channel_count - 1);
     }
 
     int32_t gbuffer_debug_pass::channel() const noexcept {
-        return this->channel_;
+        return this->debug_channel;
     }
 
     void gbuffer_debug_pass::record(resolved_io const& io) {
@@ -128,7 +128,7 @@ namespace vulkan::pass {
         // `resolved_io::constants`) and the motion gain, which scales itself across resolutions by using the frame's
         // own width (four pixels saturate the motion channel).
         push_constants const push = {
-            .channel = static_cast<float>(this->channel_),
+            .channel = static_cast<float>(this->debug_channel),
             .proj_22 = io.constants.proj[2][2],
             .proj_32 = io.constants.proj[3][2],
             .motion_gain = static_cast<float>(io.frame.extent.width) * 0.25f,

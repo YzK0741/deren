@@ -25,7 +25,7 @@ namespace vulkan::pass {
     }
 
     void upscale_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& upscale_pass::io() const noexcept {
@@ -33,7 +33,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& upscale_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view upscale_pass::feature() const noexcept {
@@ -49,11 +49,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -69,35 +69,35 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->resolve);
-        this->swap_chain_format_ = context.swap_chain_image_format;
+        this->pass_pipeline = std::move(built->resolve);
+        this->swap_chain_format = context.swap_chain_image_format;
         utility::log("SUCCESS: upscale pipeline created (LDR -> the presented swapchain, a linear filter)");
     }
 
     void upscale_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the surface's FORMAT (a session-stable device fact) and not
         // on its size - the viewport is resynced by the runner from `io.extent`, which is the swapchain's own
-        // extent this time (see behaviour_) - and this pass owns no descriptor family.
+        // extent this time (see pass_behaviour) - and this pass owns no descriptor family.
     }
 
     bool upscale_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline upscale_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void upscale_pass::set_frame(upscale_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void upscale_pass::set_filter(upscale_filter const filter) noexcept {
-        this->filter_ = filter;
+        this->filter_kind = filter;
     }
 
     upscale_filter upscale_pass::filter() const noexcept {
-        return this->filter_;
+        return this->filter_kind;
     }
 
     easu_constants make_easu_constants(uint32_t const render_width, uint32_t const render_height, uint32_t const output_width, uint32_t const output_height) noexcept {
@@ -144,11 +144,11 @@ namespace vulkan::pass {
     void upscale_pass::set_overlay(draw_callback const overlay) noexcept {
         // The host's hook, installed once. This pass needs no fact to decide whether to use it: whenever the
         // chain is resolved, THIS is the frame's last writer (the composite's frame is what needs the answer).
-        this->overlay_ = overlay;
+        this->overlay_callback = overlay;
     }
 
     void upscale_pass::prepare_frame([[maybe_unused]] frame_facts const& facts) noexcept {
-        this->set_frame(upscale_frame{.after_draw = this->overlay_});
+        this->set_frame(upscale_frame{.after_draw = this->overlay_callback});
     }
 
     void upscale_pass::record(resolved_io const& io) {
@@ -196,8 +196,8 @@ namespace vulkan::pass {
             .con1 = {es.con1[0], es.con1[1], es.con1[2], es.con1[3]},
             .con2 = {es.con2[0], es.con2[1], es.con2[2], es.con2[3]},
             .con3 = {es.con3[0], es.con3[1], es.con3[2], es.con3[3]},
-            .mode = this->filter_ == upscale_filter::easu ? 1.0f : 0.0f,
-            .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format_) ? 0.0f : 1.0f,
+            .mode = this->filter_kind == upscale_filter::easu ? 1.0f : 0.0f,
+            .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
         };
         VkClearValue clear = {};
         VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
@@ -212,8 +212,8 @@ namespace vulkan::pass {
         // runs, so the overlay belongs here and NOT in the composite's instance - the composite drew into the
         // render-extent LDR image this pass is about to resample, so a UI drawn there would be scaled up with
         // the scene (see upscale_frame::after_draw and the composite's frame for the other case).
-        if (this->frame_.after_draw.valid()) {
-            this->frame_.after_draw.record(this->frame_.after_draw.owner, io.cmd);
+        if (this->pass_frame.after_draw.valid()) {
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
         }
         vkCmdEndRendering(io.cmd);
     }

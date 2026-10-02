@@ -95,7 +95,9 @@ namespace vulkan::scene_tree {
      *        (copying a node copies its subtree).
      */
     export struct scene_node {
-        std::string name = {};             // debugging / future animation lookup
+        // NOT `name`: find_node takes a parameter of that name, and a parameter would hide the
+        // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
+        std::string node_name = {};        // debugging / future animation lookup
         glm::mat4 local = glm::mat4(1.0f); // local transform (T*R*S or full matrix)
         // identity of the source node this runtime node was rebuilt from: import_scene records
         // the structural iterator's get_source_index() here (the glTF loader stores the asset
@@ -117,7 +119,7 @@ namespace vulkan::scene_tree {
         /**
          * @ingroup vulkan_scene_tree
          * @brief append a new child node (empty: name "", identity local) and return it, so the
-         *        caller fills it in place: add_child().name = ...; add_child().local = ...;
+         *        caller fills it in place: add_child().node_name = ...; add_child().local = ...;
          * @return the appended child (reference valid until the next structural mutation of
          *         this node's children vector - pushing more children may reallocate)
          */
@@ -160,7 +162,9 @@ namespace vulkan::scene_tree {
      * @brief a named scene: a list of root nodes (mirrors gltf::scene's shape)
      */
     export struct scene {
-        std::string name = {};
+        // NOT `name`: find_node takes a parameter of that name, and a parameter would hide the
+        // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
+        std::string scene_name = {};
         std::vector<scene_node> roots = {};
 
         /**
@@ -221,7 +225,7 @@ namespace vulkan::scene_tree {
      * recursive lambdas:
      * @code {.cpp}
      * for (scene_node& node : scene) {          // scene.begin()/scene.end()
-     *     // node.name / node.local / node.source_index / node.primitive_leaf
+     *     // node.node_name / node.local / node.source_index / node.primitive_leaf
      * }
      * @endcode
      *

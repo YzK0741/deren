@@ -25,80 +25,80 @@ import utility;
 namespace vulkan {
 
     std::size_t render_start_demo::attach(runtime& self) noexcept {
-        this->runtime_ = &self;
+        this->runtime_owner = &self;
         // ---- THE CHAIN, CONSTRUCTED HERE ----
         // The same passes the renderer used to construct for itself, in the order their create step must run in (the
         // chain's order IS that order). THE G-BUFFER DEBUG VIEW COMES FIRST, which used to be a CREATE-ORDER
         // constraint - the passes that read the G-buffer asked the owner for the G-buffer set's layout while they
         // were being created. That is gone with the layouts: a pass builds only its own pipeline now.
-        this->chain_.emplace<pass::gbuffer_debug_pass>();
-        this->chain_.emplace<pass::shadow_pass>();
-        this->chain_.emplace<pass::scene_pass>();
-        this->chain_.emplace<pass::transparent_pass>();
+        this->chain.emplace<pass::gbuffer_debug_pass>();
+        this->chain.emplace<pass::shadow_pass>();
+        this->chain.emplace<pass::scene_pass>();
+        this->chain.emplace<pass::transparent_pass>();
         // ... and the toon character stage, right after the blended geometry: it re-shades the OPAQUE leaves
         // over the lit frame, at depth-EQUAL, so it must come after the lighting stage that produced what it
         // overwrites and after the blends that composite over the same pixels.
-        this->chain_.emplace<pass::character_forward_pass>();
+        this->chain.emplace<pass::character_forward_pass>();
         // ... and the toon stage's SECOND rim: a fullscreen additive contour from the depth, right after the
         // surface it outlines and before the resolve, so the anti-aliasing sees it in the frame it belongs to.
-        this->chain_.emplace<pass::toon_screen_rim_pass>();
+        this->chain.emplace<pass::toon_screen_rim_pass>();
         // ... and the REWRITTEN chain's rim, in the SAME slot of the chain's order (right after the surface stage
         // it outlines, before the resolve) - the two are alternatives at run time, and their order only matters on
         // a frame neither records, where it does not.
-        this->chain_.emplace<pass::goo_rim_pass>();
-        this->chain_.emplace<pass::megalights_trace_pass>();
-        this->chain_.emplace<pass::megalights_temporal_pass>();
-        this->chain_.emplace<pass::taa_pass>();
-        this->chain_.emplace<pass::rt_shadow_pass>();
-        this->chain_.emplace<pass::cluster_pass>();
-        this->chain_.emplace<pass::deferred_pass>();
-        this->chain_.emplace<pass::post_composite_pass>();
+        this->chain.emplace<pass::goo_rim_pass>();
+        this->chain.emplace<pass::megalights_trace_pass>();
+        this->chain.emplace<pass::megalights_temporal_pass>();
+        this->chain.emplace<pass::taa_pass>();
+        this->chain.emplace<pass::rt_shadow_pass>();
+        this->chain.emplace<pass::cluster_pass>();
+        this->chain.emplace<pass::deferred_pass>();
+        this->chain.emplace<pass::post_composite_pass>();
         // ... the bloom chain: FOUR instances of ONE class, one per level. The LEVEL is what differs - the target it
         // writes, the transition it declares, its extent and the `mode` lane of its push block - and the order IS
         // the chain: each level reads the one before it.
-        this->chain_.emplace<pass::post_bloom_pass>(0u);
-        this->chain_.emplace<pass::post_bloom_pass>(1u);
-        this->chain_.emplace<pass::post_bloom_pass>(2u);
-        this->chain_.emplace<pass::post_bloom_pass>(3u);
-        this->chain_.emplace<pass::fxaa_pass>();
+        this->chain.emplace<pass::post_bloom_pass>(0u);
+        this->chain.emplace<pass::post_bloom_pass>(1u);
+        this->chain.emplace<pass::post_bloom_pass>(2u);
+        this->chain.emplace<pass::post_bloom_pass>(3u);
+        this->chain.emplace<pass::fxaa_pass>();
         // ... and the RESOLVE, after it: the render chain's display-referred image onto the presented swapchain.
         // It is the frame's LAST writer on the frames the chain runs below the output size, and it is mutually
         // exclusive with the FXAA pass above (see runtime::post_fxaa_active), so the two are alternatives in the
         // frame loop rather than a stack.
-        this->chain_.emplace<pass::upscale_pass>();
-        this->passes_ = &this->chain_;
+        this->chain.emplace<pass::upscale_pass>();
+        this->passes = &this->chain;
         // LOOKED UP BY THE NAME THE DECLARATION CARRIES, which is the only key a chain gives: a cast is what turns
         // the declaration's owner into the type whose frame it wants. A pass this build does not have (its
         // declaration missing, or a variant of this app) stays null and is simply never fed.
-        this->cluster_ = this->find<pass::cluster_pass>("cluster");
-        this->shadow_ = this->find<pass::shadow_pass>("shadow");
-        this->scene_ = this->find<pass::scene_pass>("scene");
-        this->transparent_ = this->find<pass::transparent_pass>("transparent");
-        this->character_forward_ = this->find<pass::character_forward_pass>("character_forward");
-        this->toon_screen_rim_ = this->find<pass::toon_screen_rim_pass>("toon_screen_rim");
-        this->goo_rim_ = this->find<pass::goo_rim_pass>("goo_rim");
-        this->rt_shadow_ = this->find<pass::rt_shadow_pass>("rt_shadow");
-        this->deferred_ = this->find<pass::deferred_pass>("deferred");
-        this->taa_ = this->find<pass::taa_pass>("taa");
-        this->gbuffer_debug_ = this->find<pass::gbuffer_debug_pass>("gbuffer-debug");
-        this->megalights_trace_ = this->find<pass::megalights_trace_pass>("megalights_trace");
-        this->megalights_temporal_ = this->find<pass::megalights_temporal_pass>("megalights_temporal");
-        this->composite_ = this->find<pass::post_composite_pass>("post_composite");
-        this->fxaa_ = this->find<pass::fxaa_pass>("fxaa");
-        this->upscale_ = this->find<pass::upscale_pass>("upscale");
+        this->cluster = this->find<pass::cluster_pass>("cluster");
+        this->shadow = this->find<pass::shadow_pass>("shadow");
+        this->scene = this->find<pass::scene_pass>("scene");
+        this->transparent = this->find<pass::transparent_pass>("transparent");
+        this->character_forward = this->find<pass::character_forward_pass>("character_forward");
+        this->toon_screen_rim = this->find<pass::toon_screen_rim_pass>("toon_screen_rim");
+        this->goo_rim = this->find<pass::goo_rim_pass>("goo_rim");
+        this->rt_shadow = this->find<pass::rt_shadow_pass>("rt_shadow");
+        this->deferred = this->find<pass::deferred_pass>("deferred");
+        this->taa = this->find<pass::taa_pass>("taa");
+        this->gbuffer_debug_pass = this->find<pass::gbuffer_debug_pass>("gbuffer-debug");
+        this->megalights_trace = this->find<pass::megalights_trace_pass>("megalights_trace");
+        this->megalights_temporal = this->find<pass::megalights_temporal_pass>("megalights_temporal");
+        this->composite = this->find<pass::post_composite_pass>("post_composite");
+        this->fxaa = this->find<pass::fxaa_pass>("fxaa");
+        this->upscale = this->find<pass::upscale_pass>("upscale");
 
         std::size_t found = 0;
-        found += this->cluster_ != nullptr ? 1u : 0u;
-        found += this->shadow_ != nullptr ? 1u : 0u;
-        found += this->scene_ != nullptr ? 1u : 0u;
-        found += this->transparent_ != nullptr ? 1u : 0u;
-        found += this->character_forward_ != nullptr ? 1u : 0u;
-        found += this->rt_shadow_ != nullptr ? 1u : 0u;
-        found += this->deferred_ != nullptr ? 1u : 0u;
-        found += this->taa_ != nullptr ? 1u : 0u;
-        found += this->gbuffer_debug_ != nullptr ? 1u : 0u;
-        found += this->composite_ != nullptr ? 1u : 0u;
-        found += this->fxaa_ != nullptr ? 1u : 0u;
+        found += this->cluster != nullptr ? 1u : 0u;
+        found += this->shadow != nullptr ? 1u : 0u;
+        found += this->scene != nullptr ? 1u : 0u;
+        found += this->transparent != nullptr ? 1u : 0u;
+        found += this->character_forward != nullptr ? 1u : 0u;
+        found += this->rt_shadow != nullptr ? 1u : 0u;
+        found += this->deferred != nullptr ? 1u : 0u;
+        found += this->taa != nullptr ? 1u : 0u;
+        found += this->gbuffer_debug_pass != nullptr ? 1u : 0u;
+        found += this->composite != nullptr ? 1u : 0u;
+        found += this->fxaa != nullptr ? 1u : 0u;
         if (found != 15) {
             // NOT a fatal error: this demo is one application's chain, and a build of it that lacks a pass (a
             // shader that did not compile is the usual reason - that pass's own create step says why) renders
@@ -112,24 +112,24 @@ namespace vulkan {
         // `set_pass_chain` binds this chain into the runtime's own frame structure (the stage sequence, the marks,
         // the renderer's work between the stages) and takes this demo's wiring for everything the runtime does not
         // know about those passes: their frames, the stage preambles, the results, the feature table.
-        self.set_pass_chain(this->chain_, this->wiring());
+        self.set_pass_chain(this->chain, this->wiring());
         // ---- THE TWO HOOKS THE PASSES CARRY, INSTALLED ONCE ----
         // NEITHER IS A PER-FRAME VALUE, which is why neither belongs in a frame any more: the overlay's draw is a
         // property of this renderer and of WHICH pass is the frame's last writer (the composite and the FXAA pass
         // both hold it, and each frame's own decision says which of them uses it), and the reflection's recording
         // is this application's second signal through the temporal pass's one pipeline. `attach` is where both are
         // known, so they are set here and the frame loop never writes into a pass's frame again.
-        if (this->composite_ != nullptr) {
-            this->composite_->set_overlay(self.overlay_draw());
+        if (this->composite != nullptr) {
+            this->composite->set_overlay(self.overlay_draw());
         }
-        if (this->fxaa_ != nullptr) {
-            this->fxaa_->set_overlay(self.overlay_draw());
+        if (this->fxaa != nullptr) {
+            this->fxaa->set_overlay(self.overlay_draw());
         }
         // ... and the resolve holds it too: on a frame the render chain is smaller than the output, THIS is the
         // frame's last writer, so the overlay has to be drawn inside its instance (at the OUTPUT extent - the
         // other reason it belongs here and not in the composite, whose instance covers the render extent).
-        if (this->upscale_ != nullptr) {
-            this->upscale_->set_overlay(self.overlay_draw());
+        if (this->upscale != nullptr) {
+            this->upscale->set_overlay(self.overlay_draw());
         }
         return found;
     }
@@ -141,8 +141,8 @@ namespace vulkan {
         // ... and the one fact the renderer's own policy reads about a pass it no longer holds: whether the lighting
         // stage is in the flat render mode, which is what makes a screen-space effect pointless on such a frame. Published on
         // every stage prepare rather than once, because it is one bool and the app can flip it between frames.
-        if (self.runtime_ != nullptr && self.deferred_ != nullptr) {
-            self.runtime_->set_scene_unlit(self.deferred_->unlit());
+        if (self.runtime_owner != nullptr && self.deferred != nullptr) {
+            self.runtime_owner->set_scene_unlit(self.deferred->unlit());
         }
         // The stage names are the frame's own structure (the same names the runtime's stage structs carry), so this
         // switch is the frame ORDER written once, where the passes live. WHAT IS NOT HERE ANY MORE: the frames.
@@ -154,16 +154,16 @@ namespace vulkan {
         // for the scene and the transparent pass, the per-cascade secondaries for the shadow - so the frame cannot
         // be composed by the pass alone yet. Every other frame is the pass's own.
         if (stage == "shadow") {
-            if (self.shadow_ != nullptr) {
-                self.shadow_->set_frame(services.make_shadow_frame(services.owner));
+            if (self.shadow != nullptr) {
+                self.shadow->set_frame(services.make_shadow_frame(services.owner));
             }
         } else if (stage == "scene") {
-            if (self.scene_ != nullptr) {
-                self.scene_->set_frame(services.make_scene_frame(services.owner));
+            if (self.scene != nullptr) {
+                self.scene->set_frame(services.make_scene_frame(services.owner));
             }
         } else if (stage == "transparent") {
-            if (self.transparent_ != nullptr) {
-                self.transparent_->set_frame(services.make_transparent_frame(services.owner));
+            if (self.transparent != nullptr) {
+                self.transparent->set_frame(services.make_transparent_frame(services.owner));
             }
         } else if (stage == "character_forward") {
             // NO FRAME-ORDER DUTY of its own: this stage's two declared targets were both published long before
@@ -171,8 +171,8 @@ namespace vulkan {
             // stage that first read it did), and the pass itself owns the two transitions between "sampled" and
             // "attachment" that it needs. So this branch hands over the frame - the leaf list and the pipeline
             // name - and nothing else.
-            if (self.character_forward_ != nullptr) {
-                self.character_forward_->set_frame(services.make_character_forward_frame(services.owner));
+            if (self.character_forward != nullptr) {
+                self.character_forward->set_frame(services.make_character_forward_frame(services.owner));
             }
         } else if (stage == "toon_screen_rim") {
             // THIS STAGE'S FRAME-ORDER DUTY, and it is the reason it declares no barrier images: it SAMPLES the
@@ -272,13 +272,13 @@ namespace vulkan {
             // which is what sets this IMAGE's history flag for the next frame. The chain's other answer
             // (`megalights_resolved`) is the run report's, because the lighting stage has to act on it in the SAME
             // frame - a distinction the two names keep: this one is about the next frame, that one about this one.
-            out.megalights_temporal_resolved = self.megalights_temporal_ != nullptr && self.megalights_temporal_->resolved();
+            out.megalights_temporal_resolved = self.megalights_temporal != nullptr && self.megalights_temporal->resolved();
             return;
         }
         if (stage == "taa") {
             // The camera UBO's `prev_view_proj` is only advanced when the resolve actually wrote a history: a
             // resolve that bailed out (no descriptor set) must not claim one.
-            out.taa_wrote_history = self.taa_ != nullptr && self.taa_->wrote_history();
+            out.taa_wrote_history = self.taa != nullptr && self.taa->wrote_history();
         }
     }
 
@@ -289,15 +289,15 @@ namespace vulkan {
     // lives in the pass that owns it rather than in the setter below.
 
     void render_start_demo::set_taa(bool const enabled, float const blend_static, float const blend_min) noexcept {
-        bool const turned_on = this->runtime_ != nullptr && this->runtime_->set_taa_enabled(enabled);
-        if (this->taa_ == nullptr) {
+        bool const turned_on = this->runtime_owner != nullptr && this->runtime_owner->set_taa_enabled(enabled);
+        if (this->taa == nullptr) {
             return;
         }
-        this->taa_->set_blend(blend_static, blend_min);
+        this->taa->set_blend(blend_static, blend_min);
         if (turned_on) {
             // THE PASS's HALF OF THE OFF -> ON EDGE: whether each image's history holds anything is the pass's own
             // state, and the renderer's half (the matrix history and the jitter index) is what its setter just reset.
-            this->taa_->reset_history();
+            this->taa->reset_history();
         }
     }
 
@@ -306,52 +306,52 @@ namespace vulkan {
         // stage adds the punctual lights itself, so it is frame state the renderer publishes), the estimator's
         // NUMBERS are the pass's and are clamped there. The return value (the off -> on edge) is ignored: there is
         // no accumulation to restart until the temporal resolve lands.
-        if (this->runtime_ != nullptr) {
-            static_cast<void>(this->runtime_->set_megalights_enabled(enabled));
+        if (this->runtime_owner != nullptr) {
+            static_cast<void>(this->runtime_owner->set_megalights_enabled(enabled));
         }
-        if (this->megalights_trace_ != nullptr) {
-            this->megalights_trace_->set_estimator(samples, min_weight, bias_floor, bias_grazing);
+        if (this->megalights_trace != nullptr) {
+            this->megalights_trace->set_estimator(samples, min_weight, bias_floor, bias_grazing);
         }
     }
 
     void render_start_demo::set_megalights_light_angle(float const radians) noexcept {
         // The estimator owns the angle, so this forwards like the other two setters do.
-        if (this->megalights_trace_ != nullptr) {
-            this->megalights_trace_->set_light_angle(radians);
+        if (this->megalights_trace != nullptr) {
+            this->megalights_trace->set_light_angle(radians);
         }
     }
 
     void render_start_demo::set_megalights_accumulation(float const depth_tolerance, float const max_frames, float const spatial_sigma) noexcept {
         // The policy is the PASS's (see megalights_temporal_pass::set_accumulation), so this forwards the way the
         // estimator's own setter does.
-        if (this->megalights_temporal_ != nullptr) {
-            this->megalights_temporal_->set_accumulation(depth_tolerance, max_frames);
-            this->megalights_temporal_->set_spatial(spatial_sigma);
+        if (this->megalights_temporal != nullptr) {
+            this->megalights_temporal->set_accumulation(depth_tolerance, max_frames);
+            this->megalights_temporal->set_spatial(spatial_sigma);
         }
     }
 
     void render_start_demo::set_megalights_history_tolerance(float const depth_tolerance) noexcept {
         // The pass owns the accumulated value, so the tolerance moves by re-stating the policy it is part of:
         // the two other lanes keep what the pass already holds (see megalights_temporal_pass).
-        if (this->megalights_temporal_ != nullptr) {
-            this->megalights_temporal_->set_accumulation(depth_tolerance, this->megalights_temporal_->max_frames());
+        if (this->megalights_temporal != nullptr) {
+            this->megalights_temporal->set_accumulation(depth_tolerance, this->megalights_temporal->max_frames());
         }
     }
 
     void render_start_demo::set_gbuffer_channel(int32_t const channel) noexcept {
-        if (this->gbuffer_debug_ != nullptr) {
-            this->gbuffer_debug_->set_channel(channel);
+        if (this->gbuffer_debug_pass != nullptr) {
+            this->gbuffer_debug_pass->set_channel(channel);
         }
     }
 
     void render_start_demo::set_unlit(bool const unlit) noexcept {
-        if (this->deferred_ != nullptr) {
-            this->deferred_->set_unlit(unlit);
+        if (this->deferred != nullptr) {
+            this->deferred->set_unlit(unlit);
         }
         // ... and the renderer's own policy reads it (see set_scene_unlit): publish it here as well as per stage, so
         // a toggle that arrives between two frames is not one frame late.
-        if (this->runtime_ != nullptr) {
-            this->runtime_->set_scene_unlit(unlit);
+        if (this->runtime_owner != nullptr) {
+            this->runtime_owner->set_scene_unlit(unlit);
         }
     }
 
@@ -366,8 +366,8 @@ namespace vulkan {
         } else if (!name.empty() && name != "easu") {
             utility::log("render_start_demo: [render] upscale = \"{}\" is not a filter this renderer has (linear, easu); using easu", name);
         }
-        if (this->upscale_ != nullptr) {
-            this->upscale_->set_filter(filter);
+        if (this->upscale != nullptr) {
+            this->upscale->set_filter(filter);
         }
     }
 
@@ -376,11 +376,11 @@ namespace vulkan {
         // each frame, so they are safe to change mid-run. THE VALUES AND THEIR CLAMPS ARE THE PASS'S (see
         // deferred_pass::set_ssao); the diagnostic below is about the SESSION rather than about the pass, which is
         // why it asks the runtime's registry and reports through the runtime's once-per-session logger.
-        if (this->deferred_ != nullptr) {
-            this->deferred_->set_ssao(enabled, radius, intensity, samples);
+        if (this->deferred != nullptr) {
+            this->deferred->set_ssao(enabled, radius, intensity, samples);
         }
-        if (enabled && this->runtime_ != nullptr && !this->runtime_->feature_active("deferred")) {
-            this->runtime_->warn_missing_feature("ssao", "screen-space AO has no effect: the G-buffer pass or its lighting stage was not created (see the startup log)");
+        if (enabled && this->runtime_owner != nullptr && !this->runtime_owner->feature_active("deferred")) {
+            this->runtime_owner->warn_missing_feature("ssao", "screen-space AO has no effect: the G-buffer pass or its lighting stage was not created (see the startup log)");
         }
     }
 
@@ -394,12 +394,12 @@ namespace vulkan {
     bool render_start_demo::feature_active(void* const owner, runtime::feature_facts const& facts, std::string_view const name) {
         render_start_demo& self = *static_cast<render_start_demo*>(owner);
         // the composed answers, each read by more than one branch below
-        bool const gbuffer_debug = facts.gbuffer_debug && facts.gbuffer_pipeline && self.gbuffer_debug_ != nullptr && self.gbuffer_debug_->ready();
-        bool const shaded_scene = !gbuffer_debug && self.deferred_ != nullptr && self.deferred_->ready() && facts.gbuffer_pipeline;
+        bool const gbuffer_debug = facts.gbuffer_debug && facts.gbuffer_pipeline && self.gbuffer_debug_pass != nullptr && self.gbuffer_debug_pass->ready();
+        bool const shaded_scene = !gbuffer_debug && self.deferred != nullptr && self.deferred->ready() && facts.gbuffer_pipeline;
         // THE FLAT RENDER FLAG AND THE SSAO SWITCH LIVE IN THE LIGHTING PASS (they are its parameters), so the table
         // ASKS it - the same shape the other "ask the pass" answers below use. One copy of each
         // value, and the pass that pushes them is the one that owns them.
-        bool const unlit = self.deferred_ != nullptr && self.deferred_->unlit();
+        bool const unlit = self.deferred != nullptr && self.deferred->unlit();
 
         // THE TWO GATES THAT USED TO BE THE FIRST LINE OF A RESOLVER. Both passes were "always active" before S3,
         // with the renderer's resolver returning false to skip them; the skip is the same, but the question now has
@@ -417,7 +417,7 @@ namespace vulkan {
             // feature_facts::character_forward_pending) AND the pass being ready. This ONE gate answers for the
             // SURFACE pass; the screen-space rim asks under its own name below, because the rewritten toon chain
             // must not wear that contour as well as the Goo rim (see `toon_screen_rim_pass::feature`).
-            return facts.character_forward_pending && self.character_forward_ != nullptr && self.character_forward_->ready();
+            return facts.character_forward_pending && self.character_forward != nullptr && self.character_forward->ready();
         }
         if (name == "toon_screen_rim") {
             // THE SAME PREDICATE AS THE STAGE ABOVE PLUS "THE REWRITTEN CHAIN IS NOT THE ONE DRAWING" - and that
@@ -433,8 +433,8 @@ namespace vulkan {
             // and it is deliberately the same predicate `make_character_forward_frame` uses to pick the pipeline
             // name (`goo_toon_on && the pipeline exists`): the two must not be able to disagree, or a knob turned
             // on without the pipeline would silence the article's rim and draw nothing in its place.
-            bool const goo_toon_active = self.runtime_ != nullptr && self.runtime_->goo_toon_active();
-            return facts.character_forward_pending && self.toon_screen_rim_ != nullptr && self.toon_screen_rim_->ready() && !goo_toon_active;
+            bool const goo_toon_active = self.runtime_owner != nullptr && self.runtime_owner->goo_toon_active();
+            return facts.character_forward_pending && self.toon_screen_rim != nullptr && self.toon_screen_rim->ready() && !goo_toon_active;
         }
         if (name == "goo_rim") {
             // THE REWRITTEN CHAIN'S RIM, and it is the SAME predicate as the branch above with the sign of the
@@ -448,8 +448,8 @@ namespace vulkan {
             // so with `[render] goo_toon = false` the pass is not resolved, not recorded, and its stage preamble
             // does not publish the G-buffer - which is what makes every pre-existing capture scenario byte
             // identical rather than "identical because the shader wrote zero".
-            bool const goo_toon_active = self.runtime_ != nullptr && self.runtime_->goo_toon_active();
-            return facts.character_forward_pending && self.goo_rim_ != nullptr && self.goo_rim_->ready() && goo_toon_active;
+            bool const goo_toon_active = self.runtime_owner != nullptr && self.runtime_owner->goo_toon_active();
+            return facts.character_forward_pending && self.goo_rim != nullptr && self.goo_rim->ready() && goo_toon_active;
         }
         if (name == "gbuffer-debug") {
             return gbuffer_debug;
@@ -460,10 +460,10 @@ namespace vulkan {
             // G-buffer, and the flat mode's lighting stage returns the stored albedo instead) AND the pass having
             // built its pipeline. The same predicate is what the frame loop asks before recording the stage, so
             // the runner and the loop cannot disagree about whether the punctual lights were handled this frame.
-            return facts.megalights && self.megalights_trace_ != nullptr && self.megalights_trace_->ready();
+            return facts.megalights && self.megalights_trace != nullptr && self.megalights_trace->ready();
         }
         if (name == "taa") {
-            return facts.taa && self.taa_ != nullptr && self.taa_->ready() && shaded_scene;
+            return facts.taa && self.taa != nullptr && self.taa->ready() && shaded_scene;
         }
         if (name == "fxaa") {
             return facts.fxaa;
@@ -479,24 +479,24 @@ namespace vulkan {
         if (name == "shadow") {
             // The shadow map is only read by the shading stages. The flat render mode samples nothing, so recording
             // the pass would be pure waste - it measured 0.22 ms of a 0.5 ms frame.
-            return facts.shadow && self.shadow_ != nullptr && self.shadow_->ready() && !unlit;
+            return facts.shadow && self.shadow != nullptr && self.shadow->ready() && !unlit;
         }
         if (name == "rt_shadow") {
             // THE PASS'S GATE, in full: the knob and the extension PLUS "this frame's structure is built for the
             // slot". The second half is a FACT rather than a resource-table entry because an acceleration structure
             // is not a `resolved_binding` - it has a device address and no view, buffer or image.
-            return facts.rt_shadow && self.rt_shadow_ != nullptr && self.rt_shadow_->ready() && facts.structures_ready;
+            return facts.rt_shadow && self.rt_shadow != nullptr && self.rt_shadow->ready() && facts.structures_ready;
         }
         if (name == "clustered") {
             // Same argument as the shadow's: flat shading reads no light list, and with no active punctual light
             // there is nothing to sort in the first place.
-            return facts.clustered && self.cluster_ != nullptr && self.cluster_->ready() && facts.punctual_lights > 0.5f && !unlit;
+            return facts.clustered && self.cluster != nullptr && self.cluster->ready() && facts.punctual_lights > 0.5f && !unlit;
         }
         if (name == "ssao") {
-            return self.deferred_ != nullptr && self.deferred_->ssao_enabled() && shaded_scene; // shader-side gate
+            return self.deferred != nullptr && self.deferred->ssao_enabled() && shaded_scene; // shader-side gate
         }
         if (name == "bloom") {
-            return facts.bloom && self.composite_ != nullptr && self.composite_->ready() && !gbuffer_debug;
+            return facts.bloom && self.composite != nullptr && self.composite->ready() && !gbuffer_debug;
         }
         if (name == "deferred") {
             // THE LIGHTING STAGE'S OWN GATE, and it is deliberately the SAME predicate the frame loop's branch uses:
@@ -516,16 +516,16 @@ namespace vulkan {
         // group was never offered because `deferred` answered false).
         render_start_demo& self = *static_cast<render_start_demo*>(owner);
         if (name == "gbuffer-debug") {
-            return facts.gbuffer_pipeline && self.gbuffer_debug_ != nullptr && self.gbuffer_debug_->ready();
+            return facts.gbuffer_pipeline && self.gbuffer_debug_pass != nullptr && self.gbuffer_debug_pass->ready();
         }
         if (name == "deferred") {
-            return self.deferred_ != nullptr && self.deferred_->ready();
+            return self.deferred != nullptr && self.deferred->ready();
         }
         if (name == "taa") {
-            return self.taa_ != nullptr && self.taa_->ready();
+            return self.taa != nullptr && self.taa->ready();
         }
         if (name == "fxaa") {
-            return self.fxaa_ != nullptr && self.fxaa_->ready();
+            return self.fxaa != nullptr && self.fxaa->ready();
         }
         if (name == "character_forward") {
             // CAN it run at all, which is a different question from whether it is on: the overlay offers the
@@ -533,13 +533,13 @@ namespace vulkan {
             // second half is the one that can be false - the pipeline needs the mesh stage, so a device without
             // VK_EXT_mesh_shader creates none - and an offered switch that would do nothing is exactly the bug
             // this function's header records.
-            return self.character_forward_ != nullptr && self.character_forward_->ready() && self.runtime_ != nullptr && self.runtime_->character_forward_ready();
+            return self.character_forward != nullptr && self.character_forward->ready() && self.runtime_owner != nullptr && self.runtime_owner->character_forward_ready();
         }
         if (name == "shadow") {
-            return self.shadow_ != nullptr && self.shadow_->ready();
+            return self.shadow != nullptr && self.shadow->ready();
         }
         if (name == "clustered") {
-            return self.cluster_ != nullptr && self.cluster_->ready();
+            return self.cluster != nullptr && self.cluster->ready();
         }
         if (name == "megalights") {
             // BOTH passes, and not just the tracer: what the lighting stage adds is the temporal resolve's
@@ -547,7 +547,7 @@ namespace vulkan {
             // resolve did not build has nothing to show and the overlay must not offer a switch that would do
             // nothing. (This branch was MISSING when the widgets were added, which is why they were invisible:
             // every `visible_when` on them was false.)
-            return self.megalights_trace_ != nullptr && self.megalights_trace_->ready() && self.megalights_temporal_ != nullptr && self.megalights_temporal_->ready();
+            return self.megalights_trace != nullptr && self.megalights_trace->ready() && self.megalights_temporal != nullptr && self.megalights_temporal->ready();
         }
         return false;
     }

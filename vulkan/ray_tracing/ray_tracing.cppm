@@ -188,8 +188,8 @@ export namespace vulkan::ray_tracing {
         [[nodiscard]] VkAccelerationStructureKHR handle(uint32_t frame_slot) const noexcept;
         /**
          * @brief the size this slot's top level structure was created with (see top_level_structure::structure_size)
-         * @note forwarded rather than re-derived: the structure is `top_`'s, and the descriptor heap writes it as
-         *       an address RANGE whose size has to be real (docs/descriptor_heap_migration.md).
+         * @note forwarded rather than re-derived: the structure is `top_level`'s, and the descriptor heap writes
+         *       it as an address RANGE whose size has to be real (docs/descriptor_heap_migration.md).
          */
         [[nodiscard]] VkDeviceSize structure_size(uint32_t frame_slot) const noexcept;
         /// @brief the size of this slot's instance table, for the heap's address-range descriptor (binding 17)
@@ -229,18 +229,24 @@ export namespace vulkan::ray_tracing {
                                                                               uint32_t skin_stride,
                                                                               micromap_resource const* micromap) const noexcept;
 
-        core* device_ = nullptr;
-        std::optional<acceleration_structure::bottom_level_structures> bottom_ = {};
-        std::optional<acceleration_structure::top_level_structure> top_ = {};
-        std::vector<caster_level> casters_ = {};
+        core* device = nullptr;
+        std::optional<acceleration_structure::bottom_level_structures> bottom = {};
+        /// named `top_level` rather than `top`: `build` keeps a local `auto& top`, and a member of that name
+        /// would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
+        std::optional<acceleration_structure::top_level_structure> top_level = {};
+        /// named `caster_list` rather than `casters`: the accessor above is `casters()`, and dropping the
+        /// underscore would declare the same name twice
+        std::vector<caster_level> caster_list = {};
         /// the MASK expansions and the skinned vertex buffers: owned here for as long as the structures are, so
-        /// the addresses inside `casters_` stay valid
-        std::vector<vk_buffer> mask_buffers_ = {};
-        std::vector<vk_buffer> skin_buffers_ = {};
+        /// the addresses inside `caster_list` stay valid
+        std::vector<vk_buffer> mask_buffers = {};
+        std::vector<vk_buffer> skin_buffers = {};
         /// the bottom levels a per-frame refit touches, by index
-        std::vector<uint32_t> skin_levels_ = {};
-        bool attempted_ = false;
-        bool top_logged_ = false;
+        std::vector<uint32_t> skin_levels = {};
+        /// named `build_attempted` rather than `attempted`: the query below is `attempted()`, and dropping
+        /// the underscore would declare the same name twice
+        bool build_attempted = false;
+        bool top_logged = false;
 
     public:
         /**
@@ -272,11 +278,13 @@ export namespace vulkan::ray_tracing {
         };
         /// @brief the micromaps this set owns, one per alphaMode MASK caster (see build())
         [[nodiscard]] std::span<micromap_resource const> micromaps() const noexcept {
-            return this->micromaps_;
+            return this->micromap_resources;
         }
 
     private:
-        std::vector<micromap_resource> micromaps_ = {};
+        /// named `micromap_resources` rather than `micromaps`: the accessor above is `micromaps()`, and
+        /// dropping the underscore would declare the same name twice
+        std::vector<micromap_resource> micromap_resources = {};
     };
 
 } // namespace vulkan::ray_tracing

@@ -170,7 +170,9 @@ export namespace vulkan::pass {
         static constexpr std::string_view fragment_shader_name = "upscale.frag.spv";
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"upscale"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             // THE ONE PASS IN THE FRAME WHOSE EXTENT IS NOT THE FRAME'S: the resource rule over the swapchain
             // image resolves to the OUTPUT extent (see runtime::resolve_resource_extent), which is what makes
@@ -182,19 +184,27 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
         /// the surface's format, cached at create: the push block's `encode_gamma` lane follows from it, and a
         /// session-stable device fact is exactly what a create step may keep (see the FXAA pass, which does the
         /// same for the same lane)
-        VkFormat swap_chain_format_ = VK_FORMAT_UNDEFINED;
+        VkFormat swap_chain_format = VK_FORMAT_UNDEFINED;
+        // called overlay_callback, not overlay: set_overlay()'s overlay parameter in upscale.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
         /// the host's overlay hook, installed once (see set_overlay): this pass draws it whenever it runs
-        draw_callback overlay_ = {};
-        upscale_frame frame_ = {};
+        draw_callback overlay_callback = {};
+        // called pass_frame, not frame: set_frame()'s frame parameter in upscale.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        upscale_frame pass_frame = {};
+        // called filter_kind, not filter: filter() and set_filter()'s filter parameter would hide it, and
+        // MSVC /W4 reports C4458 (an error under /WX).
         /// EASU by DEFAULT, which is also `[render] upscale`'s default: a frame that renders below the output
         /// size is asking for a resolve, and the whole reason this pass exists is FSR's upscaler. The linear
         /// mode is the reference it is measured against, not the thing to fall back to.
-        upscale_filter filter_ = upscale_filter::easu;
+        upscale_filter filter_kind = upscale_filter::easu;
     };
 
     /// THE DECLARATION'S NUMBER AND THE PASS'S STRUCT CANNOT DRIFT: the declaration's `push` size is this

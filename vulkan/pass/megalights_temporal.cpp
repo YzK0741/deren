@@ -30,7 +30,7 @@ namespace vulkan::pass {
     }
 
     void megalights_temporal_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& megalights_temporal_pass::io() const noexcept {
@@ -38,7 +38,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& megalights_temporal_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view megalights_temporal_pass::feature() const noexcept {
@@ -48,54 +48,54 @@ namespace vulkan::pass {
     }
 
     bool megalights_temporal_pass::ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline megalights_temporal_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     bool megalights_temporal_pass::resolved() const noexcept {
-        return this->resolved_;
+        return this->accumulation_resolved;
     }
 
     void megalights_temporal_pass::set_accumulation(float const depth_tolerance, float const max_frames) noexcept {
         // The clamps live with the values: a tolerance of 0 would reject every history (the accumulation could
         // never grow past one frame), and a cap below 1 would divide the running mean by zero.
-        this->depth_tolerance_ = std::max(depth_tolerance, 0.0f);
-        this->max_frames_ = std::clamp(max_frames, 1.0f, max_frames_limit);
+        this->temporal_depth_tolerance = std::max(depth_tolerance, 0.0f);
+        this->accumulation_frames = std::clamp(max_frames, 1.0f, max_frames_limit);
     }
 
     void megalights_temporal_pass::set_spatial(float const sigma) noexcept {
-        this->spatial_sigma_ = std::clamp(sigma, 0.0f, 4.0f);
+        this->denoise_sigma = std::clamp(sigma, 0.0f, 4.0f);
     }
 
     void megalights_temporal_pass::set_frame(megalights_temporal_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
         // A NEW FRAME BEGINS, the same per-frame answer the GI resolve gives: `resolved()` is exactly "this
         // frame's dispatch happened", which the renderer reads to decide whether the lighting stage may add the
         // accumulation at all.
-        this->resolved_ = false;
+        this->accumulation_resolved = false;
     }
 
     void megalights_temporal_pass::prepare_frame(frame_facts const& facts) noexcept {
-        megalights_temporal_frame frame = this->frame_; // the callback the owner installed survives this call
+        megalights_temporal_frame frame = this->pass_frame; // the callback the owner installed survives this call
         frame.history_valid = facts.megalights_history_valid;
         this->set_frame(frame);
     }
 
     void megalights_temporal_pass::on_swapchain_recreated(pass_host const&) {
-        this->resolved_ = false;
+        this->accumulation_resolved = false;
     }
 
     void megalights_temporal_pass::create(pass_context const& context) {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
+        this->device = context.device;
         if (this->ready()) {
             return; // already built for this device
         }
@@ -110,12 +110,12 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->resolve);
+        this->pass_pipeline = std::move(built->resolve);
         utility::log("SUCCESS: stochastic punctual lighting's temporal resolve created (running mean with a per-pixel frame count)");
     }
 
     void megalights_temporal_pass::record(resolved_io const& io) {
-        this->resolved_ = false;
+        this->accumulation_resolved = false;
         if (!this->ready() || io.barrier_images.size() < render_resource::megalights_temporal_barriers.size() || io.frame.image_count == 0 || io.pipelines.empty() ||
             io.pipelines[0] == VK_NULL_HANDLE || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (the declaration's own gates are the table's)
@@ -130,7 +130,7 @@ namespace vulkan::pass {
         barriers[count] = vulkan::undefined_to_general_transition; // the accumulation is fully overwritten
         barriers[count].image = resolve_image;
         ++count;
-        if (!this->frame_.history_valid) {
+        if (!this->pass_frame.history_valid) {
             // FIRST USE for this image: the history's contents are whatever the allocation held, so the
             // descriptor has to be legal without their being readable - UNDEFINED -> SHADER_READ.
             barriers[count] = vulkan::undefined_to_sampling_transition;
@@ -144,8 +144,8 @@ namespace vulkan::pass {
         // the frame bound the heaps for this command buffer.
 
         push_constants push = {};
-        push.params = glm::vec4(io.constants.proj[2][2], io.constants.proj[3][2], this->max_frames_, this->depth_tolerance_);
-        push.extents = glm::vec4(static_cast<float>(io.extent.width), static_cast<float>(io.extent.height), this->spatial_sigma_, 0.0f);
+        push.params = glm::vec4(io.constants.proj[2][2], io.constants.proj[3][2], this->accumulation_frames, this->temporal_depth_tolerance);
+        push.extents = glm::vec4(static_cast<float>(io.extent.width), static_cast<float>(io.extent.height), this->denoise_sigma, 0.0f);
         static_assert(sizeof(push) <= pass::max_push_bytes, "the resolve's push block must fit the guaranteed minimum");
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
         vkCmdDispatch(io.cmd, (io.extent.width + group_size - 1u) / group_size, (io.extent.height + group_size - 1u) / group_size, 1);
@@ -181,7 +181,7 @@ namespace vulkan::pass {
         VkDependencyInfo const hand_back_dependency = make_image_dependency_info(static_cast<uint32_t>(hand_back.size()), hand_back.data());
         vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
 
-        this->resolved_ = true;
+        this->accumulation_resolved = true;
     }
 
 } // namespace vulkan::pass

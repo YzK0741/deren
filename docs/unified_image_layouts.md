@@ -100,7 +100,7 @@ WITHDRAWN: I first reported that enabling the feature changed 1379 pixels in `de
 (max |delta| 17). That was an instrument error, not a result. The comparison was against the machine's
 stored reference frames (`%LOCALAPPDATA%\deren\baseline`), which were ALREADY stale for 12 of the
 14 scenes before this step began - the area-light work committed just before it had changed them, and
-that staleness is recorded separately in `build-release-clang64/zmd-ab/PROGRESS.md`. Measured against the
+that staleness is recorded separately in `build-release-clang64/deren-ab/PROGRESS.md`. Measured against the
 immediate predecessor run instead, every one of the 14 hashes is identical: the feature alone, and then
 the collapse, each change no pixel at all. The lesson is the one this project keeps re-learning: a
 baseline is only a baseline if it is the state you are changing FROM.

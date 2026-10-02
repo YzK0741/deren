@@ -57,7 +57,7 @@ namespace {
     // MEASURED, AND THE HONEST STATEMENT IS THAT THIS ORDER IS NOT SETTLED BY chen's FRAMES: on `chars\chen.glb`
     // the two sources never disagree - every name they share carries the same value in both - so no frame can
     // tell the two rules apart. What the frames DO settle is that the extras value reaches the GPU at all (see
-    // `zmd-ab/extras_dump.md` and the probe arms in `remaining_port_spec.md`'s "extras 数据源"), and the order
+    // `deren-ab/extras_dump.md` and the probe arms in `remaining_port_spec.md`'s "extras 数据源"), and the order
     // above is therefore a rule stated where it is applied and PROVABLE BY ASSET: a sidecar row that contradicts
     // extras is ignored, and the probe in that section is exactly such a row.
     [[nodiscard]] std::optional<float> extras_float_of(gltf::scenes const* const scenes, std::string_view const material_name, std::string_view const row) {
@@ -382,7 +382,7 @@ int main(int argc, char** argv) {
     // (`lighting/studio_01_1k.exr`) that its manifest gives a `world_strength` of 0.35, not a procedural
     // sky. The engine's decoder is `stb_image` (see the include note at the top of this file), which reads
     // Radiance `.hdr` and NOT OpenEXR, so the package's file is converted once, offline, into exactly that
-    // format - `zmd-ab/bg/_hdr_convert.py`, which is also where its own statistics were measured. The
+    // format - `deren-ab/bg/_hdr_convert.py`, which is also where its own statistics were measured. The
     // engine gains no dependency: it gains a file it could already read.
     //
     // The pixels are MOVED into the async task that bakes the cubemap, so no buffer here has to outlive the
@@ -456,7 +456,7 @@ int main(int argc, char** argv) {
     //      behind the claim. The interactive path (`capture.frames == 0`) is untouched: a normal window.
     core_options.window_visible = capture.frames == 0;
     vulkan::runtime runtime{core_options};
-    runtime.clear_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
+    runtime.background_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
     // shadow is applied after enable_shadows() below (it needs the shadow maps to exist)
     // per-pass GPU timings (timestamp queries): on by default, reported in the log + overlay
     runtime.set_gpu_timings(settings.render.gpu_timings);
@@ -1041,7 +1041,7 @@ int main(int argc, char** argv) {
     // THE PATH IS RESOLVED FROM THE EXECUTABLE'S OWN DIRECTORY, not from the process's working directory: a
     // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `scripts/windows/capture.ps1`), so a
     // CWD-relative path would miss. Nothing here is a new path *convention*: this file is a data file that ships
-    // beside the build's own `shaders/` and `chars/` directories, and `zmd-ab/` is where the reference's assets
+    // beside the build's own `shaders/` and `chars/` directories, and `deren-ab/` is where the reference's assets
     // live in this repository.
     //
     // A MISSING FILE IS LOGGED AND NOT FATAL, deliberately: with no LUT uploaded, the slot holds no descriptor and
@@ -1053,11 +1053,11 @@ int main(int argc, char** argv) {
         // `utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
         // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
         // (see `scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
-        // `...\zmd-ab\laevat\zmd-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
+        // `...\deren-ab\laevat\deren-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
         // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
-        // The executable's own directory is `build-release-clang64/`, which is where `zmd-ab/` and the
+        // The executable's own directory is `build-release-clang64/`, which is where `deren-ab/` and the
         // reference's assets live, so the path is right whatever the process's working directory is.
-        std::filesystem::path const fgd_path = utility::executable_directory() / "zmd-ab" / "gooblender" / "images" / "PreIntegratedFGD_GGXDisneyDiffuse.png";
+        std::filesystem::path const fgd_path = utility::executable_directory() / "deren-ab" / "gooblender" / "images" / "PreIntegratedFGD_GGXDisneyDiffuse.png";
         if (!fgd_path.empty()) {
             std::ifstream file(fgd_path, std::ios::binary);
             if (file) {
@@ -1547,7 +1547,7 @@ int main(int argc, char** argv) {
         //
         // THE SHADER THEREFORE SEES ONE LANE AND ONE FETCH, and this branch is where the arm it lands in stops
         // being the shader's business. THE NAMES ARE THE `_RD` IMAGES' glTF NAMES, appended to the model by
-        // `zmd-ab/attach_toon_images.py` - without that step the lane resolves to nothing and the material keeps
+        // `deren-ab/attach_toon_images.py` - without that step the lane resolves to nothing and the material keeps
         // the old chain's diffuse, which is the correct fallback and an invisible one in a log.
         if (lane == vulkan::toon_slot::goo_base_ramp) {
             // TWO SOURCES, AND THE ORDER IS THE STATEMENT RATHER THAN A CONVENIENCE. `_GooBaseRamp` is the

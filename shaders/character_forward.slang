@@ -105,7 +105,7 @@ static const float character_cornea_bump = 0.125;
 ///       the expected one: the parallax block is gated on the material's MATCAP (`toon_indices.w != 0`) and only
 ///       the iris has one, so wiring this lane changes zero pixels on this character. The probe that separates
 ///       "read" from "ignored" (the iris re-stated as 0.3) is recorded in `remaining_port_spec.md`'s
-///       "extras 数据源" section, and its mask is `zmd-ab/parallax_zoom.png`.
+///       "extras 数据源" section, and its mask is `deren-ab/parallax_zoom.png`.
 ///       Named rather than inlined for the reason the other recorded constants are.
 static const float character_eye_parallax_depth = 0.03;
 
@@ -281,13 +281,13 @@ static ToonRigUBO toon_rig_value() {
 /// THIS FILE USED TO CARRY `character_sdf_sharp = 0.5` / `character_sdf_center_offset = 0.1` /
 /// `character_sdf_base = 100000.0` and threshold the SDF with `1 / (1 + base^(-3*sharp*(x - center)))`. Those
 /// three numbers are the GAME/RP's (`EF_FACE_SDF_GOO_*` appears nowhere in the article's sources - see
-/// `zmd-ab/face_shader_compare.md` §5-8), and the article's own face main writes a DIFFERENT formula at
+/// `deren-ab/face_shader_compare.md` §5-8), and the article's own face main writes a DIFFERENT formula at
 /// `ZmdFaceToonMain.hlsl:168-172`: it normalises the SDF value into the light-angle WINDOW `[sdf_min, sdf_min +
 /// sdf_width]`, smoothsteps that, and hands the RESULT to the ramp as its U coordinate. MEASURED, and it is why
 /// this was replaced rather than tuned: the sigmoid's flip window is `+-0.06` in SDF units (about +-15 of 255),
 /// while the asset's R channel is <=30 over 48% of its texels and the G channel is 255 over 66%, so the term
 /// came out near-BINARY - the cheek's 3x3 luminance mottle read **7.18** against the unprobed baseline's
-/// **5.37** (`zmd-ab/p13_probe_report.md` §3-3, which also ablated the term to 3.49 by forcing it to 1.0).
+/// **5.37** (`deren-ab/p13_probe_report.md` §3-3, which also ablated the term to 3.49 by forcing it to 1.0).
 /// The article's window is the whole SDF range for a light the face looks into, so the same term is a GRADIENT.
 
 /**
@@ -545,7 +545,7 @@ static const uint character_toon_lane_blocks = 3u;
 // ============================================================================================================
 //
 // WHAT THIS BLOCK IS, in the reference's own nodes (`Arknights: Endfield_PBRToonBase`, spec
-// `zmd-ab/goo_step4_diffuse_spec.md` §2/§3, and §8 for the arithmetic):
+// `deren-ab/goo_step4_diffuse_spec.md` §2/§3, and §8 for the arithmetic):
 //
 //     混合.012 = 混合.004 ⊙ 混合.006                                  # the pre-rim colour
 //     混合.006 = ToonFresnel colour = lerp(fresnelOutsideColor, fresnelInsideColor,
@@ -583,7 +583,7 @@ static const uint character_toon_lane_blocks = 3u;
 // `directLighting_diffuse` MULTIPLIES A DIFFERENT LIGHT: `dirLight_lightColor`, which is a PER-MATERIAL
 // CONSTANT (`[1.0, 0.9580, 0.9580]` on `body_01`) and is not a radiance at all. The reference's own graph states
 // the `1/π` explicitly (`directLighting_diffuse :: 值(明度).Value = 0.31830987334251404`, read straight out of
-// the `.blend` in `zmd-ab/goo_screenspace_info.md` §Q5), so the reference's expression is implemented VERBATIM
+// the `.blend` in `deren-ab/goo_screenspace_info.md` §Q5), so the reference's expression is implemented VERBATIM
 // and the article's path keeps its own convention untouched. U8 CANNOT BE SETTLED WITHOUT A RENDER - whether the
 // two lights are on the same scale is exactly the question - so this step takes the reference's explicit number
 // and RECORDS that the hybrid's absolute level is the thing to check against the reference frame.
@@ -597,7 +597,7 @@ static const uint character_toon_lane_blocks = 3u;
 
 /// `directLighting_diffuse :: 值(明度).Value` - the reference's own float for `1/π`
 /// (`0.31830987334251404`, which is `float32(1/π)` rather than the double `0.31830988618379069`; see
-/// `zmd-ab/goo_screenspace_info.md` §Q5, where the value was read from the `.blend` itself).
+/// `deren-ab/goo_screenspace_info.md` §Q5, where the value was read from the `.blend` itself).
 /// THE SENTINEL EVERY ONE OF STEP 4'S LANES USES, and it is NOT `< 0` - which is what this arm was first written
 /// with, and what the lane's own note argued for on the grounds that `0.0` is a value the reference really states.
 /// THE ARGUMENT WAS RIGHT AND THE NUMBER WAS WRONG: two of the six sockets are LEGITIMATELY NEGATIVE in the
@@ -650,7 +650,7 @@ static const float goo_fresnel_smo_h_default = 1.0;
 // ============================================================================================================
 //
 // EVERY NUMBER BELOW IS A SOCKET OR A LITERAL IN `gooblender/nodes.json`, named by the node it belongs to
-// (spec `zmd-ab/goo_step5_specular_spec.md`, which is the authority for this step). They are spelled here rather
+// (spec `deren-ab/goo_step5_specular_spec.md`, which is the authority for this step). They are spelled here rather
 // than inline because `tests/test_goo_toon_math.cpp` pins each spelling against the reference's own value - a
 // re-tuning of one of them has to fail a test rather than quietly move a highlight.
 
@@ -745,7 +745,7 @@ static const float goo_specular_fgd_strength_default = 1.0;
 //
 // `色相/饱和度/明度` (`ShaderNodeHueSaturation`) is the Blender HSV node, and its own renderer GLSL is
 // `hsv[1] = clamp(hsv[1] * sat, 0, 1); hsv[2] = hsv[2] * value; out = mix(col, out, fac)`
-// (`gpu_shader_material_hue_sat_val.glsl`, cited in `zmd-ab/goo_step6_result.md`). With `Hue = 0.5` (`fract(h+0.5)`
+// (`gpu_shader_material_hue_sat_val.glsl`, cited in `deren-ab/goo_step6_result.md`). With `Hue = 0.5` (`fract(h+0.5)`
 // = h), `Value = 1.0` and `Fac = 1.0`, THAT IS `lerp(luma(colour).xxx, colour, sat)` - THE SAME FORM. So the two
 // nodes compose to one line of arithmetic, and the file's `goo_hsv_desaturate` below is that line.
 
@@ -801,7 +801,7 @@ static float3 goo_hsv_desaturate(const float3 colour, const float saturation) {
 // STEP 7: THE FACE CONTAINER, `Arknights: Endfield_PBRToonBaseFace`
 // ============================================================================================================
 //
-// WHAT IT IS, in the reference's own nodes (spec `zmd-ab/goo_step7_face_spec.md`, re-read node by node against
+// WHAT IT IS, in the reference's own nodes (spec `deren-ab/goo_step7_face_spec.md`, re-read node by node against
 // `gooblender/nodes.json` for this step - and the spec's §7.3 and §2.4 readings of two fields were WRONG, see the
 // notes on `goo_face_angle_thresholds` and on the brightness switch in `toon_diffuse`'s face arm):
 //
@@ -1037,7 +1037,7 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 //
 // THE REFERENCE NEVER READS THE BLUE CHANNEL. Its `DecodeNormal` group (`Arknights: Endfield_PBRToonBase`, one
 // instance, 12 nodes, `users = 3`) reconstructs `z` from `x` and `y`; read node by node out of
-// `zmd-ab/gooblender/nodes.json`:
+// `deren-ab/gooblender/nodes.json`:
 //
 //     Vector Math       (MULTIPLY_ADD)  = (2x-1, 2y-1, 0)            from the group's X / Y inputs
 //     Vector Math.001   (DOT_PRODUCT)   = d = (2x-1)^2 + (2y-1)^2
@@ -1057,7 +1057,7 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 // THE NORMAL MAP NODE IS A BLACK BOX IN THE DUMP, but the REFERENCE ENGINE'S OWN IMPLEMENTATION of that node is not:
 // the strength's form comes from the Goo engine's source rather than from a reading of the graph -
 // `goo-engine-v4.2-release`, `source/blender/gpu/shaders/material/gpu_shader_material_normal_map.glsl` (a local copy
-// is kept at `zmd-ab/goo_engine_node_normal_map.glsl`), whose `node_normal_map` applies the strength IN TANGENT SPACE
+// is kept at `deren-ab/goo_engine_node_normal_map.glsl`), whose `node_normal_map` applies the strength IN TANGENT SPACE
 // to the `(xy, z1)` that `color_to_normal_new_shading` (`2*color - 1`) has already produced:
 //
 //     texnormal.xy *= strength;
@@ -1066,7 +1066,7 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 // so this port ships `n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))))`. FOR EVERY STRENGTH
 // THIS STEP PORTS (`>= 1`: the body's 1.25, the cloth's 1.4458599090576172) `saturate(strength)` is exactly 1 and the
 // z term is `z1` - "scale xy, keep z" - which is also the form the AUTHOR'S OWN Unity port uses
-// (`zmd-ab/author_src/ZmdToonUtils.hlsl:9-16`, `UnpackNormalFromTex`: `normal.xy *= scale;` after the same z
+// (`deren-ab/author_src/ZmdToonUtils.hlsl:9-16`, `UnpackNormalFromTex`: `normal.xy *= scale;` after the same z
 // reconstruction), so two independent sources agree. AN EARLIER REVISION OF THIS BLOCK SHIPPED
 // `1.0 + strength*(z1 - 1.0)`, and the engine's `saturate` is exactly what excludes it: at the body's own `strength`
 // that expression answers `z = -0.1961161351` for a texel at the map's extreme - a normal bent THROUGH the surface,
@@ -1318,7 +1318,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // equals the constant bit for bit, and the other four state no row at all, so wiring this lane changes ZERO
     // pixels on this character - which is why a PROBE is what proves the lane is live rather than ignored: the
     // iris re-stated as 0.3 in the asset's own extras moves 1 315 pixels, 0.0 moves 480 and 1.0 moves 1 485,
-    // every one of them inside the iris (`zmd-ab/parallax_zoom.png` paints the mask over the eye).
+    // every one of them inside the iris (`deren-ab/parallax_zoom.png` paints the mask over the eye).
     //
     // `0.0` IS A LEGAL STATEMENT ON THIS ROW (a material that wanted no parallax would state it), so as on the
     // specular lane "absent" is `-1` rather than zero and the test is `>= 0.0` on both.
@@ -1357,7 +1357,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
 
     // DEBT (s): `calc_shadow` returns the RAW per-cascade visibility, UNQUANTIZED - the reference never
     // quantizes `Cast Shadows` and has no band generator on that chain (its `_RD` ramps are continuous
-    // remaps, not steps; see `zmd-ab/goo_debt_s_armA_verify.md` §2.4). Nor is any shadow/visibility/diffuse
+    // remaps, not steps; see `deren-ab/goo_debt_s_armA_verify.md` §2.4). Nor is any shadow/visibility/diffuse
     // term in THIS shader quantized into a cel band: the only quantizers here are the SDF half-face
     // expression, the tile-atlas lookup and the eye/emoji UV selection (`ceil`/`floor`/`frac`), none of
     // them a cel band. The knob's leftover effect (the `ndotl` band plus the highlight block) lives inside
@@ -1650,7 +1650,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // why it is spelled out here instead of `smoothstep(0, 1, x)` (the two agree only at the endpoints and at 0.5).
     //
     // THE MASK IS `_SDFMask` AND THAT IS THIS PORT'S IDENTIFICATION, NOT THE ARTICLE'S: the sidecar has no
-    // `_SdfRefineTex` row (it carries `_SDFMask` for the face's own mask - see `zmd-ab/face_shader_compare.md` §1
+    // `_SdfRefineTex` row (it carries `_SDFMask` for the face's own mask - see `deren-ab/face_shader_compare.md` §1
     // and §5-1 for the channel-role evidence). `.z` was previously described in this file as "the rim's own
     // normal" and never read; the article's refine `.z` is THIS, the shadow ring, and the rim's normal is the
     // SDF's own B channel (`out_sdf_z` above). One channel, one meaning, and the shadow ring is the one the
@@ -1699,7 +1699,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     //
     // MEASURED ON THIS ASSET, and the probe had to be built before this line could honestly be written - the
     // task's own rule is that a channel may not be nominated as AO from the armchair. THE CRITERION IS THE
-    // ASSET-SIDE PROBE ALONE (`zmd-ab/skin_ao_probe.py` / `skin_ao_meshuv.py`, re-run unchanged for this
+    // ASSET-SIDE PROBE ALONE (`deren-ab/skin_ao_probe.py` / `skin_ao_meshuv.py`, re-run unchanged for this
     // record): `T_actor_chen_body_01_D` (512x512, `baseColorFactor.a = 1`) carries a real mask in alpha -
     // min 0 / max 255, mean 79.56 / std 88.19 over the image, 1.20% of its texels at 255 and 9.84% at 0,
     // with the low values spread through the interior (median distance from the image border 75 texels)
@@ -1709,12 +1709,12 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     //
     // TWO CLAIMS AN EARLIER DRAFT OF THIS COMMENT CARRIED ARE WITHDRAWN, and the record says why: `the mean
     // is 0.46 linear` at that same TEXCOORD_0 is reproduced by NO script in this repository (the two above
-    // give 0.366/0.376, and `zmd-ab/` contains no "0.46" at all), and `the RENDERED read ... agrees with the
-    // stored image to within a level` is CONTRADICTED by the surviving arms `zmd-ab/skin_ao_probe_pose.png`
+    // give 0.366/0.376, and `deren-ab/` contains no "0.46" at all), and `the RENDERED read ... agrees with the
+    // stored image to within a level` is CONTRADICTED by the surviving arms `deren-ab/skin_ao_probe_pose.png`
     // / `skin_ao_probe_std.png`: over the character's pixels both are a PLATEAU OF 232 (the R==G==B set's
     // p10/p50/p90 = 232/232/232, mean 228.63 pose / 226.06 std), which is the plateau `skin_ao_meshuv.py`'s
     // own docstring names - and is why this line is judged on the ASSET-SIDE probe and not on the rendered
-    // one. See `zmd-ab/remaining_port_spec.md`: item 5's number table and "本节新发现" item 3.
+    // one. See `deren-ab/remaining_port_spec.md`: item 5's number table and "本节新发现" item 3.
     //
     // IT IS READ FROM `s.alpha`, which is the SAME product the probe measured: `surface.glsl:193/201` sets it
     // to `base_color_factor.a * albedo_texture.a`. The article's own `mainTex_var.w` has no factor in it, so
@@ -1811,7 +1811,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // evidence rather than inference: the property's own default is
         //     `_SSSColor ("SSSColor", Color) = (1,1,1,1)`   (`MyZmdFaceShader.shader:35`)
         // and there is no sidecar row and no `efColors` entry that overrides it on `M_actor_chen_face_01`
-        // (`zmd-ab/face_shader_compare.md` §1 and §6-1). The port's `rig.sss.rgb` is `(1.0, 0.80, 0.78)`
+        // (`deren-ab/face_shader_compare.md` §1 and §6-1). The port's `rig.sss.rgb` is `(1.0, 0.80, 0.78)`
         // (`vulkan/primitive/primitive.cppm:199` - the MME pack's `EF_SKIN_SSS_COLOR`, which this port's own
         // `toon_params.slang:209-210` records as coming from MME and NOT from the article) and `main.cpp` never
         // writes the lane, so the face was being tinted warm where the article tints nothing.
@@ -1848,7 +1848,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         //   4. `_SSSColor` DOES NOT REACH THIS GPU, AND THAT IS WHY THE FACTOR IS WHITE. The property is declared
         //      `_SSSColor ("SSSColor", Color) = (1,1,1,1)` (`MyZmdSkinToonShader.shader:...`) and there is NO
         //      sidecar row and no `efColors` entry for it on any of chen's seven materials
-        //      (`zmd-ab/body_shader_compare.md`), so the article's own value IS white and its `lerp` is the
+        //      (`deren-ab/body_shader_compare.md`), so the article's own value IS white and its `lerp` is the
         //      identity. The port's `rig.sss.rgb` is `(1.0, 0.80, 0.78)` - the MME pack's `EF_SKIN_SSS_COLOR`
         //      (`vulkan/primitive/primitive.cppm:199`, and `toon_params.slang` records it as coming from MME and
         //      NOT from the article) - and it is deliberately NOT used here: inventing a colour for a property the
@@ -2441,7 +2441,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         const float face_ldoth = saturate(dot(l, face_half_dir));
         // ---- `原`, AND THE SECOND COPY OF STEP 11's ARITHMETIC (欠账 (e), 2026-09-30) ----
         //
-        // THIS ARM CARRIED THE PRE-STEP-11 EXPRESSION A SECOND TIME, which `zmd-ab/goo_step11_armA_result.md` §7
+        // THIS ARM CARRIED THE PRE-STEP-11 EXPRESSION A SECOND TIME, which `deren-ab/goo_step11_armA_result.md` §7
         // item 2 reports and does not fix ("脸 arm 里还有同一段错算术的第二份副本 ... 若脸 arm 将来复活，它的镜面
         // 同样偏暗 1.78 倍且下限仍在 S^2 上"). It is fixed here, and it is now THE SAME ARITHMETIC, TERM FOR TERM,
         // as the body arm's landed block at `goo_dv_s`: `S`, the UN-rooted `|NoL|` half, the ROOTED `NoV` half,
@@ -2651,7 +2651,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // ====================================================================================================
         //
         // THE REFERENCE'S THREE TERMS (`Arknights: Endfield_PBRToonBase`, spec
-        // `zmd-ab/goo_step5_specular_spec.md` §2.2/§6/§7.1), each one a read of the SHARED GLOBAL FGD LUT:
+        // `deren-ab/goo_step5_specular_spec.md` §2.2/§6/§7.1), each one a read of the SHARED GLOBAL FGD LUT:
         //
         //     specularFGD = lerp(LUT.R, LUT.G, fresnel0)                      # three channels, one per f0 component
         //     diffuseFGD  = LUT.B                                              # §0 item 2 / §9-U1 - see the offset below
@@ -2751,7 +2751,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // about the graph - and this author does write ambient floors (step 4's `GlobalShadowBrightnessAdjustment`).
         //
         // IT IS ONE NAMED CONSTANT SO THE EXPERIMENT IS ONE LINE: set it to 0.0 for the prior, 0.5 for the node.
-        // The measured consequence of the `0.5` this step landed on is in `zmd-ab/goo_step5_result.md` §12.
+        // The measured consequence of the `0.5` this step landed on is in `deren-ab/goo_step5_result.md` §12.
         const float goo_diffuse_fgd = goo_fgd_texel.b + goo_fgd_diffuse_offset;
         const float goo_energy_compensation = 1.0 / goo_fgd_reflectivity - 1.0;
         // `specularFGD Strength`: PER MATERIAL (`body_01/02` `0.7999999523162842`, the cloths the group's `1.0`)
@@ -2802,8 +2802,8 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         //
         // FOUR THINGS IN THAT EXPRESSION ARE NOT THE TEXTBOOK SMITH-JOINT GGX, AND STEP 11 EXISTS BECAUSE THE PORT
         // HAD TRANSCRIBED IT AS THE TEXTBOOK ONE. It pinned nothing either, so 1.78479x of missing highlight was
-        // invisible to a 13/13 suite; the node-by-node arbitration is `zmd-ab/goo_step11_armA_raw.md` and the
-        // measurement is `zmd-ab/goo_step11_armA_result.md`.
+        // invisible to a 13/13 suite; the node-by-node arbitration is `deren-ab/goo_step11_armA_raw.md` and the
+        // measurement is `deren-ab/goo_step11_armA_result.md`.
         //
         //   1. THERE IS NO `+1`. The denominator is `S^2 * λ`, not `S^2 * (1 + λ)`: `运算.012` adds the two halves
         //      of `λ` and `运算.018` divides by the result with no ADD of 1.0 anywhere between them. The port's
@@ -2931,7 +2931,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         //
         // THE REFERENCE'S THREE LAYERS, read node by node out of `gooblender/nodes.json` (`ng[17]`
         // `DV_SmithJointGGXAniso` / `ng[25] GetSmithJointGGXAnisoPartLambdaV`, re-derived by
-        // `zmd-ab/_s12v_trace.py`, spec `goo_step12_aniso_spec.md` and brief `goo_step12_impl_brief.md` §1):
+        // `deren-ab/_s12v_trace.py`, spec `goo_step12_aniso_spec.md` and brief `goo_step12_impl_brief.md` §1):
         //
         //     层 1  群组.007.anisotropy = LOBE = 0.15915493667125702 * num / max(den, 0.0010000000474974513)
         //                            num = 1.0 * p^3,  den = ( |W|*NdotV + Lam*NdotL ) * s2^2
@@ -3200,7 +3200,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     //
     // `MyZmdFaceShader.shader:84` `_RimLightColor ("RimLightColor", Color) = (1,1,1,1)`, and it has NO sidecar
     // row, so the article's face rim is WHITE. THIS PORT USED `_SDFRimColor` HERE - a name that does not exist
-    // anywhere in the article's sources (`zmd-ab/face_shader_compare.md` §1's last row) - read from the lane that
+    // anywhere in the article's sources (`deren-ab/face_shader_compare.md` §1's last row) - read from the lane that
     // carries the GAME's `_SDFRimColor` row (chen: 0.761/0.553/0.455), i.e. a warm tint the article never applies.
     // It is gone, and `params.rim_colour` (the family's, white from the family table) is what the rim takes. The
     // `sdf_rim_colour` lane is still READ above and still used - by the EYE's highlight tint, which is a different
@@ -3248,7 +3248,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // reference. This port's own family table already states that fact - `toon_params.slang:384` writes
     // `p.rim_strength = 0.0` for the eye - but `params.rim_strength` is no longer read by THIS expression (see the
     // note at `:1472`), so that value only reaches the screen-space rim pass today. MEASURED (phase ② probe,
-    // `zmd-ab/eye_term_probe.py`, target `0,-0.47,0.20` distance 0.45, yaw 0/30/60): this rim is EXACTLY 0 on the
+    // `deren-ab/eye_term_probe.py`, target `0,-0.47,0.20` distance 0.45, yaw 0/30/60): this rim is EXACTLY 0 on the
     // iris at yaw 0 and then grows to 4.6 and 165.6 (8-bit display mean over the eye's own lane), i.e. the iris at
     // yaw 60 was lit almost entirely by a rim the reference does not have - the reported "extra highlight at the
     // side". The gate is the same lane idiom as the `sdf_lane` one above, it is 0/1 rather than a strength, and no

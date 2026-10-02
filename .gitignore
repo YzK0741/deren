@@ -19,6 +19,9 @@ docs/latex/
 debug.log
 debug.log.old
 imgui_layout.ini
+# MSVC writes a compiler PDB next to the target when the link line leaves /Fd implied (vc140.pdb in
+# the repository root, in practice) - generated output, never a source file
+*.pdb
 #local startup config (generated from config.example.toml by the setup scripts)
 config.toml
 .commit-msg.tmp

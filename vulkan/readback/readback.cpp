@@ -13,31 +13,31 @@ import utility;
 
 namespace vulkan {
     readback::readback(core& device)
-        : vk(&device) {
+        : gpu(&device) {
     }
 
     readback::~readback() {
         // The staging buffer is about to be released, so any copy still referencing it must finish
         // first: wait() is what guarantees the GPU is done before the allocation goes away.
         this->wait();
-        if (this->fence != VK_NULL_HANDLE && this->vk != nullptr) {
-            vkDestroyFence(this->vk->device, this->fence, nullptr);
+        if (this->fence != VK_NULL_HANDLE && this->gpu != nullptr) {
+            vkDestroyFence(this->gpu->logical_device, this->fence, nullptr);
             this->fence = VK_NULL_HANDLE;
         }
         // `staging` releases itself (RAII), and with it the allocation the copies were writing into
     }
 
     void readback::wait() {
-        if (!this->fence_pending || this->fence == VK_NULL_HANDLE || this->vk == nullptr) {
+        if (!this->fence_pending || this->fence == VK_NULL_HANDLE || this->gpu == nullptr) {
             return;
         }
-        vkWaitForFences(this->vk->device, 1, &this->fence, VK_TRUE, UINT64_MAX);
-        vkResetFences(this->vk->device, 1, &this->fence);
+        vkWaitForFences(this->gpu->logical_device, 1, &this->fence, VK_TRUE, UINT64_MAX);
+        vkResetFences(this->gpu->logical_device, 1, &this->fence);
         this->fence_pending = false;
     }
 
     std::optional<readback::staged_target> readback::stage_for_copy(VkDeviceSize const size) {
-        core& vk = *this->vk;
+        core& vk = *this->gpu;
         if (size == 0) {
             return std::nullopt;
         }
@@ -67,14 +67,14 @@ namespace vulkan {
     }
 
     std::expected<std::vector<uint8_t>, std::string> readback::read(VkBuffer const source, VkDeviceSize const size, VkDeviceSize const offset) {
-        core& vk = *this->vk;
+        core& vk = *this->gpu;
         this->last_read_size = 0;
         if (source == VK_NULL_HANDLE || size == 0) {
             return std::unexpected(std::string("readback: nothing to read (null buffer or zero size)"));
         }
         if (this->fence == VK_NULL_HANDLE) {
             VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
-            if (vkCreateFence(vk.device, &fence_info, nullptr, &this->fence) != VK_SUCCESS) {
+            if (vkCreateFence(vk.logical_device, &fence_info, nullptr, &this->fence) != VK_SUCCESS) {
                 return std::unexpected(std::string("readback: fence creation failed"));
             }
         }
@@ -138,13 +138,13 @@ namespace vulkan {
                                           .pCommandBuffers = &*commands,
                                           .signalSemaphoreCount = 0,
                                           .pSignalSemaphores = nullptr};
-        if (vkQueueSubmit(vk.graphics_queue, 1, &submit_info, this->fence) != VK_SUCCESS) {
+        if (vkQueueSubmit(vk.graphics_queue_handle, 1, &submit_info, this->fence) != VK_SUCCESS) {
             return std::unexpected(std::string("readback: vkQueueSubmit failed"));
         }
         this->fence_pending = true;
 
-        vkWaitForFences(vk.device, 1, &this->fence, VK_TRUE, UINT64_MAX);
-        vkResetFences(vk.device, 1, &this->fence);
+        vkWaitForFences(vk.logical_device, 1, &this->fence, VK_TRUE, UINT64_MAX);
+        vkResetFences(vk.logical_device, 1, &this->fence);
         this->fence_pending = false;
 
         // The staging type is HOST_VISIBLE | HOST_COHERENT by contract (see the vma module), so the CPU

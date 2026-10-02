@@ -99,7 +99,9 @@ export namespace vulkan::pass {
                       "the sort's barrier slots must match the declaration it indexes");
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"cluster"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::compute,
             .group_size_x = group_size,
             .group_size_y = 1,
@@ -111,9 +113,13 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
-        cluster_frame frame_ = {};
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        // called pass_frame, not frame: set_frame()'s frame parameter in cluster.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        cluster_frame pass_frame = {};
     };
 
 } // namespace vulkan::pass

@@ -23,54 +23,54 @@ import utility;
 namespace vulkan::ray_tracing {
 
     structure_set::structure_set(core& device_root) noexcept
-        : device_(&device_root) {
+        : device(&device_root) {
     }
 
     bool structure_set::attempted() const noexcept {
-        return this->attempted_;
+        return this->build_attempted;
     }
 
     bool structure_set::ready() const noexcept {
-        return this->bottom_.has_value() && this->top_.has_value();
+        return this->bottom.has_value() && this->top_level.has_value();
     }
 
     VkDeviceSize structure_set::structure_size(uint32_t const frame_slot) const noexcept {
-        // The top level is `top_`'s object (see the member block in the header): this is the forwarding half, for
-        // the descriptor heap, whose acceleration-structure descriptor is an address range that must carry a REAL
-        // size (see docs/descriptor_heap_migration.md - the heap's payload union has no AS member).
-        return this->top_.has_value() ? this->top_->structure_size(frame_slot) : 0;
+        // The top level is `top_level`'s object (see the member block in the header): this is the forwarding half,
+        // for the descriptor heap, whose acceleration-structure descriptor is an address range that must carry a
+        // REAL size (see docs/descriptor_heap_migration.md - the heap's payload union has no AS member).
+        return this->top_level.has_value() ? this->top_level->structure_size(frame_slot) : 0;
     }
 
     VkDeviceSize structure_set::instance_table_size(uint32_t const frame_slot) const noexcept {
         // ... and the same for the instance table at binding 17, which the set path may write with VK_WHOLE_SIZE
         // and a heap range may not.
-        return this->top_.has_value() ? this->top_->instance_table_size(frame_slot) : 0;
+        return this->top_level.has_value() ? this->top_level->instance_table_size(frame_slot) : 0;
     }
 
     VkAccelerationStructureKHR structure_set::handle(uint32_t const frame_slot) const noexcept {
-        return this->top_.has_value() ? this->top_->handle(frame_slot) : VK_NULL_HANDLE;
+        return this->top_level.has_value() ? this->top_level->handle(frame_slot) : VK_NULL_HANDLE;
     }
 
     VkBuffer structure_set::instance_table(uint32_t const frame_slot) const noexcept {
-        return this->top_.has_value() ? this->top_->instance_table(frame_slot) : VK_NULL_HANDLE;
+        return this->top_level.has_value() ? this->top_level->instance_table(frame_slot) : VK_NULL_HANDLE;
     }
 
     std::span<caster_level const> structure_set::casters() const noexcept {
-        return this->casters_;
+        return this->caster_list;
     }
 
     void structure_set::release_micromaps() noexcept {
-        if (this->device_ != nullptr) {
-            auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(this->device_->device, "vkDestroyMicromapEXT"));
+        if (this->device != nullptr) {
+            auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(this->device->logical_device, "vkDestroyMicromapEXT"));
             if (destroy != nullptr) {
-                for (micromap_resource const& resource : this->micromaps_) {
+                for (micromap_resource const& resource : this->micromap_resources) {
                     if (resource.micromap != VK_NULL_HANDLE) {
-                        destroy(this->device_->device, resource.micromap, nullptr);
+                        destroy(this->device->logical_device, resource.micromap, nullptr);
                     }
                 }
             }
         }
-        this->micromaps_.clear();
+        this->micromap_resources.clear();
     }
 
     structure_set::~structure_set() {
@@ -78,14 +78,14 @@ namespace vulkan::ray_tracing {
     }
 
     void structure_set::abandon() noexcept {
-        this->bottom_.reset();
-        this->top_.reset();
+        this->bottom.reset();
+        this->top_level.reset();
         // The expansion buffers and the caster map go with the structures they belong to: a stale mapping would
         // have the instance list read geometry no structure was built from.
-        this->mask_buffers_.clear();
-        this->skin_buffers_.clear();
-        this->skin_levels_.clear();
-        this->casters_.clear();
+        this->mask_buffers.clear();
+        this->skin_buffers.clear();
+        this->skin_levels.clear();
+        this->caster_list.clear();
         // The micromaps go too, and they are the ONE thing here that does not free itself: VkMicromapEXT has no
         // RAII wrapper in this project, so the handle is destroyed explicitly before the buffers that back it.
         this->release_micromaps();
@@ -115,9 +115,9 @@ namespace vulkan::ray_tracing {
         if (triangle_count == 0) {
             return std::nullopt;
         }
-        auto const get_sizes = reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>(vkGetDeviceProcAddr(vk.device, "vkGetMicromapBuildSizesEXT"));
-        auto const create = reinterpret_cast<PFN_vkCreateMicromapEXT>(vkGetDeviceProcAddr(vk.device, "vkCreateMicromapEXT"));
-        auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(vk.device, "vkDestroyMicromapEXT"));
+        auto const get_sizes = reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkGetMicromapBuildSizesEXT"));
+        auto const create = reinterpret_cast<PFN_vkCreateMicromapEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkCreateMicromapEXT"));
+        auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkDestroyMicromapEXT"));
         if (get_sizes == nullptr || create == nullptr || destroy == nullptr) {
             return std::nullopt;
         }
@@ -167,7 +167,7 @@ namespace vulkan::ray_tracing {
                 return 0;
             }
             VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = handle};
-            return vkGetBufferDeviceAddress(vk.device, &info);
+            return vkGetBufferDeviceAddress(vk.logical_device, &info);
         };
         auto const create_setup_buffer = [&vk, &address_of](std::vector<uint8_t> const& bytes) -> std::pair<vk_buffer, VkDeviceAddress> {
             vk_buffer buffer = vk.vma.create_buffer(nullptr, bytes.size() + micromap_address_alignment, buffer_type::storage_coherent, input_usage);
@@ -215,7 +215,7 @@ namespace vulkan::ray_tracing {
 
         VkMicromapBuildSizesInfoEXT sizes = {};
         sizes.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
-        get_sizes(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
+        get_sizes(vk.logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
         if (sizes.micromapSize == 0) {
             return std::nullopt;
         }
@@ -239,7 +239,7 @@ namespace vulkan::ray_tracing {
         create_info.size = sizes.micromapSize;
         create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
         create_info.deviceAddress = 0;
-        if (create(vk.device, &create_info, nullptr, &out.micromap) != VK_SUCCESS || out.micromap == VK_NULL_HANDLE) {
+        if (create(vk.logical_device, &create_info, nullptr, &out.micromap) != VK_SUCCESS || out.micromap == VK_NULL_HANDLE) {
             return std::nullopt;
         }
         return out;
@@ -260,24 +260,24 @@ namespace vulkan::ray_tracing {
         if (mask_address != 0) {
             source = acceleration_structure::geometry_source{.vertex_address = mask_address,
                                                              .vertex_stride = mask_stride,
-                                                             .vertex_count = caster.index_count,
+                                                             .vertex_count = caster.draw_index_count,
                                                              .index_address = 0,
                                                              .index_type = caster.index_type,
-                                                             .index_count = caster.index_count};
+                                                             .index_count = caster.draw_index_count};
         } else if (skin_address != 0) {
             source = acceleration_structure::geometry_source{.vertex_address = skin_address,
                                                              .vertex_stride = skin_stride,
                                                              .vertex_count = caster.vertex_count,
                                                              .index_address = source_index_address,
                                                              .index_type = caster.index_type,
-                                                             .index_count = caster.index_count};
+                                                             .index_count = caster.draw_index_count};
         } else {
             source = acceleration_structure::geometry_source{.vertex_address = source_vertex_address,
                                                              .vertex_stride = caster.vertex_stride,
                                                              .vertex_count = caster.vertex_count,
                                                              .index_address = source_index_address,
                                                              .index_type = caster.index_type,
-                                                             .index_count = caster.index_count};
+                                                             .index_count = caster.draw_index_count};
         }
         // THE MICROMAP RIDES ALONG WHATEVER GEOMETRY WAS CHOSEN, because it is indexed by the triangle rather than
         // by a vertex: the geometry's primitive `i` is the same triangle the micromap's element `i` describes, so
@@ -295,18 +295,18 @@ namespace vulkan::ray_tracing {
 
     std::expected<void, failure> structure_set::build(VkCommandBuffer const command_buffer, build_inputs const& inputs) {
         // BUILT ONCE, SUCCESS OR FAILURE: a device that refused the build is not asked again, and no log repeats.
-        if (this->attempted_) {
+        if (this->build_attempted) {
             return {};
         }
-        this->attempted_ = true;
+        this->build_attempted = true;
 
-        core& vk = *this->device_;
+        core& vk = *this->device;
         auto const start = std::chrono::steady_clock::now();
-        this->bottom_.emplace(vk);
+        this->bottom.emplace(vk);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
         // be rewritten by the frame being recorded while the previous one still reads it.
-        this->top_.emplace(vk, vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        auto& structures = *this->bottom_;
+        this->top_level.emplace(vk, vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        auto& structures = *this->bottom;
 
         uint32_t skipped_no_address = 0;
         uint32_t skipped_no_stride = 0;
@@ -348,8 +348,8 @@ namespace vulkan::ray_tracing {
             }
             vertex_address_info.buffer = vertex_detail->buffer;
             index_address_info.buffer = index_detail->buffer;
-            VkDeviceAddress const source_vertex_address = vkGetBufferDeviceAddress(vk.device, &vertex_address_info);
-            VkDeviceAddress const source_index_address = vkGetBufferDeviceAddress(vk.device, &index_address_info);
+            VkDeviceAddress const source_vertex_address = vkGetBufferDeviceAddress(vk.logical_device, &vertex_address_info);
+            VkDeviceAddress const source_index_address = vkGetBufferDeviceAddress(vk.logical_device, &index_address_info);
 
             // alphaMode MASK: bake the material's holes into an EXPANDED copy of this caster's vertices and build
             // the structure from that. An inline ray query has no any-hit stage, so a traversal cannot run the
@@ -390,14 +390,14 @@ namespace vulkan::ray_tracing {
             // against 136.6/255 without it), and this micromap is architecture that is in place and verified to be
             // LEGAL rather than a working feature. It costs one build per MASK caster at load and is inert after.
             uint32_t micromap_index = caster_level::micromap_none;
-            if (caster->index_count >= 3u) {
+            if (caster->draw_index_count >= 3u) {
                 uint32_t const material_index = caster->push.material_index.value;
                 material_record const* const material = material_index < inputs.materials.size() ? &inputs.materials[material_index] : nullptr;
                 if (material != nullptr && (material->flags & 16u) != 0u) {
-                    if (auto resource = make_micromap(vk, caster->index_count / 3u); resource.has_value()) {
+                    if (auto resource = make_micromap(vk, caster->draw_index_count / 3u); resource.has_value()) {
                         micromap_triangles += resource->triangle_count;
-                        micromap_index = static_cast<uint32_t>(this->micromaps_.size());
-                        this->micromaps_.push_back(std::move(*resource));
+                        micromap_index = static_cast<uint32_t>(this->micromap_resources.size());
+                        this->micromap_resources.push_back(std::move(*resource));
                     } else {
                         ++skipped_micromaps;
                     }
@@ -411,18 +411,18 @@ namespace vulkan::ray_tracing {
                 // in register_material, so they are literals here too).
                 uint32_t const material_index = caster->push.material_index.value;
                 material_record const* const material = material_index < inputs.materials.size() ? &inputs.materials[material_index] : nullptr;
-                if (material != nullptr && (material->flags & 16u) != 0u && caster->index_count >= 3u) {
+                if (material != nullptr && (material->flags & 16u) != 0u && caster->draw_index_count >= 3u) {
                     // Three vertices per triangle, 32 bytes each: position(3) + normal(3) + uv(2), which is what
                     // the hit shading reads (offsets 0, 3 and 6). GPU-only and never mapped - the bake fills it and
                     // the build reads it.
                     constexpr uint32_t mask_vertex_stride = 32u;
-                    uint64_t const expanded_bytes = static_cast<uint64_t>(caster->index_count) * mask_vertex_stride;
+                    uint64_t const expanded_bytes = static_cast<uint64_t>(caster->draw_index_count) * mask_vertex_stride;
                     vk_buffer expanded = vk.vma.create_buffer(nullptr, expanded_bytes, buffer_type::storage_gpu_only, acceleration_structure::build_input_usage);
                     auto const* const expanded_detail = expanded.valid() ? vk.vma.get_buffer_detail(expanded.handle()) : nullptr;
                     if (expanded_detail != nullptr) {
                         VkBufferDeviceAddressInfo const expanded_info = {
                             .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = expanded_detail->buffer};
-                        mask_address = vkGetBufferDeviceAddress(vk.device, &expanded_info);
+                        mask_address = vkGetBufferDeviceAddress(vk.logical_device, &expanded_info);
                         mask_stride = mask_vertex_stride;
                         inputs.hooks.record_mask_bake(inputs.hooks.owner,
                                                       command_buffer,
@@ -433,14 +433,14 @@ namespace vulkan::ray_tracing {
                                                           .source_stride = caster->vertex_stride,
                                                           .destination_stride = mask_vertex_stride,
                                                           .index_type = static_cast<uint32_t>(caster->index_type),
-                                                          .triangle_count = caster->index_count / 3u,
+                                                          .triangle_count = caster->draw_index_count / 3u,
                                                           .material_index = material_index,
                                                       });
                         mask_bakes_recorded = true;
                         ++mask_baked;
                         // The buffer outlives this loop: the build below reads it, and a hit's shading reads its
                         // vertices through the instance table for as long as the structures live.
-                        this->mask_buffers_.push_back(std::move(expanded));
+                        this->mask_buffers.push_back(std::move(expanded));
                     } else {
                         ++skipped_mask_buffers;
                     }
@@ -470,12 +470,12 @@ namespace vulkan::ray_tracing {
                 if (skinned_detail != nullptr) {
                     VkBufferDeviceAddressInfo const skinned_info = {
                         .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = skinned_detail->buffer};
-                    skin_address = vkGetBufferDeviceAddress(vk.device, &skinned_info);
+                    skin_address = vkGetBufferDeviceAddress(vk.logical_device, &skinned_info);
                     skin_stride = skin_vertex_stride;
                     skin_source_stride = caster->vertex_stride;
                     skin_vertex_count = caster->vertex_count;
                     skin_base = caster->push.skin_base;
-                    this->skin_buffers_.push_back(std::move(skinned_vertices));
+                    this->skin_buffers.push_back(std::move(skinned_vertices));
                     ++skinned_baked;
                 } else {
                     ++skipped_skin_buffers;
@@ -490,7 +490,7 @@ namespace vulkan::ray_tracing {
                                       mask_stride,
                                       skin_address,
                                       skin_stride,
-                                      micromap_index != caster_level::micromap_none ? &this->micromaps_[micromap_index] : nullptr);
+                                      micromap_index != caster_level::micromap_none ? &this->micromap_resources[micromap_index] : nullptr);
             // A skinned structure is built ALLOW_UPDATE so the per-frame refit is legal; everything else is built
             // once and never touched again.
             auto const added = structures.add(source, skin_address != 0);
@@ -502,17 +502,17 @@ namespace vulkan::ray_tracing {
             // skipped above is skipped there too and the two walks cannot disagree. The mask and skin addresses
             // ride along, because that list is what a hit's shading reads the geometry through - a baked or
             // skinned caster must be read from the copy it was built from.
-            this->casters_.emplace_back(caster_level{.caster = caster,
-                                                     .blas_index = added.value(),
-                                                     .mask_stride = mask_stride,
-                                                     .mask_vertex_address = mask_address,
-                                                     .skin_source_address = source_vertex_address,
-                                                     .skin_destination_address = skin_address,
-                                                     .skin_source_stride = skin_source_stride,
-                                                     .skin_destination_stride = skin_stride,
-                                                     .skin_vertex_count = skin_vertex_count,
-                                                     .skin_base = skin_base,
-                                                     .micromap_index = micromap_index});
+            this->caster_list.emplace_back(caster_level{.caster = caster,
+                                                        .blas_index = added.value(),
+                                                        .mask_stride = mask_stride,
+                                                        .mask_vertex_address = mask_address,
+                                                        .skin_source_address = source_vertex_address,
+                                                        .skin_destination_address = skin_address,
+                                                        .skin_source_stride = skin_source_stride,
+                                                        .skin_destination_stride = skin_stride,
+                                                        .skin_vertex_count = skin_vertex_count,
+                                                        .skin_base = skin_base,
+                                                        .micromap_index = micromap_index});
         }
 
         // The skinned casters' first skinning pass, recorded here because the BUILD below has to read skinned
@@ -520,12 +520,12 @@ namespace vulkan::ray_tracing {
         // here: this is the frame the structures are created, and a refit against a structure that does not exist
         // yet is illegal.
         if (skinned_baked != 0 && inputs.hooks.record_skin != nullptr) {
-            for (auto const& built : this->casters_) {
+            for (auto const& built : this->caster_list) {
                 if (built.skin_destination_address != 0) {
-                    this->skin_levels_.push_back(built.blas_index);
+                    this->skin_levels.push_back(built.blas_index);
                 }
             }
-            static_cast<void>(inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->casters_));
+            static_cast<void>(inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->caster_list));
         }
 
         // Every bake wrote a buffer the build below reads: one barrier covers them all, because every dispatch is
@@ -559,12 +559,12 @@ namespace vulkan::ray_tracing {
         // by MICROMAP_BUILD/MICROMAP_WRITE and read by ACCELERATION_STRUCTURE_BUILD/MICROMAP_READ, which is what
         // makes the attachment in the next step legal. Getting the first one wrong reads a micromap built from
         // memory the host had not published; getting the second wrong reads a micromap that is still being built.
-        if (!this->micromaps_.empty()) {
-            auto const build_micromaps = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(vk.device, "vkCmdBuildMicromapsEXT"));
+        if (!this->micromap_resources.empty()) {
+            auto const build_micromaps = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkCmdBuildMicromapsEXT"));
             if (build_micromaps != nullptr) {
-                std::vector<VkMicromapBuildInfoEXT> infos(this->micromaps_.size());
-                for (std::size_t i = 0; i < this->micromaps_.size(); ++i) {
-                    micromap_resource const& resource = this->micromaps_[i];
+                std::vector<VkMicromapBuildInfoEXT> infos(this->micromap_resources.size());
+                for (std::size_t i = 0; i < this->micromap_resources.size(); ++i) {
+                    micromap_resource const& resource = this->micromap_resources[i];
                     VkMicromapBuildInfoEXT& info = infos[i];
                     info = VkMicromapBuildInfoEXT{};
                     info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
@@ -573,7 +573,7 @@ namespace vulkan::ray_tracing {
                     info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
                     info.dstMicromap = resource.micromap;
                     info.usageCountsCount = 1;
-                    info.pUsageCounts = &this->micromaps_[i].usage;
+                    info.pUsageCounts = &this->micromap_resources[i].usage;
                     info.data.deviceAddress = resource.data_address;
                     info.triangleArray.deviceAddress = resource.triangles_address;
                     info.triangleArrayStride = resource.triangle_array_stride;
@@ -613,7 +613,7 @@ namespace vulkan::ray_tracing {
                                                 .pImageMemoryBarriers = nullptr};
                 vkCmdPipelineBarrier2(command_buffer, &after);
                 utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
-                             this->micromaps_.size(),
+                             this->micromap_resources.size(),
                              micromap_triangles,
                              skipped_micromaps);
             }
@@ -623,8 +623,8 @@ namespace vulkan::ray_tracing {
             // The two structures go, the COPIES stay: this is the same asymmetry the renderer had, and it is kept
             // deliberately - a failed record of a build does not invalidate the buffers the map points at, and
             // dropping them would be a second, unrelated change of behaviour.
-            this->bottom_.reset();
-            this->top_.reset();
+            this->bottom.reset();
+            this->top_level.reset();
             return std::unexpected(failure{.message = built.error()});
         }
 
@@ -660,17 +660,17 @@ namespace vulkan::ray_tracing {
         if (!this->ready()) {
             return {}; // nothing was built (or the build failed): there is nothing to refit or to instance
         }
-        core& vk = *this->device_;
-        auto& levels = *this->bottom_;
-        auto& top = *this->top_;
+        core& vk = *this->device;
+        auto& levels = *this->bottom;
+        auto& top = *this->top_level;
 
         // The skinned casters are deformed and their structures REFITTED here, before the instance list is walked
         // (the addresses do not change, so the order does not matter to correctness - but the refit has to be
         // recorded before this frame writes the scene block's binding 16, the ordering the mask bake's own-set
         // comment explains).
-        if (inputs.skin_bake && !this->skin_levels_.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner)) {
-            if (inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->casters_)) {
-                if (auto const updated = levels.record_update(command_buffer, this->skin_levels_); !updated) {
+        if (inputs.skin_bake && !this->skin_levels.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner)) {
+            if (inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->caster_list)) {
+                if (auto const updated = levels.record_update(command_buffer, this->skin_levels); !updated) {
                     // Once, and off: a failure here would otherwise log every frame, and a refit is not something
                     // to keep attempting against structures the device refused. The knob is the CALLER's, so the
                     // decision travels back with the failure.
@@ -685,7 +685,7 @@ namespace vulkan::ray_tracing {
         // The instance list is the caster set the shadow pass draws, with the world matrix the raster passes use
         // for each caster - the same matrix shadow_geometry_signature() hashes, which is why an animated or moved
         // caster is reflected here for free.
-        for (auto const& built : this->casters_) {
+        for (auto const& built : this->caster_list) {
             primitive const* const caster = built.caster;
             // The addresses a hit-shading path reads the hit triangle from: the same buffers, and the same
             // vkGetBufferDeviceAddress calls, the bottom level build already used for this caster - so the triangle
@@ -704,13 +704,13 @@ namespace vulkan::ray_tracing {
                     .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = caster->vertex_detail->buffer};
                 VkBufferDeviceAddressInfo const index_address_info = {
                     .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = caster->index_detail->buffer};
-                vertex_address = vkGetBufferDeviceAddress(vk.device, &vertex_address_info);
-                index_address = vkGetBufferDeviceAddress(vk.device, &index_address_info);
+                vertex_address = vkGetBufferDeviceAddress(vk.logical_device, &vertex_address_info);
+                index_address = vkGetBufferDeviceAddress(vk.logical_device, &index_address_info);
                 vertex_stride = caster->vertex_stride;
             } else if (built.skin_destination_address != 0) {
                 VkBufferDeviceAddressInfo const index_address_info = {
                     .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = caster->index_detail->buffer};
-                index_address = vkGetBufferDeviceAddress(vk.device, &index_address_info);
+                index_address = vkGetBufferDeviceAddress(vk.logical_device, &index_address_info);
             }
             acceleration_structure::instance_source const instance = {
                 .transform = caster->push.model,
@@ -754,8 +754,8 @@ namespace vulkan::ray_tracing {
             return std::unexpected(failure{.message = built.error()});
         }
 
-        if (!this->top_logged_) {
-            this->top_logged_ = true;
+        if (!this->top_logged) {
+            this->top_logged = true;
             // The class measured the host cost of the build itself (see build_stats); reporting that rather than a
             // second timer around it keeps one definition of "what the build costs".
             utility::log("ray-traced shadows: {} instances in the top level structure, one instance table entry each ({:.3f} ms host per frame)",

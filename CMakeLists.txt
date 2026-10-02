@@ -1,4 +1,18 @@
 cmake_minimum_required(VERSION 4.3)
+
+# CMake gates its `import std;` support - which the MSVC dialect of vstd needs, see
+# vstd/vstd_msvc.cppm - behind an experiment id that must be set BEFORE project(). Compiler
+# detection is where CMake decides whether the toolchain can provide the standard library module,
+# and with the gate closed it rejects the CXX_MODULE_STD property outright ("Experimental `import
+# std` support not enabled when detecting toolchain; it must be set before `CXX` is enabled").
+# The id is CMake's own, not invented here: the string `CxxImportStd.f35a9ac6-8463-4d38-8eec-5d6008153e7d`
+# sits in the cmake binary next to the variable name, and CMake keeps gate ids stable across
+# releases. It is set for every toolchain on purpose, because `MSVC` is not defined until after
+# project() - and it is only USED by the MSVC branch at `vstd_lib` below: clang64 builds
+# vstd/vstd.cppm exactly as before, and its exe was measured byte-identical with this line in place.
+set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d" CACHE STRING
+    "CMake's gate for the experimental `import std;` support (CMake >= 3.30).")
+
 project(deren VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -9,7 +23,31 @@ set(CMAKE_CXX_SCAN_FOR_MODULES ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(Vulkan REQUIRED)
-find_package(glm REQUIRED)
+
+# glm (header-only). find_package() is enough for clang64 because that package ships a config, but the
+# config points glm::glm's INTERFACE_INCLUDE_DIRECTORIES at the WHOLE clang64 include root. For clang
+# that root is the compiler's own root and nothing is shadowed; for MSVC it is a foreign libc's headers
+# and it is fatal - measured with cl.exe, which then found mingw's corecrt.h / stdlib.h and emitted a
+# wall of C2146/C2081/C2061 with corecrt.h(219) at the top of it.
+# Point VR_GLM_INCLUDE_DIR at a directory that CONTAINS the glm/ subtree (the clang64 include root is
+# fine for headers clang already owns, but on MSVC use a shim that holds only glm/) and the target is
+# built here from that directory instead of from the config package.
+set(VR_GLM_INCLUDE_DIR "" CACHE PATH "Directory containing the glm/ header subtree; when set, glm::glm is built from it instead of find_package(glm) (MSVC builds need this)")
+if(VR_GLM_INCLUDE_DIR)
+    add_library(glm_headers INTERFACE)
+    target_include_directories(glm_headers SYSTEM INTERFACE "${VR_GLM_INCLUDE_DIR}")
+    add_library(glm::glm ALIAS glm_headers)
+    # ...AND at directory scope, because not every target that includes <glm/...> links glm::glm:
+    # `utility` (BVH) and `gltf_loader` both include it while linking only each other, and under clang
+    # that worked purely because glm lived on the compiler's implicit include path. Measured on MSVC
+    # without this line: three C1083s - utility/BVH/bvh.cppm(3), gltf_loader/gltf_loader.cppm(18),
+    # gltf_loader/gltf_loader.cpp(6). This call is inside the VR_GLM_INCLUDE_DIR branch on purpose: when
+    # the variable is empty (every clang build) no include directory is added anywhere and the command
+    # lines stay exactly what they were.
+    include_directories(SYSTEM "${VR_GLM_INCLUDE_DIR}")
+else()
+    find_package(glm REQUIRED)
+endif()
 
 # GLFW (window + input): linked STATICALLY so the released exe carries no glfw3.dll.
 # The MSYS2 clang64 package's own CMake config exports a SHARED import (libglfw3.dll.a),
@@ -17,59 +55,160 @@ find_package(glm REQUIRED)
 # resolves to the static archive once the executable links with -static (see below), and
 # crucially does NOT define GLFW_DLL (the dynamic-import macro static builds must not see).
 # Headers live on the compiler's implicit include path; an explicit dir is added when found.
+#
+# THE EXCEPTION IS MSVC, where `glfw3` is not a library name at all (that bare-name convention is the
+# MinGW one). The official GLFW binary release ships include/ plus lib-vc2022/glfw3.lib, so
+# VR_GLFW_ROOT points at the unpacked release directory and both the headers and the .lib come from
+# there. lib-vc2022/glfw3.lib is an /MD (dynamic CRT) build, which is why the MSVC branch of the
+# compile options leaves the CRT at its own default.
+set(VR_GLFW_ROOT "" CACHE PATH "Unpacked GLFW binary release (the directory holding include/ and lib-vc2022/); required for MSVC builds")
 add_library(glfw INTERFACE)
 if(WIN32)
-    target_link_libraries(glfw INTERFACE glfw3 gdi32) # glfw3.pc: Libs.private = -lgdi32
+    if(VR_GLFW_ROOT)
+        target_include_directories(glfw SYSTEM INTERFACE "${VR_GLFW_ROOT}/include")
+        find_library(VR_GLFW_LIBRARY NAMES glfw3 glfw3_mt
+                PATHS "${VR_GLFW_ROOT}/lib-vc2022" "${VR_GLFW_ROOT}/lib-mingw-w64"
+                NO_DEFAULT_PATH REQUIRED)
+        target_link_libraries(glfw INTERFACE ${VR_GLFW_LIBRARY} gdi32)
+    else()
+        target_link_libraries(glfw INTERFACE glfw3 gdi32) # glfw3.pc: Libs.private = -lgdi32
+    endif()
 else()
     find_package(Threads REQUIRED)
     find_library(GLFW_LIBRARY NAMES glfw3 REQUIRED)
     target_link_libraries(glfw INTERFACE ${GLFW_LIBRARY} Threads::Threads)
 endif()
 
-# Project-wide compiler flags, applied to every first-party C++ target below via a single
-# foreach (see "compile options" further down). Per-config additions ride on the DEFAULT
-# per-config flags (Release already adds -O3 -DNDEBUG, Debug -g), so only the extras that the
-# defaults do not cover are listed here - keeping the flags duplicated here AND in the defaults
-# would put -O3 / -g on the command line twice.
+# =============================================================================================
+# COMPILER DIALECT - the one place a GNU/Clang spelling and an MSVC spelling are told apart.
+#
+# Everything downstream consumes these flag sets by NAME (COMPILE_OPTIONS, VR_*), so no target grows a
+# compiler test of its own: a dialect question is answered here, once. Applied to every first-party C++
+# target via a single foreach (see "compile options" further down). Per-config additions ride on the
+# DEFAULT per-config flags (Release already adds -O3 -DNDEBUG, Debug -g), so only the extras the
+# defaults do not cover are listed - duplicating them here AND in the defaults would put -O3 / -g on
+# the command line twice.
+#
+# TWO PROPERTIES ARE NON-NEGOTIABLE:
+#   * the GNU/Clang branch reproduces, value for value, the flag list this project has always built
+#     with. The clang64 build is a verified artifact (deren-ab/PROGRESS.md records its hashes), so the
+#     test for touching this block is `ninja -t commands` coming out byte-identical; and
+#   * the MSVC branch is a MIRROR, not a translation. Where MSVC has no equivalent the flag is DROPPED
+#     and the capability is LOST, and that loss is listed in deren-ab/msvc/msvc_dialect_result.md rather
+#     than imitated with something that means a different thing.
+#
+# What the MSVC branch cannot express (all measured, MSVC 19.44.35229 / VS 17.14):
+#   -fno-exceptions, -fno-rtti          nothing. /EHs-c- is not a supported spelling of "no exceptions"
+#                                       beside the STL, so MSVC gets /EHsc and default /GR.
+#   -flto                               nothing. The pair is /GL + /LTCG; it changes link behaviour and
+#                                       has not been measured on this project, so it is left out.
+#   -march=native                       nothing. /arch:AVX2 is a different, coarser contract, so
+#                                       VR_RELEASE_MARCH is ignored rather than approximated.
+#   -fno-unwind-tables,                 nothing, dropped (code size / debug info only).
+#   -fno-asynchronous-unwind-tables,
+#   -fmerge-all-constants
+#   -fno-sanitize=float-cast-overflow   nothing. MSVC has no UBSan, so the app_config suppression below
+#                                       disappears - its subject cannot fire there.
+#   -static, -Wl,--gc-sections, -s      /OPT:REF /OPT:ICF is the real --gc-sections equivalent; the
+#                                       static CRT and the symbol strip have no counterpart, so an
+#                                       MSVC Release exe is not the single self-contained file the
+#                                       clang64 Release exe is.
+# =============================================================================================
+
 # Tuning target for Release. -march=native is right for a build on your own machine and wrong for an
 # artifact someone else downloads: a binary tuned for the building CPU can die with SIGILL on an older
 # one, which is the opposite of what the single-file Release build is for. CI publishes the executable
 # (see .github/workflows/ci.yml), so it configures with -DVR_NATIVE_ARCH=OFF to get a baseline.
+# (GNU/Clang only - see the dialect table above.)
 option(VR_NATIVE_ARCH "Tune Release builds for the building CPU (-march=native)" ON)
 set(VR_RELEASE_MARCH "$<IF:$<BOOL:${VR_NATIVE_ARCH}>,-march=native,-march=x86-64-v3>")
 
-set(COMPILE_OPTIONS
-        $<$<CONFIG:Release>:
-        -fno-rtti
-        -ffunction-sections
-        -fdata-sections
-        -flto
-        ${VR_RELEASE_MARCH}
-        -fno-unwind-tables
-        -fno-asynchronous-unwind-tables
-        -fmerge-all-constants
-        >
-        $<$<CONFIG:Debug>:
-        -fno-omit-frame-pointer
-        >
-        -fno-exceptions
-        -Wall
-        -Wextra
-        -Werror
-        -Wno-reserved-module-identifier
-)
+if(MSVC)
+    set(COMPILE_OPTIONS
+            $<$<CONFIG:Release>:
+            /Gy # function-level linking: the mirror of -ffunction-sections
+            /Gw # data-level linking: the mirror of -fdata-sections
+            >
+            /W4
+            /WX
+            /permissive-
+            # /Zc:__cplusplus is not what vstd reads (it takes the language level from _MSVC_LANG, which
+            # reports 202400 even without this flag - see vstd/vstd_compat.inc), but a correct
+            # __cplusplus is what every OTHER library and header in the tree expects, so it is on.
+            /Zc:__cplusplus
+            /utf-8
+            /bigobj
+            /EHsc
+            # Vendored and system headers are compiled into our TUs, so they are treated as external
+            # rather than silenced per directory: this is the MSVC spelling of the -isystem policy the
+            # vendored targets get treated with above.
+            /external:anglebrackets
+            /external:W0
+    )
+else()
+    set(COMPILE_OPTIONS
+            $<$<CONFIG:Release>:
+            -fno-rtti
+            -ffunction-sections
+            -fdata-sections
+            -flto
+            ${VR_RELEASE_MARCH}
+            -fno-unwind-tables
+            -fno-asynchronous-unwind-tables
+            -fmerge-all-constants
+            >
+            $<$<CONFIG:Debug>:
+            -fno-omit-frame-pointer
+            >
+            -fno-exceptions
+            -Wall
+            -Wextra
+            -Werror
+            -Wno-reserved-module-identifier
+    )
+endif()
+
+# The project's STL module is `vstd`, and there are two dialects of it - the toolchain picks:
+#
+#   clang64 (the shipped build): vstd/vstd.cppm - modified from libc++'s (LLVM) generated
+#     std-module output and trimmed to the headers the project uses (see vstd/README.md).
+#   MSVC: vstd/vstd_msvc.cppm - `export module vstd; export import std;`, i.e. the MSVC
+#     toolchain's own std module re-exported under the project's module name.
+#
+# The MSVC dialect exists because of a compiler bug, measured on this tree rather than guessed:
+# the libc++-derived re-export construction (71 `export namespace std { using ... }` partitions)
+# makes cl.exe 19.44 die with `fatal error C1001` on every TU that instantiates std::span /
+# std::array / std::tuple through it - 7 of the 326 objects before this switch, all of them
+# importers of vstd - while the same consumers compile clean against the toolchain's std module.
+# The minimal reproductions and the bisection are in
+# build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md; vstd/vstd_msvc.cppm states what the dialect
+# costs (MSVC STL instead of libc++, and no VSTD_* macro face).
+#
+# CXX_MODULE_STD makes CMake build that std module itself and hand it to vstd_lib's compile: a
+# Visual Studio installation ships only modules/std.ixx, there is no prebuilt std.ifc. It relies
+# on the experimental gate set at the top of this file (the gate has to precede project(), which
+# is also why the compiler choice is made with `if(MSVC)` here and not up there).
+if(MSVC)
+    set(CMAKE_CXX_MODULE_STD ON)
+endif()
 
 add_library(vstd_lib STATIC)
 
-# The project's STL module is `vstd` (vstd/vstd.cppm): modified from libc++'s
-# (LLVM) generated std-module output and trimmed to the headers the project
-# uses (see vstd/README.md).
-target_sources(vstd_lib
-        PUBLIC
-        FILE_SET CXX_MODULES
-        FILES
-        vstd/vstd.cppm
-)
+if(MSVC)
+    target_sources(vstd_lib
+            PUBLIC
+            FILE_SET CXX_MODULES
+            FILES
+            vstd/vstd_msvc.cppm
+    )
+else()
+    target_sources(vstd_lib
+            PUBLIC
+            FILE_SET CXX_MODULES
+            FILES
+            vstd/vstd.cppm
+    )
+endif()
 
 add_library(utility STATIC)
 
@@ -89,8 +228,14 @@ target_sources(utility
 )
 
 # Startup configuration: parses config.toml (+ --config / argv merging) into app_settings.
-# Uses toml++ (header-only, system package mingw-w64-clang-x86_64-tomlplusplus; its headers
-# live under the clang64 include root, no extra include dirs needed). Pure CPU, no Vulkan.
+# Uses toml++ (header-only, system package mingw-w64-clang-x86_64-tomlplusplus; under clang64 its
+# headers live on the compiler's own include root, so nothing has to be added here). Pure CPU, no
+# Vulkan.
+#
+# MSVC IS THE EXCEPTION, and it is the same shape as glm above: cl.exe has no such implicit root, so
+# VR_TOMLPP_INCLUDE_DIR is where a build that is not using the clang64 toolchain finds <toml++/toml.hpp>.
+# It is a directory that CONTAINS the toml++/ subtree (either a real include root or a shim).
+set(VR_TOMLPP_INCLUDE_DIR "" CACHE PATH "Directory containing the toml++/ header subtree; required for MSVC builds (toml++ is header-only)")
 add_library(app_config STATIC)
 
 target_sources(app_config
@@ -102,6 +247,26 @@ target_sources(app_config
     PRIVATE
         application_configuration/application_configuration.cpp
 )
+
+if(VR_TOMLPP_INCLUDE_DIR)
+    target_include_directories(app_config SYSTEM PRIVATE "${VR_TOMLPP_INCLUDE_DIR}")
+endif()
+
+# toml++ picks its API from the exception mode it detects in the compiler flags (TOML_EXCEPTIONS,
+# toml++/impl/preprocessor.hpp): exceptions OFF gives parse_result a type with operator bool and
+# error(), exceptions ON makes parse_result an alias of toml::table and gives the parse functions a
+# different return type. The product code is written against the non-exception API ("parsed" /
+# "parsed.error().description()" in application_configuration.cpp), and clang64 gets that mode for
+# free because the project compiles with -fno-exceptions.
+#
+# MSVC does NOT detect it: /EHsc is deliberate there (see the dialect table above - there is no
+# supported "no exceptions" spelling beside the STL), so toml++ would select the throwing API and
+# BOTH translation units of this target would fail to compile against it. State the mode instead of
+# inferring it, here rather than in a source file, so the module interface and the implementation are
+# guaranteed to agree: they must, because toml::parse_result is otherwise one type in
+# application_configuration.cppm and another in application_configuration.cpp. Only this target sees
+# the header (checked: no other source in the tree includes toml++), so PRIVATE is enough.
+target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 
 # The engine core library (vulkancorekit): Vulkan object management + math + the runtime
 # facade + scene tree + the debug GUI + the format-neutral animation controller
@@ -452,19 +617,44 @@ target_link_libraries(${PROJECT_NAME}
 # single file (only the OS's own DLLs - kernel32, the UCRT, the Vulkan loader - remain
 # dynamic). Debug stays dynamic for faster dev iteration; POSIX builds stay dynamic (system
 # distro packages are shared objects; static glibc would need extra dev packages).
-target_link_options(${PROJECT_NAME} PRIVATE
-        $<$<AND:$<CONFIG:Release>,$<PLATFORM_ID:Windows>>:-static>
-        # drop unused function/data sections at link (first-party code is compiled with
-        # -ffunction-sections -fdata-sections; see the vendored-lib gc test below)
-        $<$<CONFIG:Release>:-Wl,--gc-sections>
-)
+#
+# THE MSVC SPELLING of this is only the sections half: /OPT:REF /OPT:ICF is a real replacement for
+# -Wl,--gc-sections, while the static CRT and the strip below have no counterpart - an MSVC Release exe
+# keeps the dynamic CRT and its symbols (see the dialect table at the top of this file).
+if(MSVC)
+    target_link_options(${PROJECT_NAME} PRIVATE
+            # drop unused function/data sections at link (first-party code is compiled with /Gy /Gw;
+            # see the vendored-lib section below)
+            $<$<CONFIG:Release>:/OPT:REF;/OPT:ICF>
+            # WIN32_EXECUTABLE (set above, toolchain-independent) is the same intent on both
+            # toolchains, but the CRT entry that subsystem implies is NOT: MinGW-w64's
+            # WinMainCRTStartup falls back to main(), while MSVC's - MSVCRT.lib(exe_winmain.obj) -
+            # demands a WinMain this project does not have. Measured on the MSVC dialect (round 11,
+            # build-dialect11): "MSVCRT.lib(exe_winmain.obj) : error LNK2019: unresolved external
+            # symbol WinMain ... referenced in function __scrt_common_main_seh" + "deren.exe :
+            # fatal error LNK1120: 1 unresolved externals". WinMainCRTStartup also calls the CRT
+            # initialiser, so the MSVC spelling of the MinGW behaviour is to name the other CRT
+            # entry - mainCRTStartup calls main() and keeps /SUBSYSTEM:WINDOWS, so Release still
+            # runs with no console window. Debug's default entry already is mainCRTStartup, which is
+            # why this is Release-only. (The exe logs to debug.log, so no console is needed to see
+            # its output - README.md, "Release builds are Windows GUI-subsystem executables".)
+            $<$<CONFIG:Release>:/ENTRY:mainCRTStartup>
+    )
+else()
+    target_link_options(${PROJECT_NAME} PRIVATE
+            $<$<AND:$<CONFIG:Release>,$<PLATFORM_ID:Windows>>:-static>
+            # drop unused function/data sections at link (first-party code is compiled with
+            # -ffunction-sections -fdata-sections; see the vendored-lib gc test below)
+            $<$<CONFIG:Release>:-Wl,--gc-sections>
+    )
 
-# Release exe: strip all symbols at link time (smaller single-file build; llvm-strip saves
-# ~0.8 MB here). Debug keeps its symbols for debugging. Crash reports on a shipped build are
-# symbol-less by design - keep the unstripped exe around if you need to map addresses.
-target_link_options(${PROJECT_NAME} PRIVATE
-        $<$<CONFIG:Release>:-s>
-)
+    # Release exe: strip all symbols at link time (smaller single-file build; llvm-strip saves
+    # ~0.8 MB here). Debug keeps its symbols for debugging. Crash reports on a shipped build are
+    # symbol-less by design - keep the unstripped exe around if you need to map addresses.
+    target_link_options(${PROJECT_NAME} PRIVATE
+            $<$<CONFIG:Release>:-s>
+    )
+endif()
 
 # ---------------------------------------------------------------------------------------------
 # Headless unit tests (no GPU, no external test framework - see tests/vk_test.h): each test is
@@ -588,9 +778,28 @@ endif()
 foreach(compile_target IN ITEMS vstd_lib deren vulkancorekit utility gltf_loader app_config chores ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
+# One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
+# vstd re-exports the standard library's surface, which necessarily includes the names C++17/20/23
+# deprecated (std::iterator, std::wbuffer_convert/wstring_convert, std::rel_ops, std::is_pod,
+# std::aligned_storage/aligned_union, std::float_denorm_style). MSVC's STL announces each of those
+# through C4996, so with the MSVC branch's /W4 /WX the module cannot compile its own re-exports:
+# measured 11 C4996 in vstd/std/{iterator(245),limits(12),locale(73,76),type_traits(338,340,342),
+# utility(94-97)}.inc, the first of which becomes `error C2220: warnings treated as errors` and stops
+# the build. Suppressed for vstd_lib ONLY - every other target keeps the full /W4 /WX set, so this
+# costs the project's own code nothing. The alternative MSVC offers (_SILENCE_ALL_CXX2x_*_WARNINGS
+# defines) is STL-specific and would also stop this layer from noticing a real future deprecation.
+if(MSVC)
+    target_compile_options(vstd_lib PRIVATE /wd4996)
+endif()
 # vendored fastgltf headers are upstream code: relax one warning their templates trip under
-# -fno-exceptions (raise() leaves its arguments unused on the abort() path)
-target_compile_options(gltf_loader PRIVATE -Wno-unused-parameter)
+# -fno-exceptions (raise() leaves its arguments unused on the abort() path). The MSVC spelling of that
+# warning is /wd4100, and it is only needed there because the MSVC branch has no -fno-exceptions - the
+# unused-parameter chatter can also come from /W4 itself.
+if(MSVC)
+    target_compile_options(gltf_loader PRIVATE /wd4100)
+else()
+    target_compile_options(gltf_loader PRIVATE -Wno-unused-parameter)
+endif()
 
 # toml++ is a SYSTEM header-only package, so its code is compiled into OUR translation unit and a
 # sanitizer sees it as ours. app_config is the only TU that includes it (it is the only toml++ user
@@ -609,17 +818,28 @@ target_compile_options(gltf_loader PRIVATE -Wno-unused-parameter)
 # target, so a real float->int bug elsewhere here is still reported. A __attribute__((no_sanitize))
 # on the dump function does NOT work for this (measured): UBSan attributes the diagnostic to the
 # template instantiation, not to the function it was instantiated from.
-target_compile_options(app_config PRIVATE -fno-sanitize=float-cast-overflow)
+#
+# MSVC GETS NOTHING HERE, and needs nothing: there is no UBSan to suppress. Suppressing a flag MSVC
+# would reject (D8021, "invalid numerical argument") is exactly the failure this dialect layer exists
+# to remove, so the suppression is clang-only by construction rather than translated.
+if(NOT MSVC)
+    target_compile_options(app_config PRIVATE -fno-sanitize=float-cast-overflow)
+endif()
 
 # Vendored libs get function/data sections AND -flto in Release too (plain C/C++ flags, no
 # -Werror set involved): without sections --gc-sections can only drop whole objects, so unused
 # imgui / fastgltf / xxhash / mimalloc functions would survive into the exe; without -flto the
 # linker cannot see into their translation units, so cross-TU dead code stays. Both cost build
 # time only - runtime speed is unaffected (LTO is at worst neutral).
+# Under MSVC the sections half is /Gy /Gw and the LTO half does not exist (see the dialect table).
+if(MSVC)
+    set(VR_VENDORED_RELEASE_OPTIONS $<$<CONFIG:Release>:/Gy;/Gw>)
+else()
+    set(VR_VENDORED_RELEASE_OPTIONS $<$<CONFIG:Release>:-flto;-ffunction-sections;-fdata-sections>)
+endif()
+
 foreach(vendored_target IN ITEMS imgui fastgltf_vendored xxhash mimalloc_vendored)
-    target_compile_options(${vendored_target} PRIVATE
-            $<$<CONFIG:Release>:-flto;-ffunction-sections;-fdata-sections>
-    )
+    target_compile_options(${vendored_target} PRIVATE ${VR_VENDORED_RELEASE_OPTIONS})
 endforeach()
 
 target_compile_definitions(vulkancorekit PRIVATE
@@ -720,7 +940,13 @@ target_sources(utility PRIVATE
 # compile in place, which is what a reader of the source tree would expect from a manual tool.
 set(VR_SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
 set(VR_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
-find_program(VR_SLANGC_EXECUTABLE NAMES slangc slangc.exe)
+# The Vulkan SDK ships slangc in Bin/ and sets VULKAN_SDK when its environment script is sourced, but
+# that directory is not necessarily on PATH - notably in an MSVC build, where the developer shell
+# (Enter-VsDevShell) sets up the compiler and knows nothing about Slang. HINTS are searched BEFORE the
+# system PATH, so the SDK's own slangc wins over a stale copy elsewhere, and an already-cached
+# VR_SLANGC_EXECUTABLE is left alone (which is what keeps the clang64 build's command lines unchanged).
+find_program(VR_SLANGC_EXECUTABLE NAMES slangc slangc.exe
+        HINTS "$ENV{VULKAN_SDK}/Bin" "${Vulkan_ROOT}/Bin" "${Vulkan_DIR}/../Bin")
 if(NOT VR_SLANGC_EXECUTABLE)
     message(FATAL_ERROR
         "slangc not found. It ships with a Slang release (the Vulkan SDK's Bin directory carries one too), "
@@ -820,7 +1046,7 @@ set(VR_SLANG_SOURCES
     character_forward.slang:main:fragment:character_forward.frag.spv
     # goo_toon.slang is THE REWRITTEN TOON CHAIN's fragment stage: the same geometry, the same pass and the same
     # frame as the entry above, with the shading model replaced by the one XIYAG's Goo node presets describe
-    # (see build-release-clang64/zmd-ab/goo_toon_plan.md). ITS ENTRY IS `goo_toon_frag_main`, NOT `main`, for the
+    # (see build-release-clang64/deren-ab/goo_toon_plan.md). ITS ENTRY IS `goo_toon_frag_main`, NOT `main`, for the
     # reason `outline.slang`'s is: it INCLUDES character_forward.slang, which brings that file's own
     # `[shader("fragment")] main` with it, and a plain `-entry main` then names an overload set that Slang refuses
     # to resolve (E38000). It is selected at run time by `[render] goo_toon` - OFF by default, so none of the ten
@@ -870,7 +1096,7 @@ set(VR_SLANG_SOURCES
     # ... and the MESHLET entry (docs/mesh_shaders.md step 3): one workgroup per meshlet, camera-culled.
     pbr.slang:meshlet_main:mesh:pbr.meshlet.spv
     # ... and THE OUTLINE'S MESH ENTRY: `mesh_main`'s triangle loop with the author's normal expansion applied
-    # to the clip position before the vertex is written (`build-release-clang64/zmd-ab/outline_plan.md` ①). It is
+    # to the clip position before the vertex is written (`build-release-clang64/deren-ab/outline_plan.md` ①). It is
     # the SAME FILE because the hull has to be skinned, morphed and placed by the same body as the surface it
     # outlines - a second copy of that body is how an outline detaches from a deforming character.
     pbr.slang:outline_mesh_main:mesh:outline.mesh.spv

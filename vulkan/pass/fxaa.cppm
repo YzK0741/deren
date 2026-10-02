@@ -100,7 +100,9 @@ export namespace vulkan::pass {
         static constexpr std::string_view fragment_shader_name = "fxaa.frag.spv";
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"fxaa"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the filter runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -109,15 +111,21 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
         /// the surface's format, cached at create: the push block's `encode_gamma` lane follows from it, and a
         /// session-stable device fact is exactly what a create step may keep (see the composite, which does the
         /// same for its own frame's target choice)
-        VkFormat swap_chain_format_ = VK_FORMAT_UNDEFINED;
+        VkFormat swap_chain_format = VK_FORMAT_UNDEFINED;
+        // called overlay_callback, not overlay: set_overlay()'s overlay parameter in fxaa.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
         /// the host's overlay hook, installed once (see set_overlay): this pass draws it whenever it runs
-        draw_callback overlay_ = {};
-        fxaa_frame frame_ = {};
+        draw_callback overlay_callback = {};
+        // called pass_frame, not frame: set_frame()'s frame parameter in fxaa.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        fxaa_frame pass_frame = {};
     };
 
     /// THE DECLARATION'S NUMBER AND THE PASS'S STRUCT CANNOT DRIFT, and here the struct is the post chain's: FXAA

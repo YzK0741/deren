@@ -187,20 +187,20 @@ namespace {
     class fake_pass final : public vp::frame_pass {
     public:
         fake_pass(rr::pass_io io, vp::behaviour const behaviour, std::string_view const feature, host_state& state)
-            : io_(io)
-            , behaviour_(behaviour)
-            , feature_(feature)
-            , state_(&state) {
+            : io_decl(io)
+            , behaviour_decl(behaviour)
+            , feature_name(feature)
+            , state_ptr(&state) {
         }
 
         [[nodiscard]] rr::pass_io const& io() const noexcept override {
-            return io_;
+            return io_decl;
         }
         [[nodiscard]] vp::behaviour const& behaviour() const noexcept override {
-            return behaviour_;
+            return behaviour_decl;
         }
         [[nodiscard]] std::string_view feature() const noexcept override {
-            return feature_;
+            return feature_name;
         }
         /// the framework's generic readiness question: a fake that says it did not build anything (see the
         /// `chain.ready(name)` checks) - the DEFAULT (a pass that builds nothing of its own) is the interface's `true`
@@ -209,15 +209,15 @@ namespace {
         }
         bool is_ready = true;
         void create(vp::pass_context const& context) override {
-            state_->log.emplace_back(std::string("create:") + std::string(io_.name));
-            state_->created_with_device = context.device;
-            state_->created_with_sampler = context.samplers.of(rr::sampler_hint::shadow);
+            state_ptr->log.emplace_back(std::string("create:") + std::string(io_decl.name));
+            state_ptr->created_with_device = context.device;
+            state_ptr->created_with_sampler = context.samplers.of(rr::sampler_hint::shadow);
         }
         void on_swapchain_recreated(vp::pass_host const&) override {
-            state_->log.emplace_back(std::string("recreate:") + std::string(io_.name));
+            state_ptr->log.emplace_back(std::string("recreate:") + std::string(io_decl.name));
         }
         void record(vp::resolved_io const& io) override {
-            state_->log.emplace_back(std::string("record:") + std::string(io_.name));
+            state_ptr->log.emplace_back(std::string("record:") + std::string(io_decl.name));
             last_cmd = io.cmd;
             last_pipelines = io.pipelines.size();
             last_push_size = io.push.size();
@@ -247,10 +247,12 @@ namespace {
         std::size_t last_per_image_length = 0;
 
     private:
-        rr::pass_io io_;
-        vp::behaviour behaviour_;
-        std::string_view feature_;
-        host_state* state_;
+        // the members below cannot take the interface's plain names (`io()`, `behaviour()`, `feature()` are the
+        // accessors, and the constructor's parameters already use them), so each carries a distinguishing suffix
+        rr::pass_io io_decl;
+        vp::behaviour behaviour_decl;
+        std::string_view feature_name;
+        host_state* state_ptr;
     };
 
     // the names are `vulkan.runtime`'s own pipeline keys, which is what makes this cost nothing new
@@ -813,8 +815,10 @@ int32_t main() {
         // a per-FRAME-SLOT family, which is why the instance is the frame's SLOT rather than its image
         owner.table.clear();
         for (uint32_t layer = 0; layer < 3; ++layer) {
+            // `0xC0 + layer` is 32 bits wide, and MSVC /W4 reports C4312 for a uint32_t reinterpret_cast to the
+            // 64-bit VkImageView handle, so the fabricated handle is widened to pointer size first.
             owner.table.publish(rr::resource_id::shadow_map, layer, frame.slot,
-                                {.view = reinterpret_cast<VkImageView>(0xC0 + layer), .image = reinterpret_cast<VkImage>(0xD0)});
+                                {.view = reinterpret_cast<VkImageView>(static_cast<std::uintptr_t>(0xC0 + layer)), .image = reinterpret_cast<VkImage>(0xD0)});
         }
         vp::resolved_io run_out = {};
         CHECK(run_pass.resolve(context, run_out));

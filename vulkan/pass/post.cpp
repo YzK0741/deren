@@ -32,8 +32,8 @@ namespace vulkan::pass {
     }
 
     void post_composite_pass::release_owned() noexcept {
-        this->composite_.reset();
-        this->hdr_.reset();
+        this->composite.reset();
+        this->hdr.reset();
     }
 
     render_resource::pass_io const& post_composite_pass::io() const noexcept {
@@ -41,7 +41,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& post_composite_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view post_composite_pass::feature() const noexcept {
@@ -57,11 +57,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->composite_.has_value()) {
+        this->device = context.device;
+        if (this->composite.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -79,11 +79,11 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->composite_ = std::move(built->composite);
-        this->hdr_ = std::move(built->hdr);
+        this->composite = std::move(built->composite);
+        this->hdr = std::move(built->hdr);
         // The surface's format is cached here because the `encode_gamma` lane is a consequence of it (see
         // resolve): a session-stable device fact, which is exactly what a create step may keep.
-        this->swap_chain_format_ = context.swap_chain_image_format;
+        this->swap_chain_format = context.swap_chain_image_format;
         utility::log("SUCCESS: post chain pipelines created (the composite for the swapchain and the R16F variant)");
     }
 
@@ -95,7 +95,7 @@ namespace vulkan::pass {
     }
 
     bool post_composite_pass::pipeline_ready() const noexcept {
-        return this->composite_.has_value() && this->hdr_.has_value();
+        return this->composite.has_value() && this->hdr.has_value();
     }
 
     VkPipeline post_composite_pass::pipeline() const noexcept {
@@ -109,21 +109,21 @@ namespace vulkan::pass {
     }
 
     VkPipeline post_composite_pass::composite_pipeline() const noexcept {
-        return this->composite_.has_value() ? this->composite_->get_pipeline() : VK_NULL_HANDLE;
+        return this->composite.has_value() ? this->composite->get_pipeline() : VK_NULL_HANDLE;
     }
 
     VkPipeline post_composite_pass::hdr_pipeline() const noexcept {
-        return this->hdr_.has_value() ? this->hdr_->get_pipeline() : VK_NULL_HANDLE;
+        return this->hdr.has_value() ? this->hdr->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void post_composite_pass::set_frame(composite_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void post_composite_pass::set_overlay(draw_callback const overlay) noexcept {
         // The host's hook, installed once by whoever owns the passes. It is STORED, not put in the frame: what the
         // frame decides per frame is whether THIS pass is the frame's last writer (see prepare_frame).
-        this->overlay_ = overlay;
+        this->overlay_callback = overlay;
     }
 
     void post_composite_pass::prepare_frame(frame_facts const& facts) noexcept {
@@ -134,7 +134,7 @@ namespace vulkan::pass {
         // overlay itself.
         bool const resolved = facts.fxaa_resolves || facts.upscale_resolves;
         composite_frame frame = {};
-        frame.after_draw = resolved ? draw_callback{} : this->overlay_;
+        frame.after_draw = resolved ? draw_callback{} : this->overlay_callback;
         frame.write_ldr = resolved;
         frame.suppress_bloom = facts.debug_view;
         this->set_frame(frame);
@@ -149,7 +149,7 @@ namespace vulkan::pass {
         // R16F LDR image with the R16F variant; otherwise it writes the declared swapchain image and neither
         // resolve pass runs. The LDR image is not in the declaration - one `render_target` names one resource -
         // so it comes from the frame's table, in the declaration's own vocabulary, exactly as the declared one did.
-        if (!this->frame_.write_ldr) {
+        if (!this->pass_frame.write_ldr) {
             return this->fill_push(out, false);
         }
         render_resource::resource_info const* const ldr = render_resource::find(resource_id::ldr);
@@ -176,9 +176,9 @@ namespace vulkan::pass {
             .exposure = settings.exposure,
             // Zero while the G-buffer debug view is up (the frame says so - see composite_frame::suppress_bloom),
             // for the reason that field records.
-            .bloom_intensity = this->frame_.suppress_bloom ? 0.0f : settings.bloom_intensity,
+            .bloom_intensity = this->pass_frame.suppress_bloom ? 0.0f : settings.bloom_intensity,
             .bloom_threshold = settings.bloom_threshold,
-            .encode_gamma = writing_ldr ? 1.0f : (vulkan::is_srgb_format(this->swap_chain_format_) ? 0.0f : 1.0f),
+            .encode_gamma = writing_ldr ? 1.0f : (vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f),
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -222,8 +222,8 @@ namespace vulkan::pass {
         // this draw just wrote and has no load op of its own, so it can be neither a pass nor outside the
         // instance (see composite_frame::after_draw - the pass leaves this empty when a resolve is the frame's
         // last writer instead, which its own frame decided in prepare_frame).
-        if (this->frame_.after_draw.valid()) {
-            this->frame_.after_draw.record(this->frame_.after_draw.owner, io.cmd);
+        if (this->pass_frame.after_draw.valid()) {
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
         }
         vkCmdEndRendering(io.cmd);
     }
@@ -233,16 +233,16 @@ namespace vulkan::pass {
     // =============================================================================================
 
     post_bloom_pass::post_bloom_pass(uint32_t const level) noexcept
-        : level_(level < render_resource::post_bloom_io.size() ? level : 0u)
-        , io_(&render_resource::post_bloom_io[this->level_]) {
+        : bloom_level(level < render_resource::post_bloom_io.size() ? level : 0u)
+        , declared_io(&render_resource::post_bloom_io[this->bloom_level]) {
         // The behaviour is a MEMBER because the ELEMENT is part of it: four instances of this class cannot share
         // one declaration of "which resource my extent comes from". Everything else is every other fullscreen
         // pass's: the runner sets the viewport and scissor from the extent the rule produced.
-        this->behaviour_ = vulkan::pass::behaviour{
+        this->pass_behaviour = vulkan::pass::behaviour{
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::resource,
             .extent_of = resource_id::bloom,
-            .extent_of_element = static_cast<uint16_t>(this->level_),
+            .extent_of_element = static_cast<uint16_t>(this->bloom_level),
             .pipelines = pipeline_names,
             .resync_viewport = true,
         };
@@ -251,11 +251,11 @@ namespace vulkan::pass {
     post_bloom_pass::~post_bloom_pass() = default;
 
     render_resource::pass_io const& post_bloom_pass::io() const noexcept {
-        return *this->io_;
+        return *this->declared_io;
     }
 
     vulkan::pass::behaviour const& post_bloom_pass::behaviour() const noexcept {
-        return this->behaviour_;
+        return this->pass_behaviour;
     }
 
     std::string_view post_bloom_pass::feature() const noexcept {
@@ -281,7 +281,7 @@ namespace vulkan::pass {
     }
 
     uint32_t post_bloom_pass::level() const noexcept {
-        return this->level_;
+        return this->bloom_level;
     }
 
     void post_bloom_pass::record(resolved_io const& io) {
@@ -319,7 +319,7 @@ namespace vulkan::pass {
             .exposure = settings.exposure,
             .bloom_intensity = settings.bloom_intensity,
             .bloom_threshold = settings.bloom_threshold,
-            .mode = this->level_ == 0u ? 0.0f : 1.0f,
+            .mode = this->bloom_level == 0u ? 0.0f : 1.0f,
         };
         VkClearValue clear = {};
         VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
@@ -329,13 +329,13 @@ namespace vulkan::pass {
         // THIS LEVEL'S SOURCE: the third lane says which one, and the HOST turns it into a heap slot (see
         // runtime::push_stage_block). Level 0 (the prefilter) and the composite read the HDR target, which is the
         // lane's 0; a downsample at level N reads the level above it, which is N.
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push), this->level_);
+        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push), this->bloom_level);
         vkCmdDraw(io.cmd, 3, 1, 0, 0);
         vkCmdEndRendering(io.cmd);
         // THE HAND-BACK, and it is the deepest level's because it has no successor to do it for it: the composite
         // samples ALL FOUR levels, so the last one has to be left in a sampled layout. The levels before it are
         // moved by the next level's input transition above - which is why this is one barrier and not four.
-        if (this->level_ + 1u == render_resource::post_bloom_io.size()) {
+        if (this->bloom_level + 1u == render_resource::post_bloom_io.size()) {
             VkImageMemoryBarrier2 hand_back = vulkan::hdr_sampling_transition;
             hand_back.image = target;
             VkDependencyInfo const hand_back_dependency = make_image_dependency_info(1, &hand_back);

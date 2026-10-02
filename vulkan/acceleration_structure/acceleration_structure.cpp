@@ -61,9 +61,9 @@ namespace vulkan::acceleration_structure {
     };
 
     bottom_level_structures::bottom_level_structures(core& device)
-        : vk(&device)
+        : gpu(&device)
         , functions(std::make_unique<entry_points>()) {
-        if (!this->functions->load(device.device)) {
+        if (!this->functions->load(device.logical_device)) {
             utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
                          "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
         }
@@ -74,14 +74,14 @@ namespace vulkan::acceleration_structure {
         // below free the memory): vkDestroyAccelerationStructureKHR only drops the handle, but a
         // structure whose memory is gone is not something to leave to member-destruction order.
         for (entry const& item : this->entries) {
-            if (item.handle != VK_NULL_HANDLE && this->vk != nullptr && this->functions != nullptr && this->functions->loaded()) {
-                this->functions->destroy(this->vk->device, item.handle, nullptr);
+            if (item.handle != VK_NULL_HANDLE && this->gpu != nullptr && this->functions != nullptr && this->functions->loaded()) {
+                this->functions->destroy(this->gpu->logical_device, item.handle, nullptr);
             }
         }
     }
 
     std::expected<uint32_t, std::string> bottom_level_structures::add(geometry_source const& source, bool const refittable) {
-        core& vk = *this->vk;
+        core& vk = *this->gpu;
         // Every geometry gets an entry, even one with nothing to build: the caller's index into this
         // list is the caller's index into its own geometry array, and skipping one silently would
         // shift every later index by one.
@@ -168,7 +168,7 @@ namespace vulkan::acceleration_structure {
 
         VkAccelerationStructureBuildSizesInfoKHR sizes = {};
         sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-        this->functions->get_build_sizes(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &triangle_count, &sizes);
+        this->functions->get_build_sizes(vk.logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &triangle_count, &sizes);
         if (sizes.accelerationStructureSize == 0) {
             return std::unexpected(std::string("acceleration structure: the device reported a zero-sized bottom level structure"));
         }
@@ -188,7 +188,7 @@ namespace vulkan::acceleration_structure {
         create.offset = 0;
         create.size = sizes.accelerationStructureSize;
         create.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        if (this->functions->create(vk.device, &create, nullptr, &item.handle) != VK_SUCCESS) {
+        if (this->functions->create(vk.logical_device, &create, nullptr, &item.handle) != VK_SUCCESS) {
             return std::unexpected(std::string("acceleration structure: vkCreateAccelerationStructureKHR failed"));
         }
 
@@ -206,7 +206,7 @@ namespace vulkan::acceleration_structure {
     }
 
     std::expected<void, std::string> bottom_level_structures::record_build(VkCommandBuffer const command_buffer) {
-        core& vk = *this->vk;
+        core& vk = *this->gpu;
         auto const start = std::chrono::steady_clock::now();
 
         if (this->entries.empty()) {
@@ -231,7 +231,7 @@ namespace vulkan::acceleration_structure {
             return std::unexpected(std::string("acceleration structure: the scratch buffer has no VMA detail"));
         }
         VkBufferDeviceAddressInfo const scratch_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = scratch_detail->buffer};
-        VkDeviceAddress const scratch_base = vkGetBufferDeviceAddress(vk.device, &scratch_address_info);
+        VkDeviceAddress const scratch_base = vkGetBufferDeviceAddress(vk.logical_device, &scratch_address_info);
 
         this->build_infos.clear();
         this->range_ptrs.clear();
@@ -351,10 +351,10 @@ namespace vulkan::acceleration_structure {
     };
 
     top_level_structure::top_level_structure(core& device, uint32_t const frame_slot_count)
-        : vk(&device)
+        : gpu(&device)
         , functions(std::make_unique<entry_points>())
         , slots(frame_slot_count) {
-        if (!this->functions->load(device.device)) {
+        if (!this->functions->load(device.logical_device)) {
             utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
                          "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
         }
@@ -362,8 +362,8 @@ namespace vulkan::acceleration_structure {
 
     top_level_structure::~top_level_structure() {
         for (slot const& item : this->slots) {
-            if (item.handle != VK_NULL_HANDLE && this->vk != nullptr && this->functions != nullptr && this->functions->loaded()) {
-                this->functions->destroy(this->vk->device, item.handle, nullptr);
+            if (item.handle != VK_NULL_HANDLE && this->gpu != nullptr && this->functions != nullptr && this->functions->loaded()) {
+                this->functions->destroy(this->gpu->logical_device, item.handle, nullptr);
             }
         }
     }
@@ -381,7 +381,7 @@ namespace vulkan::acceleration_structure {
     }
 
     std::expected<void, std::string> top_level_structure::add(bottom_level_structures const& levels, instance_source const& source) {
-        core& vk = *this->vk;
+        core& vk = *this->gpu;
         if (this->current_slot >= this->slots.size()) {
             return std::unexpected(std::string("acceleration structures: no frame slot is being built"));
         }
@@ -421,7 +421,7 @@ namespace vulkan::acceleration_structure {
             // The structure the new capacity needs. The old handle goes first: a structure must not
             // outlive the memory it was created in, and that memory is about to be released.
             if (target.handle != VK_NULL_HANDLE) {
-                this->functions->destroy(vk.device, target.handle, nullptr);
+                this->functions->destroy(vk.logical_device, target.handle, nullptr);
                 target.handle = VK_NULL_HANDLE;
             }
             VkAccelerationStructureBuildGeometryInfoKHR size_info = {};
@@ -440,7 +440,7 @@ namespace vulkan::acceleration_structure {
 
             VkAccelerationStructureBuildSizesInfoKHR sizes = {};
             sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-            this->functions->get_build_sizes(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &wanted, &sizes);
+            this->functions->get_build_sizes(vk.logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &wanted, &sizes);
             if (sizes.accelerationStructureSize == 0) {
                 return std::unexpected(std::string("acceleration structures: the device reported a zero-sized top level structure"));
             }
@@ -458,7 +458,7 @@ namespace vulkan::acceleration_structure {
             create.offset = 0;
             create.size = sizes.accelerationStructureSize;
             create.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-            if (this->functions->create(vk.device, &create, nullptr, &target.handle) != VK_SUCCESS) {
+            if (this->functions->create(vk.logical_device, &create, nullptr, &target.handle) != VK_SUCCESS) {
                 return std::unexpected(std::string("acceleration structures: the top level structure could not be created"));
             }
             // KEPT because a heap descriptor for it is an address RANGE that must carry a real size (see
@@ -482,7 +482,7 @@ namespace vulkan::acceleration_structure {
         // the raster shadow pass has the same property for the casters whose pipeline disables culling.
         // Leaving culling on would make every plane and every open mesh leak light.
         instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        instance.accelerationStructureReference = this->functions->get_device_address(vk.device, &address_info);
+        instance.accelerationStructureReference = this->functions->get_device_address(vk.logical_device, &address_info);
 
         std::memcpy(static_cast<uint8_t*>(target.instances_mapped) + static_cast<std::size_t>(target.count) * sizeof(VkAccelerationStructureInstanceKHR),
                     &instance,
@@ -495,7 +495,7 @@ namespace vulkan::acceleration_structure {
     }
 
     std::expected<void, std::string> top_level_structure::record_build(VkCommandBuffer const command_buffer) {
-        core& vk = *this->vk;
+        core& vk = *this->gpu;
         auto const start = std::chrono::steady_clock::now();
         slot& target = this->slots[this->current_slot];
         if (target.count == 0 || target.handle == VK_NULL_HANDLE) {
@@ -504,7 +504,7 @@ namespace vulkan::acceleration_structure {
 
         VkDeviceAddress const instances_address = [&] {
             VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = target.instances_buffer};
-            return vkGetBufferDeviceAddress(vk.device, &info);
+            return vkGetBufferDeviceAddress(vk.logical_device, &info);
         }();
 
         VkDeviceSize const alignment = std::max<VkDeviceSize>(vk.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1);
@@ -527,7 +527,7 @@ namespace vulkan::acceleration_structure {
 
         VkAccelerationStructureBuildSizesInfoKHR sizes = {};
         sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-        this->functions->get_build_sizes(vk.device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &target.count, &sizes);
+        this->functions->get_build_sizes(vk.logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &target.count, &sizes);
 
         // One scratch buffer per slot, sized for the count actually being built. It is allocated on the
         // FIRST build of a slot and kept: the count is culled per frame and drifts, but a buffer sized
@@ -544,7 +544,7 @@ namespace vulkan::acceleration_structure {
             return std::unexpected(std::string("acceleration structures: the top level scratch has no VMA detail"));
         }
         VkBufferDeviceAddressInfo const scratch_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = scratch_detail->buffer};
-        info.scratchData.deviceAddress = align_up(vkGetBufferDeviceAddress(vk.device, &scratch_info), alignment);
+        info.scratchData.deviceAddress = align_up(vkGetBufferDeviceAddress(vk.logical_device, &scratch_info), alignment);
 
         VkAccelerationStructureBuildRangeInfoKHR range = {};
         range.primitiveCount = target.count;

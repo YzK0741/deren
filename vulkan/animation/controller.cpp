@@ -182,14 +182,14 @@ namespace vulkan::animation {
     }
 
     std::size_t controller::playable_count() const noexcept {
-        return this->playable.size();
+        return this->playable_clips.size();
     }
 
     std::string_view controller::playable_name(std::size_t const index) const noexcept {
-        if (index >= this->playable.size()) {
+        if (index >= this->playable_clips.size()) {
             return {};
         }
-        return display_name(this->playable[index].name);
+        return display_name(this->playable_clips[index].name);
     }
 
     float controller::playable_max_duration() const noexcept {
@@ -205,7 +205,7 @@ namespace vulkan::animation {
     }
 
     void controller::select(std::size_t const index) {
-        if (index >= this->playable.size()) {
+        if (index >= this->playable_clips.size()) {
             return;
         }
         // reset every animated node to its base pose first, so nodes the PREVIOUS clip moved
@@ -219,7 +219,7 @@ namespace vulkan::animation {
             }
         }
         this->host.scene_changed();
-        this->active = &this->playable[index];
+        this->active = &this->playable_clips[index];
         this->current_index = index;
         this->time = 0.0f;
         this->duration = clip_duration(*this->active);
@@ -228,17 +228,17 @@ namespace vulkan::animation {
     }
 
     void controller::set_playing(bool const playing) noexcept {
-        this->playing = playing;
+        this->playing_flag = playing;
     }
 
     bool controller::is_playing() const noexcept {
-        return this->playing;
+        return this->playing_flag;
     }
 
     void controller::set_time(float const t) {
         // scrub: clamp and pause so the clock does not fight the drag (gui slider semantics)
         this->time = std::clamp(t, 0.0f, this->duration);
-        this->playing = false;
+        this->playing_flag = false;
     }
 
     float controller::current_time() const noexcept {
@@ -313,7 +313,7 @@ namespace vulkan::animation {
         //    nodes are written), so heavy animations fan the per-source sampling out over the
         //    runtime's shared task pool while light ones stay on this thread.
         if (this->active != nullptr) {
-            if (this->playing) {
+            if (this->playing_flag) {
                 this->time += dt_seconds;
                 if (this->time >= this->duration) {
                     this->time = std::fmod(this->time, this->duration);
@@ -482,7 +482,7 @@ namespace vulkan::animation {
         }
         auto const it = this->source_nodes.find(this->debug_source);
         if (it != this->source_nodes.end() && !it->second.empty()) {
-            this->debug_node_name = it->second.front().node->name;
+            this->debug_node_name = it->second.front().node->node_name;
         }
     }
 } // namespace vulkan::animation

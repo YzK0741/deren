@@ -134,7 +134,9 @@ export namespace vulkan::pass {
         /// renderer's registry resolves it (see `scene_frame::make_environment`), so there is nothing for the
         /// runner to bind before this pass records - the pass binds per segment, through the draw path.
         static constexpr std::array<std::string_view, 0> pipeline_names = {};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics,
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
@@ -149,7 +151,9 @@ export namespace vulkan::pass {
         /// one segment's content: every leaf of that segment through its draw path (the heaps are already bound)
         void record_segment(VkCommandBuffer command_buffer, std::span<primitive const* const> leaves) const;
 
-        scene_frame frame_ = {};
+        // called pass_frame, not frame: set_frame()'s frame parameter in scene.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        scene_frame pass_frame = {};
     };
 
 } // namespace vulkan::pass

@@ -29,7 +29,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& scene_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view scene_pass::feature() const noexcept {
@@ -53,22 +53,22 @@ namespace vulkan::pass {
     }
 
     void scene_pass::set_frame(scene_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     bool scene_pass::begin_segment(VkCommandBuffer const command_buffer) const {
         // The inheritance is built FRESH here, so the pNext chains point at this invocation's stack: a task is
         // moved into the pool and may run later, on another thread.
         VkCommandBufferInheritanceRenderingInfo const inheritance =
-            make_inheritance_rendering_info(this->frame_.color_formats.data(), static_cast<uint32_t>(this->frame_.color_formats.size()), this->frame_.depth_format, this->frame_.samples);
+            make_inheritance_rendering_info(this->pass_frame.color_formats.data(), static_cast<uint32_t>(this->pass_frame.color_formats.size()), this->pass_frame.depth_format, this->pass_frame.samples);
         // THE HEAPS ARE INHERITED, and a secondary needs that explicitly: it is validated on its own, so the bind
         // the primary records (see runtime::begin_recording) does not reach it. Without this the draws below are
         // VUID-vkCmdDrawIndexed-None-11308 and the frame comes out black.
         VkBindHeapInfoEXT resource_bind = {};
         VkBindHeapInfoEXT sampler_bind = {};
-        bool const inherit_heaps = this->frame_.fill_heap_bind != nullptr;
+        bool const inherit_heaps = this->pass_frame.fill_heap_bind != nullptr;
         if (inherit_heaps) {
-            this->frame_.fill_heap_bind(this->frame_.owner, resource_bind, sampler_bind);
+            this->pass_frame.fill_heap_bind(this->pass_frame.owner, resource_bind, sampler_bind);
         }
         VkCommandBufferInheritanceDescriptorHeapInfoEXT const heap_inheritance = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
@@ -82,7 +82,7 @@ namespace vulkan::pass {
     }
 
     void scene_pass::record_segment(VkCommandBuffer const command_buffer, std::span<primitive const* const> const leaves) const {
-        render_environment env = this->frame_.make_environment(this->frame_.owner, command_buffer, this->frame_.gbuffer);
+        render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, command_buffer, this->pass_frame.gbuffer);
         // NO DESCRIPTOR SET IS BOUND, and there is nothing left to bind: the frame bound the resource and sampler
         // heaps once for this command buffer, and every slot a scene shader reads - the camera, the lights, the
         // clusters, the material table, the textures, the instance transforms - is a heap slot it names itself,
@@ -95,7 +95,7 @@ namespace vulkan::pass {
     }
 
     void scene_pass::record(resolved_io const& io) {
-        if (this->frame_.make_environment == nullptr || this->frame_.segments.empty() || this->frame_.leaves.empty() || io.targets.empty()) {
+        if (this->pass_frame.make_environment == nullptr || this->pass_frame.segments.empty() || this->pass_frame.leaves.empty() || io.targets.empty()) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_scene_pass)
         }
 
@@ -119,17 +119,17 @@ namespace vulkan::pass {
             }
         }
         VkRenderingInfo const rendering_info =
-            make_rendering_info(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT, {{0, 0}, this->frame_.extent}, color_attachments.data(), color_count, depth);
+            make_rendering_info(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT, {{0, 0}, this->pass_frame.extent}, color_attachments.data(), color_count, depth);
         vkCmdBeginRendering(io.cmd, &rendering_info);
 
         // THE SEGMENTS: the renderer's own rule, kept exactly - one segment when there is only one, or when
         // there are too few leaves for the fan-out to pay for itself.
-        std::size_t const leaf_count = this->frame_.leaves.size();
-        std::size_t const segment_count = std::min<std::size_t>(this->frame_.segments.size(), std::max<std::size_t>(1, leaf_count));
+        std::size_t const leaf_count = this->pass_frame.leaves.size();
+        std::size_t const segment_count = std::min<std::size_t>(this->pass_frame.segments.size(), std::max<std::size_t>(1, leaf_count));
         if (segment_count == 1 || leaf_count < min_leaves_for_parallel) {
-            VkCommandBuffer const single = this->frame_.segments[0].buffer;
+            VkCommandBuffer const single = this->pass_frame.segments[0].buffer;
             if (this->begin_segment(single)) {
-                this->record_segment(single, this->frame_.leaves);
+                this->record_segment(single, this->pass_frame.leaves);
                 vkEndCommandBuffer(single);
                 vkCmdExecuteCommands(io.cmd, 1, &single);
             } else {
@@ -146,8 +146,8 @@ namespace vulkan::pass {
             for (std::size_t s = 0; s < segment_count; ++s) {
                 std::size_t const seg_first = leaf_count * s / segment_count;
                 std::size_t const seg_last = leaf_count * (s + 1) / segment_count;
-                VkCommandBuffer const segment = this->frame_.segments[s].buffer;
-                std::span<primitive const* const> const segment_leaves(this->frame_.leaves.data() + seg_first, seg_last - seg_first);
+                VkCommandBuffer const segment = this->pass_frame.segments[s].buffer;
+                std::span<primitive const* const> const segment_leaves(this->pass_frame.leaves.data() + seg_first, seg_last - seg_first);
                 std::atomic<bool>* const recorded = &segment_recorded[s];
                 tasks.emplace_back([this, segment, segment_leaves, recorded] {
                     if (!this->begin_segment(segment)) {
@@ -160,12 +160,12 @@ namespace vulkan::pass {
                     recorded->store(true, std::memory_order_relaxed);
                 });
             }
-            this->frame_.run_tasks(this->frame_.owner, tasks);
+            this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
             for (std::size_t s = 0; s < segment_count; ++s) {
                 if (!segment_recorded[s].load(std::memory_order_relaxed)) {
                     continue; // never execute a secondary whose begin failed
                 }
-                VkCommandBuffer const segment = this->frame_.segments[s].buffer;
+                VkCommandBuffer const segment = this->pass_frame.segments[s].buffer;
                 vkCmdExecuteCommands(io.cmd, 1, &segment);
             }
         }

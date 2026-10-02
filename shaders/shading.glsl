@@ -291,7 +291,7 @@ float calc_shadow_cascade(vec3 world_pos, vec3 normal, int cascade) {
     // DEBT (s): the raw per-cascade visibility, UNQUANTIZED on purpose. The reference NEVER quantizes it:
     // its `Cast Shadows` -> RampSelect -> `_RD` chain has no band generator and its `_RD` ramps are
     // continuous remaps, not steps (256x1 8-bit distinct texels: cloth_04 191, body_01 162, hair_01 140,
-    // TPLK_cloth_03 64; `zmd-ab/goo_debt_s_armA_verify.md` §2.4). The engine's `toon_band` cel knob is
+    // TPLK_cloth_03 64; `deren-ab/goo_debt_s_armA_verify.md` §2.4). The engine's `toon_band` cel knob is
     // therefore PORT-SIDE, with no counterpart in the reference (`190e58f` added it, `7d77615` the
     // discrete combo; subjects in the report §11) and OFF by default (`chores.cppm:136` = 0 ->
     // `main.cpp:2377 toon_band_counts[0] = 0.0f` -> `runtime.cpp:1448 toon_steps = 0`), so dropping

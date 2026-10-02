@@ -82,7 +82,9 @@ export namespace vulkan::pass {
 
     private:
         static constexpr std::array<std::string_view, 0> pipeline_names = {}; // the leaves name their pipelines
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics,
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
@@ -90,7 +92,9 @@ export namespace vulkan::pass {
             .resync_viewport = false, // the scene pipelines carry their own stored viewport
         };
 
-        transparent_frame frame_ = {};
+        // called pass_frame, not frame: set_frame()'s frame parameter in transparent.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        transparent_frame pass_frame = {};
     };
 
 } // namespace vulkan::pass

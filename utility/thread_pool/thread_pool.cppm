@@ -51,10 +51,12 @@ namespace utility {
             bool operator<(task const& other) const noexcept;
         };
 
-        std::priority_queue<task> tasks;
+        // NOT `tasks`: post_batch takes a parameter of that name, and a parameter would hide the
+        // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
+        std::priority_queue<task> task_queue;
         std::condition_variable cv;
         std::condition_variable idle;
-        mutable std::mutex access_mutex; // mutable: is_free() const reads tasks under the lock
+        mutable std::mutex access_mutex; // mutable: is_free() const reads task_queue under the lock
         std::atomic_int active_thread = 0;
         // per-priority pending count: tasks posted with a given priority that are still queued
         // or running. post/post_batch increment it under the lock, workers decrement it when a
@@ -167,11 +169,11 @@ namespace utility {
                     this->idle.notify_all();
                 }
                 cv.wait(lock, [this, &token]() {
-                    return !this->tasks.empty() || token.stop_requested();
+                    return !this->task_queue.empty() || token.stop_requested();
                 });
                 this->active_thread.fetch_add(1);
 
-                if (this->tasks.empty()) {
+                if (this->task_queue.empty()) {
                     this->active_thread.fetch_sub(1);
                     return;
                 }
@@ -180,9 +182,9 @@ namespace utility {
                     if (this->policy == shutdown_policy::discard) {
                         // every still-queued task is dropped without running: unwind their
                         // pending counts so priority waiters are not stuck forever
-                        while (!this->tasks.empty()) {
-                            this->note_task_finished(this->tasks.top().priority);
-                            this->tasks.pop();
+                        while (!this->task_queue.empty()) {
+                            this->note_task_finished(this->task_queue.top().priority);
+                            this->task_queue.pop();
                         }
                         this->active_thread.fetch_sub(1);
                         this->idle.notify_all();
@@ -190,9 +192,9 @@ namespace utility {
                     }
                 }
 
-                current_task = this->tasks.top().action;
-                current_priority = this->tasks.top().priority;
-                this->tasks.pop();
+                current_task = this->task_queue.top().action;
+                current_priority = this->task_queue.top().priority;
+                this->task_queue.pop();
             }
             current_task();
             {
@@ -227,7 +229,7 @@ namespace utility {
             return false;
         }
         this->note_task_posted(priority);
-        this->tasks.emplace(priority, std::move(task));
+        this->task_queue.emplace(priority, std::move(task));
         this->cv.notify_one();
         return true;
     }
@@ -242,7 +244,7 @@ namespace utility {
         }
         for (std::function<void()> const& task : tasks) {
             this->note_task_posted(priority);
-            this->tasks.emplace(priority, task); // copies: the span is transient (const&)
+            this->task_queue.emplace(priority, task); // copies: the span is transient (const&)
         }
         this->cv.notify_all();
         return true;
@@ -262,12 +264,12 @@ namespace utility {
     bool thread_pool::is_free() const {
         std::lock_guard lock(this->access_mutex);
         // same predicate as wait_until_free(): idle workers with queued tasks are not "free"
-        return this->tasks.empty() && this->active_thread.load() == 0;
+        return this->task_queue.empty() && this->active_thread.load() == 0;
     }
 
     void thread_pool::wait_until_free() {
         std::unique_lock lock(this->access_mutex);
-        this->idle.wait(lock, [this] { return this->tasks.empty() && this->active_thread.load() == 0; });
+        this->idle.wait(lock, [this] { return this->task_queue.empty() && this->active_thread.load() == 0; });
     }
 
     void thread_pool::wait_until_priority_done(int32_t const priority) {

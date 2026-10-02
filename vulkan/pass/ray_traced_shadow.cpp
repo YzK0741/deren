@@ -35,7 +35,7 @@ namespace vulkan::pass {
     }
 
     void rt_shadow_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& rt_shadow_pass::io() const noexcept {
@@ -43,7 +43,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& rt_shadow_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view rt_shadow_pass::feature() const noexcept {
@@ -53,22 +53,22 @@ namespace vulkan::pass {
     }
 
     bool rt_shadow_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline rt_shadow_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void rt_shadow_pass::create(pass_context const& context) {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         auto const fetch = [&context](std::string_view const name) {
@@ -90,15 +90,15 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(*built->pipeline);
+        this->pass_pipeline = std::move(*built->pipeline);
 
         // ---- THE SHADER BINDING TABLE, the half of a ray-tracing pipeline that belongs to its CALLER: the
         //      group handles are per-pipeline data, and the STRIDE is a property of the device rather than a
         //      constant. Here a handle is 32 bytes while a region's address must be 64-byte aligned, so using the
         //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit. ----
         auto const get_group_handles = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(context.device, "vkGetRayTracingShaderGroupHandlesKHR"));
-        this->trace_rays_ = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(context.device, "vkCmdTraceRaysKHR"));
-        if (get_group_handles == nullptr || this->trace_rays_ == nullptr) {
+        this->trace_rays = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(context.device, "vkCmdTraceRaysKHR"));
+        if (get_group_handles == nullptr || this->trace_rays == nullptr) {
             utility::log("ray-traced shadows unavailable: the device did not publish the traceRays entry points");
             this->release_owned();
             return;
@@ -114,7 +114,7 @@ namespace vulkan::pass {
         uint32_t const region_size = ((handle_size + base_alignment - 1u) / base_alignment) * base_alignment;
         uint32_t const group_count = built->group_count;
         std::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
-        if (get_group_handles(context.device, this->pipeline_->get_pipeline(), 0, group_count, handles.size(), handles.data()) != VK_SUCCESS) {
+        if (get_group_handles(context.device, this->pass_pipeline->get_pipeline(), 0, group_count, handles.size(), handles.data()) != VK_SUCCESS) {
             utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
             this->release_owned();
             return;
@@ -133,9 +133,9 @@ namespace vulkan::pass {
             return;
         }
         auto const region = [region_size](VkDeviceAddress const at) { return VkStridedDeviceAddressRegionKHR{.deviceAddress = at, .stride = region_size, .size = region_size}; };
-        this->raygen_region_ = region(address);
-        this->miss_region_ = region(address + region_size);
-        this->hit_region_ = region(address + 2u * region_size);
+        this->raygen_region = region(address);
+        this->miss_region = region(address + region_size);
+        this->hit_region = region(address + 2u * region_size);
         // The line the runtime used to log when it built this pipeline: a pass that says what it built is what
         // makes a missing one visible in the startup log rather than in a frame that looks merely shadowless.
         utility::log("SUCCESS: ray-traced sun shadow pipeline created (raygen + miss + closest hit + any hit, one ray per pixel, terminated on first hit)");
@@ -149,9 +149,9 @@ namespace vulkan::pass {
     }
 
     void rt_shadow_pass::record(resolved_io const& io) {
-        if (!this->pipeline_.has_value() || io.barrier_images.size() < render_resource::rt_shadow_barriers.size() ||
+        if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::rt_shadow_barriers.size() ||
             io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
-            this->hit_region_.deviceAddress == 0 ||
+            this->hit_region.deviceAddress == 0 ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
@@ -189,7 +189,7 @@ namespace vulkan::pass {
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
         // THE LAUNCH DIMS ARE THE EXTENT: one invocation per pixel of the visibility image, which is what the
         // compute form got from its dispatch and its bounds check.
-        this->trace_rays_(io.cmd, &this->raygen_region_, &this->miss_region_, &this->hit_region_, &this->callable_region_, io.extent.width, io.extent.height, 1);
+        this->trace_rays(io.cmd, &this->raygen_region, &this->miss_region, &this->hit_region, &this->callable_region, io.extent.width, io.extent.height, 1);
 
         VkImageMemoryBarrier2 to_sampling = vulkan::general_to_sampling_transition;
         to_sampling.image = visibility;
@@ -197,8 +197,8 @@ namespace vulkan::pass {
         VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
         vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
 
-        if (!this->logged_) {
-            this->logged_ = true;
+        if (!this->logged) {
+            this->logged = true;
             utility::log("ray-traced shadows: tracing {}x{} rays per frame through the ray-tracing pipeline (one per pixel, terminated on the first hit)", io.extent.width, io.extent.height);
         }
     }

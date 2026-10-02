@@ -30,7 +30,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& goo_rim_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view goo_rim_pass::feature() const noexcept {
@@ -50,11 +50,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -95,17 +95,17 @@ namespace vulkan::pass {
         }
         built->viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f}; // the runner resyncs it from io.extent
         built->scissor = {{0, 0}, {1u, 1u}};
-        this->pipeline_ = std::move(*built);
+        this->pass_pipeline = std::move(*built);
         utility::log("SUCCESS: goo rim pipeline created (the rewritten toon chain's rim, recomposed from the G-buffer)");
     }
 
     void goo_rim_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the HDR target's format and on nothing whose size changes,
-        // and the viewport/scissor are resynced by the runner (see behaviour_::resync_viewport).
+        // and the viewport/scissor are resynced by the runner (see pass_behaviour::resync_viewport).
     }
 
     void goo_rim_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     goo_rim_pass::~goo_rim_pass() {
@@ -113,11 +113,11 @@ namespace vulkan::pass {
     }
 
     bool goo_rim_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline goo_rim_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void goo_rim_pass::record(resolved_io const& io) {

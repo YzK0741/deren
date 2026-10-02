@@ -113,8 +113,8 @@ export namespace vulkan::render_resource {
         // ---- what every traced pass needs ----
         top_level_structure,
         /// the number of enumerators, so the schema's completeness can be checked by ITERATING rather than
-        /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count_)
-        count_,
+        /// against a hand-kept list: `validate_schema()` requires exactly one entry per id in [1, count)
+        count,
     };
 
     /** @brief what a resource IS, which decides the descriptor types it can be bound as */
@@ -534,7 +534,7 @@ export namespace vulkan::render_resource {
             if (info.id == resource_id::none) {
                 return std::unexpected("a schema entry has no id");
             }
-            if (static_cast<uint32_t>(info.id) >= static_cast<uint32_t>(resource_id::count_)) {
+            if (static_cast<uint32_t>(info.id) >= static_cast<uint32_t>(resource_id::count)) {
                 return std::unexpected("a schema entry uses an id outside the enumeration");
             }
             if (info.name.empty()) {
@@ -549,7 +549,7 @@ export namespace vulkan::render_resource {
         }
         // Completeness: every enumerator the renderer can name has exactly one entry. A forgotten entry is
         // the failure this catches, and it catches it without a second hand-kept list of ids.
-        for (uint32_t raw = 1; raw < static_cast<uint32_t>(resource_id::count_); ++raw) {
+        for (uint32_t raw = 1; raw < static_cast<uint32_t>(resource_id::count); ++raw) {
             std::size_t seen = 0;
             for (resource_info const& info : resource_schema) {
                 if (static_cast<uint32_t>(info.id) == raw) {
@@ -783,9 +783,17 @@ export namespace vulkan::render_resource {
         {.resource = resource_id::gbuffer_depth, .element = 0, .kind = target_kind::depth},
     }};
 
+    // cl 19.44 (MSVC 14.44) ICEs on this shape - and ONLY this shape: a module-interface-scope constexpr
+    // variable whose value holds a DISENGAGED std::optional (fatal error C1001 in msc1.cpp:1589, exit
+    // 0xC0000005). The four pass declarations whose push block is ABSENT (scene, transparent,
+    // character_forward, cluster) are exactly that, each one independently - fixing any three still crashes.
+    // constinit keeps the constant initialisation (the object is still statically initialised and immutable)
+    // and gives up only constant-expression usability, which nothing asks of these four. Measured on this file:
+    // clean 3/3 with constinit, ICE 4/4 without
+    // (build-release-clang64/msvc/lead_lab/ice_rr/ICE_RR_FINDINGS.md).
     /// @brief the scene pass's declaration
     /// @ingroup vulkan_render_resource
-    inline constexpr pass_io scene_io = {
+    inline constinit pass_io const scene_io = {
         .name = "scene",
         .bindings = {},
         .targets = scene_targets,
@@ -810,7 +818,8 @@ export namespace vulkan::render_resource {
 
     /// @brief the transparent pass's declaration
     /// @ingroup vulkan_render_resource
-    inline constexpr pass_io transparent_io = {
+    // constinit for the same cl 19.44 ICE as scene_io above (a disengaged std::optional in a constexpr global)
+    inline constinit pass_io const transparent_io = {
         .name = "transparent",
         .bindings = {},
         .targets = transparent_targets,
@@ -840,7 +849,8 @@ export namespace vulkan::render_resource {
 
     /// @brief the character-forward pass's declaration
     /// @ingroup vulkan_render_resource
-    inline constexpr pass_io character_forward_io = {
+    // constinit for the same cl 19.44 ICE as scene_io above (a disengaged std::optional in a constexpr global)
+    inline constinit pass_io const character_forward_io = {
         .name = "character_forward",
         .bindings = {},
         .targets = character_forward_targets,
@@ -1050,7 +1060,8 @@ export namespace vulkan::render_resource {
      * it: it is `tiles_x * tiles_y * slices`, which is why its behaviour declares `extent_rule::none` and the
      * host hands the count over in the pass's frame instead.
      */
-    inline constexpr pass_io cluster_io = {
+    // constinit for the same cl 19.44 ICE as scene_io above (a disengaged std::optional in a constexpr global)
+    inline constinit pass_io const cluster_io = {
         .name = "cluster",
         .bindings = {},
         .targets = {},

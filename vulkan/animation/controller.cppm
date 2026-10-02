@@ -369,14 +369,14 @@ namespace vulkan::animation {
                     c.target_node = loader_channel.target_node;
                     converted.channels.push_back(c);
                 }
-                this->playable.push_back(std::move(converted));
+                this->playable_clips.push_back(std::move(converted));
             }
             this->max_duration = 1.0f;
-            for (clip const& playable : this->playable) {
+            for (clip const& playable : this->playable_clips) {
                 this->max_duration = std::max(this->max_duration, clip_duration(playable));
             }
-            if (!this->playable.empty()) {
-                this->active = &this->playable[0];
+            if (!this->playable_clips.empty()) {
+                this->active = &this->playable_clips[0];
                 this->current_index = 0;
                 this->time = 0.0f;
                 this->duration = clip_duration(*this->active);
@@ -393,7 +393,7 @@ namespace vulkan::animation {
             // the decision here + a stable source list to slice update()'s sampling over.
             {
                 std::size_t max_channels = 0;
-                for (clip const& playable : this->playable) {
+                for (clip const& playable : this->playable_clips) {
                     max_channels = std::max(max_channels, playable.channels.size());
                 }
                 if (max_channels >= 32 && this->source_nodes.size() >= 64) {
@@ -511,7 +511,7 @@ namespace vulkan::animation {
                 // collect leaves per effective source (a "/prim" extra leaf inherits its parent's source)
                 std::unordered_map<std::size_t, std::vector<vulkan::primitive*>> source_leaves;
                 auto const collect_leaves = [&source_leaves](auto&& self, vulkan::scene_tree::scene_node& node, std::size_t const parent_source) -> void {
-                    bool const is_extra = node.name.ends_with("/prim");
+                    bool const is_extra = node.node_name.ends_with("/prim");
                     std::size_t const source = is_extra ? parent_source : node.source_index;
                     if (node.primitive_leaf != nullptr) {
                         source_leaves[source].push_back(static_cast<vulkan::primitive*>(node.primitive_leaf.get()));
@@ -780,15 +780,22 @@ namespace vulkan::animation {
         std::vector<std::size_t> sample_keys = {};
         // value-copied playable clips (channel-bearing, in source order). Filled once in
         // init() and never mutated afterwards, so active may point into it safely.
-        std::vector<clip> playable = {};
+        // playable_clips, not playable: init()'s range-for loops bind `clip const&
+        // playable`, which would hide a member of that name (MSVC /W4 C4458, an error
+        // under /WX).
+        std::vector<clip> playable_clips = {};
         std::unordered_map<std::size_t, std::vector<node_target>> source_nodes = {};
         std::unordered_map<std::size_t, node_pose> base_poses = {};
-        clip const* active = nullptr; // == &playable[current_index] when has_active()
+        clip const* active = nullptr; // == &playable_clips[current_index] when has_active()
         std::size_t current_index = 0;
         float time = 0.0f;
         float duration = 1.0f;
         float max_duration = 1.0f;
-        bool playing = true;
+        /// Deliberately NOT called `playing`: set_playing()'s parameter of that name would hide it and
+        /// MSVC /W4 reports C4458, an error under /WX (clang does not warn: -Wshadow is not enabled
+        /// there). Not `is_playing` either - that name belongs to the is_playing() accessor below
+        /// (MSVC C2365 / clang "redefinition as different kind of symbol").
+        bool playing_flag = true;
         std::size_t debug_source = std::numeric_limits<std::size_t>::max();
         glm::vec3 debug_translation{};
         std::string debug_node_name = {};

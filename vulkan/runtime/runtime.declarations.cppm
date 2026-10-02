@@ -442,7 +442,12 @@ namespace vulkan {
          * Filled by `make_pipeline` when the app hands the mesh stage's SPIR-V over, so a device without mesh
          * shaders simply has an empty map and every lookup falls through to the vertex pipeline.
          */
-        std::unordered_map<std::string_view, vk_pipeline> mesh_pipelines = {};
+        // `std::map`, not `std::unordered_map`: cl 19.44 ICEs (C1001, msc1.cpp:1589) when the primary
+        // loads this partition through `export import` and an exported class inside an interface
+        // partition holds a `std::unordered_map` data member (lead_lab/rr_map_lab/FINDINGS.md: 7/7
+        // `std::map` variants compile clean, 11/11 `unordered_map` ones ICE).
+        // `std::less<>` matches the `std::map<..., vk_pipeline, std::less<>> pipelines` member below.
+        std::map<std::string_view, vk_pipeline, std::less<>> mesh_pipelines = {};
         /**
          * @brief THE MESHLET FORM OF EACH NAMED PIPELINE, under the same name (docs/mesh_shaders.md step 3)
          *
@@ -454,7 +459,8 @@ namespace vulkan {
          * when the app passed no meshlet file, and every lookup then falls through to the mesh form, then the vertex
          * one - so the three are tried in the order of how much they save, and the last is always a complete answer.
          */
-        std::unordered_map<std::string_view, vk_pipeline> meshlet_pipelines = {};
+        // the same cl 19.44 C1001 reason as `mesh_pipelines` above (see lead_lab/rr_map_lab/FINDINGS.md)
+        std::map<std::string_view, vk_pipeline, std::less<>> meshlet_pipelines = {};
         // whether the opaque pass writes the G-buffer this frame (see set_gbuffer_debug). Only
         // takes effect once the needed pipelines exist, so the flags can be set before setup ends.
         bool gbuffer_debug = false;
@@ -494,7 +500,9 @@ namespace vulkan {
          * asks a chain asks it through a null check rather than falling back to a chain of its own - there is no
          * longer such a thing.
          */
-        pass::pass_chain* chain_ = nullptr;
+        /// named `frame_chain` rather than `chain`: `bind_frame_chain`/`set_pass_chain` take a
+        /// `pass::pass_chain& chain`, and a member of that name would be hidden by the parameter - MSVC /W4 reports C4458, which /WX makes an error
+        pass::pass_chain* frame_chain = nullptr;
 
         // THE PASSES ARE NOT CONSTRUCTED HERE ANY MORE, and the stage arrays below are what is left of this class's
         // knowledge of them: the APPLICATION builds its chain (vulkan.render_start_demo) and hands it over through
@@ -503,15 +511,21 @@ namespace vulkan {
         // passes and are still created here, from the same context the passes are.
         /// the bloom chain's stage, in level order (the runner walks the array; a stage IS the order, which is why
         /// it is an array of pointers and never a container whose iteration order is an accident)
-        std::array<pass::frame_pass*, 4> bloom_stage = {};
+        // called bloom_pass, not bloom_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 4> bloom_pass = {};
         /// the composite's own stage: one pass, the frame's display work (and the frame's LAST writer whenever
         /// FXAA is off, which is why its frame carries the overlay)
         std::array<pass::frame_pass*, 1> post_composite_stage = {};
         /// the shadow pass's stage: it runs BEFORE the scene pass (the maps have to exist before the surfaces that
         /// sample them are shaded), and the frame loop records it only on a frame the maps are not reused.
-        std::array<pass::frame_pass*, 1> shadow_stage = {};
+        // called shadow_pass, not shadow_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> shadow_pass = {};
         std::array<pass::frame_pass*, 1> gbuffer_debug_stage = {};
-        std::array<pass::frame_pass*, 1> fxaa_stage = {};
+        // called fxaa_pass, not fxaa_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> fxaa_pass = {};
         /**
          * THE UPSCALE PASS (vulkan.pass.upscale): the resolve that scales the render chain back up to the
          * output, and the frame's LAST writer on the frames it runs. It is the only pass in the frame whose
@@ -519,20 +533,28 @@ namespace vulkan {
          * `upscale_io`), and it is mutually exclusive with the FXAA pass by `post_fxaa_active()`: both read the
          * composite's LDR image and both want to write the presented one.
          */
-        std::array<pass::frame_pass*, 1> upscale_stage = {};
+        // called upscale_pass, not upscale_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> upscale_pass = {};
 
-        std::array<pass::frame_pass*, 1> rt_shadow_stage = {};
+        // called rt_shadow_pass, not rt_shadow_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> rt_shadow_pass = {};
         /// the deferred lighting stage's own stage: it sits between the ray-traced shadow (whose output its
         /// descriptor samples) and the transparent pass (which composites over the image it shades), which is
         /// where the frame loop records it and the only fact about it the renderer still spells out.
-        std::array<pass::frame_pass*, 1> deferred_stage = {};
+        // called deferred_pass, not deferred_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> deferred_pass = {};
         // The stochastic PUNCTUAL LIGHTING chain ([render] megalights, docs/megalights.md): the pass's own
         // stage, which runs between the G-buffer and the deferred lighting stage - the lighting stage is what
         // ADDS its result, so it has to have it, and the G-buffer is what it evaluates its lights against.
         /// TWO passes, a tracer then its temporal resolve - a two-half split without a second
         /// second STAGE, because the ordering rule the resolve needs (the G-buffer's depth and the motion-vector
         /// target have to be published for it) runs in this stage's own prepare before either pass records.
-        std::array<pass::frame_pass*, 2> megalights_stage = {};
+        // called megalights_pass, not megalights_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 2> megalights_pass = {};
         // Whether the punctual lights are the stochastic pass's business this frame. When it is, the deferred
         // lighting stage skips its own raster punctual loop (the `punctual_replaced` lane) rather than adding
         // the same lights twice - a REPLACE rather than an addition.
@@ -601,22 +623,30 @@ namespace vulkan {
         // THE SCENE PASS (vulkan.pass.scene): it owns the surface instance, the segment strategy and the draw
         // loop; the renderer hands it the leaves through a typed frame (see make_scene_frame) and keeps the
         // pipeline registry, the secondary buffers and the scheduler.
-        std::array<pass::frame_pass*, 1> scene_stage = {};
+        // called scene_pass, not scene_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> scene_pass = {};
         /// THE TRANSPARENT PASS (vulkan.pass.transparent): the same scene, its own LOAD instance, after lighting
-        std::array<pass::frame_pass*, 1> transparent_stage = {};
+        // called transparent_pass, not transparent_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> transparent_pass = {};
         /**
          * THE CHARACTER-FORWARD PASS (vulkan.pass.character_forward): the same OPAQUE leaves a second time,
          * shaded by the toon pipeline and written OVER the deferred result at depth-EQUAL. It sits after the
          * transparent pass (a toon body drawn under a blended surface would be composited over, which is the
          * right order: the blend belongs on top) and before the resolve.
          */
-        std::array<pass::frame_pass*, 1> character_forward_stage = {};
+        // called character_forward_pass, not character_forward_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> character_forward_pass = {};
         /**
          * THE SCREEN-SPACE DEPTH RIM (vulkan.pass.toon_screen_rim): a fullscreen additive contour, right after
          * the surface it outlines and before the resolve. It has no frame of its own - its parameters are the
          * pass's and its inputs are heap slots - so this array is only what the chain lookup fills.
          */
-        std::array<pass::frame_pass*, 1> toon_screen_rim_stage = {};
+        // called toon_screen_rim_pass, not toon_screen_rim_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> toon_screen_rim_pass = {};
         /**
          * THE REWRITTEN CHAIN'S RIM (vulkan.pass.goo_rim): the SAME screen-space shape as the contour above -
          * a fullscreen additive stage, no frame of its own - placed right after it, and the two are mutually
@@ -624,12 +654,16 @@ namespace vulkan {
          * `goo_toon_active()`, which is the negation of the predicate that answers the contour's. On a frame the
          * rewritten chain draws, this stage records and that one does not; on every other frame neither does.
          */
-        std::array<pass::frame_pass*, 1> goo_rim_stage = {};
+        // called goo_rim_pass, not goo_rim_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> goo_rim_pass = {};
         /// the scene frame's view of the per-slot segments (a member, so the span it hands the pass outlives it)
         std::vector<pass::segment_buffer> scene_segment_view = {};
         /// the colour formats the scene pass's secondaries inherit, in attachment order
         std::array<VkFormat, vulkan::gbuffer_pass_attachment_count> scene_color_formats = {};
-        std::array<pass::frame_pass*, 1> taa_stage = {};
+        // called taa_pass, not taa_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> taa_pass = {};
         bool taa_on = false; // [render] taa
         /**
          * WHETHER THE TOON CHARACTER STAGE IS SWITCHED ON. Default FALSE, and that default is the whole
@@ -722,7 +756,7 @@ namespace vulkan {
         /// the samplers a declaration chooses between, in one place (see pass_context::samplers)
         [[nodiscard]] render_resource::shared::sampler_set shared_samplers() const noexcept;
         /// @brief whether the LIGHTING STAGE is in the flat render mode this frame, published by the chain's owner
-        bool scene_unlit_ = false;
+        bool scene_unlit = false;
         /**
          * @brief fill this frame's shared constants (`pass::resolved_io::constants`) from the camera/light state
          *
@@ -1020,7 +1054,9 @@ namespace vulkan {
         // swapchain extent) and hands the cluster count over in the pass's frame. Optional: without the shader
         // (or with clustering off) shade_surface() falls back to the brute-force loop, which is exactly what the
         // clustered path is verified against.
-        std::array<pass::frame_pass*, 1> cluster_stage = {};
+        // called cluster_pass, not cluster_stage: the local of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::array<pass::frame_pass*, 1> cluster_pass = {};
         // Per-cascade shadow recording pairs (one {pool, buffer} per cascade per frame slot). The
         // cascade tasks run CONCURRENTLY on the task pool, and a VkCommandPool is not thread safe, so
         // they may not share one - the same rule the main-pass workers already follow. The shared
@@ -1109,7 +1145,10 @@ namespace vulkan {
         // conservative radius of the bound scene around the camera target / scene center
         // (set by enable_shadows, which receives it). The camera projection far plane uses it
         // (make_orbit_camera_ubo) so zooming in never clips the scene's far side.
-        float scene_radius = 100.0f;
+        // The `_extent_` infix is here because enable_shadows()'s parameter is called
+        // scene_radius: a member of the same name would be hidden by it there (MSVC /W4
+        // C4458, an error under /WX).
+        float scene_extent_radius = 100.0f;
         // optional whole-scene transform applied on top of every root before local transforms
         // (programmatic grouping / demo rotation; identity by default = no visual change)
         glm::mat4 scene_transform = glm::mat4(1.0f);
@@ -1125,7 +1164,7 @@ namespace vulkan {
         // never dangle): every scene mutation that removes or adds leaves -
         // make_primitive / make_instanced_primitive, import, set_scene,
         // and scene_changed() for callers editing get_scene() directly - sets bvh_dirty. The
-        // next begin_recording() then (1) recollects frame_leaves from the CURRENT tree, (2)
+        // next begin_recording() then (1) recollects frame_leaves_buffer from the CURRENT tree, (2)
         // destroys the old cull_bvh (its stale leaf pointers die with it) and rebuilds from
         // those fresh leaves, and (3) re-runs the cull so cull_visible also drops dead leaves.
         // Between frames the caches are never touched, so a leaf removed mid-frame is safe as
@@ -1186,10 +1225,12 @@ namespace vulkan {
         std::vector<std::vector<std::pair<VkCommandPool, vk_command_buffer>>> main_segments;
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its own work between the same steps)
-        uint32_t current_image_index = 0;                     // swapchain image acquired by pace_and_acquire()
-        float current_aspect = 1.0f;                          // swapchain aspect for the frame's UBO + culling
-        camera_ubo current_ubo = {};                          // camera UBO snapshot written in pace_and_acquire()
-        std::pmr::vector<primitive const*> frame_leaves = {}; // every scene leaf this frame (shadow + cull input)
+        uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
+        float current_aspect = 1.0f;      // swapchain aspect for the frame's UBO + culling
+        camera_ubo current_ubo = {};      // camera UBO snapshot written in pace_and_acquire()
+        // called frame_leaves_buffer, not frame_leaves: the local view of that name in
+        // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
+        std::pmr::vector<primitive const*> frame_leaves_buffer = {}; // every scene leaf this frame (shadow + cull input)
         // reused scratch for the shadow-frustum caster fit (see update_shadow_frustum): every
         // scene leaf is tested here, not just the visible ones, so off-screen casters count
         std::pmr::vector<primitive const*> shadow_caster_scratch = {};
@@ -1202,7 +1243,7 @@ namespace vulkan {
          * THE OVERLAY LEAVES (`primitive::overlay_kind != 0`), which are the article's two framebuffer
          * multiplies - the eye shadow and the hair shadow.
          *
-         * THEY ARE REMOVED FROM `frame_leaves` AS THEY ARE COLLECTED, so they reach NONE of the lists built
+         * THEY ARE REMOVED FROM `frame_leaves_buffer` AS THEY ARE COLLECTED, so they reach NONE of the lists built
          * from it: not the cull, not `frame_visible`, not `frame_transparent`, and not `shadow_casters`. That is
          * the whole point of the list rather than a convenience - a mask drawn by a shading pass is a shaded
          * quad (see `primitive::overlay_kind` for the measurement), and one drawn by the shadow pass casts a
@@ -1221,7 +1262,7 @@ namespace vulkan {
          * `_OutlineWidth` is 0 gets no hull, and it is a material fact rather than a mesh one (chen's
          * `cloth_02` is 0.0 in the game's own table while its neighbours are 0.6).
          *
-         * IT IS BUILT FROM `frame_visible` rather than from `frame_leaves`, and that is a correctness
+         * IT IS BUILT FROM `frame_visible` rather than from `frame_leaves_buffer`, and that is a correctness
          * requirement rather than an optimisation: a hull is confined to the outside of its silhouette BY THE
          * DEPTH TEST against the surface the pass just re-shaded (see `character_forward_frame::outline_leaves`),
          * so a leaf the cull dropped would leave its hull with nothing to be occluded by - a whole unlit shell
@@ -1494,7 +1535,7 @@ namespace vulkan {
          *        the dispatch itself.
          * @note `draw_mesh_tasks` answers false when the device has no `vkCmdDrawMeshTasksEXT` at all: the command
          *       is an EXTENSION command that the loader's import library does not export, so it is resolved
-         *       through `vkGetDeviceProcAddr` once and the answer is cached (see mesh_dispatch_).
+         *       through `vkGetDeviceProcAddr` once and the answer is cached (see `mesh_dispatch`).
          */
         static VkDeviceAddress mesh_buffer_address(void* owner, VkBuffer buffer);
         static bool push_geometry_block(void* owner, VkCommandBuffer command_buffer, uint32_t offset, std::span<std::byte const> bytes);
@@ -1874,7 +1915,7 @@ namespace vulkan {
          * a policy predicate without keeping a pass.
          */
         void set_scene_unlit(bool unlit) noexcept {
-            this->scene_unlit_ = unlit;
+            this->scene_unlit = unlit;
         }
         /**
          * @ingroup vulkan_runtime
@@ -1939,7 +1980,10 @@ namespace vulkan {
          * @brief background clear color applied every frame (the skybox is drawn over it, so it
          *        shows only where the environment pass leaves the background uncovered)
          */
-        glm::vec3 clear_color = glm::vec3(0.02f, 0.02f, 0.03f);
+        // background_color, not clear_color: render()'s own VkClearValue local is called
+        // clear_color and a member of that name would be hidden by it there (MSVC /W4
+        // C4458, an error under /WX).
+        glm::vec3 background_color = glm::vec3(0.02f, 0.02f, 0.03f);
 
         /**
          * @ingroup vulkan_runtime
@@ -2576,7 +2620,9 @@ namespace vulkan {
          * primitive's toon block stays empty - which is what makes "no source installed" and "no sidecar beside
          * this model" the same state rather than two to handle.
          */
-        toon_lookup toon_lookup_ = {};
+        /// named `toon_lookup_source` rather than `toon_lookup`: the struct above is `toon_lookup`, and a
+        /// member of that name would hide the type inside this class's scope
+        toon_lookup toon_lookup_source = {};
 
         /**
          * @ingroup vulkan_runtime
@@ -3150,7 +3196,9 @@ namespace vulkan {
         std::array<VkCommandBuffer, vulkan::max_shadow_cascades> shadow_secondaries_scratch = {};
         /// whoever owns this frame's passes; empty until `set_chain_wiring` is called, and a frame with no wiring
         /// gives its passes no frames - which is what makes the seam's absence visible rather than silent
-        chain_wiring wiring_ = {};
+        /// named `frame_wiring` rather than `wiring`: `set_chain_wiring`/`set_pass_chain` take a
+        /// `chain_wiring wiring`, and a member of that name would be hidden by the parameter - MSVC /W4 reports C4458, which /WX makes an error
+        chain_wiring frame_wiring = {};
         /**
          * THE FACTS PUBLISHED TO THE PASSES FOR THE STAGE ABOUT TO RECORD (see make_frame_facts and
          * `frame_pass::prepare_frame`).
@@ -3159,7 +3207,7 @@ namespace vulkan {
          * it is the frame CONSTANTS (see `frame_constants frame_facts` above) - one underscore apart from the
          * published facts would be a trap for whoever reads either name next.
          */
-        pass::frame_facts stage_facts_ = {};
+        pass::frame_facts stage_facts = {};
 
         /**
          * @ingroup vulkan_runtime
@@ -3497,7 +3545,7 @@ namespace vulkan {
          * @brief upload the GOO REFERENCE'S PRE-INTEGRATED FGD LUT into its own heap slot
          *
          * A `width x height` R8G8B8A8_**UNORM** image, uploaded once from the reference's own PNG
-         * (`zmd-ab/gooblender/images/PreIntegratedFGD_GGXDisneyDiffuse.png`, 64x64, 5234 B). The step-5 spec's
+         * (`deren-ab/gooblender/images/PreIntegratedFGD_GGXDisneyDiffuse.png`, 64x64, 5234 B). The step-5 spec's
          * §3.4 ruling is why it is a SHARED GLOBAL image rather than a `toon_slot` lane: the reference's FGD group
          * holds one `ShaderNodeTexImage`, three containers share that data-block, and the sample coordinate is
          * computed from shading parameters - so per-material lanes would be eleven rows of sidecar pointing at one
@@ -3687,27 +3735,27 @@ namespace vulkan {
                 // The runtime asks by NAME because the sidecar is keyed by name; it never sees the sidecar.
                 // A null lookup leaves `info.toon` empty, which is what a model with no sidecar gets: an empty
                 // block rather than a block of white, so a shader finds nothing switched on.
-                if (this->toon_lookup_.texture != nullptr || this->toon_lookup_.colour != nullptr || this->toon_lookup_.scalar != nullptr) {
+                if (this->toon_lookup_source.texture != nullptr || this->toon_lookup_source.colour != nullptr || this->toon_lookup_source.scalar != nullptr) {
                     std::string_view const material_name = drawable.get_material_name();
                     for (uint32_t lane = 0; lane < static_cast<uint32_t>(toon_slot::count); ++lane) {
-                        if (this->toon_lookup_.texture != nullptr) {
-                            info.toon.slots[lane] = this->toon_lookup_.texture(this->toon_lookup_.owner, material_name, static_cast<toon_slot>(lane));
+                        if (this->toon_lookup_source.texture != nullptr) {
+                            info.toon.slots[lane] = this->toon_lookup_source.texture(this->toon_lookup_source.owner, material_name, static_cast<toon_slot>(lane));
                         }
                     }
                     // THE COLOURS, from the same name and the same sidecar: a material with no such row keeps the
                     // neutral white `toon_inputs` gave it, which is what "the game states no colour here" has to
                     // look like for a multiply-tint.
-                    for (uint32_t lane = 0; this->toon_lookup_.colour != nullptr && lane < static_cast<uint32_t>(toon_colour_lane::count); ++lane) {
-                        info.toon.colours[lane] = this->toon_lookup_.colour(this->toon_lookup_.owner, material_name, static_cast<toon_colour_lane>(lane));
+                    for (uint32_t lane = 0; this->toon_lookup_source.colour != nullptr && lane < static_cast<uint32_t>(toon_colour_lane::count); ++lane) {
+                        info.toon.colours[lane] = this->toon_lookup_source.colour(this->toon_lookup_source.owner, material_name, static_cast<toon_colour_lane>(lane));
                     }
                     // THE ARTICLE'S TRANSPARENT VARIANT, from the sidecar's own blend pair - see
                     // `toon_inputs::alpha_blend` and `toon_lookup::scalar`. `5` / `10` are Unity's `SrcAlpha` /
                     // `OneMinusSrcAlpha`, which is the pair every material in this repository states when it
                     // states one; anything else is left as the opaque overwrite rather than approximated,
                     // because a blend state this port cannot evaluate is not a blend state it should guess.
-                    if (this->toon_lookup_.scalar != nullptr) {
-                        float const src = this->toon_lookup_.scalar(this->toon_lookup_.owner, material_name, "_SrcBlend", 1.0f);
-                        float const dst = this->toon_lookup_.scalar(this->toon_lookup_.owner, material_name, "_DstBlend", 0.0f);
+                    if (this->toon_lookup_source.scalar != nullptr) {
+                        float const src = this->toon_lookup_source.scalar(this->toon_lookup_source.owner, material_name, "_SrcBlend", 1.0f);
+                        float const dst = this->toon_lookup_source.scalar(this->toon_lookup_source.owner, material_name, "_DstBlend", 0.0f);
                         info.toon.alpha_blend = src == 5.0f && dst == 10.0f;
                     }
                 }
@@ -3736,7 +3784,7 @@ namespace vulkan {
                     // a glTF node can carry several primitives; scene_node has one leaf slot, so
                     // extra primitives become identity-local child leaves (world unchanged)
                     scene_tree::scene_node extra;
-                    extra.name = node.name + "/prim";
+                    extra.node_name = node.node_name + "/prim";
                     extra.primitive_leaf = std::move(created);
                     node.children.push_back(std::move(extra));
                 }
@@ -3755,7 +3803,7 @@ namespace vulkan {
                     ancestors.pop_back();
                 }
                 scene_tree::scene_node node;
-                node.name = std::string(nfirst.get_name());
+                node.node_name = std::string(nfirst.get_name());
                 node.source_index = nfirst.get_source_index(); // asset node index (e.g. glTF): animation targets map onto the tree through it
                 node.local = nfirst.get_local_transform();
                 if (depth == 0) {

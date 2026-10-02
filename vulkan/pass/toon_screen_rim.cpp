@@ -30,7 +30,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& toon_screen_rim_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view toon_screen_rim_pass::feature() const noexcept {
@@ -43,7 +43,7 @@ namespace vulkan::pass {
         // REWRITTEN toon chain must not wear TWO rims either: this pass draws the ARTICLE's screen-space contour
         // (`toon_screen_rim.slang`), and the Goo reference the rewrite follows has no such contour - its
         // screen-space piece is `DepthRim`, which the rewrite's second step defers (see
-        // `zmd-ab/goo_step2_rim_spec.md` §9-U1/U2/U4/U5). Sharing the name made the two impossible to separate:
+        // `deren-ab/goo_step2_rim_spec.md` §9-U1/U2/U4/U5). Sharing the name made the two impossible to separate:
         // `feature_active` is asked once per NAME, so "the rim stage is off" and "the character stage is off"
         // were one answer and the switch could only turn off both.
         //
@@ -59,11 +59,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -96,17 +96,17 @@ namespace vulkan::pass {
         }
         built->viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f}; // the runner resyncs it from io.extent
         built->scissor = {{0, 0}, {1u, 1u}};
-        this->pipeline_ = std::move(*built);
+        this->pass_pipeline = std::move(*built);
         utility::log("SUCCESS: toon screen rim pipeline created (a fullscreen additive contour from the depth)");
     }
 
     void toon_screen_rim_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing to reset: the pipeline depends on the HDR target's format and on nothing whose size changes,
-        // and the viewport/scissor are resynced by the runner (see behaviour_::resync_viewport).
+        // and the viewport/scissor are resynced by the runner (see pass_behaviour::resync_viewport).
     }
 
     void toon_screen_rim_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     toon_screen_rim_pass::~toon_screen_rim_pass() {
@@ -114,23 +114,23 @@ namespace vulkan::pass {
     }
 
     bool toon_screen_rim_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline toon_screen_rim_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void toon_screen_rim_pass::set_shape(float const width, float const scale, float const strength) noexcept {
-        this->rim_width_ = width;
-        this->rim_scale_ = scale;
-        this->rim_strength_ = strength;
+        this->rim_width = width;
+        this->rim_scale = scale;
+        this->rim_strength = strength;
     }
 
     void toon_screen_rim_pass::set_colour(float const r, float const g, float const b) noexcept {
-        this->rim_colour_[0] = r;
-        this->rim_colour_[1] = g;
-        this->rim_colour_[2] = b;
+        this->rim_colour[0] = r;
+        this->rim_colour[1] = g;
+        this->rim_colour[2] = b;
     }
 
     void toon_screen_rim_pass::record(resolved_io const& io) {
@@ -152,13 +152,13 @@ namespace vulkan::pass {
         push_constants const push = {
             .proj_22 = io.constants.proj[2][2],
             .proj_32 = io.constants.proj[3][2],
-            .rim_width = this->rim_width_,
-            .rim_scale = this->rim_scale_,
-            .rim_strength = this->rim_strength_,
+            .rim_width = this->rim_width,
+            .rim_scale = this->rim_scale,
+            .rim_strength = this->rim_strength,
             .pad0 = 0.0f,
             .pad1 = 0.0f,
             .pad2 = 0.0f,
-            .rim_colour = {this->rim_colour_[0], this->rim_colour_[1], this->rim_colour_[2], 1.0f},
+            .rim_colour = {this->rim_colour[0], this->rim_colour[1], this->rim_colour[2], 1.0f},
         };
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
         vkCmdDraw(io.cmd, 3, 1, 0, 0);

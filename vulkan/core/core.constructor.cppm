@@ -77,7 +77,7 @@ namespace vulkan {
         create_sync_objects();
         create_timestamp_query_pool(); // GPU pass timings (a no-op on devices that cannot timestamp)
 
-        vma.init(this->instance, this->device, this->physical_device, this->graphics_queue, this->graphics_family_index);
+        vma.init(this->instance, this->logical_device, this->physical_device, this->graphics_queue_handle, this->graphics_queue_family_index);
         this->register_cleanup([this] {
             vma.destroy();
         });
@@ -89,7 +89,7 @@ namespace vulkan {
         //      alignment - logs and leaves the renderer without a binding model, which is what the false return
         //      means: the heap is the only one it has, so it cannot render without it.
         if (this->descriptor_heap_limits.max_resource_size != 0) {
-            if (this->descriptor_heaps.init(this->vma, this->device, this->descriptor_heap_limits)) {
+            if (this->descriptor_heaps.init(this->vma, this->logical_device, this->descriptor_heap_limits)) {
                 // ---- THE SLOT GRID, RESERVED FIRST BECAUSE ITS BASE IS FIXED (see core.cppm's heap_slots), and
                 //      that is the whole reason it comes before the blocks below: a heap-native shader bakes
                 //      `array[heap_slots_x + i]`, so slot 0 has to land at 1 MiB on every device. The cursor
@@ -175,7 +175,7 @@ namespace vulkan {
     };
 
     core::~core() {
-        vkDeviceWaitIdle(this->device);
+        vkDeviceWaitIdle(this->logical_device);
         this->do_cleanup();
     }
 
@@ -447,7 +447,7 @@ namespace vulkan {
             // (VUID-vkCreateDevice-ppEnabledExtensionNames-01387). The capability query resolved which of them
             // this device has and made the heap unavailable when it has neither, so this cannot push a name the
             // device does not support.
-            creation_info.extensions.push_back(capabilities.descriptor_heap_dependency);
+            creation_info.extensions.push_back(capabilities.descriptor_heap_extension_name);
             // ... and the heap's shaders' own dependency, without which no `descriptor_heap` declaration can be
             // turned into a shader module at all (see the capability layer): the extension whose SPIR-V declares
             // untyped pointers.
@@ -495,7 +495,7 @@ namespace vulkan {
 
         auto const [device, graphics_family_index, present_family_index, graphics_queue, present_queue] = create_logical_device(physical_device, creation_info); // NOLINT(*-misplaced-const)
 
-        this->device = device;
+        this->logical_device = device;
 
         // ---- MESH SHADERS: the capability half (docs/mesh_shaders.md). The extension is enabled above only when
         //      the feature is there, so `mesh_shader_available` and "the feature struct is in the device chain" are
@@ -541,10 +541,10 @@ namespace vulkan {
                 .max_embedded_samplers = heap.maxDescriptorHeapEmbeddedSamplers,
             };
         }
-        this->graphics_queue = graphics_queue;
-        this->present_queue = present_queue;
-        this->graphics_family_index = graphics_family_index;
-        this->present_family_index = present_family_index;
+        this->graphics_queue_handle = graphics_queue;
+        this->present_queue_handle = present_queue;
+        this->graphics_queue_family_index = graphics_family_index;
+        this->present_queue_family_index = present_family_index;
 
         // What the device ended up with, for the passes that need it (see the members: the ray-traced
         // paths are skipped rather than broken on a device without them).
@@ -558,8 +558,8 @@ namespace vulkan {
         utility::log("device and queue init succeeded");
 
         register_cleanup([this] {
-            if (this->device != VK_NULL_HANDLE) {
-                vkDestroyDevice(this->device, nullptr);
+            if (this->logical_device != VK_NULL_HANDLE) {
+                vkDestroyDevice(this->logical_device, nullptr);
             }
         });
     }
@@ -650,20 +650,20 @@ namespace vulkan {
         create_info.clipped = VK_TRUE;
         create_info.oldSwapchain = VK_NULL_HANDLE;
 
-        if (vkCreateSwapchainKHR(device, &create_info, nullptr, &this->swap_chain) != VK_SUCCESS) {
+        if (vkCreateSwapchainKHR(logical_device, &create_info, nullptr, &this->swap_chain) != VK_SUCCESS) {
             utility::panic("failed to create swap chain!");
         }
 
-        vkGetSwapchainImagesKHR(device, this->swap_chain, &image_count, nullptr);
+        vkGetSwapchainImagesKHR(logical_device, this->swap_chain, &image_count, nullptr);
         this->swap_chain_images.resize(image_count);
-        vkGetSwapchainImagesKHR(device, this->swap_chain, &image_count, this->swap_chain_images.data());
+        vkGetSwapchainImagesKHR(logical_device, this->swap_chain, &image_count, this->swap_chain_images.data());
 
         this->swap_chain_image_format = format;
         this->swap_chain_extent = extent;
 
         register_cleanup([this] {
             if (swap_chain != VK_NULL_HANDLE) {
-                vkDestroySwapchainKHR(device, swap_chain, nullptr);
+                vkDestroySwapchainKHR(logical_device, swap_chain, nullptr);
                 swap_chain = VK_NULL_HANDLE;
             }
         });
@@ -674,13 +674,13 @@ namespace vulkan {
         this->swap_chain_image_views.resize(this->swap_chain_images.size());
         for (size_t i = 0; i < this->swap_chain_images.size(); i++) {
             VkImageViewCreateInfo const create_info = make_image_view_info(this->swap_chain_images[i], swap_chain_image_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
-            if (vkCreateImageView(device, &create_info, nullptr, &this->swap_chain_image_views[i]) != VK_SUCCESS) {
+            if (vkCreateImageView(logical_device, &create_info, nullptr, &this->swap_chain_image_views[i]) != VK_SUCCESS) {
                 utility::panic("failed to create image views!");
             }
         }
         register_cleanup([this] {
             for (auto const& image_view : this->swap_chain_image_views) {
-                vkDestroyImageView(device, image_view, nullptr);
+                vkDestroyImageView(logical_device, image_view, nullptr);
             }
             this->swap_chain_image_views.clear();
         });
@@ -697,14 +697,14 @@ namespace vulkan {
         image_info.extent = {width, height, 1};
         image_info.mipLevels = 1;
         image_info.arrayLayers = 1;
-        image_info.format = this->depth_format;
+        image_info.format = this->depth_attachment_format;
         image_info.tiling = VK_IMAGE_TILING_OPTIMAL;
         image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        if (vkCreateImage(device, &image_info, nullptr, &image) != VK_SUCCESS) {
+        if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
             // No vkDestroyImage on this path: `image` is the caller's out-parameter and vkCreateImage
             // leaves it untouched when it fails, so destroying it here would pass a handle that was
             // never created.
@@ -713,7 +713,7 @@ namespace vulkan {
 
         // 2. Allocate memory
         VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(device, image, &mem_requirements);
+        vkGetImageMemoryRequirements(logical_device, image, &mem_requirements);
 
         VkMemoryAllocateInfo alloc_info = {};
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -721,26 +721,26 @@ namespace vulkan {
         alloc_info.memoryTypeIndex = find_memory_type(mem_requirements.memoryTypeBits,
                                                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, this->physical_device);
 
-        if (vkAllocateMemory(device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
+        if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
             utility::panic("failed to allocate depth image memory!");
         }
 
-        vkBindImageMemory(device, image, image_memory, 0);
+        vkBindImageMemory(logical_device, image, image_memory, 0);
 
         // 3. Create image views
-        VkImageViewCreateInfo const view_info = make_image_view_info(image, this->depth_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, 1, 1);
+        VkImageViewCreateInfo const view_info = make_image_view_info(image, this->depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, 1, 1);
 
-        if (vkCreateImageView(device, &view_info, nullptr, &image_view) != VK_SUCCESS) {
+        if (vkCreateImageView(logical_device, &view_info, nullptr, &image_view) != VK_SUCCESS) {
             utility::panic("failed to create depth image view!");
         }
     }
 
     void core::create_depth_resources() noexcept {
 
-        depth_format = find_depth_format(this->physical_device);
+        depth_attachment_format = find_depth_format(this->physical_device);
 
         // First test whether the depth format is valid
-        if (depth_format == VK_FORMAT_UNDEFINED) {
+        if (depth_attachment_format == VK_FORMAT_UNDEFINED) {
             utility::panic("can't find supported depth format");
         }
 
@@ -760,13 +760,13 @@ namespace vulkan {
 
         register_cleanup([this] {
             for (auto const& view : depth_image_views) {
-                vkDestroyImageView(device, view, nullptr);
+                vkDestroyImageView(logical_device, view, nullptr);
             }
             for (auto const& image : depth_images) {
-                vkDestroyImage(device, image, nullptr);
+                vkDestroyImage(logical_device, image, nullptr);
             }
             for (auto const& memory : depth_image_memories) {
-                vkFreeMemory(device, memory, nullptr);
+                vkFreeMemory(logical_device, memory, nullptr);
             }
             depth_image_views.clear();
             depth_images.clear();
@@ -808,7 +808,7 @@ namespace vulkan {
                 hdr_images[i],
                 hdr_format,
                 VK_IMAGE_ASPECT_COLOR_BIT,
-                device);
+                logical_device);
             // the heap's copy: this target is RENDERED into (an attachment is not a descriptor) and SAMPLED by the
             // post chain, so one sampled descriptor is what the grid needs - unlike the images a compute pass
             // writes, which need a storage descriptor beside it.
@@ -842,7 +842,7 @@ namespace vulkan {
                 ldr_images[i],
                 hdr_format,
                 VK_IMAGE_ASPECT_COLOR_BIT,
-                device);
+                logical_device);
             // the heap's copy, at the array named for its reader: this is the display-referred target FXAA samples
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ldr_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
@@ -880,7 +880,7 @@ namespace vulkan {
                     target_images[i],
                     gbuffer_formats[target],
                     VK_IMAGE_ASPECT_COLOR_BIT,
-                    device);
+                    logical_device);
 
                 // ... AND THE HEAP'S COPY OF THE SAME IMAGE, at the grid array a heap-native shader will name: the
                 // descriptor is a view CREATE INFO rather than a view, so it is built from the same image, format
@@ -900,7 +900,10 @@ namespace vulkan {
         // Motion vectors + the TAA working image (the scene color the resolve reads): same extent and
         // lifetime as the G-buffer targets, single-sampled, written as attachments and sampled
         // afterwards.
-        auto const create_sampled_target = [this, render](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views, VkFormat const format, uint32_t const heap_slot_base) {
+        // The parameter is `slot_base` and NOT `heap_slot_base`: it would hide `core::heap_slots::heap_slot_base`
+        // and MSVC /W4 reports C4458 (an error under /WX). The member keeps its name because the shaders'
+        // own constant is called that - see the note on it in core.declarations.cppm.
+        auto const create_sampled_target = [this, render](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views, VkFormat const format, uint32_t const slot_base) {
             images.resize(swap_chain_image_views.size());
             memories.resize(swap_chain_image_views.size());
             views.resize(swap_chain_image_views.size());
@@ -914,12 +917,12 @@ namespace vulkan {
                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                     images[i],
                     memories[i]);
-                views[i] = create_image_view(images[i], format, VK_IMAGE_ASPECT_COLOR_BIT, device);
+                views[i] = create_image_view(images[i], format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
                 // the heap's copy, from the same format and aspect (see the G-buffer block above)
                 if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                     VkImageViewCreateInfo const heap_view = make_image_view_info(images[i], format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slot_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                        utility::log("descriptor heap: the sampled target for image {} did not reach grid slot {}", i, heap_slot_base + static_cast<uint32_t>(i));
+                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(slot_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                        utility::log("descriptor heap: the sampled target for image {} did not reach grid slot {}", i, slot_base + static_cast<uint32_t>(i));
                     }
                 }
             }
@@ -945,7 +948,7 @@ namespace vulkan {
                 taa_history_images[i],
                 taa_history_image_memories[i]);
 
-            taa_history_image_views[i] = create_image_view(taa_history_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, device);
+            taa_history_image_views[i] = create_image_view(taa_history_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
             // the heap's copy, at the array TAA's history input is named for (see the sampled-target lambda above)
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(taa_history_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
@@ -978,7 +981,7 @@ namespace vulkan {
                 ml_images[i],
                 ml_image_memories[i]);
 
-            ml_image_views[i] = create_image_view(ml_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, device);
+            ml_image_views[i] = create_image_view(ml_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
             // TWO descriptors for this image, because its compute pass WRITES it and the lighting stage SAMPLES it
             // (no single heap descriptor is both): sampled at the array the readers name, storage at its own slot.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
@@ -1012,7 +1015,7 @@ namespace vulkan {
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 ml_resolve_images[i],
                 ml_resolve_image_memories[i]);
-            ml_resolve_image_views[i] = create_image_view(ml_resolve_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, device);
+            ml_resolve_image_views[i] = create_image_view(ml_resolve_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
             // ... and the resolve's pair, the same way the trace's is written above: sampled for the lighting stage
             // that adds it, storage for the compute pass that accumulates into it.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
@@ -1034,7 +1037,7 @@ namespace vulkan {
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 ml_history_images[i],
                 ml_history_image_memories[i]);
-            ml_history_image_views[i] = create_image_view(ml_history_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, device);
+            ml_history_image_views[i] = create_image_view(ml_history_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
             // the heap's copy: the history is written by a TRANSFER and read as the temporal resolve's input, so
             // one sampled descriptor is all it needs (the copy is not a descriptor write)
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
@@ -1060,7 +1063,7 @@ namespace vulkan {
             VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
             furnace_cube_images[0],
             furnace_cube_memories[0]);
-        furnace_cube_views[0] = create_image_view(furnace_cube_images[0], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, device, VK_IMAGE_VIEW_TYPE_CUBE, 6);
+        furnace_cube_views[0] = create_image_view(furnace_cube_images[0], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device, VK_IMAGE_VIEW_TYPE_CUBE, 6);
         // The ray-traced sun visibility: FULL resolution (one ray per screen pixel) and one per FRAME
         // SLOT - see the member's comment for why the slot, not the swapchain image, is the right
         // lifetime. R16F rather than RGBA16F: the pass writes a single visibility factor, and the
@@ -1079,7 +1082,7 @@ namespace vulkan {
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
                 rt_shadow_images[slot],
                 rt_shadow_image_memories[slot]);
-            rt_shadow_image_views[slot] = create_image_view(rt_shadow_images[slot], VK_FORMAT_R16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, device);
+            rt_shadow_image_views[slot] = create_image_view(rt_shadow_images[slot], VK_FORMAT_R16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
 
             // THE HEAP'S COPIES OF THAT IMAGE - TWO of them, which is not redundancy: SAMPLED_IMAGE and
             // STORAGE_IMAGE are different descriptor kinds and one heap descriptor is never both, while this image
@@ -1104,7 +1107,7 @@ namespace vulkan {
             create_target_image(
                 render.width,
                 render.height,
-                depth_format,
+                depth_attachment_format,
                 VK_IMAGE_TILING_OPTIMAL,
                 VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
                 VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
@@ -1113,13 +1116,13 @@ namespace vulkan {
 
             // the DEPTH aspect (a color view of a depth image is invalid) - same raw-view
             // convention as the other per-image targets, whose destruction is registered below
-            gbuffer_depth_image_views[i] = create_image_view(gbuffer_depth_images[i], depth_format, VK_IMAGE_ASPECT_DEPTH_BIT, device);
+            gbuffer_depth_image_views[i] = create_image_view(gbuffer_depth_images[i], depth_attachment_format, VK_IMAGE_ASPECT_DEPTH_BIT, logical_device);
             // ... and the heap's copy, with the DEPTH aspect and the depth format the view above used: the heap
             // descriptor is a create info, and a colour aspect on a depth image is a validation error rather than a
             // wrong picture (the shadow map paid for that one already). The deferred, post and TAA stages all sample
             // this image, which is why the grid array is named for the surface rather than for one reader.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_depth_view = make_image_view_info(gbuffer_depth_images[i], depth_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
+                VkImageViewCreateInfo const heap_depth_view = make_image_view_info(gbuffer_depth_images[i], depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::gbuffer_depth + static_cast<uint32_t>(i)) * heap_slot_stride, heap_depth_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the gbuffer depth for image {} did not reach grid slot {}", i, heap_slots::gbuffer_depth + static_cast<uint32_t>(i));
                 }
@@ -1153,7 +1156,7 @@ namespace vulkan {
                     level_images[i],
                     hdr_format,
                     VK_IMAGE_ASPECT_COLOR_BIT,
-                    device);
+                    logical_device);
                 // the heap's copy: a bloom level is RENDERED into and SAMPLED by the next level and the composite,
                 // so one sampled descriptor per level per image - and the grid packs the levels `heap_image_capacity`
                 // apart, which is the same stride this loop's level index multiplies (see core.cppm's heap_slots).
@@ -1178,13 +1181,13 @@ namespace vulkan {
 
         register_cleanup([this] {
             for (auto const& view : hdr_image_views) {
-                vkDestroyImageView(device, view, nullptr);
+                vkDestroyImageView(logical_device, view, nullptr);
             }
             for (auto const& memory : hdr_image_memories) {
-                vkFreeMemory(device, memory, nullptr);
+                vkFreeMemory(logical_device, memory, nullptr);
             }
             for (auto const& image : hdr_images) {
-                vkDestroyImage(device, image, nullptr);
+                vkDestroyImage(logical_device, image, nullptr);
             }
             hdr_image_views.clear();
             hdr_image_memories.clear();
@@ -1192,13 +1195,13 @@ namespace vulkan {
             // the LDR (FXAA input) targets share this lifetime: they are (re)created with the
             // swapchain in exactly the same way, so they belong to the same cleanup registration
             for (auto const& view : ldr_image_views) {
-                vkDestroyImageView(device, view, nullptr);
+                vkDestroyImageView(logical_device, view, nullptr);
             }
             for (auto const& memory : ldr_image_memories) {
-                vkFreeMemory(device, memory, nullptr);
+                vkFreeMemory(logical_device, memory, nullptr);
             }
             for (auto const& image : ldr_images) {
-                vkDestroyImage(device, image, nullptr);
+                vkDestroyImage(logical_device, image, nullptr);
             }
             ldr_image_views.clear();
             ldr_image_memories.clear();
@@ -1206,45 +1209,45 @@ namespace vulkan {
             // the G-buffer targets + the pass's own depth image share this lifetime too
             for (auto const& target_views : gbuffer_image_views) {
                 for (auto const& view : target_views) {
-                    vkDestroyImageView(device, view, nullptr);
+                    vkDestroyImageView(logical_device, view, nullptr);
                 }
             }
             for (auto const& target_memories : gbuffer_image_memories) {
                 for (auto const& memory : target_memories) {
-                    vkFreeMemory(device, memory, nullptr);
+                    vkFreeMemory(logical_device, memory, nullptr);
                 }
             }
             for (auto const& target_images : gbuffer_images) {
                 for (auto const& image : target_images) {
-                    vkDestroyImage(device, image, nullptr);
+                    vkDestroyImage(logical_device, image, nullptr);
                 }
             }
             gbuffer_image_views = {};
             gbuffer_image_memories = {};
             gbuffer_images = {};
             for (auto const& view : gbuffer_depth_image_views) {
-                vkDestroyImageView(device, view, nullptr);
+                vkDestroyImageView(logical_device, view, nullptr);
             }
             gbuffer_depth_image_views.clear();
             for (auto const& memory : gbuffer_depth_image_memories) {
-                vkFreeMemory(device, memory, nullptr);
+                vkFreeMemory(logical_device, memory, nullptr);
             }
             gbuffer_depth_image_memories.clear();
             for (auto const& image : gbuffer_depth_images) {
-                vkDestroyImage(device, image, nullptr);
+                vkDestroyImage(logical_device, image, nullptr);
             }
             gbuffer_depth_images.clear();
             // motion vectors + the TAA working images share the same lifetime (see
             // create_render_targets)
             auto const destroy_images = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
                 for (auto const& view : views) {
-                    vkDestroyImageView(device, view, nullptr);
+                    vkDestroyImageView(logical_device, view, nullptr);
                 }
                 for (auto const& memory : memories) {
-                    vkFreeMemory(device, memory, nullptr);
+                    vkFreeMemory(logical_device, memory, nullptr);
                 }
                 for (auto const& image : images) {
-                    vkDestroyImage(device, image, nullptr);
+                    vkDestroyImage(logical_device, image, nullptr);
                 }
                 views.clear();
                 memories.clear();
@@ -1260,17 +1263,17 @@ namespace vulkan {
             destroy_images(rt_shadow_images, rt_shadow_image_memories, rt_shadow_image_views);
             for (auto const& level_views : bloom_image_views) {
                 for (auto const& view : level_views) {
-                    vkDestroyImageView(device, view, nullptr);
+                    vkDestroyImageView(logical_device, view, nullptr);
                 }
             }
             for (auto const& level_memories : bloom_image_memories) {
                 for (auto const& memory : level_memories) {
-                    vkFreeMemory(device, memory, nullptr);
+                    vkFreeMemory(logical_device, memory, nullptr);
                 }
             }
             for (auto const& level_images : bloom_images) {
                 for (auto const& image : level_images) {
-                    vkDestroyImage(device, image, nullptr);
+                    vkDestroyImage(logical_device, image, nullptr);
                 }
             }
             bloom_image_views = {};
@@ -1280,15 +1283,15 @@ namespace vulkan {
     }
 
     void core::create_command_pool() noexcept {
-        VkCommandPoolCreateInfo const pool_info = make_command_pool_info(graphics_family_index);
+        VkCommandPoolCreateInfo const pool_info = make_command_pool_info(graphics_queue_family_index);
 
-        if (vkCreateCommandPool(device, &pool_info, nullptr, &command_pool) != VK_SUCCESS) {
+        if (vkCreateCommandPool(logical_device, &pool_info, nullptr, &command_pool) != VK_SUCCESS) {
             utility::panic("failed to create command pool");
         }
 
         register_cleanup([this] {
             if (command_pool != VK_NULL_HANDLE) {
-                vkDestroyCommandPool(device, command_pool, nullptr);
+                vkDestroyCommandPool(logical_device, command_pool, nullptr);
             }
         });
     }
@@ -1317,12 +1320,12 @@ namespace vulkan {
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        if (vkCreateImage(device, &image_info, nullptr, &image) != VK_SUCCESS) {
+        if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
             utility::panic("can't create target image");
         }
 
         VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(device, image, &mem_requirements);
+        vkGetImageMemoryRequirements(logical_device, image, &mem_requirements);
 
         VkMemoryAllocateInfo alloc_info = {};
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -1332,11 +1335,11 @@ namespace vulkan {
             properties,
             physical_device);
 
-        if (vkAllocateMemory(device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
+        if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
             utility::panic("can't allocate target image memory");
         }
 
-        vkBindImageMemory(device, image, image_memory, 0);
+        vkBindImageMemory(logical_device, image, image_memory, 0);
     }
 
     void core::create_target_image_3d(
@@ -1364,12 +1367,12 @@ namespace vulkan {
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        if (vkCreateImage(device, &image_info, nullptr, &image) != VK_SUCCESS) {
+        if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
             utility::panic("can't create 3D target image");
         }
 
         VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(device, image, &mem_requirements);
+        vkGetImageMemoryRequirements(logical_device, image, &mem_requirements);
 
         VkMemoryAllocateInfo alloc_info = {};
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -1379,11 +1382,11 @@ namespace vulkan {
             properties,
             physical_device);
 
-        if (vkAllocateMemory(device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
+        if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
             utility::panic("can't allocate 3D target image memory");
         }
 
-        vkBindImageMemory(device, image, image_memory, 0);
+        vkBindImageMemory(logical_device, image, image_memory, 0);
     }
 
     void core::create_target_image_cube(
@@ -1410,12 +1413,12 @@ namespace vulkan {
         image_info.samples = VK_SAMPLE_COUNT_1_BIT;
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-        if (vkCreateImage(device, &image_info, nullptr, &image) != VK_SUCCESS) {
+        if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
             utility::panic("can't create cube target image");
         }
 
         VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(device, image, &mem_requirements);
+        vkGetImageMemoryRequirements(logical_device, image, &mem_requirements);
 
         VkMemoryAllocateInfo alloc_info = {};
         alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
@@ -1425,11 +1428,11 @@ namespace vulkan {
             properties,
             physical_device);
 
-        if (vkAllocateMemory(device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
+        if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
             utility::panic("can't allocate cube target image memory");
         }
 
-        vkBindImageMemory(device, image, image_memory, 0);
+        vkBindImageMemory(logical_device, image, image_memory, 0);
     }
 
     void core::create_sync_objects() {
@@ -1448,30 +1451,30 @@ namespace vulkan {
         VkSemaphoreCreateInfo binary_info = make_binary_semaphore_info();
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
-            if (vkCreateSemaphore(device, &binary_info, nullptr, &image_available_semaphores[i]) != VK_SUCCESS) {
+            if (vkCreateSemaphore(logical_device, &binary_info, nullptr, &image_available_semaphores[i]) != VK_SUCCESS) {
                 utility::panic("failed to create image-available semaphore");
             }
             VkSemaphoreCreateInfo timeline_info = binary_info;
             timeline_info.pNext = &timeline_type;
-            if (vkCreateSemaphore(device, &timeline_info, nullptr, &frame_done_semaphores[i]) != VK_SUCCESS) {
+            if (vkCreateSemaphore(logical_device, &timeline_info, nullptr, &frame_done_semaphores[i]) != VK_SUCCESS) {
                 utility::panic("failed to create frame-done timeline semaphore");
             }
         }
         for (auto& semaphore : present_ready_semaphores) {
-            if (vkCreateSemaphore(device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
+            if (vkCreateSemaphore(logical_device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
                 utility::panic("failed to create present-ready semaphore");
             }
         }
 
         register_cleanup([this] {
             for (auto const& semaphore : image_available_semaphores) {
-                vkDestroySemaphore(device, semaphore, nullptr);
+                vkDestroySemaphore(logical_device, semaphore, nullptr);
             }
             for (auto const& semaphore : present_ready_semaphores) {
-                vkDestroySemaphore(device, semaphore, nullptr);
+                vkDestroySemaphore(logical_device, semaphore, nullptr);
             }
             for (auto const& semaphore : frame_done_semaphores) {
-                vkDestroySemaphore(device, semaphore, nullptr);
+                vkDestroySemaphore(logical_device, semaphore, nullptr);
             }
         });
     }
@@ -1484,8 +1487,8 @@ namespace vulkan {
         vkGetPhysicalDeviceQueueFamilyProperties(this->physical_device, &family_count, nullptr);
         std::vector<VkQueueFamilyProperties> families(family_count);
         vkGetPhysicalDeviceQueueFamilyProperties(this->physical_device, &family_count, families.data());
-        if (this->graphics_family_index < families.size()) {
-            this->timestamp_valid_bits = families[this->graphics_family_index].timestampValidBits;
+        if (this->graphics_queue_family_index < families.size()) {
+            this->timestamp_valid_bits = families[this->graphics_queue_family_index].timestampValidBits;
         }
         this->timestamp_period_ns = this->device_properties.limits.timestampPeriod;
 
@@ -1497,7 +1500,7 @@ namespace vulkan {
         }
 
         VkQueryPoolCreateInfo const pool_info = make_query_pool_info(VK_QUERY_TYPE_TIMESTAMP, static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * gpu_timing_mark_capacity);
-        if (vkCreateQueryPool(this->device, &pool_info, nullptr, &this->timestamp_query_pool) != VK_SUCCESS) {
+        if (vkCreateQueryPool(this->logical_device, &pool_info, nullptr, &this->timestamp_query_pool) != VK_SUCCESS) {
             utility::log("gpu timing: timestamp query pool creation failed - pass timings are off");
             this->timestamp_query_pool = VK_NULL_HANDLE;
             return;
@@ -1510,7 +1513,7 @@ namespace vulkan {
 
         register_cleanup([this] {
             if (this->timestamp_query_pool != VK_NULL_HANDLE) {
-                vkDestroyQueryPool(this->device, this->timestamp_query_pool, nullptr);
+                vkDestroyQueryPool(this->logical_device, this->timestamp_query_pool, nullptr);
             }
         });
     }

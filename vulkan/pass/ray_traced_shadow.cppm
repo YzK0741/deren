@@ -170,7 +170,9 @@ export namespace vulkan::pass {
                       "the shadow pass's barrier slots must match the declaration it indexes");
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"rt_shadow"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::ray_tracing,
             .group_size_x = group_size,
             .group_size_y = group_size,
@@ -182,23 +184,25 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
         // The shader binding table's three regions, filled at create time from the pipeline's group handles. The
         // BUFFER is the owner's (see pass_context::create_upload_buffer); what the pass keeps is where each
         // region starts, which is the per-pipeline part.
         /// the traceRays entry point, loaded through vkGetDeviceProcAddr at create time (an extension command
         /// is not exported by the loader's import library - see the acceleration-structure module's note)
-        PFN_vkCmdTraceRaysKHR trace_rays_ = nullptr;
-        VkStridedDeviceAddressRegionKHR raygen_region_ = {};
-        VkStridedDeviceAddressRegionKHR miss_region_ = {};
-        VkStridedDeviceAddressRegionKHR hit_region_ = {};
+        PFN_vkCmdTraceRaysKHR trace_rays = nullptr;
+        VkStridedDeviceAddressRegionKHR raygen_region = {};
+        VkStridedDeviceAddressRegionKHR miss_region = {};
+        VkStridedDeviceAddressRegionKHR hit_region = {};
         /// The callable region, which this pipeline has no shaders for - and which must still be a VALID
         /// pointer to an all-zero region: `vkCmdTraceRaysKHR` dereferences it, so passing nullptr is a
         /// validation error and (measured) a driver access violation rather than "no callables".
-        VkStridedDeviceAddressRegionKHR callable_region_ = {};
+        VkStridedDeviceAddressRegionKHR callable_region = {};
         /// whether the "tracing WxH rays per frame" line has been logged (it used to be the runtime's flag)
-        bool logged_ = false;
+        bool logged = false;
     };
 
     static_assert(sizeof(rt_shadow_pass::push_constants) == render_resource::rt_shadow_io.push->size,

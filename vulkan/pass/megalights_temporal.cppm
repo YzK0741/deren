@@ -93,10 +93,10 @@ export namespace vulkan::pass {
 
         /// @brief the two lanes a caller that moves one value has to restate (see the demo's setter)
         [[nodiscard]] float max_frames() const noexcept {
-            return this->max_frames_;
+            return this->accumulation_frames;
         }
         [[nodiscard]] float spatial_sigma() const noexcept {
-            return this->spatial_sigma_;
+            return this->denoise_sigma;
         }
 
         /// @brief this frame's answer about the history (see megalights_temporal_frame)
@@ -123,7 +123,9 @@ export namespace vulkan::pass {
         static_assert(barrier_history + 1 + 2 == render_resource::megalights_temporal_barriers.size(),
                       "the resolve's barrier slots must match the declaration it indexes");
         static constexpr std::array<std::string_view, 1> pipeline_names = {"megalights_temporal"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::compute,
             .group_size_x = group_size,
             .group_size_y = group_size,
@@ -135,13 +137,25 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        bool resolved_ = false;
-        float depth_tolerance_ = 0.03f;
-        float max_frames_ = 12.0f;
-        float spatial_sigma_ = 1.5f;
-        megalights_temporal_frame frame_ = {};
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        // called accumulation_resolved, not resolved: the class declares resolved() and a member of that
+        // name would duplicate it and hide the override.
+        bool accumulation_resolved = false;
+        // called temporal_depth_tolerance, not depth_tolerance: set_accumulation()'s depth_tolerance parameter would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        float temporal_depth_tolerance = 0.03f;
+        // called accumulation_frames, not max_frames: max_frames() and set_accumulation()'s max_frames
+        // parameter would hide it, and MSVC /W4 reports C4458 (an error under /WX).
+        float accumulation_frames = 12.0f;
+        // called denoise_sigma, not spatial_sigma: the class declares spatial_sigma() and a member of that
+        // name would duplicate it and hide the override.
+        float denoise_sigma = 1.5f;
+        // called pass_frame, not frame: set_frame()'s frame parameter in megalights_temporal.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        megalights_temporal_frame pass_frame = {};
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
     };
 
     static_assert(sizeof(megalights_temporal_pass::push_constants) == render_resource::megalights_temporal_io.push->size,

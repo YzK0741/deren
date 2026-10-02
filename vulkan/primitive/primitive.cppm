@@ -174,7 +174,7 @@ namespace vulkan {
         /// centre is NOT a neutral value for this socket: it is the WORLD ORIGIN, and `normalize(posWS)` is a
         /// radial vector from it rather than a head normal. MEASURED on the asset this step ports: every character
         /// glb in this repository is baked (8 nodes, 0 skins, `Skeleton` gone), so every one of them takes the
-        /// `0.0` branch - see `zmd-ab/goo_step7_result.md` §7.
+        /// `0.0` branch - see `deren-ab/goo_step7_result.md` §7.
         glm::vec4 center = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
     };
     // 64: four `vec4`s and no padding, which is what lets the shader's copy be the same four members with no
@@ -623,7 +623,7 @@ namespace vulkan {
         goo_face_csumt = 13, // `_GooFaceCsutm`: `CsutmMask`, whose `G` selects the Face container's brightness
         /**
          * `_GooRSMask`: the `_M（非色彩）` mask of the reference's mechanism table #14 (`RS EFF`), i.e. the LEFT
-         * input of `混合.038 = _M ⊙ RS ColorTint` (`zmd-ab/goo_step13_rs_eff_spec_s.md` §2.1/§3.2, F4).
+         * input of `混合.038 = _M ⊙ RS ColorTint` (`deren-ab/goo_step13_rs_eff_spec_s.md` §2.1/§3.2, F4).
          *
          * IT IS THE RAW IMAGE AND THE TRANSFER FUNCTION IS THE SHADER'S, which is the one thing about this lane
          * that cannot be read off its name: `_M` is NOT the texel on any material this port has measured. The two
@@ -789,7 +789,7 @@ namespace vulkan {
          *
          * `.x < 0` MEANS "THE ASSET STATES NOTHING", the same sentinel contract as the lane above and for the
          * same reason: `0.0` is a legitimate authored value here (a material that wants no parallax at all would
-         * state it), so it cannot double as "absent". No material in `zmd-ab/extras_dump.md` states 0 (the domain
+         * state it), so it cannot double as "absent". No material in `deren-ab/extras_dump.md` states 0 (the domain
          * there is 0.03 / 0.5), but that is not what makes the sentinel right - the value's own domain does. The
          * stage reads `lane.x >= 0 ? lane.x : character_eye_parallax_depth`, i.e. a material that states no such
          * row keeps the frame it had before this lane existed.
@@ -1193,7 +1193,7 @@ namespace vulkan {
         // (`interface[3]`, `[45]`, `[4]`). They were constant in this port until step 10 (`goo_use_anisotropy_default`
         // / `goo_anisotropic_mask_default` in `shaders/character_forward.slang`), which made the stage return the
         // WRONG ARM for the one material of this asset that states `Use anisotropy? = 1`. The census (all 23 `ng[2]`
-        // instances, `goo_step9_verify.md` §7.6 / `zmd-ab/_s9_aniso3.py` §C) is what the lane's values in
+        // instances, `goo_step9_verify.md` §7.6 / `deren-ab/_s9_aniso3.py` §C) is what the lane's values in
         // `chars/laevatain_goo.glb.toon.tsv` are filed against.
         /**
          * `_GooAnisoGate`: the TWO switches of `PBRToonBase`'s `混合.016` / `混合.017`, plus the third one that
@@ -1221,7 +1221,7 @@ namespace vulkan {
          * `runtime.constructor.cppm`; with no override a material with no row would read flag 1 and get the masked
          * arm instead. The census behind the values this asset states: all 23 `ng[2]` instances, flag `1.0` only on
          * `M_actor_laevat_cloth_05` and `M_actor_chen_cloth_01.001`, mask non-zero only on `M_actor_chen_cloth_01.001`
-         * (linked) and `M_actor_yvonne_cloth_03` (`goo_step9_verify.md` §7.6; `zmd-ab/_s9_aniso3.py` §C reprints it).
+         * (linked) and `M_actor_yvonne_cloth_03` (`goo_step9_verify.md` §7.6; `deren-ab/_s9_aniso3.py` §C reprints it).
          */
         goo_aniso_gate = 25, // `_GooAnisoGate`: `Use anisotropy?` [x] / `Anisotropic mask` [y] / `Use Toonaniso?` [z] (w reserved)
         /**
@@ -1875,7 +1875,10 @@ namespace vulkan {
         vk_buffer index_buffer = {};
         buffer_detail const* index_detail = nullptr;
         VkIndexType index_type = VK_INDEX_TYPE_UINT32;
-        uint32_t index_count = 0;
+        // called draw_index_count, not index_count: push_geometry_lanes_impl, push_meshlet_lanes and
+        // mesh_dispatch keep a parameter named index_count, which would hide the member of that name and
+        // MSVC /W4 reports C4458 (an error under /WX).
+        uint32_t draw_index_count = 0;
         uint32_t vertex_count = 0;
         // Bytes per vertex of the interleaved layout (position first). Only the acceleration-structure
         // build reads it: the raster pipelines get the stride from their vertex input state, so this is

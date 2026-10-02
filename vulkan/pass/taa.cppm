@@ -127,7 +127,9 @@ export namespace vulkan::pass {
         static constexpr std::string_view fragment_shader_name = "taa.frag.spv";
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"taa"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the resolve runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -136,16 +138,22 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        // called valid_history, not history_valid: the local named history_valid in taa.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
         /// one flag per swapchain image: whether that image's history holds a resolved frame
-        std::vector<bool> history_valid_ = {};
+        std::vector<bool> valid_history = {};
+        // called history_written, not wrote_history: the class declares wrote_history() and a member of
+        // that name would duplicate it and hide the override.
         /// whether the last record wrote the history (see wrote_history)
-        bool wrote_history_ = false;
+        bool history_written = false;
         /// the two blend weights: this pass's own parameters (see set_blend), defaulted to the renderer's own
         /// historical defaults so a session that never calls `set_taa` resolves exactly as it did before
-        float blend_static_ = 0.9f;
-        float blend_min_ = 0.5f;
+        float blend_static = 0.9f;
+        float blend_min = 0.5f;
     };
 
     /// THE DECLARATION'S NUMBER AND THE PASS'S STRUCT CANNOT DRIFT: the declared push block is what the

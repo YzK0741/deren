@@ -26,7 +26,7 @@ namespace vulkan::pass {
     }
 
     void taa_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& taa_pass::io() const noexcept {
@@ -34,7 +34,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& taa_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view taa_pass::feature() const noexcept {
@@ -42,47 +42,47 @@ namespace vulkan::pass {
     }
 
     bool taa_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline taa_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     bool taa_pass::wrote_history() const noexcept {
-        return this->wrote_history_;
+        return this->history_written;
     }
 
     void taa_pass::set_blend(float const static_weight, float const min_weight) noexcept {
         // The clamps came with the parameters, because they are the same fact: a static weight of 1 would never
         // accept the current frame, and a floor above the static weight would make the moving case trust the
         // history MORE than the still one, which is the opposite of what the two are for.
-        this->blend_static_ = std::clamp(static_weight, 0.0f, 0.99f);
-        this->blend_min_ = std::clamp(min_weight, 0.0f, this->blend_static_);
+        this->blend_static = std::clamp(static_weight, 0.0f, 0.99f);
+        this->blend_min = std::clamp(min_weight, 0.0f, this->blend_static);
     }
 
     void taa_pass::reset_history() noexcept {
         // The off -> on edge: the renderer calls this when TAA is switched on, because blending against
         // frames that were never resolved shows the alias instead of hiding it.
-        this->history_valid_.assign(this->history_valid_.size(), false);
+        this->valid_history.assign(this->valid_history.size(), false);
     }
 
     void taa_pass::on_swapchain_recreated(pass_host const&) {
         // THE PASS'S OWN GENERATION RESET, and the framework's `recreate_stage` is what guarantees it happens:
         // the histories belong to images that no longer exist.
-        this->history_valid_.assign(this->history_valid_.size(), false);
-        this->wrote_history_ = false;
+        this->valid_history.assign(this->valid_history.size(), false);
+        this->history_written = false;
     }
 
     void taa_pass::create(pass_context const& context) {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -97,23 +97,23 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->resolve);
+        this->pass_pipeline = std::move(built->resolve);
         utility::log("SUCCESS: TAA resolve pipeline created (history reprojection over the deferred path)");
     }
 
     void taa_pass::record(resolved_io const& io) {
-        this->wrote_history_ = false;
+        this->history_written = false;
         if (io.own.size() < own_binding_count || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
         uint32_t const index = io.frame.image_index;
-        if (this->history_valid_.size() != io.frame.image_count) {
-            this->history_valid_.assign(io.frame.image_count, false);
+        if (this->valid_history.size() != io.frame.image_count) {
+            this->valid_history.assign(io.frame.image_count, false);
         }
-        if (index >= this->history_valid_.size()) {
+        if (index >= this->valid_history.size()) {
             return;
         }
-        bool const history_valid = this->history_valid_[index];
+        bool const history_valid = this->valid_history[index];
 
         // Layouts, all before vkCmdBeginRendering: this frame's colour, the motion vectors and (on its first
         // use for this image) the history become inputs, and the HDR target - still untouched this frame -
@@ -166,8 +166,8 @@ namespace vulkan::pass {
         // arrive as frame CONSTANTS, the channel that exists for exactly this) and the history flag it maintains
         // per image. The renderer used to compose it and hand it over as raw bytes.
         push_constants push = {};
-        push.blend_static = this->blend_static_;
-        push.blend_min = this->blend_min_;
+        push.blend_static = this->blend_static;
+        push.blend_min = this->blend_min;
         push.texel_size_x = 1.0f / static_cast<float>(io.extent.width);
         push.texel_size_y = 1.0f / static_cast<float>(io.extent.height);
         push.depth_scale = io.constants.proj[2][2];
@@ -209,8 +209,8 @@ namespace vulkan::pass {
         VkDependencyInfo const hand_back_dependency = make_image_dependency_info(static_cast<uint32_t>(hand_back.size()), hand_back.data());
         vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
 
-        this->history_valid_[index] = true;
-        this->wrote_history_ = true;
+        this->valid_history[index] = true;
+        this->history_written = true;
     }
 
 } // namespace vulkan::pass

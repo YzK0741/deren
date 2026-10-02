@@ -10,8 +10,14 @@
 // ============================================================================
 module;
 
-// toml++ is header-only and auto-detects -fno-exceptions (TOML_EXCEPTIONS=0),
-// so including it in the global module fragment works under the project flags.
+// toml++ is header-only and picks its API from the exception mode it detects in the compiler flags
+// (TOML_EXCEPTIONS): with exceptions OFF, parse_result is a type with operator bool and error(); with
+// them ON it is an alias of toml::table and the parse functions return something else. This project
+// compiles with -fno-exceptions, so the header would detect the mode by itself - but the MSVC dialect
+// deliberately uses /EHsc (there is no supported "no exceptions" spelling beside the STL), where the
+// detection would pick the throwing API and the two translation units of this target would disagree.
+// CMakeLists.txt therefore defines TOML_EXCEPTIONS=0 for app_config on every toolchain, which is the
+// mode the code below is written against - do not remove it as "redundant" on clang.
 #include <toml++/toml.hpp>
 
 export module application_configuration;
@@ -355,7 +361,7 @@ namespace app_config {
          * `environment_hdr`: path to an EQUIRECTANGULAR (lat-long) HDR image - in practice the reference
          * package's `lighting/studio_01_1k.exr`, converted once, offline, into the one float format the
          * engine's own decoder reads (Radiance `.hdr`, which is what `stb_image` handles; the conversion
-         * and its measurements are in `zmd-ab/bg/_hdr_convert.py`). It REPLACES the procedural sky above as
+         * and its measurements are in `deren-ab/bg/_hdr_convert.py`). It REPLACES the procedural sky above as
          * the environment cubemap.
          *
          * EMPTY (THE DEFAULT) IS THE CONTRACT: with no image every path renders exactly what it rendered
@@ -380,7 +386,7 @@ namespace app_config {
         float environment_intensity = 0.35f;
         /**
          * THE REFERENCE PACKAGE'S AREA LIGHT - a 30 m x 30 m square soft box, 4000 W, which that package's
-         * `manifest.json` (`zmd-ab/bg/endfield-background/manifest.json`) names as the main light of the shot:
+         * `manifest.json` (`deren-ab/bg/endfield-background/manifest.json`) names as the main light of the shot:
          *
          *     UsdLuxRectLight, size_m 30, power_w 4000, position_blender_m [-3, -4, 15], aim_at [0, 0, 0]
          *

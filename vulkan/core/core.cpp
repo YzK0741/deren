@@ -59,7 +59,7 @@ namespace vulkan {
         }
 
         std::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
-        VkResult const status = vkGetQueryPoolResults(this->device,
+        VkResult const status = vkGetQueryPoolResults(this->logical_device,
                                                       this->timestamp_query_pool,
                                                       slot * gpu_timing_mark_capacity,
                                                       marks,
@@ -81,29 +81,29 @@ namespace vulkan {
     }
 
     vk_command_buffer core::make_command_buffer() const {
-        return ::vulkan::make_command_buffer(this->device, this->command_pool);
+        return ::vulkan::make_command_buffer(this->logical_device, this->command_pool);
     }
 
     vk_command_buffer core::make_secondary_command_buffer() const {
-        return ::vulkan::make_secondary_command_buffer(this->device, this->command_pool);
+        return ::vulkan::make_secondary_command_buffer(this->logical_device, this->command_pool);
     }
 
     vk_command_buffer core::make_secondary_command_buffer(VkCommandPool const pool) const {
-        return ::vulkan::make_secondary_command_buffer(this->device, pool);
+        return ::vulkan::make_secondary_command_buffer(this->logical_device, pool);
     }
 
     VkCommandPool core::make_command_pool() {
-        VkCommandPoolCreateInfo pool_info = make_command_pool_info(this->graphics_family_index);
+        VkCommandPoolCreateInfo pool_info = make_command_pool_info(this->graphics_queue_family_index);
 
         VkCommandPool pool = VK_NULL_HANDLE;
-        if (vkCreateCommandPool(this->device, &pool_info, nullptr, &pool) != VK_SUCCESS) {
+        if (vkCreateCommandPool(this->logical_device, &pool_info, nullptr, &pool) != VK_SUCCESS) {
             utility::panic("failed to create extra command pool");
         }
         // lifetime tied to this core: the pool is destroyed by the registered cleanup (LIFO,
         // after every command buffer allocated from it was freed by its RAII owner)
         this->register_cleanup([this, pool] {
             if (pool != VK_NULL_HANDLE) {
-                vkDestroyCommandPool(this->device, pool, nullptr);
+                vkDestroyCommandPool(this->logical_device, pool, nullptr);
             }
         });
         return pool;
@@ -112,19 +112,19 @@ namespace vulkan {
     vk_image_view core::make_image_view(VkImage const image, VkFormat const format, VkImageViewType const type) const {
         VkImageViewCreateInfo const view_info = make_image_view_info(image, format, type, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->device);
+        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->logical_device);
     }
 
     vk_sampler core::make_sampler(VkSamplerAddressMode const address_mode, float const max_lod) const {
         VkSamplerCreateInfo info = make_texture_sampler_info(address_mode, max_lod);
         VkSampler sampler = VK_NULL_HANDLE;
-        vkCreateSampler(this->device, &info, nullptr, &sampler);
-        return vk_sampler(sampler, this->device);
+        vkCreateSampler(this->logical_device, &info, nullptr, &sampler);
+        return vk_sampler(sampler, this->logical_device);
     }
 
     std::optional<vk_shader_module> core::make_shader_module(std::span<uint8_t> const shader) const noexcept {
-        return ::vulkan::make_shader_module(shader, this->device);
+        return ::vulkan::make_shader_module(shader, this->logical_device);
     }
 
     void core::wait_frame_slot(uint32_t const slot) const {
@@ -139,7 +139,7 @@ namespace vulkan {
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores = &this->frame_done_semaphores[slot];
         wait_info.pValues = &value;
-        vkWaitSemaphores(this->device, &wait_info, UINT64_MAX);
+        vkWaitSemaphores(this->logical_device, &wait_info, UINT64_MAX);
     }
 
     void core::to_next_frame() noexcept {
@@ -184,7 +184,7 @@ namespace vulkan {
         submit_info.pCommandBuffers = &command_buffer;
         submit_info.signalSemaphoreCount = 2;
         submit_info.pSignalSemaphores = signal_semaphores;
-        VkResult const result = vkQueueSubmit(this->graphics_queue, 1, &submit_info, VK_NULL_HANDLE);
+        VkResult const result = vkQueueSubmit(this->graphics_queue_handle, 1, &submit_info, VK_NULL_HANDLE);
         if (result == VK_SUCCESS) {
             this->frame_done_values[slot] = signal_value;
         }
@@ -201,7 +201,7 @@ namespace vulkan {
         present_info.swapchainCount = 1;
         present_info.pSwapchains = &this->swap_chain;
         present_info.pImageIndices = &image_index;
-        return vkQueuePresentKHR(this->present_queue, &present_info);
+        return vkQueuePresentKHR(this->present_queue_handle, &present_info);
     }
 
     bool core::recreate_swap_chain() {
@@ -223,80 +223,80 @@ namespace vulkan {
         this->zero_extent_recreation_logged = false;
 
         // 1. Wait for the device to be idle
-        vkDeviceWaitIdle(device);
+        vkDeviceWaitIdle(logical_device);
 
         // 2. Destroy the scene targets (the G-buffer/velocity/HDR/LDR/bloom set is rebuilt below)
         for (auto const& view : hdr_image_views) {
-            vkDestroyImageView(device, view, nullptr);
+            vkDestroyImageView(logical_device, view, nullptr);
         }
         hdr_image_views.clear();
         for (auto const& image : hdr_images) {
-            vkDestroyImage(device, image, nullptr);
+            vkDestroyImage(logical_device, image, nullptr);
         }
         hdr_images.clear();
         for (auto const& memory : hdr_image_memories) {
-            vkFreeMemory(device, memory, nullptr);
+            vkFreeMemory(logical_device, memory, nullptr);
         }
         hdr_image_memories.clear();
 
         // 2c. Destroy the display-referred (FXAA input) targets
         for (auto const& view : ldr_image_views) {
-            vkDestroyImageView(device, view, nullptr);
+            vkDestroyImageView(logical_device, view, nullptr);
         }
         ldr_image_views.clear();
         for (auto const& image : ldr_images) {
-            vkDestroyImage(device, image, nullptr);
+            vkDestroyImage(logical_device, image, nullptr);
         }
         ldr_images.clear();
         for (auto const& memory : ldr_image_memories) {
-            vkFreeMemory(device, memory, nullptr);
+            vkFreeMemory(logical_device, memory, nullptr);
         }
         ldr_image_memories.clear();
 
         // 2d-2. Destroy the G-buffer targets + the G-buffer pass's own depth image
         for (auto const& target_views : gbuffer_image_views) {
             for (auto const& view : target_views) {
-                vkDestroyImageView(device, view, nullptr);
+                vkDestroyImageView(logical_device, view, nullptr);
             }
         }
         gbuffer_image_views = {};
         for (auto const& target_images : gbuffer_images) {
             for (auto const& image : target_images) {
-                vkDestroyImage(device, image, nullptr);
+                vkDestroyImage(logical_device, image, nullptr);
             }
         }
         gbuffer_images = {};
         for (auto const& target_memories : gbuffer_image_memories) {
             for (auto const& memory : target_memories) {
-                vkFreeMemory(device, memory, nullptr);
+                vkFreeMemory(logical_device, memory, nullptr);
             }
         }
         gbuffer_image_memories = {};
         for (auto const& view : gbuffer_depth_image_views) {
-            vkDestroyImageView(device, view, nullptr);
+            vkDestroyImageView(logical_device, view, nullptr);
         }
         gbuffer_depth_image_views.clear();
         for (auto const& image : gbuffer_depth_images) {
-            vkDestroyImage(device, image, nullptr);
+            vkDestroyImage(logical_device, image, nullptr);
         }
         gbuffer_depth_images.clear();
         for (auto const& memory : gbuffer_depth_image_memories) {
-            vkFreeMemory(device, memory, nullptr);
+            vkFreeMemory(logical_device, memory, nullptr);
         }
         gbuffer_depth_image_memories.clear();
 
         // 2d-3. Destroy the motion-vector / TAA working images (same lifetime as the G-buffer)
         auto const destroy_target_set = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
             for (auto const& view : views) {
-                vkDestroyImageView(device, view, nullptr);
+                vkDestroyImageView(logical_device, view, nullptr);
             }
             views.clear();
             for (auto const& image : images) {
-                vkDestroyImage(device, image, nullptr);
+                vkDestroyImage(logical_device, image, nullptr);
             }
             images.clear();
             for (auto const& memory : memories) {
-                vkFreeMemory(device, memory, nullptr);
+                vkFreeMemory(logical_device, memory, nullptr);
             }
             memories.clear();
         };
@@ -312,48 +312,48 @@ namespace vulkan {
         // 2d. Destroy the bloom targets (all levels)
         for (auto const& level_views : bloom_image_views) {
             for (auto const& view : level_views) {
-                vkDestroyImageView(device, view, nullptr);
+                vkDestroyImageView(logical_device, view, nullptr);
             }
         }
         bloom_image_views = {};
         for (auto const& level_images : bloom_images) {
             for (auto const& image : level_images) {
-                vkDestroyImage(device, image, nullptr);
+                vkDestroyImage(logical_device, image, nullptr);
             }
         }
         bloom_images = {};
         for (auto const& level_memories : bloom_image_memories) {
             for (auto const& memory : level_memories) {
-                vkFreeMemory(device, memory, nullptr);
+                vkFreeMemory(logical_device, memory, nullptr);
             }
         }
         bloom_image_memories = {};
 
         // 3. Destroy depth resources
         for (auto const& view : depth_image_views) {
-            vkDestroyImageView(device, view, nullptr);
+            vkDestroyImageView(logical_device, view, nullptr);
         }
         depth_image_views.clear();
 
         for (auto const& image : depth_images) {
-            vkDestroyImage(device, image, nullptr);
+            vkDestroyImage(logical_device, image, nullptr);
         }
         depth_images.clear();
 
         for (auto const& memory : depth_image_memories) {
-            vkFreeMemory(device, memory, nullptr);
+            vkFreeMemory(logical_device, memory, nullptr);
         }
         depth_image_memories.clear();
 
         // 4. Destroy swapchain image views
         for (auto const& image_view : swap_chain_image_views) {
-            vkDestroyImageView(device, image_view, nullptr);
+            vkDestroyImageView(logical_device, image_view, nullptr);
         }
         swap_chain_image_views.clear();
 
         // 5. Destroy the swapchain itself
         if (swap_chain != VK_NULL_HANDLE) {
-            vkDestroySwapchainKHR(device, swap_chain, nullptr);
+            vkDestroySwapchainKHR(logical_device, swap_chain, nullptr);
             swap_chain = VK_NULL_HANDLE;
         }
 
@@ -367,12 +367,12 @@ namespace vulkan {
         // count changes (device is idle here). The per-slot timeline + binary acquire
         // semaphores are independent of the image count and survive untouched.
         for (auto const& semaphore : present_ready_semaphores) {
-            vkDestroySemaphore(device, semaphore, nullptr);
+            vkDestroySemaphore(logical_device, semaphore, nullptr);
         }
         present_ready_semaphores.resize(swap_chain_images.size());
         VkSemaphoreCreateInfo binary_info = make_binary_semaphore_info();
         for (auto& semaphore : present_ready_semaphores) {
-            if (vkCreateSemaphore(device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
+            if (vkCreateSemaphore(logical_device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
                 utility::panic("failed to recreate present-ready semaphore!");
             }
         }
@@ -382,8 +382,8 @@ namespace vulkan {
     vk_image_view core::make_depth_image_view(VkImage const image, VkFormat const format) const {
         VkImageViewCreateInfo const view_info = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->device);
+        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->logical_device);
     }
 
     vk_image_view core::make_depth_array_view(VkImage const image, VkFormat const format) const {
@@ -391,8 +391,8 @@ namespace vulkan {
         // for the per-layer views the shadow pass renders into)
         VkImageViewCreateInfo const view_info = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->device);
+        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->logical_device);
     }
 
     vk_image_view core::make_depth_layer_view(VkImage const image, VkFormat const format, uint32_t const layer) const {
@@ -401,8 +401,8 @@ namespace vulkan {
         VkImageViewCreateInfo view_info = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, 1);
         view_info.subresourceRange.baseArrayLayer = layer;
         VkImageView view = VK_NULL_HANDLE;
-        vkCreateImageView(this->device, &view_info, nullptr, &view);
-        return vk_image_view(view, this->device);
+        vkCreateImageView(this->logical_device, &view_info, nullptr, &view);
+        return vk_image_view(view, this->logical_device);
     }
 
     vk_sampler core::make_shadow_sampler() const {
@@ -413,8 +413,8 @@ namespace vulkan {
         // the stored depth (ref <= stored).
         VkSamplerCreateInfo info = make_shadow_sampler_info();
         VkSampler sampler = VK_NULL_HANDLE;
-        vkCreateSampler(this->device, &info, nullptr, &sampler);
-        return vk_sampler(sampler, this->device);
+        vkCreateSampler(this->logical_device, &info, nullptr, &sampler);
+        return vk_sampler(sampler, this->logical_device);
     }
 
     void core::create_samplers() {
@@ -444,15 +444,15 @@ namespace vulkan {
         gbuffer_info.magFilter = VK_FILTER_NEAREST;
         gbuffer_info.minFilter = VK_FILTER_NEAREST;
         VkSampler gbuffer = VK_NULL_HANDLE;
-        if (vkCreateSampler(this->device, &gbuffer_info, nullptr, &gbuffer) == VK_SUCCESS) {
-            this->gbuffer_sampler = vk_sampler(gbuffer, this->device);
+        if (vkCreateSampler(this->logical_device, &gbuffer_info, nullptr, &gbuffer) == VK_SUCCESS) {
+            this->gbuffer_sampler = vk_sampler(gbuffer, this->logical_device);
         }
 
         // ... and the same thing for the composite's GI upsample: it taps the depth and the normal at centres, and an
         // averaged depth invents a surface between two samples, which is exactly what an edge-aware test must not see.
         VkSampler nearest = VK_NULL_HANDLE;
-        if (vkCreateSampler(this->device, &gbuffer_info, nullptr, &nearest) == VK_SUCCESS) {
-            this->post_nearest_sampler = vk_sampler(nearest, this->device);
+        if (vkCreateSampler(this->logical_device, &gbuffer_info, nullptr, &nearest) == VK_SUCCESS) {
+            this->post_nearest_sampler = vk_sampler(nearest, this->logical_device);
         }
 
         // The resolve upsamples the scene colour but must NOT average neighbouring history texels: linear
@@ -461,8 +461,8 @@ namespace vulkan {
         taa_info.magFilter = VK_FILTER_LINEAR;
         taa_info.minFilter = VK_FILTER_NEAREST;
         VkSampler taa = VK_NULL_HANDLE;
-        if (vkCreateSampler(this->device, &taa_info, nullptr, &taa) == VK_SUCCESS) {
-            this->taa_sampler = vk_sampler(taa, this->device);
+        if (vkCreateSampler(this->logical_device, &taa_info, nullptr, &taa) == VK_SUCCESS) {
+            this->taa_sampler = vk_sampler(taa, this->logical_device);
         }
 
         // THE HEAP'S COPY OF THESE, in the order shaders/heap_slots.glsl names them (see core.cppm's
@@ -500,9 +500,9 @@ namespace vulkan {
             make_color_blend_attachment_additive(),
         };
         auto result = vulkan::make_pipeline(
-            this->device,
+            this->logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_format,
+            this->depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // a G-buffer is never multisampled (see gbuffer_formats)
@@ -552,9 +552,9 @@ namespace vulkan {
         // unaffected (0 px) is in `remaining_port_spec.md`'s "其余部位按参考对齐（续）" item 10.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment()};
         auto result = vulkan::make_pipeline(
-            this->device,
+            this->logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_format,
+            this->depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // the HDR chain is single-sampled, like the G-buffer it re-shades
@@ -594,9 +594,9 @@ namespace vulkan {
         // two `Trick` shaders overlays rather than surfaces, and the reason the port needs no blend extension.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_multiply()};
         auto result = vulkan::make_pipeline(
-            this->device,
+            this->logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_format,
+            this->depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // single-sampled, like the toon stage and the G-buffer it re-shades
@@ -641,9 +641,9 @@ namespace vulkan {
         // (`make_color_blend_attachment_opaque`), not the overlay group's multiply.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
         auto result = vulkan::make_pipeline(
-            this->device,
+            this->logical_device,
             std::span<VkFormat const>(formats),
-            this->depth_format,
+            this->depth_attachment_format,
             vertex_shader_code,
             fragment_shader_code,
             VK_SAMPLE_COUNT_1_BIT, // the HDR chain is single-sampled, like the G-buffer it re-shades
@@ -688,7 +688,7 @@ namespace vulkan {
         float const depth_bias_slope_factor,
         float const depth_bias_clamp) const {
         auto result = vulkan::make_pipeline(
-            this->device,
+            this->logical_device,
             VK_FORMAT_UNDEFINED, // no color attachment
             depth_format,
             vertex_shader_code,
@@ -705,7 +705,7 @@ namespace vulkan {
     }
 
     void core::wait_idle() const noexcept {
-        vkDeviceWaitIdle(this->device);
+        vkDeviceWaitIdle(this->logical_device);
     }
 
     void core::set_window_title(std::string_view const title) const noexcept {

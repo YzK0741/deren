@@ -304,7 +304,7 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 // and the source settled it), NOT a port fudge.
 //
 // `_ZMinRefine` IS THE ARTICLE'S DEFAULT (0.4, `:17`): the game's parameter table carries no such row (measured
-// with `zmd-ab/outline_rows.py`), so the constant stands as the article states it.
+// with `deren-ab/outline_rows.py`), so the constant stands as the article states it.
 //
 // `_ZBias` IS NOT IMPLEMENTED, and that is a value rather than an omission: `:8` declares its default 0.0, and
 // `:172-178` adds `positionHCS.z -= _ZBias` (REVERSED_Z) or `+= _ZBias` - an exact zero for every material at

@@ -51,7 +51,7 @@ namespace vulkan::scene_tree {
 
     scene_node scene_node::clone() const {
         scene_node copy;
-        copy.name = this->name;
+        copy.node_name = this->node_name;
         copy.local = this->local;
         copy.children.reserve(this->children.size());
         for (scene_node const& child : this->children) {
@@ -92,7 +92,7 @@ namespace vulkan::scene_tree {
         while (!stack.empty()) {
             scene_node* const current = stack.back();
             stack.pop_back();
-            if (current->name == name) {
+            if (current->node_name == name) {
                 return current;
             }
             // push children reversed so the first child is visited next (DFS pre-order)
@@ -112,7 +112,7 @@ namespace vulkan::scene_tree {
         while (!stack.empty()) {
             scene_node const* const current = stack.back();
             stack.pop_back();
-            if (current->name == name) {
+            if (current->node_name == name) {
                 return current;
             }
             for (auto it = current->children.rbegin(); it != current->children.rend(); ++it) {

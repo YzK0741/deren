@@ -61,7 +61,7 @@ int32_t main() {
     auto const schema = rr::validate_schema();
     CHECK_MSG(schema.has_value(), schema.has_value() ? "" : schema.error().c_str());
     CHECK(rr::resource_schema.size() == 30);
-    CHECK(static_cast<uint32_t>(rr::resource_id::count_) == 31); // 30 families plus `none`
+    CHECK(static_cast<uint32_t>(rr::resource_id::count) == 31); // 30 families plus `none`
     CHECK(rr::find(rr::resource_id::none) == nullptr);
     CHECK(rr::find(rr::resource_id::furnace_cube) != nullptr);
     CHECK(rr::find(rr::resource_id::shadow_map)->count == 4);      // one layer per cascade, as core indexes it
@@ -312,8 +312,8 @@ int32_t main() {
     {
         // the barrier-image rule the validator enforces: they must be images the schema declares, and a pass
         // indexes them by POSITION, so the same one twice is a declaration that cannot be read
-        std::array<rr::barrier_image, 1> const not_an_image = {rr::barrier_image{.resource = rr::resource_id::camera_ubo, .element = 0}};
-        rr::pass_io const io = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = not_an_image, .push = std::nullopt};
+        std::array<rr::barrier_image, 1> const barrier_not_an_image = {rr::barrier_image{.resource = rr::resource_id::camera_ubo, .element = 0}};
+        rr::pass_io const io = {.name = "barrier-like", .bindings = {}, .targets = {}, .barrier_images = barrier_not_an_image, .push = std::nullopt};
         CHECK(!rr::validate(io).has_value());
         std::array<rr::barrier_image, 2> const twice = {rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0},
                                                         rr::barrier_image{.resource = rr::resource_id::ml_trace, .element = 0}};
@@ -503,8 +503,8 @@ int32_t main() {
         CHECK(rr::shadow_io.push->stages == (rr::stage_flag::vertex | rr::stage_flag::fragment));
 
         // THE RUN'S OWN CHECKS: a run that reaches past its family is a declaration error ...
-        std::array<rr::render_target, 1> const past_the_family = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 2, .kind = rr::target_kind::depth, .count = 4}};
-        rr::pass_io const bad_run = {.name = "shadow", .bindings = {}, .targets = past_the_family, .push = std::nullopt};
+        std::array<rr::render_target, 1> const run_past_the_family = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 2, .kind = rr::target_kind::depth, .count = 4}};
+        rr::pass_io const bad_run = {.name = "shadow", .bindings = {}, .targets = run_past_the_family, .push = std::nullopt};
         CHECK(!rr::validate(bad_run).has_value());
         // ... and so is claiming NO element, which would be a target that renders nothing ...
         std::array<rr::render_target, 1> const empty_run = {rr::render_target{.resource = rr::resource_id::shadow_map, .element = 0, .kind = rr::target_kind::depth, .count = 0}};

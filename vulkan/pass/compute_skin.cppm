@@ -106,8 +106,10 @@ export namespace vulkan::pass {
         static constexpr uint32_t group_size = 64; // `compute_skin.comp`'s local_size_x
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> pipeline_ = std::nullopt;
+        VkDevice device = VK_NULL_HANDLE;
+        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // would duplicate it and hide the override.
+        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
     };
 
 } // namespace vulkan::pass

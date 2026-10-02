@@ -21,8 +21,8 @@
 //
 // ================================ THE REFERENCE, NODE BY NODE ================================
 //
-// Everything below is a socket or a connection in `zmd-ab/gooblender/nodes.json`, and the specification is
-// `zmd-ab/goo_step2_rim_spec.md` §2.5 and §3.1/§3.2 (the container compositions). The four attenuations are
+// Everything below is a socket or a connection in `deren-ab/gooblender/nodes.json`, and the specification is
+// `deren-ab/goo_step2_rim_spec.md` §2.5 and §3.1/§3.2 (the container compositions). The four attenuations are
 // step 2's functions, MOVED (not rewritten): `D` = `Directional light attenuation`, `F` = `Fresnel attenuation`,
 // `V` = `Vertical attenuation`, `C` = the `Rim_Color` sub-group's surviving output `Rim_Color·Rim_ColorStrength`.
 //

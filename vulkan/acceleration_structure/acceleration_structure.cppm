@@ -190,7 +190,10 @@ namespace vulkan::acceleration_structure {
             std::vector<VkAccelerationStructureGeometryKHR> geometries = {}; // one per entry, kept alive
         };
 
-        core* vk = nullptr; // non-const: VMA's detail lookups and buffer creation are not const
+        /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
+        /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
+        /// (clang does not warn: -Wshadow is not enabled there).
+        core* gpu = nullptr; // non-const: VMA's detail lookups and buffer creation are not const
         std::vector<entry> entries = {};
         /// The extension entry points, resolved per device in the constructor. Declared incomplete here
         /// and defined in the .cpp, because a function pointer table is implementation detail - and a
@@ -331,7 +334,10 @@ namespace vulkan::acceleration_structure {
             vk_buffer scratch = {};          // the build's scratch memory, kept once sized
         };
 
-        core* vk = nullptr; // non-const: VMA's detail lookups and buffer creation are not const
+        /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
+        /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
+        /// (clang does not warn: -Wshadow is not enabled there).
+        core* gpu = nullptr; // non-const: VMA's detail lookups and buffer creation are not const
         /// The extension entry points, forward-declared and held by pointer for the same reason (and with the
         /// same NO-initializer rule) as `bottom_level_structures::functions` above - see the note there.
         struct entry_points;

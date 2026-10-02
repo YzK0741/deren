@@ -28,7 +28,7 @@ namespace vulkan::pass {
     }
 
     void deferred_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& deferred_pass::io() const noexcept {
@@ -36,7 +36,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& deferred_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view deferred_pass::feature() const noexcept {
@@ -44,15 +44,15 @@ namespace vulkan::pass {
     }
 
     bool deferred_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline deferred_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void deferred_pass::set_frame(deferred_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void deferred_pass::prepare_frame(frame_facts const& facts) noexcept {
@@ -66,11 +66,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -89,7 +89,7 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->lighting);
+        this->pass_pipeline = std::move(built->lighting);
         utility::log("SUCCESS: deferred lighting pipeline created (shades the stored surface, additive over the emissive)");
     }
 
@@ -101,26 +101,26 @@ namespace vulkan::pass {
     void deferred_pass::set_ssao(bool const enabled, float const radius, float const intensity, uint32_t const samples) noexcept {
         // The clamps came with the parameters, because they are the same fact: an intensity above 1 darkens past
         // black, a negative radius is meaningless, and the sample count is bounded by the SHADER's own array (16).
-        this->ssao_enabled_ = enabled;
-        this->ssao_radius_ = std::max(radius, 0.0f);
-        this->ssao_intensity_ = std::clamp(intensity, 0.0f, 1.0f);
-        this->ssao_samples_ = std::clamp(samples, 0u, 16u);
+        this->ssao_active = enabled;
+        this->ssao_radius = std::max(radius, 0.0f);
+        this->ssao_intensity = std::clamp(intensity, 0.0f, 1.0f);
+        this->ssao_samples = std::clamp(samples, 0u, 16u);
     }
 
     bool deferred_pass::ssao_enabled() const noexcept {
-        return this->ssao_enabled_;
+        return this->ssao_active;
     }
 
     void deferred_pass::set_unlit(bool const unlit) noexcept {
-        this->unlit_ = unlit;
+        this->unlit_shading = unlit;
     }
 
     bool deferred_pass::unlit() const noexcept {
-        return this->unlit_;
+        return this->unlit_shading;
     }
 
     void deferred_pass::record(resolved_io const& io) {
-        if (!this->pipeline_.has_value() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pass_pipeline.has_value() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
@@ -151,9 +151,9 @@ namespace vulkan::pass {
         // what the lighting chain is doing. The renderer used to compose all of it and hand it over as raw bytes.
         push_constants push = {};
         push.inv_view_proj = io.constants.inv_view_proj;
-        push.ssao = glm::vec4(this->ssao_radius_, this->ssao_enabled_ ? this->ssao_intensity_ : 0.0f, static_cast<float>(this->ssao_samples_), this->ssao_bias_);
-        push.unlit = this->unlit_ ? 1.0f : 0.0f;
-        push.punctual_replaced = this->frame_.punctual_replaced ? 1.0f : 0.0f;
+        push.ssao = glm::vec4(this->ssao_radius, this->ssao_active ? this->ssao_intensity : 0.0f, static_cast<float>(this->ssao_samples), this->ssao_bias);
+        push.unlit = this->unlit_shading ? 1.0f : 0.0f;
+        push.punctual_replaced = this->pass_frame.punctual_replaced ? 1.0f : 0.0f;
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
         vkCmdDraw(io.cmd, 3, 1, 0, 0);
         vkCmdEndRendering(io.cmd);

@@ -31,7 +31,7 @@ namespace vulkan::pass {
     }
 
     void megalights_trace_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& megalights_trace_pass::io() const noexcept {
@@ -39,7 +39,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& megalights_trace_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view megalights_trace_pass::feature() const noexcept {
@@ -50,18 +50,18 @@ namespace vulkan::pass {
     }
 
     bool megalights_trace_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline megalights_trace_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void megalights_trace_pass::set_light_angle(float const radians) noexcept {
         // The angle is the emitter's half-size: past a tenth of a radian the "small emitter" the BRDF's
         // representative-point approximation assumes stops being small, so the clamp is where that approximation is
         // still honest rather than where the math breaks.
-        this->light_angle_ = std::clamp(radians, 0.0f, 0.1f);
+        this->light_angle = std::clamp(radians, 0.0f, 0.1f);
     }
 
     void megalights_trace_pass::set_estimator(uint32_t const samples, float const min_weight, float const bias_floor, float const bias_grazing) noexcept {
@@ -69,27 +69,27 @@ namespace vulkan::pass {
         // compile-time array (see the header), and the three floats are bounded by what they MEAN - a negative
         // minimum weight inverts the smooth cut, and a negative bias would start the ray inside the surface it
         // is leaving.
-        this->samples_ = std::clamp(samples, 1u, max_samples);
-        this->min_weight_ = std::max(min_weight, 0.0f);
-        this->bias_floor_ = std::max(bias_floor, 0.0f);
-        this->bias_grazing_ = std::max(bias_grazing, this->bias_floor_);
+        this->sample_count = std::clamp(samples, 1u, max_samples);
+        this->weight_floor = std::max(min_weight, 0.0f);
+        this->floor_bias = std::max(bias_floor, 0.0f);
+        this->grazing_bias = std::max(bias_grazing, this->floor_bias);
     }
 
     void megalights_trace_pass::on_swapchain_recreated(pass_host const&) {
         // Nothing per-generation is kept here yet: the chain is one pass until the temporal resolve lands, and
         // that one is where a history and its reset will live (see docs/megalights.md's staging).
-        this->frame_index_ = 0;
+        this->frame_index = 0;
     }
 
     void megalights_trace_pass::create(pass_context const& context) {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
@@ -103,12 +103,12 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->trace);
+        this->pass_pipeline = std::move(built->trace);
         utility::log("SUCCESS: stochastic punctual lighting pipeline created (sampled lights with ray-traced visibility)");
     }
 
     void megalights_trace_pass::record(resolved_io const& io) {
-        if (!this->pipeline_.has_value() || io.barrier_images.size() < render_resource::megalights_trace_barriers.size() || io.extent.width == 0 || io.extent.height == 0) {
+        if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::megalights_trace_barriers.size() || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (the declaration's own gates are the table's)
         }
         VkImage const output = io.barrier_images[barrier_output].image;
@@ -130,8 +130,8 @@ namespace vulkan::pass {
 
         push_constants push = {};
         push.inv_view_proj = io.constants.inv_view_proj;
-        push.params = glm::vec4(static_cast<float>(this->samples_), this->min_weight_, this->tmin_, static_cast<float>(this->frame_index_));
-        push.bias = glm::vec4(this->bias_floor_, this->bias_grazing_, this->light_angle_, 0.0f);
+        push.params = glm::vec4(static_cast<float>(this->sample_count), this->weight_floor, this->tmin, static_cast<float>(this->frame_index));
+        push.bias = glm::vec4(this->floor_bias, this->grazing_bias, this->light_angle, 0.0f);
         static_assert(sizeof(push) <= pass::max_push_bytes, "the estimator's push block must fit the guaranteed minimum");
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
         vkCmdDispatch(io.cmd, (io.extent.width + group_size - 1u) / group_size, (io.extent.height + group_size - 1u) / group_size, 1);
@@ -144,7 +144,7 @@ namespace vulkan::pass {
         VkDependencyInfo const hand_off = make_image_dependency_info(1, &to_sampling);
         vkCmdPipelineBarrier2(io.cmd, &hand_off);
 
-        ++this->frame_index_; // the next frame's ray sequence must differ (see the header)
+        ++this->frame_index; // the next frame's ray sequence must differ (see the header)
     }
 
 } // namespace vulkan::pass

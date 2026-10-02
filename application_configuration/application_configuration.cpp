@@ -87,10 +87,12 @@ namespace app_config {
             }
             if (toml::node const* node = render->get("max_fps")) {
                 // TOML integers are not doubles: max_fps = 60 must work as written, so try both.
+                // The second local is `integer_value`, not a second `value`: it would hide the one declared
+                // in the first condition and MSVC /W4 reports that as C4456, an error under /WX.
                 if (std::optional<double> const value = node->value<double>()) {
                     settings.render.max_fps = *value;
-                } else if (std::optional<int64_t> const value = node->value<int64_t>()) {
-                    settings.render.max_fps = static_cast<double>(*value);
+                } else if (std::optional<int64_t> const integer_value = node->value<int64_t>()) {
+                    settings.render.max_fps = static_cast<double>(*integer_value);
                 }
             }
             if (toml::node const* node = render->get("clear_color")) {

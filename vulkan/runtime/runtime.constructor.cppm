@@ -343,7 +343,7 @@ namespace vulkan {
             auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->material_buffer.handle());
             if (detail != nullptr) {
                 VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
+                VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                 bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride,
                                                                                      address,
                                                                                      static_cast<VkDeviceSize>(vulkan::material_capacity) * sizeof(material_record),
@@ -551,7 +551,7 @@ namespace vulkan {
                 auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_colour_buffer.handle());
                 if (detail != nullptr) {
                     VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
+                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride,
                                                                                          address,
                                                                                          std::as_bytes(std::span(neutral_colours)).size(),
@@ -593,7 +593,7 @@ namespace vulkan {
             auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_lane_buffer.handle());
             if (detail != nullptr) {
                 VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
+                VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                 bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride,
                                                                                      address,
                                                                                      static_cast<VkDeviceSize>(vulkan::material_capacity) * vulkan::toon_lane_blocks * sizeof(glm::uvec4),
@@ -623,7 +623,7 @@ namespace vulkan {
                 auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_rig_buffer.handle());
                 if (detail != nullptr) {
                     VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
+                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride,
                                                                                          address,
                                                                                          static_cast<VkDeviceSize>(sizeof(vulkan::toon_rig)),
@@ -656,7 +656,7 @@ namespace vulkan {
                 auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->meshlet_buffer.handle());
                 if (detail != nullptr) {
                     VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &info);
+                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride,
                                                                                          address,
                                                                                          static_cast<VkDeviceSize>(vulkan::meshlet_capacity) * sizeof(vulkan::meshlet),
@@ -709,7 +709,7 @@ namespace vulkan {
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 if (auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->meshlet_stats_buffer.handle()); detail != nullptr) {
                     VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &info);
+                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlet_stats) * core::heap_slot_stride,
                                                                                          address,
                                                                                          static_cast<VkDeviceSize>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t),
@@ -737,7 +737,7 @@ namespace vulkan {
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 if (auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->meshlet_culled_buffer.handle()); detail != nullptr) {
                     VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.device, &info);
+                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlet_culled) * core::heap_slot_stride,
                                                                                          address,
                                                                                          static_cast<VkDeviceSize>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * vulkan::meshlet_capacity * sizeof(vulkan::meshlet),
@@ -938,7 +938,7 @@ namespace vulkan {
             // which is why shadow_allocated_layers - not shadow_cascades - is the image's real layer
             // count and the value every subresource range over the whole array has to use.
             shadow_info.array_layers = this->shadow_cascades;
-            shadow_info.format = this->vulkan_core.depth_format;
+            shadow_info.format = this->vulkan_core.depth_attachment_format;
             shadow_info.extra_usage = VK_IMAGE_USAGE_SAMPLED_BIT; // sampled by shading.glsl
             vk_image shadow_image = this->vulkan_core.vma.create_image(nullptr, 0, shadow_info, vulkan::image_type::texture_2d_depth);
             if (!shadow_image.valid()) {
@@ -949,11 +949,11 @@ namespace vulkan {
                 utility::panic("failed to get shadow map image detail");
             }
             this->shadow_images.push_back(std::move(shadow_image));
-            this->shadow_array_views.push_back(this->vulkan_core.make_depth_array_view(detail->image, this->vulkan_core.depth_format));
+            this->shadow_array_views.push_back(this->vulkan_core.make_depth_array_view(detail->image, this->vulkan_core.depth_attachment_format));
             std::vector<vk_image_view> layers;
             layers.reserve(this->shadow_cascades);
             for (uint32_t cascade = 0; cascade < this->shadow_cascades; ++cascade) {
-                layers.push_back(this->vulkan_core.make_depth_layer_view(detail->image, this->vulkan_core.depth_format, cascade));
+                layers.push_back(this->vulkan_core.make_depth_layer_view(detail->image, this->vulkan_core.depth_attachment_format, cascade));
             }
             this->shadow_layer_views.push_back(std::move(layers));
         }
@@ -1027,7 +1027,7 @@ namespace vulkan {
                     continue;
                 }
                 VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                VkDeviceAddress const address = vkGetBufferDeviceAddress(vk.device, &info);
+                VkDeviceAddress const address = vkGetBufferDeviceAddress(vk.logical_device, &info);
                 VkDeviceSize const offset = core::heap_slot_offset(slot_base + slot);
                 if (vk.descriptor_heaps.write_buffer(offset, address, size, type)) {
                     ++written;
@@ -1112,7 +1112,7 @@ namespace vulkan {
             auto const* const instance_table_detail = this->vulkan_core.vma.get_buffer_detail(this->instance_buffer.handle());
             if (instance_table_detail != nullptr) {
                 VkBufferDeviceAddressInfo const instance_table_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = instance_table_detail->buffer};
-                VkDeviceAddress const instance_table_address = vkGetBufferDeviceAddress(this->vulkan_core.device, &instance_table_address_info);
+                VkDeviceAddress const instance_table_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &instance_table_address_info);
                 if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::instance_transforms), instance_table_address, static_cast<VkDeviceSize>(vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                     utility::log("descriptor heap: the instance transform table did not reach grid slot {}", core::heap_slots::instance_transforms);
                 }
@@ -1156,7 +1156,7 @@ namespace vulkan {
             // core::make_depth_array_view uses - this slot's image, the depth format, a 2D-array view and the DEPTH
             // aspect (a colour aspect here would be a validation error, not a wrong picture). Which slot it
             // occupies is the frame's, matching shadow_images[slot].
-            if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::shadow_map + static_cast<uint32_t>(slot), shadow_detail->image, this->vulkan_core.depth_format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT)) {
+            if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::shadow_map + static_cast<uint32_t>(slot), shadow_detail->image, this->vulkan_core.depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT)) {
                 utility::log("descriptor heap: the shadow map for frame slot {} did not reach grid slot {}", slot, core::heap_slots::shadow_map + static_cast<uint32_t>(slot));
             }
 
@@ -1169,7 +1169,7 @@ namespace vulkan {
             // that create info is made of - which is why the shadow map above is written where its image is known.
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = light_detail->buffer};
-                VkDeviceAddress const light_address = vkGetBufferDeviceAddress(this->vulkan_core.device, &address_info);
+                VkDeviceAddress const light_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                 VkDeviceSize const heap_offset = core::heap_slot_offset(core::heap_slots::scene_light + slot);
                 if (!this->vulkan_core.descriptor_heaps.write_buffer(heap_offset, light_address, sizeof(light_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                     utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
@@ -1185,7 +1185,7 @@ namespace vulkan {
             auto const* const head_detail = this->vulkan_core.vma.get_buffer_detail(this->head_buffers[static_cast<std::size_t>(slot)].handle());
             if (head_detail != nullptr && this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkBufferDeviceAddressInfo const head_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = head_detail->buffer};
-                VkDeviceAddress const head_address = vkGetBufferDeviceAddress(this->vulkan_core.device, &head_address_info);
+                VkDeviceAddress const head_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &head_address_info);
                 VkDeviceSize const head_offset = core::heap_slot_offset(core::heap_slots::scene_head + slot);
                 if (!this->vulkan_core.descriptor_heaps.write_buffer(head_offset, head_address, sizeof(head_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                     utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
@@ -1664,7 +1664,7 @@ namespace vulkan {
         // read" for every material that states it. MEASURED: with `goo_matcap05` at lane 9 the rewrite's iris
         // produced a frame BYTE-IDENTICAL to the one with no matcap lane at all (`CB321ADE1673AC9C` both ways)
         // while the sidecar reported `_GooMatcap05 -> texture #27 | ON` - the host never wrote the lane and the
-        // shader read 0 (see `zmd-ab/goo_step1_result.md`). `test_goo_toon_math` now names this line among the
+        // shader read 0 (see `deren-ab/goo_step1_result.md`). `test_goo_toon_math` now names this line among the
         // lane's sync points, so the next lane cannot be added to the enum and forgotten here.
         glm::uvec4 const toon_lanes_extra2(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::split_normal)],
                                            texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_matcap05)],

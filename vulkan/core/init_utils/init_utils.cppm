@@ -70,8 +70,16 @@ export struct device_capabilities {
     //      chain and issues the vkGetPhysicalDevice*2 calls each time. The remaining members of
     //      the Vulkan chain structs are deliberately left to zero-initialization (correct for
     //      query/creation), which -Wmissing-designated-field-initializers would otherwise flag.
+    //      THE PRAGMA IS CLANG-ONLY BY NAME, so it is guarded: MSVC does not know `#pragma clang
+    //      diagnostic` and answers it with C4068 (unknown pragma), which /WX turns into an error. The
+    //      warning it suppresses is a clang warning group with no MSVC spelling, and MSVC does not warn
+    //      about partially-initialized designated initializers at /W4, so there is nothing to suppress
+    //      there. This is the only first-party use of a clang-specific pragma/attribute/builtin in the
+    //      tree (everything else lives under third_party/, which is compiled with /external:W0).
+#if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+#endif
     VkPhysicalDeviceFeatures2 features_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2};
     VkPhysicalDeviceVulkan11Features features_1_1 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_1_FEATURES};
     VkPhysicalDeviceVulkan12Features features_1_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES};
@@ -149,7 +157,7 @@ export struct device_capabilities {
      */
     VkPhysicalDeviceShaderUntypedPointersFeaturesKHR untyped_pointers_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SHADER_UNTYPED_POINTERS_FEATURES_KHR};
     bool untyped_pointers_available = false;
-    /// the extension NAME to enable, or nullptr when the feature is not available (see descriptor_heap_dependency)
+    /// the extension NAME to enable, or nullptr when the feature is not available (see descriptor_heap_extension_name)
     char const* untyped_pointers_dependency = nullptr;
     VkPhysicalDeviceDescriptorHeapPropertiesEXT descriptor_heap_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_HEAP_PROPERTIES_EXT};
     /**
@@ -160,7 +168,9 @@ export struct device_capabilities {
      *       moment the heap is enabled without one. It is held as a NAME rather than as a second bool because
      *       the device-creation list needs the string, and both are static string literals.
      */
-    char const* descriptor_heap_dependency = nullptr;
+    // called descriptor_heap_extension_name, not descriptor_heap_dependency: the local of that name in query()
+    // below would hide a member of that name and MSVC /W4 reports C4458, an error under /WX
+    char const* descriptor_heap_extension_name = nullptr;
     /// @brief whether the device has VK_EXT_descriptor_heap, its descriptorHeap feature, AND that dependency
     bool descriptor_heap_available = false;
 
@@ -227,7 +237,9 @@ export struct device_capabilities {
     VkPhysicalDeviceSubgroupProperties subgroup_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
     VkPhysicalDeviceDescriptorIndexingProperties descriptor_indexing_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DESCRIPTOR_INDEXING_PROPERTIES};
     VkPhysicalDeviceMaintenance4Properties maintenance4_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MAINTENANCE_4_PROPERTIES};
+#if defined(__clang__)
 #pragma clang diagnostic pop
+#endif
 
     /**
      * @brief query all features and properties of the physical device
@@ -623,7 +635,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // the rest of the property chain) - so this line is deliberately amended after that query.
     host_image_copy_available = host_image_copy_extension && host_image_copy_features.hostImageCopy == VK_TRUE;
     this->untyped_pointers_dependency = untyped_pointers_available ? VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME : nullptr;
-    this->descriptor_heap_dependency = descriptor_heap_available ? descriptor_heap_dependency : nullptr; // the member, set from the local of the same name
+    this->descriptor_heap_extension_name = descriptor_heap_available ? descriptor_heap_dependency : nullptr;
     // Rebuild the extension chain from the core tail with ONLY the available links: the extension may be
     // advertised by a device that does not actually support it, and an enabled-but-unsupported struct is a
     // device-creation error. Rebuilding rather than unlinking one link at a time is what makes the result

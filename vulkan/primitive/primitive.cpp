@@ -232,8 +232,8 @@ namespace vulkan {
         env.set_cull_mode(this->double_sided);
         // A MESH SESSION DOES NOT BIND GEOMETRY: the stage fetches it from the lanes pushed below.
         push_stage_block(env, this->push);
-        uint32_t const survivors = this->push_meshlet_lanes(env, *this, 0u, this->index_count, 0, this->double_sided);
-        this->mesh_dispatch(env, *this, this->index_count, 1u, survivors);
+        uint32_t const survivors = this->push_meshlet_lanes(env, *this, 0u, this->draw_index_count, 0, this->double_sided);
+        this->mesh_dispatch(env, *this, this->draw_index_count, 1u, survivors);
     }
 
     void normal_draw_primitive::destroy(vma_allocator&) noexcept {
@@ -244,13 +244,13 @@ namespace vulkan {
         this->vertex_detail = nullptr;
         this->index_buffer.reset();
         this->index_detail = nullptr;
-        this->index_count = 0;
+        this->draw_index_count = 0;
         this->vertex_count = 0;
     }
 
     bool normal_draw_primitive::is_valid() const noexcept {
         return this->vertex_detail != nullptr && this->index_detail != nullptr &&
-               this->index_count != 0;
+               this->draw_index_count != 0;
     }
 
     void instanced_draw_primitive::draw(render_environment& env) const {
@@ -267,8 +267,8 @@ namespace vulkan {
         // has no SV_InstanceID, so the stage reads its instance index from the workgroup grid's Y - which is exactly
         // what the vertex path's SV_InstanceID meant here (see shadow.slang's mesh entry).
         push_stage_block(env, this->push);
-        uint32_t const survivors = this->push_meshlet_lanes(env, geometry_source, 0u, geometry_source.index_count, 0, this->double_sided);
-        this->mesh_dispatch(env, geometry_source, geometry_source.index_count, this->instance_count, survivors);
+        uint32_t const survivors = this->push_meshlet_lanes(env, geometry_source, 0u, geometry_source.draw_index_count, 0, this->double_sided);
+        this->mesh_dispatch(env, geometry_source, geometry_source.draw_index_count, this->instance_count, survivors);
     }
 
     void instanced_draw_primitive::destroy([[maybe_unused]] vma_allocator& vma) noexcept {
@@ -317,7 +317,7 @@ namespace vulkan {
         this->vertex_detail = nullptr;
         this->index_buffer.reset();
         this->index_detail = nullptr;
-        this->index_count = 0;
+        this->draw_index_count = 0;
         this->vertex_count = 0;
         this->chunks.clear();
     }

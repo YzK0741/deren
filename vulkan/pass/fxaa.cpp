@@ -27,7 +27,7 @@ namespace vulkan::pass {
     }
 
     void fxaa_pass::release_owned() noexcept {
-        this->pipeline_.reset();
+        this->pass_pipeline.reset();
     }
 
     render_resource::pass_io const& fxaa_pass::io() const noexcept {
@@ -35,7 +35,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& fxaa_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view fxaa_pass::feature() const noexcept {
@@ -50,11 +50,11 @@ namespace vulkan::pass {
         if (context.device == VK_NULL_HANDLE) {
             return;
         }
-        if (this->device_ != VK_NULL_HANDLE && this->device_ != context.device) {
+        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
             this->release_owned();
         }
-        this->device_ = context.device;
-        if (this->pipeline_.has_value()) {
+        this->device = context.device;
+        if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
@@ -70,8 +70,8 @@ namespace vulkan::pass {
             this->release_owned();
             return;
         }
-        this->pipeline_ = std::move(built->antialias);
-        this->swap_chain_format_ = context.swap_chain_image_format;
+        this->pass_pipeline = std::move(built->antialias);
+        this->swap_chain_format = context.swap_chain_image_format;
         utility::log("SUCCESS: fxaa pipeline created (LDR -> anti-aliased swapchain)");
     }
 
@@ -81,25 +81,25 @@ namespace vulkan::pass {
     }
 
     bool fxaa_pass::pipeline_ready() const noexcept {
-        return this->pipeline_.has_value();
+        return this->pass_pipeline.has_value();
     }
 
     VkPipeline fxaa_pass::pipeline() const noexcept {
-        return this->pipeline_.has_value() ? this->pipeline_->get_pipeline() : VK_NULL_HANDLE;
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     void fxaa_pass::set_frame(fxaa_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void fxaa_pass::set_overlay(draw_callback const overlay) noexcept {
         // The host's hook, installed once. This pass needs no fact to decide whether to use it: whenever FXAA
         // resolves, THIS is the frame's last writer (the composite's frame is what needs the answer).
-        this->overlay_ = overlay;
+        this->overlay_callback = overlay;
     }
 
     void fxaa_pass::prepare_frame([[maybe_unused]] frame_facts const& facts) noexcept {
-        this->set_frame(fxaa_frame{.after_draw = this->overlay_});
+        this->set_frame(fxaa_frame{.after_draw = this->overlay_callback});
     }
 
     void fxaa_pass::record(resolved_io const& io) {
@@ -143,7 +143,7 @@ namespace vulkan::pass {
             // Same meaning as in the composite: 0 = the swapchain attachment encodes to display values in
             // hardware, so FXAA must hand it LINEAR values; 1 = the target is a UNORM format and FXAA's own
             // display-encoded result is what should be stored.
-            .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format_) ? 0.0f : 1.0f,
+            .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -159,8 +159,8 @@ namespace vulkan::pass {
         // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it runs,
         // so the overlay belongs here - drawing it in the composite's instance instead would let the edge filter
         // blur the UI text into mush (see fxaa_frame::after_draw, and the composite's frame for the other case).
-        if (this->frame_.after_draw.valid()) {
-            this->frame_.after_draw.record(this->frame_.after_draw.owner, io.cmd);
+        if (this->pass_frame.after_draw.valid()) {
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
         }
         vkCmdEndRendering(io.cmd);
     }

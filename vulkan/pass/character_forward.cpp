@@ -27,7 +27,7 @@ namespace vulkan::pass {
     }
 
     vulkan::pass::behaviour const& character_forward_pass::behaviour() const noexcept {
-        return behaviour_;
+        return pass_behaviour;
     }
 
     std::string_view character_forward_pass::feature() const noexcept {
@@ -55,15 +55,15 @@ namespace vulkan::pass {
     }
 
     void character_forward_pass::set_frame(character_forward_frame const& frame) noexcept {
-        this->frame_ = frame;
+        this->pass_frame = frame;
     }
 
     void character_forward_pass::record(resolved_io const& io) {
         // BOTH LEAF LISTS ARE THE GATE, not just the toon one: a frame whose only character geometry is the
         // article's two masks still has something to multiply, and returning on `leaves.empty()` alone would
         // silently drop it. Either list being non-empty is the pass having work to do.
-        if (this->frame_.make_environment == nullptr || this->frame_.pipeline_name.empty() || io.targets.size() < 2 ||
-            (this->frame_.leaves.empty() && this->frame_.overlay_leaves.empty() && this->frame_.outline_leaves.empty())) {
+        if (this->pass_frame.make_environment == nullptr || this->pass_frame.pipeline_name.empty() || io.targets.size() < 2 ||
+            (this->pass_frame.leaves.empty() && this->pass_frame.overlay_leaves.empty() && this->pass_frame.outline_leaves.empty())) {
             return; // the runner resolves all of this or skips the pass (see make_character_forward_frame)
         }
         VkImageView const target_view = io.targets[0].view; // the scene colour target (declaration order)
@@ -87,10 +87,10 @@ namespace vulkan::pass {
         // LOAD on both attachments: the lit frame and the opaque surface are what this pass draws OVER.
         VkRenderingAttachmentInfo const color_attachment = make_load_color_attachment_info(target_view);
         VkRenderingAttachmentInfo const depth_attachment = make_load_depth_attachment_info(depth_view);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->frame_.extent}, &color_attachment, 1, &depth_attachment);
+        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->pass_frame.extent}, &color_attachment, 1, &depth_attachment);
         vkCmdBeginRendering(io.cmd, &rendering_info);
 
-        render_environment env = this->frame_.make_environment(this->frame_.owner, io.cmd, /*gbuffer=*/false);
+        render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, io.cmd, /*gbuffer=*/false);
         // THE TWO THINGS THIS PASS STATES ABOUT ITSELF, neither of which the renderer could know:
         //
         //   WHICH PIPELINE. Every primitive's draw() calls `bind_default()`, so a session's default name is
@@ -102,11 +102,11 @@ namespace vulkan::pass {
         //   emitted), and the lock comes second because every primitive's draw() sets its OWN depth write a
         //   few instructions later - without the lock this pass's `ZWrite Off` would be a statement of
         //   intent that the very next leaf undoes. See render_environment::depth_write_locked.
-        env.default_name = this->frame_.pipeline_name;
+        env.default_name = this->pass_frame.pipeline_name;
         env.set_depth_write(false);
         env.depth_write_locked = true;
 
-        for (primitive const* const leaf : this->frame_.leaves) {
+        for (primitive const* const leaf : this->pass_frame.leaves) {
             leaf->draw(env);
         }
 
@@ -129,14 +129,14 @@ namespace vulkan::pass {
         // drawn with front-face culling is equivalent - the nearest back face wins the depth test either way - and
         // whose only visible consequence is that the hull does not occlude what is drawn after it (the overlays
         // and the post chain, neither of which is behind a silhouette).
-        if (!this->frame_.outline_pipeline_name.empty() && !this->frame_.outline_leaves.empty()) {
-            env.default_name = this->frame_.outline_pipeline_name;
+        if (!this->pass_frame.outline_pipeline_name.empty() && !this->pass_frame.outline_leaves.empty()) {
+            env.default_name = this->pass_frame.outline_pipeline_name;
             // CULL FRONT FOR THIS GROUP ONLY, and it has to be stated HERE rather than in the pipeline: every
             // leaf's draw() calls `set_cull_mode` with its own double-sided flag (see the field's own note), so a
             // pipeline-level Cull Front would be undone by the first hull. Cleared immediately after, so the
             // overlay group below records its own culling exactly as before.
             env.forced_cull_front = true;
-            for (primitive const* const leaf : this->frame_.outline_leaves) {
+            for (primitive const* const leaf : this->pass_frame.outline_leaves) {
                 leaf->draw(env);
             }
             env.forced_cull_front = false;
@@ -157,9 +157,9 @@ namespace vulkan::pass {
         // (`stencilAttachmentFormat` is VK_FORMAT_UNDEFINED, see vulkan/constant_init), so there is no stencil
         // plane for a Ref test - the geometry's own coverage is what stands in for it, which is why the hair
         // shadow is a mesh shaped around the forehead rather than a full-screen quad.
-        if (!this->frame_.overlay_pipeline_name.empty() && !this->frame_.overlay_leaves.empty()) {
-            env.default_name = this->frame_.overlay_pipeline_name;
-            for (primitive const* const leaf : this->frame_.overlay_leaves) {
+        if (!this->pass_frame.overlay_pipeline_name.empty() && !this->pass_frame.overlay_leaves.empty()) {
+            env.default_name = this->pass_frame.overlay_pipeline_name;
+            for (primitive const* const leaf : this->pass_frame.overlay_leaves) {
                 leaf->draw(env);
             }
         }

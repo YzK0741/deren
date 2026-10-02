@@ -9,6 +9,8 @@
  * plain TU contains them to this file, and the module side only sees the C entry point below.
  */
 
+#include "platform_functions.hpp" // the one declaration of utility_platform_sleep_ns; the definition below is checked against it
+
 #include <cstdint>
 
 #if defined(_WIN32)

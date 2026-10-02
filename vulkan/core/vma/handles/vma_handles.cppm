@@ -43,9 +43,9 @@ namespace vulkan {
         explicit vk_buffer(uint64_t handle,
                            std::function<void(uint64_t)> retain,
                            std::function<void(uint64_t)> release) noexcept
-            : handle_{handle}
-            , retain_{std::move(retain)}
-            , release_{std::move(release)} {
+            : owned_handle{handle}
+            , retain_fn{std::move(retain)}
+            , release_fn{std::move(release)} {
         }
 
         ~vk_buffer() noexcept {
@@ -53,53 +53,53 @@ namespace vulkan {
         }
 
         vk_buffer(vk_buffer const& other)
-            : handle_{other.handle_}
-            , retain_{other.retain_}
-            , release_{other.release_} {
-            if (this->handle_ != 0 && this->retain_) {
-                this->retain_(this->handle_); // share: bump the allocator's reference count
+            : owned_handle{other.owned_handle}
+            , retain_fn{other.retain_fn}
+            , release_fn{other.release_fn} {
+            if (this->owned_handle != 0 && this->retain_fn) {
+                this->retain_fn(this->owned_handle); // share: bump the allocator's reference count
             }
         }
 
         vk_buffer& operator=(vk_buffer const& other) {
             if (this != &other) {
                 this->release();
-                this->handle_ = other.handle_;
-                this->retain_ = other.retain_;
-                this->release_ = other.release_;
-                if (this->handle_ != 0 && this->retain_) {
-                    this->retain_(this->handle_);
+                this->owned_handle = other.owned_handle;
+                this->retain_fn = other.retain_fn;
+                this->release_fn = other.release_fn;
+                if (this->owned_handle != 0 && this->retain_fn) {
+                    this->retain_fn(this->owned_handle);
                 }
             }
             return *this;
         }
 
         vk_buffer(vk_buffer&& other) noexcept
-            : handle_{other.handle_}
-            , retain_{std::move(other.retain_)}
-            , release_{std::move(other.release_)} {
-            other.handle_ = 0; // moved-from owns nothing
+            : owned_handle{other.owned_handle}
+            , retain_fn{std::move(other.retain_fn)}
+            , release_fn{std::move(other.release_fn)} {
+            other.owned_handle = 0; // moved-from owns nothing
         }
 
         vk_buffer& operator=(vk_buffer&& other) noexcept {
             if (this != &other) {
                 this->release();
-                this->handle_ = other.handle_;
-                this->retain_ = std::move(other.retain_);
-                this->release_ = std::move(other.release_);
-                other.handle_ = 0;
+                this->owned_handle = other.owned_handle;
+                this->retain_fn = std::move(other.retain_fn);
+                this->release_fn = std::move(other.release_fn);
+                other.owned_handle = 0;
             }
             return *this;
         }
 
         /** @brief the underlying allocator handle (0 = empty) */
         [[nodiscard]] uint64_t handle() const noexcept {
-            return this->handle_;
+            return this->owned_handle;
         }
 
         /** @brief whether this wrapper owns a reference */
         [[nodiscard]] bool valid() const noexcept {
-            return this->handle_ != 0;
+            return this->owned_handle != 0;
         }
 
         /** @brief release this reference and become empty (idempotent) */
@@ -109,17 +109,21 @@ namespace vulkan {
 
     private:
         void release() noexcept {
-            if (this->handle_ != 0 && this->release_) {
-                this->release_(this->handle_);
+            if (this->owned_handle != 0 && this->release_fn) {
+                this->release_fn(this->owned_handle);
             }
-            this->handle_ = 0;
-            this->retain_ = {};
-            this->release_ = {};
+            this->owned_handle = 0;
+            this->retain_fn = {};
+            this->release_fn = {};
         }
 
-        uint64_t handle_ = 0;
-        std::function<void(uint64_t)> retain_ = {};
-        std::function<void(uint64_t)> release_ = {};
+        // called owned_handle, not handle: the handle() accessor of this class would collide with a member of that name
+        // called retain_fn, not retain: the retain parameter of the constructor would hide a member of that name and
+        // MSVC /W4 reports C4458, an error under /WX
+        // called release_fn, not release: the release() method of this class would collide with a member of that name
+        uint64_t owned_handle = 0;
+        std::function<void(uint64_t)> retain_fn = {};
+        std::function<void(uint64_t)> release_fn = {};
     };
 
     /**
@@ -134,9 +138,9 @@ namespace vulkan {
         explicit vk_image(uint64_t handle,
                           std::function<void(uint64_t)> retain,
                           std::function<void(uint64_t)> release) noexcept
-            : handle_{handle}
-            , retain_{std::move(retain)}
-            , release_{std::move(release)} {
+            : owned_handle{handle}
+            , retain_fn{std::move(retain)}
+            , release_fn{std::move(release)} {
         }
 
         ~vk_image() noexcept {
@@ -144,53 +148,53 @@ namespace vulkan {
         }
 
         vk_image(vk_image const& other)
-            : handle_{other.handle_}
-            , retain_{other.retain_}
-            , release_{other.release_} {
-            if (this->handle_ != 0 && this->retain_) {
-                this->retain_(this->handle_);
+            : owned_handle{other.owned_handle}
+            , retain_fn{other.retain_fn}
+            , release_fn{other.release_fn} {
+            if (this->owned_handle != 0 && this->retain_fn) {
+                this->retain_fn(this->owned_handle);
             }
         }
 
         vk_image& operator=(vk_image const& other) {
             if (this != &other) {
                 this->release();
-                this->handle_ = other.handle_;
-                this->retain_ = other.retain_;
-                this->release_ = other.release_;
-                if (this->handle_ != 0 && this->retain_) {
-                    this->retain_(this->handle_);
+                this->owned_handle = other.owned_handle;
+                this->retain_fn = other.retain_fn;
+                this->release_fn = other.release_fn;
+                if (this->owned_handle != 0 && this->retain_fn) {
+                    this->retain_fn(this->owned_handle);
                 }
             }
             return *this;
         }
 
         vk_image(vk_image&& other) noexcept
-            : handle_{other.handle_}
-            , retain_{std::move(other.retain_)}
-            , release_{std::move(other.release_)} {
-            other.handle_ = 0;
+            : owned_handle{other.owned_handle}
+            , retain_fn{std::move(other.retain_fn)}
+            , release_fn{std::move(other.release_fn)} {
+            other.owned_handle = 0;
         }
 
         vk_image& operator=(vk_image&& other) noexcept {
             if (this != &other) {
                 this->release();
-                this->handle_ = other.handle_;
-                this->retain_ = std::move(other.retain_);
-                this->release_ = std::move(other.release_);
-                other.handle_ = 0;
+                this->owned_handle = other.owned_handle;
+                this->retain_fn = std::move(other.retain_fn);
+                this->release_fn = std::move(other.release_fn);
+                other.owned_handle = 0;
             }
             return *this;
         }
 
         /** @brief the underlying allocator handle (0 = empty) */
         [[nodiscard]] uint64_t handle() const noexcept {
-            return this->handle_;
+            return this->owned_handle;
         }
 
         /** @brief whether this wrapper owns a reference */
         [[nodiscard]] bool valid() const noexcept {
-            return this->handle_ != 0;
+            return this->owned_handle != 0;
         }
 
         /** @brief release this reference and become empty (idempotent) */
@@ -200,16 +204,20 @@ namespace vulkan {
 
     private:
         void release() noexcept {
-            if (this->handle_ != 0 && this->release_) {
-                this->release_(this->handle_);
+            if (this->owned_handle != 0 && this->release_fn) {
+                this->release_fn(this->owned_handle);
             }
-            this->handle_ = 0;
-            this->retain_ = {};
-            this->release_ = {};
+            this->owned_handle = 0;
+            this->retain_fn = {};
+            this->release_fn = {};
         }
 
-        uint64_t handle_ = 0;
-        std::function<void(uint64_t)> retain_ = {};
-        std::function<void(uint64_t)> release_ = {};
+        // called owned_handle, not handle: the handle() accessor of this class would collide with a member of that name
+        // called retain_fn, not retain: the retain parameter of the constructor would hide a member of that name and
+        // MSVC /W4 reports C4458, an error under /WX
+        // called release_fn, not release: the release() method of this class would collide with a member of that name
+        uint64_t owned_handle = 0;
+        std::function<void(uint64_t)> retain_fn = {};
+        std::function<void(uint64_t)> release_fn = {};
     };
 } // namespace vulkan

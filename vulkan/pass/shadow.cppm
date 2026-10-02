@@ -128,7 +128,9 @@ export namespace vulkan::pass {
         static constexpr float create_bias_clamp = 0.0f;
 
         static constexpr std::array<std::string_view, 1> pipeline_names = {"shadow"};
-        inline static constexpr vulkan::pass::behaviour behaviour_ = {
+        // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
+        // would duplicate it and hide the override.
+        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics, // a draw per caster, not one fullscreen triangle
             .extent = extent_rule::none,      // the map's edge is the pass's, not the frame's (see the field below)
             .extent_of = resource_id::none,
@@ -140,14 +142,16 @@ export namespace vulkan::pass {
         };
         void release_owned() noexcept;
 
-        VkDevice device_ = VK_NULL_HANDLE;
+        VkDevice device = VK_NULL_HANDLE;
         /// THE MESH FORM, and since step 4 (docs/mesh_shaders.md) it is the pass's ONLY form: the vertex pipeline is
         /// gone with the rest of the vertex geometry path, so a device that cannot build this one gets no shadow map
         /// rather than a different rasterizer. It fetches its casters' vertices the way the input assembler used to.
-        std::optional<vk_pipeline> mesh_pipeline_ = std::nullopt;
+        std::optional<vk_pipeline> mesh_pipeline = std::nullopt;
         /// ... and the MESHLET form, preferred over it when it exists (see meshlet_shader_name)
-        std::optional<vk_pipeline> meshlet_pipeline_ = std::nullopt;
-        shadow_frame frame_ = {};
+        std::optional<vk_pipeline> meshlet_pipeline = std::nullopt;
+        // called pass_frame, not frame: set_frame()'s frame parameter in shadow.cpp would hide a member of that name
+        // and MSVC /W4 reports C4458 (an error under /WX).
+        shadow_frame pass_frame = {};
     };
 
     /// THE DECLARATION'S PUSH BLOCK is the four-byte cascade index at the scene block's end, and the renderer's
