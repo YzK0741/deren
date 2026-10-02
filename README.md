@@ -1,6 +1,6 @@
 # deren
 
-**deren** is a real-time renderer written in modern C++23 (C++20 modules / `.cppm`), implementing a glTF 2.0 PBR (metallic-roughness) pipeline with CPU-precomputed split-sum IBL lighting, a scene tree with BVH frustum culling, directional shadows, and a Dear ImGui debug overlay. The graphics backend is being separated out behind an RHI - what is the backend versus what is the engine is still an open question (see the note below).
+**deren** is a real-time renderer written in modern C++23 (C++20 modules / `.cppm`). Its graphics backend is being separated out behind an RHI - what is the backend versus what is the engine is still an open question (see the note below).
 
 > **Renamed on 2026-10-02: this project is `deren`** (it was `vulkan_render`). The executable, the version macros, the reference-frame directory and the GitHub repository were renamed with it; the working directory was renamed last, from outside a session that held it open, and the old path no longer exists. Module namespaces still read `vulkan.*` and four doxygen groups still read `vulkan_render_*` on purpose: renaming those is a separate, still-open decision tied to the backend boundary. See `docs/mainpage.md` for the full note.
 
