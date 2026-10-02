@@ -59,7 +59,7 @@ namespace vulkan {
 
     /**
      * @ingroup vulkan_core
-     * @brief agreed flat layout of the scene block, shared by every pipeline (see shaders/pbr.frag):
+     * @brief agreed flat layout of the scene block, shared by every pipeline (see shaders/pbr.slang):
      *        set 0 binding 0 = CameraUBO (uniform buffer; one per frame slot, each slot's block
      *              points at its own - static, no per-frame descriptor writes),
      *              binding 1 = sampler2D textures[] (runtime array, partially bound + non-uniform index),
@@ -113,7 +113,7 @@ namespace vulkan {
     /**
      * @ingroup vulkan_core
      * @brief formats of the G-buffer targets, in attachment order (= the fragment output locations
-     *        of shaders/gbuffer.frag), and the reason the deferred path is cheap to store:
+     *        of shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
      *        - 0 RGBA8_UNORM: albedo.rgb (base color, linear) + metallic in a
      *        - 1 RGBA16F: world normal.xyz (no encoding - the conservative layout trades 4 bytes per
      *          pixel for not having to reason about octahedral precision) + roughness in a

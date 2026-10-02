@@ -4,7 +4,7 @@
 // <name>.spv by file name) needs no change at all. That is the acceptance for the whole migration: the
 // capture gate must stay byte-identical, and the gate's `unlit` scenario covers this stage.
 //
-// Ported from shaders/unlit.frag (now in glsl.old/ once the migration finishes). The GLSL's model is
+// Ported from shaders/unlit.frag (now in `shaders/glsl.old/`). The GLSL's model is
 // "the array IS the heap, indexed by an absolute slot"; Slang's DescriptorHandle is a handle VALUE, so
 // every fetch here builds one from a literal slot - see docs/slang_migration.md, which records why a
 // handle ARRAY (the obvious port) is wrong: Slang would wrap it in a synthesized descriptor set, and a

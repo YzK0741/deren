@@ -243,6 +243,8 @@ export namespace vulkan::pass {
             void* owner = nullptr;
             bool (*push)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
 
+            /// @param command_buffer the command buffer the block is sent on
+            /// @param bytes the stage's push block, with the heap index lanes already appended
             /// @param extra_lane the POST chain's own source slot, which only that chain's passes can name; every
             ///        other stage leaves it 0 and its shader does not declare the third field at all.
             [[nodiscard]] bool operator()(VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane = 0u) const {

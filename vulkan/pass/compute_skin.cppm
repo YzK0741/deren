@@ -90,6 +90,8 @@ export namespace vulkan::pass {
         [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
         /**
          * @brief record one dispatch per request, then the build-ordering barrier; whether anything was recorded
+         * @param command_buffer the command buffer the dispatches are recorded into
+         * @param requests the frame's skin requests (one dispatch each)
          * @param push_owner the renderer, @param push_indices its endpoint: the block is sent as DATA with the two
          *        heap indices appended (this shader reads the per-frame joint matrices, so it declares both), which
          *        is why the frame slot is no longer a parameter here - the endpoint carries it.

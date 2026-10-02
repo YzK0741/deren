@@ -1,7 +1,7 @@
 // shaders/gbuffer.slang - the SLANG source of the G-buffer write stage.
 //
 // PRODUCES `gbuffer.frag.spv`, the same name the GLSL version produced, so the host side is untouched.
-// Ported from shaders/gbuffer.frag (glsl.old/ once the migration finishes): the body is the GLSL body, and
+// Ported from shaders/gbuffer.frag (now in `shaders/glsl.old/`): the body is the GLSL body, and
 // what changes is only what a different language requires - the entry point's parameters and the output
 // struct carry `[[vk::location(n)]]` instead of `layout(location = n)`, and the heap is reached through
 // the shared accessors (see docs/slang_migration.md).

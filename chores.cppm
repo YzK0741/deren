@@ -257,6 +257,8 @@ namespace chores {
      *        per-widget callbacks. Each slot is pushed as a point light, or as a spot light when
      *        its `spot` flag is set (direction + clamped inner/outer cone angles). Cheap no-op
      *        when nothing is enabled.
+     * @param runtime the runtime whose light UBO receives the slots
+     * @param bindings the overlay's live light widgets (see gui_bindings)
      * @param extra additional lights appended after the overlay's slots - the [lighting] demo_lights
      *        stress set (M5). Both share the UBO's light array, so the overlay's slots win when the
      *        two together would overflow vulkan::max_punctual_lights.

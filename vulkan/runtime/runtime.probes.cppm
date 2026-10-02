@@ -46,7 +46,7 @@ import vulkan.core.pipeline;   // vulkan::make_pipeline for the post-process pip
 
 namespace vulkan {
     void runtime::run_heap_probe(uint32_t const texture_slot) {
-        // ---- THE HEAP-NATIVE PROBE (see shaders/heap_probe.comp and docs/descriptor_heap_migration.md) ----
+        // ---- THE HEAP-NATIVE PROBE (see shaders/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
         //
         // The whole migration assumes four things about the native path, and this is where they stop being
         // assumptions: a pipeline created with VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT and NO layout, a

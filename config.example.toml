@@ -201,7 +201,7 @@ shadow_bias_constant = 0.0
 shadow_bias_slope = 1.5
 
 # clustered_lights: sort the punctual lights into a screen-tile x depth-slice grid once per frame (a
-# compute pass, shaders/light_cluster.comp) and evaluate only the pixel own cluster list instead of
+# compute pass, shaders/light_cluster.slang) and evaluate only the pixel own cluster list instead of
 # every active light. This is what makes a light count far past the old four affordable: measured on
 # Sponza with 64 procedural lights at 960x720, the shading pass drops from 1.28 ms to 0.44 ms (and the
 # same change measured 0.25 ms to 0.08 ms in the pre-M5 forward path), with a byte-identical image.
@@ -269,7 +269,7 @@ rt_shadows = false
 # fetches the hit's own UV, samples the material's alpha and refuses the intersection below the cutoff; measured
 # on the AlphaBlendModeTest asset it lands 3.0/255 from the raster shadow over the pixels it changes, against
 # 136.6/255 without it). What is left here is the A/B arm of that comparison.
-# A compute pass (`shaders/mask_bake.comp`) samples the material's alpha over each triangle of masked
+# A compute pass (`shaders/mask_bake.slang`) samples the material's alpha over each triangle of masked
 # geometry and COLLAPSES the triangles the mask covers nowhere - all three of their vertices written at one
 # position, which is a triangle no traversal can report a hit against. Hiding a triangle that way is only
 # safe if it owns its vertices, so the geometry is expanded to three unique vertices per triangle, made
@@ -289,8 +289,8 @@ rt_shadows = false
 rt_mask_bake = false
 # rt_skin_bake: re-skin the animated casters and REFIT their acceleration structures every frame, so a
 # ray-traced shadow is cast by the mesh where it actually is and not by its bind pose. What it costs: one
-# compute invocation per vertex of every skinned caster (`shaders/compute_skin.comp`, the same skinning
-# maths `shaders/pbr.vert` does, writing OBJECT-space positions and normals into a buffer of the geometry's
+# compute invocation per vertex of every skinned caster (`shaders/compute_skin.slang`, the same skinning
+# maths `shaders/pbr.slang` does, writing OBJECT-space positions and normals into a buffer of the geometry's
 # own), then VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR over the structures of those casters - a refit,
 # not a rebuild, which is why the topology is fixed for a skinned mesh and only the vertex data moves. The
 # structures are built with ALLOW_UPDATE for exactly this (see acceleration_structure::add's refittable

@@ -11,8 +11,12 @@ The configuration CI builds and the capture gate runs on: MSYS2 **clang64** (cla
 Ninja, shaders compiled by `slangc`. `-Werror` is on for first-party code in every configuration, so a warning
 this compiler emits but CI's does not is a build failure here rather than a curiosity.
 
+MSVC is a second configuration the BUILD FILES support but the scripts and CI do not drive:
+`scripts/windows/build.ps1` requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
+cache variables an MSVC build needs are documented in the README rather than here.
+
 Everything below about GCC is a MEASUREMENT, not a promise. The audit ran GCC 16.2 (MinGW, ucrt64) against the
-same tree: it now compiles all of it and links five of the twelve test executables, and does not link the rest.
+same tree: it now compiles all of it and links five of the thirteen test executables, and does not link the rest.
 Nothing in the build files supports that configuration yet, and this document is why nobody has to re-derive
 what happens if it is tried.
 

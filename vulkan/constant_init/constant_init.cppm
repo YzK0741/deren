@@ -424,6 +424,8 @@ export namespace vulkan {
     /**
      * @brief dynamic-rendering instance with N color attachments (the G-buffer pass writes three:
      *        albedo/metallic, normal/roughness, material id/AO/flags)
+     * @param flags e.g. VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
+     * @param render_area the area to render into (the pipelines apply their own viewport/scissor)
      * @param color_attachments caller-owned array of @p color_count attachments (in the order the
      *        fragment shader's layout(location = i) outputs address)
      * @param color_count number of color attachments (0 for a depth-only pass, same as passing
@@ -485,6 +487,9 @@ export namespace vulkan {
      * @brief fill rasterization, back-face cull, CCW front face, optional slope-scaled depth bias
      * @param depth_bias_enabled the bias is dynamic state on shadow pipelines; the static
      *        factors only matter while it is never set dynamically
+     * @param depth_bias_constant_factor constant depth bias
+     * @param depth_bias_slope_factor slope-scaled depth bias
+     * @param depth_bias_clamp depth bias clamp, 0 disables clamping
      */
     constexpr VkPipelineRasterizationStateCreateInfo make_rasterization_state(bool const depth_bias_enabled, float const depth_bias_constant_factor, float const depth_bias_slope_factor, float const depth_bias_clamp) noexcept {
         return {.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
@@ -775,7 +780,7 @@ export namespace vulkan {
     /** @brief depth attachment -> GENERAL, sampled read (the shadow map back to the
      *         main pass, and the G-buffer depth to everything that reconstructs from it).
      * @note BOTH consumer stages are named: the G-buffer images have had a COMPUTE consumer since the
-     *       screen-space GI passes started reading the stored surface directly (shaders/megalights_trace.comp
+     *       screen-space GI passes started reading the stored surface directly (shaders/megalights_trace.slang
      *       and megalights_temporal.comp name the gbuffer slots from a compute stage), and a layout transition
      *       has to name every stage that reads the image afterwards. */
     inline constexpr VkImageMemoryBarrier2 shadow_map_sampling_transition = {

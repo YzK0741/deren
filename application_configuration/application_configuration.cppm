@@ -200,7 +200,7 @@ namespace app_config {
         // experiment that says whether a flickering terminator is the ray re-hitting its own surface.
         float megalights_bias = 1.0f;
         // The emitter's ANGULAR radius in radians: the soft-shadow knob, and this feature's cure for a flickering
-        // hard shadow edge (see shaders/megalights_trace.comp's soft-shadow block). A point light's visibility is
+        // hard shadow edge (see shaders/megalights_trace.slang's soft-shadow block). A point light's visibility is
         // binary, so a shadow boundary crossing the pixel flips it; an emitter with size makes the answer the
         // fraction of the emitter the pixel sees, which moves gradually. DEFAULT 0 - hard shadows, the behaviour
         // this feature shipped with - because the soft look is a choice, not a fix: measured, it does NOT reduce

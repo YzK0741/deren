@@ -1142,7 +1142,7 @@ namespace vulkan {
     // The G-buffer pass is the forward opaque pass with a different fragment stage: same vertex
     // stage, same primitives, same scene set, same instancing/skinning/morphing. What changes is
     // where the fragments go (three 1x targets + a 1x depth image instead of the scene color)
-    // and that nothing is lit - see shaders/gbuffer.frag.
+    // and that nothing is lit - see shaders/gbuffer.slang.
     std::expected<void, std::string> runtime::make_gbuffer_pipeline(std::span<uint8_t const> const fragment_shader_code,
                                                                     std::span<uint8_t const> const mesh_vertex_shader_code, std::span<uint8_t const> const meshlet_vertex_shader_code) {
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): the G-buffer pass's surface write is fed by a

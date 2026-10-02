@@ -1,4 +1,4 @@
-// shaders/post.vert - the SLANG source of the fullscreen-triangle vertex stage.
+// shaders/post.slang - the SLANG source of the fullscreen-triangle vertex stage.
 //
 // PRODUCES `post.vert.spv`, the same name the GLSL version produced, so the host is untouched. Every
 // fullscreen pass uses it (the bloom/composite chain, TAA, FXAA, deferred lighting and the G-buffer debug

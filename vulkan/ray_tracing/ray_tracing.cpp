@@ -355,7 +355,7 @@ namespace vulkan::ray_tracing {
             // the structure from that. An inline ray query has no any-hit stage, so a traversal cannot run the
             // material's discard - this bake is where the mask is applied instead, and it is startup work because
             // the structures are built once and a MASK material is a property of the file (see
-            // shaders/mask_bake.comp for the rule and for what the mechanism cannot represent).
+            // shaders/mask_bake.slang for the rule and for what the mechanism cannot represent).
             //
             // WHAT IS THE POLICY HERE and what is the JOB's: which casters carry a MASK material is this loop's,
             // and the allocation of the expanded buffer each one is baked into is this object's (the buffer
@@ -452,7 +452,7 @@ namespace vulkan::ray_tracing {
             // order, the index buffer and the triangle count are all the primitive's own: only the bytes change.
             // `skin_base != 0` is the test for "skinned", because index 0 is the identity block every unskinned
             // draw uses (see set_skin_matrices). The stride test is the shader's precondition, not a heuristic:
-            // shaders/compute_skin.comp reads the joints at byte 32 and the weights at byte 48 of the engine's
+            // shaders/compute_skin.slang reads the joints at byte 32 and the weights at byte 48 of the engine's
             // 64-byte interleaved vertex, so a caster whose vertices are packed differently is REFUSED (it keeps
             // its bind pose and is counted in the log) rather than skinned with the wrong words.
             constexpr uint32_t skin_source_stride_expected = 64u;

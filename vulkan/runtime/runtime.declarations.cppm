@@ -710,7 +710,7 @@ namespace vulkan {
         /// the bytes of a shader the app registered, by file name (empty when it did not)
         [[nodiscard]] std::span<uint8_t const> registered_shader(std::string_view name) const noexcept;
         /**
-         * @brief run the HEAP-NATIVE probe once (see shaders/heap_probe.comp): the first pipeline in this renderer
+         * @brief run the HEAP-NATIVE probe once (see shaders/heap_probe_comp.slang): the first pipeline in this renderer
          *        with NO layout at all, its parameters through vkCmdPushDataEXT, reading a texture from the resource
          *        heap through a sampler from the sampler heap
          * @param texture_slot the ABSOLUTE grid slot of the texture to sample (heap_slots::textures + an index)
@@ -722,7 +722,7 @@ namespace vulkan {
          */
         void run_heap_probe(uint32_t texture_slot);
         /**
-         * @brief run the GRAPHICS half of the heap-native probe once (see shaders/heap_probe.vert/.frag)
+         * @brief run the GRAPHICS half of the heap-native probe once (see shaders/heap_probe.slang)
          * @param material_slot the ABSOLUTE grid slot of the material table the fragment stage reads; the caller
          *        runs it once with the right slot and once with a deliberately WRONG one, because a probe that can
          *        only say "fine" would pass every check
@@ -1451,7 +1451,7 @@ namespace vulkan {
          * real but does not need the list to express it (`vulkan_core` is declared above everything).
          */
         ray_tracing::structure_set structures{this->vulkan_core};
-        // The alphaMode MASK bake (see shaders/mask_bake.comp): ONE JOB OBJECT owns its pipeline
+        // The alphaMode MASK bake (see shaders/mask_bake.slang): ONE JOB OBJECT owns its pipeline
         // (vulkan.pass.mask_bake_job), because it is not a frame pass at all -
         // it runs once, inside the same command buffer as the bottom level builds it feeds, and its input is
         // the caster list this renderer is walking at that moment. It is OFF by default and the shipped shadow
@@ -1477,7 +1477,7 @@ namespace vulkan {
         // Whether that bake runs at all ([render] rt_mask_bake). Off by default: the per-triangle rule
         bool rt_mask_bake = false;
 
-        // ---- skinned meshes (see shaders/compute_skin.comp) ----
+        // ---- skinned meshes (see shaders/compute_skin.slang) ----
         // This engine skins in the VERTEX shader, so the deformed positions never reach memory a build can
         // read, and a skinned mesh's traced shadow is its BIND POSE (measured: the traced shadow's pose
         // section). The pass below writes the same vertices the vertex shader computes into the buffer the
@@ -2975,8 +2975,8 @@ namespace vulkan {
         /**
          * @ingroup vulkan_runtime
          * @brief run every wired pass's CREATE step: what a pass owns, built from its own declaration
-         * @return nothing; a pass that cannot build what it records with logs why and stays inactive
-         * @note Idempotent (a pass is created once per device generation), and it must run after the samplers
+         * @note A pass that cannot build what it records with logs why and stays inactive. Idempotent (a pass is
+         *       created once per device generation), and it must run after the samplers
          *       the pass context hands over exist. Until it runs, the
          *       passes that own a pipeline are inactive and the frame records exactly what it did before they
          *       existed - which is why a startup failure here is a log line and not a broken frame.

@@ -103,7 +103,7 @@ namespace vulkan::acceleration_structure {
         // own geometry_source documents it ("index_address may be 0 for a non-indexed geometry, which the
         // build then reads as a flat vertex list"), but leaving the caller's index type in place sent the
         // build to read indices from address zero instead - which the mask bake's expanded geometry would
-        // have hit on its first run (see shaders/mask_bake.comp).
+        // have hit on its first run (see shaders/mask_bake.slang).
         bool const indexed = source.index_address != 0;
         triangles.indexType = indexed ? source.index_type : VK_INDEX_TYPE_NONE_KHR;
         triangles.indexData.deviceAddress = indexed ? source.index_address : 0;
@@ -280,7 +280,7 @@ namespace vulkan::acceleration_structure {
         // The SAME geometries the build used, with the same addresses and counts: an update is legal
         // exactly when only the bytes behind them changed. That is what makes it cheap - no size query, no
         // allocation, no new structure - and it is also the whole reason a compute skinning pass can feed
-        // one (see shaders/compute_skin.comp).
+        // one (see shaders/compute_skin.slang).
         this->update_infos.clear();
         this->update_range_ptrs.clear();
         this->update_infos.reserve(indices.size());

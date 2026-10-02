@@ -173,7 +173,7 @@ what it buys.
 | real shadows on punctual lights, for the first time | measured: 14.6% of pixels move, 138801 darker against 12775 brighter, mean -0.771, worst 88 |
 | cost decoupled from the light count | measured: `demo_lights` 6 -> 48 (8x) moves nothing (`lighting 0.35 ms`, `gi 1.09 -> 1.10 ms`) |
 | GUI and config switches | `[render] megalights` / `megalights_samples` / `megalights_spatial_sigma`; the overlay's `megalights` checkbox and `ml samples` / `ml sigma` sliders |
-| acceptance data from the existing instruments | the gate's four scenarios byte-identical with the feature off (`98740BE429FA32C7`, `22C2B33B4B6721FA`, `310220DA64A91257`, `5468FAE8D93EC9F5`), eight test binaries passing, and the signal/noise/flicker tables in rounds 3, 6, 7 and 8 |
+| acceptance data from the existing instruments | the gate's four scenarios byte-identical with the feature off (`98740BE429FA32C7`, `22C2B33B4B6721FA`, `310220DA64A91257`, `5468FAE8D93EC9F5`), thirteen test binaries passing, and the signal/noise/flicker tables in rounds 3, 6, 7 and 8 |
 
 The two things that remain, stated so they are not mistaken for done: a gate scenario with many lights is
 blocked by the PRE-EXISTING `demo_lights` validation defect (151 errors, identical with the feature off, zero

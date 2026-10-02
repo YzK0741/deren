@@ -277,7 +277,7 @@ void ahit_main(inout shadow_payload payload)
     const float v = dot(cross(tv, edge_1), direction_object) * inv_det;
     const float2 uv = uvs[0] * (1.0 - u - v) + uvs[1] * u + uvs[2] * v;
 
-    // THE CUT: the mirror of shaders/shadow.frag's discard and of shaders/surface.glsl's MASK test.
+    // THE CUT: the mirror of shaders/shadow.slang's discard and of shaders/surface.glsl's MASK test.
     const float alpha = material.base_color_factor.a * heap_texel_lod0(heap_at<Texture2D<float4>>(heap_slots_textures + material.tex_indices.x), heap_sampler_texture, uv).a;
     if (alpha < material.alpha_cutoff)
     {

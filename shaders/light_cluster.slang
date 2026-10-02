@@ -1,7 +1,7 @@
 // shaders/light_cluster.slang - the SLANG source of the clustered-light culling compute stage.
 //
 // PRODUCES `light_cluster.comp.spv`, the same name the GLSL version produced, so the host side is untouched.
-// Ported from shaders/light_cluster.comp (glsl.old/ once the migration finishes). One invocation per CLUSTER,
+// Ported from shaders/light_cluster.comp (now in `shaders/glsl.old/`). One invocation per CLUSTER,
 // one dispatch per frame, before the frame's rendering: the grid is the screen cut into 64-pixel tiles and 16
 // EXPONENTIAL depth slices, and for its cluster the invocation rebuilds the view-space box (the tile's corner
 // rays unprojected at the slice's near and far depth) and appends every light whose bounding sphere intersects

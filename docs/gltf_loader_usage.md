@@ -387,7 +387,7 @@ struct morph_target {                                  // one per target of a pr
   touch the node's local transform for them.
 - Per-vertex the blend is `base + sum(weight_i * delta_i)` (positions and normals); the renderer
   bakes each morphable primitive's deltas plus its **default weights** (`node.weights` >
-  `mesh.weights` > zeros) into the scene morph buffer (set binding 10) and rewrites the weights
-  region every frame when a `weights` channel animates the node. The vertex shaders blend the
+  `mesh.weights` > zeros) into the scene morph buffer (the morph-data heap slot) and rewrites the weights
+  region every frame when a `weights` channel animates the node. The geometry stages blend the
   morph deltas **before** skinning (the glTF order; both are linear on the same local vertex).
   Verified with `AnimatedMorphCube`, `SimpleMorph` and `MorphStressTest`.

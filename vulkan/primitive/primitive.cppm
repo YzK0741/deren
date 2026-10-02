@@ -2031,8 +2031,12 @@ namespace vulkan {
          *
          * @param env the session (see `render_environment::meshlet_culled`)
          * @param geometry the primitive whose meshlets this draw covers
-         * @param first_index / @p index_count / @p base_vertex the draw's own window, used when the session is not a
-         *        meshlet one (a meshlet session's lanes carry the primitive's run instead, see the notes below)
+         * @param first_index the draw's own first index, used when the session is not a meshlet one
+         * @param index_count the draw's own index count, same condition
+         * @param base_vertex the draw's own base vertex, same condition (a meshlet session's lanes carry
+         *        the primitive's run instead, see the notes below)
+         * @param material_two_sided the draw's material is two-sided, which keeps both sides: no
+         *        back-face test may reject a meshlet for facing away from the camera
          * @return the number of meshlets LEFT after culling, or `not_culled` when this draw is not culled at all -
          *         which `mesh_dispatch` reads as "dispatch the primitive's whole run" (the table-driven behaviour)
          * @note the flag travels in the lanes' `base_vertex`, which a meshlet session never uses for anything else:

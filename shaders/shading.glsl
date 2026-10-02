@@ -168,7 +168,7 @@ struct LightUBO {
 };
 #endif
 
-// Per-cluster light lists (scene set bindings 11/12), written by shaders/light_cluster.comp: one
+// Per-cluster light lists (scene set bindings 11/12), written by shaders/light_cluster.slang: one
 // entry per cluster in cluster_counts (how many lights landed in it) and a fixed-capacity row per
 // cluster in cluster_indices holding the indices into light_at(heap_light_slot).punctual_lights. Storage buffers rather
 // than more UBO lanes because the grid is thousands of entries - and small enough (16 lights per
@@ -553,7 +553,9 @@ float calc_shadow_soft(vec3 world_pos, vec3 normal, float level) {
 
 /**
  * @brief GGX / Trowbridge-Reitz normal distribution (matches UE's D_GGX)
- * @param n world normal, @p h half vector, @p roughness perceptual roughness
+ * @param n world normal
+ * @param h half vector
+ * @param roughness perceptual roughness
  * @return the NDF value, finite even at a perfectly smooth specular hotspot (the denominator is
  *         clamped: roughness 0 with ndoth == 1 would otherwise be 0/0 = NaN and blacken the fragment)
  */
@@ -591,7 +593,10 @@ float distribution_blinn_phong(vec3 n, vec3 h, float roughness) {
 
 /**
  * @brief Geometric shadowing-masking as a visibility term: Vis = G / (4 NoV NoL)
- * @param n world normal, @p v view direction, @p l light direction, @p roughness
+ * @param n world normal
+ * @param v view direction
+ * @param l light direction
+ * @param roughness perceptual roughness
  * @return Heitz's joint Smith approximation for GGX (UE's Vis_SmithJointApprox)
  *
  * One term shadows AND masks in the half-vector sense, so the BRDF is specular = D * Vis * F with no
@@ -658,9 +663,14 @@ vec3 fresnel_schlick(float cos_theta, vec3 f0) {
 
 /**
  * @brief Cook-Torrance direct light for ONE light, in radiance units
- * @param n world normal, @p v view direction, @p base_color albedo
- * @param metallic / roughness material factors, @p f0 the Fresnel reflectance at normal incidence
- * @param light_dir surface-to-light direction, @p light_radiance radiance * attenuation
+ * @param n world normal
+ * @param v view direction
+ * @param base_color albedo
+ * @param metallic material factor
+ * @param roughness perceptual roughness material factor
+ * @param f0 the Fresnel reflectance at normal incidence
+ * @param light_dir surface-to-light direction
+ * @param light_radiance radiance * attenuation
  * @return outgoing radiance (already multiplied by the diffuse ndotl factor)
  *
  * @p light_radiance carries the light's intensity/attenuation (and, for the sun, its shadow factor);
@@ -749,7 +759,7 @@ vec3 get_diffuse_light(vec3 n) {
  * @param slices active slice count
  * @return slice index in [0, slices - 1]
  *
- * MUST stay identical to the same function in shaders/light_cluster.comp: the compute pass assigns
+ * MUST stay identical to the same function in shaders/light_cluster.slang: the compute pass assigns
  * lights by unprojecting exactly these slice boundaries, so a different rounding here would put a
  * fragment in a cluster the lights were never assigned to (a light popping out at a slice edge).
  */
@@ -766,7 +776,7 @@ int cluster_slice_of(float view_depth, int slices) {
  *        shader's dispatch uses); a fragment passes `ivec2(gl_FragCoord.xy)`
  * @param world_pos the shaded point's world position (its view depth picks the slice)
  * @note THE PIXEL IS A PARAMETER rather than read from gl_FragCoord, and that is what makes this file
- *       usable from a COMPUTE shader: `shaders/megalights_trace.comp` includes it for the same BRDF and
+ *       usable from a COMPUTE shader: `shaders/megalights_trace.slang` includes it for the same BRDF and
  *       the same cluster lists, and gl_FragCoord does not exist there. The fragment path's wrapper below
  *       is the only place the builtin appears.
  */
@@ -816,7 +826,7 @@ int cluster_light_index(int cluster, int i) {
  * @return linear radiance arriving at the point, BEFORE the BRDF
  *
  * THE ONE DEFINITION OF A PUNCTUAL LIGHT'S ATTENUATION, extracted so that the stochastic lighting pass
- * (`shaders/megalights_trace.comp`) and this shader's own loop cannot disagree about it: the trace pass
+ * (`shaders/megalights_trace.slang`) and this shader's own loop cannot disagree about it: the trace pass
  * has to evaluate a light's contribution to build its sampling PDF, and a second copy of inverse-square
  * plus the range fade plus the spot cone is a second chance to pick different thresholds.
  *
@@ -864,7 +874,7 @@ struct shade_input {
     /**
      * 1 = the PUNCTUAL lights are somebody else's business this frame, so this stage must not add them.
      *
-     * The somebody is `shaders/megalights_trace.comp` (docs/megalights.md): it samples a few of the pixel's
+     * The somebody is `shaders/megalights_trace.slang` (docs/megalights.md): it samples a few of the pixel's
      * lights, traces one visibility ray per sample and produces the shadowed estimate that the deferred
      * lighting stage then adds back - so this loop, which knows nothing about occlusion, would double every
      * punctual light in the frame.

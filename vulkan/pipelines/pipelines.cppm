@@ -69,20 +69,20 @@ namespace vulkan::pipelines {
 
     /// the ray-traced sun shadow: a compute pipeline over the descriptors the frame's heap carries
     export std::expected<compute_pipeline_owned, std::string> build_two_set_compute(VkDevice device, std::span<uint8_t const> compute_shader_code);
-    /// the stochastic punctual lighting trace (shaders/megalights_trace.comp)
+    /// the stochastic punctual lighting trace (shaders/megalights_trace.slang)
     export std::expected<compute_pipeline_owned, std::string> build_megalights_trace(VkDevice device,
                                                                                      std::span<uint8_t const> compute_shader_code);
-    /// the stochastic chain's temporal resolve (shaders/megalights_temporal.comp)
+    /// the stochastic chain's temporal resolve (shaders/megalights_temporal.slang)
     export std::expected<compute_pipeline_owned, std::string> build_megalights_temporal(VkDevice device,
                                                                                         std::span<uint8_t const> compute_shader_code);
     /// the mask bake: a compute pass over the material table and the texture array
     /// array), which collapses the triangles a material's alphaMode MASK cuts out and writes the expanded
-    /// vertices a bottom level structure is then built from - see shaders/mask_bake.comp
+    /// vertices a bottom level structure is then built from - see shaders/mask_bake.slang
     export std::expected<compute_pipeline_owned, std::string> build_mask_bake(VkDevice device, std::span<uint8_t const> compute_shader_code);
     /// the compute skinning pass: the scene block's per-joint matrices - see
-    /// shaders/compute_skin.comp
+    /// shaders/compute_skin.slang
     export std::expected<compute_pipeline_owned, std::string> build_compute_skin(VkDevice device, std::span<uint8_t const> compute_shader_code);
-    /// the clustered-light sort (shaders/light_cluster.comp): heap-native, and NO push constants
+    /// the clustered-light sort (shaders/light_cluster.slang): heap-native, and NO push constants
     /// at all - the shader reads the light UBO and writes the two cluster buffers through heap slots, which is
     /// why this builder takes no push size. It is the first compute pipeline in this module
     /// that came out of `vulkan.core`.
@@ -91,7 +91,7 @@ namespace vulkan::pipelines {
     /**
      * @brief the HEAP-NATIVE probe's pipeline: the first one in this renderer created the heap way
      * @param device the logical device
-     * @param compute_shader_code the probe's SPIR-V (see shaders/heap_probe.comp)
+     * @param compute_shader_code the probe's SPIR-V (see shaders/heap_probe_comp.slang)
      * @return the pipeline, or the reason it could not be created
      * @note NO SET LAYOUT AND NO PIPELINE LAYOUT, which is not a simplification but the flag's requirement:
      *       "the pipeline layout must be NULL and shader resources will be sourced from a descriptor heap". The
@@ -108,7 +108,7 @@ namespace vulkan::pipelines {
      * @brief the GRAPHICS half of the heap-native probe: a heap-flagged, layout-less pipeline over two stages
      * @param device the logical device
      * @param colour_format the format the probe renders into (dynamic rendering, like every pass here)
-     * @param vertex_code / @param fragment_code the probe's SPIR-V (see shaders/heap_probe.vert / .frag)
+     * @param vertex_code / @param fragment_code the probe's SPIR-V (see shaders/heap_probe.slang)
      * @return the pipeline, or the reason it could not be created
      * @note no vertex input, no blend and a static viewport: the probe's subject is the FRAGMENT stage reading the
      *       heap through a graphics pipeline at all, and every one of those would be a second thing that could be
@@ -136,6 +136,14 @@ namespace vulkan::pipelines {
      * a PASS reaches neither - the device and the format arrive through `pass_context`. The three
      * BIAS factors are parameters for the same reason the depth format is: they are the pipeline's, not the
      * device's, and the depth pass is the one pipeline in this renderer created with slope-scaled bias.
+     * @param device the logical device
+     * @param depth_format the shadow map's depth attachment format
+     * @param depth_bias_constant_factor constant depth bias
+     * @param depth_bias_slope_factor slope-scaled depth bias
+     * @param depth_bias_clamp depth bias clamp, 0 disables clamping
+     * @param vertex_shader_code the geometry stage's SPIR-V (the mesh path's own module when it fetches its
+     *        own vertices)
+     * @param fragment_shader_code the fragment stage's SPIR-V, the same shader either way
      * @param first_stage the stage that emits the geometry: VERTEX for the input-assembler path, MESH for the
      *        one that fetches its own vertices - the FRAGMENT stage is the same shader either way, which is
      *        what makes the two paths comparable (see docs/mesh_shaders.md step 1)
@@ -236,7 +244,7 @@ namespace vulkan::pipelines {
         return out;
     }
 
-    // The mask bake (see shaders/mask_bake.comp): a compute pipeline over the material heap slots ALONE, because
+    // The mask bake (see shaders/mask_bake.slang): a compute pipeline over the material heap slots ALONE, because
     // everything it needs is there - the material table for the alpha texture's index and the cutoff, and the
     // bindless texture array to sample it. It owns no set layout, like every traced compute pass, and it is the only compute
     // pass here whose output is not an image: it writes vertices into a buffer the acceleration structure is
@@ -280,7 +288,7 @@ namespace vulkan::pipelines {
         return out;
     }
 
-    // The compute skinning pass (see shaders/compute_skin.comp): the same shape as the mask bake above and
+    // The compute skinning pass (see shaders/compute_skin.slang): the same shape as the mask bake above and
     // for the same reason - it reads only the per-joint matrices heap slot.
     std::expected<compute_pipeline_owned, std::string> build_compute_skin(VkDevice device, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
@@ -688,7 +696,7 @@ namespace vulkan::pipelines {
         return out;
     }
 
-    // The stochastic punctual lighting trace (shaders/megalights_trace.comp): the same compute-pipeline shape as
+    // The stochastic punctual lighting trace (shaders/megalights_trace.slang): the same compute-pipeline shape as
     // the passes above, with a push block of its own. It FORWARDS to the builder above rather than repeating
     // twenty lines of Vulkan, and it exists as its own name because a caller reading `build_two_set_compute`
     // inside this pass's create() would have to check that the two are still the same shape - which is exactly

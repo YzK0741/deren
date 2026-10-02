@@ -1,6 +1,6 @@
 /**
- * @defgroup shaders Shaders (GLSL)
- * @brief The GLSL pass sources, the descriptor/push-constant contracts they share with the C++
+ * @defgroup shaders Shaders (Slang)
+ * @brief The Slang pass sources, the descriptor/push-constant contracts they share with the C++
  *        records, and how they are compiled.
  *
  * The renderer has no shader reflection and no runtime shader compilation: `dsh`-style `.spv`
@@ -148,7 +148,7 @@
  *
  * @section shader_clusters Clustered light culling (M5)
  *
- * `shaders/light_cluster.comp` runs once per frame on the graphics queue, one invocation per
+ * `shaders/light_cluster.slang` runs once per frame on the graphics queue, one invocation per
  * cluster: the screen cut into 64 px tiles and 16 EXPONENTIAL depth slices. It rebuilds the
  * cluster's view-space box (its tile's corner rays unprojected at the slice's near and far depth)
  * and appends every light whose bounding sphere intersects that box to the cluster's fixed-capacity
@@ -224,7 +224,7 @@
  *
  * Bindings 0/7/8/9/10 are per frame slot, so a frame in flight never shares a buffer with the
  * frame being written. Indexing `textures[]` with a value from the material table is what needs
- * `#extension GL_EXT_nonuniform_qualifier : enable` in pbr.frag / unlit.frag / shadow.frag.
+ * `#extension GL_EXT_nonuniform_qualifier : enable` in pbr.slang / unlit.slang / shadow.slang.
  *
  * @section shader_push Push constants
  *
@@ -269,8 +269,7 @@
  * - **ASCII only.** The Doxygen LaTeX manual runs the shader comments through pdflatex; a stray
  *   non-ASCII character (an em dash, a narrow no-break space) aborts the PDF build. Keep comments
  *   and docs ASCII.
- * - **`const` goes first.** GLSL wants `const float x`, not `float const x`: glslc rejects the
- *   east-const form with a bare "unexpected CONST".
+ * - **`const` goes first.** GLSL wants `const float x`, not `float const x`, and the east-const form is rejected.
  * - **Keep the interface matching.** A VERTEX pipeline derived its input layout from the shader's inputs
  *   (64-byte interleaved stride, locations 0,1,2,4,5), which is why those entries declared the unused inputs and kept
  *   them alive in a never-taken branch; the geometry stages are mesh stages now (docs/mesh_shaders.md step 4), so

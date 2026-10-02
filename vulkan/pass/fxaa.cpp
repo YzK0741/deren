@@ -152,7 +152,7 @@ namespace vulkan::pass {
         VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
         vkCmdBeginRendering(io.cmd, &rendering_info);
         vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
-        // The post chain's source is a heap slot now (see shaders/post.frag): the third push lane names it, and
+        // The post chain's source is a heap slot now (see shaders/post.slang): the third push lane names it, and
         // the frame bound the heaps for this command buffer, so there is no set to bind here.
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
         vkCmdDraw(io.cmd, 3, 1, 0, 0);

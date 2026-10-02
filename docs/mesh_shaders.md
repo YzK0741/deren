@@ -251,11 +251,11 @@ deleted those two vertex entries outright. So `pbr.vert` / `shadow.vert` below n
 in the tree today - and `shaders/pbr.slang` / `shaders/shadow.slang` are where the entries actually are.
 
 **"The gate" means the CORE set, and the exact scope matters because the numbers above were not all
-taken over the same one.** `check_render.ps1` defines ten scenarios and tags five of them `core`; the
+taken over the same one.** `check_render.ps1` defines fourteen scenarios and tags five of them `core`; the
 default run is those five x 2 runs = 10 renders. The earlier rounds in this document ran all ten (20
 renders) because the harness had no tiers yet. The rule for a step here: iterate on the core round,
-and run `-Full` (all ten, 20 renders) once when the change is meant to be the step's final state, so
-that the five extra references cannot go stale unwatched - `-Update` only re-baselines what ran.
+and run `-Full` (all fourteen, 28 renders) once when the change is meant to be the step's final state, so
+that the nine extra references cannot go stale unwatched - `-Update` only re-baselines what ran.
 
 ### Step 0 - the stage is reachable (DONE)
 

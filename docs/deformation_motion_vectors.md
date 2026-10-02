@@ -218,7 +218,7 @@ Acceptance:
   offer;
 * the motion channel non-flat over the deforming region at a **swept** pose (a pinned pose cannot show it);
 * the TAA-on-vs-TAA-off difference at that swept pose **drops** against the step-0 baseline;
-* ctest 8/8, doxygen exit 0, validation clean.
+* ctest 13/13, doxygen exit 0, validation clean.
 
 ### Step 2 - the morph weights
 
@@ -251,7 +251,7 @@ deformation changed while its swapchain image was recreated.
 
 ## 5. Acceptance
 
-Every step: Release gate 10 scenarios x 2 with 0 changed and 0 flaky, Release/Debug build clean, ctest 8/8,
+Every step: Release gate 14 scenarios x 2 with 0 changed and 0 flaky, Release/Debug build clean, ctest 13/13,
 doxygen exit 0 with an empty warning stream, every run validation clean. The boundary is the project's
 own and is recorded in `docs/pass_io_design.md:351-357`: **the capture gate is a RELEASE instrument** -
 Debug and ASan+UBSan builds are measured non-deterministic here, so they are held to "clean build, ctest,
@@ -328,5 +328,5 @@ image, descriptor family or render target.
 | step 1 the skins (heap family, buffers, publication, vertex stage) | DONE - `skin_matrices_previous` in both grid files, the per-slot previous buffer + its CPU copy, `runtime::advance_motion_deformations()`, and the second skin blend in `shaders/pbr.vert`. Measured on the swept fixture: **0.00% -> 65.59% moved** (150,371 px, mean deviation 17.14, worst 104, 597 distinct values) with the pinned left half correctly still (34.41%); the PINNED-pose null test **100.00% still**; the rigid reference capture byte-identical; ctest 8/8; zero validation findings. On a REAL character from the sample assets (Fox, 24 joints): swept **100.00% moved** (266,727 px, 218 distinct values) against **100.00% still** when the pose is pinned - every skinned pixel reports the motion it has, and none reports any when nothing changed |
 | step 2 the morph weights (a second weight region per morph block) | DONE - the block is `[deltas][weights][previous weights]`, the bake writes both regions equal, `animation::controller::update` copies the current region forward before overwriting it, and `shaders/pbr.vert` blends the static deltas a second time with the previous weights and composes it with the previous skin matrices (`skin_previous(morph_previous(v))`). Measured on AnimatedMorphCube: **100.00% still -> 99.99% moved** (303,749 px, mean deviation 123.03, 14,144 distinct values); SimpleMorph **100.00% -> 99.48% moved**; both pinned-pose null tests **100.00% still**; the flag's step-1 numbers identical to the digit; ctest 8/8; gate 10/10 with 0 changed and 0 flaky; the rigid reference capture byte-identical |
 | step 3 the documents that call the gap current | DONE - `docs/shaders.md`, `docs/mainpage.md`, the `shaders/gbuffer.frag` note and the layout notes in `pbr.vert`, `runtime::morph_scratch()` and `material_push_constants::morph_base` describe the finished state, and the one case that is still not carried is stated wherever the covered ones are: alpha-blended geometry |
-| the deformation scenario in the capture gate | DONE - `check_render.ps1`'s `deformation` scenario captures gbuffer_debug's MOTION CHANNEL (a shaded frame cannot show a wrong motion vector with TAA off), pinned to the repo's own fixture with `--capture-animation-sweep`; the gate is 10 scenarios x 2, 0 changed, 0 flaky |
+| the deformation scenario in the capture gate | DONE - `check_render.ps1`'s `deformation` scenario captures gbuffer_debug's MOTION CHANNEL (a shaded frame cannot show a wrong motion vector with TAA off), pinned to the repo's own fixture with `--capture-animation-sweep`; the gate is 14 scenarios x 2, 0 changed, 0 flaky |
 | transparent geometry's motion vectors | NOT STARTED, deliberately separate (section 3) |

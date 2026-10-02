@@ -476,8 +476,8 @@ namespace chores {
             runtime.register_shader("rt_shadow.rahit.spv", rt_shadow_any_hit_code);
 
 
-            // The alphaMode MASK bake (shaders/mask_bake.comp) and the compute skinning job
-            // (shaders/compute_skin.comp) are TWO JOBS rather than frame passes - one runs once inside the
+            // The alphaMode MASK bake (shaders/mask_bake.slang) and the compute skinning job
+            // (shaders/compute_skin.slang) are TWO JOBS rather than frame passes - one runs once inside the
             // command buffer that builds the bottom level structures (without it a MASK surface is solid to
             // a ray), the other re-skins the casters and refits their structures per frame (without it a
             // skinned caster's traced shadow is cast by its BIND POSE). Both are built by `create_passes()`
@@ -490,7 +490,7 @@ namespace chores {
             load_shader(shaders_dir, "compute_skin.comp.spv", compute_skin_code);
             runtime.register_shader("compute_skin.comp.spv", compute_skin_code);
 
-            // The HEAP-NATIVE PROBE (shaders/heap_probe.comp): registered like the jobs above, and for a purpose
+            // The HEAP-NATIVE PROBE (shaders/heap_probe_comp.slang): registered like the jobs above, and for a purpose
             // of the same kind - it is not part of any frame, it runs once at scene setup in a command buffer of
             // its own (runtime::run_heap_probe) and its answer is a log line. It exists because the migration's
             // four assumptions about the native path (a heap-flagged pipeline with NO layout, `descriptor_heap`

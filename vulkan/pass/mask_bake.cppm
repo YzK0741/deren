@@ -98,6 +98,8 @@ export namespace vulkan::pass {
         [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
         /**
          * @brief dispatch ONE caster's bake
+         * @param command_buffer the command buffer the dispatch is recorded into
+         * @param request the caster's bake request
          * @param push_owner the renderer, @param push_raw its endpoint for a stage that declares NO index lanes
          *
          * The block goes to the pipeline as DATA now: no pipeline in this renderer has a layout (`vkCmdPushConstants`

@@ -90,7 +90,7 @@ export namespace vulkan::pass {
 
     private:
         static constexpr std::string_view shader_name = "light_cluster.comp.spv";
-        /// the workgroup size, which must be `light_cluster.comp`'s `local_size_x`
+        /// the workgroup size, which must be `light_cluster.slang`'s `local_size_x`
         static constexpr uint32_t group_size = 64;
         /// the declared barrier buffers, by the position the declaration gives them
         static constexpr uint32_t barrier_counts = 0;

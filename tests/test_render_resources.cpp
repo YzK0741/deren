@@ -498,7 +498,7 @@ int32_t main() {
         // THE HEAP INDEX LANES - three of them - at exactly that offset for every stage. The cascade used to be
         // declared at 96, which put it UNDER the first lane: the shader read frame_slot as its cascade, the pass
         // rendered every caster into the wrong cascade layer, and the lanes themselves were shifted. It rides
-        // after the third lane now, which is why this offset moved with it (see shaders/shadow.vert's block).
+        // after the third lane now, which is why this offset moved with it (see shaders/shadow.slang's block).
         CHECK(rr::shadow_io.push->offset == 108); // scene_push_constant_size + three 4-byte heap index lanes
         CHECK(rr::shadow_io.push->stages == (rr::stage_flag::vertex | rr::stage_flag::fragment));
 

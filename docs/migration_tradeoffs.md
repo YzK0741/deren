@@ -159,7 +159,7 @@ and the TESTS:
   them, anchors that resolve, fences that balance, and no document naming a heap slot that no file
   declares.
 
-That is why this project carries twelve documents and a 600-page manual: with no descriptor sets and
+That is why this project carries a document set and a 600-page manual: with no descriptor sets and
 no layouts, the reasoning IS the interface.
 
 ## 5. What is NOT claimed

@@ -1041,7 +1041,7 @@ set(VR_SLANG_SOURCES
     unlit.slang:main:fragment:unlit.frag.spv
     # character_forward.slang is the toon character stage: the same leaves the scene pass drew, shaded a
     # second time OVER the deferred result. It is gated behind the `character_forward` feature, which is OFF
-    # by default, so none of the ten capture scenarios records it until a scenario turns it on - which is
+    # by default, so none of the fourteen capture scenarios records it until a scenario turns it on - which is
     # what makes its landing behaviour-neutral.
     character_forward.slang:main:fragment:character_forward.frag.spv
     # goo_toon.slang is THE REWRITTEN TOON CHAIN's fragment stage: the same geometry, the same pass and the same
@@ -1086,7 +1086,7 @@ set(VR_SLANG_SOURCES
     gbuffer.slang:main:fragment:gbuffer.frag.spv
     # pbr.slang is the FORWARD path's shader PAIR: the fragment stage is where the sun/shadow/punctual/
     # cluster/IBL fetches are proven under Slang, and its GEOMETRY entry is what the G-BUFFER pass loads for
-    # every opaque draw - so it is verified by all ten scenarios, and by the transparent pass's
+    # every opaque draw - so it is verified by all fourteen scenarios, and by the transparent pass's
     # forward default too. THAT ENTRY IS THE MESH ONE SINCE STEP 4 (docs/mesh_shaders.md): `pbr.vert.spv`
     # was removed with the rest of the vertex geometry path, so there is no vertex entry to list here.
     pbr.slang:main:fragment:pbr.frag.spv

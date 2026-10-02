@@ -58,9 +58,9 @@ The repository's conventions, which this follows: module names are flat peers un
 mirrors the module's suffix (`namespace vulkan::bindings`), types are `snake_case`, a builder's result carries
 `_owned`, and capacities/constants are lower_snake_case.
 
-    module            vulkan.pass_io                       (doxygen: @defgroup vulkan_pass_io)
-    namespace         vulkan::pass_io
-    files             vulkan/pass_io/pass_io.cppm + pass_io.cpp   (CMake: FILE_SET + PRIVATE, as every module)
+    module            vulkan.render_resource               (doxygen: @defgroup vulkan_render_resource)
+    namespace         vulkan::render_resource
+    files             vulkan/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
 
 | name | kind | what it is | why this name |
 | --- | --- | --- | --- |
@@ -153,7 +153,7 @@ own gate and its own measurement, not a step of this layer.
 
 ## 7. Acceptance, and what would make it fail
 
-Every step: the capture gate 12 scenarios x 2 with 0 changed, Release/Debug/ASan+UBSan clean, ctest 6/6,
+Every step: the capture gate 14 scenarios x 2 with 0 changed, Release/Debug/ASan+UBSan clean, ctest 13/13,
 doxygen exit 0 with an empty warning stream, every run validation clean. The layer's own success metric, which
 is testable and whose baseline is measured: **adding a pass becomes declare-I/O plus implement-record** - no
 separate layout loop, no separate write loop, no separate pool count, no parallel storage/sampler ternaries.
@@ -201,7 +201,7 @@ was open in the first draft of this document:
   record into at all.
 * **pipelines are referenced by NAME for now**, and this costs nothing new: `vulkan.runtime` already keys its
   pipelines by name (`make_pipeline` / `set_default_pipeline` / `get_pipeline`), so a pass names what it records
-  with and the host resolves those names into `resolved_io::pipelines`, in order. The 787 lines of
+  with and the host resolves those names into `resolved_io::pipelines`, in order. The 840 lines of
   `vulkan.pipelines` stay where they are, with the pipeline layouts still built there.
 * **handles stay with their owner, and the SHARED ones get a nested module.** The rule is the schema's own
   scopes applied to ownership: a pass's private family belongs to that pass, anything the frame loop alone
@@ -339,6 +339,8 @@ one thing this layer exists to prevent.
                                                         layout and the host-composed push, non-const record,
                                                         and an image handle next to the view) and in section
                                                         8 above
+                                                        NOTE: that pass and the probe cache have since been
+                                                        removed with the traced-GI chain (`1162d88`)
 
 THE CHOICE THAT MADE STEP 1 PROVABLE is worth keeping: the generator emits bindings IN DECLARATION ORDER, and
 `validate` requires a pass's own bindings to be contiguous from zero - so the layout the shader sees and the
@@ -354,6 +356,6 @@ worth what the instrument can decide: the capture gate is a RELEASE instrument. 
 or ASan+UBSan build, two runs of the SAME binary differ - measured on `sponza_gi` and on `deferred_ssao_off`,
 which runs none of the GI chain at all - so those builds are not deterministic here and cannot be gated against
 the Release references. That is why every acceptance number in this sequence comes from the Release build, and
-why Debug/ASan+UBSan are held to "clean build, ctest 8/8, and a run that reports no validation or sanitizer
+why Debug/ASan+UBSan are held to "clean build, ctest 13/13, and a run that reports no validation or sanitizer
 finding" instead.
 

@@ -1,7 +1,7 @@
 // shaders/pbr.slang - the SLANG source of the FORWARD PBR shader PAIR (fragment + vertex).
 //
 // PRODUCES `pbr.frag.spv` AND `pbr.vert.spv`, the same names the GLSL versions produced, so the host side is
-// untouched. Ported from shaders/pbr.frag and shaders/pbr.vert (glsl.old/ once the migration finishes): the
+// untouched. Ported from shaders/pbr.frag and shaders/pbr.vert (now in `shaders/glsl.old/`): the
 // bodies are the GLSL bodies - gather the surface, fill a shade_input, call shade_surface; and morph blend ->
 // skin -> world transform - and what changes is only what a different language requires. In THESE stages
 // that is exactly three things:
@@ -79,7 +79,7 @@ float4 main(
 // per-draw state (it is declared by surface.glsl above, which is why `motion_base` lives in it) and the heap
 // arrays carry the per-frame one. THIS IS THE STAGE THE G-BUFFER PASS LOADS FOR EVERY OPAQUE DRAW, so unlike
 // `pbr.frag` - which only the transparent pass's forward pipeline records - this entry point is on the gate's
-// path in all ten scenarios.
+// path in all fourteen scenarios.
 //
 // The body is the GLSL body: morph blend (local deltas, current and previous weights), then skinning (the
 // four joint matrices selected by the vertex's joints, weighted, through BOTH the current and the previous

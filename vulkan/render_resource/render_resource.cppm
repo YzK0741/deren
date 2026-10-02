@@ -713,7 +713,7 @@ export namespace vulkan::render_resource {
     // =============================================================================================
 
     // =============================================================================================
-    // 5. THE SECOND DECLARATION - the TAA resolve, read off shaders/taa.frag
+    // 5. THE SECOND DECLARATION - the TAA resolve, read off shaders/taa.slang
     // =============================================================================================
 
     /**

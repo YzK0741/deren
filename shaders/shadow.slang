@@ -1,7 +1,7 @@
 // shaders/shadow.slang - the SLANG source of the depth-only shadow fragment stage.
 //
 // PRODUCES `shadow.frag.spv`, the same name the GLSL version produced, so the host side is untouched.
-// Ported from shaders/shadow.frag (glsl.old/ once the migration finishes).
+// Ported from shaders/shadow.frag (now in `shaders/glsl.old/`).
 //
 // The stage has no color attachment: rasterization depth is all it writes, which is why the Slang entry
 // point returns void and declares only its one varying. What it DOES do is discard below the material's

@@ -1,7 +1,7 @@
 // shaders/deferred.slang - the SLANG source of the DEFERRED lighting stage.
 //
 // PRODUCES `deferred.frag.spv`, the same name the GLSL version produced, so the host side is untouched.
-// Ported from shaders/deferred.frag (glsl.old/ once the migration finishes). It reads the G-buffer, rebuilds
+// Ported from shaders/deferred.frag (now in `shaders/glsl.old/`). It reads the G-buffer, rebuilds
 // the world position from the stored depth, and evaluates the SAME lighting the forward path evaluates per
 // fragment - literally the same code, because shaders/shading.glsl owns the sun, the shadow test, the
 // punctual lights, the split-sum IBL and the BRDF presets, and this stage only supplies a shade_input

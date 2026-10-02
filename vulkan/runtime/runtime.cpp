@@ -702,7 +702,7 @@ namespace vulkan {
             // is the checkbox and `enable_shadows()`: a frame with no opaque geometry has no surface for the
             // pass to re-shade, and a scene with no toon character must not pay for the stage at all. When it
             // is false the pass's `feature()` answers inactive and the runner never resolves its declaration -
-            // which is exactly what keeps the ten capture-gate scenarios byte-identical while it is off.
+            // which is exactly what keeps the fourteen capture-gate scenarios byte-identical while it is off.
             //
             // EITHER LEAF LIST KEEPS IT ALIVE, and the overlay half is not a formality: a character whose only
             // remaining geometry this frame is the article's two masks (an extreme close-up can cull everything

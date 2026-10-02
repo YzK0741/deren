@@ -35,8 +35,7 @@ Two rules cost one gate run each and are not optional:
 
 ## The shader model: heap-native GLSL, proven with this toolchain
 
-`glslc` (shaderc v2026.3, glslang 11.1.0) supports `GL_EXT_descriptor_heap`. Verified compiling, in one
-fragment shader, against `--target-env=vulkan1.3`:
+`slangc` (the compiler this tree builds every stage with - see `CMakeLists.txt`'s `find_program(VR_SLANGC_EXECUTABLE NAMES slangc ...)`) supports `GL_EXT_descriptor_heap` through `-capability spvDescriptorHeapEXT`, and its output is verified compiling against `-target spirv -profile spirv_1_6`:
 
 | declaration | form |
 | --- | --- |
@@ -71,7 +70,7 @@ and stride are literally the same memory. The workable convention is therefore:
 - the values that vary per frame or per swapchain image (`frame slot`, `image index`, material id, texture id,
   sampler id, the post chain's per-pass image base) reach the shader through **push constants**.
 
-Push *data* (`vkCmdPushDataEXT`) cannot carry these: it only feeds mapping sources, which this model removes.
+Push *data* (`vkCmdPushDataEXT`) is how they arrive: the block is the same one the shader's `layout(push_constant)` declares, and the mapping sources this document's first half used are gone.
 
 ### The storage class has to match the descriptor's type, and a mismatch is SILENT
 
@@ -103,9 +102,17 @@ the 8576-byte size that comes from `punctual_lights[128]` at 352, `cluster_grid`
 finding, including what it cost to find and the two ruled-out suspects, is docs/slang_migration.md
 section 9.
 
-## Shader inventory (what each file declares today, from `grep layout(set =`)
+## Shader inventory (the resources each stage reads, and the binding each one came from)
 
-| file | set 0 | set 1 |
+There is no `layout(set = ` left to grep: the `.frag` / `.vert` / `.comp` sources this table was built from
+are retired to `shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST USED TO LIVE HERE`), and the
+stages this build compiles are Slang leaves - `docs/slang_migration.md` and `docs/shaders.md` record them.
+So the table below is a RECORD of what each retired file declared (a reader can still check each row against
+the archived source), not a description of any file's current contents: the host keeps the same resources under
+the same classic binding numbers in `vulkan/core/core.declarations.cppm`, and every shader now reads them as
+`heap_slots_textures`-style array entries instead of declaring a binding at all.
+
+| file (retired) | the bindings it declared | where they live now |
 | --- | --- | --- |
 | `shading.glsl` (shared) | 0 CameraUBO, 2 env cube, 3 irradiance cube, 4 BRDF LUT, 7 LightUBO, 8 shadow array, 11/12 cluster | - |
 | `surface.glsl` (shared) | 1 `textures[]`, 5 materials | - |
@@ -145,7 +152,7 @@ section 9.
 
 ## Acceptance
 
-`BUILD=0`, 8/8 tests, gate 9/9 `changed: 0` (frame byte-identical, `mean|d| ~0.029`), validation silent, and a
+`BUILD=0`, 13/13 tests, gate 14/14 `changed: 0` (frame byte-identical, `mean|d| ~0.029`), validation silent, and a
 deliberate **wrong-index** push as the negative proof (the picture must break, which is what proves the shaders
 read the heap).
 
@@ -221,12 +228,16 @@ image whose binding is repointed later (the furnace mode).
 
 STILL TO DO, and it is the larger half: (2) heap-native shaders in place of `layout(set, binding)` - untyped
 declarations indexed with `descriptor_stride = 64`, combined image samplers CONSTRUCTED at the use site, and the
-`frame_slot` / `image index` carried in PUSH CONSTANTS, because push data only feeds mapping sources; (3) every
+`frame_slot` / `image index` carried in PUSH CONSTANTS (the mapping-era reading was that push data only fed
+mapping sources, which the proposal text corrects); (3) every
 pipeline created with `VkPipelineCreateFlags2CreateInfo` + `VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT` and a
 NULL layout; (4) bind the heaps once per frame and delete descriptor sets, set layouts, pools and the mapping
 shim (`scene_heap_layout`, `scene_heap_stage_mapping`, `set_scene_heap_layout`, `build_cluster`'s
 `map_from_heap` flag, `push_heap_frame_slot`). Then the flip, and the negative proof: push a WRONG index and show
 the picture break.
+
+Items (2), (3) and (4) have since been done as written - every stage is heap-native, every pipeline carries the
+flag with a null layout, the frame binds the heaps once and the shim is deleted (docs/descriptor_heap_handover.md).
 
 The migration is still one frame-wide switch, for the reason at the top of this file: a frame whose stages do not
 all read the heap renders nothing at all.
@@ -304,7 +315,7 @@ ray-tracing" - has no hidden exception to design around.
 Everything below is a pointer, not a plan: each line is a site that has to change, and the counts are what make
 the size of the remaining commit visible. Line numbers are as of the commit that added this section.
 
-**Push sites that must switch to `vkCmdPushDataEXT` (15).** The layout argument disappears with the layout, and
+**Push sites that switched to `vkCmdPushDataEXT` (21).** The layout argument disappeared with the layout, and
 the bytes are the same ones the shader's `layout(push_constant)` block already declares, so this is a one-line
 change per site:
 
@@ -335,7 +346,7 @@ renderer (the `make_pipeline` in `core.pipeline`, which the G-buffer, post and d
 `vulkan/core/core.cpp`'s G-buffer builder is the other one - so "every graphics pipeline" is really two
 functions plus whatever `make_pipeline`'s callers pass.
 
-**Shaders (17 files).** The inventory table above lists every `layout(set, binding)` in the repository; each
+**Shaders (24 stages).** The inventory table above lists the bindings the retired GLSL sources declared; each
 declaration becomes a `descriptor_heap` array, each fetch over a combined image sampler becomes
 `sampler2D(heap_textures[slot], heap_samplers[sampler_slot])` at the use site, and each stage that reads a
 per-frame or per-generation array needs the index for it - which, with no layout, arrives through push data and
@@ -346,7 +357,7 @@ interface rather than its declarations).
 and their pools, `scene_sets`/`gbuffer_family`/`post_family`, `write_rt_structure_binding`'s set write,
 the mapping shim (`scene_heap_layout`, `scene_heap_stage_mapping`, `set_scene_heap_layout`,
 `build_cluster`'s `map_from_heap` flag, `push_heap_frame_slot`) - and `descriptor_heap::make_mapping`,
-which nothing else used. They came out in three commits, each proven byte-neutral by the nine gate
+which nothing else used. They came out in three commits, each proven byte-neutral by the gate
 scenarios against a frozen reference set: the mapping shim, then the classic descriptor world (41 files,
 -3005 lines: the set layouts, pools, pipeline layouts, every pass's `set_layout_`/`pipeline_layout_`/
 family and their per-frame writes), then the last of the mapping machinery that the first commit's
@@ -391,13 +402,17 @@ descriptor heap: the heap-native GRAPHICS probe rendered grid slot 16897 ... rea
 - The MECHANISM of items (2), (3) and (4) is proven end to end: a heap-flagged, layout-less, push-data-fed
   pipeline reads the right value out of the right grid slot, for compute AND for graphics, and a deliberately
   wrong slot reads a different value. Ray tracing takes the flag too (three VUIDs say how).
-- What REMAINS is the frame-wide conversion itself - the counted work list above (15 push sites, 13 pipeline
-  layouts, 2 graphics creation functions, 17 shaders, then the deletions). It is one commit because a frame whose
+- What REMAINED was the frame-wide conversion itself - the counted work list above (15 push sites, 13 pipeline
+  layouts, 2 graphics creation functions, 17 shaders, then the deletions) - and it has since been done: the
+  stages are heap-native, the pipelines carry the flag with a null layout, and the frame binds the heaps once
+  (`docs/descriptor_heap_handover.md`). It was one commit because a frame whose
   stages do not all read the heap renders nothing, which is measured at the top of this file.
-- Acceptance, against the criteria as written: BUILD=0, 8/8 tests, gate 9/9 `changed: 0` and validation silent
+- Acceptance, against the criteria as written: BUILD=0, 13/13 tests, gate `changed: 0` and validation silent
   all hold at every commit; the wrong-slot negative proof holds AT THE MECHANISM LEVEL (the two probe lines
-  above); what cannot be claimed is the same pair of facts for a CONVERTED frame, because the frame has not been
-  converted - the reference frames still match trivially, since every pass still reads its descriptor set.
+  above); what could not be claimed when this was written is the same pair of facts for a CONVERTED frame,
+  because the frame was not converted yet - the reference frames still matched trivially, since every pass
+  still read its descriptor set. The frame-wide conversion that closed that gap is recorded in
+  `docs/descriptor_heap_handover.md`.
 
 ## The POC that died - and the method lesson it left (the questions above are now answered)
 

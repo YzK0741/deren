@@ -43,7 +43,7 @@ usually meets them. Each one links to the page or module that holds the detail.
   fitted matrices, the caster world matrices, the uploaded skin matrices or a morph-scratch
   revision changed - the skip is byte-identical by construction, and the skin upload has to
   be part of the signal or an animated model silently keeps a frozen map.
-- **Clustered light culling.** `shaders/light_cluster.comp` sorts up to 128 punctual lights
+- **Clustered light culling.** `shaders/light_cluster.slang` sorts up to 128 punctual lights
   into a 64 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter
   per cluster. Measured with 64 lights the forward shading pass drops 1.28 -> 0.44 ms and
   the deferred lighting pass 0.25 -> 0.08 ms, with a byte-identical image - the cluster test
@@ -187,7 +187,7 @@ G-buffer path is the only scene path, and the forward one is gone") - so everyth
 describes what the engine does rather than what it is becoming. **M1 (done)** is the
 G-buffer: the opaque pass stores the surface (albedo/metallic, world normal/roughness,
 material id/AO/flags) in three 1x targets, with a channel debug view. **M2 (done)** is the
-deferred lighting stage: `shaders/deferred.frag` shades every pixel from those targets and
+deferred lighting stage: `shaders/deferred.slang` shades every pixel from those targets and
 adds the result into the HDR target (sky where no geometry wrote depth), through
 `shade_surface()` - the SINGLE lighting entry point (`shaders/shading.glsl`) that every
 shading stage in the engine now calls - with emissive added by the base pass and the
@@ -196,7 +196,7 @@ existed the two were A/B references and agreed to 0.32/255 mean absolute luminan
 difference on Sponza; that number is a HISTORICAL measurement, not a current comparison -
 there is no longer a second path to compare against, the shared shading code simply IS the
 path. **M3 (done)** is temporal anti-aliasing on that path: a Halton(2,3) projection jitter,
-per-pixel camera motion vectors written by the G-buffer, and `shaders/taa.frag` resolving
+per-pixel camera motion vectors written by the G-buffer, and `shaders/taa.slang` resolving
 the jitter against a reprojected, neighborhood-clamped history (with a view-depth guard for
 disocclusions) - measured against the same frame without TAA, 1.05/255 mean difference with
 9% less high-frequency energy, and, as the measurement was taken at the time, the
@@ -206,7 +206,7 @@ pass fills a layered 2D-array depth map (1..4 cascades, three by default), each 
 fitting its own light-space box to its own slice of the view range (practical split scheme,
 lambda 0.75), with the fragment shader selecting its cascade per pixel from the view depth
 and blending across the boundary - one cascade is byte-identical to the pre-M4 single-map
-path. **M5 (done)** is clustered light culling: `shaders/light_cluster.comp` (the engine's
+path. **M5 (done)** is clustered light culling: `shaders/light_cluster.slang` (the engine's
 first compute pipeline, on the graphics queue) sorts up to 128 punctual lights into a 64
 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter per
 cluster, and the shading stage loops only its own cluster's list - measured with 64 lights,

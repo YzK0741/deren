@@ -52,7 +52,11 @@ Note that the guards which gate on these binds (`io.pipeline_layout == VK_NULL_H
 `env.layout != VK_NULL_HANDLE`) still *pass*, because the runtime still hands out
 `scene_pipeline_layout` - so none of this was caught by an early return, and none of it was dead code.
 
-### (b) The post chain's source slot
+### (b) The post chain's source slot - DONE
+
+The third push lane now carries it, so the host hands the absolute slot over and the shader indexes with it
+(`docs/descriptor_heap_migration.md` records the fix); the note below is the reasoning that made it a
+separate piece of work rather than a two-line change.
 
 `shaders/post.frag` reads `post_source_texture[pc.post_source_slot]` - and that index is an
 **absolute** heap slot, not a base plus `heap_image_index` (contrast the four bloom levels two lines
@@ -78,23 +82,23 @@ runtime builds - the same shape as the three callbacks already there. Until then
 default lane of `0`, and the shader would read slot `0 + 0` - the bindless texture array's first
 entry - rather than its source.
 
-### (c) The objects nothing points at any more
+### (c) The objects nothing points at any more - DONE
 
-Still created, still written, no longer read by any shader: `core::scene_pipeline_layout` and
+They were created, written and read by no shader, and they have since been deleted: `core::scene_pipeline_layout` and
 `scene_descriptor_set_layout` (`vulkan/core/core.cpp:1536`, `:1412`), `core::create_descriptor_pool`
 (`:1353`), `runtime::scene_sets`, `runtime::gbuffer_family`, `runtime::post_family`,
 `pipelines::make_post_set_layout` / `make_gbuffer_set_layout`, `bindings::make_set_layout` /
 `write_set` / `image_set_family`, the passes' `pipeline_layout_` / `set_layout_` members and their
 `pipeline_layout()` / `set_layout()` accessors, and the `shared_set_layout` / `shared_pipeline_layout` /
 `descriptor_set` context plumbing. Deleting them is the whole point of the migration's title, and it is
-purely subtractive work that does not affect what the frame does.
+purely subtractive work that did not affect what the frame does.
 
-### (d) The mapping shim
+### (d) The mapping shim - DONE
 
 `pipelines::scene_heap_layout`, `scene_heap_stage_mapping`, `set_scene_heap_layout`,
 `map_from_heap` in `build_cluster`, `runtime::push_heap_frame_slot` and
 `descriptor_heap::make_mapping` are now unreachable - `map_from_heap` is `static constexpr bool = false`
-and the mapping pointer it guards is therefore never built. They can go.
+and the mapping pointer it guards is therefore never built. They went with the rest of the shim.
 
 ### (e) What was measured on the first runs
 
@@ -214,16 +218,16 @@ image, which is why it survived every fix that changed what the frame does.
 
 ```powershell
 cmake --build build-release-clang64            # must be exit 0
-ctest --test-dir build-release-clang64         # 8 binaries
-pwsh scripts\windows\check_render.ps1          # 9 scenarios, changed must be 0
+ctest --test-dir build-release-clang64         # 13 binaries
+pwsh scripts\windows\check_render.ps1          # the scenario set, changed must be 0
 ```
 
 Then re-do the negative proof as a *frame-level* check (push a wrong slot on purpose and confirm the
-frame changes), and merge to `pass-chain` only when the gate reports nine unchanged scenarios with
+frame changes), and merge to `pass-chain` only when the gate reports its scenarios unchanged with
 validation silent.
 
-The rules the extension actually enforces - the five VUIDs, the null-layout requirement, the glslang
-restrictions that shaped the shader side, and the counted work list this document is the tail of - are
+The rules the extension actually enforces - the five VUIDs, the null-layout requirement, the Slang and
+glslang restrictions that shaped the shader side, and the counted work list this document is the tail of - are
 in `docs/descriptor_heap_migration.md`.
 
 

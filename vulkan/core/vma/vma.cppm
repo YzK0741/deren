@@ -91,7 +91,7 @@ namespace vulkan {
         storage_gpu_only,               // GPU_ONLY, STORAGE + SHADER_DEVICE_ADDRESS, allocate-only: a
                                         // buffer a COMPUTE pass fills and the host never reads or writes -
                                         // the mask bake's expanded vertices are the first user (see
-                                        // shaders/mask_bake.comp). The same flags as the scratch type,
+                                        // shaders/mask_bake.slang). The same flags as the scratch type,
                                         // because both need exactly that; they are separate variants
                                         // because the INTENT is what a reader is looking for.
     };

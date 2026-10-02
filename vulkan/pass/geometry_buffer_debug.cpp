@@ -123,7 +123,7 @@ namespace vulkan::pass {
         vkCmdBeginRendering(io.cmd, &rendering_info);
         vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
         // No set to bind: the G-buffer images are per-swapchain-image heap slots the shader indexes itself with
-        // the image index its push block carries (see shaders/gbuffer_debug.frag and heap_slots.glsl).
+        // the image index its push block carries (see shaders/gbuffer_debug.slang and heap_slots.glsl).
         // The push block is the pass's own now: the channel it owns, the frame's two projection terms (from
         // `resolved_io::constants`) and the motion gain, which scales itself across resolutions by using the frame's
         // own width (four pixels saturate the motion channel).
