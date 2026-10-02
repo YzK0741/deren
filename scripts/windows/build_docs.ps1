@@ -86,8 +86,34 @@ function Show-LogTail {
 
 # manual rerun loop replicating the generated Makefile: pdflatex, makeindex,
 # repeat pdflatex while the log asks for another pass, makeindex, pdflatex
+#
+# WHAT COUNTS AS "THE LOG ASKS FOR ANOTHER PASS": LaTeX and hyperref ask in
+# prose - "Rerun to get cross-references right", "Rerun to get outlines right",
+# "Label(s) may have changed" - while the rerunfilecheck package prints
+# "... Rerun checks for auxiliary files (HO)" in its identification banner on
+# EVERY pass. Matching the bare word "Rerun" matched that banner, so the loop
+# always ran to its cap and a converged manual was typeset ten times: ~10
+# minutes, eight passes of which changed nothing. (Measured on a converged
+# pass: refman.log holds three /Rerun/ lines and all three are that banner.)
+function Test-RerunWanted {
+    Select-String -Path 'refman.log' -Pattern 'Rerun to get|may have changed' -Quiet -ErrorAction SilentlyContinue
+}
+
+# the auxiliary state a pass is supposed to converge: identical before and after
+# a pass means the pass changed nothing, whatever its log says
+function Get-AuxFingerprint {
+    $files = 'refman.aux', 'refman.toc', 'refman.out', 'refman.idx'
+    ($files | ForEach-Object {
+            if (Test-Path $_) { (Get-FileHash $_ -Algorithm SHA256).Hash } else { '-' }
+        }) -join ':'
+}
+
 function Invoke-Pdflatex {
-    $code = Invoke-BuildStep 'pdflatex' @('-interaction=nonstopmode', '-halt-on-error', 'refman.tex') 'latex_pass.log'
+    param([switch]$Draft)
+    $cmdArgs = @('-interaction=nonstopmode', '-halt-on-error')
+    if ($Draft) { $cmdArgs += '-draftmode' }
+    $cmdArgs += 'refman.tex'
+    $code = Invoke-BuildStep 'pdflatex' $cmdArgs 'latex_pass.log'
     if ($code -ne 0) {
         Write-Error 'pdflatex failed (see docs/latex/refman.log for the full transcript):'
         Show-LogTail 'latex_pass.log'
@@ -108,12 +134,18 @@ function Invoke-Makeindex {
 }
 
 function Invoke-LatexManual {
-    Invoke-Pdflatex
+    # only the LAST pass writes the PDF: the earlier ones run in -draftmode,
+    # which still produces the .aux/.toc/.out/.idx state they exist to converge
+    Invoke-Pdflatex -Draft
     Invoke-Makeindex
     $count = 0
-    while ((Select-String -Path 'refman.log' -Pattern 'Rerun' -Quiet -ErrorAction SilentlyContinue) -and ($count -lt 8)) {
-        Invoke-Pdflatex
+    $fingerprint = Get-AuxFingerprint
+    while (Test-RerunWanted) {
+        Invoke-Pdflatex -Draft
         $count++
+        $state = Get-AuxFingerprint
+        if (($state -eq $fingerprint) -or ($count -ge 4)) { break }
+        $fingerprint = $state
     }
     Invoke-Makeindex
     Invoke-Pdflatex

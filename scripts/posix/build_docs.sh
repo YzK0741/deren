@@ -63,8 +63,30 @@ add_tex_to_path() {
 # manual rerun loop replicating the generated Makefile: pdflatex, makeindex,
 # repeat pdflatex while the log asks for another pass, makeindex, pdflatex
 # (each pass is captured to latex_pass.log; failures show its tail)
-run_pdflatex() {
-    if pdflatex -interaction=nonstopmode -halt-on-error refman.tex >latex_pass.log 2>&1; then
+#
+# "ASKS FOR ANOTHER PASS" means LaTeX's and hyperref's prose requests ("Rerun to
+# get cross-references right", "Rerun to get outlines right", "Label(s) may have
+# changed"), NOT the bare word: the rerunfilecheck package prints
+# "... Rerun checks for auxiliary files (HO)" in its banner on every pass, so a
+# grep for "Rerun" never stopped, the loop always ran to its cap and a converged
+# manual was typeset ten times (~10 minutes, eight passes changing nothing).
+rerun_wanted() {
+    grep -qs -E "Rerun to get|may have changed" refman.log
+}
+# the auxiliary state a pass converges; unchanged after a pass means that pass
+# changed nothing, whatever its log says
+aux_fingerprint() {
+    for f in refman.aux refman.toc refman.out refman.idx; do
+        if [ -f "$f" ]; then md5sum "$f" 2>/dev/null || cksum "$f"; else echo "-"; fi
+    done
+}
+run_pdflatex() { # $1 = DRAFT for the passes that do not write the PDF
+    if [ "$1" = "DRAFT" ]; then
+        set -- -draftmode
+    else
+        set --
+    fi
+    if pdflatex "$@" -interaction=nonstopmode -halt-on-error refman.tex >latex_pass.log 2>&1; then
         return 0
     fi
     echo "error: pdflatex failed (see docs/latex/refman.log for the full transcript):" >&2
@@ -83,12 +105,20 @@ run_makeindex() {
     fi
 }
 compile_latex_manually() {
-    run_pdflatex
+    # only the last pass writes the PDF; the earlier ones run in -draftmode and
+    # still produce the .aux/.toc/.out/.idx state they exist to converge
+    run_pdflatex DRAFT
     run_makeindex
     count=0
-    while grep -qs "Rerun" refman.log && [ "$count" -lt 8 ]; do
-        run_pdflatex
+    fingerprint=$(aux_fingerprint)
+    while rerun_wanted; do
+        run_pdflatex DRAFT
         count=$((count + 1))
+        state=$(aux_fingerprint)
+        if [ "$state" = "$fingerprint" ] || [ "$count" -ge 4 ]; then
+            break
+        fi
+        fingerprint=$state
     done
     run_makeindex
     run_pdflatex
