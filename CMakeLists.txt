@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.3)
-project(vulkan_render VERSION 0.3.0)
+project(deren VERSION 0.3.0)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_SCAN_FOR_MODULES ON)
@@ -383,7 +383,7 @@ target_include_directories(vulkancorekit
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
-add_executable(vulkan_render main.cpp)
+add_executable(deren main.cpp)
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
 # running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
 # still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
@@ -392,7 +392,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Rel
 # utility.cpp implements the xxHash-based hash functions (utility::xxh3_128bits) on top of
 # the vendored xxhash library, so the dependency is declared here, on the library that
 # actually uses the XXH3_128bits symbol. It propagates to consumers (vulkancorekit / gltf_loader
-# / vulkan_render) at link time, so the executable does not need to link xxhash itself.
+# / deren) at link time, so the executable does not need to link xxhash itself.
 # better_pmr (utility.better_pmr) routes std::pmr allocations through the vendored mimalloc
 # (third_party/mimalloc), so the executable no longer needs MSYS2's libmimalloc.dll.
 target_link_libraries(utility
@@ -585,7 +585,7 @@ endif()
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib vulkan_render vulkancorekit utility gltf_loader app_config chores ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib deren vulkancorekit utility gltf_loader app_config chores ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # vendored fastgltf headers are upstream code: relax one warning their templates trip under
@@ -632,11 +632,11 @@ target_compile_definitions(vulkancorekit PRIVATE
 #    that surface it: the Vulkan app_info (vulkan/core/core.cpp, applicationVersion /
 #    engineVersion), the --version flag and the startup log banner (main.cpp). Bump the number
 #    in project(VERSION) and keep README/docs' "current version" lines in sync.
-foreach(version_target IN ITEMS vulkancorekit vulkan_render)
+foreach(version_target IN ITEMS vulkancorekit deren)
     target_compile_definitions(${version_target} PRIVATE
-            VULKAN_RENDER_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
-            VULKAN_RENDER_VERSION_MINOR=${PROJECT_VERSION_MINOR}
-            VULKAN_RENDER_VERSION_PATCH=${PROJECT_VERSION_PATCH}
+            DEREN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
+            DEREN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
+            DEREN_VERSION_PATCH=${PROJECT_VERSION_PATCH}
     )
 endforeach()
 
@@ -673,7 +673,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt utility app_config vulkancorekit gltf_loader vulkan_render)
+    foreach(_tgt utility app_config vulkancorekit gltf_loader deren)
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -991,5 +991,5 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(shaders ALL DEPENDS ${VR_SHADER_OUTPUTS} "${VR_SHADER_OUT_DIR}/.sources-copied")
-add_dependencies(vulkan_render shaders)
+add_dependencies(deren shaders)
 message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles shaders/*.spv into ${VR_SHADER_OUT_DIR}")

@@ -183,7 +183,7 @@ namespace vulkan {
     export struct core_create_info {
         int32_t window_width = 1080;
         int32_t window_height = 960;
-        std::string window_title = "vulkan_render"; // GLFW window title
+        std::string window_title = "deren"; // GLFW window title
         // vsync: true (default) prefers VK_PRESENT_MODE_FIFO_LATEST_READY and falls back to FIFO - the
         // frame goes out at the display's rate and the acquire blocks instead of spinning, which is what
         // keeps an idle window off the CPU. false prefers VK_PRESENT_MODE_MAILBOX_KHR, the uncapped path

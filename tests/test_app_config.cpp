@@ -164,7 +164,7 @@ namespace {
         // [render] presentation
         CHECK(settings.render.window_width == 1080);
         CHECK(settings.render.window_height == 960);
-        CHECK(settings.render.window_title == "vulkan_render");
+        CHECK(settings.render.window_title == "deren");
         CHECK(!settings.render.vsync);       // generator default: Mailbox (uncapped)
         CHECK(settings.render.max_fps == 0); // generator default: 0 = uncapped, and the compiled default too
         CHECK(settings.render.camera_fit == "exterior");

@@ -1,4 +1,4 @@
-# Build vulkan_render (Windows). Requires the MSYS2 clang64 toolchain on
+# Build deren (Windows). Requires the MSYS2 clang64 toolchain on
 # PATH (run scripts/windows/setup.sh first, or start an MSYS2 clang64 shell).
 # Usage:
 #     powershell -ExecutionPolicy Bypass -File scripts/windows/build.ps1
@@ -62,6 +62,6 @@ Write-Host ''
 Write-Host 'build complete:'
 foreach ($config in $Type) {
     $dir = Join-Path $root "build-$($config.ToLowerInvariant())-clang64"
-    Write-Host "  $dir\vulkan_render.exe  ($config)"
+    Write-Host "  $dir\deren.exe  ($config)"
 }
 Write-Host 'run with:  powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1'

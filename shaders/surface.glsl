@@ -22,8 +22,8 @@
  * vulkan::core::scene_pipeline_layout).
  */
 
-#ifndef VULKAN_RENDER_SURFACE_GLSL
-#define VULKAN_RENDER_SURFACE_GLSL
+#ifndef DEREN_SURFACE_GLSL
+#define DEREN_SURFACE_GLSL
 
 // THE GEOMETRY LANES A MESH STAGE OF THIS FILE'S OWNERS NEEDS (docs/mesh_shaders.md step 2). The block below ends
 // with them because their offsets are the block's: the material fields (96 B), the two heap index lanes (8 B) and
@@ -233,4 +233,4 @@ surface_sample gather_surface(vec3 world_pos, vec3 geo_normal, vec2 uv) {
     return s;
 }
 
-#endif // VULKAN_RENDER_SURFACE_GLSL
+#endif // DEREN_SURFACE_GLSL

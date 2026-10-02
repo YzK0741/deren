@@ -1,4 +1,4 @@
-# Run vulkan_render (Windows). Usage:
+# Run deren (Windows). Usage:
 #     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1
 #     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model path/to/model.glb
 #     powershell -ExecutionPolicy Bypass -File scripts/windows/run.ps1 -Model ... -Grid 8
@@ -20,7 +20,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot | Split-Path -Parent | Split-Path -Parent
-$exe = Join-Path $root "build-$($Type.ToLowerInvariant())-clang64\vulkan_render.exe"
+$exe = Join-Path $root "build-$($Type.ToLowerInvariant())-clang64\deren.exe"
 if (-not (Test-Path $exe)) {
     Write-Error "not built: $exe`nRun scripts/windows/build.ps1 first."
 }

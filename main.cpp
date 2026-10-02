@@ -13,7 +13,7 @@
 // that dependency is deliberately absent).
 //
 // The include path resolves because `vulkancorekit` exports `third_party/` as a PUBLIC include directory, and
-// `vulkan_render` links it.
+// `deren` links it.
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
@@ -343,10 +343,10 @@ namespace {
 // place in the tree where that is a LANGUAGE rule rather than a choice about the project's arithmetic types.
 int main(int argc, char** argv) {
     // --version: print the version (single source: project(VERSION) in CMakeLists.txt, injected
-    // as VULKAN_RENDER_VERSION_*) and exit before any config / Vulkan init.
+    // as DEREN_VERSION_*) and exit before any config / Vulkan init.
     for (int32_t i = 1; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--version") {
-            utility::println("vulkan_render {}.{}.{}", VULKAN_RENDER_VERSION_MAJOR, VULKAN_RENDER_VERSION_MINOR, VULKAN_RENDER_VERSION_PATCH);
+            utility::println("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
             return 0;
         }
     }
@@ -364,7 +364,7 @@ int main(int argc, char** argv) {
     std::string const& model_path = config.model_path;
 
     // startup banner: version (single source: project(VERSION) in CMakeLists.txt)
-    utility::log("vulkan_render {}.{}.{}", VULKAN_RENDER_VERSION_MAJOR, VULKAN_RENDER_VERSION_MINOR, VULKAN_RENDER_VERSION_PATCH);
+    utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
 
     // 4. Kick off the runtime-independent heavy CPU stages BEFORE constructing the (heavy)
     //    Vulkan runtime, so window/instance/device/swapchain init overlaps the model parse +

@@ -82,7 +82,7 @@ param(
 $ErrorActionPreference = "Stop"
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 if (-not $BuildDir) { $BuildDir = Join-Path $repo "build-release-clang64" }
-$exe = Join-Path $BuildDir "vulkan_render.exe"
+$exe = Join-Path $BuildDir "deren.exe"
 if (-not (Test-Path $exe)) { Write-Error "no executable at $exe - build first (-BuildDir to point elsewhere)"; exit 1 }
 
 # CANONICALIZE THE BUILD DIR, and this is a measured defect rather than tidiness: the scenario config carries
@@ -94,7 +94,7 @@ if (-not (Test-Path $exe)) { Write-Error "no executable at $exe - build first (-
 # both spellings mean the same run.
 $BuildDir = (Resolve-Path $BuildDir).Path
 
-$baseDir = if ($env:VR_RENDER_BASELINE_DIR) { $env:VR_RENDER_BASELINE_DIR } else { Join-Path $env:LOCALAPPDATA "vulkan_render\baseline" }
+$baseDir = if ($env:DEREN_BASELINE_DIR) { $env:DEREN_BASELINE_DIR } else { Join-Path $env:LOCALAPPDATA "deren\baseline" }
 $workDir = Join-Path $BuildDir "render-check"
 
 # ---------------------------------------------------------------------------------------------

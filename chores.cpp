@@ -548,7 +548,7 @@ namespace chores {
     }
 
     // Build the demo's Dear ImGui debug overlay (when use_gui): enable it on the runtime and
-    // assemble the "vulkan_render debug" panel. The widgets bind to @p bindings (fps text,
+    // assemble the "deren debug" panel. The widgets bind to @p bindings (fps text,
     // toggles, sliders, animation mirrors, camera selection) - the frame loop keeps the fps
     // and animation mirrors in sync. The overlay's glTF-side content (authored camera names,
     // orbit-camera seeding) arrives as display names + a selection callback, so this helper
@@ -564,7 +564,7 @@ namespace chores {
             return;
         }
         runtime.enable_debug_gui();
-        vulkan::gui::debug_panel& panel = runtime.debug_gui().add_panel("vulkan_render debug");
+        vulkan::gui::debug_panel& panel = runtime.debug_gui().add_panel("deren debug");
         panel.set_default_size(settings.gui.panel_width, settings.gui.panel_height);
         panel.push_back(std::make_unique<vulkan::gui::label_widget>([&bindings] { return std::format("fps: {:>6.1f}", bindings.fps); })); // fixed-width field: a growing number must not re-wrap the panel
         // per-pass GPU milliseconds (runtime::gpu_timing_summary): the timing that steers the

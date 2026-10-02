@@ -1,6 +1,8 @@
-# vulkan_render
+# deren
 
 A Vulkan renderer written in modern C++23 (C++20 modules / `.cppm`), implementing a glTF 2.0 PBR (metallic-roughness) pipeline with CPU-precomputed split-sum IBL lighting, a scene tree with BVH frustum culling, directional shadows, and a Dear ImGui debug overlay.
+
+> **Renamed on 2026-10-02: this project is `deren`** (it was `vulkan_render`). The executable, the version macros and the reference-frame directory were renamed with it; the GitHub repository and this working directory are renamed in the same pass. Module namespaces still read `vulkan.*` and four doxygen groups still read `vulkan_render_*` on purpose: renaming those is a separate, still-open decision tied to the backend boundary. See `docs/mainpage.md` for the full note.
 
 <p align="center">
   <img src="snapshot/DamagedHelmet.png" width="49%" alt="DamagedHelmet with PBR + IBL + shadows" />
@@ -15,9 +17,9 @@ framing, so they can be regenerated rather than re-taken by hand (see
 ## Version
 
 **0.3.0** — single source of truth is `project(VERSION)` in `CMakeLists.txt`; CMake injects
-`VULKAN_RENDER_VERSION_{MAJOR,MINOR,PATCH}` into the code. To release a new version, bump it
+`DEREN_VERSION_{MAJOR,MINOR,PATCH}` into the code. To release a new version, bump it
 there and update this line (plus `docs/mainpage.md`). The version is surfaced by `--version`,
-the startup log banner (`vulkan_render x.y.z`), and the Vulkan instance's `app_info`
+the startup log banner (`deren x.y.z`), and the Vulkan instance's `app_info`
 (`applicationVersion` / `engineVersion`).
 
 Each **independently reusable module set** also carries its own `module version` annotation
@@ -163,7 +165,7 @@ Related source docs (tracked in the repo):
 - CMake ≥ 4.3 and a compiler with C++23 / C++20 modules support (this project uses MSYS2 clang64's clang)
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home) (includes `glslc`; also provides VMA, `vma/vk_mem_alloc.h`, under its `Include/`)
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
-- Everything else is vendored under `third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode) and **mimalloc** (allocator behind `utility:better_pmr`, compiled into a `mimalloc_vendored` static target). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. The **Windows Release** executable links fully static (`-static`: libc++ / libc++abi / libunwind, glfw3, mimalloc are all pulled in statically), so `build-release-clang64/vulkan_render.exe` is a single portable file — only the OS's own DLLs (kernel32, the UCRT, `vulkan-1.dll`) remain dynamic. Debug builds stay dynamic for faster iteration.
+- Everything else is vendored under `third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode) and **mimalloc** (allocator behind `utility:better_pmr`, compiled into a `mimalloc_vendored` static target). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. The **Windows Release** executable links fully static (`-static`: libc++ / libc++abi / libunwind, glfw3, mimalloc are all pulled in statically), so `build-release-clang64/deren.exe` is a single portable file — only the OS's own DLLs (kernel32, the UCRT, `vulkan-1.dll`) remain dynamic. Debug builds stay dynamic for faster iteration.
 
 ### Scripts
 
@@ -231,10 +233,10 @@ cmake --build build
 Run from the project root or any build directory (the program walks upward to locate `shaders/` and `gltf_model/` when they are not configured):
 
 ```bash
-./build-release/vulkan_render                # or build-release-clang64/vulkan_render.exe on Windows
+./build-release/deren                # or build-release-clang64/deren.exe on Windows
 # or load a different model / lay it out as an instancing grid:
-./build-release/vulkan_render path/to/model.glb
-./build-release/vulkan_render path/to/model.glb 8   # grid_side 8: one instanced draw call
+./build-release/deren path/to/model.glb
+./build-release/deren path/to/model.glb 8   # grid_side 8: one instanced draw call
 ```
 
 By default it loads `gltf_model/DamagedHelmet.gltf` and renders it with PBR + IBL. Controls: **left-drag** to orbit, **wheel** to zoom, **drag the window border** to resize (the swapchain is recreated on the fly), **ESC** to quit. Loaded models that carry keyframe animations (e.g. glTF-Sample-Assets `AnimatedCube` / `BoxAnimated`) play automatically on a loop.
@@ -245,7 +247,7 @@ Startup is driven by a TOML config file — copy `config.example.toml` to
 `config.toml` (working directory) or point at one explicitly:
 
 ```bash
-./build-release/vulkan_render --config my_config.toml
+./build-release/deren --config my_config.toml
 ```
 
 Two helpers generate `config.toml` for you: `make_default_config.py`
@@ -259,18 +261,18 @@ Two extra dev-tool flags make a render reproducible without a human at the keybo
 
 ```bash
 # render 120 frames, save a screenshot through the same path F12 uses, then quit
-./build-release/vulkan_render --config my_config.toml --capture-frames 120
+./build-release/deren --config my_config.toml --capture-frames 120
 
 # ... and force the view first: yaw,pitch,distance in degrees / scene units, plus an optional
 # orbit target (6 numbers instead of 3)
-./build-release/vulkan_render --capture-frames 120 --capture-camera 31,0,10,0,-18,0
+./build-release/deren --capture-frames 120 --capture-camera 31,0,10,0,-18,0
 ```
 
 Two more make a capture of something that MOVES as reproducible as a still one, for the same reason: both advance by the **frame index** rather than by the wall clock, so two runs of one capture are byte-identical. `--capture-sweep <deg of yaw per frame>` orbits the camera (without it every reprojection path in the renderer is only ever exercised in its trivial case - a motion vector of zero), and `--capture-animation-sweep <seconds per frame>` advances the keyframe animation:
 
 ```bash
 # move the camera 0.5 deg per frame, and the animation 0.02 s per frame
-./build-release/vulkan_render --capture-frames 40 --capture-sweep 0.5 --capture-animation-sweep 0.02
+./build-release/deren --capture-frames 40 --capture-sweep 0.5 --capture-animation-sweep 0.02
 ```
 
 `--capture-animation-sweep` is what makes a **deforming** mesh measurable at all: pinning the pose with `[render] animation_time` makes a capture reproducible but uploads the same skin matrices every frame, so the deformation term of every motion vector is exactly zero and the frame cannot tell a deformation-aware renderer from one that ignores deformation. The two flags are mutually exclusive - a pinned pose never advances the clock, and the run logs that it ignored the sweep.
@@ -302,7 +304,7 @@ use another model, so a default round costs 10 renders instead of 20; `-Full` ru
 
 It is deliberately **not** a CI test: CI has no GPU, and the references are tied to this machine's GPU
 and driver, so a shared baseline would be red for everyone else. The references therefore live outside
-the repository (`$env:LOCALAPPDATA\vulkan_render\baseline`, overridable with
+the repository (`$env:LOCALAPPDATA\deren\baseline`, overridable with
 `VR_RENDER_BASELINE_DIR`) and an unseeded run says so instead of failing.
 
 Two properties it depends on, both measured rather than assumed. The frame is only deterministic with

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Windows (MSYS2) environment setup for vulkan_render.
+# Windows (MSYS2) environment setup for deren.
 #
 # Run this from an MSYS2 shell (any of mingw64/clang64/msys terminals work -
 # the script switches to the clang64 toolchain itself):
@@ -22,7 +22,7 @@ set -eu
 root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
-echo "== vulkan_render: Windows (MSYS2) environment setup =="
+echo "== deren: Windows (MSYS2) environment setup =="
 
 # ---------- 1. clang64 toolchain on PATH ----------
 msys_root=""

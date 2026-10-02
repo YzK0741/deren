@@ -1,5 +1,5 @@
 #!/bin/sh
-# POSIX (Linux / WSL / macOS) environment setup for vulkan_render.
+# POSIX (Linux / WSL / macOS) environment setup for deren.
 #
 # Run from anywhere:
 #     sh scripts/posix/setup.sh
@@ -22,7 +22,7 @@ set -eu
 root=$(CDPATH= cd "$(dirname "$0")/../.." && pwd)
 cd "$root"
 
-echo "== vulkan_render: POSIX environment setup =="
+echo "== deren: POSIX environment setup =="
 
 # ---------- compiler ----------
 have_cxx=""

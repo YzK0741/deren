@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a default config.toml for vulkan_render.
+"""Generate a default config.toml for deren.
 
 Asks only where to put it, then copies config.example.toml verbatim to that
 location (renamed config.toml). For a fully interactive setup with per-key
@@ -46,7 +46,7 @@ def main() -> int:
                 print(f"cannot create {out_dir}: {exc}", file=sys.stderr)
                 return 1
     else:
-        print("== vulkan_render: write a default config.toml ==")
+        print("== deren: write a default config.toml ==")
         out_dir = ask_output_dir()
 
     if not os.path.isfile(EXAMPLE):

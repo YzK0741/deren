@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build vulkan_render on POSIX (Linux / WSL / macOS).
+# Build deren on POSIX (Linux / WSL / macOS).
 # Usage:
 #     sh scripts/posix/build.sh                 # Debug + Release
 #     sh scripts/posix/build.sh Debug           # one config
@@ -39,6 +39,6 @@ echo ""
 echo "build complete:"
 for config in $configs; do
     dir="build-$(echo "$config" | tr '[:upper:]' '[:lower:]')"
-    echo "  $dir/vulkan_render  ($config)"
+    echo "  $dir/deren  ($config)"
 done
 echo "run with: sh scripts/posix/run.sh"

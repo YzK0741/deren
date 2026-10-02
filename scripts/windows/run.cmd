@@ -18,8 +18,8 @@ rem ----------------------------------------------------------------------------
 setlocal
 set "REPO=%~dp0..\.."
 set "BUILD=%REPO%\build-release-clang64"
-if not exist "%BUILD%\vulkan_render.exe" (
-    echo run.cmd: "%BUILD%\vulkan_render.exe" does not exist - build it first:
+if not exist "%BUILD%\deren.exe" (
+    echo run.cmd: "%BUILD%\deren.exe" does not exist - build it first:
     echo     cmake -S "%REPO%" -B "%BUILD%"
     echo     cmake --build "%BUILD%"
     exit /b 1
@@ -31,9 +31,9 @@ rem passed by hand - which is how a capture into a scratch directory ended up wr
 rem repository's own folder instead.
 echo %* | find /i "--config" >nul
 if errorlevel 1 (
-    "%BUILD%\vulkan_render.exe" --config "%BUILD%\config.toml" %*
+    "%BUILD%\deren.exe" --config "%BUILD%\config.toml" %*
 ) else (
-    "%BUILD%\vulkan_render.exe" %*
+    "%BUILD%\deren.exe" %*
 )
 set "CODE=%ERRORLEVEL%"
 popd

@@ -98,7 +98,7 @@ jobs:
             exit 1
           fi
 
-      - name: Build all targets (incl. tests + vulkan_render.exe)
+      - name: Build all targets (incl. tests + deren.exe)
         run: cmake --build build
 
       # README claims this target exists "for CI"; until now nothing called it, so a formatting
@@ -146,8 +146,8 @@ jobs:
       - name: Upload the Release executable
         uses: actions/upload-artifact@v5
         with:
-          name: vulkan_render-windows-x64
-          path: build/vulkan_render.exe
+          name: deren-windows-x64
+          path: build/deren.exe
           if-no-files-found: error
 
   sanitizers:

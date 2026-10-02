@@ -63,7 +63,7 @@ New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
 # using defaults` followed by the app's "run the program from the project root" panic. An absolute path makes
 # `-WorkDir` usable from anywhere, which is what the parameter promises.
 $WorkDir = (New-Item -ItemType Directory -Force -Path $WorkDir).FullName
-$exe = Join-Path $repo "$BuildDir\vulkan_render.exe"
+$exe = Join-Path $repo "$BuildDir\deren.exe"
 if (-not (Test-Path $exe)) { Write-Error "no executable at $exe - build it first (-BuildDir to point elsewhere)"; exit 1 }
 $mean_tool = Join-Path $repo "scripts\measure\mean.py"
 

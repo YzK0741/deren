@@ -24,8 +24,8 @@
 // stage that needs the material table but CANNOT include `surface.glsl` (a fullscreen one - see above)
 // includes it directly. A stage that took both routes would declare the struct twice.
 
-#ifndef VULKAN_RENDER_MATERIAL_RECORD_GLSL
-#define VULKAN_RENDER_MATERIAL_RECORD_GLSL
+#ifndef DEREN_MATERIAL_RECORD_GLSL
+#define DEREN_MATERIAL_RECORD_GLSL
 
 struct Material {
     uvec4 tex_indices; // albedo, metallic-roughness, normal, occlusion (indices into textures[])
@@ -62,4 +62,4 @@ struct Material {
     uvec4 toon_indices;
 };
 
-#endif // VULKAN_RENDER_MATERIAL_RECORD_GLSL
+#endif // DEREN_MATERIAL_RECORD_GLSL

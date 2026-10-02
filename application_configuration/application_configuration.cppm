@@ -21,7 +21,7 @@ import utility;
 /**
  * @file application_configuration.cppm
  * @defgroup app_config Application Startup Config
- * @brief load vulkan_render startup settings from a TOML file, merged with command-line
+ * @brief load deren startup settings from a TOML file, merged with command-line
  *        arguments (--config <path> overrides the default file; explicit argv values for the
  *        model / grid override the file). Pure CPU, no Vulkan dependency.
  *
@@ -39,7 +39,7 @@ import utility;
  * [render]
  * window_width  = 1080
  * window_height = 960
- * window_title  = "vulkan_render"
+ * window_title  = "deren"
  * vsync = true     # true = FIFO_LATEST_READY (vsync), false = mailbox (uncapped)
  * max_fps = 0      # 0 = uncapped (what a throughput measurement needs), else a frame rate cap
  * clear_color = [0.02, 0.02, 0.03]  # background clear color, RGB in 0..1
@@ -97,7 +97,7 @@ namespace app_config {
     export struct render_settings {
         int32_t window_width = 1080;
         int32_t window_height = 960;
-        std::string window_title = "vulkan_render";               // GLFW window title
+        std::string window_title = "deren";                       // GLFW window title
         bool vsync = true;                                        // true = FIFO_LATEST_READY (FIFO fallback), false = mailbox (uncapped)
         double max_fps = 0.0;                                     // 0 = uncapped; a positive value caps the render loop
         std::array<float, 3> clear_color = {0.02f, 0.02f, 0.03f}; // background clear color (RGB, 0..1)

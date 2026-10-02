@@ -13,8 +13,8 @@
  * environment reflections agree exactly.
  */
 
-#ifndef VULKAN_RENDER_SKY_GLSL
-#define VULKAN_RENDER_SKY_GLSL
+#ifndef DEREN_SKY_GLSL
+#define DEREN_SKY_GLSL
 
 /**
  * @brief analytic sky radiance for a world-space direction
@@ -44,4 +44,4 @@ vec3 sky_color(vec3 dir, vec3 sun_dir) {
     return env;
 }
 
-#endif // VULKAN_RENDER_SKY_GLSL
+#endif // DEREN_SKY_GLSL

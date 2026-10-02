@@ -269,10 +269,10 @@ The specific instruments, all of which exist:
 pwsh -File scripts/windows/check_render.ps1 -List
 pwsh -File scripts/windows/check_render.ps1 -Update
 pwsh -File scripts/windows/check_render.ps1            # each scenario runs twice and must hash-equal itself first
-# $env:VR_RENDER_BASELINE_DIR overrides %LOCALAPPDATA%\vulkan_render\baseline
+# $env:DEREN_BASELINE_DIR overrides %LOCALAPPDATA%\deren\baseline
 
 # the baseline of the BUG (step 0): static camera, swept animation, motion channel
-./build-release-clang64/vulkan_render.exe --config my.toml --capture-frames 40 `
+./build-release-clang64/deren.exe --config my.toml --capture-frames 40 `
   --capture-camera=35,20,7,0,-1.6,0 --capture-animation-sweep=0.02   # gbuffer_debug=true, gbuffer_channel=8
 ```
 

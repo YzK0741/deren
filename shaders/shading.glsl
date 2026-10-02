@@ -23,8 +23,8 @@
  * use the runtime's shared scene pipeline layout for set 0.
  */
 
-#ifndef VULKAN_RENDER_SHADING_GLSL
-#define VULKAN_RENDER_SHADING_GLSL
+#ifndef DEREN_SHADING_GLSL
+#define DEREN_SHADING_GLSL
 
 // Camera UBO (scene set binding 0): view/projection and the world-space eye position (the shading
 // path needs the eye to build the view vector and, for the sky, the view ray). The last two matrices
@@ -962,4 +962,4 @@ vec3 shade_surface(shade_input s) {
     return max(color, vec3(0.0));
 }
 
-#endif // VULKAN_RENDER_SHADING_GLSL
+#endif // DEREN_SHADING_GLSL

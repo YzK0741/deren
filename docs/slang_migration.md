@@ -506,7 +506,7 @@ Slang-side fix, because the arithmetic lives in the SHARED `sky.glsl` - editing 
 frames too, and the references were captured FROM that build.
 
 SO THE REFERENCES WERE RE-CAPTURED with `-Update`, AND THE PREVIOUS SET WAS ARCHIVED FIRST at
-`%LOCALAPPDATA%\vulkan_render\baseline.pre-slang-deferred` - it is the only record of what the GLSL deferred
+`%LOCALAPPDATA%\deren\baseline.pre-slang-deferred` - it is the only record of what the GLSL deferred
 stage rendered, and archiving before a re-baseline is what this project's own driver note prescribes. Every
 other stage kept the byte-identical property it had earned: the re-baseline moved only the eight frames above,
 each by at most a few pixels, and the two scenarios without sky did not move at all.

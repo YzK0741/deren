@@ -1,13 +1,13 @@
 # ============================================================
-# vulkan_render startup configuration (example)
+# deren startup configuration (example)
 # ------------------------------------------------------------
 # Copy this file to config.toml (in the working directory, or anywhere
 # and point to it with --config <path>), then adjust as needed.
 #
 #   cp config.example.toml config.toml
-#   vulkan_render                    # reads config.toml
-#   vulkan_render --config my.toml   # reads the given file
-#   vulkan_render <model>            # argv overrides the file entries
+#   deren                    # reads config.toml
+#   deren --config my.toml   # reads the given file
+#   deren <model>            # argv overrides the file entries
 #
 # Note: backslashes are escapes in TOML strings, so use forward slashes
 # for Windows paths ("C:/...") or double backslashes ("C:\\...").
@@ -47,7 +47,7 @@ window_width  = 1080
 window_height = 960
 
 # Window title (static; fps is shown in the ImGui overlay when gui is enabled).
-window_title = "vulkan_render"
+window_title = "deren"
 
 # vsync: true = prefer FIFO_LATEST_READY (vsync-locked, never tears, and the acquire blocks instead of
 # spinning, so an idle window stays off the CPU; falls back to FIFO where that extension is missing).

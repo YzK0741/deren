@@ -1,7 +1,16 @@
-# vulkan_render
+# deren
 
 A Vulkan renderer written in modern C++23 (C++20 modules / `.cppm`), built with
 CMake 4.3 + Ninja on MSYS2 clang64.
+
+> **Renamed on 2026-10-02: this project is `deren`.** It was `vulkan_render` until then, and the
+> executable, the version macros and the reference-frame directory were renamed with it; the git
+> repository and this working directory are renamed in the same pass. Two things were deliberately left alone: the C++ module
+> namespaces still read `vulkan.*`, and four doxygen groups still read `vulkan_render_*`. Renaming
+> those is a separate, still-open decision - it belongs with the backend-boundary question (what is
+> the Vulkan backend versus what is the engine), and doing it now would settle that question by
+> accident. `ENABLE_VULKAN_RENDERDOC_CAPTURE` also still says what it says: it is RenderDoc's own
+> environment variable, not ours.
 
 Current version: **0.3.0** - single source is `project(VERSION)` in `CMakeLists.txt`
 (surfaced by `--version`, the startup log banner and the Vulkan `app_info`); bump it there

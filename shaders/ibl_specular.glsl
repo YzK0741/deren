@@ -18,8 +18,8 @@
  * is declared here - and why this file is included AFTER those declarations.
  */
 
-#ifndef VULKAN_RENDER_IBL_SPECULAR_GLSL
-#define VULKAN_RENDER_IBL_SPECULAR_GLSL
+#ifndef DEREN_IBL_SPECULAR_GLSL
+#define DEREN_IBL_SPECULAR_GLSL
 
 // ---- THE THREE FETCHES THIS FILE MAKES, each behind a NAME ----
 //
@@ -82,4 +82,4 @@ vec3 ibl_specular_fresnel(vec3 n, vec3 v, float roughness, vec3 f0, float specul
     return fssess + fmsems;
 }
 
-#endif // VULKAN_RENDER_IBL_SPECULAR_GLSL
+#endif // DEREN_IBL_SPECULAR_GLSL

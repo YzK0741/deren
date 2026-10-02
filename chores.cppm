@@ -221,7 +221,7 @@ namespace chores {
     /**
      * @ingroup chores
      * @brief build the demo's Dear ImGui debug overlay when @p use_gui: enable it on the
-     *        runtime and assemble the "vulkan_render debug" panel — fps label, frustum-culling
+     *        runtime and assemble the "deren debug" panel — fps label, frustum-culling
      *        / skybox / shadow toggles, the camera-target drag, animation playback controls
      *        (label + play + time scrubber + animation dropdown when the controller has an
      *        active animation), the camera selector (when @p camera_names is non-empty), the
