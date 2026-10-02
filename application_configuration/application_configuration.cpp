@@ -707,11 +707,17 @@ namespace app_config {
         // company as soon as the emitter aims somewhere else.
         float const distance_to_target = std::sqrt(to_target[0] * to_target[0] + to_target[1] * to_target[1] +
                                                    to_target[2] * to_target[2]);
-        derived.penumbra = lighting.area_light_shadow
-                               ? (lighting.area_light_softness > 0.0f
-                                      ? lighting.area_light_softness
-                                      : 0.05f * lighting.area_light_size / std::max(distance_to_target, 1e-3f))
-                               : 0.0f;
+        // An if/else rather than one nested conditional: `shadow ? (softness > 0 ? softness : heuristic) : 0`
+        // is the same expression, but clang-tidy's readability-avoid-nested-conditional-operator rejects a
+        // conditional used as a sub-expression of another under --warnings-as-errors. Found on the merge
+        // commit (2026-10-02, CI run 36953918715): clang-tidy is the one gate the local loop does not run,
+        // because it needs compile_commands.json and the MSYS2 clang-tidy. It is reproduced and fixed here.
+        derived.penumbra = 0.0f;
+        if (lighting.area_light_shadow) {
+            derived.penumbra = lighting.area_light_softness > 0.0f
+                                   ? lighting.area_light_softness
+                                   : 0.05f * lighting.area_light_size / std::max(distance_to_target, 1e-3f);
+        }
         derived.enabled = true;
         return derived;
     }
