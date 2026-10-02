@@ -1,7 +1,9 @@
 # deren
 
-**deren** is a Vulkan 1.3 renderer written in modern C++23 (C++20 modules / `.cppm`), built
-with CMake 4.3 + Ninja on MSYS2 clang64.
+**deren** is a real-time renderer written in modern C++23 (C++20 modules / `.cppm`), built
+with CMake 4.3 + Ninja on MSYS2 clang64. The graphics backend is being separated out behind
+an RHI - what is the backend versus what is the engine is still an open question (see the
+note below).
 
 > **Renamed on 2026-10-02: this project is `deren`.** It was `vulkan_render` until then, and the
 > executable, the version macros, the reference-frame directory and the git repository were renamed
@@ -13,7 +15,7 @@ with CMake 4.3 + Ninja on MSYS2 clang64.
 > environment variable, not ours.
 
 Current version: **0.3.0** - single source is `project(VERSION)` in `CMakeLists.txt`
-(surfaced by `--version`, the startup log banner and the Vulkan `app_info`); bump it there
+(surfaced by `--version`, the startup log banner and the instance's `app_info`); bump it there
 and keep this line in sync.
 
 This page is the map: what is worth reading first, the order the rest of the manual is
