@@ -813,8 +813,8 @@ namespace vulkan {
          * this is one accessor instead of a `shadow_map_sampling_transition` copy at each of the
          * three call sites (two of which would then declare an old layout the image is not in).
          *
-         * The transition itself is shadow_map_sampling_transition: DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-         * as the old layout with the fragment-test src masks, so the attachment write is published
+         * The transition itself is shadow_map_sampling_transition: GENERAL as the old layout (as it is
+         * for every image now) with the fragment-test src masks, so the attachment write is published
          * AND the contents survive - unlike undefined_to_depth_sampling_transition, whose UNDEFINED
          * old layout is only honest for a depth nothing has written (see that constant's warning).
          * @note must be called outside a rendering instance (it records a pipeline barrier)
@@ -2218,7 +2218,7 @@ namespace vulkan {
         /** @brief close the scene rendering instance and record the post-process pass (HDR ->
          *         exposure/tonemap -> swapchain) plus the debug overlay on the final image
          *  @return true when a fullscreen pass actually wrote the SWAPCHAIN image (so it is in
-         *          COLOR_ATTACHMENT_OPTIMAL and its contents are this frame's post-processed
+         *          GENERAL and its contents are this frame's post-processed
          *          result); false when the pass was skipped (no pipeline/descriptors), in which case
          *          the swapchain image was never transitioned and the caller must not pretend
          *          otherwise to the present barrier or the screenshot copy

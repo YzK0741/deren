@@ -63,20 +63,4 @@ namespace vulkan::bindings {
         return flags;
     }
 
-    /// @brief the `VkImageLayout` a declared binding layout means
-    /// @ingroup vulkan_bindings
-    export [[nodiscard]] constexpr VkImageLayout image_layout_of(render_resource::image_layout const layout) noexcept {
-        switch (layout) {
-        case render_resource::image_layout::sampled:
-            return VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-        case render_resource::image_layout::general:
-            return VK_IMAGE_LAYOUT_GENERAL;
-        case render_resource::image_layout::color_attachment:
-            // a RENDER TARGET's layout, which no descriptor ever declares but a pass's target does (the
-            // fullscreen resolve writes it): mapped here so the one enum has one mapping
-            return VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        }
-        return VK_IMAGE_LAYOUT_UNDEFINED;
-    }
-
 } // namespace vulkan::bindings

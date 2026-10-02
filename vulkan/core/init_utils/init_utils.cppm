@@ -188,6 +188,20 @@ export struct device_capabilities {
     ///        separately by mesh_shader_features.taskShader, which is what a task shader must be gated on)
     bool mesh_shader_available = false;
 
+    // ---- VK_KHR_unified_image_layouts: the feature that promises VK_IMAGE_LAYOUT_GENERAL is as efficient as
+    //      the purpose-built layouts, which is what lets this renderer stop moving images between layouts
+    //      altogether. It has no extension dependency left to resolve (VK_KHR_get_physical_device_properties2
+    //      and VK_VERSION_1_1 are both satisfied by the 1.3 device this engine creates) and it adds no
+    //      commands, so there is nothing else to enable alongside it.
+    //      unifiedImageLayoutsVideo is NOT needed and is forced off below: video layouts are a separate feature
+    //      bit that only matters when a video extension is enabled, and none is.
+    VkPhysicalDeviceUnifiedImageLayoutsFeaturesKHR unified_image_layouts_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_UNIFIED_IMAGE_LAYOUTS_FEATURES_KHR};
+    /// @brief whether the device has VK_KHR_unified_image_layouts AND its unifiedImageLayouts feature.
+    ///        Unlike every other extension here this one is REQUIRED rather than optional-fall-back: a device
+    ///        without it cannot run this renderer, so core.constructor refuses to create the device instead of
+    ///        silently falling back to per-layout transitions.
+    bool unified_image_layouts_available = false;
+
     // ---- Property chain (query only, for renderer decisions/diagnostics) ----
     VkPhysicalDeviceProperties2 properties_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
     VkPhysicalDeviceDriverProperties driver_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
@@ -496,6 +510,10 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // VK_EXT_mesh_shader depends on VK_KHR_spirv_1_4 and VK_VERSION_1_2, and the second one is satisfied by
     // the 1.3 device this engine creates.
     bool const mesh_shader_extension = has_extension(VK_EXT_MESH_SHADER_EXTENSION_NAME);
+    // VK_KHR_unified_image_layouts, the third independent extension: it is a FEATURE and adds no commands, so
+    // unlike the heap and mesh shaders there is no shader-side consumer to gate - the whole renderer is written
+    // against GENERAL, and a device without the feature is rejected at device creation (core.constructor).
+    bool const unified_image_layouts_extension = has_extension(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
 
     // ---- Feature pNext chain: features_2 -> 1_1 -> 1_2 -> 1_3 -> 1_4 (truncated by api_version),
     //      then the extension features when the device has them. The TAIL is tracked rather than
@@ -541,6 +559,10 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
         independent_tail->pNext = reinterpret_cast<VkBaseOutStructure*>(&mesh_shader_features);
         independent_tail = reinterpret_cast<VkBaseOutStructure*>(&mesh_shader_features);
     }
+    if (unified_image_layouts_extension) {
+        independent_tail->pNext = reinterpret_cast<VkBaseOutStructure*>(&unified_image_layouts_features);
+        independent_tail = reinterpret_cast<VkBaseOutStructure*>(&unified_image_layouts_features);
+    }
     independent_tail->pNext = ray_tracing_extensions ? reinterpret_cast<VkBaseOutStructure*>(&acceleration_structure_features) : nullptr;
     acceleration_structure_features.pNext = ray_tracing_extensions ? &ray_query_features : nullptr;
     // ... and the rest of the ray-tracing chain hangs off ray query, each link present only when its own
@@ -565,6 +587,10 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // NOT part of this flag: a device may have mesh shaders without task shaders, and a task stage must be
     // gated on mesh_shader_features.taskShader instead (see the mesh shader pass).
     mesh_shader_available = mesh_shader_extension && mesh_shader_features.meshShader == VK_TRUE;
+    // Both the extension and its feature bit have to be there: the extension can be advertised by a device
+    // that reports unifiedImageLayouts == VK_FALSE, and that device would create fine while still needing the
+    // per-layout transitions the renderer no longer performs - so it must NOT count as available.
+    unified_image_layouts_available = unified_image_layouts_extension && unified_image_layouts_features.unifiedImageLayouts == VK_TRUE;
     this->untyped_pointers_dependency = untyped_pointers_available ? VK_KHR_SHADER_UNTYPED_POINTERS_EXTENSION_NAME : nullptr;
     this->descriptor_heap_dependency = descriptor_heap_available ? descriptor_heap_dependency : nullptr; // the member, set from the local of the same name
     // Rebuild the extension chain from the core tail with ONLY the available links: the extension may be
@@ -583,6 +609,7 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
         };
         link(descriptor_heap_available, &descriptor_heap_features);
         link(mesh_shader_available, &mesh_shader_features);
+        link(unified_image_layouts_available, &unified_image_layouts_features);
         link(ray_query_available, &acceleration_structure_features);
         link(ray_query_available, &ray_query_features);
         link(ray_tracing_pipeline_available, &ray_tracing_pipeline_features);
@@ -619,6 +646,10 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // reported as a vkCreateDevice error the first time the mesh feature was enabled). multiviewMeshShader needs
     // no such handling: its dependency is the 1.1 multiview feature above, which this device has on.
     mesh_shader_features.primitiveFragmentShadingRateMeshShader = VK_FALSE;
+    // unifiedImageLayoutsVideo is passed through by the driver only where video layouts are in play, and no
+    // video extension is enabled here, so it is pinned off rather than forwarded: enabling it would promise
+    // something about layouts (VK_IMAGE_LAYOUT_VIDEO_*) this renderer never creates.
+    unified_image_layouts_features.unifiedImageLayoutsVideo = VK_FALSE;
 }
 
 void const* device_capabilities::device_pnext() const noexcept {
@@ -859,6 +890,13 @@ void print_device_capabilities(device_capabilities const& capabilities) {
                      capabilities.mesh_shader_properties.maxTaskWorkGroupSize[2]);
     } else {
         utility::log(" mesh shaders  : not available (geometry stays on the vertex stage)");
+    }
+
+    // ---- Unified image layouts: a REQUIRED feature, so this line is a receipt rather than a decision ----
+    if (capabilities.unified_image_layouts_available) {
+        utility::log(" unified layout: available (VK_KHR_unified_image_layouts, every image stays in GENERAL)");
+    } else {
+        utility::log(" unified layout: NOT available (this renderer requires it, device creation refuses)");
     }
 
     utility::log("{}", box_line);

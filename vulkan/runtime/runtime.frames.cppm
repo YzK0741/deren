@@ -363,7 +363,7 @@ namespace vulkan {
 
             VkClearColorValue const level = {{1.0f, 1.0f, 1.0f, 1.0f}};
             VkImageSubresourceRange const faces = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
-            vkCmdClearColorImage(*command_buffer, vk.furnace_cube_images[0], VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, &level, 1, &faces);
+            vkCmdClearColorImage(*command_buffer, vk.furnace_cube_images[0], VK_IMAGE_LAYOUT_GENERAL, &level, 1, &faces);
 
             VkImageMemoryBarrier2 to_sampling = vulkan::transfer_dst_to_sampling_transition;
             to_sampling.image = vk.furnace_cube_images[0];
@@ -778,8 +778,9 @@ namespace vulkan {
             // decides at runtime whether to sample it - and a sampled descriptor must point at an
             // image that is in the layout the descriptor declares. Leaving the map in UNDEFINED made
             // every shadow-off frame a VUID ("expects ... SHADER_READ_ONLY_OPTIMAL ... current layout
-            // is UNDEFINED"). Contents do not matter (the shader returns "fully lit"), hence UNDEFINED
-            // as the old layout.
+            // is UNDEFINED" - the message is quoted from a run made before VK_KHR_unified_image_layouts
+            // collapsed every layout to GENERAL, which is what the driver expects now). Contents do not
+            // matter (the shader returns "fully lit"), hence UNDEFINED as the old layout.
             auto const* shadow_detail = vk.vma.get_image_detail(this->shadow_images[frame_slot].handle());
             if (shadow_detail != nullptr) {
                 VkImageMemoryBarrier2 shadow_read_barrier = vulkan::undefined_to_depth_sampling_transition;
@@ -1309,7 +1310,7 @@ namespace vulkan {
         if (image_index >= this->gbuffer_depth_written.size() || !this->gbuffer_depth_written[image_index]) {
             return false;
         }
-        // The G-buffer pass left it in DEPTH_STENCIL_ATTACHMENT_OPTIMAL: publish the attachment
+        // The G-buffer pass left it in GENERAL: publish the attachment
         // write and flip it to the layout the sampling descriptors declare. One barrier per frame,
         // whichever of the three sampling stages gets here first.
         VkImageMemoryBarrier2 barrier = vulkan::shadow_map_sampling_transition;
@@ -2446,7 +2447,7 @@ namespace vulkan {
                 return;
             }
             VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-            [[maybe_unused]] bool const written = this->vulkan_core.descriptor_heaps.write_image(core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+            [[maybe_unused]] bool const written = this->vulkan_core.descriptor_heaps.write_image(core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
         };
         std::size_t const heap_image = static_cast<std::size_t>(this->current_image_index);
         if (heap_image < this->vulkan_core.gbuffer_images[0].size()) {
@@ -3039,10 +3040,10 @@ namespace vulkan {
 
         // close the scene rendering instance and run the post-process pass (exposure/tonemap).
         // The return value says whether a fullscreen pass actually wrote the swapchain image: only
-        // then is it in COLOR_ATTACHMENT_OPTIMAL and only then does it hold this frame's result.
+        // then is it in GENERAL and only then does it hold this frame's result.
         bool const post_wrote_swapchain = this->record_post_process(*command_buffer);
         // Screenshot: while the post pass wrote the swapchain image it is still in
-        // COLOR_ATTACHMENT_OPTIMAL and still owned by this frame - the only point where a read-back
+        // GENERAL and still owned by this frame - the only point where a read-back
         // copy is legal. Doing it here (rather than after the present, as the old path did) also
         // means the capture needs no extra submit, no re-acquire and no layout hand-back to the WSI.
         if (post_wrote_swapchain && this->screenshot_requested) {
@@ -3053,8 +3054,8 @@ namespace vulkan {
         }
         // Dynamic rendering has no render pass finalLayout to hand the image back to the
         // presentation engine: transition the swapchain image to PRESENT_SRC_KHR explicitly. The
-        // post pass leaves the image in COLOR_ATTACHMENT_OPTIMAL, so the barrier is needed whenever
-        // it ran. When it was skipped the image never entered COLOR_ATTACHMENT_OPTIMAL, and claiming
+        // post pass leaves the image in GENERAL, so the barrier is needed whenever
+        // it ran. When it was skipped the image never entered GENERAL, and claiming
         // that old layout would be a lie (validation: "oldLayout is not matching with the current
         // layout"): transition from UNDEFINED instead - the frame has no content to preserve anyway.
         VkImageMemoryBarrier2 present_barrier = post_wrote_swapchain ? present_transition : vulkan::undefined_to_present_transition;

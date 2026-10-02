@@ -181,7 +181,7 @@ namespace vulkan::pass {
         // A copy rather than a ping-pong: the resolve necessarily writes the image the post chain reads, so
         // the history has to be a separate image, and copying into it keeps every heap slot in the frame
         // stable (no per-frame descriptor rewrites). The barriers move the HDR target out to TRANSFER_SRC and back - the
-        // post chain still finds it in COLOR_ATTACHMENT_OPTIMAL, exactly where it expects it.
+        // post chain still finds it in GENERAL, exactly where it expects it.
         std::array<VkImageMemoryBarrier2, 2> copy_barriers = {};
         copy_barriers[0] = vulkan::color_attachment_to_transfer_transition; // HDR -> TRANSFER_SRC
         copy_barriers[0].image = io.targets[0].image;
@@ -197,7 +197,7 @@ namespace vulkan::pass {
             .dstOffset = {0, 0, 0},
             .extent = {io.extent.width, io.extent.height, 1},
         };
-        vkCmdCopyImage(io.cmd, io.targets[0].image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, io.own[1].image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        vkCmdCopyImage(io.cmd, io.targets[0].image, VK_IMAGE_LAYOUT_GENERAL, io.own[1].image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 
         // hand both images on: the HDR target back to the post chain, the history copy to the next frame's
         // resolve (which will find it in TRANSFER_DST and transition it from there)

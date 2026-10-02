@@ -114,7 +114,7 @@ namespace vulkan {
         this->screenshot_staging_mapped = staged->mapped;
         this->screenshot_readback_extent = extent;
 
-        // The swapchain image is in COLOR_ATTACHMENT_OPTIMAL here (the composite pass just wrote it, and the
+        // The swapchain image is in GENERAL here (the composite pass just wrote it, and the
         // overlay with it): COLOR_ATTACHMENT -> TRANSFER_SRC -> copy -> back to COLOR_ATTACHMENT, so
         // end_recording's present_transition still sees the layout it expects.
         std::array<VkImageMemoryBarrier2, 1> barriers = {vulkan::color_attachment_to_transfer_transition};
@@ -129,7 +129,7 @@ namespace vulkan {
         region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
         region.imageOffset = {0, 0, 0};
         region.imageExtent = {extent.width, extent.height, 1};
-        vkCmdCopyImageToBuffer(command_buffer, vk.swap_chain_images[this->current_image_index], VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, staged->buffer, 1, &region);
+        vkCmdCopyImageToBuffer(command_buffer, vk.swap_chain_images[this->current_image_index], VK_IMAGE_LAYOUT_GENERAL, staged->buffer, 1, &region);
 
         barriers[0] = vulkan::transfer_to_color_attachment_transition;
         barriers[0].image = vk.swap_chain_images[this->current_image_index];

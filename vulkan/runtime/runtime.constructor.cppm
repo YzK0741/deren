@@ -307,7 +307,7 @@ namespace vulkan {
                                                          .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
                                                          .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
                 VkDeviceSize const white_offset = static_cast<VkDeviceSize>(core::heap_slots::textures + this->white_texture_index) * core::heap_slot_stride;
-                if (!this->vulkan_core.descriptor_heaps.write_image(white_offset, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)) {
+                if (!this->vulkan_core.descriptor_heaps.write_image(white_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
                     utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", core::heap_slots::textures + this->white_texture_index);
                 }
             }
@@ -1003,7 +1003,7 @@ namespace vulkan {
                 return false;
             }
             VkImageViewCreateInfo const view_info = make_image_view_info(image, format, type, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-            return vk.descriptor_heaps.write_image(core::heap_slot_offset(slot), view_info, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
+            return vk.descriptor_heaps.write_image(core::heap_slot_offset(slot), view_info, VK_IMAGE_LAYOUT_GENERAL);
         }
 
         /**
@@ -1522,7 +1522,7 @@ namespace vulkan {
                                                              .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
                                                              .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
                     VkDeviceSize const heap_offset = core::heap_slot_offset(core::heap_slots::textures + index);
-                    if (this->vulkan_core.descriptor_heaps.write_image(heap_offset, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL)) {
+                    if (this->vulkan_core.descriptor_heaps.write_image(heap_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
                         ++heap_texture_descriptors;
                     } else {
                         utility::log("descriptor heap: texture {} did not fit the resource heap at offset {}", index, heap_offset);

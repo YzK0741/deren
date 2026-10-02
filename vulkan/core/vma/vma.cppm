@@ -1099,11 +1099,11 @@ namespace vulkan {
         vkBeginCommandBuffer(command_buffer, &begin_info);
 
         // ========== Fix point 1: correct layout transition order ==========
-        // Step 1: UNDEFINED -> TRANSFER_DST_OPTIMAL
+        // Step 1: UNDEFINED -> GENERAL
         VkImageMemoryBarrier barrier = {};
         barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
         barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
         barrier.image = dst_image;
@@ -1152,13 +1152,13 @@ namespace vulkan {
             command_buffer,
             staging_buffer,
             dst_image,
-            VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+            VK_IMAGE_LAYOUT_GENERAL,
             static_cast<uint32_t>(regions.size()),
             regions.data());
 
-        // Step 3: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
-        barrier.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        // Step 3: publish it to the fragment stage (GENERAL -> GENERAL; the barrier is the dependency)
+        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
         barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
 

@@ -466,6 +466,18 @@ namespace vulkan {
         if (capabilities.mesh_shader_available) {
             creation_info.extensions.push_back(VK_EXT_MESH_SHADER_EXTENSION_NAME);
         }
+        // ... and unified image layouts, the ONE extension here that is not optional. The renderer keeps every
+        // image in VK_IMAGE_LAYOUT_GENERAL and performs no per-layout transitions at all, so a device without
+        // the feature would run against assumptions that are simply false - it is refused rather than degraded.
+        // The name is pushed regardless of the flag so that "the extension is enabled" and "its feature struct
+        // is in the pNext chain" can never disagree (the chain only carries it when it is available, and the
+        // check below is what decides whether we get that far). No dependency name goes with it:
+        // VK_KHR_unified_image_layouts needs VK_KHR_get_physical_device_properties2 and VK_VERSION_1_1, and the
+        // 1.3 device this renderer creates satisfies both. It adds no commands either.
+        creation_info.extensions.push_back(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
+        if (!capabilities.unified_image_layouts_available) {
+            utility::panic("VK_KHR_unified_image_layouts is required but not supported by the device");
+        }
 
         if (!check_device_extension_support(physical_device, creation_info.extensions)) {
             utility::panic("Required device extensions not supported");
@@ -785,7 +797,7 @@ namespace vulkan {
             // writes, which need a storage descriptor beside it.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(hdr_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::post_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::post_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the post HDR target for image {} did not reach grid slot {}", i, heap_slots::post_color + static_cast<uint32_t>(i));
                 }
             }
@@ -817,7 +829,7 @@ namespace vulkan {
             // the heap's copy, at the array named for its reader: this is the display-referred target FXAA samples
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ldr_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::display_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::display_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the display target for image {} did not reach grid slot {}", i, heap_slots::display_color + static_cast<uint32_t>(i));
                 }
             }
@@ -861,7 +873,7 @@ namespace vulkan {
                 if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                     uint32_t const heap_slot = target == 0u ? heap_slots::gbuffer_albedo : (target == 1u ? heap_slots::gbuffer_normal : heap_slots::gbuffer_material);
                     VkImageViewCreateInfo const heap_view = make_image_view_info(target_images[i], gbuffer_formats[target], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slot + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slot + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                         utility::log("descriptor heap: the gbuffer target {} for image {} did not reach grid slot {}", target, i, heap_slot + static_cast<uint32_t>(i));
                     }
                 }
@@ -889,7 +901,7 @@ namespace vulkan {
                 // the heap's copy, from the same format and aspect (see the G-buffer block above)
                 if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                     VkImageViewCreateInfo const heap_view = make_image_view_info(images[i], format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slot_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slot_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                         utility::log("descriptor heap: the sampled target for image {} did not reach grid slot {}", i, heap_slot_base + static_cast<uint32_t>(i));
                     }
                 }
@@ -920,7 +932,7 @@ namespace vulkan {
             // the heap's copy, at the array TAA's history input is named for (see the sampled-target lambda above)
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(taa_history_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::taa_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::taa_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the TAA history for image {} did not reach grid slot {}", i, heap_slots::taa_history + static_cast<uint32_t>(i));
                 }
             }
@@ -954,7 +966,7 @@ namespace vulkan {
             // (no single heap descriptor is both): sampled at the array the readers name, storage at its own slot.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ml_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_trace + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_trace + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the megalights trace for image {} did not reach grid slot {}", i, heap_slots::ml_trace + static_cast<uint32_t>(i));
                 }
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_trace_storage + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
@@ -988,7 +1000,7 @@ namespace vulkan {
             // that adds it, storage for the compute pass that accumulates into it.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ml_resolve_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_resolved + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_resolved + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the megalights resolve for image {} did not reach grid slot {}", i, heap_slots::ml_resolved + static_cast<uint32_t>(i));
                 }
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_resolved_storage + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
@@ -1010,7 +1022,7 @@ namespace vulkan {
             // one sampled descriptor is all it needs (the copy is not a descriptor write)
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ml_history_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the megalights history for image {} did not reach grid slot {}", i, heap_slots::ml_history + static_cast<uint32_t>(i));
                 }
             }
@@ -1059,7 +1071,7 @@ namespace vulkan {
             // create_image_view used on the line above. The layouts differ for the same reason the types do.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const visibility_view = make_image_view_info(rt_shadow_images[slot], VK_FORMAT_R16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::rt_visibility + slot) * heap_slot_stride, visibility_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::rt_visibility + slot) * heap_slot_stride, visibility_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the rt visibility SAMPLED descriptor did not reach grid slot {}", heap_slots::rt_visibility + slot);
                 }
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::rt_visibility_storage + slot) * heap_slot_stride, visibility_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
@@ -1091,7 +1103,7 @@ namespace vulkan {
             // this image, which is why the grid array is named for the surface rather than for one reader.
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_depth_view = make_image_view_info(gbuffer_depth_images[i], depth_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::gbuffer_depth + static_cast<uint32_t>(i)) * heap_slot_stride, heap_depth_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::gbuffer_depth + static_cast<uint32_t>(i)) * heap_slot_stride, heap_depth_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                     utility::log("descriptor heap: the gbuffer depth for image {} did not reach grid slot {}", i, heap_slots::gbuffer_depth + static_cast<uint32_t>(i));
                 }
             }
@@ -1131,7 +1143,7 @@ namespace vulkan {
                 if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                     uint32_t const level_base = heap_slots::bloom_l0 + level * heap_image_capacity;
                     VkImageViewCreateInfo const heap_view = make_image_view_info(level_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(level_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
+                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(level_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
                         utility::log("descriptor heap: bloom level {} for image {} did not reach grid slot {}", level, i, level_base + static_cast<uint32_t>(i));
                     }
                 }

@@ -478,12 +478,9 @@ int32_t main() {
         CHECK(stage_flags_of(rr::stage_flag::compute) == VK_SHADER_STAGE_COMPUTE_BIT);
         CHECK(stage_flags_of(rr::stage_flag::fragment | rr::stage_flag::compute) == (VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT));
         CHECK(stage_flags_of(rr::stage_flag::none) == 0u);
-        // the layout mapping, and the sampler CHOICE a declaration makes instead of a handle
-        CHECK(image_layout_of(rr::image_layout::sampled) == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
-        CHECK(image_layout_of(rr::image_layout::general) == VK_IMAGE_LAYOUT_GENERAL);
-        // a render TARGET's layout: no descriptor declares it, but the pass that renders into it leaves the
-        // image there, so the one enum has one mapping
-        CHECK(image_layout_of(rr::image_layout::color_attachment) == VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL);
+        // (the `image_layout_of` mapping pins stood here; the mapping went with the enum when every image
+        // became GENERAL - see docs/unified_image_layouts.md)
+        // the sampler CHOICE a declaration makes instead of a handle
         rr::shared::sampler_set const samplers = {.gbuffer = reinterpret_cast<VkSampler>(0x11), .shadow = reinterpret_cast<VkSampler>(0x22)};
         CHECK(samplers.of(rr::sampler_hint::shadow) == reinterpret_cast<VkSampler>(0x22));
         CHECK(samplers.of(rr::sampler_hint::gbuffer) == reinterpret_cast<VkSampler>(0x11));

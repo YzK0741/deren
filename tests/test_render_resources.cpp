@@ -158,18 +158,14 @@ int32_t main() {
         CHECK(!validate_one(b).has_value()); // ... and a storage image must not
     }
     {
+        // A storage image with write access is VALID and has nothing left to declare: with unified layouts
+        // every image is in GENERAL, so the kind plus the access says everything (this case used to assert
+        // the opposite - that such a declaration FAILED because it did not name GENERAL).
         rr::pass_binding b = good_binding;
         b.kind = rr::binding_kind::storage_image;
         b.resource = rr::resource_id::ml_history;
         b.access = rr::binding_access::write;
         b.sampler = rr::sampler_hint::none;
-        // ... and the LAYOUT is not free either: a storage image's descriptor must declare GENERAL, and a
-        // declaration that leaves it at the default `sampled` describes an image the pass may not write
-        CHECK(!validate_one(b).has_value());
-    }
-    {
-        rr::pass_binding b = good_binding;
-        b.layout = rr::image_layout::general; // a SAMPLED image may declare GENERAL (the probe grid does)
         CHECK(validate_one(b).has_value());
     }
     {

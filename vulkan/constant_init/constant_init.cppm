@@ -330,7 +330,7 @@ export namespace vulkan {
         return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
                 .pNext = nullptr,
                 .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
                 .resolveMode = VK_RESOLVE_MODE_NONE,
                 .resolveImageView = VK_NULL_HANDLE,
                 .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -341,7 +341,7 @@ export namespace vulkan {
     /**
      * @brief depth attachment of an instance that CONTINUES an existing depth buffer: loadOp LOAD,
      *        storeOp STORE, so the depth an earlier instance wrote stays intact
-     * @param image_view the depth image view, already in DEPTH_STENCIL_ATTACHMENT_OPTIMAL
+     * @param image_view the depth image view, already in GENERAL
      * @note the deferred path's transparent pass: it depth-tests alpha-blended geometry against the
      *       opaque surface the G-buffer pass wrote, and must not clear it (that depth is the only
      *       record of where the opaque geometry is)
@@ -350,7 +350,7 @@ export namespace vulkan {
         return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
                 .pNext = nullptr,
                 .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
                 .resolveMode = VK_RESOLVE_MODE_NONE,
                 .resolveImageView = VK_NULL_HANDLE,
                 .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -359,7 +359,7 @@ export namespace vulkan {
                 .clearValue = {}};
     }
     /**
-     * @brief color attachment of a rendering instance: COLOR_ATTACHMENT_OPTIMAL layout,
+     * @brief color attachment of a rendering instance: GENERAL layout,
      *        loadOp CLEAR + storeOp STORE (the swapchain image is presented afterwards)
      * @param image_view the color image view
      * @param clear_value the runtime clear color
@@ -373,10 +373,10 @@ export namespace vulkan {
         return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
                 .pNext = nullptr,
                 .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
                 .resolveMode = resolve_mode,
                 .resolveImageView = resolve_image_view,
-                .resolveImageLayout = resolve_mode == VK_RESOLVE_MODE_NONE ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .resolveImageLayout = resolve_mode == VK_RESOLVE_MODE_NONE ? VK_IMAGE_LAYOUT_UNDEFINED : VK_IMAGE_LAYOUT_GENERAL,
                 .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
                 .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
                 .clearValue = clear_value};
@@ -393,7 +393,7 @@ export namespace vulkan {
         return {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
                 .pNext = nullptr,
                 .imageView = image_view,
-                .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
                 .resolveMode = VK_RESOLVE_MODE_NONE,
                 .resolveImageView = VK_NULL_HANDLE,
                 .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -703,13 +703,23 @@ export namespace vulkan {
     }
 
     // ---- Per-frame image layout transitions (constinit defaults) ----
-    // Every frame moves the same images between the same layouts; only the target image
-    // differs per barrier. Each role below is therefore a default that call sites copy and
-    // then override .image on (immutable by design - the invariants must not be retargeted in
-    // place). The attachment transitions discard the old contents: loadOp CLEAR makes
-    // UNDEFINED as oldLayout valid whatever the image's actual current layout is - no
-    // per-frame layout tracking needed.
-    /** @brief UNDEFINED -> COLOR_ATTACHMENT_OPTIMAL, color-attachment write (a scene target being rendered into) */
+    // VK_KHR_unified_image_layouts (REQUIRED, see init_utils) promises that VK_IMAGE_LAYOUT_GENERAL is
+    // as efficient as the purpose-built layouts, so this renderer keeps EVERY image in GENERAL and
+    // oldLayout == newLayout == GENERAL below. What is left of these barriers is the job they always
+    // really had: ordering one stage's write before another stage's read. Only two other layouts
+    // survive, and the extension does not replace either:
+    //   * oldLayout UNDEFINED - the contents are discarded or were never defined (loadOp CLEAR, a
+    //     transient target, a freshly created image), which is how an image's layout metadata is
+    //     initialised and the reason no per-frame layout tracking is needed;
+    //   * newLayout PRESENT_SRC_KHR - the presentation engine lives outside Vulkan, so present is the
+    //     one consumer the extension cannot fold into GENERAL.
+    // Every frame runs the same roles; only the target image differs per barrier, so each role below is
+    // a default that call sites copy and then override .image on (immutable by design - the invariants
+    // must not be retargeted in place). The NAMES keep the role each barrier used to play while the
+    // layouts still differed (the far side was COLOR_ATTACHMENT_OPTIMAL / SHADER_READ_ONLY_OPTIMAL /
+    // TRANSFER_*_OPTIMAL / ...), because that role is what decides which stages and access masks the
+    // barrier has to name.
+    /** @brief UNDEFINED -> GENERAL, color-attachment write (a scene target being rendered into) */
     inline constexpr VkImageMemoryBarrier2 color_attachment_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = nullptr,
@@ -718,18 +728,18 @@ export namespace vulkan {
         .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief COLOR_ATTACHMENT_OPTIMAL -> COLOR_ATTACHMENT_OPTIMAL: order one rendering instance's
+    /** @brief same-layout dependency (GENERAL -> GENERAL): order one rendering instance's
      *         color-attachment WRITE before the next instance's LOAD of the same image (the scene
      *         color the G-buffer pass fills with the emissive and the deferred lighting stage then
      *         loads to add the lighting on top).
-     * @note dynamic rendering inserts no dependency of its own between two instances, and the
-     *       layout does not change here, so this barrier exists purely for the write -> read
+     * @note dynamic rendering inserts no dependency of its own between two instances, and no layout
+     *       changes here (none ever does any more), so this barrier exists purely for the write -> read
      *       visibility: without it the second instance's loadOp is not ordered after the first
      *       instance's storeOp - LOAD is a color-attachment access, not a fragment-shader read,
      *       which is why the sampling transitions of the same image cannot stand in for it. */
@@ -740,14 +750,14 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief UNDEFINED -> DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depth write (main depth buffer + the shadow map) */
+    /** @brief UNDEFINED -> GENERAL, depth write (main depth buffer + the shadow map) */
     inline constexpr VkImageMemoryBarrier2 depth_attachment_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = nullptr,
@@ -756,13 +766,13 @@ export namespace vulkan {
         .dstStageMask = VK_PIPELINE_STAGE_2_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_2_LATE_FRAGMENT_TESTS_BIT,
         .dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
     };
-    /** @brief depth attachment -> SHADER_READ_ONLY_OPTIMAL, sampled read (the shadow map back to the
+    /** @brief depth attachment -> GENERAL, sampled read (the shadow map back to the
      *         main pass, and the G-buffer depth to everything that reconstructs from it).
      * @note BOTH consumer stages are named: the G-buffer images have had a COMPUTE consumer since the
      *       screen-space GI passes started reading the stored surface directly (shaders/megalights_trace.comp
@@ -775,14 +785,14 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
     };
-    /** @brief SHADER_READ_ONLY_OPTIMAL -> DEPTH_STENCIL_ATTACHMENT_OPTIMAL, depth test without depth
+    /** @brief same-layout dependency (GENERAL -> GENERAL), depth test without depth
      *         write (the G-buffer depth handed back to an attachment for the deferred path's
      *         transparent pass, which depth-tests against the surface the lighting stage just
      *         sampled it for) */
@@ -795,8 +805,8 @@ export namespace vulkan {
         // READ and not WRITE: every transparent leaf draws with depth writes disabled (see
         // primitive::draw), so nothing in that instance writes the depth it tests against
         .dstAccessMask = VK_ACCESS_2_DEPTH_STENCIL_ATTACHMENT_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
@@ -818,7 +828,7 @@ export namespace vulkan {
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief GENERAL -> SHADER_READ_ONLY_OPTIMAL (the GI images handed on as samples: a compute
+    /** @brief compute write -> sampled read (GENERAL -> GENERAL): the GI images handed to samplers by a compute
      *         SHADER_WRITE is not visible to a later read without this).
      * @note BOTH consumer stages are named, because the two GI images are handed to different ones:
      *       the raw trace goes to the denoiser's resolve, which is another COMPUTE dispatch, while the
@@ -832,13 +842,13 @@ export namespace vulkan {
         .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief SHADER_READ_ONLY_OPTIMAL -> GENERAL: an image that is read as a sample going back to being
+    /** @brief sampled read -> compute write (GENERAL -> GENERAL, contents kept): an image read as a sample going back to being
      *         written as a compute storage image, KEEPING its contents.
      * @note the opposite of general_to_sampling_transition, and the reason it exists rather than the
      *       write simply claiming UNDEFINED (which is legal and cheaper): a history image is READ across
@@ -854,18 +864,18 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
         .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief GENERAL -> GENERAL: one compute storage-image write followed by another dispatch that
-     *         reads it and writes again - a ping-pong's two images, which stay in GENERAL for a whole update.
+    /** @brief compute write -> compute read+write (GENERAL -> GENERAL): one compute storage-image write
+     *         followed by another dispatch that reads it and writes again - a ping-pong's two images.
      * @note a SAME-layout barrier, which is not a no-op: it is the memory dependency between two
      *       dispatches that touch the same image, and consecutive vkCmdDispatch calls in one command
-     *       buffer have none. The layout is named anyway so the barrier reads like every other one here.
+     *       buffer have none. The layout is named anyway, as in every other barrier here.
      * @note COMPUTE on both sides, with SHADER_WRITE on the src and SHADER_READ | SHADER_WRITE on the
      *       dst: the next dispatch both samples the previous one's cells and overwrites them. */
     inline constexpr VkImageMemoryBarrier2 compute_storage_transition = {
@@ -882,8 +892,8 @@ export namespace vulkan {
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief GENERAL -> TRANSFER_SRC_OPTIMAL: an image written as a storage image (so it is in
-     *         GENERAL) is copied out of - the GI resolve becoming the next frame's history. The
+    /** @brief compute storage write -> transfer read (GENERAL -> GENERAL): an image written as a storage
+     *         image is copied out of - the GI resolve becoming the next frame's history. The
      *         compute write has to be published to the transfer too, which is what the src masks say. */
     inline constexpr VkImageMemoryBarrier2 general_to_transfer_src_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -893,13 +903,13 @@ export namespace vulkan {
         .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
-        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief TRANSFER_SRC_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL: the same image, handed on to whatever
+    /** @brief transfer read -> sampled read (GENERAL -> GENERAL): the same image, handed on to whatever
      *         samples it after the copy (the composite, for the GI resolve).
      * @note BOTH consumer stages are named, like every other transition that hands an image to a
      *       sampler (see shadow_map_sampling_transition). */
@@ -910,14 +920,14 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief color attachment -> SHADER_READ_ONLY_OPTIMAL, sampled read (the HDR scene target and the
+    /** @brief attachment write -> sampled read (GENERAL -> GENERAL): the HDR scene target and the
      *         motion-vector / stored-surface targets into the passes that sample them)
      * @note BOTH consumer stages are named, as in shadow_map_sampling_transition: the motion-vector
      *       target is sampled by the GI denoiser's COMPUTE resolve as well as by the TAA fragment
@@ -929,14 +939,14 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief UNDEFINED -> SHADER_READ_ONLY_OPTIMAL for a DEPTH image: keep the shadow map's sampled
+    /** @brief UNDEFINED -> GENERAL for a DEPTH image: keep the shadow map's sampled
      *         descriptor valid on frames where the shadow pass does not run (shadows toggled off).
      *         pbr.frag always binds binding 8 and decides at runtime whether to sample it, and a
      *         descriptor must point at an image in the layout it declares - leaving the map in
@@ -946,7 +956,7 @@ export namespace vulkan {
      *          buffer just RENDERED and a later pass samples - the G-buffer depth, read by the
      *          deferred lighting stage, the TAA guard and the debug view - must go through
      *          shadow_map_sampling_transition instead: there the old layout is known to be
-     *          DEPTH_STENCIL_ATTACHMENT_OPTIMAL and the src masks publish the attachment write,
+     *          GENERAL and the src masks publish the attachment write,
      *          so the sampled contents survive. UNDEFINED discards them. */
     inline constexpr VkImageMemoryBarrier2 undefined_to_depth_sampling_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -956,13 +966,13 @@ export namespace vulkan {
         .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, 1},
     };
-    /** @brief UNDEFINED -> SHADER_READ_ONLY_OPTIMAL: make a transient target readable without
+    /** @brief UNDEFINED -> GENERAL: make a transient target readable without
      *         claiming a layout it may not be in (the bloom chain when the passes are skipped - the
      *         composite still samples those bindings statically, so the layout must be valid, but the
      *         contents are multiplied by zero; and a history image's very first use)
@@ -976,13 +986,13 @@ export namespace vulkan {
         .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief SHADER_READ_ONLY_OPTIMAL -> TRANSFER_DST_OPTIMAL: a history image is overwritten with
+    /** @brief sampled read -> transfer write (GENERAL -> GENERAL): a history image is overwritten with
      *         the newly resolved frame after the resolve sampled it
      * @note BOTH reading stages are named on the src side, for the same reason the sampling
      *       transitions name both on the dst side: the last reader of a history image before the copy
@@ -994,13 +1004,13 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
-    }; /** @brief UNDEFINED -> TRANSFER_DST_OPTIMAL: the TAA history image receives the resolved frame
+    }; /** @brief UNDEFINED -> GENERAL: the TAA history image receives the resolved frame
         *         through vkCmdCopyImage; its previous contents are irrelevant (the resolve only trusts a
         *         history it marked valid, and this transition is what starts a new one) */
     inline constexpr VkImageMemoryBarrier2 undefined_to_transfer_dst_transition = {
@@ -1011,13 +1021,13 @@ export namespace vulkan {
         .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .dstAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
         .oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL: a history image, written by the
+    /** @brief transfer write -> sampled read (GENERAL -> GENERAL): a history image, written by the
      *         history copy at the end of a frame and sampled by the next frame's resolve
      * @note BOTH consumer stages are named (TAA's resolve is a fragment stage, the GI denoiser's is a
      *       compute one), because a layout transition has to name every stage that reads the image
@@ -1029,14 +1039,14 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_TRANSFER_WRITE_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT,
         .dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief COLOR_ATTACHMENT_OPTIMAL -> TRANSFER_SRC_OPTIMAL, screenshot read-back copy
+    /** @brief attachment write -> transfer read (GENERAL -> GENERAL), screenshot read-back copy
      *         (vkCmdCopyImageToBuffer). Recorded INSIDE the frame's own command buffer, while the
      *         swapchain image is still owned by the app: after vkQueuePresentKHR the presentation
      *         engine owns it and transitioning it again violates the WSI rules. */
@@ -1047,15 +1057,15 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT,
         .dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief TRANSFER_SRC_OPTIMAL -> COLOR_ATTACHMENT_OPTIMAL, hand the screenshotted image back
-     *         to the frame so present_transition (COLOR_ATTACHMENT -> PRESENT_SRC) still applies */
+    /** @brief transfer read -> attachment write (GENERAL -> GENERAL), hand the screenshotted image back
+     *         to the frame so present_transition (GENERAL -> PRESENT_SRC) still applies */
     inline constexpr VkImageMemoryBarrier2 transfer_to_color_attachment_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = nullptr,
@@ -1063,15 +1073,15 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
-        .oldLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
-        .newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
     /** @brief UNDEFINED -> PRESENT_SRC_KHR: present a frame whose post-process pass was skipped, so
-     *         the swapchain image never entered COLOR_ATTACHMENT_OPTIMAL (contents are undefined -
+     *         the swapchain image is still UNDEFINED (contents are undefined -
      *         this only exists to hand the WSI a validly-laid-out image instead of lying about the
      *         old layout, which is what present_transition assumes) */
     inline constexpr VkImageMemoryBarrier2 undefined_to_present_transition = {
@@ -1088,7 +1098,7 @@ export namespace vulkan {
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-    /** @brief COLOR_ATTACHMENT_OPTIMAL -> PRESENT_SRC_KHR (dynamic rendering has no finalLayout) */
+    /** @brief GENERAL -> PRESENT_SRC_KHR (dynamic rendering has no finalLayout) */
     inline constexpr VkImageMemoryBarrier2 present_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = nullptr,
@@ -1096,7 +1106,7 @@ export namespace vulkan {
         .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
         .dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
         .dstAccessMask = 0,
-        .oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
         .newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
         .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
         .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,

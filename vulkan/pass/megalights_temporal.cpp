@@ -169,7 +169,7 @@ namespace vulkan::pass {
             .dstOffset = {0, 0, 0},
             .extent = {io.extent.width, io.extent.height, 1},
         };
-        vkCmdCopyImage(io.cmd, resolve_image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, history_image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+        vkCmdCopyImage(io.cmd, resolve_image, VK_IMAGE_LAYOUT_GENERAL, history_image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
 
         // Hand both on: the accumulation to the lighting stage that adds it (SHADER_READ, which its binding 17
         // declares) and the history copy to the next frame's resolve.

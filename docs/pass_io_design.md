@@ -72,8 +72,8 @@ mirrors the module's suffix (`namespace vulkan::bindings`), types are `snake_cas
 | `binding_kind` | `enum class : uint8_t` | `sampled_image` / `storage_image` / `sampler` / `uniform_buffer` / `storage_buffer` / `input_attachment` | 1:1 with `VkDescriptorType`; named after the Vulkan concept rather than "read/write" because the DESCRIPTOR is what the layout is built from |
 | `binding_access` | `enum class : uint8_t` | `read` / `write` / `read_write` | the access is NOT derivable from the descriptor type (the spatial filter only READS its `gi_input` storage image), and it is what a later barrier stage keys on |
 | `sampler_hint` | `enum class : uint8_t` | `gbuffer` / `taa` / `post` / `nearest` / `shadow` | this renderer creates FIVE samplers today (`gbuffer_sampler`, `taa_sampler`, `post_sampler`, `post_nearest_sampler`, `shadow_sampler`) and which one a binding gets is currently a ternary; naming the choices makes it a field |
-| `pass_binding` | `struct` | `{ uint32_t set; uint32_t binding; binding_kind kind; resource_id resource; uint16_t element; uint16_t descriptor_count; binding_access access; sampler_hint sampler; image_layout layout; VkShaderStageFlags stages; }` | **the heart**: one binding, one use. `binding` alone would collide with the `vulkan.bindings` module, hence the `pass_` prefix |
-| `image_layout` | `enum class : uint8_t` | `sampled` (SHADER_READ_ONLY_OPTIMAL) / `general` / `color_attachment` (COLOR_ATTACHMENT_OPTIMAL) | ADDED AFTER THE FIRST CONVERSION, because the layout is NOT derivable from the kind: the probe cache keeps all nine of its own bindings in GENERAL (both ping-pong sides and the per-geometry, so the propagation's barriers stay same-layout ones), and a descriptor claiming SHADER_READ for a sampled one of those would be a lie validation rejects. The validator now requires a storage image to declare GENERAL. `color_attachment` came with the render targets: no descriptor declares it, but a pass that renders into an image leaves it there, so the one enum keeps one mapping |
+| `pass_binding` | `struct` | `{ uint32_t set; uint32_t binding; binding_kind kind; resource_id resource; uint16_t element; uint16_t descriptor_count; binding_access access; sampler_hint sampler; VkShaderStageFlags stages; }` | **the heart**: one binding, one use. `binding` alone would collide with the `vulkan.bindings` module, hence the `pass_` prefix |
+| `image_layout` | **REMOVED** | was `sampled` (SHADER_READ_ONLY_OPTIMAL) / `general` / `color_attachment` (COLOR_ATTACHMENT_OPTIMAL) | REMOVED WITH `VK_KHR_unified_image_layouts`: every image this renderer owns is in GENERAL now, so a declaration has no layout left to state and the validator's "a storage image must declare GENERAL" rule has nothing to check. It had been ADDED after the first conversion because the layout was NOT derivable from the kind (the probe cache kept all nine of its own bindings in GENERAL, so a descriptor claiming SHADER_READ for one of them was a lie validation rejects). The history is kept here for one reason: it is why step 4 below no longer takes a layout as input at all |
 | `render_target` | `struct` | `{ resource_id resource; uint16_t element; }` | an image a pass RENDERS INTO. Not a binding, and the distinction is not cosmetic: a binding is a descriptor, the layout generator walks that list, and a colour attachment has no `VkDescriptorType` at all - it is bound by `vkCmdBeginRendering`. The load op and clear value are deliberately NOT declared: the pass that renders into the image is the one that opens the rendering instance, so it is the one that says whether the old contents matter |
 | `push_block` | `struct` | `{ uint32_t offset; uint32_t size; VkShaderStageFlags stages; }` | the second push range already exists in this codebase (`scene_cascade_push_offset/size`), so the shape is not hypothetical |
 | `pass_io` | `struct` | `{ std::string_view name; uint32_t own_set; std::span<pass_binding const> bindings; std::span<render_target const> targets; std::optional<push_block> push; }` | the declaration. `name` is for the error messages the validator produces, not for dispatch |
@@ -98,8 +98,8 @@ first: the passes whose layouts are built in `pipelines.cppm` with a hand-writte
 byte-exact capture gate proves; plus a startup log of the descriptor counts per set, which step 2 consumes.
 
 **Step 2 - the write generator and the pool counts.** `set_pool_requirements` and `write_set`. The writes become
-mechanical: for each binding, an image or buffer info whose layout is `GENERAL` for storage and
-`SHADER_READ_ONLY_OPTIMAL` otherwise, and a sampler chosen by `sampler_hint`. This is the step that removes the
+mechanical: for each binding, an image or buffer info whose layout is `GENERAL` - the only layout any image in
+this renderer is in, since `VK_KHR_unified_image_layouts` is required - and a sampler chosen by `sampler_hint`. This is the step that removes the
 `b == 6u || b == 8u || b >= 13u` predicate and its sampler ternary - the two places where adding one binding
 this session required hand-editing three parallel decisions. Acceptance: same gate; and `image_set_family`'s
 pool sizing is fed the DERIVED counts rather than the fingerprint count.
@@ -112,17 +112,17 @@ instead of a validation-layer line at submit, or a silently wrong image. The val
 that a DELIBERATELY wrong declaration fails - that test is part of the step, not an afterthought.
 
 **Step 4 (a later stage, once 1-3 are green) - barrier and order derivation.** `binding_access` plus
-`resource_scope` are what make it possible: a storage WRITE needs `GENERAL`, a sampled READ needs
-`SHADER_READ_ONLY_OPTIMAL`, and the FIRST use of each resource in a generation needs the `UNDEFINED ->` form.
-THE LAYOUT IS NOT DERIVABLE FROM THE KIND, which step 2's first real conversion established: the probe cache
-(removed since, with the traced-GI chain) kept every one of its nine own bindings in GENERAL because its
-ping-pong sides stayed there for the whole update,
-so a rule of the form "storage means GENERAL and sampled means SHADER_READ" is wrong for a real pass - which is
-why the declaration carries an explicit `image_layout` per binding and why stage 4 must read it rather than
-infer it. The three cases that are NOT mechanical must be expressible as explicit overrides, because they are
-deliberate and documented: the tracer skips its hand-off barrier when the glossy lobe will write the same image,
-and the lobe owes it back; and the resolve's first-use transition to `SHADER_READ` exists because the
-multi-bounce feedback samples last frame's resolve before this frame's writes it.
+`resource_scope` are what make it possible, and the LAYOUT half of this step is now settled rather than derived:
+with `VK_KHR_unified_image_layouts` every image is in `GENERAL`, so both sides of every barrier are the same and
+what is left to derive is the stage/access pair plus the FIRST use of each resource in a generation, which is
+the one place a layout other than GENERAL is still named - the `UNDEFINED ->` form that discards the old
+contents. (Before that extension this step had to read an explicit `image_layout` per binding, because the
+layout was NOT derivable from the kind: the probe cache - removed since, with the traced-GI chain - kept all
+nine of its own bindings in GENERAL because its ping-pong sides stayed there for the whole update. That is
+history now, and it is also why the declaration needs no layout field.) The cases that are NOT mechanical must
+be expressible as explicit overrides, because they are deliberate and documented: the tracer skips its hand-off
+barrier when the glossy lobe will write the same image, and the lobe owes it back; and the resolve's first-use
+transition exists because the multi-bounce feedback samples last frame's resolve before this frame writes it.
 
 ## 5. Where the declarations live
 
@@ -345,8 +345,9 @@ THE CHOICE THAT MADE STEP 1 PROVABLE is worth keeping: the generator emits bindi
 declaration cannot drift, and the equality of generated-with-hand-written became a property the existing capture
 gate could decide instead of a claim needing a new test. What a comparison test could not have done is prove the
 layout is *used* the same way; `sponza_gi` can, because the probe pass runs in it. Step 2 got the same treatment:
-the declaration carries an explicit `image_layout`, and with it the generated writes reproduce the hand-written
-ones exactly - again decided by the gate, and again on the pass that actually runs.
+the generated writes reproduce the hand-written ones exactly (that comparison is what the `image_layout` field
+was introduced for, before unified layouts removed the field altogether) - again decided by the gate, and again on
+the pass that actually runs.
 
 A BOUNDARY OF THE INSTRUMENT, measured while moving the pass and recorded because a claim of "verified" is only
 worth what the instrument can decide: the capture gate is a RELEASE instrument. Pointed at this project's Debug

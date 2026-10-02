@@ -268,22 +268,13 @@ export namespace vulkan::render_resource {
         shadow,
     };
 
-    /**
-     * @brief the image layout a binding's DESCRIPTOR declares
-     *
-     * THIS FIELD EXISTS BECAUSE THE KIND DOES NOT IMPLY THE LAYOUT, which the first real conversion found
-     * rather than assumed: a pass's ping-pong images can all stay in `GENERAL` - both sides of
-     * sides and the per-cell geometry - because the propagation's barriers are same-layout ones for the whole
-     * update, and a descriptor claiming `SHADER_READ_ONLY_OPTIMAL` for one of those images would be a lie the
-     * validation layer rejects. Deriving the layout from "storage versus sampled" would have been wrong for
-     * that pass on the first try.
-     */
-    enum class image_layout : uint8_t {
-        sampled,          // SHADER_READ_ONLY_OPTIMAL: a sampled image that is only ever read in that layout
-        general,          // GENERAL: a resource whose owner keeps it there for its whole life (a storage image,
-                          // or a grid a propagation ping-pongs in place)
-        color_attachment, // COLOR_ATTACHMENT_OPTIMAL: what a pass that RENDERS INTO this image leaves it in
-    };
+    // AN `image_layout` ENUM AND A `pass_binding::layout` FIELD STOOD HERE, and they are gone with
+    // VK_KHR_unified_image_layouts (see docs/unified_image_layouts.md): this renderer keeps every image in
+    // VK_IMAGE_LAYOUT_GENERAL, so a declaration has no layout left to state. They had been added after the
+    // first conversion because the layout was NOT derivable from the kind - the probe cache kept all nine of
+    // its own bindings in GENERAL while a sampled image elsewhere was in SHADER_READ_ONLY_OPTIMAL, so
+    // "storage means GENERAL, sampled means SHADER_READ" was wrong for a real pass. One layout makes the
+    // question disappear, and with it the validator rule that used to enforce the answer.
 
     /**
      * @brief where a binding's resource comes from: the pass's own per-image binding, or the frame's heap
@@ -378,8 +369,6 @@ export namespace vulkan::render_resource {
         uint16_t descriptor_count = 1;
         binding_access access = binding_access::read;
         sampler_hint sampler = sampler_hint::none;
-        /// the layout this binding's descriptor declares (see image_layout: NOT derivable from the kind)
-        image_layout layout = image_layout::sampled;
         stage_flag stages = stage_flag::compute;
     };
 
@@ -688,11 +677,6 @@ export namespace vulkan::render_resource {
             if (!compatible(b.kind, b.access)) {
                 return std::unexpected(where + " is a " + std::string(name_of(b.kind)) + " used for " + std::string(name_of(b.access)));
             }
-            if (b.kind == binding_kind::storage_image && b.layout != image_layout::general) {
-                // a storage image is written, and a descriptor that claims SHADER_READ_ONLY_OPTIMAL for one
-                // describes an image the pass is not allowed to write - validation rejects it at submit
-                return std::unexpected(where + " is a storage image, whose descriptor must declare GENERAL");
-            }
             if (b.element >= info->count) {
                 return std::unexpected(where + " names element " + std::to_string(b.element) + " of " + std::string(info->name) +
                                        ", which holds " + std::to_string(info->count));
@@ -744,10 +728,10 @@ export namespace vulkan::render_resource {
      * other declaration so far was a compute pass).
      */
     inline constexpr std::array<pass_binding, 4> taa_bindings = {{
-        {.binding = 0, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::scene_color, .access = binding_access::read, .sampler = sampler_hint::taa, .layout = image_layout::sampled, .stages = stage_flag::fragment},
-        {.binding = 1, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::taa_history, .access = binding_access::read, .sampler = sampler_hint::taa, .layout = image_layout::sampled, .stages = stage_flag::fragment},
-        {.binding = 2, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::taa, .layout = image_layout::sampled, .stages = stage_flag::fragment},
-        {.binding = 3, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::taa, .layout = image_layout::sampled, .stages = stage_flag::fragment},
+        {.binding = 0, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::scene_color, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        {.binding = 1, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::taa_history, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        {.binding = 2, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
+        {.binding = 3, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::taa, .stages = stage_flag::fragment},
     }};
 
     /// @brief the resolve RENDERS INTO the frame's HDR target, which is why it needs a target and not a binding
@@ -981,7 +965,7 @@ export namespace vulkan::render_resource {
         {.binding = 1, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::ml_history, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
         {.binding = 2, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::velocity, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
         {.binding = 3, .owner = binding_owner::own, .kind = binding_kind::sampled_image, .resource = resource_id::gbuffer_depth, .access = binding_access::read, .sampler = sampler_hint::gbuffer},
-        {.binding = 4, .owner = binding_owner::own, .kind = binding_kind::storage_image, .resource = resource_id::ml_resolve, .access = binding_access::write, .layout = image_layout::general},
+        {.binding = 4, .owner = binding_owner::own, .kind = binding_kind::storage_image, .resource = resource_id::ml_resolve, .access = binding_access::write},
     }};
 
     /// @brief the images the temporal resolve moves, in the order its record() indexes them

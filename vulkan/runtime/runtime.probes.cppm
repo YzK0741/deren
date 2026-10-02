@@ -204,7 +204,7 @@ namespace vulkan {
         to_colour.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         to_colour.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         to_colour.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        to_colour.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
+        to_colour.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         to_colour.image = target_detail->image;
         to_colour.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         VkDependencyInfo const to_colour_dependency = make_image_dependency_info(1, &to_colour);
@@ -213,7 +213,7 @@ namespace vulkan {
         VkRenderingAttachmentInfo const attachment = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
                                                       .pNext = nullptr,
                                                       .imageView = *target_view,
-                                                      .imageLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+                                                      .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
                                                       .resolveMode = VK_RESOLVE_MODE_NONE,
                                                       .resolveImageView = VK_NULL_HANDLE,
                                                       .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
@@ -254,8 +254,8 @@ namespace vulkan {
         to_copy.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         to_copy.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
         to_copy.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-        to_copy.oldLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL;
-        to_copy.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
+        to_copy.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
+        to_copy.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         to_copy.image = target_detail->image;
         to_copy.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         VkDependencyInfo const to_copy_dependency = make_image_dependency_info(1, &to_copy);
@@ -267,7 +267,7 @@ namespace vulkan {
                                           .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
                                           .imageOffset = {0, 0, 0},
                                           .imageExtent = {pipelines::heap_probe_extent, pipelines::heap_probe_extent, 1}};
-        vkCmdCopyImageToBuffer(command_buffer, target_detail->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, readback_detail->buffer, 1, &region);
+        vkCmdCopyImageToBuffer(command_buffer, target_detail->image, VK_IMAGE_LAYOUT_GENERAL, readback_detail->buffer, 1, &region);
         vkEndCommandBuffer(command_buffer);
 
         VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
