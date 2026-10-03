@@ -5,7 +5,7 @@
 // The backend's C ABI surface: the three `extern "C"` symbols a backend exports and
 // a host resolves (RHI plan v4, §1.15, §4.1 item 3).
 //
-// WHY THIS IS NOT PART OF deren.promise (m03159): the contract is a collection of
+// WHY THIS IS NOT PART OF deren.rhi.promise (m03159): the contract is a collection of
 // virtual base classes, and an entry point is not one. A backend DEFINES these
 // three, a host RESOLVES them, and neither side derives from anything to do it, so
 // they live next to the keyword that makes them visible across the DLL boundary
@@ -14,12 +14,12 @@
 // this file is for.
 //
 // WHO INCLUDES IT, AND IN WHICH ORDER. The declarations below name
-// `deren::promise::api_core` and `deren::promise::error`, so the translation unit has
-// to do `import deren.promise;` BEFORE including this header - an import declaration
+// `deren::rhi::promise::api_core` and `deren::rhi::promise::error`, so the translation unit has
+// to do `import deren.rhi.promise;` BEFORE including this header - an import declaration
 // cannot live in a header, and the two orderings that matter are already exercised by
 // the two sides of the probe:
 //
-//     import deren.promise;                  // the boundary's types
+//     import deren.rhi.promise;                  // the boundary's types
 //     #include "../boundary/backend_entry.hpp"  // the entry points
 //
 // The keyword comes from boundary/abi_export.hpp, so the same declaration is
@@ -43,10 +43,10 @@
  *
  * The C ABI is deliberately tiny: a version number, a factory whose ownership transfer is spelled out
  * by the deleter it returns, and that deleter. Everything else the engine and the backend share is a
- * virtual base class in `deren.promise`, compiled by both sides independently (§4.1 item 1), so no
+ * virtual base class in `deren.rhi.promise`, compiled by both sides independently (§4.1 item 1), so no
  * C++ type is passed by value and no symbol other than these three is exchanged.
  *
- * Include this after `import deren.promise;` - the declarations below name the contract's types, and
+ * Include this after `import deren.rhi.promise;` - the declarations below name the contract's types, and
  * an `import` declaration cannot be written in a header.
  */
 
@@ -57,20 +57,20 @@
 // rather than a preference; it was rejected in m02244.
 extern "C" {
 
-/// The backend's ABI number. Must equal `deren::promise::abi_version`.
+/// The backend's ABI number. Must equal `deren::rhi::promise::abi_version`.
 DEREN_API_EXPORT std::uint32_t deren_abi_version();
 
 /// The only producer of an `api_core`: transfers ownership of a raw pointer.
 ///
 /// On a version mismatch it returns `nullptr` and writes
-/// `deren::promise::error::abi_mismatch`, which is why a caller may not assume the
+/// `deren::rhi::promise::error::abi_mismatch`, which is why a caller may not assume the
 /// out-parameter was written on failure.
-DEREN_API_EXPORT deren::promise::api_core* deren_make_api_core(std::uint32_t abi_version,
-                                                               deren::promise::error* out_error);
+DEREN_API_EXPORT deren::rhi::promise::api_core* deren_make_api_core(std::uint32_t abi_version,
+                                                                    deren::rhi::promise::error* out_error);
 
 /// The deleter itself, exported by name: the engine builds its `shared_ptr` around
 /// it so that the delete runs inside the backend. Accepts `nullptr`, because a
 /// refused `deren_make_api_core` still ends up in a `shared_ptr`.
-DEREN_API_EXPORT void deren_destroy_api_core(deren::promise::api_core* core);
+DEREN_API_EXPORT void deren_destroy_api_core(deren::rhi::promise::api_core* core);
 
 } // extern "C"

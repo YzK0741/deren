@@ -1,6 +1,6 @@
 // -*- C++ -*-
 // ============================================================================
-// module: deren.promise
+// module: deren.rhi.promise
 // module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // The RHI boundary's contract: the abstract interfaces the engine and the backend
@@ -8,6 +8,17 @@
 // partitions - `:contract` (the ABI number and the `error` enum), `:extension`
 // (tier-2: the abilities a backend may or may not have) and `:api_core` (tier-1:
 // the context, its factories and the frame calls).
+//
+// WHY THE NAME IS deren.rhi.promise (m03716): the contract is the RHI's, not a general
+// "promise" facility that any boundary could share, so it lives inside the rhi family -
+// the module is a submodule of deren.rhi, the types are deren::rhi::promise::*, and the
+// directory is rhi/promise/. The segment is lower case `rhi` on purpose: every other
+// module segment in this repository is lower case and names the directory that holds it
+// (`vulkan/`, `utility/`, `vstd/`), module names end up in CMake/BMI paths and in doc
+// page names, and two directories differing only in case are a hazard on the
+// case-insensitive filesystems this project is built on. The acronym stays upper case in
+// prose ("the RHI"), where it is a word rather than an identifier; all-caps identifiers
+// here are macros (DEREN_API_*, VR_TEST_*).
 //
 // WHY A MODULE RATHER THAN A DIRECTORY OF HEADERS: this layer is a set of virtual
 // base classes that BOTH sides compile into their own image (m03159; §4.1's rule is
@@ -36,14 +47,14 @@
 //         PATCH on internal fixes - independently of the rest of the project.
 // ============================================================================
 
-export module deren.promise;
+export module deren.rhi.promise;
 
 export import :contract;
 export import :extension;
 export import :api_core;
 
 /**
- * @file promise/promise.cppm
+ * @file rhi/promise/promise.cppm
  * @defgroup promise The Promise Contract (backend boundary)
  * @brief the abstract interfaces the engine and the backend share - a module of vtables, PODs and
  *        spans, compiled by both sides and exported by neither (RHI plan v4 §3.1, §4.1, m03159).
@@ -52,9 +63,9 @@ export import :api_core;
  *
  * | part | what it is |
  * | --- | --- |
- * | `promise/promise.contract.cppm` | the ABI number and the `error` enum every entry point reports through |
- * | `promise/promise.extension.cppm` | tier-2: the five abilities a backend may or may not have |
- * | `promise/promise.api_core.cppm` | tier-1: the context, its factories, the frame calls |
+ * | `rhi/promise/promise.contract.cppm` | the ABI number and the `error` enum every entry point reports through |
+ * | `rhi/promise/promise.extension.cppm` | tier-2: the five abilities a backend may or may not have |
+ * | `rhi/promise/promise.api_core.cppm` | tier-1: the context, its factories, the frame calls |
  * | `boundary/backend_entry.hpp` | the three `extern "C"` entry points that hand an `api_core` out (not a promise part) |
  *
  * @details

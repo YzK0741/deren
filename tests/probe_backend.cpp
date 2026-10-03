@@ -3,7 +3,7 @@
 // file: tests/probe_backend.cpp
 //
 // The probe backend of tests/test_dynamic_link.cpp: the smallest stand-in for the
-// real promise/ contract (the module deren.promise, RHI plan v4 §3.3 - §3.5, §4.1).
+// real rhi/promise/ contract (the module deren.rhi.promise, RHI plan v4 §3.3 - §3.5, §4.1).
 // CMake builds this one source file twice - as a DLL (with DEREN_API_SHARED +
 // DEREN_API_BUILD) and as a static library (with neither) - and the test links the
 // static half while opening the DLL half at run time, so both branches of
@@ -34,7 +34,7 @@
 //   - `frame_begin()` counts frames, so a cross-boundary virtual call with a
 //     by-value POD result is observable too.
 // ============================================================================
-import deren.promise;
+import deren.rhi.promise;
 
 #include "../boundary/backend_entry.hpp"
 
@@ -43,7 +43,7 @@ import deren.promise;
 
 namespace {
 
-    namespace promise = deren::promise;
+    namespace promise = deren::rhi::promise;
 
     /// The probe's buffer: a real object, statically allocated (see the banner).
     struct probe_buffer final : promise::buffer {
@@ -164,23 +164,23 @@ namespace {
 } // namespace
 
 extern "C" DEREN_API_EXPORT std::uint32_t deren_abi_version() {
-    return deren::promise::abi_version;
+    return deren::rhi::promise::abi_version;
 }
 
-extern "C" DEREN_API_EXPORT deren::promise::api_core* deren_make_api_core(std::uint32_t abi_version,
-                                                                          deren::promise::error* out_error) {
-    if (abi_version != deren::promise::abi_version) {
+extern "C" DEREN_API_EXPORT deren::rhi::promise::api_core* deren_make_api_core(std::uint32_t abi_version,
+                                                                               deren::rhi::promise::error* out_error) {
+    if (abi_version != deren::rhi::promise::abi_version) {
         if (out_error != nullptr) {
-            *out_error = deren::promise::error::abi_mismatch;
+            *out_error = deren::rhi::promise::error::abi_mismatch;
         }
         return nullptr;
     }
     if (out_error != nullptr) {
-        *out_error = deren::promise::error::ok;
+        *out_error = deren::rhi::promise::error::ok;
     }
     return new impl();
 }
 
-extern "C" DEREN_API_EXPORT void deren_destroy_api_core(deren::promise::api_core* core) {
+extern "C" DEREN_API_EXPORT void deren_destroy_api_core(deren::rhi::promise::api_core* core) {
     delete core;
 }

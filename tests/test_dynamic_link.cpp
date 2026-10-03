@@ -1,5 +1,5 @@
 // Headless unit tests: deren.utility.dynamic_link (RHI plan v4 §7.4) and the promise
-// contract it carries (the module deren.promise, §3.3 - §3.5, §4.1 - §4.2) =======
+// contract it carries (the module deren.rhi.promise, §3.3 - §3.5, §4.1 - §4.2) =======
 //
 // The loader is the primitive the backend boundary is built on, so what is checked here is the
 // contract rather than an implementation detail: a file that is not there is a returned error and
@@ -24,16 +24,16 @@
 #include <system_error>
 #include <utility>
 
-import deren.promise;
+import deren.rhi.promise;
 import deren.utility.dynamic_link;
 
-// After the imports it needs: the header names deren::promise types (see its own note).
+// After the imports it needs: the header names deren::rhi::promise types (see its own note).
 #include "../boundary/backend_entry.hpp"
 
 namespace {
 
     namespace fs = std::filesystem;
-    namespace promise = deren::promise;
+    namespace promise = deren::rhi::promise;
 
     // From CMake ($<TARGET_FILE_NAME:probe_backend>): the DLL suffix is platform-dependent, so the
     // test does not hard-code it.
@@ -136,7 +136,7 @@ namespace {
             CHECK(buffer->size() == 64u);
             if (address_ability != nullptr) {
                 // -fno-rtti: the caller knows what it asked for, so the downcast is a static_cast
-                // and not a dynamic_cast (promise/extension.hpp says the same).
+                // and not a dynamic_cast (rhi/promise/promise.extension.cppm says the same).
                 auto* const address = static_cast<promise::device_address*>(address_ability);
                 // The answer depends on the size the descriptor carried, so this is a real round
                 // trip: the descriptor went in, the virtual call came back out, and the arithmetic
@@ -273,7 +273,7 @@ namespace {
     void test_the_static_half_behaves_the_same() {
         // No library is involved here: abi_export.hpp's static branch produces ordinary C symbols,
         // and the same contract is reached through the linker. `deren_make_api_core` and friends
-        // are the declarations from promise/api_core.hpp - this test no longer spells the C ABI
+        // are the declarations from rhi/promise/promise.api_core.cppm - this test no longer spells the C ABI
         // out by hand, so a drift between the header and the backend is a link error.
         CHECK(deren_abi_version() == promise::abi_version);
         check_core_contract(&deren_make_api_core, &deren_destroy_api_core, "static");

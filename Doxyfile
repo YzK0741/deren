@@ -1060,7 +1060,7 @@ WARN_LOGFILE           =
 INPUT                  = ./shaders \
 				./vulkan \
 				./utility \
-				./promise \
+				./rhi \
 				./boundary \
 				./gltf_loader \
 				./application_configuration \

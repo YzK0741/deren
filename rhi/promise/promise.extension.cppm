@@ -1,6 +1,6 @@
 // -*- C++ -*-
 // ============================================================================
-// module: deren.promise:extension
+// module: deren.rhi.promise:extension
 //
 // tier-2 of the promise contract: the abilities a backend may or may not have
 // beyond the portable tier-1 surface (RHI plan v4, §1.8, §1.9, §1.11, §3.4, §3.5).
@@ -37,18 +37,18 @@ module;
 #include <cstdint>
 #include <span>
 
-export module deren.promise:extension;
+export module deren.rhi.promise:extension;
 
 import :contract;
 
 /**
- * @file promise/promise.extension.cppm
+ * @file rhi/promise/promise.extension.cppm
  * @brief tier-2 of the promise contract: the abilities a backend may or may not have.
  * @ingroup promise
  *
  * DX12 does not have every capability Vulkan reaches through an extension (and a GL backend has
  * fewer still), so "the base class keeps DX12 in mind" cannot mean "the base class has everything"
- * (§1.5). What DX12 also has stays in `deren::promise::api_core`; the rest is declared here, one
+ * (§1.5). What DX12 also has stays in `deren::rhi::promise::api_core`; the rest is declared here, one
  * class per ability, and announced as one bit in `api_core::abilities()`.
  *
  * The five abilities below are the compile-time face of plan §3.5's model. The run-time face - a
@@ -57,10 +57,10 @@ import :contract;
  * check exactly that pairing.
  */
 
-export namespace deren::promise {
+export namespace deren::rhi::promise {
 
     // The tier-1 objects the abilities below take by reference. They are declared by
-    // promise/promise.api_core.cppm: an ability is a tier-2 view of the same backend, so it
+    // rhi/promise/promise.api_core.cppm: an ability is a tier-2 view of the same backend, so it
     // speaks about the same objects.
     struct buffer;
     struct command_list;
@@ -190,4 +190,4 @@ export namespace deren::promise {
                                                          image_copy_region const& region) noexcept = 0;
     };
 
-} // namespace deren::promise
+} // namespace deren::rhi::promise

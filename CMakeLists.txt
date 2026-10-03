@@ -234,24 +234,25 @@ target_sources(utility
         utility/utility.cpp
 )
 
-# The RHI boundary's contract (plan_rhi_v4.md §3.1, §4.1; m03159): a module of virtual base classes.
-# It is a module rather than a directory of headers because BOTH sides of the boundary compile it -
-# the engine's targets and a backend DLL each read the same interface unit instead of a shared
-# header - which is what keeps the two compilations from drifting, and it is listed here, once, for
-# the same reason. There is no .cpp: every declaration below this line is an interface, so the STATIC
-# target exists only to carry the module's file set (the shape vstd_lib has for deren.vstd). The C
-# ABI surface is deliberately NOT here (m03159): it is boundary/backend_entry.hpp, a header, because
-# an entry point is not a virtual base class.
+# The RHI boundary's contract (plan_rhi_v4.md §3.1, §4.1; m03159): a module of virtual base classes,
+# deren.rhi.promise, which lives in rhi/promise/ because the contract belongs to the RHI and not to a
+# general-purpose facility (m03716). It is a module rather than a directory of headers because BOTH
+# sides of the boundary compile it - the engine's targets and a backend DLL each read the same
+# interface unit instead of a shared header - which is what keeps the two compilations from drifting,
+# and it is listed here, once, for the same reason. There is no .cpp: every declaration below this
+# line is an interface, so the STATIC target exists only to carry the module's file set (the shape
+# vstd_lib has for deren.vstd). The C ABI surface is deliberately NOT here (m03159): it is
+# boundary/backend_entry.hpp, a header, because an entry point is not a virtual base class.
 add_library(promise STATIC)
 
 target_sources(promise
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        promise/promise.cppm
-        promise/promise.contract.cppm
-        promise/promise.extension.cppm
-        promise/promise.api_core.cppm
+        rhi/promise/promise.cppm
+        rhi/promise/promise.contract.cppm
+        rhi/promise/promise.extension.cppm
+        rhi/promise/promise.api_core.cppm
 )
 
 # Startup configuration: parses config.toml (+ --config / argv merging) into app_settings.
@@ -467,7 +468,7 @@ target_include_directories(stb_vendored
 # backends are compiled as plain C++ (imgui is not a module and does not follow the project's
 # -Werror policy — upstream code triggers warnings we do not own). No clang-format: the
 # PROJECT_FORMAT_SOURCES glob only covers main/application_configuration/gltf_loader/utility/
-# vulkan/tests/promise/boundary, never third_party.
+# vulkan/tests/rhi/boundary, never third_party.
 add_library(imgui STATIC)
 
 target_sources(imgui
@@ -800,7 +801,7 @@ if(VR_BUILD_TESTS)
     )
 
     # ---- the RHI boundary's loader, and the fixture its test loads ----
-    # probe_backend is a stand-in for the promise/ C ABI: ONE source file compiled twice, as a DLL (the
+    # probe_backend is a stand-in for the C ABI over rhi/promise/: ONE source file compiled twice, as a DLL (the
     # export macro in its "building a DLL" mode) and as a static library (macro inert). test_dynamic_link
     # therefore sees both halves of DEREN_API_EXPORT at once: it opens the DLL by path and calls the
     # static half directly, and the two must agree. The duplication of the source is the point - it is
@@ -943,9 +944,9 @@ endforeach()
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 
 if(CLANG_FORMAT_EXECUTABLE)
-    # promise/ and boundary/ are the module of interfaces and the C ABI header the boundary is built
-    # from (both sides compile them), so they are listed by extension rather than by the *.cpp*
-    # wildcard the others use.
+    # rhi/promise/ and boundary/ are the module of interfaces and the C ABI header the boundary is
+    # built from (both sides compile them), so they are listed by extension rather than by the
+    # *.cpp* wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/application_configuration/*.cpp*
@@ -953,7 +954,7 @@ if(CLANG_FORMAT_EXECUTABLE)
             ${CMAKE_CURRENT_SOURCE_DIR}/utility/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/promise/*.cppm
+            ${CMAKE_CURRENT_SOURCE_DIR}/rhi/promise/*.cppm
             ${CMAKE_CURRENT_SOURCE_DIR}/boundary/*.hpp)
 
     set(CLANG_FORMAT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/.clang-format.stamp")

@@ -1,6 +1,6 @@
 // -*- C++ -*-
 // ============================================================================
-// module: deren.promise:api_core
+// module: deren.rhi.promise:api_core
 //
 // tier-1 of the promise contract: the backend's context and its factories (RHI
 // plan v4, §1.11, §3.3, §4.1).
@@ -17,7 +17,7 @@
 //   - the engine builds `std::shared_ptr<api_core>(raw, &deren_destroy_api_core)`
 //     (or the pointer it resolved from the loaded library) - never the default
 //     deleter, which would free DLL memory with the executable's allocator;
-//   - `abilities()` is the tier-2 bit set (promise/promise.extension.cppm) and
+//   - `abilities()` is the tier-2 bit set (rhi/promise/promise.extension.cppm) and
 //     `query_extension()` is the only way to reach an ability, so adding one does
 //     not grow this vtable;
 //   - parameters are PODs, `std::span`, or opaque handles. No `std::string`, no
@@ -38,12 +38,12 @@ module;
 
 #include <cstdint>
 
-export module deren.promise:api_core;
+export module deren.rhi.promise:api_core;
 
 import :extension;
 
 /**
- * @file promise/promise.api_core.cppm
+ * @file rhi/promise/promise.api_core.cppm
  * @brief tier-1 of the promise contract: the backend's context and its factories.
  * @ingroup promise
  *
@@ -54,11 +54,11 @@ import :extension;
  * restriction that it never learns an engine concept: no scene, no pass, no camera (§4.1 item 2).
  *
  * Applications and passes reach optional features through `abilities()` + `query_extension()`
- * (tier-2, `promise/promise.extension.cppm`) rather than through new virtuals here, which is what
+ * (tier-2, `rhi/promise/promise.extension.cppm`) rather than through new virtuals here, which is what
  * keeps this vtable stable as the backend gains extensions.
  */
 
-export namespace deren::promise {
+export namespace deren::rhi::promise {
 
     /// The size of a buffer, in bytes.
     ///
@@ -192,4 +192,4 @@ export namespace deren::promise {
         virtual void wait_idle() = 0;
     };
 
-} // namespace deren::promise
+} // namespace deren::rhi::promise
