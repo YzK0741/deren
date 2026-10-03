@@ -223,6 +223,13 @@ target_sources(utility
         utility/frame_clock/frame_clock.cppm
         utility/frame_stats/frame_stats.cppm
         utility/thread_pool/thread_pool.cppm
+        # The loader the RHI boundary is built on (plan_rhi_v4.md 7.4): the only place in the tree that
+        # asks the platform for a library. It is a module of its own rather than a `utility:` partition
+        # because a partition cannot be imported by another target's module without dragging `utility`
+        # in, and the boundary rule is that ONE module owns the platform load path. It declares the
+        # platform entry points itself (no <windows.h>, no <dlfcn.h> in a module's global fragment),
+        # which is what keeps its importers platform-agnostic.
+        utility/dynamic_link.cppm
         PRIVATE
         utility/utility.cpp
 )
@@ -668,7 +675,7 @@ option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 if(VR_BUILD_TESTS)
     enable_testing()
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs)
+    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
@@ -770,6 +777,48 @@ if(VR_BUILD_TESTS)
             glm::glm
             vstd_lib
     )
+
+    # ---- the RHI boundary's loader, and the fixture its test loads ----
+    # probe_backend is a stand-in for the promise/ C ABI: ONE source file compiled twice, as a DLL (the
+    # export macro in its "building a DLL" mode) and as a static library (macro inert). test_dynamic_link
+    # therefore sees both halves of DEREN_API_EXPORT at once: it opens the DLL by path and calls the
+    # static half directly, and the two must agree. The duplication of the source is the point - it is
+    # the only way to exercise both modes without a second copy to drift from the first.
+    #
+    # THE SANITIZER JOB IS WHY -fno-sanitize=all IS HERE. That job compiles with
+    # CMAKE_CXX_FLAGS=-fsanitize=address,undefined, but only CMAKE_EXE_LINKER_FLAGS carries the runtime:
+    # an instrumented DLL would not link at all, and if it did it would put a SECOND ASan runtime into
+    # the instrumented process, which aborts on load. The DLL is loaded BY a sanitized process and must
+    # not be sanitized itself; the static half is linked into the test and IS instrumented.
+    add_library(probe_backend SHARED tests/probe_backend.cpp)
+    target_compile_definitions(probe_backend PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
+    target_compile_options(probe_backend PRIVATE ${COMPILE_OPTIONS})
+    if(NOT MSVC)
+        target_compile_options(probe_backend PRIVATE -fno-sanitize=all)
+        target_link_options(probe_backend PRIVATE -fno-sanitize=all)
+    endif()
+    # Next to the test executables, which is where test_dynamic_link looks for it: the test asks argv[0]
+    # for its own directory at run time, so no path is ever spelled inside a string literal (a Windows
+    # separator in one is exactly the bug that only shows up on the machine that has one).
+    set_target_properties(probe_backend PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+            LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+
+    add_library(probe_backend_static STATIC tests/probe_backend.cpp)
+    target_compile_options(probe_backend_static PRIVATE ${COMPILE_OPTIONS})
+
+    target_link_libraries(test_dynamic_link
+            utility
+            probe_backend_static
+            vstd_lib
+    )
+    # The file NAME, not a path: the test composes the path from its own location (see above), so the
+    # name stays correct whichever prefix/suffix the platform's shared-library convention uses.
+    target_compile_definitions(test_dynamic_link PRIVATE
+            VR_TEST_PROBE_BACKEND_FILE_NAME="$<TARGET_FILE_NAME:probe_backend>")
+    # `cmake --build --target test_dynamic_link` has to build the DLL it opens, or ctest would run a
+    # test whose fixture is missing and report a loader error as a test failure.
+    add_dependencies(test_dynamic_link probe_backend)
 endif()
 
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
