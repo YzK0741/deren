@@ -27,6 +27,30 @@
 // ============================================================================
 #pragma once
 
+/**
+ * @file promise/abi_export.hpp
+ * @brief the export/import keyword the promise C ABI is declared with, chosen from the build mode
+ *        rather than from a platform `#ifdef` at every declaration.
+ * @ingroup promise
+ *
+ * The boundary is a handful of `extern "C"` entry points, and whether one of them is visible across
+ * a DLL boundary depends on how the translation unit in front of it is being built:
+ *
+ * | build | `DEREN_API_EXPORT` |
+ * | --- | --- |
+ * | linked in statically (no `DEREN_API_SHARED`) | nothing - an ordinary C++ symbol |
+ * | compiling the backend (`DEREN_API_SHARED` + `DEREN_API_BUILD`) | `dllexport` / `visibility("default")` |
+ * | importing the backend (`DEREN_API_SHARED`, no `DEREN_API_BUILD`) | `dllimport` / nothing |
+ *
+ * @details
+ * - `DEREN_API_HIDE` is the mirror image, for a platform that would otherwise export everything:
+ *   on Windows it is empty by construction (nothing is exported unless marked `dllexport`).
+ * - Measured (plan §10.3): the probe DLL exports exactly its three entry points and the statically
+ *   linked test binary exports none of them, which is what the two macros promise.
+ * - CMake defines the macros per target (`tests/probe_backend.cpp` is compiled twice from one
+ *   source file for exactly this reason), so no source file has to know which build it is in.
+ */
+
 #if defined(_WIN32)
 #if defined(DEREN_API_SHARED)
 #if defined(DEREN_API_BUILD)

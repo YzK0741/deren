@@ -1,4 +1,6 @@
-// Headless unit tests: deren.utility.dynamic_link (RHI plan v4 §7.4) ============
+// Headless unit tests: deren.utility.dynamic_link (RHI plan v4 §7.4) and the promise
+// contract it carries (promise/api_core.hpp, §3.3 - §3.5, §4.1 - §4.2) ===========
+//
 // The loader is the primitive the backend boundary is built on, so what is checked here is the
 // contract rather than an implementation detail: a file that is not there is a returned error and
 // not a crash, the platform suffix is completed when the caller leaves it off, a missing symbol is
@@ -8,34 +10,27 @@
 //
 // The library under test is tests/probe_backend.cpp, which CMake builds twice from one source
 // file: the static half is linked into this test (so abi_export.hpp's static branch is exercised
-// by the linker) and the DLL half is only ever opened at run time (the shared branch). The two
-// halves must answer the same, which is the check that the export keywords do what they say.
+// by the linker) and the DLL half is only ever opened at run time (the shared branch). Both halves
+// are then driven through the SAME function, `check_core_contract()`, because "the two answer the
+// same" is the whole point of the export keywords - and the C ABI is declared once, in the header
+// both sides include, rather than again here.
+#include "../promise/api_core.hpp"
 #include "vk_test.h"
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
 #include <utility>
-
-// The probe backend's C ABI, declared exactly as tests/probe_backend.cpp defines it. The class is
-// deliberately defined in both translation units: the object is created and destroyed inside the
-// backend and the front end only calls it through the base (plan §7.4.4).
-struct api_core {
-    virtual ~api_core() = default;
-    virtual int value() const noexcept = 0;
-};
-
-extern "C" unsigned int deren_abi_version();
-extern "C" api_core* deren_make_api_core(unsigned int abi, int* out_error);
-extern "C" void deren_destroy_api_core(api_core* core);
 
 import deren.utility.dynamic_link;
 
 namespace {
 
     namespace fs = std::filesystem;
+    namespace promise = deren::promise;
 
     // From CMake ($<TARGET_FILE_NAME:probe_backend>): the DLL suffix is platform-dependent, so the
     // test does not hard-code it.
@@ -43,8 +38,8 @@ namespace {
     constexpr std::string_view missing_file_name = "deren_probe_backend_that_does_not_exist.dll";
     constexpr std::string_view unload_probe_file_name = "deren_probe_backend_unload_probe.dll";
 
-    using make_core_fn = api_core* (*)(unsigned int, int*);
-    using destroy_core_fn = void (*)(api_core*);
+    using make_core_fn = promise::api_core* (*)(std::uint32_t, promise::error*);
+    using destroy_core_fn = void (*)(promise::api_core*);
 
     /** @brief a resolved C symbol: void const* to function pointer, constness dropped on purpose */
     template <typename function>
@@ -52,32 +47,130 @@ namespace {
         return reinterpret_cast<function>(const_cast<void*>(address));
     }
 
-    /** @brief owns one api_core and counts how often it called the backend's deleter */
-    class core_owner {
-    public:
-        core_owner(api_core* core, destroy_core_fn destroy, int* destroy_calls) noexcept
-            : core_(core)
-            , destroy_(destroy)
-            , destroy_calls_(destroy_calls) {
+    /**
+     * @brief everything the promise contract promises, driven through one pair of entry points
+     *
+     * Called once with the symbols resolved from the loaded DLL and once with the ones the linker
+     * found in the static half. `make_core` and `destroy_core` are the only things that differ;
+     * every expectation below has to hold for both.
+     */
+    void check_core_contract(make_core_fn make_core, destroy_core_fn destroy_core, char const* which_half) {
+        // The ABI number is part of the contract, not an implementation detail: pin the value the
+        // plan measured (§10.3) so a silent renumbering is a test failure and not a mystery at a
+        // customer's machine.
+        CHECK(promise::abi_version == 1u);
+        CHECK(static_cast<std::uint32_t>(promise::error::ok) == 0u);
+        CHECK(static_cast<std::uint32_t>(promise::error::abi_mismatch) == 7u);
+
+        // A mismatched ABI is refused before any object exists, and it is reported through the out
+        // parameter - a null `api_core` plus a code, never a crash and never an exception.
+        promise::error mismatch_error = promise::error::ok;
+        CHECK(make_core(promise::abi_version + 1u, &mismatch_error) == nullptr);
+        CHECK_MSG(mismatch_error == promise::error::abi_mismatch, which_half);
+        // ... and a caller that passes no out parameter is still not crashed into (the backend has
+        // to tolerate the null: the engine passes one, a probe or a script may not).
+        CHECK(make_core(promise::abi_version + 1u, nullptr) == nullptr);
+
+        // The matching call hands out a live object and says so in the out parameter. The sentinel
+        // is not `ok`, so a backend that never wrote it fails the check below.
+        promise::error make_error = promise::error::abi_mismatch;
+        std::shared_ptr<promise::api_core> core{make_core(promise::abi_version, &make_error), destroy_core};
+        CHECK_MSG(make_error == promise::error::ok, which_half);
+        CHECK(core != nullptr);
+        if (core == nullptr) {
+            return;
         }
-        core_owner(core_owner const&) = delete;
-        core_owner& operator=(core_owner const&) = delete;
-        ~core_owner() {
-            if (this->core_ != nullptr) {
-                ++*this->destroy_calls_;
-                this->destroy_(this->core_);
+
+        // Ownership is real: the deleter the engine installed is the backend's own (for the DLL
+        // half, the pointer resolved out of that DLL), the count is observable, and copying the
+        // handle does not hand the object out twice.
+        CHECK(core.use_count() == 1);
+        {
+            std::shared_ptr<promise::api_core> const borrowed = core;
+            CHECK(core.use_count() == 2);
+        }
+        CHECK(core.use_count() == 1);
+
+        // ---- tier-2: what the backend says it can do, and what it hands over ---------------
+        // The probe announces exactly two abilities. What matters here is the shape of the answer:
+        // a bit set (not an ordered enum), no bit outside the known set, and every announced
+        // ability reachable through `query_extension()` with the kind it claims.
+        promise::ability_bits const abilities = core->abilities();
+        CHECK_MSG(abilities == (promise::to_bits(promise::extension_kind::device_address) |
+                                promise::to_bits(promise::extension_kind::descriptor_heap)),
+                  which_half);
+        CHECK((abilities & ~promise::all_abilities()) == promise::no_abilities);
+        CHECK(promise::has_ability(abilities, promise::extension_kind::device_address));
+        CHECK(promise::has_ability(abilities, promise::extension_kind::descriptor_heap));
+        CHECK(!promise::has_ability(abilities, promise::extension_kind::mesh_shader));
+        CHECK(!promise::has_ability(abilities, promise::extension_kind::ray_tracing));
+        CHECK(!promise::has_ability(abilities, promise::extension_kind::host_image_copy));
+
+        promise::extension* const address_ability = core->query_extension(promise::extension_kind::device_address);
+        CHECK(address_ability != nullptr);
+        if (address_ability != nullptr) {
+            CHECK(address_ability->kind() == promise::extension_kind::device_address);
+        }
+        promise::extension* const heap_ability = core->query_extension(promise::extension_kind::descriptor_heap);
+        CHECK(heap_ability != nullptr);
+        if (heap_ability != nullptr) {
+            CHECK(heap_ability->kind() == promise::extension_kind::descriptor_heap);
+        }
+        // "Named failure, no silent downgrade" (plan §1.9, §3.6): an ability the backend did not
+        // announce answers null rather than a stub that quietly does nothing.
+        CHECK(core->query_extension(promise::extension_kind::mesh_shader) == nullptr);
+        CHECK(core->query_extension(promise::extension_kind::ray_tracing) == nullptr);
+        CHECK(core->query_extension(promise::extension_kind::host_image_copy) == nullptr);
+
+        // ---- tier-1: a factory, and a virtual call that comes back out of the backend ---------
+        // The descriptor is a POD that crosses the boundary by value; the answer is a polymorphic
+        // handle the caller can only see through the base. The other factories take descriptors
+        // that are still forward-declared, so they cannot even be called yet (S1 defines them) -
+        // which is exactly what "the shape can be reviewed before the shapes it carries" means.
+        promise::buffer* const buffer = core->create_buffer(promise::buffer_desc{.size = 64u});
+        CHECK(buffer != nullptr);
+        if (buffer != nullptr) {
+            CHECK(buffer->size() == 64u);
+            if (address_ability != nullptr) {
+                // -fno-rtti: the caller knows what it asked for, so the downcast is a static_cast
+                // and not a dynamic_cast (promise/extension.hpp says the same).
+                auto* const address = static_cast<promise::device_address*>(address_ability);
+                // The answer depends on the size the descriptor carried, so this is a real round
+                // trip: the descriptor went in, the virtual call came back out, and the arithmetic
+                // the probe documents (0x1000 + size + offset) held on the way.
+                CHECK(address->buffer_address(*buffer, 0u) == 0x1000ull + 64ull);
+                CHECK(address->buffer_address(*buffer, 8u) == 0x1000ull + 64ull + 8ull);
             }
         }
 
-        [[nodiscard]] api_core* get() const noexcept {
-            return this->core_;
-        }
+        // ---- tier-1: the frame calls --------------------------------------------------------
+        // No device means no command pool: a null command list is an answer, not a crash. The
+        // frame counter starts at a non-zero value in the probe so that a result which was never
+        // written by the backend cannot pass for one that was.
+        CHECK(core->begin_commands() == nullptr);
+        promise::submit_info const first = core->frame_begin();
+        CHECK(first.frame_index == 7u);
+        CHECK(first.image_index == 3u);
+        promise::submit_info const second = core->frame_begin();
+        CHECK(second.frame_index == 8u);
+        CHECK(second.image_index == 3u);
+        core->present();
+        core->wait_idle();
 
-    private:
-        api_core* core_ = nullptr;
-        destroy_core_fn destroy_ = nullptr;
-        int* destroy_calls_ = nullptr;
-    };
+        // Destruction runs inside the backend, exactly once, and a deleter that only counts first
+        // still leaves the actual delete to `destroy_core` (the resolved symbol).
+        int32_t destroy_calls = 0;
+        {
+            std::shared_ptr<promise::api_core> scoped{
+                make_core(promise::abi_version, nullptr),
+                [&destroy_calls, destroy_core](promise::api_core* raw) {
+                    ++destroy_calls;
+                    destroy_core(raw);
+                }};
+            CHECK(scoped != nullptr);
+        }
+        CHECK_MSG(destroy_calls == 1, which_half);
+    }
 
     void test_a_missing_file_is_a_returned_error(fs::path const& directory) {
         auto const missing =
@@ -116,8 +209,8 @@ namespace {
         CHECK(!loaded->symbol("deren_no_such_symbol_in_the_probe_backend").has_value());
         CHECK(!loaded->symbol("").has_value());
         if (version.has_value()) {
-            auto const abi_version = as_function<unsigned int (*)()>(version.value());
-            CHECK(abi_version() == 1u);
+            auto const abi_version = as_function<std::uint32_t (*)()>(version.value());
+            CHECK(abi_version() == promise::abi_version);
             CHECK(abi_version() == deren_abi_version()); // the DLL and the static half agree
         }
 
@@ -128,26 +221,13 @@ namespace {
         if (!make.has_value() || !destroy.has_value()) {
             return;
         }
-        auto const make_core = as_function<make_core_fn>(make.value());
-        auto const destroy_core = as_function<destroy_core_fn>(destroy.value());
 
-        int destroy_calls = 0;
-        {
-            int make_error = -1;
-            core_owner const core{make_core(1u, &make_error), destroy_core, &destroy_calls};
-            CHECK(make_error == 0);
-            CHECK(core.get() != nullptr);
-            if (core.get() != nullptr) {
-                CHECK(core.get()->value() == 42);
-            }
-        }
-        CHECK(destroy_calls == 1); // the deleter ran exactly once, inside the loaded library
-
-        // An ABI mismatch is refused before an object exists, and reports the plan's code 7
-        // rather than a system error.
-        int mismatch_error = -1;
-        CHECK(make_core(2u, &mismatch_error) == nullptr);
-        CHECK(mismatch_error == 7);
+        // The pair driven here is the one RESOLVED FROM THE DLL, not the one the linker would give
+        // this test: that is the plan's rule (§4.1) - an object made inside the library has to be
+        // deleted inside the library - and the reason `deren_destroy_api_core` is exported by name
+        // instead of being wrapped in engine-side glue.
+        check_core_contract(as_function<make_core_fn>(make.value()), as_function<destroy_core_fn>(destroy.value()),
+                            "dll");
 
         // A moved-from library is empty (not a second owner of the same handle), and the symbols
         // taken from the destination keep working.
@@ -157,7 +237,7 @@ namespace {
         auto const moved_version = moved.symbol("deren_abi_version");
         CHECK(moved_version.has_value());
         if (moved_version.has_value()) {
-            CHECK(as_function<unsigned int (*)()>(moved_version.value())() == 1u);
+            CHECK(as_function<std::uint32_t (*)()>(moved_version.value())() == promise::abi_version);
         }
     }
 
@@ -188,24 +268,12 @@ namespace {
     }
 
     void test_the_static_half_behaves_the_same() {
-        // No library is involved here: abi_export.hpp's static branch produces ordinary C symbols
-        // and the same three entry points are reached through the linker.
-        CHECK(deren_abi_version() == 1u);
-        int make_error = -1;
-        int destroy_calls = 0;
-        {
-            core_owner const core{deren_make_api_core(deren_abi_version(), &make_error), &deren_destroy_api_core,
-                                  &destroy_calls};
-            CHECK(make_error == 0);
-            CHECK(core.get() != nullptr);
-            if (core.get() != nullptr) {
-                CHECK(core.get()->value() == 42);
-            }
-        }
-        CHECK(destroy_calls == 1);
-        int mismatch_error = -1;
-        CHECK(deren_make_api_core(0u, &mismatch_error) == nullptr);
-        CHECK(mismatch_error == 7);
+        // No library is involved here: abi_export.hpp's static branch produces ordinary C symbols,
+        // and the same contract is reached through the linker. `deren_make_api_core` and friends
+        // are the declarations from promise/api_core.hpp - this test no longer spells the C ABI
+        // out by hand, so a drift between the header and the backend is a link error.
+        CHECK(deren_abi_version() == promise::abi_version);
+        check_core_contract(&deren_make_api_core, &deren_destroy_api_core, "static");
     }
 } // namespace
 

@@ -446,7 +446,8 @@ target_include_directories(stb_vendored
 # Dear ImGui (vendored under third_party/imgui, see the sources there): the Vulkan + GLFW
 # backends are compiled as plain C++ (imgui is not a module and does not follow the project's
 # -Werror policy — upstream code triggers warnings we do not own). No clang-format: the
-# PROJECT_FORMAT_SOURCES glob only covers main/gltf_loader/utility/vulkan, never third_party.
+# PROJECT_FORMAT_SOURCES glob only covers main/application_configuration/gltf_loader/utility/
+# vulkan/tests/promise, never third_party.
 add_library(imgui STATIC)
 
 target_sources(imgui
@@ -917,13 +918,16 @@ endforeach()
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 
 if(CLANG_FORMAT_EXECUTABLE)
+    # promise/ is a header-only directory (the contract both sides of the backend boundary
+    # compile), so it is listed by extension rather than by the *.cpp* wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/application_configuration/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/gltf_loader/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/utility/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp*)
+            ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/promise/*.hpp)
 
     set(CLANG_FORMAT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/.clang-format.stamp")
 
