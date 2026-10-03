@@ -30,7 +30,7 @@ import deren.vstd;
 // (.github/workflows/ci.yml). It is written, not measured.
 // ============================================================================
 
-#if defined(_WIN32)
+#ifdef _WIN32
 
 // ---- Win32, declared by hand (see the header comment) ----------------------
 extern "C" __declspec(dllimport) void* __stdcall LoadLibraryExW(wchar_t const* file_name, void* file,
@@ -180,7 +180,7 @@ namespace {
 
     /** @brief append the platform suffix when @p file_name does not already carry one */
     std::string complete_file_name(std::string_view file_name) {
-#if defined(_WIN32)
+#ifdef _WIN32
         constexpr std::string_view suffix = ".dll";
         if (file_name.ends_with(suffix)) {
             return std::string{file_name};
@@ -200,7 +200,7 @@ namespace {
 #endif
     }
 
-#if defined(_WIN32)
+#ifdef _WIN32
     /** @brief UTF-8 to UTF-16, with room for the terminating NUL LoadLibraryExW needs */
     bool to_wide(std::string_view utf8, std::vector<wchar_t>& wide) {
         if (utf8.empty()) {
@@ -261,11 +261,11 @@ namespace deren::utility::dynamic_link {
         if (this->handle_ == nullptr) {
             return std::unexpected(load_error{0, "the library is not loaded"});
         }
-        if (name.empty() || name.find('\0') != std::string_view::npos) {
+        if (name.empty() || name.contains('\0')) {
             return std::unexpected(load_error{0, "the symbol name is empty or contains a NUL byte"});
         }
         std::string const terminated{name}; // GetProcAddress/dlsym want a NUL-terminated name
-#if defined(_WIN32)
+#ifdef _WIN32
         void* const address = GetProcAddress(this->handle_, terminated.c_str());
         if (address == nullptr) {
             unsigned long const code = GetLastError();
@@ -288,7 +288,7 @@ namespace deren::utility::dynamic_link {
         if (this->handle_ == nullptr) {
             return;
         }
-#if defined(_WIN32)
+#ifdef _WIN32
         FreeLibrary(this->handle_);
 #else
         dlclose(this->handle_);
@@ -301,7 +301,7 @@ namespace deren::utility::dynamic_link {
         if (path.empty()) {
             return std::unexpected(load_error{0, "the file name is empty"});
         }
-#if defined(_WIN32)
+#ifdef _WIN32
         std::vector<wchar_t> wide;
         if (!to_wide(path, wide)) {
             return std::unexpected(
