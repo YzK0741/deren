@@ -547,7 +547,7 @@ namespace deren::vulkan {
                     if (!this->shadow_heuristic_logged) {
                         this->shadow_heuristic_logged = true;
                         deren::utility::log("shadow caster culling: scene exceeds {} leaves - shadow casters are the camera-visible plus shadow-frustum sets",
-                                     full_scene_shadow_leaf_limit);
+                                            full_scene_shadow_leaf_limit);
                     }
                     fill_shadow_casters(this->cull_visible);
                     if (this->cull_bvh.has_value()) {
@@ -1108,8 +1108,8 @@ namespace deren::vulkan {
             if (!logged) {
                 logged = true;
                 deren::utility::log("shadow: the casters are DISPATCHED (mesh stage) - {} casters, {} triangles per workgroup",
-                             this->shadow_casters.size(),
-                             85u);
+                                    this->shadow_casters.size(),
+                                    85u);
             }
         }
         // draw only the casters that can throw a shadow into the camera frustum (see
@@ -1475,13 +1475,13 @@ namespace deren::vulkan {
                 // cannot draw the scene at all. Saying so here, once, with the reason, is the whole of the fallback
                 // that is left - and it happens BEFORE any pass is created.
                 deren::utility::panic(std::source_location::current(),
-                               "mesh shaders are required and this device does not offer them: {} (docs/mesh_shaders.md step 4)",
-                               this->mesh_shaders_unavailable_reason);
+                                      "mesh shaders are required and this device does not offer them: {} (docs/mesh_shaders.md step 4)",
+                                      this->mesh_shaders_unavailable_reason);
             }
             deren::utility::log("mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block {} B, within {} B push constants / {} B push data)",
-                         deren::vulkan::mesh_stage_block_size,
-                         push_constants,
-                         push_data);
+                                deren::vulkan::mesh_stage_block_size,
+                                push_constants,
+                                push_data);
         }
         pass::pass_context const build = this->make_pass_context();
         // ONE CREATE STEP OVER EVERY PASS, in the order the OWNING chain holds them (see the member block in the
@@ -1827,9 +1827,9 @@ namespace deren::vulkan {
             // to fill the log of every frame.
             if (this->resource_check_frames < 3 && this->resource_check_mismatched + mismatched <= 10) {
                 deren::utility::log("resource table: pass '{}' {} (resource {}, element {}) resolved as [view {}, buffer {}, image {}] but published as [view {}, buffer {}, image {}]",
-                             decl.name, channel, static_cast<int32_t>(id), element,
-                             as_pointer(resolved.view), as_pointer(resolved.buffer), as_pointer(resolved.image),
-                             as_pointer(published.view), as_pointer(published.buffer), as_pointer(published.image));
+                                    decl.name, channel, static_cast<int32_t>(id), element,
+                                    as_pointer(resolved.view), as_pointer(resolved.buffer), as_pointer(resolved.image),
+                                    as_pointer(published.view), as_pointer(published.buffer), as_pointer(published.image));
             }
         };
         // The own bindings, indexed by their own binding number: the validator requires those to be contiguous
@@ -3086,10 +3086,10 @@ namespace deren::vulkan {
         if (!this->resource_check_reported && this->resource_check_frames >= 3) {
             this->resource_check_reported = true;
             deren::utility::log("resource table: {} entries published, {} declaration handle checks against the resolvers, {} mismatch(es) over {} frame(s)",
-                         this->frame_resources.size(),
-                         this->resource_check_checked,
-                         this->resource_check_mismatched,
-                         this->resource_check_frames);
+                                this->frame_resources.size(),
+                                this->resource_check_checked,
+                                this->resource_check_mismatched,
+                                this->resource_check_frames);
         }
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::submit};
         core& vk = this->vulkan_core;

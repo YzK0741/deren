@@ -790,9 +790,9 @@ void print_device_capabilities(device_capabilities const& capabilities) {
 
     deren::utility::log(" driver        : {} {}", capabilities.driver_properties.driverName, capabilities.driver_properties.driverInfo);
     deren::utility::log(" api version   : {}.{}.{}",
-                 VK_API_VERSION_MAJOR(capabilities.properties_2.properties.apiVersion),
-                 VK_API_VERSION_MINOR(capabilities.properties_2.properties.apiVersion),
-                 VK_API_VERSION_PATCH(capabilities.properties_2.properties.apiVersion));
+                        VK_API_VERSION_MAJOR(capabilities.properties_2.properties.apiVersion),
+                        VK_API_VERSION_MINOR(capabilities.properties_2.properties.apiVersion),
+                        VK_API_VERSION_PATCH(capabilities.properties_2.properties.apiVersion));
     deren::utility::log(" device        : {} ({})", capabilities.properties_2.properties.deviceName, type_name);
     deren::utility::log("{}", sep_line);
 
@@ -897,18 +897,18 @@ void print_device_capabilities(device_capabilities const& capabilities) {
         deren::utility::log(" ray tracing   : ray query available (VK_KHR_acceleration_structure + VK_KHR_ray_query)");
         if (capabilities.ray_tracing_pipeline_available) {
             deren::utility::log("   sbt         : handle {} B, base alignment {}, handle alignment {}, max recursion {}",
-                         capabilities.ray_tracing_pipeline_properties.shaderGroupHandleSize,
-                         capabilities.ray_tracing_pipeline_properties.shaderGroupBaseAlignment,
-                         capabilities.ray_tracing_pipeline_properties.shaderGroupHandleAlignment,
-                         capabilities.ray_tracing_pipeline_properties.maxRayRecursionDepth);
+                                capabilities.ray_tracing_pipeline_properties.shaderGroupHandleSize,
+                                capabilities.ray_tracing_pipeline_properties.shaderGroupBaseAlignment,
+                                capabilities.ray_tracing_pipeline_properties.shaderGroupHandleAlignment,
+                                capabilities.ray_tracing_pipeline_properties.maxRayRecursionDepth);
         }
         deren::utility::log("                 {} / opacity micromap {}",
-                     capabilities.ray_tracing_pipeline_available ? "ray pipeline available (VK_KHR_ray_tracing_pipeline + maintenance1)" : "ray pipeline NOT available",
-                     capabilities.opacity_micromap_available ? std::format("available (VK_EXT_opacity_micromap, max subdivision level {} 2-state / {} 4-state)", capabilities.opacity_micromap_properties.maxOpacity2StateSubdivisionLevel, capabilities.opacity_micromap_properties.maxOpacity4StateSubdivisionLevel) : "not available");
+                            capabilities.ray_tracing_pipeline_available ? "ray pipeline available (VK_KHR_ray_tracing_pipeline + maintenance1)" : "ray pipeline NOT available",
+                            capabilities.opacity_micromap_available ? std::format("available (VK_EXT_opacity_micromap, max subdivision level {} 2-state / {} 4-state)", capabilities.opacity_micromap_properties.maxOpacity2StateSubdivisionLevel, capabilities.opacity_micromap_properties.maxOpacity4StateSubdivisionLevel) : "not available");
         deren::utility::log("   limits      : {} instances, {} geometries, scratch alignment {}",
-                     capabilities.acceleration_structure_properties.maxInstanceCount,
-                     capabilities.acceleration_structure_properties.maxGeometryCount,
-                     capabilities.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment);
+                            capabilities.acceleration_structure_properties.maxInstanceCount,
+                            capabilities.acceleration_structure_properties.maxGeometryCount,
+                            capabilities.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment);
     } else {
         deren::utility::log(" ray tracing   : not available (ray-traced shadows and GI stay off)");
     }
@@ -917,22 +917,22 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     if (capabilities.descriptor_heap_available) {
         deren::utility::log(" descriptor heap: available (VK_EXT_descriptor_heap, revision 1)");
         deren::utility::log("   descriptors : buffer {} B (align {}), image {} B (align {}), sampler {} B (align {})",
-                     capabilities.descriptor_heap_properties.bufferDescriptorSize,
-                     capabilities.descriptor_heap_properties.bufferDescriptorAlignment,
-                     capabilities.descriptor_heap_properties.imageDescriptorSize,
-                     capabilities.descriptor_heap_properties.imageDescriptorAlignment,
-                     capabilities.descriptor_heap_properties.samplerDescriptorSize,
-                     capabilities.descriptor_heap_properties.samplerDescriptorAlignment);
+                            capabilities.descriptor_heap_properties.bufferDescriptorSize,
+                            capabilities.descriptor_heap_properties.bufferDescriptorAlignment,
+                            capabilities.descriptor_heap_properties.imageDescriptorSize,
+                            capabilities.descriptor_heap_properties.imageDescriptorAlignment,
+                            capabilities.descriptor_heap_properties.samplerDescriptorSize,
+                            capabilities.descriptor_heap_properties.samplerDescriptorAlignment);
         deren::utility::log("   heaps       : resource max {} MiB (alignment {}), sampler max {} KiB (alignment {})",
-                     capabilities.descriptor_heap_properties.maxResourceHeapSize / (1024 * 1024),
-                     capabilities.descriptor_heap_properties.resourceHeapAlignment,
-                     capabilities.descriptor_heap_properties.maxSamplerHeapSize / 1024,
-                     capabilities.descriptor_heap_properties.samplerHeapAlignment);
+                            capabilities.descriptor_heap_properties.maxResourceHeapSize / (1024 * 1024),
+                            capabilities.descriptor_heap_properties.resourceHeapAlignment,
+                            capabilities.descriptor_heap_properties.maxSamplerHeapSize / 1024,
+                            capabilities.descriptor_heap_properties.samplerHeapAlignment);
         deren::utility::log("   reserved    : {} KiB resource, {} KiB sampler with embedded samplers, {} embedded samplers max, push data {} B",
-                     capabilities.descriptor_heap_properties.minResourceHeapReservedRange / 1024,
-                     capabilities.descriptor_heap_properties.minSamplerHeapReservedRangeWithEmbedded / 1024,
-                     capabilities.descriptor_heap_properties.maxDescriptorHeapEmbeddedSamplers,
-                     capabilities.descriptor_heap_properties.maxPushDataSize);
+                            capabilities.descriptor_heap_properties.minResourceHeapReservedRange / 1024,
+                            capabilities.descriptor_heap_properties.minSamplerHeapReservedRangeWithEmbedded / 1024,
+                            capabilities.descriptor_heap_properties.maxDescriptorHeapEmbeddedSamplers,
+                            capabilities.descriptor_heap_properties.maxPushDataSize);
     } else {
         deren::utility::log(" descriptor heap: not available (the heap is the only binding model this renderer has)");
     }
@@ -940,20 +940,20 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     // ---- Mesh shaders: independent of both of the above, so they report outside those blocks ----
     if (capabilities.mesh_shader_available) {
         deren::utility::log(" mesh shaders  : available (VK_EXT_mesh_shader, task shaders {})",
-                     capabilities.mesh_shader_features.taskShader == VK_TRUE ? "available" : "NOT available");
+                            capabilities.mesh_shader_features.taskShader == VK_TRUE ? "available" : "NOT available");
         deren::utility::log("   output      : {} vertices / {} primitives / {} components / {} B per workgroup, {} invocations max",
-                     capabilities.mesh_shader_properties.maxMeshOutputVertices,
-                     capabilities.mesh_shader_properties.maxMeshOutputPrimitives,
-                     capabilities.mesh_shader_properties.maxMeshOutputComponents,
-                     capabilities.mesh_shader_properties.maxMeshOutputMemorySize,
-                     capabilities.mesh_shader_properties.maxMeshWorkGroupInvocations);
+                            capabilities.mesh_shader_properties.maxMeshOutputVertices,
+                            capabilities.mesh_shader_properties.maxMeshOutputPrimitives,
+                            capabilities.mesh_shader_properties.maxMeshOutputComponents,
+                            capabilities.mesh_shader_properties.maxMeshOutputMemorySize,
+                            capabilities.mesh_shader_properties.maxMeshWorkGroupInvocations);
         deren::utility::log("   workgroup   : mesh {}x{}x{}, task {}x{}x{}",
-                     capabilities.mesh_shader_properties.maxMeshWorkGroupSize[0],
-                     capabilities.mesh_shader_properties.maxMeshWorkGroupSize[1],
-                     capabilities.mesh_shader_properties.maxMeshWorkGroupSize[2],
-                     capabilities.mesh_shader_properties.maxTaskWorkGroupSize[0],
-                     capabilities.mesh_shader_properties.maxTaskWorkGroupSize[1],
-                     capabilities.mesh_shader_properties.maxTaskWorkGroupSize[2]);
+                            capabilities.mesh_shader_properties.maxMeshWorkGroupSize[0],
+                            capabilities.mesh_shader_properties.maxMeshWorkGroupSize[1],
+                            capabilities.mesh_shader_properties.maxMeshWorkGroupSize[2],
+                            capabilities.mesh_shader_properties.maxTaskWorkGroupSize[0],
+                            capabilities.mesh_shader_properties.maxTaskWorkGroupSize[1],
+                            capabilities.mesh_shader_properties.maxTaskWorkGroupSize[2]);
     } else {
         deren::utility::log(" mesh shaders  : not available (geometry stays on the vertex stage)");
     }
@@ -1259,9 +1259,9 @@ VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow*
     // and this renderer sizes its whole frame from that number. The log makes which path ran a fact of
     // every run rather than something deduced from the platform.
     deren::utility::log("swapchain extent: surface currentExtent {}x{} ({})",
-                 capabilities.currentExtent.width,
-                 capabilities.currentExtent.height,
-                 capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() ? "the surface answers, the window is not consulted" : "unspecified - the window is consulted");
+                        capabilities.currentExtent.width,
+                        capabilities.currentExtent.height,
+                        capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() ? "the surface answers, the window is not consulted" : "unspecified - the window is consulted");
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
         return capabilities.currentExtent;
     }
@@ -1281,10 +1281,10 @@ VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow*
     // zero-sized image on a config that asks for 0.
     if (width <= 0 || height <= 0) {
         deren::utility::log("swapchain extent: the window reports a {}x{} framebuffer (surface extent unspecified), so the {}x{} the window was REQUESTED at is used instead",
-                     width,
-                     height,
-                     requested_width,
-                     requested_height);
+                            width,
+                            height,
+                            requested_width,
+                            requested_height);
         width = requested_width;
         height = requested_height;
     }

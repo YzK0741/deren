@@ -102,12 +102,12 @@ namespace {
     void test_write_binary_scalar_byte_order() {
         std::ostringstream out;
         CHECK(deren::utility::write_binary(out,
-                                    deren::utility::be(uint16_t{0x0102}),
-                                    deren::utility::le(uint16_t{0x0102}),
-                                    deren::utility::be(uint32_t{0x01020304}),
-                                    deren::utility::le(uint32_t{0x01020304}),
-                                    deren::utility::be(uint32_t{0xFFFFFFFE}), // a full-width value, no sign surprises
-                                    deren::utility::le(int32_t{-2}))
+                                           deren::utility::be(uint16_t{0x0102}),
+                                           deren::utility::le(uint16_t{0x0102}),
+                                           deren::utility::be(uint32_t{0x01020304}),
+                                           deren::utility::le(uint32_t{0x01020304}),
+                                           deren::utility::be(uint32_t{0xFFFFFFFE}), // a full-width value, no sign surprises
+                                           deren::utility::le(int32_t{-2}))
                   .has_value());
         std::string const bytes = out.str();
         std::string const expected = std::string("\x01\x02", 2) + std::string("\x02\x01", 2) +
@@ -136,12 +136,12 @@ namespace {
         std::span<uint8_t const> const empty = {};
 
         CHECK(deren::utility::write_binary(out,
-                                    std::string_view{"IHDR"}, // a fixed character sequence, no terminator
-                                    raw,
-                                    chunk,
-                                    deren::utility::le(words[0]),
-                                    std::span{words}.subspan(1, 1),
-                                    empty)
+                                           std::string_view{"IHDR"}, // a fixed character sequence, no terminator
+                                           raw,
+                                           chunk,
+                                           deren::utility::le(words[0]),
+                                           std::span{words}.subspan(1, 1),
+                                           empty)
                   .has_value());
         std::string expected = "IHDR";
         expected += std::string("\xDE\xAD\xBE\xEF", 4);

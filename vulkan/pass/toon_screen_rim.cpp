@@ -79,16 +79,16 @@ namespace deren::vulkan::pass {
         // the character-forward stage's overwrite, and the two are deliberately different passes for it.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_additive()};
         auto built = deren::vulkan::make_pipeline(context.device,
-                                           std::span<VkFormat const>(formats),
-                                           VK_FORMAT_UNDEFINED, // NO depth attachment: the depth is sampled, not tested
-                                           vertex_spirv,
-                                           fragment_spirv,
-                                           VK_SAMPLE_COUNT_1_BIT,
-                                           /*depth_test_enabled=*/false,
-                                           0.0f,
-                                           0.0f,
-                                           0.0f,
-                                           std::span<VkPipelineColorBlendAttachmentState const>(blends));
+                                                  std::span<VkFormat const>(formats),
+                                                  VK_FORMAT_UNDEFINED, // NO depth attachment: the depth is sampled, not tested
+                                                  vertex_spirv,
+                                                  fragment_spirv,
+                                                  VK_SAMPLE_COUNT_1_BIT,
+                                                  /*depth_test_enabled=*/false,
+                                                  0.0f,
+                                                  0.0f,
+                                                  0.0f,
+                                                  std::span<VkPipelineColorBlendAttachmentState const>(blends));
         if (!built) {
             deren::utility::log("toon screen rim disabled: {}", built.error());
             this->release_owned();

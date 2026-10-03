@@ -237,16 +237,16 @@ namespace deren::vulkan::shadow_fit {
 
         if (params.log_summary) {
             deren::utility::log("shadow cascades: {} over the view range [{:.2f}, {:.2f}] (splits {:.2f}/{:.2f}/{:.2f}), texel world sizes {:.4f}/{:.4f}/{:.4f}/{:.4f}",
-                         cascades,
-                         split_near,
-                         split_far,
-                         result.cascade_splits[0],
-                         result.cascade_splits[1],
-                         result.cascade_splits[2],
-                         result.cascade_texel_world[0],
-                         result.cascade_texel_world[1],
-                         result.cascade_texel_world[2],
-                         result.cascade_texel_world[3]);
+                                cascades,
+                                split_near,
+                                split_far,
+                                result.cascade_splits[0],
+                                result.cascade_splits[1],
+                                result.cascade_splits[2],
+                                result.cascade_texel_world[0],
+                                result.cascade_texel_world[1],
+                                result.cascade_texel_world[2],
+                                result.cascade_texel_world[3]);
         }
         return result;
     }

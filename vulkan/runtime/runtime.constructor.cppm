@@ -235,15 +235,15 @@ namespace deren::vulkan {
             return; // no mesh stage ran: a vertex-path session says nothing rather than reporting zeroes
         }
         deren::utility::log("mesh culling: {} meshlet workgroups, {} emitted their triangles, {} were culled ({}% of the workgroups emitted nothing), {} triangles from meshlets",
-                     workgroups,
-                     emitted,
-                     culled,
-                     workgroups == 0u ? 0u : (culled * 100u) / workgroups,
-                     triangles);
+                            workgroups,
+                            emitted,
+                            culled,
+                            workgroups == 0u ? 0u : (culled * 100u) / workgroups,
+                            triangles);
         deren::utility::log("mesh culling: {} workgroups of the NON-meshlet mesh path ran too, so this session's geometry cost {} workgroup launches either way - a compute pass that culled first would record {} fewer",
-                     mesh_workgroups,
-                     workgroups + mesh_workgroups,
-                     culled);
+                            mesh_workgroups,
+                            workgroups + mesh_workgroups,
+                            culled);
     }
 
     void runtime::init_scene_resources() {
@@ -349,10 +349,10 @@ namespace deren::vulkan {
                                                                                      static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * sizeof(material_record),
                                                                                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                 deren::utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
-                             written ? "written" : "NOT written",
-                             address,
-                             deren::vulkan::material_capacity,
-                             static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride);
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    deren::vulkan::material_capacity,
+                                    static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride);
             }
         }
 
@@ -557,11 +557,11 @@ namespace deren::vulkan {
                                                                                          std::as_bytes(std::span(neutral_colours)).size(),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                     deren::utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
-                                 written ? "written" : "NOT written",
-                                 address,
-                                 static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count),
-                                 deren::vulkan::material_capacity,
-                                 static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride);
+                                        written ? "written" : "NOT written",
+                                        address,
+                                        static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count),
+                                        deren::vulkan::material_capacity,
+                                        static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride);
                 }
             }
         }
@@ -599,10 +599,10 @@ namespace deren::vulkan {
                                                                                      static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
                                                                                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                 deren::utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
-                             written ? "written" : "NOT written",
-                             address,
-                             deren::vulkan::material_capacity,
-                             static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride);
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    deren::vulkan::material_capacity,
+                                    static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride);
             }
         }
 
@@ -629,10 +629,10 @@ namespace deren::vulkan {
                                                                                          static_cast<VkDeviceSize>(sizeof(deren::vulkan::toon_rig)),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                     deren::utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
-                                 written ? "written" : "NOT written",
-                                 address,
-                                 sizeof(deren::vulkan::toon_rig),
-                                 static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride);
+                                        written ? "written" : "NOT written",
+                                        address,
+                                        sizeof(deren::vulkan::toon_rig),
+                                        static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride);
                 }
             }
         }
@@ -662,11 +662,11 @@ namespace deren::vulkan {
                                                                                          static_cast<VkDeviceSize>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                     deren::utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
-                                 written ? "written" : "NOT written",
-                                 address,
-                                 deren::vulkan::meshlet_capacity,
-                                 sizeof(deren::vulkan::meshlet),
-                                 static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride);
+                                        written ? "written" : "NOT written",
+                                        address,
+                                        deren::vulkan::meshlet_capacity,
+                                        sizeof(deren::vulkan::meshlet),
+                                        static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride);
                 }
             }
         }
@@ -1479,7 +1479,7 @@ namespace deren::vulkan {
                 if (!this->texture_overflow_logged) {
                     this->texture_overflow_logged = true;
                     deren::utility::log("scene texture array capacity ({}) exceeded - extra textures render as white (element {})",
-                                 deren::vulkan::scene_texture_capacity, this->white_texture_index);
+                                        deren::vulkan::scene_texture_capacity, this->white_texture_index);
                 }
                 texture_indices[i] = this->white_texture_index; // white fallback, like an invalid texture
                 continue;
@@ -1556,9 +1556,9 @@ namespace deren::vulkan {
         // it is the step after this one.
         if (heap_texture_descriptors > 0) {
             deren::utility::log("descriptor heap: {} texture descriptors written ({} B each, {} KiB resource heap)",
-                         heap_texture_descriptors,
-                         this->vulkan_core.descriptor_heaps.limits().image_descriptor_size,
-                         this->vulkan_core.descriptor_heaps.resource_size() / 1024);
+                                heap_texture_descriptors,
+                                this->vulkan_core.descriptor_heaps.limits().image_descriptor_size,
+                                this->vulkan_core.descriptor_heaps.resource_size() / 1024);
         }
 
         // ---- 2. Append one material record: texture indices + presence flags; factors keep
@@ -1778,15 +1778,15 @@ namespace deren::vulkan {
         // and never wrote it" - which is exactly the failure step 1 recorded (the iris rendered a black ball while
         // the sidecar line said `ON`).
         deren::utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {}, goo matcap {}, goo base ramp {} of {} texture(s)",
-                     material_index,
-                     record.toon_family,
-                     toon_lanes_extra.x,
-                     toon_lanes_extra.y,
-                     toon_lanes_extra.z,
-                     toon_lanes_extra2.x,
-                     toon_lanes_extra2.y,
-                     toon_lanes_extra2.z,
-                     this->texture_array_views.size());
+                            material_index,
+                            record.toon_family,
+                            toon_lanes_extra.x,
+                            toon_lanes_extra.y,
+                            toon_lanes_extra.z,
+                            toon_lanes_extra2.x,
+                            toon_lanes_extra2.y,
+                            toon_lanes_extra2.z,
+                            this->texture_array_views.size());
         // ... AND THE SPECULAR STRENGTH, WHICH IS THE ONE LANE WHOSE "NOTHING STATED" IS A SENTINEL RATHER THAN
         // THE TABLE'S NEUTRAL (`-1`, see `toon_colour_lane::specular_strength`), so a log line is the only place
         // the difference between "the asset said 0.0" and "no source spoke" is visible at all: both reach the
@@ -1794,18 +1794,18 @@ namespace deren::vulkan {
         // material, because the value is per material and the interesting case is the one that DISAGREES with its
         // family - which is exactly the case a family table cannot show.
         deren::utility::log("toon: material {} -> specular strength {:.4f}{}",
-                     material_index,
-                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x),
-                     info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x < 0.0f ? "  <- no source stated `_Specular`: the family table's number stands" : "");
+                            material_index,
+                            static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x),
+                            info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x < 0.0f ? "  <- no source stated `_Specular`: the family table's number stands" : "");
         // ... AND THE PARALLAX DEPTH BESIDE IT, for the same reason one lane up and with one difference that makes
         // the line more useful rather than less: the stage's fallback for it is not a family number but its own
         // constant (`character_eye_parallax_depth`, 0.03), so `-1` here reads as "this material keeps the offset
         // the port had before the lane existed". That is the whole expected output for chen: a value on the three
         // materials whose `extras` state the row (0.03 iris / 0.5 brow / 0.5 cloth_01) and the sentinel on the rest.
         deren::utility::log("toon: material {} -> parallax depth {:.4f}{}",
-                     material_index,
-                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x),
-                     info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x < 0.0f ? "  <- no source stated `_ParallaxScale`: the stage's own constant stands" : "");
+                            material_index,
+                            static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x),
+                            info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x < 0.0f ? "  <- no source stated `_ParallaxScale`: the stage's own constant stands" : "");
         // ---- AND THE EMISSIVE LANE, WHICH THE TOON STAGE ADDS AND THEREFORE HAS TO BE ABLE TO TRUST ----
         //
         // `s.emissive` is `emissive_factor * the texture at emissive_index`, and index 0 is the WHITE FALLBACK
@@ -1815,14 +1815,14 @@ namespace deren::vulkan {
         // line: measured on `chars\chen_full2.glb`, where the cloth's near-black emissive map (mean 0.3/255)
         // resolved in one file and not in the other, the difference is 30% of the frame.
         deren::utility::log("toon: material {} -> emissive: index {} factor ({:.3f}, {:.3f}, {:.3f}){}",
-                     material_index,
-                     record.emissive_index,
-                     static_cast<double>(record.emissive_factor.x),
-                     static_cast<double>(record.emissive_factor.y),
-                     static_cast<double>(record.emissive_factor.z),
-                     record.emissive_index == 0u && (record.emissive_factor.x != 0.0f || record.emissive_factor.y != 0.0f || record.emissive_factor.z != 0.0f)
-                         ? "  <- FACTOR AGAINST THE WHITE FALLBACK: this material states emission but has no emissive map in the record"
-                         : "");
+                            material_index,
+                            record.emissive_index,
+                            static_cast<double>(record.emissive_factor.x),
+                            static_cast<double>(record.emissive_factor.y),
+                            static_cast<double>(record.emissive_factor.z),
+                            record.emissive_index == 0u && (record.emissive_factor.x != 0.0f || record.emissive_factor.y != 0.0f || record.emissive_factor.z != 0.0f)
+                                ? "  <- FACTOR AGAINST THE WHITE FALLBACK: this material states emission but has no emissive map in the record"
+                                : "");
         this->material_slot_cache.emplace(material_key, material_id{material_index});
         // THE TOON FAMILY, LOGGED WHEN IT IS NOT `none`, and this is the one place it can be logged once per
         // MATERIAL rather than once per primitive (the dedup above returns early for a shared record). A

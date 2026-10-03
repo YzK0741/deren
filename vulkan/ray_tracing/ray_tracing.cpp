@@ -613,9 +613,9 @@ namespace deren::vulkan::ray_tracing {
                                                 .pImageMemoryBarriers = nullptr};
                 vkCmdPipelineBarrier2(command_buffer, &after);
                 deren::utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
-                             this->micromap_resources.size(),
-                             micromap_triangles,
-                             skipped_micromaps);
+                                    this->micromap_resources.size(),
+                                    micromap_triangles,
+                                    skipped_micromaps);
             }
         }
 
@@ -631,11 +631,11 @@ namespace deren::vulkan::ray_tracing {
         acceleration_structure::build_stats const& stats = structures.last_stats();
         double const host_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         deren::utility::log("ray-traced shadows: built {} bottom level structures ({} triangles, {:.1f} MiB + {:.1f} MiB scratch) in {:.1f} ms",
-                     stats.geometry_count,
-                     stats.triangle_count,
-                     static_cast<double>(stats.structure_bytes) / (1024.0 * 1024.0),
-                     static_cast<double>(stats.scratch_bytes) / (1024.0 * 1024.0),
-                     host_ms);
+                            stats.geometry_count,
+                            stats.triangle_count,
+                            static_cast<double>(stats.structure_bytes) / (1024.0 * 1024.0),
+                            static_cast<double>(stats.scratch_bytes) / (1024.0 * 1024.0),
+                            host_ms);
         if (skipped_no_stride != 0) {
             deren::utility::log("  {} casters skipped (no vertex stride recorded - a primitive not created by make_primitive)", skipped_no_stride);
         }
@@ -759,8 +759,8 @@ namespace deren::vulkan::ray_tracing {
             // The class measured the host cost of the build itself (see build_stats); reporting that rather than a
             // second timer around it keeps one definition of "what the build costs".
             deren::utility::log("ray-traced shadows: {} instances in the top level structure, one instance table entry each ({:.3f} ms host per frame)",
-                         top.instance_count(frame_slot),
-                         top.last_stats().build_ms);
+                                top.instance_count(frame_slot),
+                                top.last_stats().build_ms);
         }
         return {};
     }

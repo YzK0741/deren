@@ -119,27 +119,27 @@ namespace deren::vulkan {
                 }
                 if (descriptors_fit && this->heap_grid_offset == grid_base_bytes) {
                     deren::utility::log("descriptor heap: slot grid at {} ({} slots x {} B; textures {} materials {} tlas {} camera {} light {} clusters {}/{} gbuffer {} env {} lut {})",
-                                 this->heap_grid_offset,
-                                 heap_slot_count,
-                                 heap_slot_stride,
-                                 heap_slots::textures - heap_slot_base,
-                                 heap_slots::materials - heap_slot_base,
-                                 heap_slots::tlas - heap_slot_base,
-                                 heap_slots::scene_camera - heap_slot_base,
-                                 heap_slots::scene_light - heap_slot_base,
-                                 heap_slots::cluster_counts - heap_slot_base,
-                                 heap_slots::cluster_indices - heap_slot_base,
-                                 heap_slots::gbuffer_albedo - heap_slot_base,
-                                 heap_slots::env_cube - heap_slot_base,
-                                 heap_slots::brdf_lut - heap_slot_base);
+                                        this->heap_grid_offset,
+                                        heap_slot_count,
+                                        heap_slot_stride,
+                                        heap_slots::textures - heap_slot_base,
+                                        heap_slots::materials - heap_slot_base,
+                                        heap_slots::tlas - heap_slot_base,
+                                        heap_slots::scene_camera - heap_slot_base,
+                                        heap_slots::scene_light - heap_slot_base,
+                                        heap_slots::cluster_counts - heap_slot_base,
+                                        heap_slots::cluster_indices - heap_slot_base,
+                                        heap_slots::gbuffer_albedo - heap_slot_base,
+                                        heap_slots::env_cube - heap_slot_base,
+                                        heap_slots::brdf_lut - heap_slot_base);
                 } else {
                     deren::utility::log("descriptor heap: NO slot grid (base {} B, expected {} B, descriptors {} {} {} B against the {} B stride), so the heap stays unused",
-                                 this->heap_grid_offset,
-                                 grid_base_bytes,
-                                 this->descriptor_heaps.limits().buffer_descriptor_size,
-                                 this->descriptor_heaps.limits().image_descriptor_size,
-                                 this->descriptor_heaps.limits().sampler_descriptor_size,
-                                 static_cast<uint64_t>(heap_slot_stride));
+                                        this->heap_grid_offset,
+                                        grid_base_bytes,
+                                        this->descriptor_heaps.limits().buffer_descriptor_size,
+                                        this->descriptor_heaps.limits().image_descriptor_size,
+                                        this->descriptor_heaps.limits().sampler_descriptor_size,
+                                        static_cast<uint64_t>(heap_slot_stride));
                     this->heap_grid_offset = VK_WHOLE_SIZE;
                 }
                 // THE LAYOUT, reserved once and published (see core.cppm): the runtime WRITES the contents, the
@@ -1494,8 +1494,8 @@ namespace deren::vulkan {
 
         if (this->timestamp_valid_bits == 0 || this->timestamp_period_ns <= 0.0f) {
             deren::utility::log("gpu timing: unavailable on this queue ({} valid bits, {} ns/tick) - pass timings are off",
-                         this->timestamp_valid_bits,
-                         static_cast<double>(this->timestamp_period_ns));
+                                this->timestamp_valid_bits,
+                                static_cast<double>(this->timestamp_period_ns));
             return;
         }
 
@@ -1507,9 +1507,9 @@ namespace deren::vulkan {
         }
         this->gpu_timing_supported = true;
         deren::utility::log("gpu timing: {} marks/frame available ({} ns/tick, {} valid bits)",
-                     gpu_timing_mark_capacity,
-                     static_cast<double>(this->timestamp_period_ns),
-                     this->timestamp_valid_bits);
+                            gpu_timing_mark_capacity,
+                            static_cast<double>(this->timestamp_period_ns),
+                            this->timestamp_valid_bits);
 
         register_cleanup([this] {
             if (this->timestamp_query_pool != VK_NULL_HANDLE) {

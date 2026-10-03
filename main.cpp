@@ -413,12 +413,12 @@ int main(int argc, char** argv) {
         double const texel_count = static_cast<double>(environment_width) * static_cast<double>(environment_height);
         double const luma_mean = texel_count > 0.0 ? luma_sum / texel_count : 0.0;
         deren::utility::log("environment: '{}' loaded as {}x{} RGBA float, linear luma mean {:.5f}; intensity {:.2f} (the reference package's own world_strength) scales it to {:.5f}",
-                     environment_path.string(),
-                     environment_width,
-                     environment_height,
-                     luma_mean,
-                     settings.lighting.environment_intensity,
-                     luma_mean * settings.lighting.environment_intensity);
+                            environment_path.string(),
+                            environment_width,
+                            environment_height,
+                            luma_mean,
+                            settings.lighting.environment_intensity,
+                            luma_mean * settings.lighting.environment_intensity);
         deren::utility::log("environment: the procedural sky's gradient and its baked sun are off for the IBL; the DIRECT light ([lighting] sun_direction) still drives the shadows, the shading and the visible disc");
     }
 
@@ -560,12 +560,12 @@ int main(int argc, char** argv) {
     float const area_light_scale = area_light_takes_over ? area_light.radiance : 1.0f;
     if (area_light.enabled) {
         deren::utility::log("area light: author origin [0.000, {:.3f}, 0.000], centre [{:.3f}, {:.3f}, {:.3f}] half {:.3f} m, "
-                     "axis [{:.3f}, {:.3f}, {:.3f}], radiance {:.5f}{}, penumbra {:.3f} m",
-                     scene_floor_y, area_light.world_centre[0], area_light.world_centre[1], area_light.world_centre[2],
-                     area_light.half, area_light.axis[0], area_light.axis[1], area_light.axis[2], area_light.radiance,
-                     area_light_takes_over ? " (TAKES OVER the main light: x sun_intensity, capped at 3.0 by set_sun_intensity)"
-                                           : " (penumbra only: the sun keeps its own direction and intensity)",
-                     area_light.penumbra);
+                            "axis [{:.3f}, {:.3f}, {:.3f}], radiance {:.5f}{}, penumbra {:.3f} m",
+                            scene_floor_y, area_light.world_centre[0], area_light.world_centre[1], area_light.world_centre[2],
+                            area_light.half, area_light.axis[0], area_light.axis[1], area_light.axis[2], area_light.radiance,
+                            area_light_takes_over ? " (TAKES OVER the main light: x sun_intensity, capped at 3.0 by set_sun_intensity)"
+                                                  : " (penumbra only: the sun keeps its own direction and intensity)",
+                            area_light.penumbra);
     }
 
     // Sink the model so it sits near the world horizon (y = 0) and move the camera target with it:
@@ -1072,8 +1072,8 @@ int main(int argc, char** argv) {
                                         : stbi_load_from_memory(fgd_file.data(), static_cast<int32_t>(fgd_file.size()), &fgd_width, &fgd_height, &fgd_channels, 4); // 4 = force RGBA8
         if (fgd_pixels == nullptr) {
             deren::utility::log("goo FGD LUT: NOT uploaded - '{}' is missing or not a readable PNG. The step-5 arm's FGD terms "
-                         "will read zero (see heap_slots_goo_fgd_lut); everything else is unaffected.",
-                         fgd_path.string());
+                                "will read zero (see heap_slots_goo_fgd_lut); everything else is unaffected.",
+                                fgd_path.string());
         } else {
             // THE BYTES ARE HANDED OVER VERBATIM AND THAT IS THE WHOLE POINT OF THE UPLOAD'S FORMAT: the
             // reference's image data-block is `colorspace = 'Non-Color'`, so Blender does not linearize it and the
@@ -1133,25 +1133,25 @@ int main(int argc, char** argv) {
             runtime.camera.distance = scene_radius * 2.75f;
         }
         deren::utility::log("initial camera: fit={} yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f} (scene radius {:.2f}, ground half-extent {:.2f} x {:.2f})",
-                     settings.render.camera_fit,
-                     glm::degrees(runtime.camera.yaw),
-                     glm::degrees(runtime.camera.pitch),
-                     runtime.camera.distance,
-                     scene_radius,
-                     half_extent.x,
-                     half_extent.z);
+                            settings.render.camera_fit,
+                            glm::degrees(runtime.camera.yaw),
+                            glm::degrees(runtime.camera.pitch),
+                            runtime.camera.distance,
+                            scene_radius,
+                            half_extent.x,
+                            half_extent.z);
     }
     // ONE place that turns the live pose into the six numbers the config and the command line take: the F12
     // screenshot prints it (so a bug report carries its own camera) and so does the exit below.
     auto const log_camera_pose = [&runtime](char const* const why) {
         deren::utility::log("camera pose ({}): {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}   -> [render] camera_pose = [...] or --capture-camera",
-                     why,
-                     glm::degrees(runtime.camera.yaw),
-                     glm::degrees(runtime.camera.pitch),
-                     runtime.camera.distance,
-                     runtime.camera.target.x,
-                     runtime.camera.target.y,
-                     runtime.camera.target.z);
+                            why,
+                            glm::degrees(runtime.camera.yaw),
+                            glm::degrees(runtime.camera.pitch),
+                            runtime.camera.distance,
+                            runtime.camera.target.x,
+                            runtime.camera.target.y,
+                            runtime.camera.target.z);
     };
 
     deren::gltf::scene_node_iterator const node_first = scenes->nodes_begin();
@@ -1994,11 +1994,11 @@ int main(int argc, char** argv) {
         rig.shadow_softness.x = settings.render.toon_shadow_softness;
         runtime.set_toon_rig(rig);
         deren::utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
-                     rig.day.x,
-                     rig.other_light.y,
-                     rig.other_light.x,
-                     rig.env.x,
-                     static_cast<int>(rig.shadow_softness.x));
+                            rig.day.x,
+                            rig.other_light.y,
+                            rig.other_light.x,
+                            rig.env.x,
+                            static_cast<int>(rig.shadow_softness.x));
     }
 
     deren::vulkan::scene_import_result const imported = runtime.import_scene(node_first, node_last, scene_first, scene_last, scene_import_shift);
@@ -2045,14 +2045,14 @@ int main(int argc, char** argv) {
         deren::gltf::drawable_iterator const background_scene_last;
         deren::vulkan::scene_import_result const background_imported = runtime.import_scene(background_node_first, background_node_last, background_scene_first, background_scene_last, background_shift, true);
         deren::utility::log("background: '{}' imported as the frame's static surround - {} primitives ({} new materials), own bounds y [{:.3f}, {:.3f}], offset ({:.3f}, {:.3f}, {:.3f}); the toon character stage and the shadow casters skip it",
-                     background_path.string(),
-                     background_imported.primitive_count,
-                     background_imported.material_count,
-                     background_bounds.min.y,
-                     background_bounds.max.y,
-                     background_shift.x,
-                     background_shift.y,
-                     background_shift.z);
+                            background_path.string(),
+                            background_imported.primitive_count,
+                            background_imported.material_count,
+                            background_bounds.min.y,
+                            background_bounds.max.y,
+                            background_shift.x,
+                            background_shift.y,
+                            background_shift.z);
     }
 
     // 12. Enable directional shadow mapping over the imported scene: the shadow frustum frames
@@ -2154,7 +2154,7 @@ int main(int argc, char** argv) {
             deren::vulkan::animation::mmd_retarget const retarget =
                 deren::vulkan::animation::build_mmd_retarget(*motion, joint_names);
             deren::utility::log("mmd motion '{}': {} bones, {} mapped onto this skeleton, {} unmapped", mmd_motion_path,
-                         motion->bones.size(), retarget.mapped, retarget.unmapped);
+                                motion->bones.size(), retarget.mapped, retarget.unmapped);
             for (std::size_t const bone : retarget.unresolved_bones) {
                 if (bone < 8) {
                     deren::utility::log("  unmapped: {}", deren::vulkan::animation::escape_mmd_name(motion->bones[bone].name));
@@ -2225,7 +2225,7 @@ int main(int argc, char** argv) {
                 }
             }
             deren::utility::log("mmd motion: baked clip '{}' - {} samplers, {} channels", converted.name,
-                         converted.samplers.size(), converted.channels.size());
+                                converted.samplers.size(), converted.channels.size());
             scenes->animations.push_back(std::move(converted));
         }
     }
@@ -2314,7 +2314,7 @@ int main(int argc, char** argv) {
         runtime.camera.pitch = std::asin(std::clamp(d.y, -1.0f, 1.0f));
         std::string_view const cam_name = ac.camera->name.empty() ? std::string_view("<unnamed>") : std::string_view(ac.camera->name);
         deren::utility::log("camera: starting pose from glTF camera '{}' ({}) - you can still orbit/zoom", cam_name,
-                     ac.camera->type == deren::gltf::camera_type::perspective ? "perspective" : "orthographic");
+                            ac.camera->type == deren::gltf::camera_type::perspective ? "perspective" : "orthographic");
     };
     if (!authored_cameras.empty()) {
         seed_orbit_from_camera(current_camera);
@@ -2433,11 +2433,11 @@ int main(int argc, char** argv) {
     }
     if (imported_lights > 0) {
         deren::utility::log("KHR_lights_punctual: {} point/spot light(s) loaded into the editable gui light slots (base pose; adjustable in the overlay)",
-                     imported_lights);
+                            imported_lights);
     }
     if (imported_directional > 0) {
         deren::utility::log("KHR_lights_punctual: {} directional light(s) ignored - the engine sun is enable_shadows()'s analytic light",
-                     imported_directional);
+                            imported_directional);
     }
     if (imported_truncated > 0) {
         deren::utility::log("KHR_lights_punctual: {} additional light(s) dropped (GPU punctual-light cap = {})", imported_truncated, deren::vulkan::max_punctual_lights);
@@ -2469,8 +2469,8 @@ int main(int argc, char** argv) {
             runtime.camera.target = *capture.target;
         }
         deren::utility::log("capture camera: yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f}, target ({:.2f}, {:.2f}, {:.2f})",
-                     (*capture.camera)[0], (*capture.camera)[1], (*capture.camera)[2],
-                     runtime.camera.target.x, runtime.camera.target.y, runtime.camera.target.z);
+                            (*capture.camera)[0], (*capture.camera)[1], (*capture.camera)[2],
+                            runtime.camera.target.x, runtime.camera.target.y, runtime.camera.target.z);
     }
     // The sweep's BASE pose is whatever the camera ended up as - the scene's own `camera_fit`, an authored
     // glTF camera, or the pinned `--capture-camera` above - so a sweep composes with all three instead of
@@ -2570,9 +2570,9 @@ int main(int argc, char** argv) {
                 if (!logged_head_probe) {
                     logged_head_probe = true;
                     deren::utility::log("head probe: bone forward row ({:.3f} {:.3f} {:.3f}) right row ({:.3f} {:.3f} {:.3f}) -> basis front ({:.3f} {:.3f} {:.3f}) from_skeleton {} center ({:.3f} {:.3f} {:.3f})",
-                                 forward_row.x, forward_row.y, forward_row.z, right_row.x, right_row.y, right_row.z,
-                                 basis.front.x, basis.front.y, basis.front.z, basis.from_skeleton,
-                                 head_center.x, head_center.y, head_center.z);
+                                        forward_row.x, forward_row.y, forward_row.z, right_row.x, right_row.y, right_row.z,
+                                        basis.front.x, basis.front.y, basis.front.z, basis.from_skeleton,
+                                        head_center.x, head_center.y, head_center.z);
                 }
             } else {
                 static bool logged_head_miss = false;
@@ -2757,12 +2757,12 @@ int main(int argc, char** argv) {
                                                        ? std::string_view("<no target in scene>")
                                                        : animation.get_debug_node_name();
                 deren::utility::log("  anim '{}': t={:.3f}s/{:.2f}s, '{}' at ({:.3f}, {:.3f}, {:.3f})",
-                             animation.active_name(), animation.current_time(), animation.loop_duration(), node_name,
-                             animation.get_debug_translation().x, animation.get_debug_translation().y, animation.get_debug_translation().z);
+                                    animation.active_name(), animation.current_time(), animation.loop_duration(), node_name,
+                                    animation.get_debug_translation().x, animation.get_debug_translation().y, animation.get_debug_translation().z);
             }
             if (animation.is_skin_debug_valid()) {
                 deren::utility::log("  skin '{}': last joint world x-axis ({:.3f}, {:.3f}, {:.3f})", animation.get_skin_debug_name(),
-                             animation.get_skin_debug_translation().x, animation.get_skin_debug_translation().y, animation.get_skin_debug_translation().z);
+                                    animation.get_skin_debug_translation().x, animation.get_skin_debug_translation().y, animation.get_skin_debug_translation().z);
             }
         }
     }

@@ -120,12 +120,12 @@ namespace deren::vulkan {
         uint32_t const readback = *static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData);
         uint32_t const material_readback = static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData)[1];
         deren::utility::log("descriptor heap: the heap-native probe sampled grid slot {} through sampler slot {} and read back 0x{:08x} (texture red 0x{:04x}, alpha 0x{:04x}); the material table's DEFAULT record read 0x{:04x} (its white base colour is 0xffff)",
-                     texture_slot,
-                     sampler_slot,
-                     readback,
-                     readback & 0xFFFFu,
-                     readback >> 16u,
-                     material_readback & 0xFFFFu);
+                            texture_slot,
+                            sampler_slot,
+                            readback,
+                            readback & 0xFFFFu,
+                            readback >> 16u,
+                            material_readback & 0xFFFFu);
 
         vkDestroyFence(vk.logical_device, fence, nullptr);
         vkDestroyCommandPool(vk.logical_device, pool, nullptr);
@@ -346,17 +346,17 @@ namespace deren::vulkan {
             pixel = static_cast<uint8_t const*>(readback_mapped);
         }
         deren::utility::log("descriptor heap: the heap-native {} probe rendered grid slot {} into a {}x{} target and read back rgba {},{},{},{} (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)",
-                     mesh_shader ? "MESH" : "GRAPHICS",
-                     material_slot,
-                     pipelines::heap_probe_extent,
-                     pipelines::heap_probe_extent,
-                     pixel[0],
-                     pixel[1],
-                     pixel[2],
-                     pixel[3]);
+                            mesh_shader ? "MESH" : "GRAPHICS",
+                            material_slot,
+                            pipelines::heap_probe_extent,
+                            pipelines::heap_probe_extent,
+                            pixel[0],
+                            pixel[1],
+                            pixel[2],
+                            pixel[3]);
         deren::utility::log("descriptor heap: the heap-native {} probe read that pixel back through the {}",
-                     mesh_shader ? "MESH" : "GRAPHICS",
-                     use_host_copy ? "HOST IMAGE COPY (no staging buffer, no copy command)" : "staging buffer (vkCmdCopyImageToBuffer)");
+                            mesh_shader ? "MESH" : "GRAPHICS",
+                            use_host_copy ? "HOST IMAGE COPY (no staging buffer, no copy command)" : "staging buffer (vkCmdCopyImageToBuffer)");
 
         vkDestroyFence(vk.logical_device, fence, nullptr);
         vkDestroyCommandPool(vk.logical_device, pool, nullptr);

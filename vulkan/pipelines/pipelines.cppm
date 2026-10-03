@@ -788,17 +788,17 @@ namespace deren::vulkan::pipelines {
         // (it removes acne on surfaces angled away from the light, in units of depth per depth-unit of slope - the
         // numbers are the pass's and the caller's, not this builder's).
         auto result = deren::vulkan::make_pipeline(device,
-                                            VK_FORMAT_UNDEFINED,
-                                            depth_format,
-                                            vertex_shader_code,
-                                            fragment_shader_code,
-                                            VK_SAMPLE_COUNT_1_BIT,
-                                            true,  // depth test + write
-                                            false, // no color attachment
-                                            depth_bias_constant_factor,
-                                            depth_bias_slope_factor,
-                                            depth_bias_clamp,
-                                            first_stage);
+                                                   VK_FORMAT_UNDEFINED,
+                                                   depth_format,
+                                                   vertex_shader_code,
+                                                   fragment_shader_code,
+                                                   VK_SAMPLE_COUNT_1_BIT,
+                                                   true,  // depth test + write
+                                                   false, // no color attachment
+                                                   depth_bias_constant_factor,
+                                                   depth_bias_slope_factor,
+                                                   depth_bias_clamp,
+                                                   first_stage);
         if (!result) {
             return fail(std::string(result.error()));
         }

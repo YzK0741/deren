@@ -525,7 +525,7 @@ namespace {
                     // skip the others with a warning instead of drawing garbage.
                     if (primitive.type != fastgltf::PrimitiveType::Triangles) {
                         deren::utility::log("gltf: skipping primitive {} of mesh '{}': mode {} is not supported (only TRIANGLES render)",
-                                     prim_index, mesh_name, static_cast<int32_t>(primitive.type));
+                                            prim_index, mesh_name, static_cast<int32_t>(primitive.type));
                         ++prim_index;
                         continue;
                     }
@@ -2192,8 +2192,8 @@ namespace deren::gltf {
 
         deren::utility::log("scene loaded: {} textures, {} materials, {} primitives", scenes.textures.size(), scenes.materials.size(), bounds.primitive_count);
         deren::utility::log("scene bounds (aabb): min ({:.3f}, {:.3f}, {:.3f}), max ({:.3f}, {:.3f}, {:.3f}), center ({:.3f}, {:.3f}, {:.3f}), radius {:.3f}",
-                     bounds.min.x, bounds.min.y, bounds.min.z, bounds.max.x, bounds.max.y, bounds.max.z,
-                     scene_center.x, scene_center.y, scene_center.z, scene_radius);
+                            bounds.min.x, bounds.min.y, bounds.min.z, bounds.max.x, bounds.max.y, bounds.max.z,
+                            scene_center.x, scene_center.y, scene_center.z, scene_radius);
 
         // Scene hierarchy summary: report the retained tree shape (roots / total nodes / max
         // depth / mesh-bearing nodes) for diagnostics. Walks the retained tree through
@@ -2217,8 +2217,8 @@ namespace deren::gltf {
                                                  has_mesh ? " [mesh]" : ""));
             }
             deren::utility::log("scene hierarchy: {} roots, {} nodes total ({} with meshes), max depth {}",
-                         !scenes.scene.empty() ? scenes.scene.front().root_indices.size() : 0,
-                         total_nodes, mesh_nodes, max_depth);
+                                !scenes.scene.empty() ? scenes.scene.front().root_indices.size() : 0,
+                                total_nodes, mesh_nodes, max_depth);
             for (std::string const& line : tree_lines) {
                 deren::utility::log("  {}", line);
             }

@@ -399,13 +399,13 @@ namespace deren::vulkan {
         }
 
         deren::utility::log("SUCCESS: descriptor heap created (resource {} KiB at 0x{:x}, sampler {} KiB at 0x{:x}; strides buffer {} B, image {} B, sampler {} B)",
-                     this->resource_heap_size / 1024,
-                     this->resource_heap_address,
-                     this->sampler_heap_size / 1024,
-                     this->sampler_heap_address,
-                     limits.buffer_descriptor_size,
-                     limits.image_descriptor_size,
-                     limits.sampler_descriptor_size);
+                            this->resource_heap_size / 1024,
+                            this->resource_heap_address,
+                            this->sampler_heap_size / 1024,
+                            this->sampler_heap_address,
+                            limits.buffer_descriptor_size,
+                            limits.image_descriptor_size,
+                            limits.sampler_descriptor_size);
         return true;
     }
 

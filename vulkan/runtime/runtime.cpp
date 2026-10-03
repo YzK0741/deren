@@ -272,8 +272,8 @@ namespace deren::vulkan {
         // here instead of only as a mislabeled report.
         if (this->vulkan_core.gpu_timing_marks[slot] != static_cast<uint32_t>(mark)) {
             deren::utility::log("runtime: GPU timing marks recorded out of order (mark {} at index {}) - the pass report is mislabeled",
-                         static_cast<uint32_t>(mark),
-                         this->vulkan_core.gpu_timing_marks[slot]);
+                                static_cast<uint32_t>(mark),
+                                this->vulkan_core.gpu_timing_marks[slot]);
             return;
         }
         this->vulkan_core.mark_gpu_timing(command_buffer, slot, stage);
@@ -404,17 +404,17 @@ namespace deren::vulkan {
         std::optional<vk_pipeline> mesh_result = std::nullopt;
         {
             auto built = deren::vulkan::make_pipeline(this->vulkan_core.logical_device,
-                                               std::span<VkFormat const>(color_formats),
-                                               this->vulkan_core.depth_attachment_format,
-                                               mesh_vertex_shader_code,
-                                               fragment_shader_code,
-                                               VK_SAMPLE_COUNT_1_BIT,
-                                               /*depth_test_enabled=*/true,
-                                               0.0f,
-                                               0.0f,
-                                               0.0f,
-                                               std::span<VkPipelineColorBlendAttachmentState const>(blend_attachments),
-                                               VK_SHADER_STAGE_MESH_BIT_EXT);
+                                                      std::span<VkFormat const>(color_formats),
+                                                      this->vulkan_core.depth_attachment_format,
+                                                      mesh_vertex_shader_code,
+                                                      fragment_shader_code,
+                                                      VK_SAMPLE_COUNT_1_BIT,
+                                                      /*depth_test_enabled=*/true,
+                                                      0.0f,
+                                                      0.0f,
+                                                      0.0f,
+                                                      std::span<VkPipelineColorBlendAttachmentState const>(blend_attachments),
+                                                      VK_SHADER_STAGE_MESH_BIT_EXT);
             if (built) {
                 // the two cached values every named pipeline needs (begin_pipeline re-emits them, and
                 // update_pass_geometry resyncs every registered pipeline once per frame)
@@ -433,17 +433,17 @@ namespace deren::vulkan {
             // like the mesh form - it IS a mesh stage - and a refusal leaves the mesh form as the answer, which is
             // why this is a third entry rather than a replacement.
             auto built = deren::vulkan::make_pipeline(this->vulkan_core.logical_device,
-                                               std::span<VkFormat const>(color_formats),
-                                               this->vulkan_core.depth_attachment_format,
-                                               meshlet_shader_code,
-                                               fragment_shader_code,
-                                               VK_SAMPLE_COUNT_1_BIT,
-                                               /*depth_test_enabled=*/true,
-                                               0.0f,
-                                               0.0f,
-                                               0.0f,
-                                               std::span<VkPipelineColorBlendAttachmentState const>(blend_attachments),
-                                               VK_SHADER_STAGE_MESH_BIT_EXT);
+                                                      std::span<VkFormat const>(color_formats),
+                                                      this->vulkan_core.depth_attachment_format,
+                                                      meshlet_shader_code,
+                                                      fragment_shader_code,
+                                                      VK_SAMPLE_COUNT_1_BIT,
+                                                      /*depth_test_enabled=*/true,
+                                                      0.0f,
+                                                      0.0f,
+                                                      0.0f,
+                                                      std::span<VkPipelineColorBlendAttachmentState const>(blend_attachments),
+                                                      VK_SHADER_STAGE_MESH_BIT_EXT);
             if (built) {
                 built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
                 built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
@@ -793,12 +793,12 @@ namespace deren::vulkan {
         // from the log alone. `on` means the pipeline exists and the feature CAN run; whether it is
         // currently switched on is the overlay's and the config's business.
         deren::utility::log("features: gbuffer-debug={} megalights={} taa={} fxaa={} shadow={} clustered-lights={}",
-                     this->feature_available("gbuffer-debug") ? "on" : "UNAVAILABLE",
-                     this->feature_available("megalights") ? "on" : "UNAVAILABLE",
-                     this->feature_available("taa") ? "on" : "UNAVAILABLE",
-                     this->feature_available("fxaa") ? "on" : "UNAVAILABLE",
-                     this->feature_available("shadow") ? "on" : "UNAVAILABLE",
-                     this->feature_available("clustered") ? "on" : "UNAVAILABLE");
+                            this->feature_available("gbuffer-debug") ? "on" : "UNAVAILABLE",
+                            this->feature_available("megalights") ? "on" : "UNAVAILABLE",
+                            this->feature_available("taa") ? "on" : "UNAVAILABLE",
+                            this->feature_available("fxaa") ? "on" : "UNAVAILABLE",
+                            this->feature_available("shadow") ? "on" : "UNAVAILABLE",
+                            this->feature_available("clustered") ? "on" : "UNAVAILABLE");
         if ((!this->gbuffer_pipeline_mesh.has_value() && !this->gbuffer_pipeline_meshlet.has_value()) || !this->pass_ready("deferred")) {
             deren::utility::log("features: the G-buffer pass or its lighting stage was not created, so NO SCENE IS DRAWN this session (see the startup log's 'deferred lighting disabled' line)");
         }
@@ -1105,7 +1105,7 @@ namespace deren::vulkan {
         this->light_state.shadow_enabled = this->shadow_enabled ? 1.0f : 0.0f;
         this->shadows_enabled = true;
         deren::utility::log("shadow mapping enabled: light frustum center ({:.2f}, {:.2f}, {:.2f}), radius {:.2f}",
-                     scene_center.x, scene_center.y, scene_center.z, scene_radius);
+                            scene_center.x, scene_center.y, scene_center.z, scene_radius);
     }
 
     void runtime::set_rt_shadows(bool const enabled) noexcept {
@@ -1275,9 +1275,9 @@ namespace deren::vulkan {
             if (!self->mesh_indirect_route_logged) {
                 self->mesh_indirect_route_logged = true;
                 deren::utility::log("mesh indirect: entry point {}, table {}, mapped {} - the meshlet dispatches go through the DIRECT call",
-                             vk.mesh_dispatch_indirect != nullptr ? "resolved" : "MISSING",
-                             self->mesh_indirect_table != VK_NULL_HANDLE ? "bound" : "missing",
-                             self->mesh_indirect_mapped != nullptr ? "yes" : "no");
+                                    vk.mesh_dispatch_indirect != nullptr ? "resolved" : "MISSING",
+                                    self->mesh_indirect_table != VK_NULL_HANDLE ? "bound" : "missing",
+                                    self->mesh_indirect_mapped != nullptr ? "yes" : "no");
             }
             return direct();
         }
@@ -1700,9 +1700,9 @@ namespace deren::vulkan {
         if (!records_sound && !this->meshlet_records_unsound_logged) {
             this->meshlet_records_unsound_logged = true;
             deren::utility::log("meshlet records: a primitive with {} indices produced a meshlet outside its window or over the "
-                         "{} index budget - a mesh stage would ask the device for invalid output (the splitter's invariants are tested in tests/test_meshlet.cpp)",
-                         info.index_count,
-                         deren::vulkan::meshlet_max_indices);
+                                "{} index budget - a mesh stage would ask the device for invalid output (the splitter's invariants are tested in tests/test_meshlet.cpp)",
+                                info.index_count,
+                                deren::vulkan::meshlet_max_indices);
         }
 
         if (info.vertex_count > 0 && info.vertex_stride >= sizeof(glm::vec3) && !info.vertex_data.empty()) {

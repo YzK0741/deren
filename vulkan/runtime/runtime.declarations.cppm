@@ -3845,9 +3845,9 @@ namespace deren::vulkan {
             // many primitives contributed them. Logged once per import, where the whole scene's numbers exist.
             if (this->meshlet_total != 0u) {
                 deren::utility::log("meshlets: {} over {} primitives ({} triangles each at most, object-space spheres)",
-                             this->meshlet_total,
-                             this->meshlet_primitives,
-                             deren::vulkan::meshlet_max_triangles);
+                                    this->meshlet_total,
+                                    this->meshlet_primitives,
+                                    deren::vulkan::meshlet_max_triangles);
             }
             return result;
         }

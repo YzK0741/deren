@@ -14,7 +14,7 @@ module;
 module deren.vulkan.primitive;
 
 import deren.utility; // DIAGNOSTIC only (see normal_draw_primitive::draw): this app is a GUI-subsystem binary, so
-                // stdout/stderr go nowhere and every traceable line has to come through deren::utility::log.
+                      // stdout/stderr go nowhere and every traceable line has to come through deren::utility::log.
 
 namespace deren::vulkan {
     namespace {

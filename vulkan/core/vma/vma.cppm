@@ -1441,29 +1441,29 @@ namespace deren::vulkan {
         VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
         vmaGetHeapBudgets(this->allocator, budgets);
         deren::utility::log("vma: {} allocations in {} blocks | requested {:.1f} MB | blocks {:.1f} MB",
-                     totals.total.statistics.allocationCount,
-                     totals.total.statistics.blockCount,
-                     static_cast<double>(totals.total.statistics.allocationBytes) / (1024.0 * 1024.0),
-                     static_cast<double>(totals.total.statistics.blockBytes) / (1024.0 * 1024.0));
+                            totals.total.statistics.allocationCount,
+                            totals.total.statistics.blockCount,
+                            static_cast<double>(totals.total.statistics.allocationBytes) / (1024.0 * 1024.0),
+                            static_cast<double>(totals.total.statistics.blockBytes) / (1024.0 * 1024.0));
         for (uint32_t type = 0; type < VK_MAX_MEMORY_TYPES; ++type) {
             if (totals.memoryType[type].statistics.blockCount == 0) {
                 continue;
             }
             deren::utility::log("vma:   memory type {}: {} allocations, requested {:.1f} MB, blocks {:.1f} MB",
-                         type,
-                         totals.memoryType[type].statistics.allocationCount,
-                         static_cast<double>(totals.memoryType[type].statistics.allocationBytes) / (1024.0 * 1024.0),
-                         static_cast<double>(totals.memoryType[type].statistics.blockBytes) / (1024.0 * 1024.0));
+                                type,
+                                totals.memoryType[type].statistics.allocationCount,
+                                static_cast<double>(totals.memoryType[type].statistics.allocationBytes) / (1024.0 * 1024.0),
+                                static_cast<double>(totals.memoryType[type].statistics.blockBytes) / (1024.0 * 1024.0));
         }
         for (uint32_t heap = 0; heap < VK_MAX_MEMORY_HEAPS; ++heap) {
             if (budgets[heap].budget == 0) {
                 continue;
             }
             deren::utility::log("vma:   heap {}: usage {:.1f} MB of budget {:.1f} MB ({:.1f} MB of blocks)",
-                         heap,
-                         static_cast<double>(budgets[heap].usage) / (1024.0 * 1024.0),
-                         static_cast<double>(budgets[heap].budget) / (1024.0 * 1024.0),
-                         static_cast<double>(budgets[heap].statistics.blockBytes) / (1024.0 * 1024.0));
+                                heap,
+                                static_cast<double>(budgets[heap].usage) / (1024.0 * 1024.0),
+                                static_cast<double>(budgets[heap].budget) / (1024.0 * 1024.0),
+                                static_cast<double>(budgets[heap].statistics.blockBytes) / (1024.0 * 1024.0));
         }
     }
 

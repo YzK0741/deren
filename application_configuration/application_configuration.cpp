@@ -542,8 +542,8 @@ namespace deren::app_config {
                 deren::utility::log("app_config: toon_shadow_softness is not a number (nan), using 0 (0 = shipped 3x3 PCF)");
             } else if (clamped != requested) {
                 deren::utility::log("app_config: toon_shadow_softness {} -> {} (0 = shipped 3x3 PCF, 1..4 = wider soft kernels)",
-                             requested,
-                             clamped);
+                                    requested,
+                                    clamped);
             }
             settings.render.toon_shadow_softness = clamped;
         }
@@ -686,8 +686,8 @@ namespace deren::app_config {
             // There is no honest direction to hand the sun, so the area light stays off: a zero light_ubo pair
             // is the only answer that cannot invent a frame.
             deren::utility::log("app_config: area light at [{}, {}, {}] with target [{}, {}, {}] has no usable direction, ignoring it",
-                         lighting.area_light_position[0], lighting.area_light_position[1], lighting.area_light_position[2],
-                         lighting.area_light_target[0], lighting.area_light_target[1], lighting.area_light_target[2]);
+                                lighting.area_light_position[0], lighting.area_light_position[1], lighting.area_light_position[2],
+                                lighting.area_light_target[0], lighting.area_light_target[1], lighting.area_light_target[2]);
             return derived;
         }
 

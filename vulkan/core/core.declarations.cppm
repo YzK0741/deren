@@ -731,15 +731,15 @@ namespace deren::vulkan {
             /** @brief the transforms of the previous frame, kept for motion vectors and TAA reprojection */
             static constexpr uint32_t previous_transforms = heap_slot_base + 524u; // binding 13, per frame slot
             /** @brief the skinned joint matrices for this frame, written by the skinning pass */
-            static constexpr uint32_t skin_matrices = heap_slot_base + 526u;       // binding 9, per frame slot
-            static constexpr uint32_t morph_data = heap_slot_base + 528u;          // binding 10, per frame slot
-            static constexpr uint32_t mask_instances = heap_slot_base + 530u;      // binding 17, per frame slot
-            static constexpr uint32_t env_cube = heap_slot_base + 532u;            // binding 2
-            static constexpr uint32_t irradiance_cube = heap_slot_base + 533u;     // binding 3
-            static constexpr uint32_t brdf_lut = heap_slot_base + 534u;            // binding 4
-            static constexpr uint32_t shadow_map = heap_slot_base + 535u;          // binding 8, per image
+            static constexpr uint32_t skin_matrices = heap_slot_base + 526u;   // binding 9, per frame slot
+            static constexpr uint32_t morph_data = heap_slot_base + 528u;      // binding 10, per frame slot
+            static constexpr uint32_t mask_instances = heap_slot_base + 530u;  // binding 17, per frame slot
+            static constexpr uint32_t env_cube = heap_slot_base + 532u;        // binding 2
+            static constexpr uint32_t irradiance_cube = heap_slot_base + 533u; // binding 3
+            static constexpr uint32_t brdf_lut = heap_slot_base + 534u;        // binding 4
+            static constexpr uint32_t shadow_map = heap_slot_base + 535u;      // binding 8, per image
             /** @brief the ray-traced visibility image, sampled by the lighting stage */
-            static constexpr uint32_t rt_visibility = heap_slot_base + 543u;       // binding 15, per image
+            static constexpr uint32_t rt_visibility = heap_slot_base + 543u; // binding 15, per image
             /**
              * @brief the SAME image as @ref rt_visibility, as a STORAGE descriptor instead of a sampled one
              *

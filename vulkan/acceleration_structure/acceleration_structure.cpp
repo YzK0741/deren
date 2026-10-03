@@ -65,7 +65,7 @@ namespace deren::vulkan::acceleration_structure {
         , functions(std::make_unique<entry_points>()) {
         if (!this->functions->load(device.logical_device)) {
             deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
-                         "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
+                                "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
         }
     }
 
@@ -356,7 +356,7 @@ namespace deren::vulkan::acceleration_structure {
         , slots(frame_slot_count) {
         if (!this->functions->load(device.logical_device)) {
             deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
-                         "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
+                                "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
         }
     }
 
