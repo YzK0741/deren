@@ -1,5 +1,5 @@
 // Headless unit tests: deren.utility.dynamic_link (RHI plan v4 §7.4) and the promise
-// contract it carries (the module deren.rhi.promise, §3.3 - §3.5, §4.1 - §4.2) =======
+// contract it carries (the module deren.promise.rhi, §3.3 - §3.5, §4.1 - §4.2) =======
 //
 // The loader is the primitive the backend boundary is built on, so what is checked here is the
 // contract rather than an implementation detail: a file that is not there is a returned error and
@@ -24,16 +24,16 @@
 #include <system_error>
 #include <utility>
 
-import deren.rhi.promise;
+import deren.promise.rhi;
 import deren.utility.dynamic_link;
 
-// After the imports it needs: the header names deren::rhi::promise types (see its own note).
+// After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../boundary/backend_entry.hpp"
 
 namespace {
 
     namespace fs = std::filesystem;
-    namespace promise = deren::rhi::promise;
+    namespace rhi = deren::promise::rhi;
 
     // From CMake ($<TARGET_FILE_NAME:probe_backend>): the DLL suffix is platform-dependent, so the
     // test does not hard-code it.
@@ -41,8 +41,8 @@ namespace {
     constexpr std::string_view missing_file_name = "deren_probe_backend_that_does_not_exist.dll";
     constexpr std::string_view unload_probe_file_name = "deren_probe_backend_unload_probe.dll";
 
-    using make_core_fn = promise::api_core* (*)(std::uint32_t, promise::error*);
-    using destroy_core_fn = void (*)(promise::api_core*);
+    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::error*);
+    using destroy_core_fn = void (*)(rhi::api_core*);
 
     /** @brief a resolved C symbol: void const* to function pointer, constness dropped on purpose */
     template <typename function>
@@ -61,24 +61,24 @@ namespace {
         // The ABI number is part of the contract, not an implementation detail: pin the value the
         // plan measured (§10.3) so a silent renumbering is a test failure and not a mystery at a
         // customer's machine.
-        CHECK(promise::abi_version == 1u);
-        CHECK(static_cast<std::uint32_t>(promise::error::ok) == 0u);
-        CHECK(static_cast<std::uint32_t>(promise::error::abi_mismatch) == 7u);
+        CHECK(rhi::abi_version == 1u);
+        CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
+        CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
         // A mismatched ABI is refused before any object exists, and it is reported through the out
         // parameter - a null `api_core` plus a code, never a crash and never an exception.
-        promise::error mismatch_error = promise::error::ok;
-        CHECK(make_core(promise::abi_version + 1u, &mismatch_error) == nullptr);
-        CHECK_MSG(mismatch_error == promise::error::abi_mismatch, which_half);
+        rhi::error mismatch_error = rhi::error::ok;
+        CHECK(make_core(rhi::abi_version + 1u, &mismatch_error) == nullptr);
+        CHECK_MSG(mismatch_error == rhi::error::abi_mismatch, which_half);
         // ... and a caller that passes no out parameter is still not crashed into (the backend has
         // to tolerate the null: the engine passes one, a probe or a script may not).
-        CHECK(make_core(promise::abi_version + 1u, nullptr) == nullptr);
+        CHECK(make_core(rhi::abi_version + 1u, nullptr) == nullptr);
 
         // The matching call hands out a live object and says so in the out parameter. The sentinel
         // is not `ok`, so a backend that never wrote it fails the check below.
-        promise::error make_error = promise::error::abi_mismatch;
-        std::shared_ptr<promise::api_core> core{make_core(promise::abi_version, &make_error), destroy_core};
-        CHECK_MSG(make_error == promise::error::ok, which_half);
+        rhi::error make_error = rhi::error::abi_mismatch;
+        std::shared_ptr<rhi::api_core> core{make_core(rhi::abi_version, &make_error), destroy_core};
+        CHECK_MSG(make_error == rhi::error::ok, which_half);
         CHECK(core != nullptr);
         if (core == nullptr) {
             return;
@@ -89,7 +89,7 @@ namespace {
         // handle does not hand the object out twice.
         CHECK(core.use_count() == 1);
         {
-            std::shared_ptr<promise::api_core> const borrowed = core;
+            std::shared_ptr<rhi::api_core> const borrowed = core;
             CHECK(core.use_count() == 2);
         }
         CHECK(core.use_count() == 1);
@@ -98,46 +98,46 @@ namespace {
         // The probe announces exactly two abilities. What matters here is the shape of the answer:
         // a bit set (not an ordered enum), no bit outside the known set, and every announced
         // ability reachable through `query_extension()` with the kind it claims.
-        promise::ability_bits const abilities = core->abilities();
-        CHECK_MSG(abilities == (promise::to_bits(promise::extension_kind::device_address) |
-                                promise::to_bits(promise::extension_kind::descriptor_heap)),
+        rhi::ability_bits const abilities = core->abilities();
+        CHECK_MSG(abilities == (rhi::to_bits(rhi::extension_kind::device_address) |
+                                rhi::to_bits(rhi::extension_kind::descriptor_heap)),
                   which_half);
-        CHECK((abilities & ~promise::all_abilities()) == promise::no_abilities);
-        CHECK(promise::has_ability(abilities, promise::extension_kind::device_address));
-        CHECK(promise::has_ability(abilities, promise::extension_kind::descriptor_heap));
-        CHECK(!promise::has_ability(abilities, promise::extension_kind::mesh_shader));
-        CHECK(!promise::has_ability(abilities, promise::extension_kind::ray_tracing));
-        CHECK(!promise::has_ability(abilities, promise::extension_kind::host_image_copy));
+        CHECK((abilities & ~rhi::all_abilities()) == rhi::no_abilities);
+        CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));
+        CHECK(rhi::has_ability(abilities, rhi::extension_kind::descriptor_heap));
+        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::mesh_shader));
+        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::ray_tracing));
+        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::host_image_copy));
 
-        promise::extension* const address_ability = core->query_extension(promise::extension_kind::device_address);
+        rhi::extension* const address_ability = core->query_extension(rhi::extension_kind::device_address);
         CHECK(address_ability != nullptr);
         if (address_ability != nullptr) {
-            CHECK(address_ability->kind() == promise::extension_kind::device_address);
+            CHECK(address_ability->kind() == rhi::extension_kind::device_address);
         }
-        promise::extension* const heap_ability = core->query_extension(promise::extension_kind::descriptor_heap);
+        rhi::extension* const heap_ability = core->query_extension(rhi::extension_kind::descriptor_heap);
         CHECK(heap_ability != nullptr);
         if (heap_ability != nullptr) {
-            CHECK(heap_ability->kind() == promise::extension_kind::descriptor_heap);
+            CHECK(heap_ability->kind() == rhi::extension_kind::descriptor_heap);
         }
         // "Named failure, no silent downgrade" (plan §1.9, §3.6): an ability the backend did not
         // announce answers null rather than a stub that quietly does nothing.
-        CHECK(core->query_extension(promise::extension_kind::mesh_shader) == nullptr);
-        CHECK(core->query_extension(promise::extension_kind::ray_tracing) == nullptr);
-        CHECK(core->query_extension(promise::extension_kind::host_image_copy) == nullptr);
+        CHECK(core->query_extension(rhi::extension_kind::mesh_shader) == nullptr);
+        CHECK(core->query_extension(rhi::extension_kind::ray_tracing) == nullptr);
+        CHECK(core->query_extension(rhi::extension_kind::host_image_copy) == nullptr);
 
         // ---- tier-1: a factory, and a virtual call that comes back out of the backend ---------
         // The descriptor is a POD that crosses the boundary by value; the answer is a polymorphic
         // handle the caller can only see through the base. The other factories take descriptors
         // that are still forward-declared, so they cannot even be called yet (S1 defines them) -
         // which is exactly what "the shape can be reviewed before the shapes it carries" means.
-        promise::buffer* const buffer = core->create_buffer(promise::buffer_desc{.size = 64u});
+        rhi::buffer* const buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
         CHECK(buffer != nullptr);
         if (buffer != nullptr) {
             CHECK(buffer->size() == 64u);
             if (address_ability != nullptr) {
                 // -fno-rtti: the caller knows what it asked for, so the downcast is a static_cast
-                // and not a dynamic_cast (rhi/promise/promise.extension.cppm says the same).
-                auto* const address = static_cast<promise::device_address*>(address_ability);
+                // and not a dynamic_cast (promise/rhi/rhi.extension.cppm says the same).
+                auto* const address = static_cast<rhi::device_address*>(address_ability);
                 // The answer depends on the size the descriptor carried, so this is a real round
                 // trip: the descriptor went in, the virtual call came back out, and the arithmetic
                 // the probe documents (0x1000 + size + offset) held on the way.
@@ -151,10 +151,10 @@ namespace {
         // frame counter starts at a non-zero value in the probe so that a result which was never
         // written by the backend cannot pass for one that was.
         CHECK(core->begin_commands() == nullptr);
-        promise::submit_info const first = core->frame_begin();
+        rhi::submit_info const first = core->frame_begin();
         CHECK(first.frame_index == 7u);
         CHECK(first.image_index == 3u);
-        promise::submit_info const second = core->frame_begin();
+        rhi::submit_info const second = core->frame_begin();
         CHECK(second.frame_index == 8u);
         CHECK(second.image_index == 3u);
         core->present();
@@ -164,9 +164,9 @@ namespace {
         // still leaves the actual delete to `destroy_core` (the resolved symbol).
         int32_t destroy_calls = 0;
         {
-            std::shared_ptr<promise::api_core> scoped{
-                make_core(promise::abi_version, nullptr),
-                [&destroy_calls, destroy_core](promise::api_core* raw) {
+            std::shared_ptr<rhi::api_core> scoped{
+                make_core(rhi::abi_version, nullptr),
+                [&destroy_calls, destroy_core](rhi::api_core* raw) {
                     ++destroy_calls;
                     destroy_core(raw);
                 }};
@@ -213,7 +213,7 @@ namespace {
         CHECK(!loaded->symbol("").has_value());
         if (version.has_value()) {
             auto const abi_version = as_function<std::uint32_t (*)()>(version.value());
-            CHECK(abi_version() == promise::abi_version);
+            CHECK(abi_version() == rhi::abi_version);
             CHECK(abi_version() == deren_abi_version()); // the DLL and the static half agree
         }
 
@@ -240,7 +240,7 @@ namespace {
         auto const moved_version = moved.symbol("deren_abi_version");
         CHECK(moved_version.has_value());
         if (moved_version.has_value()) {
-            CHECK(as_function<std::uint32_t (*)()>(moved_version.value())() == promise::abi_version);
+            CHECK(as_function<std::uint32_t (*)()>(moved_version.value())() == rhi::abi_version);
         }
     }
 
@@ -273,9 +273,9 @@ namespace {
     void test_the_static_half_behaves_the_same() {
         // No library is involved here: abi_export.hpp's static branch produces ordinary C symbols,
         // and the same contract is reached through the linker. `deren_make_api_core` and friends
-        // are the declarations from rhi/promise/promise.api_core.cppm - this test no longer spells the C ABI
+        // are the declarations from promise/rhi/rhi.api_core.cppm - this test no longer spells the C ABI
         // out by hand, so a drift between the header and the backend is a link error.
-        CHECK(deren_abi_version() == promise::abi_version);
+        CHECK(deren_abi_version() == rhi::abi_version);
         check_core_contract(&deren_make_api_core, &deren_destroy_api_core, "static");
     }
 } // namespace

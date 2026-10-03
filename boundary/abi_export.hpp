@@ -59,9 +59,9 @@
  *
  * The C ABI is deliberately tiny: a version number, a factory whose ownership transfer is spelled
  * out by the deleter it returns, and that deleter (see `boundary/backend_entry.hpp`). Everything
- * else the engine and the backend share is a virtual base class in `deren.rhi.promise`, compiled by
+ * else the engine and the backend share is a virtual base class in `deren.promise.rhi`, compiled by
  * both sides independently, so no C++ type is passed by value and no symbol other than these three
- * is exchanged. It is a group of its own rather than part of `deren.rhi.promise` because an entry point
+ * is exchanged. It is a group of its own rather than part of `deren.promise.rhi` because an entry point
  * is not a virtual base class (m03159).
  */
 

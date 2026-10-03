@@ -1,12 +1,12 @@
 // -*- C++ -*-
 // ============================================================================
-// module: deren.rhi.promise:extension
+// module: deren.promise.rhi:extension
 //
 // tier-2 of the promise contract: the abilities a backend may or may not have
 // beyond the portable tier-1 surface (RHI plan v4, §1.8, §1.9, §1.11, §3.4, §3.5).
 //
 // The split is the plan's answer to "should the base class keep DX12 in mind?":
-// `promise::api_core` carries only what DX12 also has, and everything a backend
+// `rhi::api_core` carries only what DX12 also has, and everything a backend
 // may lack lives here, announced as one bit in `api_core::abilities()`. Nothing an
 // ability does may be needed by the portable path: a pass that needs one declares
 // it with `required_capabilities()`, and a backend that does not have it is a
@@ -37,18 +37,18 @@ module;
 #include <cstdint>
 #include <span>
 
-export module deren.rhi.promise:extension;
+export module deren.promise.rhi:extension;
 
 import :contract;
 
 /**
- * @file rhi/promise/promise.extension.cppm
+ * @file promise/rhi/rhi.extension.cppm
  * @brief tier-2 of the promise contract: the abilities a backend may or may not have.
  * @ingroup promise
  *
  * DX12 does not have every capability Vulkan reaches through an extension (and a GL backend has
  * fewer still), so "the base class keeps DX12 in mind" cannot mean "the base class has everything"
- * (§1.5). What DX12 also has stays in `deren::rhi::promise::api_core`; the rest is declared here, one
+ * (§1.5). What DX12 also has stays in `deren::promise::rhi::api_core`; the rest is declared here, one
  * class per ability, and announced as one bit in `api_core::abilities()`.
  *
  * The five abilities below are the compile-time face of plan §3.5's model. The run-time face - a
@@ -57,10 +57,10 @@ import :contract;
  * check exactly that pairing.
  */
 
-export namespace deren::rhi::promise {
+export namespace deren::promise::rhi {
 
     // The tier-1 objects the abilities below take by reference. They are declared by
-    // rhi/promise/promise.api_core.cppm: an ability is a tier-2 view of the same backend, so it
+    // promise/rhi/rhi.api_core.cppm: an ability is a tier-2 view of the same backend, so it
     // speaks about the same objects.
     struct buffer;
     struct command_list;
@@ -190,4 +190,4 @@ export namespace deren::rhi::promise {
                                                          image_copy_region const& region) noexcept = 0;
     };
 
-} // namespace deren::rhi::promise
+} // namespace deren::promise::rhi
