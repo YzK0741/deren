@@ -38,7 +38,7 @@ if(VR_GLM_INCLUDE_DIR)
     target_include_directories(glm_headers SYSTEM INTERFACE "${VR_GLM_INCLUDE_DIR}")
     add_library(glm::glm ALIAS glm_headers)
     # ...AND at directory scope, because not every target that includes <glm/...> links glm::glm:
-    # `utility` (BVH) and `gltf_loader` both include it while linking only each other, and under clang
+    # `deren.utility` (BVH) and `deren.gltf_loader` both include it while linking only each other, and under clang
     # that worked purely because glm lived on the compiler's implicit include path. Measured on MSVC
     # without this line: three C1083s - utility/BVH/bvh.cppm(3), gltf_loader/gltf_loader.cppm(18),
     # gltf_loader/gltf_loader.cpp(6). This call is inside the VR_GLM_INCLUDE_DIR branch on purpose: when
@@ -168,11 +168,11 @@ else()
     )
 endif()
 
-# The project's STL module is `vstd`, and there are two dialects of it - the toolchain picks:
+# The project's STL module is `deren.vstd`, and there are two dialects of it - the toolchain picks:
 #
 #   clang64 (the shipped build): vstd/vstd.cppm - modified from libc++'s (LLVM) generated
 #     std-module output and trimmed to the headers the project uses (see vstd/README.md).
-#   MSVC: vstd/vstd_msvc.cppm - `export module vstd; export import std;`, i.e. the MSVC
+#   MSVC: vstd/vstd_msvc.cppm - `export module deren.vstd; export import std;`, i.e. the MSVC
 #     toolchain's own std module re-exported under the project's module name.
 #
 # The MSVC dialect exists because of a compiler bug, measured on this tree rather than guessed:
@@ -225,7 +225,7 @@ target_sources(utility
         utility/thread_pool/thread_pool.cppm
         # The loader the RHI boundary is built on (plan_rhi_v4.md 7.4): the only place in the tree that
         # asks the platform for a library. It is a module of its own rather than a `utility:` partition
-        # because a partition cannot be imported by another target's module without dragging `utility`
+        # because a partition cannot be imported by another target's module without dragging `deren.utility`
         # in, and the boundary rule is that ONE module owns the platform load path. It declares the
         # platform entry points itself (no <windows.h>, no <dlfcn.h> in a module's global fragment),
         # which is what keeps its importers platform-agnostic.
@@ -278,7 +278,7 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # The engine core library (vulkancorekit): Vulkan object management + math + the runtime
 # facade + scene tree + the debug GUI + the format-neutral animation controller
 # (vulkan.animation: plays keyframe clips / skins / morphs onto the runtime scene; it never
-# imports a loader - gltf::scenes satisfies its structural source concept at the call site).
+# imports a loader - deren::gltf::scenes satisfies its structural source concept at the call site).
 # This library does NOT depend on gltf_loader (pure CPU, used by the demo layer only).
 add_library(vulkancorekit STATIC)
 
@@ -404,7 +404,7 @@ target_sources(gltf_loader
 # block by CALLING BACK with a `simdjson::dom::object*` (see its `ExtrasParseCallback`), so the loader's own
 # translation unit has to know that type - and `simdjson.h` is upstream code whose warnings this project does
 # not own, exactly like the vendored libraries above. PRIVATE, because nothing that CONSUMES gltf_loader ever
-# sees a simdjson type: the extras are copied out into `gltf::material`'s own maps before `load_model` returns.
+# sees a simdjson type: the extras are copied out into `deren::gltf::material`'s own maps before `load_model` returns.
 target_include_directories(gltf_loader
     SYSTEM PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader
@@ -472,7 +472,7 @@ target_link_libraries(imgui
 )
 
 # xxHash (vendored under third_party/xxhash, see the LICENSE there): non-cryptographic
-# content hashing (XXH3_128bits) used by utility::xxh3_128bits for image/texture dedup.
+# content hashing (XXH3_128bits) used by deren::utility::xxh3_128bits for image/texture dedup.
 # Compiled as its own plain-C target, mirroring the imgui policy above (vendored
 # code does not follow the project's -Werror set). The utility module links it.
 add_library(xxhash STATIC
@@ -533,7 +533,7 @@ target_link_libraries(gltf_loader
 
 # gltf_loader is deliberately absent here: the engine core is loader-agnostic (see the
 # library comment above). The executable links gltf_loader itself (main.cpp is its only
-# consumer) and passes the parsed gltf::scenes down to the runtime at the call site.
+# consumer) and passes the parsed deren::gltf::scenes down to the runtime at the call site.
 target_link_libraries(vulkancorekit
         Vulkan::Vulkan
         glfw
@@ -561,7 +561,7 @@ add_executable(deren main.cpp)
 # still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
 set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Release>:ON>)
 
-# utility.cpp implements the xxHash-based hash functions (utility::xxh3_128bits) on top of
+# utility.cpp implements the xxHash-based hash functions (deren::utility::xxh3_128bits) on top of
 # the vendored xxhash library, so the dependency is declared here, on the library that
 # actually uses the XXH3_128bits symbol. It propagates to consumers (vulkancorekit / gltf_loader
 # / deren) at link time, so the executable does not need to link xxhash itself.
@@ -587,7 +587,7 @@ target_link_libraries(app_config
 # (analyse_config: config-file + argv merge, shaders/model location) and shader-loading /
 # pipeline helpers, kept out of main.cpp. Split like the other modules: chores.cppm
 # (export import std pattern) declares, chores.cpp implements. Demo/application layer only -
-# these helpers know about app_config (settings), the runtime (vulkan.runtime) and utility
+# these helpers know about app_config (settings), the runtime (deren.vulkan.runtime) and utility
 # log/panic, never about glTF.
 add_library(chores STATIC)
 
@@ -704,14 +704,14 @@ if(VR_BUILD_TESTS)
     # node graph) and checks the SOURCES' TEXT for the five places a new toon lane has to be spelled - the lane
     # enum, the upload format table, the sidecar slot/flag names, the colour-row name and the two neutral tables.
     # None of those is a compiler-checkable contract: a missing one reads another material's data rather than
-    # failing (see `vulkan::toon_colour_lane`'s note on the dedup key). It reads those files, so it needs the
+    # failing (see `deren::vulkan::toon_colour_lane`'s note on the dedup key). It reads those files, so it needs the
     # source root and no library at all - like test_meshlet, it must run in CI, where there is no device.
     target_compile_definitions(test_goo_toon_math PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_docs parses the WRITTEN artifacts the manual and CI are built from - Doxyfile's INPUT, the
     # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
     # the source root and no library at all (see the test's header for the invariants).
     target_compile_definitions(test_docs PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # vulkan.meshlet is pure CPU alongside vulkan.math: the split's coverage/bounds/determinism checks need no
+    # deren.vulkan.meshlet is pure CPU alongside vulkan.math: the split's coverage/bounds/determinism checks need no
     # device, which is the only way they can run in CI (the capture gate's references are machine-specific).
     target_link_libraries(test_meshlet
             vulkancorekit
@@ -727,28 +727,28 @@ if(VR_BUILD_TESTS)
             glm::glm
             vstd_lib
     )
-    # vulkan.math lives in vulkancorekit; the module itself is pure CPU (see math.cppm), the
+    # deren.vulkan.math lives in vulkancorekit; the module itself is pure CPU (see math.cppm), the
     # link chain just rides the library's PUBLIC dependencies (Vulkan/glfw are not pulled in
     # unless the math code actually references them).
     target_link_libraries(test_math
             vulkancorekit
             vstd_lib
     )
-    # vulkan.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
+    # deren.vulkan.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
     # for - usage is a subset of the schema, kind and access fit, a pass's own bindings are contiguous, a pool
     # count is derivable - are checkable WITHOUT a device, which is the only way they can be checked in CI.
     target_link_libraries(test_render_resources
             vulkancorekit
             vstd_lib
     )
-    # vulkan.pass is the framework: its base class and behaviour kinds name Vulkan handle types but never call
+    # deren.vulkan.pass is the framework: its base class and behaviour kinds name Vulkan handle types but never call
     # Vulkan, so its contract - resolve, apply the behaviour, record, mark, recreate - is testable with a fake
     # host and no device at all.
     target_link_libraries(test_pass
             vulkancorekit
             vstd_lib
     )
-    # vulkan.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
+    # deren.vulkan.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
     # pure functions, so nothing Vulkan is pulled in.
     target_link_libraries(test_animation
             vulkancorekit
@@ -768,8 +768,8 @@ if(VR_BUILD_TESTS)
             gltf_loader
             vstd_lib
     )
-    # vulkan.shadow_fit is pure CPU arithmetic (no Vulkan object is touched), and the module lives in
-    # vulkancorekit next to vulkan.math; the link chain brings Vulkan/glfw in, which the tests do not
+    # deren.vulkan.shadow_fit is pure CPU arithmetic (no Vulkan object is touched), and the module lives in
+    # vulkancorekit next to deren.vulkan.math; the link chain brings Vulkan/glfw in, which the tests do not
     # use. This is the first test of the shadow system, which had none: the fit had no device
     # dependency, it just lived where nothing could reach it.
     target_link_libraries(test_shadow_fit
@@ -958,7 +958,7 @@ endif()
 
 # The platform halves of utility live in plain (non-module) TUs so that <windows.h> stays out of a
 # module's global module fragment - including it there made libc++'s operator new ambiguous in every
-# TU that imported `utility`. One file per platform facility; the module side only sees their C
+# TU that imported `deren.utility`. One file per platform facility; the module side only sees their C
 # entry points (see utility/platform_sleep.cpp, platform_path.cpp and platform_dialog.cpp).
 target_sources(utility PRIVATE
         utility/platform_sleep.cpp

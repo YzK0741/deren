@@ -91,7 +91,7 @@ three VUIDs and none of them is about this bit), but "not forbidden by a VUID" i
 this presentation engine, on this image", and the probe path proves the mechanism without betting a working feature
 on an unverified one. The screenshot therefore records `vkCmdCopyImageToBuffer` into the readback staging buffer
 exactly as before, and the module's doc comment ("this module knows nothing about IMAGES") stays TRUE: the host copy
-was NOT added to `vulkan.readback`, it is a capability of `core` and a call site in the probe. A future change that
+was NOT added to `deren.vulkan.readback`, it is a capability of `core` and a call site in the probe. A future change that
 finds the swapchain bit supported on real hardware should convert it and delete this paragraph, not this decision.
 
 ## Evidence

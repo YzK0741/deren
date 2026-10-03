@@ -20,7 +20,7 @@
 #   - readability-uppercase-literal-suffix    : 字面量后缀大小写纯风格偏好
 #   - readability-implicit-bool-conversion    : Vulkan 代码习惯（指针/句柄判空）
 #   - readability-math-missing-parentheses    : 数学表达式括号风格
-#   - clang-analyzer-optin.performance.Padding : 已评估（clang-tidy 22, 2026-09）：vulkan::runtime
+#   - clang-analyzer-optin.performance.Padding : 已评估（clang-tidy 22, 2026-09）：deren::vulkan::runtime
 #     有 78 个 padding 字节（最优 14），但它是进程单例——重排上百个字段最多省 ~64B/实例，
 #     却会拆散按功能分组的注释、产生巨大 diff。收益 < 搅动成本，永久排除。
 #   - readability-function-cognitive-complexity / readability-function-size :

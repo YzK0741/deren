@@ -189,8 +189,8 @@ jobs:
       # would need: the binary is never run here, so compiling and linking it under the sanitizers
       # would cost minutes to produce an artifact nobody executes.
       #
-      # glfw is not optional here, which is not obvious from "headless tests". vulkan.math,
-      # vulkan.animation and vulkan.shadow_fit all live in vulkancorekit, whose PUBLIC link interface
+      # glfw is not optional here, which is not obvious from "headless tests". deren.vulkan.math,
+      # deren.vulkan.animation and deren.vulkan.shadow_fit all live in vulkancorekit, whose PUBLIC link interface
       # carries imgui - so building test_math / test_animation / test_shadow_fit compiles
       # imgui_impl_glfw.cpp and a missing GLFW/glfw3.h fails the build before any test runs (measured:
       # that is what turned this job red, not a sanitizer finding).

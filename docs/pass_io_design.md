@@ -55,11 +55,11 @@ Three ideas, and everything else follows from them.
 ## 3. Naming
 
 The repository's conventions, which this follows: module names are flat peers under `vulkan.`, the namespace
-mirrors the module's suffix (`namespace vulkan::bindings`), types are `snake_case`, a builder's result carries
+mirrors the module's suffix (`namespace deren::vulkan::bindings`), types are `snake_case`, a builder's result carries
 `_owned`, and capacities/constants are lower_snake_case.
 
-    module            vulkan.render_resource               (doxygen: @defgroup vulkan_render_resource)
-    namespace         vulkan::render_resource
+    module            deren.vulkan.render_resource               (doxygen: @defgroup vulkan_render_resource)
+    namespace         deren::vulkan::render_resource
     files             vulkan/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
 
 | name | kind | what it is | why this name |
@@ -72,7 +72,7 @@ mirrors the module's suffix (`namespace vulkan::bindings`), types are `snake_cas
 | `binding_kind` | `enum class : uint8_t` | `sampled_image` / `storage_image` / `sampler` / `uniform_buffer` / `storage_buffer` / `input_attachment` | 1:1 with `VkDescriptorType`; named after the Vulkan concept rather than "read/write" because the DESCRIPTOR is what the layout is built from |
 | `binding_access` | `enum class : uint8_t` | `read` / `write` / `read_write` | the access is NOT derivable from the descriptor type (the spatial filter only READS its `gi_input` storage image), and it is what a later barrier stage keys on |
 | `sampler_hint` | `enum class : uint8_t` | `gbuffer` / `taa` / `post` / `nearest` / `shadow` | this renderer creates FIVE samplers today (`gbuffer_sampler`, `taa_sampler`, `post_sampler`, `post_nearest_sampler`, `shadow_sampler`) and which one a binding gets is currently a ternary; naming the choices makes it a field |
-| `pass_binding` | `struct` | `{ uint32_t set; uint32_t binding; binding_kind kind; resource_id resource; uint16_t element; uint16_t descriptor_count; binding_access access; sampler_hint sampler; VkShaderStageFlags stages; }` | **the heart**: one binding, one use. `binding` alone would collide with the `vulkan.bindings` module, hence the `pass_` prefix |
+| `pass_binding` | `struct` | `{ uint32_t set; uint32_t binding; binding_kind kind; resource_id resource; uint16_t element; uint16_t descriptor_count; binding_access access; sampler_hint sampler; VkShaderStageFlags stages; }` | **the heart**: one binding, one use. `binding` alone would collide with the `deren.vulkan.bindings` module, hence the `pass_` prefix |
 | `image_layout` | **REMOVED** | was `sampled` (SHADER_READ_ONLY_OPTIMAL) / `general` / `color_attachment` (COLOR_ATTACHMENT_OPTIMAL) | REMOVED WITH `VK_KHR_unified_image_layouts`: every image this renderer owns is in GENERAL now, so a declaration has no layout left to state and the validator's "a storage image must declare GENERAL" rule has nothing to check. It had been ADDED after the first conversion because the layout was NOT derivable from the kind (the probe cache kept all nine of its own bindings in GENERAL, so a descriptor claiming SHADER_READ for one of them was a lie validation rejects). The history is kept here for one reason: it is why step 4 below no longer takes a layout as input at all |
 | `render_target` | `struct` | `{ resource_id resource; uint16_t element; }` | an image a pass RENDERS INTO. Not a binding, and the distinction is not cosmetic: a binding is a descriptor, the layout generator walks that list, and a colour attachment has no `VkDescriptorType` at all - it is bound by `vkCmdBeginRendering`. The load op and clear value are deliberately NOT declared: the pass that renders into the image is the one that opens the rendering instance, so it is the one that says whether the old contents matter |
 | `push_block` | `struct` | `{ uint32_t offset; uint32_t size; VkShaderStageFlags stages; }` | the second push range already exists in this codebase (`scene_cascade_push_offset/size`), so the shape is not hypothetical |
@@ -81,10 +81,10 @@ mirrors the module's suffix (`namespace vulkan::bindings`), types are `snake_cas
 | `set_pool_requirements` | function | per-`VkDescriptorType` counts for one set | the number that had to equal the layout by hand and did not once |
 | `write_set` | function | `expected<void, std::string> write_set(VkDevice, pass_io const&, uint32_t set, VkDescriptorSet, span<VkImageView const>, span<VkBuffer const>, sampler_set const&)` | replaces the parallel arrays and ternaries in `ensure_*_descriptors` |
 | `resource_views` | `struct` | the owner hands in the actual `VkImageView`/`VkBuffer` per `resource_id` for one (image_index, slot) | the one thing that must stay with the resource's owner; it is why this layer needs no `runtime&` |
-| `validate` | function | `expected<void, std::string> validate(pass_io const&, spirv_reflection const&)` | checks the declaration against what the SHADER actually declares, using the existing `vulkan.core.pipeline:spirv_parser` |
+| `validate` | function | `expected<void, std::string> validate(pass_io const&, spirv_reflection const&)` | checks the declaration against what the SHADER actually declares, using the existing `deren.vulkan.core.pipeline:spirv_parser` |
 
 Names considered and rejected: `vulkan.graph` (implies order derivation, which is a later stage and not what
-this module is), `vulkan.descriptors` / `vulkan.sets` (the repository already has `vulkan.bindings`, which owns
+this module is), `vulkan.descriptors` / `vulkan.sets` (the repository already has `deren.vulkan.bindings`, which owns
 set OWNERSHIP and pool lifetime; this module owns DECLARATION), `vulkan.resources` (it owns no resources),
 `vulkan.passes` (reads like pass implementations, which is what it is meant to keep out).
 
@@ -131,7 +131,7 @@ lives in `runtime.cpp`, its declaration lives in a small unit of its own next to
 `vulkan/pass_io/probe_io.cppm` exporting `gi_probe_io`, the probe cache's 9 bindings and its push block); when
 that pass is later extracted into `vulkan.gi_probe` (the first extraction in `docs/runtime_split.md`), the
 declaration moves with it and the runtime only passes the `resource_views` in. The resource list itself
-(`resource_id` + `resource_info`) belongs to `vulkan.core`, because `core` is the only place the complete image
+(`resource_id` + `resource_info`) belongs to `deren.vulkan.core`, because `core` is the only place the complete image
 list exists - and that is the same reason its create/destroy loops can later be driven from it.
 
 ## 6. Migration order and the cases that shape the design
@@ -178,7 +178,7 @@ Failure modes to refuse in advance:
 AT CREATE TIME, once per device generation: the device; the shaders' SPIR-V; for each declared set, a
 `VkDescriptorSetLayout` (the pass's own generated from its declaration, the shared ones borrowed from their
 owners); a `VkPipelineLayout` from those plus the declared push range; the pipelines themselves; for a graphics
-pass the colour/depth formats and blend state; a descriptor family (the pool lives in `vulkan.bindings`, not in
+pass the colour/depth formats and blend state; a descriptor family (the pool lives in `deren.vulkan.bindings`, not in
 a pass); and one of the renderer's six samplers per sampled binding.
 
 EVERY FRAME: the command buffer, the pass's own `VkDescriptorSet`, the shared sets it declared usage of, one
@@ -186,7 +186,7 @@ EVERY FRAME: the command buffer, the pass's own `VkDescriptorSet`, the shared se
 
 AND DELIBERATELY NOT: instance, physical device, surface, swapchain, queue, fence, semaphore, command pool,
 `VkRenderPass`/`VkFramebuffer` (this renderer uses dynamic rendering), and `VmaAllocator` - a pass allocates
-nothing, because `vulkan.core` is the single allocator of images. A pass that wanted a `VmaAllocator` would be
+nothing, because `deren.vulkan.core` is the single allocator of images. A pass that wanted a `VmaAllocator` would be
 taking over an image family, which is a resource-layer change and must be argued separately.
 
 THREE DECISIONS, taken while the interface was being written and recorded because each one closes a gap that
@@ -199,14 +199,14 @@ was open in the first draft of this document:
 * **the command buffer is handed out per frame, at recording time, and never stored.** That is what lets a pass
   hold no device state between frames - and it closes the first draft's hard gap, in which a pass had nothing to
   record into at all.
-* **pipelines are referenced by NAME for now**, and this costs nothing new: `vulkan.runtime` already keys its
+* **pipelines are referenced by NAME for now**, and this costs nothing new: `deren.vulkan.runtime` already keys its
   pipelines by name (`make_pipeline` / `set_default_pipeline` / `get_pipeline`), so a pass names what it records
   with and the host resolves those names into `resolved_io::pipelines`, in order. The 840 lines of
-  `vulkan.pipelines` stay where they are, with the pipeline layouts still built there.
+  `deren.vulkan.pipelines` stay where they are, with the pipeline layouts still built there.
 * **handles stay with their owner, and the SHARED ones get a nested module.** The rule is the schema's own
   scopes applied to ownership: a pass's private family belongs to that pass, anything the frame loop alone
   touches stays in the frame loop, and a handle more than one consumer needs and none owns goes to
-  `vulkan.render_resource.shared` - nested, because this layer must stay pure CPU (section 1) while
+  `deren.vulkan.render_resource.shared` - nested, because this layer must stay pure CPU (section 1) while
   `VkSampler` is not. The six samplers are its first tenant: a declaration names a `sampler_hint` and never a
   `VkSampler`, so a pass cannot pick the wrong filter, and `bindings::write_set` resolves the hint against a
   `sampler_set` the runtime fills once. Shared IMAGE and BUFFER handles are deliberately absent until a
@@ -250,10 +250,10 @@ one thing this layer exists to prevent.
 
 ## 9. Status
 
-    description module (vulkan.render_resource)   DONE: the schema, the usage records, the validators,
+    description module (deren.vulkan.render_resource)   DONE: the schema, the usage records, the validators,
                                                         the pool counts, and one real declaration (the probe
                                                         cache); pure CPU, so ctest covers its invariants
-    framework module (vulkan.pass)                DONE: behaviour vocabulary, resolved_io, the base class,
+    framework module (deren.vulkan.pass)                DONE: behaviour vocabulary, resolved_io, the base class,
                                                         the two interfaces (above), stage, and the three
                                                         runner functions. What only a real pass could
                                                         discover, added in two rounds: the generation's
@@ -277,13 +277,13 @@ one thing this layer exists to prevent.
                                                         `behaviour_kind::graphics`/`instanced` (a draw into a
                                                         stage-opened instance) still say out loud that they are not
                                                         driven
-    shared handles (vulkan.render_resource.shared) DONE for the samplers, which is the first tenant: the probe
+    shared handles (deren.vulkan.render_resource.shared) DONE for the samplers, which is the first tenant: the probe
                                                         cache's writes now CHOOSE one through its declaration
                                                         (`sampler_hint`) instead of naming a `VkSampler`, and
                                                         `bindings` no longer defines a second `sampler_set` of
                                                         its own; the shared image/buffer handles follow a
                                                         consumer, not this table
-    the second consumer: vulkan.pass.taa           DONE, and it is the temporal resolve - the first GRAPHICS
+    the second consumer: deren.vulkan.pass.taa           DONE, and it is the temporal resolve - the first GRAPHICS
                                                         pass, and the one that proves the other half of the
                                                         shape: a declared render target, its own rendering
                                                         instance (the load op is the pass's), the runner's
@@ -334,7 +334,7 @@ one thing this layer exists to prevent.
                                                         own outcome, and `runtime::register_shader` +
                                                         `runtime::create_passes` are the app's two calls:
                                                         the app owns the FILE, the pass owns the PIPELINE.
-                                                        WHAT IT DISCOVERED is in `vulkan.pass` itself (the
+                                                        WHAT IT DISCOVERED is in `deren.vulkan.pass` itself (the
                                                         create-time host, the generation's image count, the
                                                         layout and the host-composed push, non-const record,
                                                         and an image handle next to the view) and in section

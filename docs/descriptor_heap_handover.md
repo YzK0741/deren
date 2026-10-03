@@ -72,8 +72,8 @@ resolve the source, per frame, per swapchain image:
 `post_color` is 639 and the bloom chain is 647/655/663/671 - stride 8, those are the
 `core::heap_slots` / `heap_slots.glsl` constants.
 
-**Why this is not a two-line fix.** A pass may not import `vulkan.core`: no pass does today (they import
-`vulkan.core.handles` and `vulkan.render_resource`, and the split is deliberate - the grid is the
+**Why this is not a two-line fix.** A pass may not import `deren.vulkan.core`: no pass does today (they import
+`deren.vulkan.core.handles` and `deren.vulkan.render_resource`, and the split is deliberate - the grid is the
 renderer's, and a pass that knows it could take over an image family). So the pass cannot name 639. The
 host must hand the slot over, exactly as it hands over `shared_set_layout`, `shared_pipeline_layout` and
 `push_block`: a callback on `pass_context`/`pass_host` that answers "what is the post chain's source

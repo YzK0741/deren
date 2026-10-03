@@ -189,7 +189,7 @@ build, so it is written down: the TLAS this renderer uses is built by **`ray_tra
 `acceleration_structure` module's `top_level_structure` also creates a top level structure with
 `create.size = sizes.accelerationStructureSize`, and that is the module the first version of this note pointed at;
 pointing there made the write compile against a class the runtime does not own (the error names the type:
-`no member named 'structure_size' in 'vulkan::ray_tracing::structure_set'`).
+`no member named 'structure_size' in 'deren::vulkan::ray_tracing::structure_set'`).
 
 So the next step is: publish the size from `structure_set` - it is known where the structure is created, next to
 `handle()` - and then the write in `runtime::build_rt_structures` is three lines: the address query, that size,
@@ -458,8 +458,8 @@ A heap image descriptor carries a **`VkImageViewCreateInfo`, not a view** - the 
 the descriptor (this is why `descriptor_heap::write_image` takes a create info). The renderer builds its views
 through `core::make_image_view`, which throws its create info away, so the heap twin needs that info again.
 
-IT DOES NOT NEED NEW PLUMBING: `vulkan::make_image_view_info(image, format, view_type, aspect, mip_levels,
-array_layers)` - a `constexpr` function in **`vulkan.constant_init`**, which `runtime.cpp` already imports - is
+IT DOES NOT NEED NEW PLUMBING: `deren::vulkan::make_image_view_info(image, format, view_type, aspect, mip_levels,
+array_layers)` - a `constexpr` function in **`deren.vulkan.constant_init`**, which `runtime.cpp` already imports - is
 already the one place that builds it, and `core::make_image_view` is a call to it plus `vkCreateImageView`. So
 the rule for every image is: write the heap descriptor **where the image and its view are created**, from the
 same `make_image_view_info` arguments - not in `write_*_bindings`, which only carry handles.

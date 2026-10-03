@@ -59,7 +59,7 @@ usually meets them. Each one links to the page or module that holds the detail.
   path, its measurements and the migration that got there.
 - **Megalights.** See \ref md_docs_2megalights "Megalights" for the many-light
   sampling, its reservoirs and its temporal reuse.
-- **Ray-traced shadows.** `vulkan.pass.ray_traced_shadow` sits beside the cascade path; see
+- **Ray-traced shadows.** `deren.vulkan.pass.ray_traced_shadow` sits beside the cascade path; see
   the module documentation and `docs/reference/` for the source notes it was built from.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
   cloth) select which shader lanes run; five optional sidecar lanes (diffuse ramp, shadow
@@ -67,7 +67,7 @@ usually meets them. Each one links to the page or module that holds the detail.
   model can be tuned without recompiling; the face terminator is a distance field
   thresholded against the light angle **in the head's own frame**, not against N.L. The
   MMD/VMD motion path (IK, retargeting, morph tracks, physics baking) lives entirely in
-  `vulkan.animation.mmd_motion`. A missing sidecar is an empty sidecar - the toon lanes
+  `deren.vulkan.animation.mmd_motion`. A missing sidecar is an empty sidecar - the toon lanes
   simply stay off.
 - **Heap-native descriptors.** No descriptor sets: bindings live in a heap the renderer
   manages. \ref md_docs_2descriptor__heap__migration "Descriptor heap migration" and
@@ -114,15 +114,15 @@ Three shorter paths, if you are not reading front to back:
 Most modules are independent building blocks that meet only through narrow interfaces, so
 you are free to recombine or rewire them.
 
-- `vstd` - the project's STL module (modified from libc++ and trimmed to the project's
-  usage; consumed as `import vstd;`, module version 0.1.0a - see `vstd/README.md`)
-- `vulkan.core` - instance / device / swapchain / VMA allocator / pipeline / descriptor
+- `deren.vstd` - the project's STL module (modified from libc++ and trimmed to the project's
+  usage; consumed as `import deren.vstd;`, module version 0.1.0a - see `vstd/README.md`)
+- `deren.vulkan.core` - instance / device / swapchain / VMA allocator / pipeline / descriptor
   plumbing
-- `vulkan.scene_tree` - pure-CPU scene storage (transform hierarchy of scene_node objects
+- `deren.vulkan.scene_tree` - pure-CPU scene storage (transform hierarchy of scene_node objects
   with abstract primitive leaves)
-- `vulkan.primitive` - the GPU primitives (normal / instanced / static draws) plus the
+- `deren.vulkan.primitive` - the GPU primitives (normal / instanced / static draws) plus the
   material / camera / light UBO records of the GPU scene set
-- `vulkan.runtime` - the frame facade (per-frame-slot scene resources, granular frame
+- `deren.vulkan.runtime` - the frame facade (per-frame-slot scene resources, granular frame
   phases: poll_events -> recreate_if_minimized -> pace_and_acquire -> begin_recording ->
   record_main_drawcalls -> end_recording -> submit_and_present, plus one-call
   render_frame()), drives the peer scene_tree / primitive modules, debug GUI overlay.
@@ -130,33 +130,33 @@ you are free to recombine or rewire them.
   main pass fans its leaf recording out over the shared task pool (sub_render_task
   batches); each recording worker gets its own render_environment (thread-local
   pipeline-bind state)
-- `vulkan.render_environment` - per-recording-session render state: the session's command
+- `deren.vulkan.render_environment` - per-recording-session render state: the session's command
   buffer, the available named pipelines (pointer to the runtime's stable name table), the
   session's default pipeline and a deduplicated binder (std::function, injected by the
   runtime) that primitives call through draw(render_environment&). Holds no Vulkan module
   dependency.
-- `vulkan.animation` - animation::controller: glTF keyframe playback / skinning / morphs on
+- `deren.vulkan.animation` - animation::controller: glTF keyframe playback / skinning / morphs on
   the runtime scene tree (heavy animations fan per-source sampling over a small
-  utility:thread_pool), plus the MMD/VMD motion path in `vulkan.animation.mmd_motion`
-- `gltf_loader` - pure-CPU glTF/GLB loading: meshes, keyframe animation, skins, morph
+  deren.utility:thread_pool), plus the MMD/VMD motion path in `deren.vulkan.animation.mmd_motion`
+- `deren.gltf_loader` - pure-CPU glTF/GLB loading: meshes, keyframe animation, skins, morph
   targets, cameras and punctual lights (KHR_lights_punctual); world-AABB + loader
   diagnostics
-- `chores` - demo bootstrap helpers for main(): startup config analysis (config + argv
+- `deren.chores` - demo bootstrap helpers for main(): startup config analysis (config + argv
   merge, shaders/model location), pipeline setup, instancing stress grid, shader loading
-- `utility` - log/panic, handle distribution, thread pool (utility:thread_pool), BVH, data
+- `deren.utility` - log/panic, handle distribution, thread pool (deren.utility:thread_pool), BVH, data
   blocks, frame_clock, pmr routing
-- `app_config` - TOML startup configuration merged with argv
+- `deren.app_config` - TOML startup configuration merged with argv
 
 Modular composition is the point, not a side effect:
 
-- `gltf_loader`, `app_config` and `utility` are **pure CPU with no Vulkan dependency** -
+- `deren.gltf_loader`, `deren.app_config` and `deren.utility` are **pure CPU with no Vulkan dependency** -
   standalone libraries that embed into any host application;
-- `vulkan.animation` is **format-neutral and runtime-agnostic**: it drives whatever scene
+- `deren.vulkan.animation` is **format-neutral and runtime-agnostic**: it drives whatever scene
   storage a caller injects through the `backend` surface and initializes from any loader
   whose data satisfies the structural `source` concept (it imports no loader and no
-  `vulkan.runtime`);
-- `vulkan.core` / `vulkan.runtime` are a configurable facade (`core_create_info`, granular
-  per-frame phase calls) - the demo entry point (`main.cpp` + `chores`) is a thin glue layer
+  `deren.vulkan.runtime`);
+- `deren.vulkan.core` / `deren.vulkan.runtime` are a configurable facade (`core_create_info`, granular
+  per-frame phase calls) - the demo entry point (`main.cpp` + `deren.chores`) is a thin glue layer
   on top and can be replaced wholesale.
 
 Use the modules as-is to extend this renderer (new pass / primitive strategy / loader) or

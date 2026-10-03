@@ -12,16 +12,16 @@ The tree has 56 modules. These keep a short spelling, and each one is a NAME rat
 
 | keeps | why |
 | --- | --- |
-| `vstd` | the project's own STL module name - documented in `vstd/README.md`, imported by 34 files |
-| `gltf_loader`, `vulkan.core.pipeline:spirv_parser` | glTF and SPIR-V are **format** names |
-| `vulkan.core:vma`, `utility:better_pmr` | VMA and PMR are the library's and the standard's own terms (Vulkan Memory Allocator, polymorphic memory resource) |
-| `vulkan.core:init_utils`, `vulkan.init_utils`, `vulkan.constant_init` | `init` was kept by request |
+| `deren.vstd` | the project's own STL module name - documented in `vstd/README.md`, imported by 34 files |
+| `deren.gltf_loader`, `deren.vulkan.core.pipeline:spirv_parser` | glTF and SPIR-V are **format** names |
+| `deren.vulkan.core:vma`, `deren.utility:better_pmr` | VMA and PMR are the library's and the standard's own terms (Vulkan Memory Allocator, polymorphic memory resource) |
+| `deren.vulkan.core:init_utils`, `deren.vulkan.init_utils`, `deren.vulkan.constant_init` | `init` was kept by request |
 | `vulkan.pass:taa`, `vulkan.pass:fxaa` | the `-aa` pair was kept by request |
 | `vulkan.pass.megalights_*` | a feature of this renderer, not a shortening of one |
 
 The rule renamed `app_config` -> `application_configuration`, `vulkan.gui` ->
-`vulkan.graphical_user_interface`, `vulkan.pass.rt_shadow` -> `vulkan.pass.ray_traced_shadow` and
-`vulkan.pass.gbuffer_debug` -> `vulkan.pass.geometry_buffer_debug`. A module name is not the only thing
+`deren.vulkan.graphical_user_interface`, `vulkan.pass.rt_shadow` -> `deren.vulkan.pass.ray_traced_shadow` and
+`vulkan.pass.gbuffer_debug` -> `deren.vulkan.pass.geometry_buffer_debug`. A module name is not the only thing
 wearing one of those words: the `app_config` STRUCT, the `gui` CLASS and the `gbuffer_debug` / `rt_shadows`
 CONFIG KEYS kept their spelling, because none of them is a module name.
 
@@ -31,11 +31,11 @@ CONFIG KEYS kept their spelling, because none of them is a module name.
 a dotted submodule becomes a `:partition` exactly when **nothing outside its own module imports it** -
 measured per module rather than judged:
 
-* it moved: `vulkan.core:init_utils`, `:vma`, `:vma_handles`, `:descriptor_heap`,
-  `vulkan.core.pipeline:spirv_parser`, and `utility:better_pmr`, `:bvh`, `:data_block`, `:frame_clock`,
+* it moved: `deren.vulkan.core:init_utils`, `:vma`, `:vma_handles`, `:descriptor_heap`,
+  `deren.vulkan.core.pipeline:spirv_parser`, and `deren.utility:better_pmr`, `:bvh`, `:data_block`, `:frame_clock`,
   `:frame_stats`, `:thread_pool`;
-* it stayed a module: `vulkan.core.handles` (12 importers outside the family),
-  `vulkan.render_resource.shared` (10), `vulkan.core.pipeline` (6), `vulkan.core.filters` (1). Converting
+* it stayed a module: `deren.vulkan.core.handles` (12 importers outside the family),
+  `deren.vulkan.render_resource.shared` (10), `deren.vulkan.core.pipeline` (6), `deren.vulkan.core.filters` (1). Converting
   those would force every consumer to import the whole parent, which is the opposite of what the split is
   for.
 
@@ -111,5 +111,5 @@ Two things the rule does NOT reach: `float` and `double`, which have no fixed-wi
 
 The rules above are about NAMES. The rules that follow from the toolchains this is built against are a separate
 page, each with the measurement behind it: what a module interface may not do with an incomplete type, why
-`NOMINMAX` is guarded before `<windows.h>`, and why the project owns `utility::print`/`println` instead of using
+`NOMINMAX` is guarded before `<windows.h>`, and why the project owns `deren::utility::print`/`println` instead of using
 `std::print`. See \ref md_docs_2compiler__tolerance "Compiler tolerance".

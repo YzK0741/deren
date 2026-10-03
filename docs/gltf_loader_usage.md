@@ -4,8 +4,8 @@
 > Backend: [fastgltf](https://github.com/spnda/fastgltf) (vendored under `third_party/fastgltf`, compiled from source into a `fastgltf_vendored` static target together with simdjson), textures decoded with stb_image.
 
 - Language standard: C++23 (C++20 module)
-- Public interface: `gltf_loader/gltf_loader.cppm` (`import gltf_loader;`)
-- Entry point: `gltf::load_model(path)` -> `std::expected<gltf::scenes, gltf::error_code>`
+- Public interface: `gltf_loader/gltf_loader.cppm` (`import deren.gltf_loader;`)
+- Entry point: `deren::gltf::load_model(path)` -> `std::expected<deren::gltf::scenes, deren::gltf::error_code>`
 
 ---
 
@@ -87,20 +87,20 @@ namespace gltf {
 ## 2. Quick Start: Loading and Error Handling
 
 ```cpp
-import gltf_loader;
-import vstd; // the project's trimmed STL module (was `import std;`)
+import deren.gltf_loader;
+import deren.vstd; // the project's trimmed STL module (was `import std;`)
 
 int main() {
-    auto result = gltf::load_model("assets/box.glb");   // auto-detects GLB / JSON
+    auto result = deren::gltf::load_model("assets/box.glb");   // auto-detects GLB / JSON
     if (!result) {
         switch (result.error()) {
-            case gltf::error_code::file_not_found:  std::println("file not found"); break;
-            case gltf::error_code::file_type_error:  std::println("not a valid glTF/GLB"); break;
-            case gltf::error_code::file_load_failed: std::println("parse failed (details on stderr)"); break;
+            case deren::gltf::error_code::file_not_found:  std::println("file not found"); break;
+            case deren::gltf::error_code::file_type_error:  std::println("not a valid glTF/GLB"); break;
+            case deren::gltf::error_code::file_load_failed: std::println("parse failed (details on stderr)"); break;
         }
         return 1;
     }
-    const auto& model = *result;   // gltf::scenes
+    const auto& model = *result;   // deren::gltf::scenes
     std::println("scenes={} textures={}", model.scene.size(), model.textures.size());
 }
 ```
@@ -157,14 +157,14 @@ const auto& prim = /* see above */;
 
 // --- Vertex attributes ---
 const auto& pos = prim.vertex.at("POSITION");
-if (pos.component == gltf::component_type::float_t) {
+if (pos.component == deren::gltf::component_type::float_t) {
     auto* p = reinterpret_cast<const float*>(pos.data.data());
     const std::size_t vertex_count = pos.data.size() / (3 * sizeof(float));
     // p[i*3 + 0..2] = position of the i-th vertex
 }
 
 // --- Indices (uint16 / uint32 are common in glTF) ---
-if (prim.index_component_type == gltf::component_type::unsigned_short_t) {
+if (prim.index_component_type == deren::gltf::component_type::unsigned_short_t) {
     auto* idx = reinterpret_cast<const uint16_t*>(prim.index.data());
     const std::size_t index_count = prim.index.size() / sizeof(uint16_t);
 }
@@ -174,8 +174,8 @@ Per-attribute byte sizes can be cross-checked with the helper functions:
 
 ```cpp
 // one element = get_element_size(vec3) * get_component_size(float) = 3 * 4 = 12 bytes
-if (pos.data.size() != gltf::get_element_size(gltf::element_type::vec3)
-                       * gltf::get_component_size(gltf::component_type::float_t)
+if (pos.data.size() != deren::gltf::get_element_size(deren::gltf::element_type::vec3)
+                       * deren::gltf::get_component_size(deren::gltf::component_type::float_t)
                        * vertex_count) { /* inconsistent data */ }
 ```
 
@@ -186,10 +186,10 @@ if (pos.data.size() != gltf::get_element_size(gltf::element_type::vec3)
 ```cpp
 // material lookup (default factors when the primitive has no material)
 if (prim.material_index < model.materials.size()) {
-    const gltf::material& mat = model.materials[prim.material_index];
+    const deren::gltf::material& mat = model.materials[prim.material_index];
     // factors: mat.factors.base_color_factor / metallic_factor / roughness_factor / ...
     if (const auto it = mat.texture_indices.find("albedo"); it != mat.texture_indices.end()) {
-        const gltf::texture_data& tex = model.textures[it->second];
+        const deren::gltf::texture_data& tex = model.textures[it->second];
         // tex.data: width * height * component 8-bit pixels (already decoded, not raw PNG/JPEG bytes)
         std::println("texture {}x{} channels={} bytes={}",
                      tex.width, tex.height, tex.component, tex.data.size());
@@ -213,10 +213,10 @@ if (prim.material_index < model.materials.size()) {
 
 ```cpp
 std::vector<uint32_t> indices32;
-if (prim.index_component_type == gltf::component_type::unsigned_short_t) {
+if (prim.index_component_type == deren::gltf::component_type::unsigned_short_t) {
     auto* src = reinterpret_cast<const uint16_t*>(prim.index.data());
     indices32.assign(src, src + prim.index.size() / 2);
-} else if (prim.index_component_type == gltf::component_type::unsigned_int_t) {
+} else if (prim.index_component_type == deren::gltf::component_type::unsigned_int_t) {
     auto* src = reinterpret_cast<const uint32_t*>(prim.index.data());
     indices32.assign(src, src + prim.index.size() / 4);
 }
@@ -275,9 +275,9 @@ records its source index, so a channel resolves against a scene by scanning:
 // animate nodes of scene[0] with animation a0's translation channels
 const auto& anim = model.animations[0];
 const auto& scene = model.scene[0];
-std::vector<std::pair<gltf::node*, const gltf::animation_sampler*>> animated;
+std::vector<std::pair<deren::gltf::node*, const deren::gltf::animation_sampler*>> animated;
 for (const auto& ch : anim.channels) {
-    if (ch.path != gltf::animation_path::translation) continue;
+    if (ch.path != deren::gltf::animation_path::translation) continue;
     const auto& sampler = anim.samplers[ch.sampler];            // skip if times empty
     for (auto& node : scene.nodes) {
         if (node.source_index == ch.target_node) {
@@ -302,10 +302,10 @@ The loader also evaluates keyframes (`sample_channel`, and the higher-level `sam
 merges every channel of one animation targeting one node onto its base pose):
 
 ```cpp
-gltf::animation const& anim = model.animations[0];
+deren::gltf::animation const& anim = model.animations[0];
 // per animated node of the scene (match node.source_index against channel.target_node):
-gltf::node_pose pose{.translation = node.translation, .rotation = node.rotation, .scale = node.scale};
-pose = gltf::sample_node(anim, node.source_index, pose, t); // base pose + channels at t (seconds)
+deren::gltf::node_pose pose{.translation = node.translation, .rotation = node.rotation, .scale = node.scale};
+pose = deren::gltf::sample_node(anim, node.source_index, pose, t); // base pose + channels at t (seconds)
 if (pose.any_channel) {
     node.local = glm::translate(glm::mat4(1.0f), pose.translation)
                * glm::mat4_cast(pose.rotation)

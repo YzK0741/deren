@@ -1,4 +1,4 @@
-# Splitting `vulkan.runtime`: the map, the boundaries, and the acceptance
+# Splitting `deren.vulkan.runtime`: the map, the boundaries, and the acceptance
 
 This is the plan for cutting the renderer's monolith into submodules so that the dependencies between its parts
 become declared rather than positional. It is written before any code moves, because the object being cut is
@@ -7,7 +7,7 @@ become declared rather than positional. It is written before any code moves, bec
 ## 0. Status: this map has been walked
 
 The split this document maps has since happened, so the plan below reads as the record of what was measured
-before any code moved. `vulkan.runtime` is now an umbrella (`runtime.cppm`, 26 lines) over
+before any code moved. `deren.vulkan.runtime` is now an umbrella (`runtime.cppm`, 26 lines) over
 `runtime.declarations.cppm` (3855), `runtime.frames.cppm` (3144), `runtime.constructor.cppm` (1839),
 `runtime.cpp` (1890), `runtime.probes.cppm` (365) and `runtime.readback.cppm` (153), and the pass extraction
 the acceptance section asks for has landed.
@@ -28,8 +28,8 @@ The architecture this refactor moves TOWARD is already written down, so this is 
 
 * `docs/mainpage.md` (87-88): "Most modules are independent building blocks that meet only through narrow
   interfaces, so you are free to recombine or rewire them";
-* the same page (96-99) defines `vulkan.core` / `vulkan.runtime` as "a configurable facade ... the demo entry
-  point (`main.cpp` + `chores`) is a thin glue layer on top and can be replaced wholesale".
+* the same page (96-99) defines `deren.vulkan.core` / `deren.vulkan.runtime` as "a configurable facade ... the demo entry
+  point (`main.cpp` + `deren.chores`) is a thin glue layer on top and can be replaced wholesale".
 
 The measured shape of what exists instead:
 
@@ -51,14 +51,14 @@ descriptor bindings, one push-constant lane and a second dispatch of an existing
 
 ## 2. What is already extracted (do not re-propose these)
 
-`vulkan.pipelines` (all stateless pass-pipeline builders), `vulkan.bindings` (`scene_bindings`,
-`image_set_family` with its pool lifetime), `vulkan.shadow_fit` (the cascade FIT math only - the gather and its
-cache stay in runtime), `vulkan.readback` (screenshot staging), `vulkan.acceleration_structure` (the BLAS/TLAS
-classes), `vulkan.profiling` (CPU phases), `vulkan.graphical_user_interface`, `vulkan.core` with its nested parts (`filter`,
-`handles`, `init_utils`, `vulkan.core.pipeline`, `spirv_parser`, `vma`, `vma.handles`), plus `vulkan.scene_tree`
-and `vulkan.render_environment`.
+`deren.vulkan.pipelines` (all stateless pass-pipeline builders), `deren.vulkan.bindings` (`scene_bindings`,
+`image_set_family` with its pool lifetime), `deren.vulkan.shadow_fit` (the cascade FIT math only - the gather and its
+cache stay in runtime), `deren.vulkan.readback` (screenshot staging), `deren.vulkan.acceleration_structure` (the BLAS/TLAS
+classes), `deren.vulkan.profiling` (CPU phases), `deren.vulkan.graphical_user_interface`, `deren.vulkan.core` with its nested parts (`filter`,
+`handles`, `init_utils`, `deren.vulkan.core.pipeline`, `spirv_parser`, `vma`, `vma.handles`), plus `deren.vulkan.scene_tree`
+and `deren.vulkan.render_environment`.
 
-THE PRECEDENT THAT MATTERS: three prior extractions say "Extracted from vulkan.runtime" in their headers
+THE PRECEDENT THAT MATTERS: three prior extractions say "Extracted from deren.vulkan.runtime" in their headers
 (`vulkan/pipelines/pipelines.cppm:10`, `vulkan/bindings/bindings.cppm:9`, `vulkan/shadow_fit/shadow_fit.cppm:9`) and all three are of the STATELESS/PURE kind - they
 take handles and return builders. **No extraction in this repository has ever moved state.** Everything below is
 therefore the first of its kind, and the acceptance criteria have to be stronger than "it compiles".
@@ -114,7 +114,7 @@ is a resource-layer change and must be argued separately.
 
     1. probe cache        -> vulkan.gi_probe    218 cpp + 70 cppm, 8 members, ONE call per frame (`vulkan/runtime/runtime.frames.cppm:2602`)
     2. TAA                229 + 42              owns scene_target_image/view, which the scene path calls 4x
-    3. screenshot         105 + 26              already half-extracted into vulkan.readback
+    3. screenshot         105 + 26              already half-extracted into deren.vulkan.readback
     4. shadow cascades    534 + 148             the only subsystem that owns an image family outright
     5. rt structures      656 + 111             its instance table is consumed by the GI chain
     6. post               338 + 71              post_push_constants is shared by bloom/composite/FXAA/GI-upsample
@@ -133,12 +133,12 @@ sampler is created inside `make_gbuffer_debug_pipeline` (`vulkan/runtime/runtime
 passing through.
 
 **Extraction 1 is DONE, and it landed as a PASS rather than as the `vulkan.gi_probe` module this map proposed.**
-The boundary the project chose for a pass is `vulkan.pass` (the framework) plus one module per pass
+The boundary the project chose for a pass is `deren.vulkan.pass` (the framework) plus one module per pass
 (`vulkan.pass.gi_probe`), because the thing being extracted is not "some code in a file" but a unit with a
 DECLARED interface - and the declaration is what made the move provable: the frame is byte-identical
 (`sponza_gi` back to 58EC848DFABE654A). What moved is narrower than the `218 cpp + 70 cppm, 8 members` above and
 what stayed is on purpose: the pass owns its set layout, its two-set ping-pong family, its pipeline layout, its
-pipeline, its barriers, its clear and its push; `vulkan.runtime` keeps the switch, and the values the push block
+pipeline, its barriers, its clear and its push; `deren.vulkan.runtime` keeps the switch, and the values the push block
 is composed from (they are the renderer's). `record_gi_probe_pass`, `ensure_gi_probe_descriptors` and
 `make_gi_probe_pipeline` are gone, and `gi_probe_valid`/`gi_probe_light_dir_valid` are the pass's state now. The
 app's two calls are `register_shader` (it owns the file) and `create_passes` (the pass owns the pipeline). The
@@ -148,7 +148,7 @@ only drove compute. Its half of the framework (declared render targets, a graphi
 viewport/scissor a pass cannot forget) landed first and separately; the extraction order below is unchanged, only
 the cost of entry 2 is now two steps instead of one.
 
-**Extraction 2 is DONE too (`vulkan.pass.taa`, version 0.1.0)**, and it cost the three things the map could not
+**Extraction 2 is DONE too (`deren.vulkan.pass.taa`, version 0.1.0)**, and it cost the three things the map could not
 see either:
 
 * the SAMPLER was created inside the factory it was extracted from, so moving the factory deleted the sampler and
@@ -182,21 +182,21 @@ TWO THINGS TO SETTLE BEFORE COMMITTING TO IT, both cheap:
   it could not be settled by reading the code. So the first move is a bounded experiment: move ONE function into
   a second TU, build all three configurations, and run the capture gate - 0 changed expected. If that fails, the
   Step 1 shape changes and this document gets a correction rather than a workaround.
-* `vulkan/runtime/runtime.cpp:33` has a file-static `utility::init_pmr()` that each new TU would duplicate; whether that is
+* `vulkan/runtime/runtime.cpp:33` has a file-static `deren::utility::init_pmr()` that each new TU would duplicate; whether that is
   harmless or needs a per-TU guard is part of the same experiment.
 
 ## 7. Naming, placement and the build list
 
-* Module names are FLAT peers (`vulkan.graphical_user_interface`, `vulkan.profiling`, `vulkan.scene_tree`, `vulkan.render_environment`)
+* Module names are FLAT peers (`deren.vulkan.graphical_user_interface`, `deren.vulkan.profiling`, `deren.vulkan.scene_tree`, `deren.vulkan.render_environment`)
   and only a region's INTERNAL parts nest (`vulkan.core.filter`, `vulkan.core.vma.handles`). The deciding
-  question is whether `main.cpp`/`chores` may touch it directly: if yes, a peer module (`vulkan.gi`,
+  question is whether `main.cpp`/`deren.chores` may touch it directly: if yes, a peer module (`vulkan.gi`,
   `vulkan.post`, `vulkan.shadow`, `vulkan.rt_scene`); if only `runtime` may, nest it.
 * Documentation belonging is expressed with `@defgroup` + `@ingroup vulkan_runtime`, as
-  `vulkan.render_environment` already does.
+  `deren.vulkan.render_environment` already does.
 * `CMakeLists.txt` lists every `.cppm` explicitly, so each extraction adds lines there. The self-check for that
   is part of every step: introduce a deliberate error in the new module and confirm the build FAILS - a file in
   the tree that no target compiles is a silent failure this project has no other guard against.
-* Version banners: a new module starts at 0.1.0 and `vulkan.runtime` bumps with each extraction (it is 0.55.0
+* Version banners: a new module starts at 0.1.0 and `deren.vulkan.runtime` bumps with each extraction (it is 0.55.0
   today).
 
 ## 8. Acceptance for every step, and the hazards that are NOT behaviour changes

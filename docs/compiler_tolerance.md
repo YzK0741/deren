@@ -33,18 +33,18 @@ undefined reference to `std::__write_to_terminal(void*, std::span<char, ...>)'
 ```
 
 `nm --defined-only libstdc++.a` finds no definition of either, and `bits/print.h`'s `vprint_unicode` is what
-references them. The tree therefore uses **`utility::print` / `utility::println`** (`utility/utility.cppm`),
+references them. The tree therefore uses **`deren::utility::print` / `deren::utility::println`** (`utility/utility.cppm`),
 which are `std::print`'s semantics with the project owning them: `std::format_string` parameters, so the format
-string is still checked at compile time, one `std::fwrite`, no flush, and `std::format` taken from `vstd`.
+string is still checked at compile time, one `std::fwrite`, no flush, and `std::format` taken from `deren.vstd`.
 
 Two details in that family are load-bearing rather than style:
 
   - `standard_output()` exists because **the C standard streams are macros**. `stdout` expands to a call into
     the C library's FILE table rather than naming an object a module could export, and the alternative - a
     textual `<cstdio>` in the module INTERFACE - declares libc++'s entities twice, once in the module's global
-    fragment and once through `export import vstd`. clang 22.1.8 answers that with a crash in code generation
+    fragment and once through `export import deren.vstd`. clang 22.1.8 answers that with a crash in code generation
     (`EmitBuiltinNewDeleteCall` on `std::__libcpp_allocate`), so the macro stays in the implementation unit.
-  - the family's own internal calls are **qualified** (`utility::print(...)`), because an unqualified one is
+  - the family's own internal calls are **qualified** (`deren::utility::print(...)`), because an unqualified one is
     ambiguous against libc++'s `std::print(std::FILE*, format_string<Args...>, Args&&...)`, which an unqualified
     lookup inside the namespace finds.
 

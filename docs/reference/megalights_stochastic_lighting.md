@@ -30,7 +30,7 @@ The candidates are the lights of the pixel's LIGHT GRID CELL - `min(NumMegaLight
 with `MaxCulledLightsPerCell = 32` (`Sampling.usf:317-320`, `LightGridCommon.ush:76-79`,
 `LightGridInjection.cpp:123`). This is the same structure this renderer already builds for the deferred path:
 `shaders/light_cluster.slang` bins the punctual lights into 64 px tiles x 16 depth slices with a fixed
-capacity of `vulkan::cluster_light_capacity = 32` per cluster, and `shaders/shading.glsl` reads that list per
+capacity of `deren::vulkan::cluster_light_capacity = 32` per cluster, and `shaders/shading.glsl` reads that list per
 pixel. **The port gets its candidate set for free, and UE's cell cap is numerically the same 32.**
 
 For every candidate the sampler computes a target PDF weight (`MegaLights/MegaLightsLightTargetPDF.ush:23-59`):
