@@ -1061,6 +1061,7 @@ INPUT                  = ./shaders \
 				./vulkan \
 				./utility \
 				./promise \
+				./boundary \
 				./gltf_loader \
 				./application_configuration \
 				./main.cpp \

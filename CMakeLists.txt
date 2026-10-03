@@ -234,6 +234,26 @@ target_sources(utility
         utility/utility.cpp
 )
 
+# The RHI boundary's contract (plan_rhi_v4.md §3.1, §4.1; m03159): a module of virtual base classes.
+# It is a module rather than a directory of headers because BOTH sides of the boundary compile it -
+# the engine's targets and a backend DLL each read the same interface unit instead of a shared
+# header - which is what keeps the two compilations from drifting, and it is listed here, once, for
+# the same reason. There is no .cpp: every declaration below this line is an interface, so the STATIC
+# target exists only to carry the module's file set (the shape vstd_lib has for deren.vstd). The C
+# ABI surface is deliberately NOT here (m03159): it is boundary/backend_entry.hpp, a header, because
+# an entry point is not a virtual base class.
+add_library(promise STATIC)
+
+target_sources(promise
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        promise/promise.cppm
+        promise/promise.contract.cppm
+        promise/promise.extension.cppm
+        promise/promise.api_core.cppm
+)
+
 # Startup configuration: parses config.toml (+ --config / argv merging) into app_settings.
 # Uses toml++ (header-only, system package mingw-w64-clang-x86_64-tomlplusplus; under clang64 its
 # headers live on the compiler's own include root, so nothing has to be added here). Pure CPU, no
@@ -447,7 +467,7 @@ target_include_directories(stb_vendored
 # backends are compiled as plain C++ (imgui is not a module and does not follow the project's
 # -Werror policy — upstream code triggers warnings we do not own). No clang-format: the
 # PROJECT_FORMAT_SOURCES glob only covers main/application_configuration/gltf_loader/utility/
-# vulkan/tests/promise, never third_party.
+# vulkan/tests/promise/boundary, never third_party.
 add_library(imgui STATIC)
 
 target_sources(imgui
@@ -794,6 +814,7 @@ if(VR_BUILD_TESTS)
     add_library(probe_backend SHARED tests/probe_backend.cpp)
     target_compile_definitions(probe_backend PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
     target_compile_options(probe_backend PRIVATE ${COMPILE_OPTIONS})
+    target_link_libraries(probe_backend PRIVATE promise)
     if(NOT MSVC)
         target_compile_options(probe_backend PRIVATE -fno-sanitize=all)
         target_link_options(probe_backend PRIVATE -fno-sanitize=all)
@@ -807,8 +828,12 @@ if(VR_BUILD_TESTS)
 
     add_library(probe_backend_static STATIC tests/probe_backend.cpp)
     target_compile_options(probe_backend_static PRIVATE ${COMPILE_OPTIONS})
+    # The same promise module the DLL half reads: the two halves compile one interface unit each,
+    # which is the "both sides compile the contract" rule in §4.1, not a shared binary.
+    target_link_libraries(probe_backend_static PRIVATE promise)
 
     target_link_libraries(test_dynamic_link
+            promise
             utility
             probe_backend_static
             vstd_lib
@@ -825,7 +850,7 @@ endif()
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib deren vulkancorekit utility gltf_loader app_config chores ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib deren vulkancorekit utility promise gltf_loader app_config chores ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
@@ -918,8 +943,9 @@ endforeach()
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 
 if(CLANG_FORMAT_EXECUTABLE)
-    # promise/ is a header-only directory (the contract both sides of the backend boundary
-    # compile), so it is listed by extension rather than by the *.cpp* wildcard the others use.
+    # promise/ and boundary/ are the module of interfaces and the C ABI header the boundary is built
+    # from (both sides compile them), so they are listed by extension rather than by the *.cpp*
+    # wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
             ${CMAKE_CURRENT_SOURCE_DIR}/application_configuration/*.cpp*
@@ -927,7 +953,8 @@ if(CLANG_FORMAT_EXECUTABLE)
             ${CMAKE_CURRENT_SOURCE_DIR}/utility/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/promise/*.hpp)
+            ${CMAKE_CURRENT_SOURCE_DIR}/promise/*.cppm
+            ${CMAKE_CURRENT_SOURCE_DIR}/boundary/*.hpp)
 
     set(CLANG_FORMAT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/.clang-format.stamp")
 
@@ -946,7 +973,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt utility app_config vulkancorekit gltf_loader deren)
+    foreach(_tgt utility promise app_config vulkancorekit gltf_loader deren)
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

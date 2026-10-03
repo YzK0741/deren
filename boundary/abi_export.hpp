@@ -1,8 +1,8 @@
 // -*- C++ -*-
 // ============================================================================
-// file: promise/abi_export.hpp
+// file: boundary/abi_export.hpp
 //
-// The export/import keywords for the promise/ C ABI (RHI plan v4, §1.15, §4.1).
+// The export/import keywords for the boundary's C ABI (RHI plan v4, §1.15, §4.1).
 //
 // The backend boundary is a set of `extern "C"` entry points, but the keyword that
 // makes them visible across a DLL boundary is not portable and depends on how the
@@ -20,18 +20,19 @@
 // earlier rounds): the probe DLL exports exactly its three entry points, and a
 // statically linked test binary exports none of them.
 //
-// Today the only user is the probe backend tests/probe_backend.cpp; the real
-// backend under promise/ is what will consume it when the boundary lands
-// (plan §7.4). Keeping the macro names here - next to where that backend will
-// live - is the point: one header owns the question "is this build shared?".
+// The backend that will export those three symbols is the module under vulkan/ once
+// the boundary lands (plan §7.4); today the only user is the probe backend
+// tests/probe_backend.cpp. Keeping the macro names here - next to the entry points
+// they are applied to in boundary/backend_entry.hpp - is the point: one header owns
+// the question "is this build shared?".
 // ============================================================================
 #pragma once
 
 /**
- * @file promise/abi_export.hpp
- * @brief the export/import keyword the promise C ABI is declared with, chosen from the build mode
+ * @file boundary/abi_export.hpp
+ * @brief the export/import keyword the backend's C ABI is declared with, chosen from the build mode
  *        rather than from a platform `#ifdef` at every declaration.
- * @ingroup promise
+ * @ingroup boundary
  *
  * The boundary is a handful of `extern "C"` entry points, and whether one of them is visible across
  * a DLL boundary depends on how the translation unit in front of it is being built:
@@ -49,6 +50,19 @@
  *   linked test binary exports none of them, which is what the two macros promise.
  * - CMake defines the macros per target (`tests/probe_backend.cpp` is compiled twice from one
  *   source file for exactly this reason), so no source file has to know which build it is in.
+ */
+
+/**
+ * @defgroup boundary The Boundary (the C ABI a backend exports)
+ * @brief the three `extern "C"` symbols a backend exports and a host resolves, and the keyword that
+ *        makes them visible across a DLL boundary.
+ *
+ * The C ABI is deliberately tiny: a version number, a factory whose ownership transfer is spelled
+ * out by the deleter it returns, and that deleter (see `boundary/backend_entry.hpp`). Everything
+ * else the engine and the backend share is a virtual base class in `deren.promise`, compiled by
+ * both sides independently, so no C++ type is passed by value and no symbol other than these three
+ * is exchanged. It is a group of its own rather than part of `deren.promise` because an entry point
+ * is not a virtual base class (m03159).
  */
 
 #if defined(_WIN32)

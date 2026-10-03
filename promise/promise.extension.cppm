@@ -1,6 +1,6 @@
 // -*- C++ -*-
 // ============================================================================
-// file: promise/extension.hpp
+// module: deren.promise:extension
 //
 // tier-2 of the promise contract: the abilities a backend may or may not have
 // beyond the portable tier-1 surface (RHI plan v4, §1.8, §1.9, §1.11, §3.4, §3.5).
@@ -23,7 +23,7 @@
 //      five, and `query_extension()` stays a one-line lookup in the backend.
 //   3. These are pure interfaces: no data member, no non-inline definition, no
 //      `std::string`, no exception across the boundary (§4.2). The engine and the
-//      backend each compile this header; neither exports a module symbol for it.
+//      backend each compile this partition; neither exports a module symbol for it.
 //
 // Deliberately NOT here yet: the C function tables that §3.5 pairs with each
 // ability (`deren_ext_<ability>_v1` returning a POD struct of function pointers).
@@ -31,10 +31,18 @@
 // compile-time face of the same five abilities, and they are what the probe
 // backend implements today (tests/probe_backend.cpp).
 // ============================================================================
-#pragma once
+module;
+
+#include <cstddef>
+#include <cstdint>
+#include <span>
+
+export module deren.promise:extension;
+
+import :contract;
 
 /**
- * @file promise/extension.hpp
+ * @file promise/promise.extension.cppm
  * @brief tier-2 of the promise contract: the abilities a backend may or may not have.
  * @ingroup promise
  *
@@ -49,16 +57,10 @@
  * check exactly that pairing.
  */
 
-#include "contract.hpp"
+export namespace deren::promise {
 
-#include <cstddef>
-#include <cstdint>
-#include <span>
-
-namespace deren::promise {
-
-    // The tier-1 objects the abilities below take by reference. They are defined by
-    // promise/api_core.hpp: an ability is a tier-2 view of the same backend, so it
+    // The tier-1 objects the abilities below take by reference. They are declared by
+    // promise/promise.api_core.cppm: an ability is a tier-2 view of the same backend, so it
     // speaks about the same objects.
     struct buffer;
     struct command_list;

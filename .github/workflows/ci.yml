@@ -135,7 +135,11 @@ jobs:
             utility/frame_clock/frame_clock.cppm \
             utility/frame_stats/frame_stats.cppm \
             utility/better_pmr/better_pmr.cppm \
-            utility/dynamic_link.cppm"
+            utility/dynamic_link.cppm \
+            promise/promise.cppm \
+            promise/promise.contract.cppm \
+            promise/promise.extension.cppm \
+            promise/promise.api_core.cppm"
           for f in $TIDY_FILES; do
             if [ ! -f "$f" ]; then
               echo "clang-tidy list names a file that does not exist: $f"

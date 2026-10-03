@@ -1,5 +1,5 @@
 // Headless unit tests: deren.utility.dynamic_link (RHI plan v4 §7.4) and the promise
-// contract it carries (promise/api_core.hpp, §3.3 - §3.5, §4.1 - §4.2) ===========
+// contract it carries (the module deren.promise, §3.3 - §3.5, §4.1 - §4.2) =======
 //
 // The loader is the primitive the backend boundary is built on, so what is checked here is the
 // contract rather than an implementation detail: a file that is not there is a returned error and
@@ -12,9 +12,8 @@
 // file: the static half is linked into this test (so abi_export.hpp's static branch is exercised
 // by the linker) and the DLL half is only ever opened at run time (the shared branch). Both halves
 // are then driven through the SAME function, `check_core_contract()`, because "the two answer the
-// same" is the whole point of the export keywords - and the C ABI is declared once, in the header
-// both sides include, rather than again here.
-#include "../promise/api_core.hpp"
+// same" is the whole point of the export keywords - and the C ABI is declared once, in
+// boundary/backend_entry.hpp, rather than again here.
 #include "vk_test.h"
 
 #include <cstdint>
@@ -25,7 +24,11 @@
 #include <system_error>
 #include <utility>
 
+import deren.promise;
 import deren.utility.dynamic_link;
+
+// After the imports it needs: the header names deren::promise types (see its own note).
+#include "../boundary/backend_entry.hpp"
 
 namespace {
 

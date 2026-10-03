@@ -1,12 +1,14 @@
 // -*- C++ -*-
 // ============================================================================
-// file: promise/api_core.hpp
+// module: deren.promise:api_core
 //
-// tier-1 of the promise contract: the backend's context and its factories, and the
-// three C entry points that hand one out (RHI plan v4, §1.11, §3.3, §4.1).
+// tier-1 of the promise contract: the backend's context and its factories (RHI
+// plan v4, §1.11, §3.3, §4.1).
 //
 // `api_core` is the ONE object that crosses the boundary as a C++ type, and it is
-// reached through a single C function, `deren_make_api_core`. Everything below
+// reached through a single C function, `deren_make_api_core` - declared with the
+// other two entry points in boundary/backend_entry.hpp, because an entry point is
+// the ABI surface rather than a virtual base class (m03159). Everything below
 // follows from the cross-boundary rules in §4.2:
 //
 //   - every member is virtual, the destructor is `virtual ... noexcept`, and there
@@ -15,7 +17,7 @@
 //   - the engine builds `std::shared_ptr<api_core>(raw, &deren_destroy_api_core)`
 //     (or the pointer it resolved from the loaded library) - never the default
 //     deleter, which would free DLL memory with the executable's allocator;
-//   - `abilities()` is the tier-2 bit set (promise/extension.hpp) and
+//   - `abilities()` is the tier-2 bit set (promise/promise.extension.cppm) and
 //     `query_extension()` is the only way to reach an ability, so adding one does
 //     not grow this vtable;
 //   - parameters are PODs, `std::span`, or opaque handles. No `std::string`, no
@@ -32,32 +34,31 @@
 // The `std::shared_ptr` wrapper the engine uses belongs on the ENGINE side (plan
 // §4.1 item 3: "住在模块里 inline 即可，不需要 DLL 配合"), so it is not here.
 // ============================================================================
-#pragma once
-
-/**
- * @file promise/api_core.hpp
- * @brief tier-1 of the promise contract: the backend's context and its factories, plus the three C
- *        entry points that hand one out.
- * @ingroup promise
- *
- * `api_core` is the one object that crosses the boundary as a C++ type, and it is reached through a
- * single C function, `deren_make_api_core()` (§1.11: the way to obtain the context stays C++, the
- * rest of the boundary is C). It is also the one interface the plan lets grow "big" - it is the
- * backend's whole context and factory set - under the one restriction that it never learns an
- * engine concept: no scene, no pass, no camera (§4.1 item 2).
- *
- * Applications and passes reach optional features through `abilities()` + `query_extension()`
- * (tier-2, `promise/extension.hpp`) rather than through new virtuals here, which is what keeps this
- * vtable stable as the backend gains extensions.
- */
-
-#include "abi_export.hpp"
-#include "contract.hpp"
-#include "extension.hpp"
+module;
 
 #include <cstdint>
 
-namespace deren::promise {
+export module deren.promise:api_core;
+
+import :extension;
+
+/**
+ * @file promise/promise.api_core.cppm
+ * @brief tier-1 of the promise contract: the backend's context and its factories.
+ * @ingroup promise
+ *
+ * `api_core` is the one object that crosses the boundary as a C++ type, and it is reached through a
+ * single C function, `deren_make_api_core()` in `boundary/backend_entry.hpp` (§1.11: the way to
+ * obtain the context stays C++, the rest of the boundary is C). It is also the one interface the
+ * plan lets grow "big" - it is the backend's whole context and factory set - under the one
+ * restriction that it never learns an engine concept: no scene, no pass, no camera (§4.1 item 2).
+ *
+ * Applications and passes reach optional features through `abilities()` + `query_extension()`
+ * (tier-2, `promise/promise.extension.cppm`) rather than through new virtuals here, which is what
+ * keeps this vtable stable as the backend gains extensions.
+ */
+
+export namespace deren::promise {
 
     /// The size of a buffer, in bytes.
     ///
@@ -192,32 +193,3 @@ namespace deren::promise {
     };
 
 } // namespace deren::promise
-
-// ----------------------------------------------------------------------------
-// The C ABI (§4.1 item 3): three symbols, no C++ type by value. The keyword comes
-// from promise/abi_export.hpp, so the same declaration is `dllexport` while the
-// backend is being built, `dllimport` while the engine imports it, and nothing at
-// all when the backend is linked in statically.
-//
-// Measured on this machine (§10.3): the probe DLL exports exactly these three
-// names and the statically linked test exports none of them.
-// ----------------------------------------------------------------------------
-extern "C" {
-
-/// The backend's ABI number. Must equal `deren::promise::abi_version`.
-DEREN_API_EXPORT std::uint32_t deren_abi_version();
-
-/// The only producer of an `api_core`: transfers ownership of a raw pointer.
-///
-/// On a version mismatch it returns `nullptr` and writes
-/// `deren::promise::error::abi_mismatch`, which is why a caller may not assume the
-/// out-parameter was written on failure.
-DEREN_API_EXPORT deren::promise::api_core* deren_make_api_core(std::uint32_t abi_version,
-                                                               deren::promise::error* out_error);
-
-/// The deleter itself, exported by name: the engine builds its `shared_ptr` around
-/// it so that the delete runs inside the backend. Accepts `nullptr`, because a
-/// refused `deren_make_api_core` still ends up in a `shared_ptr`.
-DEREN_API_EXPORT void deren_destroy_api_core(deren::promise::api_core* core);
-
-} // extern "C"

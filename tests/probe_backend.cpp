@@ -3,18 +3,18 @@
 // file: tests/probe_backend.cpp
 //
 // The probe backend of tests/test_dynamic_link.cpp: the smallest stand-in for the
-// real promise/ contract (promise/api_core.hpp, RHI plan v4 §3.3 - §3.5, §4.1).
+// real promise/ contract (the module deren.promise, RHI plan v4 §3.3 - §3.5, §4.1).
 // CMake builds this one source file twice - as a DLL (with DEREN_API_SHARED +
 // DEREN_API_BUILD) and as a static library (with neither) - and the test links the
 // static half while opening the DLL half at run time, so both branches of
-// promise/abi_export.hpp are exercised and the two halves must answer the same.
+// boundary/abi_export.hpp are exercised and the two halves must answer the same.
 //
-// This file includes the contract header instead of declaring the C ABI itself (it
-// used to; the declarations live in promise/api_core.hpp now), which is also the
-// check that the header can be compiled by the backend side: the three entry points
-// below are EXACTLY the ones the header declares, and `derive` from the header's
-// abstract classes is what makes the compiler verify that every virtual is
-// implemented.
+// This file imports the contract and includes the ABI surface instead of declaring
+// either itself (it used to declare the C ABI; the declarations live in
+// boundary/backend_entry.hpp now), which is also the check that the header can be
+// compiled by the backend side: the three entry points below are EXACTLY the ones
+// the header declares, and deriving from the module's abstract classes is what makes
+// the compiler verify that every virtual is implemented.
 //
 // What the probe implements, and why it is this small:
 //
@@ -34,7 +34,9 @@
 //   - `frame_begin()` counts frames, so a cross-boundary virtual call with a
 //     by-value POD result is observable too.
 // ============================================================================
-#include "../promise/api_core.hpp"
+import deren.promise;
+
+#include "../boundary/backend_entry.hpp"
 
 #include <cstdint>
 #include <span>
