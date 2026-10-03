@@ -5,7 +5,7 @@
 // CTest sees the test as failed. One test executable = one translation unit.
 //
 // TESTS ARE PLAIN TUs, and this harness formats its own output (`std::format` into one `std::fwrite`) rather
-// than calling the project's `utility::println`, WHICH IS A MEASURED WORKAROUND FOR A CLANG BUG rather than a
+// than calling the project's `deren::utility::println`, WHICH IS A MEASURED WORKAROUND FOR A CLANG BUG rather than a
 // layering preference:
 //
 //   * `<print>` is not an option at all: MinGW's libstdc++ 16.2 declares it without the terminal-writing half
@@ -20,7 +20,7 @@
 //
 // A harness is not worth a compiler bug, so it formats here: `std::format` is compiler and library neutral, and
 // every test TU stays a plain TU that imports only the module under test. The engine's own printing goes
-// through `utility::print`/`println` as it should.
+// through `deren::utility::print`/`println` as it should.
 
 #include <cstddef>
 #include <cstdio>
@@ -28,7 +28,7 @@
 #include <string>
 #include <utility>
 
-namespace vk_test {
+namespace deren::vk_test {
     [[nodiscard]] inline int32_t& failures() {
         static int32_t count = 0;
         return count;
@@ -61,7 +61,7 @@ namespace vk_test {
         write_line("[{}] {} checks, {} failed -> {}", test_name, checks(), failed, failed == 0 ? "PASS" : "FAIL");
         return failed == 0 ? 0 : 1;
     }
-} // namespace vk_test
+} // namespace deren::vk_test
 
 // A check's condition is materialized in a local and the `if` tests THAT, rather than testing the expression inline
 // as `if (!(cond))`: MSVC /W4 reports C4127 ("conditional expression is constant") for a check over a constant
@@ -72,18 +72,18 @@ namespace vk_test {
 // still evaluated exactly once, the report text is the same, and so is the process exit code.
 #define CHECK(cond)                                                \
     do {                                                           \
-        ++::vk_test::checks();                                     \
+        ++::deren::vk_test::checks();                                     \
         bool const check_failed = !(cond);                         \
         if (check_failed) {                                        \
-            ::vk_test::report(#cond, __FILE__, __LINE__, nullptr); \
+            ::deren::vk_test::report(#cond, __FILE__, __LINE__, nullptr); \
         }                                                          \
     } while (false)
 
 #define CHECK_MSG(cond, message)                                     \
     do {                                                             \
-        ++::vk_test::checks();                                       \
+        ++::deren::vk_test::checks();                                       \
         bool const check_failed = !(cond);                           \
         if (check_failed) {                                          \
-            ::vk_test::report(#cond, __FILE__, __LINE__, (message)); \
+            ::deren::vk_test::report(#cond, __FILE__, __LINE__, (message)); \
         }                                                            \
     } while (false)

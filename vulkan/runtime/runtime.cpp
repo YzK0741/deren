@@ -11,28 +11,28 @@ module;
 #include <thread> // std::this_thread::yield in the frame limiter
 #include <vulkan/vulkan.h>
 
-module vulkan.runtime;
+module deren.vulkan.runtime;
 
-import vulkan.profiling;
-import vulkan.pipelines;
-import vulkan.bindings;
-import vulkan.render_resource;
-import vulkan.render_resource.shared;
+import deren.vulkan.profiling;
+import deren.vulkan.pipelines;
+import deren.vulkan.bindings;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
 
-import utility;
-import vulkan.constant_init;
-import vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
-import vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
-import vulkan.core.pipeline;   // vulkan::make_pipeline for the post-process pipeline
-import vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
+import deren.utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
+import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
+import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
 
-// Route std::pmr allocations through mimalloc for this TU (utility:better_pmr). Idempotent:
+// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
 // main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
 // only forces the (dynamic) initialization before any pmr container in this TU is constructed.
-[[maybe_unused]] static auto& pmr = utility::init_pmr(); // NOLINT(keep-alive)
+[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
-namespace vulkan {
+namespace deren::vulkan {
     void runtime::write_rt_structure_binding(VkAccelerationStructureKHR const tlas, uint32_t const frame_slot) {
         // The top level structure is a HEAP slot now, and this is the one thing this function still does: a heap
         // descriptor for an acceleration structure is an ADDRESS RANGE carrying the structure's device address
@@ -57,7 +57,7 @@ namespace vulkan {
         };
         VkDeviceAddress const tlas_address = get_structure_address != nullptr ? get_structure_address(this->vulkan_core.logical_device, &tlas_address_info) : 0;
         if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
-            utility::log("descriptor heap: the top level structure did not reach grid slot {}", core::heap_slots::tlas + frame_slot);
+            deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", core::heap_slots::tlas + frame_slot);
         }
 
         // ... AND THE INSTANCE TABLE, which is rebuilt WITH the structures and whose slot is the same event's: the
@@ -68,7 +68,7 @@ namespace vulkan {
             VkBufferDeviceAddressInfo const table_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = instance_table};
             VkDeviceAddress const table_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &table_address_info);
             if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::mask_instances + frame_slot), table_address, this->structures.instance_table_size(frame_slot), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
-                utility::log("descriptor heap: the instance table did not reach grid slot {}", core::heap_slots::mask_instances + frame_slot);
+                deren::utility::log("descriptor heap: the instance table did not reach grid slot {}", core::heap_slots::mask_instances + frame_slot);
             }
         }
     }
@@ -83,19 +83,19 @@ namespace vulkan {
         // adds the emissive into the scene color target. The lighting stage then shades it into the
         // image the post chain reads (scene_target_view).
         if (this->gbuffer_pass_active()) {
-            std::array<VkRenderingAttachmentInfo, vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
+            std::array<VkRenderingAttachmentInfo, deren::vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
             VkClearValue clear = {}; // the surface + motion targets clear to zero: no geometry, no motion
-            for (uint32_t target = 0; target < vulkan::gbuffer_target_count; ++target) {
+            for (uint32_t target = 0; target < deren::vulkan::gbuffer_target_count; ++target) {
                 gbuffer_attachments[target] = make_color_attachment_info(vk.gbuffer_image_views[target][image_index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
             }
-            gbuffer_attachments[vulkan::gbuffer_target_count] = make_color_attachment_info(vk.velocity_image_views[image_index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+            gbuffer_attachments[deren::vulkan::gbuffer_target_count] = make_color_attachment_info(vk.velocity_image_views[image_index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
             // the last attachment is the scene color, CLEARed to zero: it accumulates only the
             // emissive here. The lighting stage then adds the lighting (and the sky, for pixels no
             // geometry wrote) on top, so a lit pixel is emissive + lighting and a background pixel is
             // sky - with no background pass anywhere. Under TAA the scene color is the resolve's input
             // image, and the resolve writes the HDR target the post chain reads (see
             // runtime::scene_target_view).
-            gbuffer_attachments[vulkan::gbuffer_target_count + 1] = make_color_attachment_info(this->scene_target_view(image_index), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+            gbuffer_attachments[deren::vulkan::gbuffer_target_count + 1] = make_color_attachment_info(this->scene_target_view(image_index), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
             // the G-buffer depth clears to the far plane (1.0) - but unlike the old forward path's
             // main depth, its contents must SURVIVE the instance: the lighting stage, the transparent
             // pass, the TAA resolve and the debug view all read this image later in the same
@@ -148,7 +148,7 @@ namespace vulkan {
             } else {
                 this->debug_gui_shown = !this->debug_gui_shown;
             }
-            utility::log("gui overlay: {}", this->debug_gui_shown ? "shown (F1 to hide)" : "hidden (F1 to show)");
+            deren::utility::log("gui overlay: {}", this->debug_gui_shown ? "shown (F1 to hide)" : "hidden (F1 to show)");
         }
         this->gui_toggle_down = f1_down;
 
@@ -157,7 +157,7 @@ namespace vulkan {
         bool const f12_down = glfwGetKey(window, GLFW_KEY_F12) == GLFW_PRESS;
         if (f12_down && !this->screenshot_key_down) {
             this->screenshot_requested = true;
-            utility::log("screenshot requested (F12)");
+            deren::utility::log("screenshot requested (F12)");
         }
         this->screenshot_key_down = f12_down;
 
@@ -198,7 +198,7 @@ namespace vulkan {
         core& vk = this->vulkan_core;
         if (this->was_minimized) {
             this->was_minimized = false;
-            utility::log("window restored, recreating swapchain");
+            deren::utility::log("window restored, recreating swapchain");
             // Only a generation that was ACTUALLY rebuilt invalidates the per-image state. A deferred
             // recreate (the window came back with a 0x0 drawable size) keeps every image the frame loop
             // is holding, so resetting here would throw the temporal histories away for nothing - and a
@@ -271,7 +271,7 @@ namespace vulkan {
         // gpu_mark_id order. The core hands out the next index, which makes the violation visible
         // here instead of only as a mislabeled report.
         if (this->vulkan_core.gpu_timing_marks[slot] != static_cast<uint32_t>(mark)) {
-            utility::log("runtime: GPU timing marks recorded out of order (mark {} at index {}) - the pass report is mislabeled",
+            deren::utility::log("runtime: GPU timing marks recorded out of order (mark {} at index {}) - the pass report is mislabeled",
                          static_cast<uint32_t>(mark),
                          this->vulkan_core.gpu_timing_marks[slot]);
             return;
@@ -316,7 +316,7 @@ namespace vulkan {
         this->gpu_timing_window_frames = 0;
         report += std::format(" total {:.2f} ms", total);
         this->gpu_timing_report_label = label + std::format("\n     total {:>5.2f} ms", total);
-        utility::log("{}", report);
+        deren::utility::log("{}", report);
     }
 
     std::string runtime::gpu_timing_summary() const {
@@ -342,7 +342,7 @@ namespace vulkan {
         }
         // The overlay draws into the runtime's OPEN main rendering instance via dynamic
         // rendering (the backend is initialized with UseDynamicRendering=true).
-        vulkan::core const& vk = this->vulkan_core;
+        deren::vulkan::core const& vk = this->vulkan_core;
         gui::gui_create_info info = {};
         info.window = vk.window;
         info.instance = vk.instance;
@@ -352,7 +352,7 @@ namespace vulkan {
         info.graphics_queue = vk.graphics_queue_handle;
         info.color_format = vk.swap_chain_image_format;
         info.depth_format = VK_FORMAT_UNDEFINED; // the post/gui pass has no depth attachment
-        info.frames_in_flight = static_cast<uint32_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        info.frames_in_flight = static_cast<uint32_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
         return this->debug_overlay.init(info);
     }
 
@@ -403,7 +403,7 @@ namespace vulkan {
         //      - the vertex pipeline that used to absorb a refusal does not exist any more.
         std::optional<vk_pipeline> mesh_result = std::nullopt;
         {
-            auto built = vulkan::make_pipeline(this->vulkan_core.logical_device,
+            auto built = deren::vulkan::make_pipeline(this->vulkan_core.logical_device,
                                                std::span<VkFormat const>(color_formats),
                                                this->vulkan_core.depth_attachment_format,
                                                mesh_vertex_shader_code,
@@ -432,7 +432,7 @@ namespace vulkan {
             // reads one meshlet per workgroup out of the heap table and culls it against the camera. Built exactly
             // like the mesh form - it IS a mesh stage - and a refusal leaves the mesh form as the answer, which is
             // why this is a third entry rather than a replacement.
-            auto built = vulkan::make_pipeline(this->vulkan_core.logical_device,
+            auto built = deren::vulkan::make_pipeline(this->vulkan_core.logical_device,
                                                std::span<VkFormat const>(color_formats),
                                                this->vulkan_core.depth_attachment_format,
                                                meshlet_shader_code,
@@ -449,7 +449,7 @@ namespace vulkan {
                 built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
                 meshlet_result = std::move(*built);
             } else {
-                utility::log("pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
+                deren::utility::log("pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
             }
         }
         {
@@ -459,11 +459,11 @@ namespace vulkan {
             // nothing at all - and `set_default_pipeline` answers the same question the same way.
             if (mesh_result.has_value()) {
                 this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
-                utility::log("SUCCESS: pipeline '{}' created with a MESH form (its leaves are dispatched)", pipeline_name);
+                deren::utility::log("SUCCESS: pipeline '{}' created with a MESH form (its leaves are dispatched)", pipeline_name);
             }
             if (meshlet_result.has_value()) {
                 this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
-                utility::log("SUCCESS: pipeline '{}' created with a MESHLET form (one workgroup per meshlet, camera-culled)", pipeline_name);
+                deren::utility::log("SUCCESS: pipeline '{}' created with a MESHLET form (one workgroup per meshlet, camera-culled)", pipeline_name);
             }
             if (this->default_pipeline_name.empty()) {
                 this->default_pipeline_name = pipeline_name; // first pipeline is the implicit default
@@ -510,16 +510,16 @@ namespace vulkan {
             if (built) {
                 meshlet_result = std::move(*built);
             } else {
-                utility::log("character-forward pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
+                deren::utility::log("character-forward pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
             }
         }
         {
             std::unique_lock const lock(this->access_mutex);
             this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
-            utility::log("SUCCESS: character-forward pipeline '{}' created with a MESH form (one HDR target, blending off, depth compare EQUAL, depth write held off)", pipeline_name);
+            deren::utility::log("SUCCESS: character-forward pipeline '{}' created with a MESH form (one HDR target, blending off, depth compare EQUAL, depth write held off)", pipeline_name);
             if (meshlet_result.has_value()) {
                 this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
-                utility::log("SUCCESS: character-forward pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
+                deren::utility::log("SUCCESS: character-forward pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
             }
             // NOTE: `default_pipeline_name` is deliberately NOT set here, even when it is empty. This pipeline
             // is only valid inside the character-forward pass's instance (it declares ONE colour attachment),
@@ -568,16 +568,16 @@ namespace vulkan {
             if (built) {
                 meshlet_result = std::move(*built);
             } else {
-                utility::log("overlay pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
+                deren::utility::log("overlay pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
             }
         }
         {
             std::unique_lock const lock(this->access_mutex);
             this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
-            utility::log("SUCCESS: overlay pipeline '{}' created with a MESH form (one HDR target, dst = src * dst, depth compare LESS_OR_EQUAL, depth write held off)", pipeline_name);
+            deren::utility::log("SUCCESS: overlay pipeline '{}' created with a MESH form (one HDR target, dst = src * dst, depth compare LESS_OR_EQUAL, depth write held off)", pipeline_name);
             if (meshlet_result.has_value()) {
                 this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
-                utility::log("SUCCESS: overlay pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
+                deren::utility::log("SUCCESS: overlay pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
             }
             // NOTE: `default_pipeline_name` is deliberately NOT set here, for the reason
             // make_character_forward_pipeline gives: this pipeline declares ONE colour attachment and the
@@ -630,16 +630,16 @@ namespace vulkan {
             if (built) {
                 meshlet_result = std::move(*built);
             } else {
-                utility::log("outline pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
+                deren::utility::log("outline pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
             }
         }
         {
             std::unique_lock const lock(this->access_mutex);
             this->mesh_pipelines.emplace(pipeline_name, std::move(*mesh_result));
-            utility::log("SUCCESS: outline pipeline '{}' created with a MESH form (one HDR target, opaque blend, depth compare LESS_OR_EQUAL, depth write held off, front faces culled per draw)", pipeline_name);
+            deren::utility::log("SUCCESS: outline pipeline '{}' created with a MESH form (one HDR target, opaque blend, depth compare LESS_OR_EQUAL, depth write held off, front faces culled per draw)", pipeline_name);
             if (meshlet_result.has_value()) {
                 this->meshlet_pipelines.emplace(pipeline_name, std::move(*meshlet_result));
-                utility::log("SUCCESS: outline pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
+                deren::utility::log("SUCCESS: outline pipeline '{}' created with a MESHLET form (one workgroup per meshlet)", pipeline_name);
             }
             // NOTE: `default_pipeline_name` is deliberately NOT set here, for the reason
             // make_overlay_pipeline gives: this pipeline declares ONE colour attachment and an opaque blend, so a
@@ -662,7 +662,7 @@ namespace vulkan {
         // size and the fit) is built from it when the scene block is first created, so a change after
         // that cannot take effect - say so instead of pretending otherwise.
         if (this->pass_ready("shadow") || !this->shadow_images.empty()) {
-            utility::log("runtime: set_shadow_map_size({}) ignored - the shadow resources already exist (set it before the scene import)", size);
+            deren::utility::log("runtime: set_shadow_map_size({}) ignored - the shadow resources already exist (set it before the scene import)", size);
             return;
         }
         uint32_t clamped = std::clamp(size, 256u, 8192u);
@@ -671,7 +671,7 @@ namespace vulkan {
             rounded *= 2u;
         }
         if (rounded != size) {
-            utility::log("runtime: shadow map size {} -> {} (clamped to 256..8192 and rounded to a power of two)", size, rounded);
+            deren::utility::log("runtime: shadow map size {} -> {} (clamped to 256..8192 and rounded to a power of two)", size, rounded);
         }
         this->shadow_map_size = rounded;
         ++this->shadow_content_version; // a new map size reallocates the images: every slot must render again
@@ -768,7 +768,7 @@ namespace vulkan {
             }
         }
         this->warned_features.emplace_back(key);
-        utility::log("gui: {}", message);
+        deren::utility::log("gui: {}", message);
     }
 
     void runtime::set_gbuffer_debug(bool const enabled) noexcept {
@@ -792,7 +792,7 @@ namespace vulkan {
         // One line naming every optional feature, so "why does this switch do nothing?" is answerable
         // from the log alone. `on` means the pipeline exists and the feature CAN run; whether it is
         // currently switched on is the overlay's and the config's business.
-        utility::log("features: gbuffer-debug={} megalights={} taa={} fxaa={} shadow={} clustered-lights={}",
+        deren::utility::log("features: gbuffer-debug={} megalights={} taa={} fxaa={} shadow={} clustered-lights={}",
                      this->feature_available("gbuffer-debug") ? "on" : "UNAVAILABLE",
                      this->feature_available("megalights") ? "on" : "UNAVAILABLE",
                      this->feature_available("taa") ? "on" : "UNAVAILABLE",
@@ -800,7 +800,7 @@ namespace vulkan {
                      this->feature_available("shadow") ? "on" : "UNAVAILABLE",
                      this->feature_available("clustered") ? "on" : "UNAVAILABLE");
         if ((!this->gbuffer_pipeline_mesh.has_value() && !this->gbuffer_pipeline_meshlet.has_value()) || !this->pass_ready("deferred")) {
-            utility::log("features: the G-buffer pass or its lighting stage was not created, so NO SCENE IS DRAWN this session (see the startup log's 'deferred lighting disabled' line)");
+            deren::utility::log("features: the G-buffer pass or its lighting stage was not created, so NO SCENE IS DRAWN this session (see the startup log's 'deferred lighting disabled' line)");
         }
     }
 
@@ -815,9 +815,9 @@ namespace vulkan {
         this->max_fps = clamped;
         this->next_frame_deadline = {}; // re-arm: the first frame after a change never waits
         if (this->max_fps > 0.0) {
-            utility::log("runtime: frame rate limited to {:.1f} fps", this->max_fps);
+            deren::utility::log("runtime: frame rate limited to {:.1f} fps", this->max_fps);
         } else {
-            utility::log("runtime: frame rate limit removed (uncapped)");
+            deren::utility::log("runtime: frame rate limit removed (uncapped)");
         }
     }
 
@@ -923,7 +923,7 @@ namespace vulkan {
             return false;
         }
         std::size_t const base = leaf.push.instance_base;
-        if (base + instanced.instance_count > vulkan::instance_capacity) {
+        if (base + instanced.instance_count > deren::vulkan::instance_capacity) {
             return false; // slice outside the shared buffer: cannot read it
         }
         auto const* matrices = static_cast<glm::mat4 const*>(this->instance_mapped);
@@ -1021,7 +1021,7 @@ namespace vulkan {
         }
         this->shadow_caster_boxes = shadow_fit::fit_casters(this->shadow_caster_world_boxes, light_dir, unbounded_caster);
 
-        // ---- fit: the pure part (vulkan.shadow_fit) ----
+        // ---- fit: the pure part (deren.vulkan.shadow_fit) ----
         shadow_fit::fit_params params = {};
         params.proj = this->current_proj_unjittered;
         params.view = this->current_ubo.view;
@@ -1050,7 +1050,7 @@ namespace vulkan {
         this->light_state.light_dir = glm::vec4(fitted.light_dir, 1.0f / static_cast<float>(this->shadow_map_size));
     }
     void runtime::set_shadow_cascades(uint32_t const cascades) noexcept {
-        uint32_t const clamped = std::clamp(cascades, 1u, vulkan::max_shadow_cascades);
+        uint32_t const clamped = std::clamp(cascades, 1u, deren::vulkan::max_shadow_cascades);
         if (clamped == this->shadow_cascades) {
             return;
         }
@@ -1070,7 +1070,7 @@ namespace vulkan {
         // a different cascade layout invalidates the cached fit (and the one-time density log)
         this->shadow_frustum_valid = false;
         this->shadow_cascade_logged = false;
-        utility::log("shadow cascades set to {}", clamped);
+        deren::utility::log("shadow cascades set to {}", clamped);
     }
 
     void runtime::set_shadow_cascade_blend(float const blend) noexcept {
@@ -1090,7 +1090,7 @@ namespace vulkan {
         // a new light setup invalidates the cached fit (see update_shadow_frustum)
         this->shadow_frustum_valid = false;
         if (!this->pass_ready("shadow") || this->light_mapped.empty()) {
-            utility::log("shadow mapping not enabled (no shadow pipeline / light buffer)");
+            deren::utility::log("shadow mapping not enabled (no shadow pipeline / light buffer)");
             return;
         }
         // light UBO: orthographic light view-proj framing the scene + the light direction.
@@ -1098,13 +1098,13 @@ namespace vulkan {
         // light buffer as each slot is paced (nothing here touches mapped memory directly).
         this->light_state = make_directional_light_ubo(this->sun_direction, scene_center, scene_radius, static_cast<float>(this->shadow_map_size));
         // the cascade settings are the runtime's, not the UBO builder's: re-apply them over the defaults
-        this->light_state.cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, vulkan::max_shadow_cascades));
+        this->light_state.cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades));
         this->light_state.cascade_blend = this->shadow_cascade_blend;
         // respect the current GUI toggle: the flag in the slot's buffer tells pbr.frag whether
         // the depth map was rendered this frame
         this->light_state.shadow_enabled = this->shadow_enabled ? 1.0f : 0.0f;
         this->shadows_enabled = true;
-        utility::log("shadow mapping enabled: light frustum center ({:.2f}, {:.2f}, {:.2f}), radius {:.2f}",
+        deren::utility::log("shadow mapping enabled: light frustum center ({:.2f}, {:.2f}, {:.2f}), radius {:.2f}",
                      scene_center.x, scene_center.y, scene_center.z, scene_radius);
     }
 
@@ -1141,7 +1141,7 @@ namespace vulkan {
     }
 
     // =============================================================================================
-    // THE STRUCTURE PHASE'S SEAM (see vulkan.ray_tracing): what this renderer hands the phase, and the four
+    // THE STRUCTURE PHASE'S SEAM (see deren.vulkan.ray_tracing): what this renderer hands the phase, and the four
     // hooks that let the phase drive the two jobs this class still owns.
     // =============================================================================================
 
@@ -1178,7 +1178,7 @@ namespace vulkan {
             std::array<std::byte, window> staging = {};
             std::size_t const lane_bytes = lanes * sizeof(uint32_t);
             if (bytes.size() + lane_bytes > staging.size()) {
-                utility::log("heap push: a block of {} B plus {} index lanes does not fit the push-data window", bytes.size(), lanes);
+                deren::utility::log("heap push: a block of {} B plus {} index lanes does not fit the push-data window", bytes.size(), lanes);
                 return false;
             }
             std::memcpy(staging.data(), bytes.data(), bytes.size());
@@ -1249,7 +1249,7 @@ namespace vulkan {
             // Unreachable while the mesh path is gated on the capability (see runtime::create_passes), and answered
             // rather than asserted: a dispatch that cannot be recorded draws NOTHING, which is the same picture a
             // caster with no geometry produces - and it is logged, so it cannot pass unnoticed.
-            utility::log("mesh dispatch: the device has no vkCmdDrawMeshTasksEXT, so the dispatch was skipped");
+            deren::utility::log("mesh dispatch: the device has no vkCmdDrawMeshTasksEXT, so the dispatch was skipped");
             return false;
         }
         vk.mesh_dispatch(command_buffer, groups_x, groups_y, groups_z);
@@ -1274,7 +1274,7 @@ namespace vulkan {
         if (vk.mesh_dispatch_indirect == nullptr || self->mesh_indirect_mapped == nullptr || self->mesh_indirect_table == VK_NULL_HANDLE) {
             if (!self->mesh_indirect_route_logged) {
                 self->mesh_indirect_route_logged = true;
-                utility::log("mesh indirect: entry point {}, table {}, mapped {} - the meshlet dispatches go through the DIRECT call",
+                deren::utility::log("mesh indirect: entry point {}, table {}, mapped {} - the meshlet dispatches go through the DIRECT call",
                              vk.mesh_dispatch_indirect != nullptr ? "resolved" : "MISSING",
                              self->mesh_indirect_table != VK_NULL_HANDLE ? "bound" : "missing",
                              self->mesh_indirect_mapped != nullptr ? "yes" : "no");
@@ -1286,7 +1286,7 @@ namespace vulkan {
         if (command_slot >= runtime::mesh_command_capacity) {
             if (!self->mesh_indirect_conflict_logged) {
                 self->mesh_indirect_conflict_logged = true;
-                utility::log("mesh indirect: slot {} is past the command table ({} records) - the dispatch goes through the DIRECT call", command_slot, runtime::mesh_command_capacity);
+                deren::utility::log("mesh indirect: slot {} is past the command table ({} records) - the dispatch goes through the DIRECT call", command_slot, runtime::mesh_command_capacity);
             }
             return direct();
         }
@@ -1314,7 +1314,7 @@ namespace vulkan {
         self->mesh_indirect_dispatches.fetch_add(1u, std::memory_order_relaxed);
         if (!self->mesh_indirect_route_logged) {
             self->mesh_indirect_route_logged = true;
-            utility::log("mesh indirect: the meshlet dispatches go through vkCmdDrawMeshTasksIndirectEXT (table bound, {} records per frame in flight - two command classes - a slot is the primitive's meshlet_base)", runtime::mesh_command_capacity);
+            deren::utility::log("mesh indirect: the meshlet dispatches go through vkCmdDrawMeshTasksIndirectEXT (table bound, {} records per frame in flight - two command classes - a slot is the primitive's meshlet_base)", runtime::mesh_command_capacity);
         }
         return true;
     }
@@ -1338,19 +1338,19 @@ namespace vulkan {
         if (self->meshlet_culled_mapped == nullptr) {
             return false;
         }
-        uint32_t const count = static_cast<uint32_t>(records.size_bytes() / sizeof(vulkan::meshlet));
-        if (base > vulkan::meshlet_capacity || count > vulkan::meshlet_capacity - base) {
+        uint32_t const count = static_cast<uint32_t>(records.size_bytes() / sizeof(deren::vulkan::meshlet));
+        if (base > deren::vulkan::meshlet_capacity || count > deren::vulkan::meshlet_capacity - base) {
             // a run past the table cannot be compacted into it: the caller answers by NOT culling (the whole run is
             // dispatched and the entry culls itself), which is always correct - the table is the meshlet budget
             static bool logged = false;
             if (!logged) {
                 logged = true;
-                utility::log("mesh culling: a run of {} meshlets at {} does not fit the culled table ({} records) - that draw stays unculled", count, base, vulkan::meshlet_capacity);
+                deren::utility::log("mesh culling: a run of {} meshlets at {} does not fit the culled table ({} records) - that draw stays unculled", count, base, deren::vulkan::meshlet_capacity);
             }
             return false;
         }
         auto* const table = static_cast<uint8_t*>(self->meshlet_culled_mapped);
-        std::memcpy(table + (static_cast<std::size_t>(self->vulkan_core.current_frame) * vulkan::meshlet_capacity + base) * sizeof(vulkan::meshlet), records.data(), records.size_bytes());
+        std::memcpy(table + (static_cast<std::size_t>(self->vulkan_core.current_frame) * deren::vulkan::meshlet_capacity + base) * sizeof(deren::vulkan::meshlet), records.data(), records.size_bytes());
         return true;
     }
 
@@ -1386,7 +1386,7 @@ namespace vulkan {
         if (enabled && !this->shadows_enabled) {
             this->warn_missing_feature("shadow-on", "the shadow pass has no effect: enable_shadows() did not succeed (the startup log says why)");
         }
-        utility::log("shadow pass {}", enabled ? "enabled" : "disabled");
+        deren::utility::log("shadow pass {}", enabled ? "enabled" : "disabled");
     }
 
     void runtime::set_brdf_model(int32_t const model) noexcept {
@@ -1431,7 +1431,7 @@ namespace vulkan {
         // sphere normal jump between two objects' heads.
         this->head_state.center = basis.center;
         if (!std::isfinite(front_len_sq) || !std::isfinite(right_len_sq) || !std::isfinite(up_len_sq) || front_len_sq <= 1e-8f || right_len_sq <= 1e-8f || up_len_sq <= 1e-8f) {
-            utility::log("head frame: refusing a degenerate basis (lengths {} {} {}), keeping the fallback", front_len_sq, right_len_sq, up_len_sq);
+            deren::utility::log("head frame: refusing a degenerate basis (lengths {} {} {}), keeping the fallback", front_len_sq, right_len_sq, up_len_sq);
             return;
         }
         this->head_state.front = glm::vec4(glm::normalize(front), 0.0f);
@@ -1579,9 +1579,9 @@ namespace vulkan {
         for (scene_tree::scene_node const& root : this->get_scene().roots) {
             walk(walk, root, 0);
         }
-        utility::log("runtime scene tree: {} roots, {} nodes ({} leaf primitives), max depth {}", this->get_scene().roots.size(), total_nodes, leaf_count, max_depth);
+        deren::utility::log("runtime scene tree: {} roots, {} nodes ({} leaf primitives), max depth {}", this->get_scene().roots.size(), total_nodes, leaf_count, max_depth);
         for (std::string const& line : lines) {
-            utility::log("  {}", line);
+            deren::utility::log("  {}", line);
         }
     }
 
@@ -1624,22 +1624,22 @@ namespace vulkan {
         // from - so it is decided where the upload happens, once, and not per frame by whoever wants
         // to trace.
         VkBufferUsageFlags const rt_input_usage = this->vulkan_core.ray_query_available ? acceleration_structure::build_input_usage : 0u;
-        result->vertex_buffer = this->vulkan_core.vma.create_buffer(info.vertex_data.data(), info.vertex_data.size_bytes(), vulkan::buffer_type::vertex, rt_input_usage);
+        result->vertex_buffer = this->vulkan_core.vma.create_buffer(info.vertex_data.data(), info.vertex_data.size_bytes(), deren::vulkan::buffer_type::vertex, rt_input_usage);
         if (!result->vertex_buffer.valid()) {
-            utility::panic("failed to create vertex buffer");
+            deren::utility::panic("failed to create vertex buffer");
         }
         result->vertex_detail = this->vulkan_core.vma.get_buffer_detail(result->vertex_buffer.handle());
         if (result->vertex_detail == nullptr) {
-            utility::panic("failed to get vertex buffer detail");
+            deren::utility::panic("failed to get vertex buffer detail");
         }
 
-        result->index_buffer = this->vulkan_core.vma.create_buffer(info.index_data.data(), info.index_data.size_bytes(), vulkan::buffer_type::index, rt_input_usage);
+        result->index_buffer = this->vulkan_core.vma.create_buffer(info.index_data.data(), info.index_data.size_bytes(), deren::vulkan::buffer_type::index, rt_input_usage);
         if (!result->index_buffer.valid()) {
-            utility::panic("failed to create index buffer");
+            deren::utility::panic("failed to create index buffer");
         }
         result->index_detail = this->vulkan_core.vma.get_buffer_detail(result->index_buffer.handle());
         if (result->index_detail == nullptr) {
-            utility::panic("failed to get index buffer detail");
+            deren::utility::panic("failed to get index buffer detail");
         }
 
         result->index_type = info.index_type;
@@ -1658,7 +1658,7 @@ namespace vulkan {
         //      task stage culls with. Built HERE because this is where the geometry bytes are still in hand and
         //      the layout (stride, index width) is known. The GPU TABLE is filled right below, so a task stage can
         //      read the same records the CPU just computed.
-        result->meshlets = vulkan::build_meshlets(vulkan::meshlet_build_input{
+        result->meshlets = deren::vulkan::build_meshlets(deren::vulkan::meshlet_build_input{
             .vertex_data = info.vertex_data,
             .vertex_stride = info.vertex_stride,
             .vertex_count = info.vertex_count,
@@ -1672,15 +1672,15 @@ namespace vulkan {
         // run's first record (`meshlet_base`) and the geometry lanes carry it, so one draw's meshlets are one
         // window. A scene past `meshlet_capacity` keeps the geometry it uploaded and loses only the CULLING for the
         // overflow - logged once, because a budget that silently drops geometry is a hole rather than a limit.
-        std::size_t const room = this->meshlet_total < vulkan::meshlet_capacity ? static_cast<std::size_t>(vulkan::meshlet_capacity) - this->meshlet_total : 0u;
+        std::size_t const room = this->meshlet_total < deren::vulkan::meshlet_capacity ? static_cast<std::size_t>(deren::vulkan::meshlet_capacity) - this->meshlet_total : 0u;
         if (result->meshlets.size() > room) {
             if (!this->meshlet_overflow_logged) {
                 this->meshlet_overflow_logged = true;
-                utility::log("meshlet table capacity ({}) exceeded - the extra meshlets are not culled (the geometry is unaffected)", vulkan::meshlet_capacity);
+                deren::utility::log("meshlet table capacity ({}) exceeded - the extra meshlets are not culled (the geometry is unaffected)", deren::vulkan::meshlet_capacity);
             }
             result->meshlets.resize(room);
         }
-        std::memcpy(static_cast<uint8_t*>(this->meshlet_mapped) + this->meshlet_total * sizeof(vulkan::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(vulkan::meshlet));
+        std::memcpy(static_cast<uint8_t*>(this->meshlet_mapped) + this->meshlet_total * sizeof(deren::vulkan::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(deren::vulkan::meshlet));
         result->meshlet_base = static_cast<uint32_t>(this->meshlet_total);
         this->meshlet_total += result->meshlets.size();
         result->meshlet_count = static_cast<uint32_t>(result->meshlets.size());
@@ -1691,18 +1691,18 @@ namespace vulkan {
         // A meshlet's window is what a MESH stage passes to `SetMeshOutputCounts` and to its index fetch, so a
         // record that is malformed is not a wrong picture: it is a dispatch asking for more output than the device
         // has (the hang the first consumer attempt measured) or a fetch outside the buffer. THE RULE ITSELF IS
-        // `vulkan::meshlet_record_sound` - one definition, asserted by tests/test_meshlet.cpp - and this is the
+        // `deren::vulkan::meshlet_record_sound` - one definition, asserted by tests/test_meshlet.cpp - and this is the
         // boundary where the records leave the host.
         bool records_sound = true;
-        for (vulkan::meshlet const& meshlet : result->meshlets) {
-            records_sound = records_sound && vulkan::meshlet_record_sound(meshlet, info.index_count);
+        for (deren::vulkan::meshlet const& meshlet : result->meshlets) {
+            records_sound = records_sound && deren::vulkan::meshlet_record_sound(meshlet, info.index_count);
         }
         if (!records_sound && !this->meshlet_records_unsound_logged) {
             this->meshlet_records_unsound_logged = true;
-            utility::log("meshlet records: a primitive with {} indices produced a meshlet outside its window or over the "
+            deren::utility::log("meshlet records: a primitive with {} indices produced a meshlet outside its window or over the "
                          "{} index budget - a mesh stage would ask the device for invalid output (the splitter's invariants are tested in tests/test_meshlet.cpp)",
                          info.index_count,
-                         vulkan::meshlet_max_indices);
+                         deren::vulkan::meshlet_max_indices);
         }
 
         if (info.vertex_count > 0 && info.vertex_stride >= sizeof(glm::vec3) && !info.vertex_data.empty()) {
@@ -1764,13 +1764,13 @@ namespace vulkan {
         scene_tree::scene_node& leaf = this->get_scene().add_root();
         leaf.node_name = std::string(pipeline_name);
         leaf.local = info.model_matrix;  // world = identity * local (root)
-        leaf.attach(std::move(created)); // a vulkan::primitive is a scene_tree::primitive
+        leaf.attach(std::move(created)); // a deren::vulkan::primitive is a scene_tree::primitive
         this->bvh_dirty = true;          // new leaf -> culling BVH must be rebuilt
         return result;
     }
 
     primitive* runtime::make_instanced_primitive(primitive const& source, std::span<glm::mat4 const> const transforms) {
-        uint32_t const count = std::min<uint32_t>(static_cast<uint32_t>(transforms.size()), vulkan::instance_capacity - this->instance_cursor);
+        uint32_t const count = std::min<uint32_t>(static_cast<uint32_t>(transforms.size()), deren::vulkan::instance_capacity - this->instance_cursor);
         if (count == 0 || this->instance_mapped == nullptr || !source.is_valid()) {
             return nullptr;
         }
@@ -1792,9 +1792,9 @@ namespace vulkan {
         // have to be handled (advance_motion_transforms skips instanced leaves on purpose: their
         // per-instance matrices are a setup-time quantity, not a per-frame one).
         uint32_t const motion_base = this->motion_cursor;
-        uint32_t const motion_count = std::min<uint32_t>(count, vulkan::scene_motion_capacity - this->motion_cursor);
+        uint32_t const motion_count = std::min<uint32_t>(count, deren::vulkan::scene_motion_capacity - this->motion_cursor);
         this->motion_cursor += motion_count;
-        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             auto* const published = static_cast<glm::mat4*>(this->motion_mapped[static_cast<std::size_t>(slot)]);
             if (published != nullptr && motion_count > 0) {
                 std::memcpy(published + motion_base, transforms.data(), static_cast<std::size_t>(motion_count) * sizeof(glm::mat4));
@@ -1865,12 +1865,12 @@ namespace vulkan {
         if (slot >= this->skin_mapped.size() || this->skin_mapped[slot] == nullptr) {
             return;
         }
-        std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(vulkan::scene_skin_capacity) * sizeof(glm::mat4));
+        std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4));
         std::memcpy(this->skin_mapped[slot], matrices.data(), bytes);
         // Content fingerprint of this upload: the only per-frame signal that a skinned caster moved
         // (its push.model is constant, the pose lives in these matrices). XXH3 rather than a byte
         // loop - 1.3 us for an 840-joint rig against 43.7 us, and this runs on every frame.
-        this->skin_matrix_hash = utility::xxh3_64bits({static_cast<uint8_t const*>(this->skin_mapped[slot]), bytes});
+        this->skin_matrix_hash = deren::utility::xxh3_64bits({static_cast<uint8_t const*>(this->skin_mapped[slot]), bytes});
     }
 
     void* runtime::morph_scratch() noexcept {
@@ -1887,4 +1887,4 @@ namespace vulkan {
         this->morph_revision.fetch_add(1, std::memory_order_relaxed); // no upload hook: assume the caller is about to deform the mesh
         return this->morph_mapped[slot];
     }
-} // namespace vulkan
+} // namespace deren::vulkan

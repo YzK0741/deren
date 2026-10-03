@@ -206,7 +206,7 @@ module;
 // See vstd/vstd_lib_capabilities.inc for the measurement that put it here.
 #include "vstd_lib_capabilities.inc"
 
-export module vstd;
+export module deren.vstd;
 
 
 #include "std/algorithm.inc"

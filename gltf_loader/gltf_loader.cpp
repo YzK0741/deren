@@ -18,66 +18,66 @@ module;
 // name lookup is a lookup that can miss by design.
 #include <optional>
 
-module gltf_loader;
+module deren.gltf_loader;
 
-import utility;
+import deren.utility;
 
 namespace {
     using fastgltf::Asset;
 
     struct parsed_data {
         std::vector<uint8_t> data;
-        gltf::component_type component_type = gltf::component_type::unknown;
-        gltf::element_type element_type = gltf::element_type::unknown;
+        deren::gltf::component_type component_type = deren::gltf::component_type::unknown;
+        deren::gltf::element_type element_type = deren::gltf::element_type::unknown;
         uint64_t count = 0;
         uint64_t byte_size = 0;
     };
 
-    gltf::component_type to_component_type(fastgltf::ComponentType const type) {
+    deren::gltf::component_type to_component_type(fastgltf::ComponentType const type) {
         switch (type) {
         case fastgltf::ComponentType::Byte:
-            return gltf::component_type::byte_t;
+            return deren::gltf::component_type::byte_t;
         case fastgltf::ComponentType::UnsignedByte:
-            return gltf::component_type::unsigned_byte_t;
+            return deren::gltf::component_type::unsigned_byte_t;
         case fastgltf::ComponentType::Short:
-            return gltf::component_type::short_t;
+            return deren::gltf::component_type::short_t;
         case fastgltf::ComponentType::UnsignedShort:
-            return gltf::component_type::unsigned_short_t;
+            return deren::gltf::component_type::unsigned_short_t;
         case fastgltf::ComponentType::Int:
-            return gltf::component_type::int_t;
+            return deren::gltf::component_type::int_t;
         case fastgltf::ComponentType::UnsignedInt:
-            return gltf::component_type::unsigned_int_t;
+            return deren::gltf::component_type::unsigned_int_t;
         case fastgltf::ComponentType::Float:
-            return gltf::component_type::float_t;
+            return deren::gltf::component_type::float_t;
         case fastgltf::ComponentType::Double:
-            return gltf::component_type::double_t;
+            return deren::gltf::component_type::double_t;
         default:
-            return gltf::component_type::unknown;
+            return deren::gltf::component_type::unknown;
         }
     }
 
-    gltf::element_type to_element_type(fastgltf::AccessorType const type) {
+    deren::gltf::element_type to_element_type(fastgltf::AccessorType const type) {
         switch (type) {
         case fastgltf::AccessorType::Scalar:
-            return gltf::element_type::scale;
+            return deren::gltf::element_type::scale;
         case fastgltf::AccessorType::Vec2:
-            return gltf::element_type::vec2;
+            return deren::gltf::element_type::vec2;
         case fastgltf::AccessorType::Vec3:
-            return gltf::element_type::vec3;
+            return deren::gltf::element_type::vec3;
         case fastgltf::AccessorType::Vec4:
-            return gltf::element_type::vec4;
+            return deren::gltf::element_type::vec4;
         case fastgltf::AccessorType::Mat2:
-            return gltf::element_type::mat2;
+            return deren::gltf::element_type::mat2;
         case fastgltf::AccessorType::Mat3:
-            return gltf::element_type::mat3;
+            return deren::gltf::element_type::mat3;
         case fastgltf::AccessorType::Mat4:
-            return gltf::element_type::mat4;
+            return deren::gltf::element_type::mat4;
         default:
-            return gltf::element_type::unknown;
+            return deren::gltf::element_type::unknown;
         }
     }
 
-    gltf::error_code to_error_code(fastgltf::Error const error) {
+    deren::gltf::error_code to_error_code(fastgltf::Error const error) {
         switch (error) {
         case fastgltf::Error::InvalidFileData:
         case fastgltf::Error::InvalidGLB:
@@ -85,9 +85,9 @@ namespace {
         case fastgltf::Error::InvalidGltf:
         case fastgltf::Error::InvalidOrMissingAssetField:
         case fastgltf::Error::UnsupportedVersion:
-            return gltf::error_code::file_type_error;
+            return deren::gltf::error_code::file_type_error;
         default:
-            return gltf::error_code::file_load_failed;
+            return deren::gltf::error_code::file_load_failed;
         }
     }
 
@@ -275,8 +275,8 @@ namespace {
         return {};
     }
 
-    gltf::texture_data load_texture(Asset const& asset, std::size_t const texture_index) {
-        gltf::texture_data out;
+    deren::gltf::texture_data load_texture(Asset const& asset, std::size_t const texture_index) {
+        deren::gltf::texture_data out;
         if (texture_index >= asset.textures.size()) {
             return out;
         }
@@ -363,9 +363,9 @@ namespace {
             return;
         }
         std::map<std::string, float>& out = collected.floats[object_index];
-        // ONLY THE CLAIMED NAMES (see `gltf::claimed_extras_floats`): an allow-list scan rather than a copy of
+        // ONLY THE CLAIMED NAMES (see `deren::gltf::claimed_extras_floats`): an allow-list scan rather than a copy of
         // the block, so the number of values that enter the model is the number of values something reads.
-        for (std::string_view const claimed : gltf::claimed_extras_floats) {
+        for (std::string_view const claimed : deren::gltf::claimed_extras_floats) {
             double value = 0.0;
             if (block.at_key(claimed).get_double().get(value) == simdjson::SUCCESS) {
                 out.emplace(std::string(claimed), static_cast<float>(value));
@@ -373,8 +373,8 @@ namespace {
         }
     }
 
-    gltf::material load_material(fastgltf::Material const& material, std::map<std::string, float> const* const extras_floats) {
-        gltf::material result;
+    deren::gltf::material load_material(fastgltf::Material const& material, std::map<std::string, float> const* const extras_floats) {
+        deren::gltf::material result;
         result.factors.base_color_factor = glm::vec4(material.pbrData.baseColorFactor[0],
                                                      material.pbrData.baseColorFactor[1],
                                                      material.pbrData.baseColorFactor[2],
@@ -405,8 +405,8 @@ namespace {
         return result;
     }
 
-    gltf::primitive load_primitive(fastgltf::Primitive const& primitive, Asset const& asset) {
-        std::map<std::string, gltf::vertex_portion> vertex;
+    deren::gltf::primitive load_primitive(fastgltf::Primitive const& primitive, Asset const& asset) {
+        std::map<std::string, deren::gltf::vertex_portion> vertex;
         for (auto const& attribute : primitive.attributes) {
             auto data = get_data_from_accessor(asset, asset.accessors[attribute.accessorIndex]);
             std::string const name(attribute.name);
@@ -418,13 +418,13 @@ namespace {
         // exactly like the base attributes (same vertex count per target). The glTF spec
         // requires morph-target deltas to be FLOAT; non-float attributes are dropped here so
         // consumers can read the data as float deltas without a per-portion component check.
-        std::vector<gltf::morph_target> targets;
+        std::vector<deren::gltf::morph_target> targets;
         targets.reserve(primitive.targets.size());
         for (auto const& target_attributes : primitive.targets) {
-            gltf::morph_target target;
+            deren::gltf::morph_target target;
             for (auto const& attribute : target_attributes) {
                 auto data = get_data_from_accessor(asset, asset.accessors[attribute.accessorIndex]);
-                if (data.component_type != gltf::component_type::float_t) {
+                if (data.component_type != deren::gltf::component_type::float_t) {
                     continue; // non-conforming morph delta: drop (consumers blend float deltas)
                 }
                 std::string const name(attribute.name);
@@ -460,11 +460,11 @@ namespace {
         return result;
     }
 
-    gltf::scene load_scene(Asset const& asset, std::size_t const scene_index) {
-        gltf::scene result;
+    deren::gltf::scene load_scene(Asset const& asset, std::size_t const scene_index) {
+        deren::gltf::scene result;
         result.name = asset.scenes[scene_index].name;
 
-        // Build one gltf::node per asset node, keeping the DFS pre-order the pool layout
+        // Build one deren::gltf::node per asset node, keeping the DFS pre-order the pool layout
         // promises (a node is immediately followed by its whole subtree). The traversal is
         // ITERATIVE with an explicit stack instead of recursion: a hostile file with a deeply
         // nested / cyclic node graph must not overflow the call stack, and cycles must not loop
@@ -476,7 +476,7 @@ namespace {
             fastgltf::Node const& fnode = asset.nodes[node_index];
             fastgltf::math::fmat4x4 const world = fastgltf::getTransformMatrix(fnode, parent_world);
 
-            gltf::node current_node = {};
+            deren::gltf::node current_node = {};
             current_node.name = fnode.name;
             // Link the pool entry back to the asset's node table (animation channels target
             // nodes by this index) and keep the declared TRS base pose when the node is TRS:
@@ -516,7 +516,7 @@ namespace {
             current_node.local_transform = to_glm_mat4(fastgltf::getTransformMatrix(fnode)); // base = identity -> own transform
             current_node.transform_matrix = to_glm_mat4(world);
             if (fnode.meshIndex) {
-                gltf::mesh current_mesh = {};
+                deren::gltf::mesh current_mesh = {};
                 std::string_view const mesh_name = asset.meshes[*fnode.meshIndex].name;
                 std::size_t prim_index = 0;
                 for (auto const& primitive : asset.meshes[*fnode.meshIndex].primitives) {
@@ -524,7 +524,7 @@ namespace {
                     // by the pipeline (the interleaved mesh builder below assumes triangles), so
                     // skip the others with a warning instead of drawing garbage.
                     if (primitive.type != fastgltf::PrimitiveType::Triangles) {
-                        utility::log("gltf: skipping primitive {} of mesh '{}': mode {} is not supported (only TRIANGLES render)",
+                        deren::utility::log("gltf: skipping primitive {} of mesh '{}': mode {} is not supported (only TRIANGLES render)",
                                      prim_index, mesh_name, static_cast<int32_t>(primitive.type));
                         ++prim_index;
                         continue;
@@ -562,12 +562,12 @@ namespace {
         // frame. Returns the pool index the node occupies.
         auto const expand = [&](std::size_t const node_index, std::size_t const parent_pool_index, fastgltf::math::fmat4x4 const& parent_world) -> bool {
             if (node_index >= asset.nodes.size()) {
-                utility::log("gltf: out-of-range node reference {} (asset has {} nodes), skipping", node_index, asset.nodes.size());
+                deren::utility::log("gltf: out-of-range node reference {} (asset has {} nodes), skipping", node_index, asset.nodes.size());
                 return false;
             }
             auto const [it, inserted] = node_pool_index.try_emplace(node_index, 0);
             if (!inserted) {
-                utility::log("gltf: node {} referenced more than once (cyclic or shared graph), skipping the repeat", node_index);
+                deren::utility::log("gltf: node {} referenced more than once (cyclic or shared graph), skipping the repeat", node_index);
                 return false;
             }
             std::size_t const pool_index = enter_node(node_index, parent_world);
@@ -607,38 +607,38 @@ namespace {
 
     // Read one scalar component (little-endian, element index @p index) of a decoded accessor
     // byte buffer as a float, converting any supported component type.
-    float read_float_component(uint8_t const* data, gltf::component_type const type, std::size_t const index) {
+    float read_float_component(uint8_t const* data, deren::gltf::component_type const type, std::size_t const index) {
         switch (type) {
-        case gltf::component_type::float_t: {
+        case deren::gltf::component_type::float_t: {
             float value;
             std::memcpy(&value, data + index * sizeof(float), sizeof(float));
             return value;
         }
-        case gltf::component_type::double_t: {
+        case deren::gltf::component_type::double_t: {
             double value;
             std::memcpy(&value, data + index * sizeof(double), sizeof(double));
             return static_cast<float>(value);
         }
-        case gltf::component_type::byte_t:
+        case deren::gltf::component_type::byte_t:
             return static_cast<float>(static_cast<std::int8_t>(data[index]));
-        case gltf::component_type::unsigned_byte_t:
+        case deren::gltf::component_type::unsigned_byte_t:
             return static_cast<float>(data[index]);
-        case gltf::component_type::short_t: {
+        case deren::gltf::component_type::short_t: {
             std::int16_t value;
             std::memcpy(&value, data + index * sizeof(std::int16_t), sizeof(std::int16_t));
             return static_cast<float>(value);
         }
-        case gltf::component_type::unsigned_short_t: {
+        case deren::gltf::component_type::unsigned_short_t: {
             std::uint16_t value;
             std::memcpy(&value, data + index * sizeof(std::uint16_t), sizeof(std::uint16_t));
             return static_cast<float>(value);
         }
-        case gltf::component_type::int_t: {
+        case deren::gltf::component_type::int_t: {
             std::int32_t value;
             std::memcpy(&value, data + index * sizeof(std::int32_t), sizeof(std::int32_t));
             return static_cast<float>(value);
         }
-        case gltf::component_type::unsigned_int_t: {
+        case deren::gltf::component_type::unsigned_int_t: {
             std::uint32_t value;
             std::memcpy(&value, data + index * sizeof(std::uint32_t), sizeof(std::uint32_t));
             return static_cast<float>(value);
@@ -667,7 +667,7 @@ namespace {
         default:
             return {}; // not a valid animation value shape
         }
-        if (raw.data.empty() || raw.component_type == gltf::component_type::unknown) {
+        if (raw.data.empty() || raw.component_type == deren::gltf::component_type::unknown) {
             return {};
         }
         std::vector<float> out;
@@ -678,9 +678,9 @@ namespace {
         return out;
     }
 
-    gltf::animation load_animation(Asset const& asset, std::size_t const animation_index) {
+    deren::gltf::animation load_animation(Asset const& asset, std::size_t const animation_index) {
         fastgltf::Animation const& f_anim = asset.animations[animation_index];
-        gltf::animation result;
+        deren::gltf::animation result;
         result.name = f_anim.name;
 
         // Samplers: keyframe times (Scalar input accessor) + output values (Vec3/Vec4 output
@@ -688,18 +688,18 @@ namespace {
         // still pushed (as an empty entry) so channel->sampler indices stay aligned with the
         // file; consumers skip samplers with empty times.
         for (fastgltf::AnimationSampler const& f_sampler : f_anim.samplers) {
-            gltf::animation_sampler sampler = {};
+            deren::gltf::animation_sampler sampler = {};
             switch (f_sampler.interpolation) {
             case fastgltf::AnimationInterpolation::Step:
-                sampler.interpolation = gltf::animation_interpolation::step;
+                sampler.interpolation = deren::gltf::animation_interpolation::step;
                 break;
             case fastgltf::AnimationInterpolation::CubicSpline:
-                sampler.interpolation = gltf::animation_interpolation::cubic_spline;
+                sampler.interpolation = deren::gltf::animation_interpolation::cubic_spline;
                 break;
             case fastgltf::AnimationInterpolation::Linear:
                 [[fallthrough]];
             default:
-                sampler.interpolation = gltf::animation_interpolation::linear;
+                sampler.interpolation = deren::gltf::animation_interpolation::linear;
                 break;
             }
             if (f_sampler.inputAccessor < asset.accessors.size()) {
@@ -718,21 +718,21 @@ namespace {
             if (!f_channel.nodeIndex || f_channel.samplerIndex >= result.samplers.size()) {
                 continue; // broken reference: cannot resolve
             }
-            gltf::animation_channel channel = {};
+            deren::gltf::animation_channel channel = {};
             channel.sampler = f_channel.samplerIndex;
             channel.target_node = *f_channel.nodeIndex;
             std::size_t per_key = 0;
             switch (f_channel.path) {
             case fastgltf::AnimationPath::Translation:
-                channel.path = gltf::animation_path::translation;
+                channel.path = deren::gltf::animation_path::translation;
                 per_key = 3;
                 break;
             case fastgltf::AnimationPath::Rotation:
-                channel.path = gltf::animation_path::rotation;
+                channel.path = deren::gltf::animation_path::rotation;
                 per_key = 4;
                 break;
             case fastgltf::AnimationPath::Scale:
-                channel.path = gltf::animation_path::scale;
+                channel.path = deren::gltf::animation_path::scale;
                 per_key = 3;
                 break;
             case fastgltf::AnimationPath::Weights: {
@@ -747,7 +747,7 @@ namespace {
                     ++skipped_weights;
                     continue;
                 }
-                channel.path = gltf::animation_path::weights;
+                channel.path = deren::gltf::animation_path::weights;
                 per_key = target_count;
                 break;
             }
@@ -756,7 +756,7 @@ namespace {
             }
             // record the per-keyframe shape on the sampler (a sampler shared by several channels
             // keeps the first shape it was seen with)
-            gltf::animation_sampler& sampler = result.samplers[channel.sampler];
+            deren::gltf::animation_sampler& sampler = result.samplers[channel.sampler];
             if (sampler.per_key == 0) {
                 sampler.per_key = per_key;
             }
@@ -764,7 +764,7 @@ namespace {
         }
         if (skipped_weights > 0) {
             std::string_view const anim_name = result.name.empty() ? std::string_view("<unnamed>") : std::string_view(result.name);
-            utility::log("gltf: animation '{}': {} morph-weight channel(s) skipped (node has no morphable mesh)", anim_name, skipped_weights);
+            deren::utility::log("gltf: animation '{}': {} morph-weight channel(s) skipped (node has no morphable mesh)", anim_name, skipped_weights);
         }
         return result;
     }
@@ -789,9 +789,9 @@ namespace {
         return out;
     }
 
-    gltf::skin load_skin(Asset const& asset, std::size_t const skin_index) {
+    deren::gltf::skin load_skin(Asset const& asset, std::size_t const skin_index) {
         fastgltf::Skin const& f_skin = asset.skins[skin_index];
-        gltf::skin result;
+        deren::gltf::skin result;
         result.name = f_skin.name;
         result.joints.assign(f_skin.joints.begin(), f_skin.joints.end());
         if (f_skin.inverseBindMatrices && *f_skin.inverseBindMatrices < asset.accessors.size()) {
@@ -807,11 +807,11 @@ namespace {
 
     // ---- cameras + punctual lights (KHR_lights_punctual): raw property export only ----
 
-    gltf::camera load_camera(fastgltf::Camera const& f_camera) {
-        gltf::camera result;
+    deren::gltf::camera load_camera(fastgltf::Camera const& f_camera) {
+        deren::gltf::camera result;
         result.name = f_camera.name;
         if (auto const* perspective = std::get_if<fastgltf::Camera::Perspective>(&f_camera.camera)) {
-            result.type = gltf::camera_type::perspective;
+            result.type = deren::gltf::camera_type::perspective;
             result.yfov = static_cast<float>(perspective->yfov);
             result.znear = static_cast<float>(perspective->znear);
             if (perspective->aspectRatio) {
@@ -821,7 +821,7 @@ namespace {
                 result.zfar = static_cast<float>(*perspective->zfar);
             }
         } else if (auto const* orthographic = std::get_if<fastgltf::Camera::Orthographic>(&f_camera.camera)) {
-            result.type = gltf::camera_type::orthographic;
+            result.type = deren::gltf::camera_type::orthographic;
             result.xmag = static_cast<float>(orthographic->xmag);
             result.ymag = static_cast<float>(orthographic->ymag);
             result.ortho_znear = static_cast<float>(orthographic->znear);
@@ -830,18 +830,18 @@ namespace {
         return result;
     }
 
-    gltf::light load_light(fastgltf::Light const& f_light) {
-        gltf::light result;
+    deren::gltf::light load_light(fastgltf::Light const& f_light) {
+        deren::gltf::light result;
         result.name = f_light.name;
         switch (f_light.type) {
         case fastgltf::LightType::Directional:
-            result.type = gltf::light_type::directional;
+            result.type = deren::gltf::light_type::directional;
             break;
         case fastgltf::LightType::Point:
-            result.type = gltf::light_type::point;
+            result.type = deren::gltf::light_type::point;
             break;
         case fastgltf::LightType::Spot:
-            result.type = gltf::light_type::spot;
+            result.type = deren::gltf::light_type::spot;
             break;
         }
         result.color = glm::vec3(static_cast<float>(f_light.color[0]), static_cast<float>(f_light.color[1]), static_cast<float>(f_light.color[2]));
@@ -878,9 +878,9 @@ namespace {
         uint32_t index_count = 0;
     };
 
-    built_mesh build_mesh(gltf::primitive const& prim) {
+    built_mesh build_mesh(deren::gltf::primitive const& prim) {
         built_mesh result;
-        auto const get_portion = [&prim](std::string_view const name) -> gltf::vertex_portion const* {
+        auto const get_portion = [&prim](std::string_view const name) -> deren::gltf::vertex_portion const* {
             auto const it = prim.vertex.find(std::string(name));
             return it == prim.vertex.end() ? nullptr : &it->second;
         };
@@ -892,7 +892,7 @@ namespace {
         auto const* joints_portion = get_portion("JOINTS_0");
         auto const* weights_portion = get_portion("WEIGHTS_0");
         if (position_portion == nullptr) {
-            utility::panic("primitive has no POSITION attribute");
+            deren::utility::panic("primitive has no POSITION attribute");
         }
 
         constexpr glm::vec2 default_uv(0.0f, 0.0f);
@@ -910,9 +910,9 @@ namespace {
         //        maps to [-1, 1] instead of [0, 1] (glTF's signed normalized conversion) - the case
         //        a quantized NORMAL hits. Unnormalized integers are converted as-is, which is the
         //        honest reading of a file whose accessor says so.
-        auto const read_attribute = []<std::size_t N>(gltf::vertex_portion const& portion, std::size_t const index, bool const signed_normalized) -> std::array<float, N> {
+        auto const read_attribute = []<std::size_t N>(deren::gltf::vertex_portion const& portion, std::size_t const index, bool const signed_normalized) -> std::array<float, N> {
             std::array<float, N> out = {};
-            std::size_t const component_bytes = gltf::get_component_size(portion.component);
+            std::size_t const component_bytes = deren::gltf::get_component_size(portion.component);
             if (component_bytes == 0) {
                 return out; // unknown component type: nothing to read
             }
@@ -920,7 +920,7 @@ namespace {
             if (index * N + N > elements) {
                 return out; // short accessor: the count guard below already logged the mismatch
             }
-            if (portion.component == gltf::component_type::float_t) {
+            if (portion.component == deren::gltf::component_type::float_t) {
                 auto const* const base = reinterpret_cast<float const*>(portion.data.data());
                 for (std::size_t c = 0; c < N; ++c) {
                     out[c] = base[index * N + c];
@@ -931,20 +931,20 @@ namespace {
             for (std::size_t c = 0; c < N; ++c) {
                 std::size_t const at = index * N + c;
                 switch (portion.component) {
-                case gltf::component_type::unsigned_byte_t:
+                case deren::gltf::component_type::unsigned_byte_t:
                     out[c] = static_cast<float>(base[at]) / 255.0f;
                     break;
-                case gltf::component_type::byte_t: {
+                case deren::gltf::component_type::byte_t: {
                     float const raw = static_cast<float>(static_cast<std::int8_t>(base[at]));
                     out[c] = signed_normalized ? std::max(raw / 127.0f, -1.0f) : raw;
                     break;
                 }
-                case gltf::component_type::unsigned_short_t: {
+                case deren::gltf::component_type::unsigned_short_t: {
                     auto const* const p = reinterpret_cast<std::uint16_t const*>(base) + at;
                     out[c] = static_cast<float>(*p) / 65535.0f;
                     break;
                 }
-                case gltf::component_type::short_t: {
+                case deren::gltf::component_type::short_t: {
                     auto const* const p = reinterpret_cast<std::int16_t const*>(base) + at;
                     float const raw = static_cast<float>(*p);
                     out[c] = signed_normalized ? std::max(raw / 32767.0f, -1.0f) : raw;
@@ -966,17 +966,17 @@ namespace {
         //      a non-float POSITION or a short NORMAL/UV/JOINTS/WEIGHTS accessor cannot make the
         //      read paths below run past its end. Clamp to the shortest attribute and log the
         //      mismatch (error-tolerant load). ----
-        auto const portion_elements = [](gltf::vertex_portion const& portion, std::size_t const vec_size) -> std::size_t {
+        auto const portion_elements = [](deren::gltf::vertex_portion const& portion, std::size_t const vec_size) -> std::size_t {
             std::size_t component_bytes = 4; // float / int32_t / uint32_t
             switch (portion.component) {
-            case gltf::component_type::unsigned_byte_t:
+            case deren::gltf::component_type::unsigned_byte_t:
                 component_bytes = 1;
                 break;
-            case gltf::component_type::short_t:
-            case gltf::component_type::unsigned_short_t:
+            case deren::gltf::component_type::short_t:
+            case deren::gltf::component_type::unsigned_short_t:
                 component_bytes = 2;
                 break;
-            case gltf::component_type::double_t:
+            case deren::gltf::component_type::double_t:
                 component_bytes = 8;
                 break;
             default:
@@ -986,7 +986,7 @@ namespace {
         };
         std::size_t const position_count = portion_elements(*position_portion, 3);
         std::size_t vertex_count = position_count;
-        auto const guard_vertex_count = [&vertex_count, &portion_elements](gltf::vertex_portion const* portion, std::size_t const vec_size) {
+        auto const guard_vertex_count = [&vertex_count, &portion_elements](deren::gltf::vertex_portion const* portion, std::size_t const vec_size) {
             if (portion != nullptr) {
                 vertex_count = std::min(vertex_count, portion_elements(*portion, vec_size));
             }
@@ -996,7 +996,7 @@ namespace {
         guard_vertex_count(joints_portion, 4);
         guard_vertex_count(weights_portion, 4);
         if (vertex_count != position_count) {
-            utility::log("gltf: attribute count mismatch (POSITION has {} vertices, another attribute only {}) - rendering the shorter prefix", position_count, vertex_count);
+            deren::utility::log("gltf: attribute count mismatch (POSITION has {} vertices, another attribute only {}) - rendering the shorter prefix", position_count, vertex_count);
         }
 
         std::vector<glm::vec3> positions;
@@ -1035,13 +1035,13 @@ namespace {
                 }
                 return static_cast<uint8_t>(4);
             }
-            if (prim.index_component_type == gltf::component_type::unsigned_int_t) {
+            if (prim.index_component_type == deren::gltf::component_type::unsigned_int_t) {
                 return static_cast<uint8_t>(4);
             }
-            if (prim.index_component_type == gltf::component_type::unsigned_short_t) {
+            if (prim.index_component_type == deren::gltf::component_type::unsigned_short_t) {
                 return static_cast<uint8_t>(2);
             }
-            if (prim.index_component_type == gltf::component_type::unsigned_byte_t) {
+            if (prim.index_component_type == deren::gltf::component_type::unsigned_byte_t) {
                 // u8 indices are legal glTF (componentType 5121; at most 256 vertices): widen to u16
                 widened_indices.resize(prim.index.size() * sizeof(uint16_t));
                 auto* const dst = reinterpret_cast<uint16_t*>(widened_indices.data());
@@ -1050,7 +1050,7 @@ namespace {
                 }
                 return static_cast<uint8_t>(2);
             }
-            utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<int32_t>(prim.index_component_type));
+            deren::utility::panic(std::source_location::current(), "unsupported index component type: {}", static_cast<int32_t>(prim.index_component_type));
         }();
         std::vector<uint8_t> const& index_bytes = !widened_indices.empty()
                                                       ? widened_indices
@@ -1114,11 +1114,11 @@ namespace {
             if (joints_portion == nullptr) {
                 return out;
             }
-            if (joints_portion->component == gltf::component_type::unsigned_byte_t) {
+            if (joints_portion->component == deren::gltf::component_type::unsigned_byte_t) {
                 for (int32_t c = 0; c < 4; ++c) {
                     out[c] = joints_portion->data[i * 4 + static_cast<std::size_t>(c)];
                 }
-            } else if (joints_portion->component == gltf::component_type::unsigned_short_t) {
+            } else if (joints_portion->component == deren::gltf::component_type::unsigned_short_t) {
                 auto const* p = reinterpret_cast<std::uint16_t const*>(joints_portion->data.data());
                 for (int32_t c = 0; c < 4; ++c) {
                     out[c] = p[i * 4 + static_cast<std::size_t>(c)];
@@ -1130,17 +1130,17 @@ namespace {
             if (weights_portion == nullptr) {
                 return glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
             }
-            if (weights_portion->component == gltf::component_type::float_t) {
+            if (weights_portion->component == deren::gltf::component_type::float_t) {
                 auto const* p = reinterpret_cast<float const*>(weights_portion->data.data());
                 return glm::vec4(p[i * 4 + 0], p[i * 4 + 1], p[i * 4 + 2], p[i * 4 + 3]);
             }
-            if (weights_portion->component == gltf::component_type::unsigned_byte_t) { // normalized
+            if (weights_portion->component == deren::gltf::component_type::unsigned_byte_t) { // normalized
                 return glm::vec4(static_cast<float>(weights_portion->data[i * 4 + 0]) / 255.0f,
                                  static_cast<float>(weights_portion->data[i * 4 + 1]) / 255.0f,
                                  static_cast<float>(weights_portion->data[i * 4 + 2]) / 255.0f,
                                  static_cast<float>(weights_portion->data[i * 4 + 3]) / 255.0f);
             }
-            if (weights_portion->component == gltf::component_type::unsigned_short_t) { // normalized
+            if (weights_portion->component == deren::gltf::component_type::unsigned_short_t) { // normalized
                 auto const* p = reinterpret_cast<std::uint16_t const*>(weights_portion->data.data());
                 return glm::vec4(static_cast<float>(p[i * 4 + 0]) / 65535.0f,
                                  static_cast<float>(p[i * 4 + 1]) / 65535.0f,
@@ -1173,7 +1173,7 @@ namespace {
     }
 
     // Convert stb-decoded texture data to RGBA (3 channels get alpha, 1 channel is gray-scaled)
-    std::vector<uint8_t> to_rgba(gltf::texture_data const& texture) {
+    std::vector<uint8_t> to_rgba(deren::gltf::texture_data const& texture) {
         size_t const pixel_count = static_cast<size_t>(texture.width) * texture.height;
         std::vector<uint8_t> rgba(pixel_count * 4, 255);
         switch (texture.component) {
@@ -1285,7 +1285,7 @@ namespace {
     }
 } // namespace
 
-namespace gltf {
+namespace deren::gltf {
     head_basis head_basis_fallback() noexcept {
         // THE REFERENCE'S OWN CONSTANTS, verbatim from `EfFaceGetHeadBasis`'s `valid < 0.5` branch: it
         // substitutes exactly these three vectors when the head bone is missing or degenerate. Reproduced
@@ -1556,7 +1556,7 @@ namespace gltf {
 
         auto buffer_exp = fastgltf::GltfDataBuffer::FromPath(path);
         if (!buffer_exp) {
-            utility::error("gltf load err: failed to read file: {}", fastgltf::getErrorMessage(buffer_exp.error()));
+            deren::utility::error("gltf load err: failed to read file: {}", fastgltf::getErrorMessage(buffer_exp.error()));
             return std::unexpected(error_code::file_load_failed);
         }
 
@@ -1574,7 +1574,7 @@ namespace gltf {
         parser.setExtrasParseCallback(&collect_material_extras);
         auto asset_exp = parser.loadGltf(buffer_exp.get(), path.parent_path(), load_options());
         if (!asset_exp) {
-            utility::error("gltf load err: {}", fastgltf::getErrorMessage(asset_exp.error()));
+            deren::utility::error("gltf load err: {}", fastgltf::getErrorMessage(asset_exp.error()));
             return std::unexpected(to_error_code(asset_exp.error()));
         }
 
@@ -1586,7 +1586,7 @@ namespace gltf {
         // (load_scene / load_animation / load_skin / load_primitive dereference raw asset
         // indices). Cost is one O(n) pass over the parsed asset at load time.
         if (fastgltf::Error const validation_error = fastgltf::validate(asset); validation_error != fastgltf::Error::None) {
-            utility::error("gltf validate err [validate]: {}", fastgltf::getErrorMessage(validation_error));
+            deren::utility::error("gltf validate err [validate]: {}", fastgltf::getErrorMessage(validation_error));
             return std::unexpected(to_error_code(validation_error));
         }
 
@@ -1598,8 +1598,8 @@ namespace gltf {
         // asset-level node lookup (see scenes::node_by_source): first copy per source_index
         // wins; a node referenced from several scenes is stored once per scene pool, and all
         // copies carry the same metadata, so the first found is a fine representative.
-        for (gltf::scene const& loader_scene : result.scene) {
-            for (gltf::node const& loader_node : loader_scene.nodes) {
+        for (deren::gltf::scene const& loader_scene : result.scene) {
+            for (deren::gltf::node const& loader_node : loader_scene.nodes) {
                 result.node_by_source.try_emplace(loader_node.source_index, &loader_node);
             }
         }
@@ -1639,7 +1639,7 @@ namespace gltf {
         return result;
     }
 
-    // ---- gltf::scenes iteration: flatten scene -> node -> mesh -> primitive ----
+    // ---- deren::gltf::scenes iteration: flatten scene -> node -> mesh -> primitive ----
 
     scene_iterator::scene_iterator(scenes const& owner)
         : iterating_scene(&owner)
@@ -1707,11 +1707,11 @@ namespace gltf {
         return scene_iterator();
     }
 
-    // ---- gltf::scenes node-tree iteration (structural view, includes transform-only nodes) ----
+    // ---- deren::gltf::scenes node-tree iteration (structural view, includes transform-only nodes) ----
 
     void scene_node_iterator::push_next_root() {
         while (this->scene_i < this->iterating_scene->scene.size()) {
-            gltf::scene const& sc = this->iterating_scene->scene[this->scene_i];
+            deren::gltf::scene const& sc = this->iterating_scene->scene[this->scene_i];
             if (this->root_i < sc.root_indices.size()) {
                 this->stack.push_back({sc.root_indices[this->root_i++], 0});
                 return;
@@ -1732,7 +1732,7 @@ namespace gltf {
                 return; // visiting the fresh root now
             }
             frame& top = this->stack.back();
-            gltf::node const& node = this->iterating_scene->scene[this->scene_i].nodes[top.node_i];
+            deren::gltf::node const& node = this->iterating_scene->scene[this->scene_i].nodes[top.node_i];
             if (top.next_child < node.children.size()) {
                 std::size_t const child = node.children[top.next_child++];
                 this->stack.push_back({child, 0});
@@ -1778,9 +1778,9 @@ namespace gltf {
     }
 
     std::size_t scene_node_iterator::get_drawable_count() const noexcept {
-        gltf::node const& node = this->iterating_scene->scene[this->scene_i].nodes[this->stack.back().node_i];
+        deren::gltf::node const& node = this->iterating_scene->scene[this->scene_i].nodes[this->stack.back().node_i];
         std::size_t count = 0;
-        for (gltf::mesh const& mesh : node.meshes) {
+        for (deren::gltf::mesh const& mesh : node.meshes) {
             count += mesh.primitives.size();
         }
         return count;
@@ -1800,7 +1800,7 @@ namespace gltf {
 
     // ---- resolved materials + renderer-ready drawable iteration (pure CPU) ----
 
-    std::vector<resolved_material> resolve_materials(gltf::scenes const& scenes) {
+    std::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes) {
         constexpr std::array<std::string_view, 5> slot_names = {"albedo", "metallic_roughness", "normal", "occlusion", "emissive"};
 
         // decoded texture cache: one entry per glTF texture index; shared textures decode once,
@@ -1818,7 +1818,7 @@ namespace gltf {
             auto& entry = cache[texture_index];
             if (!entry) {
                 entry = decoded_texture{};
-                gltf::texture_data const& tex = scenes.textures[texture_index];
+                deren::gltf::texture_data const& tex = scenes.textures[texture_index];
                 std::vector<uint8_t> const rgba = to_rgba(tex);
                 if (!rgba.empty() && tex.width > 0 && tex.height > 0) {
                     mip_chain mips = generate_mip_chain(rgba, tex.width, tex.height, srgb);
@@ -1988,7 +1988,7 @@ namespace gltf {
         return std::async(std::launch::async, [path = std::string(file_name)] { return load_model(path); });
     }
 
-    std::future<std::vector<resolved_material>> resolve_materials_async(gltf::scenes const& scenes) {
+    std::future<std::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes) {
         return std::async(std::launch::async, [&scenes] { return resolve_materials(scenes); });
     }
 
@@ -2139,7 +2139,7 @@ namespace gltf {
 
     // ---- whole-model world AABB (pure CPU, over the retained scene data) ----
 
-    scene_bounds compute_scene_bounds(gltf::scenes const& scenes) {
+    scene_bounds compute_scene_bounds(deren::gltf::scenes const& scenes) {
         scene_bounds result;
         glm::vec3 scene_min(std::numeric_limits<float>::infinity());
         glm::vec3 scene_max(-std::numeric_limits<float>::infinity());
@@ -2182,16 +2182,16 @@ namespace gltf {
 
     // ---- diagnostics: log what the loader exported for a loaded model ----
 
-    scene_bounds log_scene_diagnostics(gltf::scenes const& scenes) {
+    scene_bounds log_scene_diagnostics(deren::gltf::scenes const& scenes) {
         scene_bounds const bounds = compute_scene_bounds(scenes);
         if (!bounds.valid) {
-            utility::panic("model has no drawable primitives");
+            deren::utility::panic("model has no drawable primitives");
         }
         glm::vec3 const scene_center = bounds.min * 0.5f + bounds.max * 0.5f;
         float const scene_radius = glm::length(bounds.max - bounds.min) * 0.5f;
 
-        utility::log("scene loaded: {} textures, {} materials, {} primitives", scenes.textures.size(), scenes.materials.size(), bounds.primitive_count);
-        utility::log("scene bounds (aabb): min ({:.3f}, {:.3f}, {:.3f}), max ({:.3f}, {:.3f}, {:.3f}), center ({:.3f}, {:.3f}, {:.3f}), radius {:.3f}",
+        deren::utility::log("scene loaded: {} textures, {} materials, {} primitives", scenes.textures.size(), scenes.materials.size(), bounds.primitive_count);
+        deren::utility::log("scene bounds (aabb): min ({:.3f}, {:.3f}, {:.3f}), max ({:.3f}, {:.3f}, {:.3f}), center ({:.3f}, {:.3f}, {:.3f}), radius {:.3f}",
                      bounds.min.x, bounds.min.y, bounds.min.z, bounds.max.x, bounds.max.y, bounds.max.z,
                      scene_center.x, scene_center.y, scene_center.z, scene_radius);
 
@@ -2203,7 +2203,7 @@ namespace gltf {
             size_t mesh_nodes = 0;
             size_t max_depth = 0;
             std::vector<std::string> tree_lines;
-            for (scene_node_iterator it = scenes.nodes_begin(); it != gltf::scenes::nodes_end(); ++it) {
+            for (scene_node_iterator it = scenes.nodes_begin(); it != deren::gltf::scenes::nodes_end(); ++it) {
                 ++total_nodes;
                 size_t const depth = it.get_depth();
                 max_depth = std::max(max_depth, depth);
@@ -2216,11 +2216,11 @@ namespace gltf {
                                                  name.empty() ? std::string("<unnamed>") : std::string(name),
                                                  has_mesh ? " [mesh]" : ""));
             }
-            utility::log("scene hierarchy: {} roots, {} nodes total ({} with meshes), max depth {}",
+            deren::utility::log("scene hierarchy: {} roots, {} nodes total ({} with meshes), max depth {}",
                          !scenes.scene.empty() ? scenes.scene.front().root_indices.size() : 0,
                          total_nodes, mesh_nodes, max_depth);
             for (std::string const& line : tree_lines) {
-                utility::log("  {}", line);
+                deren::utility::log("  {}", line);
             }
         }
 
@@ -2228,22 +2228,22 @@ namespace gltf {
         // (channels -> samplers); playback of the first channel-bearing animation runs in the
         // frame loop (gui transport). This block only logs what the loader exported.
         if (!scenes.animations.empty()) {
-            utility::log("animations: {}", scenes.animations.size());
+            deren::utility::log("animations: {}", scenes.animations.size());
             for (animation const& anim : scenes.animations) {
                 std::string_view const anim_name = anim.name.empty() ? std::string_view("<unnamed>") : std::string_view(anim.name);
                 // a typical animation shares one keyframe count across its samplers; report the first
                 size_t const keys = anim.samplers.empty() ? 0 : anim.samplers.front().times.size();
-                utility::log("  animation '{}': {} channels, {} samplers, {} keyframes", anim_name, anim.channels.size(), anim.samplers.size(), keys);
+                deren::utility::log("  animation '{}': {} channels, {} samplers, {} keyframes", anim_name, anim.channels.size(), anim.samplers.size(), keys);
             }
         }
 
         // Skin summary: scenes.skins holds the file's skins (joint asset-node indices + inverse
         // bind matrices); the skin rigs and per-frame joint matrices are built by the caller.
         if (!scenes.skins.empty()) {
-            utility::log("skins: {}", scenes.skins.size());
+            deren::utility::log("skins: {}", scenes.skins.size());
             for (skin const& s : scenes.skins) {
                 std::string_view const skin_name = s.name.empty() ? std::string_view("<unnamed>") : std::string_view(s.name);
-                utility::log("  skin '{}': {} joints", skin_name, s.joints.size());
+                deren::utility::log("  skin '{}': {} joints", skin_name, s.joints.size());
             }
         }
 
@@ -2269,7 +2269,7 @@ namespace gltf {
                 }
             }
             if (morph_prims > 0) {
-                utility::log("morph: {} primitive(s) with morph targets ({} total targets, {} mesh(es) with default weights)", morph_prims, morph_targets, weighty_meshes);
+                deren::utility::log("morph: {} primitive(s) with morph targets ({} total targets, {} mesh(es) with default weights)", morph_prims, morph_targets, weighty_meshes);
             }
         }
 
@@ -2284,7 +2284,7 @@ namespace gltf {
                     ++perspective;
                 }
             }
-            utility::log("cameras: {} ({} perspective, {} orthographic)", scenes.cameras.size(), perspective, scenes.cameras.size() - perspective);
+            deren::utility::log("cameras: {} ({} perspective, {} orthographic)", scenes.cameras.size(), perspective, scenes.cameras.size() - perspective);
         }
         if (!scenes.lights.empty()) {
             size_t directional = 0;
@@ -2303,8 +2303,8 @@ namespace gltf {
                     break;
                 }
             }
-            utility::log("lights: {} ({} directional, {} point, {} spot)", scenes.lights.size(), directional, point, spot);
+            deren::utility::log("lights: {} ({} directional, {} point, {} spot)", scenes.lights.size(), directional, point, spot);
         }
         return bounds;
     }
-} // namespace gltf
+} // namespace deren::gltf

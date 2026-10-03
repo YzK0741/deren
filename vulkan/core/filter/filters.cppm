@@ -2,11 +2,11 @@
 
 /**
  * @file vulkan/core/filter/filters.cppm
- * @brief The filtered views over a `vulkan::core`: one for the application (`user_filter`) and one for a pass's
+ * @brief The filtered views over a `deren::vulkan::core`: one for the application (`user_filter`) and one for a pass's
  *        initialization (`pass_filter`).
  * @defgroup vulkan_core_filters Vulkan Core Filters
  *
- * WHY FILTERS AT ALL, and why two: `vulkan.core` is the device root - it holds the instance, the device, the
+ * WHY FILTERS AT ALL, and why two: `deren.vulkan.core` is the device root - it holds the instance, the device, the
  * swapchain, the allocator, every image and every descriptor pool. Handing that whole interface to a consumer
  * hands it the ability to do anything to the device, and the consumer then has no way to say what it actually
  * needs. A filter is a NAMED, narrow view of that root: the app gets one, a pass's init gets another, and each
@@ -45,17 +45,17 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-export module vulkan.core.filters;
-export import vstd;
-export import vulkan.core;
-export import vulkan.render_resource; // resource_id: what a pass asks for, in the declaration's own vocabulary
+export module deren.vulkan.core.filters;
+export import deren.vstd;
+export import deren.vulkan.core;
+export import deren.vulkan.render_resource; // resource_id: what a pass asks for, in the declaration's own vocabulary
 
-export namespace vulkan {
+export namespace deren::vulkan {
 
     /**
      * @brief one resource's device handles, as a pass sees them
      *
-     * The same three handles `vulkan::pass::resolved_binding` carries at record time - a descriptor takes a
+     * The same three handles `deren::vulkan::pass::resolved_binding` carries at record time - a descriptor takes a
      * VIEW, a barrier takes an IMAGE, and a buffer binding takes a BUFFER - but declared here, on the core side,
      * because `render_resource` is deliberately pure CPU data (no Vulkan type in it) and the framework must not
      * depend on this module. The runtime copies the three fields across, which is the whole conversion.
@@ -167,10 +167,10 @@ export namespace vulkan {
          *
          * The door rather than a wrapper per resource kind: a pass that creates GPU memory says so by asking
          * for the allocator, and the handles it gets back are RAII (`vk_buffer` / `vk_image` from
-         * `vulkan.core:vma_handles`), so a pass's own resources are released by its own destructor in the order
+         * `deren.vulkan.core:vma_handles`), so a pass's own resources are released by its own destructor in the order
          * it wrote them. What the allocator does NOT do for a pass is decide the lifetime RULES: a per-generation
          * resource still has to be rebuilt in `on_swapchain_recreated`, and a descriptor family built over one
-         * still has to retire its pool rather than destroy it (see `vulkan.bindings`).
+         * still has to retire its pool rather than destroy it (see `deren.vulkan.bindings`).
          */
         [[nodiscard]] vma_allocator& vma() noexcept;
 
@@ -185,4 +185,4 @@ export namespace vulkan {
         [[nodiscard]] resource_handles resource(render_resource::resource_id id, uint32_t element) const noexcept;
     };
 
-} // namespace vulkan
+} // namespace deren::vulkan

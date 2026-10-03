@@ -436,5 +436,5 @@ int32_t main() {
         }
     }
 
-    return vk_test::finish("test_docs");
+    return deren::vk_test::finish("test_docs");
 }

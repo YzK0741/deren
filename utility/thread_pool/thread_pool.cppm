@@ -2,20 +2,20 @@ module;
 
 #include <cstdint>
 
-export module utility:thread_pool;
-export import vstd;
+export module deren.utility:thread_pool;
+export import deren.vstd;
 
 /**
  * @ingroup utility
  * @defgroup thread_pool Thread Pool
  * @file thread_pool.cppm
- * @brief a module provides raii thread pool (utility::thread_pool)
+ * @brief a module provides raii thread pool (deren::utility::thread_pool)
  *
  * @code {.cpp}
  * import utility;
  *
  * int32_t main{
- *     utility::thread_pool pool(4);
+ *     deren::utility::thread_pool pool(4);
  *
  *     auto task = []{...};
  *     pool.post(task);
@@ -29,7 +29,7 @@ export import vstd;
  * @endcode
  */
 
-namespace utility {
+namespace deren::utility {
     /**
      * @brief thread pool class
      */
@@ -134,9 +134,9 @@ namespace utility {
          */
         int32_t get_active_thread() const;
     };
-} // namespace utility
+} // namespace deren::utility
 
-namespace utility {
+namespace deren::utility {
     bool thread_pool::task::operator<(task const& other) const noexcept {
         return this->priority < other.priority;
     }
@@ -286,4 +286,4 @@ namespace utility {
     int32_t thread_pool::get_active_thread() const {
         return this->active_thread.load();
     }
-} // namespace utility
+} // namespace deren::utility

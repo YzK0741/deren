@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.ray_tracing
+// module: deren.vulkan.ray_tracing
 // module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // THE STRUCTURE PHASE: the acceleration structures every traced effect casts rays against, the map that says
@@ -18,7 +18,7 @@
 // renderer keeps is the POLICY (the three knobs and the two predicates), the caster set, the ORDER of the phase,
 // and the scene-set binding it publishes the handle through.
 //
-// Depends on vulkan.acceleration_structure (the two structure classes), vulkan.primitive (the casters it walks
+// Depends on deren.vulkan.acceleration_structure (the two structure classes), deren.vulkan.primitive (the casters it walks
 // and the material table the MASK rule reads) and the two PASS modules whose requests it composes - the jobs
 // themselves stay the renderer's for now and are driven through `bake_hooks`.
 // ============================================================================
@@ -33,12 +33,12 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-export module vulkan.ray_tracing;
+export module deren.vulkan.ray_tracing;
 
-import vulkan.acceleration_structure;
-import vulkan.pass.compute_skin; // the skinning job's request, which this module composes
-import vulkan.pass.mask_bake;    // ... and the MASK bake's
-import utility;
+import deren.vulkan.acceleration_structure;
+import deren.vulkan.pass.compute_skin; // the skinning job's request, which this module composes
+import deren.vulkan.pass.mask_bake;    // ... and the MASK bake's
+import deren.utility;
 
 /**
  * @file vulkan/ray_tracing/ray_tracing.cppm
@@ -61,11 +61,11 @@ import utility;
  * handle through.
  */
 
-export import vstd;
-export import vulkan.core;
-export import vulkan.primitive;
+export import deren.vstd;
+export import deren.vulkan.core;
+export import deren.vulkan.primitive;
 
-export namespace vulkan::ray_tracing {
+export namespace deren::vulkan::ray_tracing {
 
     /**
      * @brief ONE CASTER WHOSE BOTTOM LEVEL WAS BUILT, with the addresses a hit's shading reads it through
@@ -287,4 +287,4 @@ export namespace vulkan::ray_tracing {
         std::vector<micromap_resource> micromap_resources = {};
     };
 
-} // namespace vulkan::ray_tracing
+} // namespace deren::vulkan::ray_tracing

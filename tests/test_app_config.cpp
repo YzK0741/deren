@@ -10,11 +10,11 @@
 #include <string>
 #include <string_view>
 
-import application_configuration;
+import deren.application_configuration;
 
 namespace {
     void test_load_settings_applies_toml() {
-        app_config::app_settings const settings = app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_full.toml");
+        deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_full.toml");
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.render.vsync);
         CHECK(!settings.render.shadow);
@@ -69,7 +69,7 @@ namespace {
     }
 
     void test_load_settings_missing_file_keeps_defaults() {
-        app_config::app_settings const settings = app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/does_not_exist.toml");
+        deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/does_not_exist.toml");
         CHECK(settings.model.empty());
         CHECK(settings.render.shadow);
         CHECK(!settings.render.fxaa);
@@ -96,7 +96,7 @@ namespace {
     // The documented example is what users copy: parsing it must succeed and must produce the
     // values its comments claim, or the docs and the parser have drifted apart (M7 collation).
     void test_example_config_matches_documentation() {
-        app_config::app_settings const settings = app_config::load_settings(VR_TEST_SOURCE_DIR "/config.example.toml");
+        deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/config.example.toml");
         CHECK(!settings.config_file.empty()); // parsed, not rejected
         CHECK(!settings.model.empty());
         CHECK(settings.render.window_width == 1080);
@@ -134,7 +134,7 @@ namespace {
     // request (length_error -> terminate, exceptions are off), and env_mip_count < 2 wraps the
     // sampler's "pyramid.size() - 1". Every one of these must land on its documented default.
     void test_lighting_sizes_are_clamped() {
-        app_config::app_settings const settings = app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_bad_lighting.toml");
+        deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_bad_lighting.toml");
         CHECK(settings.lighting.env_size == 256);
         CHECK(settings.lighting.env_mip_count == 5);
         CHECK(settings.lighting.irr_size == 32);
@@ -157,7 +157,7 @@ namespace {
     // A key added to the generator without a parser (or a clamp added without the generator) shows
     // up here as a wrong value rather than as a user's surprise.
     void test_generated_config_parses() {
-        app_config::app_settings const settings = app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_generated_defaults.toml");
+        deren::app_config::app_settings const settings = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_generated_defaults.toml");
         CHECK(!settings.config_file.empty()); // parsed, not rejected
         CHECK(settings.model == "gltf_model/DamagedHelmet.gltf");
         CHECK(settings.grid_side == 0);
@@ -228,29 +228,29 @@ namespace {
 
     void test_model_ask_sentinel_is_recognized_and_never_a_path() {
         // `model = "ask"` is the config's way of asking for the startup file dialog, and the ONLY thing that
-        // may read it that way is app_config::wants_model_dialog - every other caller has to see the string
+        // may read it that way is deren::app_config::wants_model_dialog - every other caller has to see the string
         // as the path it looks like. The near misses below are why that comparison is exact and
         // case-sensitive: a build that opened a file named "ask" instead of asking is the bug this guards.
-        app_config::app_settings const asking = app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_ask_model.toml");
+        deren::app_config::app_settings const asking = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_ask_model.toml");
         CHECK(asking.model == "ask"); // the parser keeps the sentinel verbatim
-        CHECK(app_config::wants_model_dialog(asking));
+        CHECK(deren::app_config::wants_model_dialog(asking));
 
-        app_config::app_settings const named = app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_full.toml");
-        CHECK(!app_config::wants_model_dialog(named)); // a real path is a real path
+        deren::app_config::app_settings const named = deren::app_config::load_settings(VR_TEST_SOURCE_DIR "/tests/fixtures/config_full.toml");
+        CHECK(!deren::app_config::wants_model_dialog(named)); // a real path is a real path
 
-        app_config::app_settings near = {};
+        deren::app_config::app_settings near = {};
         near.model = "ASK"; // a model may legitimately be called this
-        CHECK(!app_config::wants_model_dialog(near));
+        CHECK(!deren::app_config::wants_model_dialog(near));
         near.model = "ask.glb";
-        CHECK(!app_config::wants_model_dialog(near));
+        CHECK(!deren::app_config::wants_model_dialog(near));
         near.model = " ask";
-        CHECK(!app_config::wants_model_dialog(near));
+        CHECK(!deren::app_config::wants_model_dialog(near));
         near.model = {}; // empty means "locate the default", not "ask"
-        CHECK(!app_config::wants_model_dialog(near));
+        CHECK(!deren::app_config::wants_model_dialog(near));
     }
 
     // `[render] toon_shadow_softness` is a five-step ladder (0..4) sanitized in `analyse_config` on the way
-    // into `vulkan::toon_rig`'s ninth lane. THE CASE WORTH A TEST OF ITS OWN IS `nan`, because `std::clamp`
+    // into `deren::vulkan::toon_rig`'s ninth lane. THE CASE WORTH A TEST OF ITS OWN IS `nan`, because `std::clamp`
     // CANNOT CATCH IT: clamp's comparison form returns its first argument unchanged when both comparisons are
     // false, and for NaN both ARE false - so `clamp(round(nan), 0, 4)` is still NaN. That NaN then rides the
     // lane into the shader's `int(clamp(floor(level + 0.5), 0.0, 4.0))`, and `int(NaN)` is UNDEFINED in
@@ -265,7 +265,7 @@ namespace {
                 std::ofstream file(path, std::ios::binary | std::ios::trunc);
                 file << body;
             }
-            app_config::app_settings const settings = app_config::load_settings(path.string());
+            deren::app_config::app_settings const settings = deren::app_config::load_settings(path.string());
             std::filesystem::remove(path);
             return settings.render.toon_shadow_softness;
         };
@@ -280,7 +280,7 @@ namespace {
         CHECK(load_one("[render]\nshadow = true\n") == 0.0f); // absent key: the compiled default
     }
 
-    // The area light's maths lives in ONE pure function (`app_config::derive_area_light`), so the reference
+    // The area light's maths lives in ONE pure function (`deren::app_config::derive_area_light`), so the reference
     // package's own numbers can be pinned without a device: 4000 W over a 30 m side IS the author's soft key,
     // and this derivation is what turns it into the frame's radiance, direction and penumbra. Three cases
     // carry the contract - the reference numbers, size 0 (the byte-identical path: `enabled == false` and
@@ -290,14 +290,14 @@ namespace {
         // The AUTHOR'S ORIGIN - where the manifest measures from, i.e. the ground under the character. At the
         // origin the manifest's numbers are the world numbers, which is why this case reads `scene_origin = 0`.
         std::array<float, 3> const scene_origin = {0.0f, 0.0f, 0.0f};
-        app_config::lighting_settings lighting = {};
+        deren::app_config::lighting_settings lighting = {};
         lighting.area_light_size = 30.0f;
         lighting.area_light_power = 4000.0f;
         // the manifest's Blender position [-3, -4, 15] turned Y-up: 15.8 m away, ~72 degrees of elevation
         lighting.area_light_position = {-3.0f, 15.0f, 4.0f};
         lighting.area_light_target = {0.0f, 0.0f, 0.0f};
 
-        app_config::area_light_derived const derived = app_config::derive_area_light(lighting, scene_origin);
+        deren::app_config::area_light_derived const derived = deren::app_config::derive_area_light(lighting, scene_origin);
         CHECK(derived.enabled);
         CHECK(derived.half > 14.99f && derived.half < 15.01f);
         CHECK(derived.world_centre[0] > -3.01f && derived.world_centre[0] < -2.99f);
@@ -325,7 +325,7 @@ namespace {
         // tilted the visible light by ~6 degrees of elevation and ~16 of azimuth; this case is what stops that
         // from coming back.
         std::array<float, 3> const feet_origin = {0.0f, -2.198f, 0.0f};
-        app_config::area_light_derived const at_feet = app_config::derive_area_light(lighting, feet_origin);
+        deren::app_config::area_light_derived const at_feet = deren::app_config::derive_area_light(lighting, feet_origin);
         CHECK(at_feet.enabled);
         CHECK(at_feet.world_centre[0] > -3.01f && at_feet.world_centre[0] < -2.99f);
         CHECK(at_feet.world_centre[1] > 12.80f && at_feet.world_centre[1] < 12.81f);
@@ -335,8 +335,8 @@ namespace {
 
         // size 0 (the default) is OFF, and OFF means ZERO - the caller writes both lanes as
         // glm::vec4(0) and multiplies the sun by 1.0, so the frame is the one from before the keys existed.
-        app_config::lighting_settings const off = {};
-        app_config::area_light_derived const disabled = app_config::derive_area_light(off, scene_origin);
+        deren::app_config::lighting_settings const off = {};
+        deren::app_config::area_light_derived const disabled = deren::app_config::derive_area_light(off, scene_origin);
         CHECK(!disabled.enabled);
         CHECK(disabled.half == 0.0f && disabled.radiance == 0.0f && disabled.penumbra == 0.0f);
         CHECK(disabled.world_centre[0] == 0.0f && disabled.world_centre[1] == 0.0f && disabled.world_centre[2] == 0.0f);
@@ -345,27 +345,27 @@ namespace {
         // an explicit softness replaces the automatic value, and `shadow = false` removes the penumbra
         // entirely - a hard edge is what that switch asks for, not a smaller soft one.
         lighting.area_light_softness = 0.4f;
-        CHECK(app_config::derive_area_light(lighting, scene_origin).penumbra == 0.4f);
+        CHECK(deren::app_config::derive_area_light(lighting, scene_origin).penumbra == 0.4f);
         lighting.area_light_shadow = false;
-        CHECK(app_config::derive_area_light(lighting, scene_origin).penumbra == 0.0f);
+        CHECK(deren::app_config::derive_area_light(lighting, scene_origin).penumbra == 0.0f);
 
         // An emitter AT the author's origin has no direction to give the sun, and one aimed at itself has no
         // emitting side: both are OFF rather than normalise(0) = NaN.
-        app_config::lighting_settings degenerate = {};
+        deren::app_config::lighting_settings degenerate = {};
         degenerate.area_light_size = 30.0f;
         degenerate.area_light_power = 4000.0f;
-        app_config::area_light_derived const no_direction = app_config::derive_area_light(degenerate, scene_origin);
+        deren::app_config::area_light_derived const no_direction = deren::app_config::derive_area_light(degenerate, scene_origin);
         CHECK(!no_direction.enabled);
         CHECK(no_direction.to_light_dir[0] == 0.0f && no_direction.axis[0] == 0.0f);
 
         // ... and position/target really are RELATIVE to that origin: with the origin at [10, 0, -2] the same key
         // gives a world centre 10 m to the right, which is what lets the manifest's numbers be copied over.
         std::array<float, 3> const moved_origin = {10.0f, 0.0f, -2.0f};
-        app_config::lighting_settings relative = {};
+        deren::app_config::lighting_settings relative = {};
         relative.area_light_size = 4.0f;
         relative.area_light_power = 100.0f;
         relative.area_light_position = {1.0f, 2.0f, 3.0f};
-        app_config::area_light_derived const shifted = app_config::derive_area_light(relative, moved_origin);
+        deren::app_config::area_light_derived const shifted = deren::app_config::derive_area_light(relative, moved_origin);
         CHECK(shifted.enabled);
         CHECK(shifted.world_centre[0] > 10.99f && shifted.world_centre[0] < 11.01f);
         CHECK(shifted.world_centre[1] > 1.99f && shifted.world_centre[1] < 2.01f);
@@ -377,12 +377,12 @@ namespace {
         // F2 (v1.1): the automatic penumbra's distance is measured to the TARGET, not to the author's origin.
         // This emitter sits 15 m from the origin but 30 m from what it is aimed at, so the two readings differ
         // by 2x - the case pins the one that shipped: 0.05 * 30 / 30 = 0.05, NOT 0.05 * 30 / 15 = 0.1.
-        app_config::lighting_settings aimed = {};
+        deren::app_config::lighting_settings aimed = {};
         aimed.area_light_size = 30.0f;
         aimed.area_light_power = 4000.0f;
         aimed.area_light_position = {0.0f, 0.0f, 15.0f};
         aimed.area_light_target = {0.0f, 0.0f, -15.0f};
-        app_config::area_light_derived const aimed_away = app_config::derive_area_light(aimed, feet_origin);
+        deren::app_config::area_light_derived const aimed_away = deren::app_config::derive_area_light(aimed, feet_origin);
         CHECK(aimed_away.enabled);
         CHECK(aimed_away.world_centre[2] > 14.99f && aimed_away.world_centre[2] < 15.01f);
         CHECK(aimed_away.penumbra > 0.0499f && aimed_away.penumbra < 0.0501f); // 0.05 * 30 / |[0, 0, -30]|
@@ -392,8 +392,8 @@ namespace {
 
     void test_resolve_from_argv_merges_config_and_positional() {
         char const* argv[] = {"vk_test", "Models/tri.gltf", "3"};
-        app_config::app_settings const settings =
-            app_config::resolve_from_argv(3, argv, VR_TEST_SOURCE_DIR "/tests/fixtures/config_full.toml");
+        deren::app_config::app_settings const settings =
+            deren::app_config::resolve_from_argv(3, argv, VR_TEST_SOURCE_DIR "/tests/fixtures/config_full.toml");
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.grid_side == 3);
     }
@@ -409,5 +409,5 @@ int32_t main() {
     test_toon_shadow_softness_ladder_is_sanitized();
     test_area_light_derivation_matches_the_reference_package();
     test_resolve_from_argv_merges_config_and_positional();
-    return vk_test::finish("test_app_config");
+    return deren::vk_test::finish("test_app_config");
 }

@@ -21,11 +21,11 @@
  *    is copyable `constexpr` data with predicates over it - the opposite of a context object handed to code
  *    that must BIND things, which is the kind of object that grows as needs appear. A declaration cannot
  *    grow a capability.
- *  * NOT an allocator. Every image, buffer, view and sampler stays where it is: `vulkan.core` creates them,
- *    `vulkan.runtime` owns the pipelines. The schema says a resource EXISTS and what its scope and lifetime
+ *  * NOT an allocator. Every image, buffer, view and sampler stays where it is: `deren.vulkan.core` creates them,
+ *    `deren.vulkan.runtime` owns the pipelines. The schema says a resource EXISTS and what its scope and lifetime
  *    are; it does not say who makes it or how.
  *  * NOT Vulkan. The vocabulary is this module's own enums, so the description layer is pure CPU like
- *    `vulkan.math` and `gltf_loader` - which is what lets its invariants be tested in `ctest`, on a machine
+ *    `deren.vulkan.math` and `gltf_loader` - which is what lets its invariants be tested in `ctest`, on a machine
  *    with no GPU. (The capture gate cannot run in CI at all: its references are tied to one machine's
  *    driver.) Mapping these enums onto `VkDescriptorType`/`VkShaderStageFlags` belongs to the generator,
  *    which imports Vulkan the way the pipeline builders already do.
@@ -56,9 +56,9 @@ module;
 #include <string>
 #include <string_view>
 
-export module vulkan.render_resource;
+export module deren.vulkan.render_resource;
 
-export namespace vulkan::render_resource {
+export namespace deren::vulkan::render_resource {
 
     // =============================================================================================
     // 1. WHAT EXISTS - the schema. Declared here, implemented by vulkan.core.
@@ -168,10 +168,10 @@ export namespace vulkan::render_resource {
      * G-buffer, the velocity and scene-colour targets and the TAA history are created in
      * `core::create_render_targets` (`core.cpp:506-693`); the chain's images at `636-749`; the probe grid
      * and its geometry at `798-811`; the furnace cube at `814-825`; the ray-traced shadow visibility at
-     * `831-844`, one per FRAME SLOT rather than per image; the shadow map is the one family `vulkan.runtime`
+     * `831-844`, one per FRAME SLOT rather than per image; the shadow map is the one family `deren.vulkan.runtime`
      * creates itself (`runtime.cpp:495-560`, layered, one image per slot); the scene buffers and the IBL
-     * textures are `vulkan.runtime`'s (`runtime.cpp:148-231`, `163-166`); the top level structure belongs to
-     * `vulkan.acceleration_structure` and reaches shaders through the frame's heap.
+     * textures are `deren.vulkan.runtime`'s (`runtime.cpp:148-231`, `163-166`); the top level structure belongs to
+     * `deren.vulkan.acceleration_structure` and reaches shaders through the frame's heap.
      *
      * WHAT AN ENTRY DOES NOT SAY YET, on purpose: its format and its extent. Those are needed by the CREATION
      * step, not by the invariants checkable today, and a format copied here before it is verified against
@@ -445,7 +445,7 @@ export namespace vulkan::render_resource {
      * @brief a BUFFER a pass orders around but never binds itself - the buffer twin of `barrier_image`
      *
      * WHY THIS EXISTS, and it is a measured need rather than symmetry for its own sake: the clustered-light
-     * sort (`vulkan.pass.cluster`) writes two buffers that are part of the frame's shared scene resources
+     * sort (`deren.vulkan.pass.cluster`) writes two buffers that are part of the frame's shared scene resources
      * (bindings 11 and 12). The pass reaches them through the heap, so its declaration names no binding for
      * either buffer - and yet
      * its writes are not visible to the fragment stages that read them later in the same submission without a
@@ -1106,7 +1106,7 @@ export namespace vulkan::render_resource {
     // THE POST CHAIN - the composite and the bloom chain's four levels
     // =============================================================================================
 
-    /// @brief the push block the whole post chain shares, in bytes; its shape is `vulkan.pass.post`'s
+    /// @brief the push block the whole post chain shares, in bytes; its shape is `deren.vulkan.pass.post`'s
     /// @note 32 AND NOT 28 SINCE THE ARTICLE'S LUT WEIGHT JOINED IT (`post_push_constants::lut_weight`), the fourth
     ///       float of the FXAA lanes' row. The shader's `PostPush` declares the same field in the same place - the note
     ///       there is explicit that the layout up to the three heap indices has to match the CPU struct, because a
@@ -1227,7 +1227,7 @@ export namespace vulkan::render_resource {
     };
 
     /// @brief the upscale pass's own push block, in bytes: EASU's four `float4` constants and the two scalar
-    ///        lanes; its shape is `vulkan.pass.upscale`'s `push_constants`
+    ///        lanes; its shape is `deren.vulkan.pass.upscale`'s `push_constants`
     /// @note 72, and NOT the 80 bytes the shader's block adds up to: the framework appends the heap index lanes
     ///       AFTER these bytes (`runtime::push_stage_block`), so the pass declares only what it composes. Get
     ///       this wrong in the other direction - declare the lanes as part of the pass's own size - and they
@@ -1326,10 +1326,10 @@ export namespace vulkan::render_resource {
     /**
      * @brief the shadow pass's declaration: the scene's depth from the light, one cascade at a time
      *
-     * The PUSH BLOCK is four bytes at offset 96 - the cascade index, pushed at `vulkan::scene_cascade_push_offset`
+     * The PUSH BLOCK is four bytes at offset 96 - the cascade index, pushed at `deren::vulkan::scene_cascade_push_offset`
      * (`scene_push_constant_size`), which is where the scene's own push block ends: this pass draws the scene's
      * leaves through the SCENE pipeline layout, so its push shares that layout's range rather than owning one. The
-     * literal is checked against the constant where both are visible (`vulkan.pass.shadow`'s static_assert), the
+     * literal is checked against the constant where both are visible (`deren.vulkan.pass.shadow`'s static_assert), the
      * same "two copies, one size" rule the other pass blocks follow.
      *
      * NO BARRIER IMAGES: each layer is transitioned to a depth attachment immediately before the instance that
@@ -1345,4 +1345,4 @@ export namespace vulkan::render_resource {
         .barrier_buffers = {},
         .push = push_block{.offset = 108, .size = 4, .stages = stage_flag::vertex | stage_flag::fragment},
     };
-} // namespace vulkan::render_resource
+} // namespace deren::vulkan::render_resource

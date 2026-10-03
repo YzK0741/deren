@@ -36,14 +36,14 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.shadow;
+export module deren.vulkan.pass.shadow;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.primitive;    // max_shadow_cascades: the run of layers this pass's declaration claims
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.primitive;    // max_shadow_cascades: the run of layers this pass's declaration claims
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /**
      * @brief what the renderer hands the shadow pass: the per-cascade content, the scheduler, and the map's edge
@@ -92,7 +92,7 @@ export namespace vulkan::pass {
         ~shadow_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -130,7 +130,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"shadow"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics, // a draw per caster, not one fullscreen triangle
             .extent = extent_rule::none,      // the map's edge is the pass's, not the frame's (see the field below)
             .extent_of = resource_id::none,
@@ -160,8 +160,8 @@ export namespace vulkan::pass {
     static_assert(render_resource::shadow_io.push->stages == (render_resource::stage_flag::vertex | render_resource::stage_flag::fragment),
                   "the cascade index is read by both stages of the depth-only draw");
     /// ... and so is the RUN of layers, because it is the same two-copies-one-fact rule: the declaration claims
-    /// every cascade the map can hold, and `vulkan.primitive` is where that count lives (the light UBO's matrix
+    /// every cascade the map can hold, and `deren.vulkan.primitive` is where that count lives (the light UBO's matrix
     /// array is the same number).
-    static_assert(static_cast<uint32_t>(render_resource::shadow_io.targets[0].count) == vulkan::max_shadow_cascades, "the shadow pass claims every cascade layer the map can have");
+    static_assert(static_cast<uint32_t>(render_resource::shadow_io.targets[0].count) == deren::vulkan::max_shadow_cascades, "the shadow pass claims every cascade layer the map can have");
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

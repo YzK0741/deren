@@ -7,11 +7,11 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-module vulkan.readback;
+module deren.vulkan.readback;
 
-import utility;
+import deren.utility;
 
-namespace vulkan {
+namespace deren::vulkan {
     readback::readback(core& device)
         : gpu(&device) {
     }
@@ -52,7 +52,7 @@ namespace vulkan {
         this->staging_mapped = nullptr;
         this->staging_size = 0;
         if (!this->staging.valid()) {
-            utility::log("readback: staging buffer creation failed ({} bytes)", size);
+            deren::utility::log("readback: staging buffer creation failed ({} bytes)", size);
             return std::nullopt;
         }
         auto const* const detail = vk.vma.get_buffer_detail(this->staging.handle());
@@ -160,4 +160,4 @@ namespace vulkan {
         this->last_read_size = out.size();
         return out;
     }
-} // namespace vulkan
+} // namespace deren::vulkan

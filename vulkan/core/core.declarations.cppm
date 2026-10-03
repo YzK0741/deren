@@ -1,9 +1,9 @@
 // ============================================================================
-// module: vulkan.core:declarations  - the INTERFACE PARTITION of vulkan.core
+// module: deren.vulkan.core:declarations  - the INTERFACE PARTITION of deren.vulkan.core
 //
 // The declarations live here so the implementation halves can be partitions: a partition does not
 // see the primary interface on its own, so every implementation partition imports THIS one.
-// The primary (vulkan/core/core.cppm) is the three lines that re-export it, and `import vulkan.core;`
+// The primary (vulkan/core/core.cppm) is the three lines that re-export it, and `import deren.vulkan.core;`
 // is unaffected anywhere - which is the whole point of paying for the split.
 //
 // MEASURED BEFORE COMMITTING TO IT: under this project's -Werror, clang 22 REJECTS the textbook
@@ -14,7 +14,7 @@
 // the interface. Their definitions are still archived and still link.
 // ============================================================================
 // ============================================================================
-// module: vulkan.core
+// module: deren.vulkan.core
 // module version: 0.24.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU scaffolding: instance / device / swapchain / VMA / pipeline / descriptor
@@ -32,10 +32,10 @@ module;
 #include <memory>
 #include <vulkan/vulkan.h>
 
-export module vulkan.core:declarations;
-import utility;
-export import vstd;
-export import vulkan.core.handles;
+export module deren.vulkan.core:declarations;
+import deren.utility;
+export import deren.vstd;
+export import deren.vulkan.core.handles;
 export import :vma;
 export import :descriptor_heap;
 export import :vma_handles;
@@ -44,7 +44,7 @@ export import :vma_handles;
  * @file core.cppm
  */
 
-namespace vulkan {
+namespace deren::vulkan {
     /**
      * @defgroup vulkan_core Vulkan Core Objects Manager
      * @brief manages core vulkan objects and windows instance init and destroy.
@@ -244,7 +244,7 @@ namespace vulkan {
      * created through it, so a creation site can hand out a reference-counted handle to the device it is
      * building on. It does NOT mean a `core` must be heap-allocated: nothing calls `shared_from_this()` yet.
      */
-    export struct core : utility::enable_stack_destruct, std::enable_shared_from_this<core> {
+    export struct core : deren::utility::enable_stack_destruct, std::enable_shared_from_this<core> {
         // creation options this core was built with (window size, vsync); the window and the
         // swap chain honor them
         core_create_info create_options = {};
@@ -677,7 +677,7 @@ namespace vulkan {
             // head turns it changes every frame. It is its own block rather than a field of the camera's: the
             // head frame belongs to the CHARACTER, not to the eye looking at it.
             static constexpr uint32_t scene_head = heap_slot_base + 749u;
-            // THE TOON LIGHT RIG (`vulkan::toon_rig`): the character stage's global numbers - the sun/head-light
+            // THE TOON LIGHT RIG (`deren::vulkan::toon_rig`): the character stage's global numbers - the sun/head-light
             // split, their shadow-side colours and the chain's scalars - written once from the application's
             // config. ONE descriptor and not a per-frame pair, because the values are fixed for a run exactly as
             // the material table's and the toon lane table's are: nothing writes it while a frame is in flight.
@@ -690,7 +690,7 @@ namespace vulkan {
             // the two-state lighting silently sat in its NIGHT state for every frame of both captures. The
             // captures differed by 0 pixels before this line moved.
             static constexpr uint32_t toon_rig = heap_slot_base + 751u;
-            // THE MATERIAL COLOURS (see `vulkan::toon_colour_lane`): one `vec4` per lane per material, written once
+            // THE MATERIAL COLOURS (see `deren::vulkan::toon_colour_lane`): one `vec4` per lane per material, written once
             // at import from the same sidecar the texture lanes come from. A buffer of its own because the value is
             // FOUR FLOATS and the material record has nowhere to put it here: the record is INLINE in the per-draw
             // push block (see `sdf_lanes` above for the measurement), so a colour lane could not be a record field
@@ -981,7 +981,7 @@ namespace vulkan {
             float depth_bias_clamp = 0.0f) const;
 
         // The clustered-light-culling compute pipeline is NOT here any more: the CLUSTER PASS owns it
-        // (vulkan.pass.cluster builds it through vulkan.pipelines::build_cluster from the shared scene block
+        // (deren.vulkan.pass.cluster builds it through vulkan.pipelines::build_cluster from the shared scene block
         // layout). `core::make_cluster_pipeline` built it against the core's own scene pipeline layout, which a
         // pass cannot own - and a pipeline only that pass names is that pass's to build and to release.
 
@@ -1201,4 +1201,4 @@ namespace vulkan {
         void create_sync_objects();
         void create_timestamp_query_pool() noexcept;
     };
-} // namespace vulkan
+} // namespace deren::vulkan

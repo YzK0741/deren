@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.runtime:probes  - the heap probes, which are diagnostics rather than production
+// module: deren.vulkan.runtime:probes  - the heap probes, which are diagnostics rather than production
 //
 // run_heap_probe reads back one slot of the bindless texture array to prove the host wrote it, and
 // run_heap_graphics_probe renders the bindings of one material through the heap-native shaders and
@@ -23,28 +23,28 @@ module;
 #include <vector> // the destination of a host image copy, when that read-back path is taken
 #include <vulkan/vulkan.h>
 
-module vulkan.runtime:probes;
+module deren.vulkan.runtime:probes;
 
 import :declarations;
-import vulkan.profiling;
-import vulkan.pipelines;
-import vulkan.bindings;
-import vulkan.render_resource;
-import vulkan.render_resource.shared;
+import deren.vulkan.profiling;
+import deren.vulkan.pipelines;
+import deren.vulkan.bindings;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
 
-import utility;
-import vulkan.constant_init;
-import vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
-import vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
-import vulkan.core.pipeline;   // vulkan::make_pipeline for the post-process pipeline
+import deren.utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
+import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
 
-// Route std::pmr allocations through mimalloc for this TU (utility:better_pmr). Idempotent:
+// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
 // main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
 // only forces the (dynamic) initialization before any pmr container in this TU is constructed.
-[[maybe_unused]] static auto& pmr = utility::init_pmr(); // NOLINT(keep-alive)
+[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
-namespace vulkan {
+namespace deren::vulkan {
     void runtime::run_heap_probe(uint32_t const texture_slot) {
         // ---- THE HEAP-NATIVE PROBE (see shaders/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
         //
@@ -65,7 +65,7 @@ namespace vulkan {
         }
         auto const built = pipelines::build_heap_probe(vk.logical_device, spirv);
         if (!built.has_value()) {
-            utility::log("descriptor heap: the heap-native probe's pipeline was refused: {}", built.error());
+            deren::utility::log("descriptor heap: the heap-native probe's pipeline was refused: {}", built.error());
             return;
         }
 
@@ -73,7 +73,7 @@ namespace vulkan {
         vk_buffer answer = vk.vma.create_buffer(nullptr, 16u, buffer_type::storage_coherent, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
         auto const* const answer_detail = answer.valid() ? vk.vma.get_buffer_detail(answer.handle()) : nullptr;
         if (answer_detail == nullptr || answer_detail->allocation_info.pMappedData == nullptr) {
-            utility::log("descriptor heap: the heap-native probe could not allocate its answer buffer");
+            deren::utility::log("descriptor heap: the heap-native probe could not allocate its answer buffer");
             return;
         }
         VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = answer_detail->buffer};
@@ -119,7 +119,7 @@ namespace vulkan {
 
         uint32_t const readback = *static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData);
         uint32_t const material_readback = static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData)[1];
-        utility::log("descriptor heap: the heap-native probe sampled grid slot {} through sampler slot {} and read back 0x{:08x} (texture red 0x{:04x}, alpha 0x{:04x}); the material table's DEFAULT record read 0x{:04x} (its white base colour is 0xffff)",
+        deren::utility::log("descriptor heap: the heap-native probe sampled grid slot {} through sampler slot {} and read back 0x{:08x} (texture red 0x{:04x}, alpha 0x{:04x}); the material table's DEFAULT record read 0x{:04x} (its white base colour is 0xffff)",
                      texture_slot,
                      sampler_slot,
                      readback,
@@ -159,12 +159,12 @@ namespace vulkan {
         if (mesh_shader) {
             draw_mesh_tasks = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkCmdDrawMeshTasksEXT"));
             if (draw_mesh_tasks == nullptr) {
-                utility::log("descriptor heap: the MESH probe is skipped - vkGetDeviceProcAddr returned null for vkCmdDrawMeshTasksEXT");
+                deren::utility::log("descriptor heap: the MESH probe is skipped - vkGetDeviceProcAddr returned null for vkCmdDrawMeshTasksEXT");
                 return;
             }
         }
         if (!built.has_value()) {
-            utility::log("descriptor heap: the heap-native graphics probe's pipeline was refused: {}", built.error());
+            deren::utility::log("descriptor heap: the heap-native graphics probe's pipeline was refused: {}", built.error());
             return;
         }
 
@@ -185,7 +185,7 @@ namespace vulkan {
         vk_image target = vk.vma.create_image(nullptr, 0, target_info, image_type::texture_2d);
         auto const* const target_detail = target.valid() ? vk.vma.get_image_detail(target.handle()) : nullptr;
         if (target_detail == nullptr) {
-            utility::log("descriptor heap: the heap-native graphics probe could not allocate its target");
+            deren::utility::log("descriptor heap: the heap-native graphics probe could not allocate its target");
             return;
         }
         vk_image_view target_view = vk.make_image_view(target_detail->image, probe_format, VK_IMAGE_VIEW_TYPE_2D);
@@ -204,7 +204,7 @@ namespace vulkan {
             }
         }
         if (*target_view == VK_NULL_HANDLE || (!use_host_copy && readback_mapped == nullptr)) {
-            utility::log("descriptor heap: the heap-native graphics probe could not prepare its view or readback buffer");
+            deren::utility::log("descriptor heap: the heap-native graphics probe could not prepare its view or readback buffer");
             return;
         }
 
@@ -336,7 +336,7 @@ namespace vulkan {
                                                        .pRegions = &host_region};
             VkResult const copied = vk.copy_image_to_memory(vk.logical_device, &copy_info);
             if (copied != VK_SUCCESS) {
-                utility::log("descriptor heap: the heap-native {} probe's HOST image copy failed (VkResult {})", mesh_shader ? "MESH" : "GRAPHICS", static_cast<int>(copied));
+                deren::utility::log("descriptor heap: the heap-native {} probe's HOST image copy failed (VkResult {})", mesh_shader ? "MESH" : "GRAPHICS", static_cast<int>(copied));
                 vkDestroyFence(vk.logical_device, fence, nullptr);
                 vkDestroyCommandPool(vk.logical_device, pool, nullptr);
                 return;
@@ -345,7 +345,7 @@ namespace vulkan {
         } else {
             pixel = static_cast<uint8_t const*>(readback_mapped);
         }
-        utility::log("descriptor heap: the heap-native {} probe rendered grid slot {} into a {}x{} target and read back rgba {},{},{},{} (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)",
+        deren::utility::log("descriptor heap: the heap-native {} probe rendered grid slot {} into a {}x{} target and read back rgba {},{},{},{} (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)",
                      mesh_shader ? "MESH" : "GRAPHICS",
                      material_slot,
                      pipelines::heap_probe_extent,
@@ -354,7 +354,7 @@ namespace vulkan {
                      pixel[1],
                      pixel[2],
                      pixel[3]);
-        utility::log("descriptor heap: the heap-native {} probe read that pixel back through the {}",
+        deren::utility::log("descriptor heap: the heap-native {} probe read that pixel back through the {}",
                      mesh_shader ? "MESH" : "GRAPHICS",
                      use_host_copy ? "HOST IMAGE COPY (no staging buffer, no copy command)" : "staging buffer (vkCmdCopyImageToBuffer)");
 
@@ -362,4 +362,4 @@ namespace vulkan {
         vkDestroyCommandPool(vk.logical_device, pool, nullptr);
     }
 
-} // namespace vulkan
+} // namespace deren::vulkan

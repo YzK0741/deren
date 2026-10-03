@@ -2,9 +2,9 @@ module;
 
 #include <cstdint> // ::uint64_t (used unqualified below)
 
-export module utility:frame_clock;
+export module deren.utility:frame_clock;
 
-import vstd;
+import deren.vstd;
 
 /**
  * @ingroup utility
@@ -20,7 +20,7 @@ import vstd;
  * workers / animation code read last_ns() or delta_ns() anywhere else. The clock is
  * monotonic with an implementation-defined origin (steady_clock since its epoch).
  */
-namespace utility {
+namespace deren::utility {
     /**
      * @ingroup frame_clock
      * @brief monotonic per-frame clock with single-writer stamps and cheap multi-reader reads
@@ -77,4 +77,4 @@ namespace utility {
         // called delta_ns_value, not delta_ns: the delta_ns() method of this class would collide with a member of that name
         std::atomic<uint64_t> delta_ns_value{0};
     };
-} // namespace utility
+} // namespace deren::utility

@@ -9,11 +9,11 @@ module;
 #include <utility>
 #include <vector>
 
-module vulkan.shadow_fit;
+module deren.vulkan.shadow_fit;
 
-import utility;
+import deren.utility;
 
-namespace vulkan::shadow_fit {
+namespace deren::vulkan::shadow_fit {
     namespace {
         /// light space is a pure rotation: lookAt(origin, -light_dir, up) makes light-space z equal to
         /// dot(light_dir, p), which is what the near/far derivation below relies on
@@ -236,7 +236,7 @@ namespace vulkan::shadow_fit {
         result.valid = true;
 
         if (params.log_summary) {
-            utility::log("shadow cascades: {} over the view range [{:.2f}, {:.2f}] (splits {:.2f}/{:.2f}/{:.2f}), texel world sizes {:.4f}/{:.4f}/{:.4f}/{:.4f}",
+            deren::utility::log("shadow cascades: {} over the view range [{:.2f}, {:.2f}] (splits {:.2f}/{:.2f}/{:.2f}), texel world sizes {:.4f}/{:.4f}/{:.4f}/{:.4f}",
                          cascades,
                          split_near,
                          split_far,
@@ -250,4 +250,4 @@ namespace vulkan::shadow_fit {
         }
         return result;
     }
-} // namespace vulkan::shadow_fit
+} // namespace deren::vulkan::shadow_fit

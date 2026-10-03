@@ -2,15 +2,15 @@ module;
 
 #include <vulkan/vulkan.h>
 
-export module vulkan.core.handles;
+export module deren.vulkan.core.handles;
 
-export import vstd;
+export import deren.vstd;
 
 /**
  * @defgroup vulkan_handles Vulkan Main Handles' RAII Wrapper
  * @file handles.cppm
  */
-namespace vulkan {
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_handles
      * @brief raii wrapper VkCommandBuffer
@@ -173,4 +173,4 @@ namespace vulkan {
         vk_sampler& operator=(vk_sampler&) = delete;
         vk_sampler& operator=(vk_sampler&& other) noexcept;
     };
-} // namespace vulkan
+} // namespace deren::vulkan

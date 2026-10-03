@@ -17,24 +17,24 @@
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
 #include <stb/stb_image.h>
-import vstd;
-import application_configuration;
-import chores; // demo bootstrap helpers (shader loading / dir locating / pipelines)
-import gltf_loader;
-import toon_material_sidecar; // the .toon.tsv a character model carries: its toon maps, and the _Use flags
-import utility;               // re-exports utility:frame_clock / frame_stats / bvh / better_pmr / thread_pool / data_block
-import vulkan.animation;
-import vulkan.animation.mmd_motion; // VMD (MMD motion) parsing, retargeting and clip baking      // animation::controller: glTF playback / skinning / morphs on the runtime tree
-import vulkan.math;
-import vulkan.scene_tree; // scene storage + GPU primitives (was vulkan.model)
-import vulkan.runtime;
-import vulkan.render_start_demo; // the example's pass wiring: this app's chain, from outside the renderer
+import deren.vstd;
+import deren.application_configuration;
+import deren.chores; // demo bootstrap helpers (shader loading / dir locating / pipelines)
+import deren.gltf_loader;
+import deren.toon_material_sidecar; // the .toon.tsv a character model carries: its toon maps, and the _Use flags
+import deren.utility;               // re-exports deren.utility:frame_clock / frame_stats / bvh / better_pmr / thread_pool / data_block
+import deren.vulkan.animation;
+import deren.vulkan.animation.mmd_motion; // VMD (MMD motion) parsing, retargeting and clip baking      // animation::controller: glTF playback / skinning / morphs on the runtime tree
+import deren.vulkan.math;
+import deren.vulkan.scene_tree; // scene storage + GPU primitives (was vulkan.model)
+import deren.vulkan.runtime;
+import deren.vulkan.render_start_demo; // the example's pass wiring: this app's chain, from outside the renderer
 
-// Route std::pmr allocations through mimalloc (utility:better_pmr) before main(): this
+// Route std::pmr allocations through mimalloc (deren.utility:better_pmr) before main(): this
 // file-scope reference's dynamic initialization runs at startup, so every runtime/scene
 // object built below already allocates its std::pmr vectors from mimalloc. Idempotent —
 // other TUs (vulkan/runtime/runtime.cpp) keep their own copy of the same singleton.
-[[maybe_unused]] static auto& pmr = utility::init_pmr(); // NOLINT(keep-alive)
+[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace {
 
@@ -42,7 +42,7 @@ namespace {
     //
     // THE THIRD DATA SOURCE, and the ordering between the three is the whole content of this helper. A toon
     // material's per-material facts can come from:
-    //   1. the ASSET'S `extras` block (`gltf::material::extras_floats`, read by the loader from the game's own
+    //   1. the ASSET'S `extras` block (`deren::gltf::material::extras_floats`, read by the loader from the game's own
     //      exported table that ships inside the .glb) - the ORIGINAL;
     //   2. the `.toon.tsv` SIDECAR beside the model - this port's TRANSCRIPTION of a subset of the same tables;
     //   3. the family table in `shaders/toon_params.slang` - the port's own fallback.
@@ -60,11 +60,11 @@ namespace {
     // `deren-ab/extras_dump.md` and the probe arms in `remaining_port_spec.md`'s "extras 数据源"), and the order
     // above is therefore a rule stated where it is applied and PROVABLE BY ASSET: a sidecar row that contradicts
     // extras is ignored, and the probe in that section is exactly such a row.
-    [[nodiscard]] std::optional<float> extras_float_of(gltf::scenes const* const scenes, std::string_view const material_name, std::string_view const row) {
+    [[nodiscard]] std::optional<float> extras_float_of(deren::gltf::scenes const* const scenes, std::string_view const material_name, std::string_view const row) {
         if (scenes == nullptr) {
             return std::nullopt;
         }
-        gltf::material const* const material = scenes->material_by_name(material_name);
+        deren::gltf::material const* const material = scenes->material_by_name(material_name);
         if (material == nullptr) {
             return std::nullopt;
         }
@@ -152,7 +152,7 @@ namespace {
                 if (std::optional<float> const frames = parse_number(*value)) {
                     options.frames = static_cast<int32_t>(std::max(0.0f, *frames));
                 } else {
-                    utility::log("capture: ignoring '--capture-frames {}' (expected a frame count)", *value);
+                    deren::utility::log("capture: ignoring '--capture-frames {}' (expected a frame count)", *value);
                 }
                 continue;
             }
@@ -182,7 +182,7 @@ namespace {
                         options.target = glm::vec3(parsed[3], parsed[4], parsed[5]);
                     }
                 } else {
-                    utility::log("capture: ignoring '--capture-camera {}' (expected yaw,pitch,distance[,target.x,target.y,target.z])", *value);
+                    deren::utility::log("capture: ignoring '--capture-camera {}' (expected yaw,pitch,distance[,target.x,target.y,target.z])", *value);
                 }
                 continue;
             }
@@ -191,7 +191,7 @@ namespace {
                 if (std::optional<float> const number = parse_number(*value)) {
                     options.sweep_yaw_deg_per_frame = *number;
                 } else {
-                    utility::log("capture: ignoring '--capture-sweep {}' (expected degrees of yaw per frame)", *value);
+                    deren::utility::log("capture: ignoring '--capture-sweep {}' (expected degrees of yaw per frame)", *value);
                 }
                 continue;
             }
@@ -200,19 +200,19 @@ namespace {
                 if (std::optional<float> const number = parse_number(*value)) {
                     options.animation_seconds_per_frame = *number;
                 } else {
-                    utility::log("capture: ignoring '--capture-animation-sweep {}' (expected seconds per frame)", *value);
+                    deren::utility::log("capture: ignoring '--capture-animation-sweep {}' (expected seconds per frame)", *value);
                 }
                 continue;
             }
             filtered.push_back(argv[i]);
         }
         if (options.frames > 0) {
-            utility::log("capture mode: {} frames, then screenshot + quit", options.frames);
+            deren::utility::log("capture mode: {} frames, then screenshot + quit", options.frames);
             if (options.sweep_yaw_deg_per_frame != 0.0f) {
-                utility::log("capture camera sweep: {:.3f} deg of yaw per frame, from whatever pose the scene settled on", options.sweep_yaw_deg_per_frame);
+                deren::utility::log("capture camera sweep: {:.3f} deg of yaw per frame, from whatever pose the scene settled on", options.sweep_yaw_deg_per_frame);
             }
             if (options.animation_seconds_per_frame != 0.0f) {
-                utility::log("capture animation sweep: {:.4f} s of animation per frame, from the clip's own start", options.animation_seconds_per_frame);
+                deren::utility::log("capture animation sweep: {:.4f} s of animation per frame, from the clip's own start", options.animation_seconds_per_frame);
             }
         }
         return options;
@@ -240,7 +240,7 @@ namespace {
     /// THE RETURN IS A `string_view` INTO THE FILE, so a material that states no `RampIndex` (every other family,
     /// and every material of every other character in this repository) gets an EMPTY view - which the lane resolver
     /// turns into `invalid`, i.e. "no base ramp", i.e. the old chain's diffuse.
-    [[nodiscard]] std::string_view toon_base_ramp_name(toon::material_sidecar const& material) {
+    [[nodiscard]] std::string_view toon_base_ramp_name(deren::toon::material_sidecar const& material) {
         float const index = material.scalar("_GooRampIndex", 0.0f);
         return index > 2.990000009536743f     ? std::string_view{"TPLK_actor_common_cloth_03_RD"}
                : index >= 2.0f                ? std::string_view{"T_actor_common_cloth_04_RD"}
@@ -254,7 +254,7 @@ namespace {
     static constexpr std::string_view toon_rs_arm0_row = "_GooRSArm0";
 
     /// THE REFERENCE'S SECOND `_RS` SHEET SLOT - the one `RS_Index = 1` selects - AND IT IS NOT A LANE, nor may it
-    /// become one. `toon_lane` below is sized by `vulkan::toon_slot::count`, so a second sheet slot AS A LANE would
+    /// become one. `toon_lane` below is sized by `deren::vulkan::toon_slot::count`, so a second sheet slot AS A LANE would
     /// cost a 17th vocabulary entry, a wider lane block (`toon_lane_blocks` 3 -> 4, in the SAME heap slot:
     /// `vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) and a FOURTH accessor beside the three that
     /// exist (`shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`, one `uint4` column
@@ -294,7 +294,7 @@ namespace {
     /// here - absent means off, the sidecar module's contract for every optional slot. So a material that names
     /// `_GooRSSheet1` without switching it on reads the FIRST sheet, and so does one that switches it on without
     /// naming anything: `name` carries the answer and an empty `name` means the first sheet.
-    [[nodiscard]] toon_rs_sheet_choice toon_rs_sheet_of(toon::material_sidecar const& material, std::string_view const sheet_a) {
+    [[nodiscard]] toon_rs_sheet_choice toon_rs_sheet_of(deren::toon::material_sidecar const& material, std::string_view const sheet_a) {
         toon_rs_sheet_choice choice = {};
         choice.name = sheet_a;
         // `RS_Index` IS THE `.x` OF A `color` ROW, so it sits in `others` VERBATIM and `scalar()` cannot see it
@@ -346,7 +346,7 @@ int main(int argc, char** argv) {
     // as DEREN_VERSION_*) and exit before any config / Vulkan init.
     for (int32_t i = 1; i < argc; ++i) {
         if (std::string_view(argv[i]) == "--version") {
-            utility::println("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
+            deren::utility::println("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
             return 0;
         }
     }
@@ -358,13 +358,13 @@ int main(int argc, char** argv) {
     // from argv first (see parse_capture_options) so they cannot land in the positional slots.
     std::vector<char*> filtered_argv;
     capture_options const capture = parse_capture_options(argc, argv, filtered_argv);
-    chores::startup_config const config = chores::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
-    app_config::app_settings const& settings = config.settings;
+    deren::chores::startup_config const config = deren::chores::analyse_config(static_cast<int32_t>(filtered_argv.size()), filtered_argv.data());
+    deren::app_config::app_settings const& settings = config.settings;
     std::filesystem::path const& shaders_dir = config.shaders_dir;
     std::string const& model_path = config.model_path;
 
     // startup banner: version (single source: project(VERSION) in CMakeLists.txt)
-    utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
+    deren::utility::log("deren {}.{}.{}", DEREN_VERSION_MAJOR, DEREN_VERSION_MINOR, DEREN_VERSION_PATCH);
 
     // 4. Kick off the runtime-independent heavy CPU stages BEFORE constructing the (heavy)
     //    Vulkan runtime, so window/instance/device/swapchain init overlaps the model parse +
@@ -394,12 +394,12 @@ int main(int argc, char** argv) {
         std::filesystem::path environment_path = settings.lighting.environment_hdr;
         if (environment_path.is_relative()) {
             // relative to the EXECUTABLE's directory, the same rule [render] background_glb follows
-            environment_path = utility::executable_directory() / environment_path;
+            environment_path = deren::utility::executable_directory() / environment_path;
         }
         int32_t channels = 0;
         float* const decoded = stbi_loadf(environment_path.string().c_str(), &environment_width, &environment_height, &channels, 4); // 4 = force RGBA, the layout the bake reads
         if (decoded == nullptr) {
-            utility::panic(std::source_location::current(), "failed to load the environment HDRI '{}': {}", environment_path.string(), stbi_failure_reason());
+            deren::utility::panic(std::source_location::current(), "failed to load the environment HDRI '{}': {}", environment_path.string(), stbi_failure_reason());
         }
         environment_pixels.assign(decoded, decoded + static_cast<std::size_t>(environment_width) * static_cast<std::size_t>(environment_height) * 4);
         stbi_image_free(decoded);
@@ -412,14 +412,14 @@ int main(int argc, char** argv) {
         }
         double const texel_count = static_cast<double>(environment_width) * static_cast<double>(environment_height);
         double const luma_mean = texel_count > 0.0 ? luma_sum / texel_count : 0.0;
-        utility::log("environment: '{}' loaded as {}x{} RGBA float, linear luma mean {:.5f}; intensity {:.2f} (the reference package's own world_strength) scales it to {:.5f}",
+        deren::utility::log("environment: '{}' loaded as {}x{} RGBA float, linear luma mean {:.5f}; intensity {:.2f} (the reference package's own world_strength) scales it to {:.5f}",
                      environment_path.string(),
                      environment_width,
                      environment_height,
                      luma_mean,
                      settings.lighting.environment_intensity,
                      luma_mean * settings.lighting.environment_intensity);
-        utility::log("environment: the procedural sky's gradient and its baked sun are off for the IBL; the DIRECT light ([lighting] sun_direction) still drives the shadows, the shading and the visible disc");
+        deren::utility::log("environment: the procedural sky's gradient and its baked sun are off for the IBL; the DIRECT light ([lighting] sun_direction) still drives the shadows, the shading and the visible disc");
     }
 
     // THE SUN, AS ONE VECTOR FOR EVERYTHING THAT HAS TO AGREE ABOUT IT: the light UBO built from it (the
@@ -430,13 +430,13 @@ int main(int argc, char** argv) {
     // direct light is not baked into it a second time.)
     auto const& sun_direction = settings.lighting.sun_direction;
     auto env_future = environment_pixels.empty()
-                          ? vulkan::generate_environment_cubemap_async(env_size, sun_direction)
-                          : vulkan::generate_environment_cubemap_from_equirect_async(std::move(environment_pixels), environment_width, environment_height, env_size, settings.lighting.environment_intensity);
-    auto load_future = gltf::load_model_async(model_path);
+                          ? deren::vulkan::generate_environment_cubemap_async(env_size, sun_direction)
+                          : deren::vulkan::generate_environment_cubemap_from_equirect_async(std::move(environment_pixels), environment_width, environment_height, env_size, settings.lighting.environment_intensity);
+    auto load_future = deren::gltf::load_model_async(model_path);
 
-    // 5. Construct vulkan::runtime from the startup render settings (window size / title /
+    // 5. Construct deren::vulkan::runtime from the startup render settings (window size / title /
     //    vsync; the defaults in render_settings mirror the historic hardcoded values)
-    vulkan::core_create_info core_options = {};
+    deren::vulkan::core_create_info core_options = {};
     core_options.window_width = settings.render.window_width;
     core_options.window_height = settings.render.window_height;
     core_options.window_title = settings.render.window_title;
@@ -455,7 +455,7 @@ int main(int argc, char** argv) {
     //      recorded A/B anchors are byte-identical with this line and without it, which is the measurement
     //      behind the claim. The interactive path (`capture.frames == 0`) is untouched: a normal window.
     core_options.window_visible = capture.frames == 0;
-    vulkan::runtime runtime{core_options};
+    deren::vulkan::runtime runtime{core_options};
     runtime.background_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
     // shadow is applied after enable_shadows() below (it needs the shadow maps to exist)
     // per-pass GPU timings (timestamp queries): on by default, reported in the log + overlay
@@ -469,17 +469,17 @@ int main(int argc, char** argv) {
     // views are created when the first scene set binds them, so this must precede the scene import)
     runtime.set_shadow_map_size(static_cast<uint32_t>(settings.render.shadow_map_size));
     auto const runtime_ready = std::chrono::steady_clock::now();
-    utility::log("vulkan runtime initialized: {:.1f} ms (async model load + env generation running in background)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
+    deren::utility::log("vulkan runtime initialized: {:.1f} ms (async model load + env generation running in background)", std::chrono::duration<double, std::milli>(runtime_ready - startup_start).count());
 
-    // 6. Pipelines up front (chores::setup_pipeline): the standard PBR pipeline (used by the
+    // 6. Pipelines up front (deren::chores::setup_pipeline): the standard PBR pipeline (used by the
     //    imported scene) and the directional shadow pass. The legacy
     //    triangle demo pipeline is no longer created - nothing draws it.
-    chores::setup_pipeline(runtime, shaders_dir);
-    // THE EXAMPLE'S OWN WIRING: this application's passes are fed by `vulkan.render_start_demo`, which finds them
+    deren::chores::setup_pipeline(runtime, shaders_dir);
+    // THE EXAMPLE'S OWN WIRING: this application's passes are fed by `deren.vulkan.render_start_demo`, which finds them
     // in the chain the runtime owns and answers the frame's per-stage questions (see the module's header). The
     // runtime holds none of these references itself any more, which is what lets a second application hand it a
     // different chain - and the demo object outlives the frame loop because it lives here, in the app's own scope.
-    vulkan::render_start_demo start_demo;
+    deren::vulkan::render_start_demo start_demo;
     static_cast<void>(start_demo.attach(runtime)); // builds this app's chain and hands it over
     // ... and the CREATE step runs over that chain (the shaders above are registered by now): every pass builds what
     // it owns, and the renderer's two jobs - which are not passes - are created with them.
@@ -513,21 +513,21 @@ int main(int argc, char** argv) {
     // 7. Collect the async startup results
     auto scenes = load_future.get();
     if (!scenes) {
-        utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int32_t>(scenes.error()));
+        deren::utility::panic(std::source_location::current(), "failed to load model '{}': error code {}", model_path, static_cast<int32_t>(scenes.error()));
     }
     std::vector<float> const env = env_future.get();
     auto const startup_done = std::chrono::steady_clock::now();
-    utility::log("model loaded + environment cubemap (startup window incl. runtime init): {:.1f} ms", std::chrono::duration<double, std::milli>(startup_done - startup_start).count());
+    deren::utility::log("model loaded + environment cubemap (startup window incl. runtime init): {:.1f} ms", std::chrono::duration<double, std::milli>(startup_done - startup_start).count());
 
     // 8. Whole-model world AABB + loader diagnostics (gltf_loader, pure CPU over the retained
     //    scene data): logs the scene summary (contents, hierarchy, animations/skins/morphs/
     //    cameras/lights) and returns the world bounds that frame the orbit camera and center
     //    the scene before import. Panics when the model has no drawable primitives.
-    gltf::scene_bounds const bounds = gltf::log_scene_diagnostics(*scenes);
+    deren::gltf::scene_bounds const bounds = deren::gltf::log_scene_diagnostics(*scenes);
     glm::vec3 const scene_center = bounds.min * 0.5f + bounds.max * 0.5f;
     float const scene_radius = glm::length(bounds.max - bounds.min) * 0.5f;
 
-    // 8a. THE AREA LIGHT, DERIVED ONCE (see `app_config::derive_area_light` and the `[lighting] area_light_*`
+    // 8a. THE AREA LIGHT, DERIVED ONCE (see `deren::app_config::derive_area_light` and the `[lighting] area_light_*`
     //     notes): the reference package's 30 m soft box, expressed through the frame's ONE directional light.
     //     Its `position`/`target` keys are relative to the AUTHOR'S ORIGIN - the character's feet on the ground -
     //     because that is the frame the manifest was authored in ("the character stands at the origin"), and in
@@ -546,8 +546,8 @@ int main(int argc, char** argv) {
     //     The `std::array` is not decoration: `application_configuration` deliberately does not depend on glm
     //     (the derivation is unit-tested there), so this is the one place the scene's origin crosses over.
     float const scene_floor_y = bounds.min.y - scene_center.y - scene_radius;
-    app_config::area_light_derived const area_light =
-        app_config::derive_area_light(settings.lighting, std::array<float, 3>{0.0f, scene_floor_y, 0.0f});
+    deren::app_config::area_light_derived const area_light =
+        deren::app_config::derive_area_light(settings.lighting, std::array<float, 3>{0.0f, scene_floor_y, 0.0f});
     // `world_centre - scene_origin`, i.e. the emitter's direction FROM the author's origin, normalised by the
     // derivation: this is the sun's direction while the emitter TAKES OVER the main light, and it is why
     // `[lighting] sun_direction` is not the last word on where the light comes from then.
@@ -559,7 +559,7 @@ int main(int argc, char** argv) {
     bool const area_light_takes_over = area_light.enabled && settings.lighting.area_light_irradiance;
     float const area_light_scale = area_light_takes_over ? area_light.radiance : 1.0f;
     if (area_light.enabled) {
-        utility::log("area light: author origin [0.000, {:.3f}, 0.000], centre [{:.3f}, {:.3f}, {:.3f}] half {:.3f} m, "
+        deren::utility::log("area light: author origin [0.000, {:.3f}, 0.000], centre [{:.3f}, {:.3f}, {:.3f}] half {:.3f} m, "
                      "axis [{:.3f}, {:.3f}, {:.3f}], radiance {:.5f}{}, penumbra {:.3f} m",
                      scene_floor_y, area_light.world_centre[0], area_light.world_centre[1], area_light.world_centre[2],
                      area_light.half, area_light.axis[0], area_light.axis[1], area_light.axis[2], area_light.radiance,
@@ -589,7 +589,7 @@ int main(int argc, char** argv) {
     //     and a slot that is ON while the model has no such image - which is the case a consumer must handle by
     //     leaving the feature off rather than by substituting something.
     // THE ASSET PIPELINE'S VOCABULARY FOR THE FOUR TOON LANES, and the only place it appears: one entry per
-    // `vulkan::toon_slot`, in lane order, carrying BOTH names the pipeline uses for it.
+    // `deren::vulkan::toon_slot`, in lane order, carrying BOTH names the pipeline uses for it.
     //
     // TWO NAMES RATHER THAN ONE, and the second is not derivable from the first: the ramp and LUT lanes are
     // switched on by `_Use<Slot>`, but the MATCAP lane `_MatcapTex` is switched on by `_UseMatcap` - the slot's
@@ -607,7 +607,7 @@ int main(int argc, char** argv) {
         std::string_view slot;
         std::string_view flag;
     };
-    static constexpr std::array<toon_lane_names, static_cast<std::size_t>(vulkan::toon_slot::count)> toon_lane = {{
+    static constexpr std::array<toon_lane_names, static_cast<std::size_t>(deren::vulkan::toon_slot::count)> toon_lane = {{
         {"_DiffRampMap", "_UseDiffRampMap"},
         {"_ShadowLutTex", "_UseShadowLutTex"},
         {"_SpecRampMap", "_UseSpecRampMap"},
@@ -682,10 +682,10 @@ int main(int argc, char** argv) {
         // `goo_step15_lane_rs_index_spec.md` §9 and `toon_rs_sheet_b`.
         {"_GooRSSheet", "_UseGooRSSheet"},
     }};
-    // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `vulkan::toon_colour_lane`, in lane order - the
+    // THE MATERIAL COLOUR VOCABULARY, one `color` row name per `deren::vulkan::toon_colour_lane`, in lane order - the
     // same arrangement the texture table above uses and for the same reason: the asset pipeline's spelling belongs
     // where the sidecar is read, and the ORDER is the contract with the shader's lane indices.
-    static constexpr std::array<std::string_view, static_cast<std::size_t>(vulkan::toon_colour_lane::count)> toon_colour_row = {{
+    static constexpr std::array<std::string_view, static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count)> toon_colour_row = {{
         "_SDFRimColor",
         "_EyeHighLightColor",
         "_EyeScatteringColor",
@@ -796,7 +796,7 @@ int main(int argc, char** argv) {
         //     red`'s shape;
         //   * `_GooFaceNoseShadow` = `nose_shadow_Color` and `_GooFaceFrontR` = `Front R Color`, both `color` rows
         //     whose NEUTRAL IS BLACK because black is the socket's own `interface[]` default (see the lane's note
-        //     in `vulkan::toon_colour_lane`).
+        //     in `deren::vulkan::toon_colour_lane`).
         //
         // THE AUDIT THAT KEPT THIS AT FOUR ROWS: eight more of the container's numbers already have carriers,
         // filled from the SAME SOCKET NAMES by the same materials - `BaseColor` on `_GooBaseColour`, the two
@@ -883,7 +883,7 @@ int main(int argc, char** argv) {
                 return std::string(lane.flag);
             }
         }
-        std::string flag{toon::enable_flag_prefix};
+        std::string flag{deren::toon::enable_flag_prefix};
         flag.append(slot_name.starts_with('_') ? slot_name.substr(1) : slot_name);
         return flag;
     };
@@ -894,28 +894,28 @@ int main(int argc, char** argv) {
     // so the diagnostic prints it `off` - which is TRUE of the flag and says nothing about the ramp (the ramp's
     // switch is `_UseGooBaseRamp`). It has no colour row either, so `toon_colour` below never parses it.
 
-    std::optional<toon::sidecar> toon_sidecar = {}; // kept in scope: the import below is what consumes it
+    std::optional<deren::toon::sidecar> toon_sidecar = {}; // kept in scope: the import below is what consumes it
     {
-        auto const sidecar = toon::load_sidecar(model_path);
+        auto const sidecar = deren::toon::load_sidecar(model_path);
         if (!sidecar.has_value()) {
-            utility::log("toon sidecar: NOT READ - {}", sidecar.error());
+            deren::utility::log("toon sidecar: NOT READ - {}", sidecar.error());
         } else if (sidecar->empty()) {
-            utility::log("toon sidecar: none beside '{}' (the normal case for a model that is not a character)", model_path);
+            deren::utility::log("toon sidecar: none beside '{}' (the normal case for a model that is not a character)", model_path);
         } else {
             toon_sidecar = *sidecar;
-            utility::log("toon sidecar: {} material(s) described ({} line(s) skipped)", sidecar->materials.size(), sidecar->skipped_lines);
+            deren::utility::log("toon sidecar: {} material(s) described ({} line(s) skipped)", sidecar->materials.size(), sidecar->skipped_lines);
             // A NON-ZERO MERGE COUNT IS A FACT ABOUT THE FILE AND NOT A COMPLAINT: it says some material's rows
             // arrived in more than one block, which the reader merges by name (see `sidecar::merged_rows`). It is
             // logged because the OPPOSITE reading - "this material states nothing" - is what a reader that did not
             // merge would silently report, and the two are indistinguishable in every other line of this output.
             if (sidecar->merged_rows > 0) {
-                utility::log("toon sidecar: {} row(s) belong to a material whose rows are NOT CONTIGUOUS - merged into its entry by name", sidecar->merged_rows);
+                deren::utility::log("toon sidecar: {} row(s) belong to a material whose rows are NOT CONTIGUOUS - merged into its entry by name", sidecar->merged_rows);
             }
-            for (toon::material_sidecar const& material : sidecar->materials) {
+            for (deren::toon::material_sidecar const& material : sidecar->materials) {
                 // THE FAMILY COMES FROM THE LOADER'S CLASSIFIER over the SAME name, so the sidecar (which
                 // supplies the parameters) and the renderer (which selects them) cannot disagree about which
                 // family a material is: there is one classifier and both sides ask it.
-                utility::log("  '{}' -> family {} | {} slot(s), {} scalar(s)", material.name, static_cast<uint32_t>(gltf::toon_family_of(material.name)), material.slots.size(), material.scalars.size());
+                deren::utility::log("  '{}' -> family {} | {} slot(s), {} scalar(s)", material.name, static_cast<uint32_t>(deren::gltf::toon_family_of(material.name)), material.slots.size(), material.scalars.size());
                 // STEP 8'S `float` ROW IS PRINTED BY NAME, because the loop below walks `material.slots` ONLY: a
                 // `float` property is counted in the `{} scalar(s)` above and never named, so a human reading this
                 // log could not tell "the file states nothing" from "the reader dropped the row" - the two look
@@ -923,22 +923,22 @@ int main(int argc, char** argv) {
                 // material; a value means lane 24 carries it into the Goo chain's decode (see
                 // `toon_colour_lane::goo_normal_strength`).
                 if (auto const normal_strength = material.scalars.find("_GooNormalStrength"); normal_strength != material.scalars.end()) {
-                    utility::log("      _GooNormalStrength = {:.10g} | lane 24 (the reference's DecodeNormal strength)", static_cast<double>(normal_strength->second));
+                    deren::utility::log("      _GooNormalStrength = {:.10g} | lane 24 (the reference's DecodeNormal strength)", static_cast<double>(normal_strength->second));
                 } else {
-                    utility::log("      _GooNormalStrength = ABSENT | lane 24 keeps the chain's previous normal");
+                    deren::utility::log("      _GooNormalStrength = ABSENT | lane 24 keeps the chain's previous normal");
                 }
                 // LANE 16'S `float` ROW IS PRINTED BY NAME FOR THE SAME REASON, and here the distinction is the
                 // whole of debt (u): `ABSENT` makes the stage answer the reference's own group default `1.0`, while
                 // a value is what this lane exists to carry. The two body materials state `0.7999999523162842` and
                 // every cloth states `1.0`, so a reader that sees `ABSENT` for them is looking at D1.
                 if (auto const specular_fgd = material.scalars.find("_GooSpecularFGD"); specular_fgd != material.scalars.end()) {
-                    utility::log("      _GooSpecularFGD = {:.10g} | lane 16 (the reference's `specularFGD Strength`)", static_cast<double>(specular_fgd->second));
+                    deren::utility::log("      _GooSpecularFGD = {:.10g} | lane 16 (the reference's `specularFGD Strength`)", static_cast<double>(specular_fgd->second));
                 } else {
-                    utility::log("      _GooSpecularFGD = ABSENT | lane 16 answers the reference's group default 1.0");
+                    deren::utility::log("      _GooSpecularFGD = ABSENT | lane 16 answers the reference's group default 1.0");
                 }
                 for (auto const& [slot_name, texture_name] : material.slots) {
                     std::optional<uint16_t> const index = scenes->texture_index_by_name(texture_name);
-                    utility::log("      {} = '{}' -> {} | {}", slot_name, texture_name, index.has_value() ? std::format("texture #{}", *index) : std::string("ABSENT from this model"), material.enabled_by_flag(toon_flag_for(slot_name)) ? "ON" : "off");
+                    deren::utility::log("      {} = '{}' -> {} | {}", slot_name, texture_name, index.has_value() ? std::format("texture #{}", *index) : std::string("ABSENT from this model"), material.enabled_by_flag(toon_flag_for(slot_name)) ? "ON" : "off");
                 }
             }
         }
@@ -950,26 +950,26 @@ int main(int argc, char** argv) {
     //    per-stage times are not reported individually: get() orders the waits, so only the
     //    wall-clock of the parallel stage is meaningful (the other tasks hide under the
     //    slowest one).
-    utility::log("generating IBL (prefilter/irradiance/BRDF LUT) + resolving materials...");
+    deren::utility::log("generating IBL (prefilter/irradiance/BRDF LUT) + resolving materials...");
     auto const stage2_start = std::chrono::steady_clock::now();
-    auto prefilter_future = vulkan::prefilter_environment_async(env, env_size, env_mip_count);
-    auto irradiance_future = vulkan::generate_irradiance_map_async(env, env_size, irr_size);
-    auto lut_future = vulkan::generate_brdf_lut_async(lut_size);
-    auto resolve_future = gltf::resolve_materials_async(*scenes);
+    auto prefilter_future = deren::vulkan::prefilter_environment_async(env, env_size, env_mip_count);
+    auto irradiance_future = deren::vulkan::generate_irradiance_map_async(env, env_size, irr_size);
+    auto lut_future = deren::vulkan::generate_brdf_lut_async(lut_size);
+    auto resolve_future = deren::gltf::resolve_materials_async(*scenes);
 
     std::vector<float> const prefiltered = prefilter_future.get();
     std::vector<float> const irradiance = irradiance_future.get();
     std::vector<float> const brdf_lut = lut_future.get();
-    std::vector<gltf::resolved_material> const materials = resolve_future.get();
+    std::vector<deren::gltf::resolved_material> const materials = resolve_future.get();
     auto const stage2_done = std::chrono::steady_clock::now();
-    utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
+    deren::utility::log("  IBL (prefilter/irradiance/BRDF LUT) + material resolve, parallel wall: {:.1f} ms", std::chrono::duration<double, std::milli>(stage2_done - stage2_start).count());
 
-    std::vector<uint8_t> const env_bytes = vulkan::to_half_rgba(prefiltered);
-    std::vector<uint8_t> const irr_bytes = vulkan::to_half_rgba(irradiance);
-    std::vector<uint8_t> const lut_bytes = vulkan::to_half_rg(brdf_lut);
+    std::vector<uint8_t> const env_bytes = deren::vulkan::to_half_rgba(prefiltered);
+    std::vector<uint8_t> const irr_bytes = deren::vulkan::to_half_rgba(irradiance);
+    std::vector<uint8_t> const lut_bytes = deren::vulkan::to_half_rg(brdf_lut);
 
     // 10. Upload the scene-wide IBL once: shared by every primitive (bindings 2-4 of the scene block)
-    runtime.set_ibl(vulkan::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes, .env_size = static_cast<uint32_t>(env_size), .env_mip_count = static_cast<uint32_t>(env_mip_count), .irr_size = static_cast<uint32_t>(irr_size), .lut_size = static_cast<uint32_t>(lut_size)});
+    runtime.set_ibl(deren::vulkan::ibl_input{.prefiltered_env = env_bytes, .irradiance = irr_bytes, .brdf_lut = lut_bytes, .env_size = static_cast<uint32_t>(env_size), .env_mip_count = static_cast<uint32_t>(env_mip_count), .irr_size = static_cast<uint32_t>(irr_size), .lut_size = static_cast<uint32_t>(lut_size)});
 
     // ---- THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), BAKED NEUTRAL ----
     //
@@ -1050,14 +1050,14 @@ int main(int argc, char** argv) {
     // the `goo_arm` branch, so `goo_toon = false` is unaffected either way.
     {
         std::vector<uint8_t> fgd_file = {};
-        // `utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
+        // `deren::utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
         // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
         // (see `scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
         // `...\deren-ab\laevat\deren-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
         // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
         // The executable's own directory is `build-release-clang64/`, which is where `deren-ab/` and the
         // reference's assets live, so the path is right whatever the process's working directory is.
-        std::filesystem::path const fgd_path = utility::executable_directory() / "deren-ab" / "gooblender" / "images" / "PreIntegratedFGD_GGXDisneyDiffuse.png";
+        std::filesystem::path const fgd_path = deren::utility::executable_directory() / "deren-ab" / "gooblender" / "images" / "PreIntegratedFGD_GGXDisneyDiffuse.png";
         if (!fgd_path.empty()) {
             std::ifstream file(fgd_path, std::ios::binary);
             if (file) {
@@ -1071,7 +1071,7 @@ int main(int argc, char** argv) {
                                         ? nullptr
                                         : stbi_load_from_memory(fgd_file.data(), static_cast<int32_t>(fgd_file.size()), &fgd_width, &fgd_height, &fgd_channels, 4); // 4 = force RGBA8
         if (fgd_pixels == nullptr) {
-            utility::log("goo FGD LUT: NOT uploaded - '{}' is missing or not a readable PNG. The step-5 arm's FGD terms "
+            deren::utility::log("goo FGD LUT: NOT uploaded - '{}' is missing or not a readable PNG. The step-5 arm's FGD terms "
                          "will read zero (see heap_slots_goo_fgd_lut); everything else is unaffected.",
                          fgd_path.string());
         } else {
@@ -1090,9 +1090,9 @@ int main(int argc, char** argv) {
     }
 
     // 11. Batch-import: the runtime drives the traversal itself through two aligned loader
-    //     streams — the retained node hierarchy (gltf::scene_node_iterator: DFS pre-order,
+    //     streams — the retained node hierarchy (deren::gltf::scene_node_iterator: DFS pre-order,
     //     transform-only nodes included, name + local transform per node) and the drawables
-    //     of those nodes (gltf::drawable_iterator: geometry/material getters, node-aligned).
+    //     of those nodes (deren::gltf::drawable_iterator: geometry/material getters, node-aligned).
     //     The runtime rebuilds the scene tree (node per loader node) and attaches each
     //     drawable as a leaf primitive under its node, so whole-group transforms work on the
     //     imported hierarchy. The orbit camera looks at the origin, so center the scene and
@@ -1102,7 +1102,7 @@ int main(int argc, char** argv) {
     //     declaration order destroys it BEFORE the runtime — the leaves' GPU buffers release
     //     through the runtime's vma allocator while it is still alive) and binds it with
     //     set_scene() before any import.
-    vulkan::scene_tree::scene scene;
+    deren::vulkan::scene_tree::scene scene;
     runtime.set_scene(scene);
     // Initial camera framing ([render] camera_fit). "exterior" is the historic fit: 2.75 scene radii
     // frames a compact object, and for that it stays the default. It is also useless for a building -
@@ -1132,7 +1132,7 @@ int main(int argc, char** argv) {
         } else {
             runtime.camera.distance = scene_radius * 2.75f;
         }
-        utility::log("initial camera: fit={} yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f} (scene radius {:.2f}, ground half-extent {:.2f} x {:.2f})",
+        deren::utility::log("initial camera: fit={} yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f} (scene radius {:.2f}, ground half-extent {:.2f} x {:.2f})",
                      settings.render.camera_fit,
                      glm::degrees(runtime.camera.yaw),
                      glm::degrees(runtime.camera.pitch),
@@ -1144,7 +1144,7 @@ int main(int argc, char** argv) {
     // ONE place that turns the live pose into the six numbers the config and the command line take: the F12
     // screenshot prints it (so a bug report carries its own camera) and so does the exit below.
     auto const log_camera_pose = [&runtime](char const* const why) {
-        utility::log("camera pose ({}): {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}   -> [render] camera_pose = [...] or --capture-camera",
+        deren::utility::log("camera pose ({}): {:.4f},{:.4f},{:.4f},{:.4f},{:.4f},{:.4f}   -> [render] camera_pose = [...] or --capture-camera",
                      why,
                      glm::degrees(runtime.camera.yaw),
                      glm::degrees(runtime.camera.pitch),
@@ -1154,10 +1154,10 @@ int main(int argc, char** argv) {
                      runtime.camera.target.z);
     };
 
-    gltf::scene_node_iterator const node_first = scenes->nodes_begin();
-    gltf::scene_node_iterator const node_last;
-    gltf::drawable_iterator const scene_first(*scenes, materials);
-    gltf::drawable_iterator const scene_last;
+    deren::gltf::scene_node_iterator const node_first = scenes->nodes_begin();
+    deren::gltf::scene_node_iterator const node_last;
+    deren::gltf::drawable_iterator const scene_first(*scenes, materials);
+    deren::gltf::drawable_iterator const scene_last;
     glm::vec3 const scene_import_shift = -scene_center + scene_sink;
 
     // ---- THE TOON LOOKUP: the one place the sidecar reader and the renderer meet ----
@@ -1166,8 +1166,8 @@ int main(int argc, char** argv) {
     // is "the texture input for this material and this lane", and this application is the layer that links both
     // - so this is where they are joined.
     struct toon_lookup_state {
-        toon::sidecar const* sidecar = nullptr;
-        gltf::scenes const* scenes = nullptr;
+        deren::toon::sidecar const* sidecar = nullptr;
+        deren::gltf::scenes const* scenes = nullptr;
         /// the PROCEDURALLY BAKED neutral unit ramp (see the baker below), kept alive here because the texture
         /// input the lookup returns is a SPAN INTO IT and `register_material` reads it during the import. ONE
         /// buffer serves BOTH ramp lanes: the diffuse ramp and the specular ramp are the same neutral step, and
@@ -1382,13 +1382,13 @@ int main(int argc, char** argv) {
 
     // THE LOOKUP, whose lane vocabulary lives with the diagnostic above so that the two cannot disagree about
     // which flag switches a lane on.
-    auto const toon_texture = [](void* const owner, std::string_view const material_name, vulkan::toon_slot const lane) -> vulkan::texture_input {
+    auto const toon_texture = [](void* const owner, std::string_view const material_name, deren::vulkan::toon_slot const lane) -> deren::vulkan::texture_input {
         toon_lookup_state const& state = *static_cast<toon_lookup_state*>(owner);
-        vulkan::texture_input out = {};
+        deren::vulkan::texture_input out = {};
         if (state.sidecar == nullptr || state.scenes == nullptr) {
             return out;
         }
-        toon::material_sidecar const* const material = state.sidecar->find(material_name);
+        deren::toon::material_sidecar const* const material = state.sidecar->find(material_name);
         if (material == nullptr) {
             return out;
         }
@@ -1413,10 +1413,10 @@ int main(int argc, char** argv) {
         // asset and the glTF carries images by name, so the join is one lookup - and a lane that resolved it may
         // still decline it.
         std::string_view const texture_name = material->slot(slot_name);
-        gltf::texture_data const* model_tex = nullptr;
+        deren::gltf::texture_data const* model_tex = nullptr;
         if (!texture_name.empty()) {
             if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
-                gltf::texture_data const& candidate = state.scenes->textures[*index];
+                deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                 if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                     model_tex = &candidate; // present and usable; whether it is READ is the lane's decision
                 }
@@ -1429,7 +1429,7 @@ int main(int argc, char** argv) {
         // whose numbers are neutral - it is one whose numbers the FAMILY states (`toon_params`' `roughness` /
         // `reflectivity`, which is exactly where the article keeps its skin's). So a lane of 0 here means "ask the
         // family", and handing it a baked texel instead would override that with one invented surface.
-        if (lane == vulkan::toon_slot::metallic_gloss) {
+        if (lane == deren::vulkan::toon_slot::metallic_gloss) {
             if (model_tex != nullptr) {
                 out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
@@ -1446,7 +1446,7 @@ int main(int argc, char** argv) {
         // axis, so a neutral bake can only ever stand in for a model that has none. Every character in this
         // repository ships one (`_DiffRampMap` is on 45 of the 45 materials across the five characters), so the
         // lane reads it and `bake_neutral_ramp` covers the rest.
-        if (lane == vulkan::toon_slot::diffuse_ramp) {
+        if (lane == deren::vulkan::toon_slot::diffuse_ramp) {
             if (model_tex != nullptr) {
                 out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
@@ -1468,7 +1468,7 @@ int main(int argc, char** argv) {
         // why a path that read the game's own ramps is a path this repository cannot carry, and note that the
         // artist's switch above is still what decides WHETHER there is a ramp at all. Nothing has taught THIS
         // lane to read the game's own atlas yet, and it is the one that still reads `.r` as a threshold.
-        if (lane == vulkan::toon_slot::specular_ramp && !state.baked_unit_ramp.empty()) {
+        if (lane == deren::vulkan::toon_slot::specular_ramp && !state.baked_unit_ramp.empty()) {
             out.data = std::span<uint8_t const>(state.baked_unit_ramp.data(), state.baked_unit_ramp.size());
             out.width = state.baked_ramp_width;
             out.height = state.baked_ramp_height;
@@ -1485,7 +1485,7 @@ int main(int argc, char** argv) {
         // reproduces the albedo, so the whole dark side of every skin in the game was being replaced by the lit
         // one. The artist's switch above still decides whether there is a LUT at all, which is why hair - whose
         // `_UseShadowLutTex` is off - is unaffected by any of this.
-        if (lane == vulkan::toon_slot::shadow_lut) {
+        if (lane == deren::vulkan::toon_slot::shadow_lut) {
             if (model_tex != nullptr) {
                 out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
@@ -1514,7 +1514,7 @@ int main(int argc, char** argv) {
         // THIS IS ALSO THE LANE THE FLAG TABLE ABOVE WAS FIXED FOR: until the flag was asked by name, `_MatcapTex`
         // resolved to "off" for the very material that ships it, so this branch was unreachable and the game's ball
         // was neither read nor replaced - the lane was simply absent, the quietest possible version of wrong.
-        if (lane == vulkan::toon_slot::matcap) {
+        if (lane == deren::vulkan::toon_slot::matcap) {
             if (model_tex != nullptr) {
                 out.data = std::span<uint8_t const>(model_tex->data.data(), model_tex->data.size());
                 out.width = model_tex->width;
@@ -1549,7 +1549,7 @@ int main(int argc, char** argv) {
         // being the shader's business. THE NAMES ARE THE `_RD` IMAGES' glTF NAMES, appended to the model by
         // `deren-ab/attach_toon_images.py` - without that step the lane resolves to nothing and the material keeps
         // the old chain's diffuse, which is the correct fallback and an invisible one in a log.
-        if (lane == vulkan::toon_slot::goo_base_ramp) {
+        if (lane == deren::vulkan::toon_slot::goo_base_ramp) {
             // TWO SOURCES, AND THE ORDER IS THE STATEMENT RATHER THAN A CONVENIENCE. `_GooBaseRamp` is the
             // sidecar's own slot row and carries the name the reference's selector resolves to, already applied
             // where the file was written; `_GooRampIndex` is the raw socket and is read only when the slot row is
@@ -1561,10 +1561,10 @@ int main(int argc, char** argv) {
             // material with no ramp in the file keeps the old chain's diffuse rather than sampling the white
             // fallback as if it were a ramp.
             std::string_view const ramp_name = !texture_name.empty() ? texture_name : toon_base_ramp_name(*material);
-            gltf::texture_data const* ramp_tex = nullptr;
+            deren::gltf::texture_data const* ramp_tex = nullptr;
             if (!ramp_name.empty()) {
                 if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(ramp_name); index.has_value()) {
-                    gltf::texture_data const& candidate = state.scenes->textures[*index];
+                    deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                     if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                         ramp_tex = &candidate;
                     }
@@ -1597,12 +1597,12 @@ int main(int argc, char** argv) {
         // which is also what keeps every existing fixture and every shipped material (`RS_Index = 0`, no
         // `_GooRSSheet1` row at all) byte-identical. `_GooRSSheet1`'s own `_UseGooRSSheet1` switch is asked
         // inside `toon_rs_sheet_of`, so "named but switched off" is the first sheet too.
-        if (lane == vulkan::toon_slot::goo_rs_sheet) {
+        if (lane == deren::vulkan::toon_slot::goo_rs_sheet) {
             toon_rs_sheet_choice const choice = toon_rs_sheet_of(*material, texture_name);
-            gltf::texture_data const* sheet_tex = nullptr;
+            deren::gltf::texture_data const* sheet_tex = nullptr;
             if (!choice.name.empty()) {
                 if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(choice.name); index.has_value()) {
-                    gltf::texture_data const& candidate = state.scenes->textures[*index];
+                    deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                     if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                         sheet_tex = &candidate;
                     }
@@ -1615,7 +1615,7 @@ int main(int argc, char** argv) {
             // sheet the material would have read without `RS_Index` at all.
             if (sheet_tex == nullptr && choice.second) {
                 if (std::optional<uint16_t> const index = state.scenes->texture_index_by_name(texture_name); index.has_value()) {
-                    gltf::texture_data const& candidate = state.scenes->textures[*index];
+                    deren::gltf::texture_data const& candidate = state.scenes->textures[*index];
                     if (!candidate.data.empty() && candidate.width != 0 && candidate.height != 0) {
                         sheet_tex = &candidate;
                     }
@@ -1667,7 +1667,7 @@ int main(int argc, char** argv) {
     // tint, so there is no no-op number - `0` is a legitimate authored "no parallax", and any other in-range value
     // would be a depth the port invented. The stage tests `>= 0.0` and falls back to its own
     // `character_eye_parallax_depth` constant (see `toon_colour_lane::parallax_scale`).
-    static constexpr std::array<glm::vec4, static_cast<std::size_t>(vulkan::toon_colour_lane::count)> toon_colour_neutral = {
+    static constexpr std::array<glm::vec4, static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count)> toon_colour_neutral = {
         {glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f), glm::vec4(1.0f, 1.0f, 1.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f), glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f), glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f), glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f),
          // STEP 4'S SIX. THE FOUR SENTINELED LANES START AT `-1000.0f` AND NOT AT `-1.0f`, and the reason is
          // the whole point of a sentinel: two of their eight per-material numbers are AUTHORED NEGATIVES -
@@ -1675,7 +1675,7 @@ int main(int argc, char** argv) {
          // `GlobalShadowBrightnessAdjustment` is `-1.7999999523162842` on the cloth - so a neutral inside the
          // values' own range would make the stage read an authored number as "not stated". See
          // `goo_lane_absent` in `shaders/character_forward.slang` and each lane's note in
-         // `vulkan::toon_colour_lane`.
+         // `deren::vulkan::toon_colour_lane`.
          glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
          // STEP 5'S FOUR, WHOSE NEUTRALS ARE THE REFERENCE'S OWN `interface[]` DEFAULTS rather than the `-1000`
          // sentinel four of step 4's lanes need - and the reason is the SOCKETS' RANGES, which is the check step 4's
@@ -1757,7 +1757,7 @@ int main(int argc, char** argv) {
          // `max(base, 0)` is only bitwise `base` where `base >= 0`. The outer gate is what keeps a material with no
          // RS row unchanged. See `toon_colour_lane::goo_rs_arm0`.
          glm::vec4(0.0f, 0.0f, 0.0f, 0.0f)}};
-    auto const toon_colour = [](void* const owner, std::string_view const material_name, vulkan::toon_colour_lane const lane) -> glm::vec4 {
+    auto const toon_colour = [](void* const owner, std::string_view const material_name, deren::vulkan::toon_colour_lane const lane) -> glm::vec4 {
         std::size_t const lane_index = static_cast<std::size_t>(lane);
         toon_lookup_state const& state = *static_cast<toon_lookup_state*>(owner);
         // ---- THE SPECULAR STRENGTH IS READ BEFORE THE SIDECAR IS EVEN LOOKED FOR, AND THAT ORDER IS THE RULE ----
@@ -1774,14 +1774,14 @@ int main(int argc, char** argv) {
         // so for that property the asset is the ONLY source that can speak and this lane answers the sentinel for
         // every material but the three that state the row - which is the state the frame had before this lane
         // existed, material by material.
-        if (lane == vulkan::toon_colour_lane::specular_strength || lane == vulkan::toon_colour_lane::parallax_scale) {
+        if (lane == deren::vulkan::toon_colour_lane::specular_strength || lane == deren::vulkan::toon_colour_lane::parallax_scale) {
             glm::vec4 scalar = toon_colour_neutral[lane_index]; // -1 in .x until a source states a value
             if (std::optional<float> const from_asset = extras_float_of(state.scenes, material_name, toon_colour_row[lane_index])) {
                 scalar.x = *from_asset;
                 return scalar;
             }
             if (state.sidecar != nullptr) {
-                if (toon::material_sidecar const* const from_sidecar = state.sidecar->find(material_name)) {
+                if (deren::toon::material_sidecar const* const from_sidecar = state.sidecar->find(material_name)) {
                     // The same "states nothing" contract as the generic path below: `scalar` answers the fallback
                     // when the row is absent, and the fallback here IS the sentinel.
                     float const value = from_sidecar->scalar(toon_colour_row[lane_index], scalar.x);
@@ -1799,7 +1799,7 @@ int main(int argc, char** argv) {
         if (state.sidecar == nullptr) {
             return toon_colour_neutral[lane_index];
         }
-        toon::material_sidecar const* const material = state.sidecar->find(material_name);
+        deren::toon::material_sidecar const* const material = state.sidecar->find(material_name);
         if (material == nullptr) {
             return toon_colour_neutral[lane_index];
         }
@@ -1815,7 +1815,7 @@ int main(int argc, char** argv) {
         // strength on every material either dump states, so a row that parsed negative is a row this lane cannot
         // express and the neutral (the sentinel, i.e. "not stated") answers instead of a strength that would flip
         // the normal's `xy`.
-        if (lane == vulkan::toon_colour_lane::goo_normal_strength) {
+        if (lane == deren::vulkan::toon_colour_lane::goo_normal_strength) {
             glm::vec4 strength = toon_colour_neutral[lane_index]; // -1000 in every component until a row says otherwise
             float const value = material->scalar(toon_colour_row[lane_index], strength.x);
             if (value >= 0.0f) {
@@ -1831,9 +1831,9 @@ int main(int argc, char** argv) {
         //
         // THE NEUTRAL'S `.x` IS THE SENTINEL (`-1.0`, "this material's container states nothing") and the
         // shader resolves it to the reference's own group default `1.0` - see
-        // `vulkan::toon_colour_lane::goo_specular_fgd`, whose contract is `< 0` and NOT the `-1000` sentinel
+        // `deren::vulkan::toon_colour_lane::goo_specular_fgd`, whose contract is `< 0` and NOT the `-1000` sentinel
         // step 4's four lanes use.
-        if (lane == vulkan::toon_colour_lane::goo_specular_fgd) {
+        if (lane == deren::vulkan::toon_colour_lane::goo_specular_fgd) {
             glm::vec4 fgd = toon_colour_neutral[lane_index]; // -1 in `.x` until a row says otherwise
             float const value = material->scalar(toon_colour_row[lane_index], fgd.x);
             if (value >= 0.0f) {
@@ -1851,7 +1851,7 @@ int main(int argc, char** argv) {
         // the tint row is present would therefore outline one material out of five and silently drop the rest, so
         // the width is read unconditionally and a missing tint answers white - the article's own `_OutlineColor`
         // default is white, and white is what "the game states no tint" has to look like for a multiply.
-        if (lane == vulkan::toon_colour_lane::outline_edge) {
+        if (lane == deren::vulkan::toon_colour_lane::outline_edge) {
             glm::vec4 outline = toon_colour_neutral[lane_index]; // white tint, width 0 until a row says otherwise
             if (auto const tint = material->others.find(std::string(toon_colour_row[lane_index])); tint != material->others.end()) {
                 std::string_view rest = tint->second;
@@ -1898,7 +1898,7 @@ int main(int argc, char** argv) {
         if (state.sidecar == nullptr) {
             return fallback;
         }
-        toon::material_sidecar const* const material = state.sidecar->find(material_name);
+        deren::toon::material_sidecar const* const material = state.sidecar->find(material_name);
         if (material == nullptr) {
             return fallback;
         }
@@ -1916,7 +1916,7 @@ int main(int argc, char** argv) {
     toon_state.baked_lut_height = baked_lut_height;
     toon_state.baked_matcap = bake_matcap();
     toon_state.baked_matcap_size = baked_matcap_size;
-    runtime.set_toon_lookup(vulkan::runtime::toon_lookup{.owner = &toon_state, .texture = toon_texture, .colour = toon_colour, .scalar = toon_scalar});
+    runtime.set_toon_lookup(deren::vulkan::runtime::toon_lookup{.owner = &toon_state, .texture = toon_texture, .colour = toon_colour, .scalar = toon_scalar});
 
     // ---- THE HEAD FRAME the face SDF shades against, resolved once here and published every frame ----
     //
@@ -1934,10 +1934,10 @@ int main(int argc, char** argv) {
     std::size_t head_rig = 0;
     std::optional<std::size_t> head_joint = std::nullopt;
     {
-        gltf::head_basis head = gltf::head_basis_fallback();
+        deren::gltf::head_basis head = deren::gltf::head_basis_fallback();
         for (std::size_t scene_index = 0; scene_index < scenes->scene.size() && !head_joint.has_value(); ++scene_index) {
             for (std::size_t skin_index = 0; skin_index < scenes->skins.size(); ++skin_index) {
-                if (std::optional<std::size_t> const joint = gltf::head_joint_of(*scenes, scene_index, skin_index); joint.has_value()) {
+                if (std::optional<std::size_t> const joint = deren::gltf::head_joint_of(*scenes, scene_index, skin_index); joint.has_value()) {
                     head_rig = skin_index;
                     head_joint = joint;
                     break;
@@ -1945,28 +1945,28 @@ int main(int argc, char** argv) {
             }
         }
         if (head_joint.has_value()) {
-            utility::log("head frame: '{}' HAS a head bone at rig {} joint {} - the frame is read from it every frame", model_path, head_rig, *head_joint);
+            deren::utility::log("head frame: '{}' HAS a head bone at rig {} joint {} - the frame is read from it every frame", model_path, head_rig, *head_joint);
         } else {
-            utility::log("head frame: no head bone in '{}' ({} skin(s)) - shading from the reference's fallback frame", model_path, scenes->skins.size());
+            deren::utility::log("head frame: no head bone in '{}' ({} skin(s)) - shading from the reference's fallback frame", model_path, scenes->skins.size());
         }
         // THE FOURTH MEMBER IS A POSITION AND A FLAG, and the fallback publish leaves BOTH at zero: this branch is
         // the one a model with NO HEAD BONE takes, and for such a model there is no `HC` object to read a centre
         // from. `center.w = 0.0` is what tells the face arm that, and its answer is the socket's own default
         // (`sphereNormal_Strength = 0.0`) rather than a sphere about the world origin.
-        runtime.set_head_basis(vulkan::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f), .center = glm::vec4(0.0f)});
+        runtime.set_head_basis(deren::vulkan::head_ubo{.front = glm::vec4(head.front, 0.0f), .right = glm::vec4(head.right, 0.0f), .up = glm::vec4(head.up, 0.0f), .center = glm::vec4(0.0f)});
     }
 
     // ---- THE TOON LIGHT RIG, published once, before the frame loop ----
     //
     // THE ONE CONFIG KNOB THE RIG TAKES SO FAR IS THE DAY STRENGTH, and it is the one the two-state lighting is
     // driven by - so it is the one an A/B capture has to be able to move. Every other rig number keeps
-    // `vulkan::toon_rig`'s own default, which is the article's value.
+    // `deren::vulkan::toon_rig`'s own default, which is the article's value.
     //
     // PUBLISHING HERE RATHER THAN IN THE FRAME LOOP IS THE BLOCK'S CONTRACT (see core::heap_slots::toon_rig):
     // nothing rewrites it while a frame is in flight, which is what makes a write from outside the frame path
     // safe - and the cost of that is exactly this, that the write has to happen before the loop starts.
     {
-        vulkan::toon_rig rig = {};
+        deren::vulkan::toon_rig rig = {};
         rig.day.x = settings.toon.day_strength;
         rig.other_light.x = settings.toon.head_light_day0;
         rig.other_light.y = settings.toon.head_light_day1;
@@ -1983,7 +1983,7 @@ int main(int argc, char** argv) {
         rig.rim.z = settings.toon.rim_nolxz_strength;
         rig.misc.x = settings.toon.backlight_strength;
         // THE FACE'S EXPRESSION INDEX rides the head light's colour block's fourth lane, which was unused and is
-        // named in `vulkan::toon_rig` - the same zero-cost reuse the material record's `toon_family` makes.
+        // named in `deren::vulkan::toon_rig` - the same zero-cost reuse the material record's `toon_family` makes.
         rig.other_colour.w = settings.toon.emotion_type;
         // THE TOON CHAIN'S SHADOW SOFTNESS LADDER (`[render] toon_shadow_softness`, already rounded and clamped
         // by `analyse_config`): 0 is the shipped 3x3 PCF and the default, so this line changes nothing unless a
@@ -1993,7 +1993,7 @@ int main(int argc, char** argv) {
         // every level; `overlay` has no shadow sample at all).
         rig.shadow_softness.x = settings.render.toon_shadow_softness;
         runtime.set_toon_rig(rig);
-        utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
+        deren::utility::log("toon: light rig published - day strength {:.3f}, head light {:.2f} at day 1 of {:.2f} at day 0, env strength {:.2f}, shadow softness {}",
                      rig.day.x,
                      rig.other_light.y,
                      rig.other_light.x,
@@ -2001,8 +2001,8 @@ int main(int argc, char** argv) {
                      static_cast<int>(rig.shadow_softness.x));
     }
 
-    vulkan::scene_import_result const imported = runtime.import_scene(node_first, node_last, scene_first, scene_last, scene_import_shift);
-    utility::log("imported {} primitives ({} new materials)", imported.primitive_count, imported.material_count);
+    deren::vulkan::scene_import_result const imported = runtime.import_scene(node_first, node_last, scene_first, scene_last, scene_import_shift);
+    deren::utility::log("imported {} primitives ({} new materials)", imported.primitive_count, imported.material_count);
     runtime.log_scene_tree();
 
     // 12b. THE FRAME'S STATIC SURROUND, when the config names one ([render] background_glb): the SAME
@@ -2020,17 +2020,17 @@ int main(int argc, char** argv) {
         std::filesystem::path background_path = settings.render.background_glb;
         if (background_path.is_relative()) {
             // relative to the EXECUTABLE's directory, which is where every other asset of this application
-            // is found (the shaders dir comes from the same place, see chores::analyse_config)
-            background_path = utility::executable_directory() / background_path;
+            // is found (the shaders dir comes from the same place, see deren::chores::analyse_config)
+            background_path = deren::utility::executable_directory() / background_path;
         }
-        auto background_load = gltf::load_model_async(background_path.string());
+        auto background_load = deren::gltf::load_model_async(background_path.string());
         auto background_scenes = background_load.get();
         if (!background_scenes) {
-            utility::panic(std::source_location::current(), "failed to load background model '{}': error code {}", background_path.string(), static_cast<int32_t>(background_scenes.error()));
+            deren::utility::panic(std::source_location::current(), "failed to load background model '{}': error code {}", background_path.string(), static_cast<int32_t>(background_scenes.error()));
         }
-        gltf::scene_bounds const background_bounds = gltf::log_scene_diagnostics(*background_scenes);
-        auto background_resolve = gltf::resolve_materials_async(*background_scenes);
-        std::vector<gltf::resolved_material> const background_materials = background_resolve.get();
+        deren::gltf::scene_bounds const background_bounds = deren::gltf::log_scene_diagnostics(*background_scenes);
+        auto background_resolve = deren::gltf::resolve_materials_async(*background_scenes);
+        std::vector<deren::gltf::resolved_material> const background_materials = background_resolve.get();
         // THE OFFSET IS DERIVED FROM THE SUBJECT, NOT CONFIGURED: the background's own y = 0 is its author's
         // GROUND plane and the subject's lowest point after ITS centering shift is `bounds.min.y +
         // scene_import_shift.y`, so shifting the background by the subject's shift plus that minimum puts the
@@ -2039,12 +2039,12 @@ int main(int argc, char** argv) {
         // centered on its own origin. A background whose ground is not at its y = 0 does NOT land correctly -
         // that assumption is stated rather than guessed at (see the config key's note).
         glm::vec3 const background_shift = scene_import_shift + glm::vec3(0.0f, bounds.min.y, 0.0f);
-        gltf::scene_node_iterator const background_node_first = background_scenes->nodes_begin();
-        gltf::scene_node_iterator const background_node_last;
-        gltf::drawable_iterator const background_scene_first(*background_scenes, background_materials);
-        gltf::drawable_iterator const background_scene_last;
-        vulkan::scene_import_result const background_imported = runtime.import_scene(background_node_first, background_node_last, background_scene_first, background_scene_last, background_shift, true);
-        utility::log("background: '{}' imported as the frame's static surround - {} primitives ({} new materials), own bounds y [{:.3f}, {:.3f}], offset ({:.3f}, {:.3f}, {:.3f}); the toon character stage and the shadow casters skip it",
+        deren::gltf::scene_node_iterator const background_node_first = background_scenes->nodes_begin();
+        deren::gltf::scene_node_iterator const background_node_last;
+        deren::gltf::drawable_iterator const background_scene_first(*background_scenes, background_materials);
+        deren::gltf::drawable_iterator const background_scene_last;
+        deren::vulkan::scene_import_result const background_imported = runtime.import_scene(background_node_first, background_node_last, background_scene_first, background_scene_last, background_shift, true);
+        deren::utility::log("background: '{}' imported as the frame's static surround - {} primitives ({} new materials), own bounds y [{:.3f}, {:.3f}], offset ({:.3f}, {:.3f}, {:.3f}); the toon character stage and the shadow casters skip it",
                      background_path.string(),
                      background_imported.primitive_count,
                      background_imported.material_count,
@@ -2064,25 +2064,25 @@ int main(int argc, char** argv) {
         runtime.set_shadow_enabled(false);
     }
 
-    // 13. Optional instancing stress (chores::add_instancing_grid): grid_side > 1 (config or
+    // 13. Optional instancing stress (deren::chores::add_instancing_grid): grid_side > 1 (config or
     //     argv) draws the first imported primitive as a grid_side x grid_side grid in ONE
     //     instanced draw call (the frame loop is untouched); no-op otherwise.
-    chores::add_instancing_grid(runtime, settings.grid_side, scene_radius);
+    deren::chores::add_instancing_grid(runtime, settings.grid_side, scene_radius);
 
     // 13b. Clustered-light stress ([lighting] demo_lights): spawn N procedural punctual lights on a
     //      helix around the scene bounds, pushed every frame together with the overlay's slots. The
     //      clustered path's whole point is a light count the brute-force loop could not afford, and
     //      the overlay's four slots cannot show that - this is what makes the difference measurable
     //      (and what the [render] clustered_lights A/B is compared against).
-    std::vector<vulkan::punctual_light> demo_lights;
+    std::vector<deren::vulkan::punctual_light> demo_lights;
     if (settings.lighting.demo_lights > 0) {
-        int32_t const total = std::min(settings.lighting.demo_lights, static_cast<int32_t>(app_config::max_demo_lights));
+        int32_t const total = std::min(settings.lighting.demo_lights, static_cast<int32_t>(deren::app_config::max_demo_lights));
         demo_lights.reserve(static_cast<std::size_t>(total));
         for (int32_t i = 0; i < total; ++i) {
             float const t = static_cast<float>(i) / static_cast<float>(total);
             float const angle = t * 6.2831853f * 3.0f; // three turns around the scene
             float const radius = scene_radius * settings.lighting.demo_light_radius;
-            vulkan::punctual_light light = {};
+            deren::vulkan::punctual_light light = {};
             light.position = scene_sink + glm::vec3(std::cos(angle) * radius, scene_radius * (t - 0.5f), std::sin(angle) * radius);
             // hue cycle: a warm/cool strip of colors makes the per-cluster lists visible as color
             light.color = glm::vec3(0.5f + 0.5f * std::cos(angle), 0.5f + 0.5f * std::cos(angle + 2.094f), 0.5f + 0.5f * std::cos(angle + 4.188f));
@@ -2090,38 +2090,38 @@ int main(int argc, char** argv) {
             light.range = scene_radius * settings.lighting.demo_light_range; // finite range: what the cluster sphere test culls on
             demo_lights.push_back(light);
         }
-        utility::log("demo lights: {} procedural punctual lights around the scene (clustered light stress)", total);
+        deren::utility::log("demo lights: {} procedural punctual lights around the scene (clustered light stress)", total);
     }
 
     // 14. Main render loop: until the window closes or ESC is pressed.
     //     Every Vulkan frame step (fences, acquire, command buffers, render pass, submit, present)
     //     lives inside runtime::render_frame()
     runtime.log_feature_status(); // one line naming every optional feature that could not be created
-    utility::log("rendering '{}' with PBR... left-drag to orbit, wheel to zoom, ESC to exit", model_path);
+    deren::utility::log("rendering '{}' with PBR... left-drag to orbit, wheel to zoom, ESC to exit", model_path);
 
     // Dear ImGui debug overlay on by default ([gui] show)
     bool const use_gui = settings.gui.show;
 
-    // FPS statistics (utility:frame_stats): a rolling one-second window of frame gaps.
+    // FPS statistics (deren.utility:frame_stats): a rolling one-second window of frame gaps.
     // tick() once per presented frame, on_skipped() on minimized/recreate iterations, and
     // the once-per-second report (log + the overlay's smoothed value) keys off window_rolled().
-    utility::frame_stats frame_stats;
+    deren::utility::frame_stats frame_stats;
 
-    // ---- keyframe animation playback + skinning + morph targets (vulkan.animation) ----
+    // ---- keyframe animation playback + skinning + morph targets (deren.vulkan.animation) ----
     // The controller owns playback (sampling + writing node locals), the skin rigs (per-frame
     // joint matrices) and the morph rigs (static deltas + per-frame weights) against the
     // runtime scene tree; initialize it before the first frame (it bakes morph deltas and the
     // identity skin block into every frame slot's buffers). A float mirror of the playback
     // clock feeds the gui time slider (slider_widget binds an external float).
-    vulkan::animation::controller animation;
+    deren::vulkan::animation::controller animation;
     // the controller drives the runtime through an injected surface (chores wires the scene,
-    // per-slot buffers and task pool), so it never depends on vulkan::runtime itself
+    // per-slot buffers and task pool), so it never depends on deren::vulkan::runtime itself
     // ---- MMD motion (--mmd-motion): parsed, retargeted onto this model's own skeleton, and
     // appended to the loaded file's animations.  Appended rather than handed to the controller
     // because the controller takes its clip list from the scene at init() and never grows one
     // afterwards (select() only swaps the active clip), so a runtime clip has to join the
     // scene's list BEFORE init.  Names come from the pool nodes, and target_node stays the ASSET
-    // node index (gltf::node::source_index): animations are file-scoped, the pool index is a
+    // node index (deren::gltf::node::source_index): animations are file-scoped, the pool index is a
     // different numbering.
     {
         std::string mmd_motion_path;
@@ -2131,17 +2131,17 @@ int main(int argc, char** argv) {
             }
         }
         if (!mmd_motion_path.empty()) {
-            std::optional<vulkan::animation::mmd_motion> motion =
-                vulkan::animation::load_mmd_motion(mmd_motion_path);
+            std::optional<deren::vulkan::animation::mmd_motion> motion =
+                deren::vulkan::animation::load_mmd_motion(mmd_motion_path);
             if (!motion.has_value()) {
-                utility::panic(std::source_location::current(), "failed to parse MMD motion '{}'", mmd_motion_path);
+                deren::utility::panic(std::source_location::current(), "failed to parse MMD motion '{}'", mmd_motion_path);
             }
             // Names come from the asset-level lookup (asset node index -> the loader's node copy),
             // walked over the skin's joints: skin::joints and animation_channel::target_node are
             // BOTH asset node indices, so pairing the two here keeps target_node exact.
             std::vector<std::string> joint_names;
             std::vector<std::size_t> joint_sources;
-            for (gltf::skin const& skin : scenes->skins) {
+            for (deren::gltf::skin const& skin : scenes->skins) {
                 for (std::size_t const joint_source : skin.joints) {
                     auto const found = scenes->node_by_source.find(joint_source);
                     if (found == scenes->node_by_source.end() || found->second == nullptr) {
@@ -2151,64 +2151,64 @@ int main(int argc, char** argv) {
                     joint_sources.push_back(joint_source);
                 }
             }
-            vulkan::animation::mmd_retarget const retarget =
-                vulkan::animation::build_mmd_retarget(*motion, joint_names);
-            utility::log("mmd motion '{}': {} bones, {} mapped onto this skeleton, {} unmapped", mmd_motion_path,
+            deren::vulkan::animation::mmd_retarget const retarget =
+                deren::vulkan::animation::build_mmd_retarget(*motion, joint_names);
+            deren::utility::log("mmd motion '{}': {} bones, {} mapped onto this skeleton, {} unmapped", mmd_motion_path,
                          motion->bones.size(), retarget.mapped, retarget.unmapped);
             for (std::size_t const bone : retarget.unresolved_bones) {
                 if (bone < 8) {
-                    utility::log("  unmapped: {}", vulkan::animation::escape_mmd_name(motion->bones[bone].name));
+                    deren::utility::log("  unmapped: {}", deren::vulkan::animation::escape_mmd_name(motion->bones[bone].name));
                 }
             }
-            vulkan::animation::clip const baked = vulkan::animation::bake_mmd_clip(*motion, retarget);
-            gltf::animation converted;
+            deren::vulkan::animation::clip const baked = deren::vulkan::animation::bake_mmd_clip(*motion, retarget);
+            deren::gltf::animation converted;
             converted.name = "mmd";
             converted.samplers.reserve(baked.samplers.size());
-            for (vulkan::animation::sampler const& s : baked.samplers) {
-                gltf::animation_sampler out;
+            for (deren::vulkan::animation::sampler const& s : baked.samplers) {
+                deren::gltf::animation_sampler out;
                 out.times = s.times;
                 out.values = s.values;
                 out.per_key = s.per_key;
                 switch (s.interp) {
-                case vulkan::animation::interpolation::step:
-                    out.interpolation = gltf::animation_interpolation::step;
+                case deren::vulkan::animation::interpolation::step:
+                    out.interpolation = deren::gltf::animation_interpolation::step;
                     break;
-                case vulkan::animation::interpolation::cubic_spline:
-                    out.interpolation = gltf::animation_interpolation::cubic_spline;
+                case deren::vulkan::animation::interpolation::cubic_spline:
+                    out.interpolation = deren::gltf::animation_interpolation::cubic_spline;
                     break;
-                case vulkan::animation::interpolation::linear:
+                case deren::vulkan::animation::interpolation::linear:
                 default:
-                    out.interpolation = gltf::animation_interpolation::linear;
+                    out.interpolation = deren::gltf::animation_interpolation::linear;
                     break;
                 }
                 converted.samplers.push_back(std::move(out));
             }
             converted.channels.reserve(baked.channels.size());
-            for (vulkan::animation::channel const& c : baked.channels) {
-                gltf::animation_channel out;
+            for (deren::vulkan::animation::channel const& c : baked.channels) {
+                deren::gltf::animation_channel out;
                 out.sampler = c.sampler;
                 out.target_node = joint_sources[c.target_node];
                 switch (c.path) {
-                case vulkan::animation::channel_path::rotation:
-                    out.path = gltf::animation_path::rotation;
+                case deren::vulkan::animation::channel_path::rotation:
+                    out.path = deren::gltf::animation_path::rotation;
                     break;
-                case vulkan::animation::channel_path::scale:
-                    out.path = gltf::animation_path::scale;
+                case deren::vulkan::animation::channel_path::scale:
+                    out.path = deren::gltf::animation_path::scale;
                     break;
-                case vulkan::animation::channel_path::weights:
-                    out.path = gltf::animation_path::weights;
+                case deren::vulkan::animation::channel_path::weights:
+                    out.path = deren::gltf::animation_path::weights;
                     break;
-                case vulkan::animation::channel_path::translation:
+                case deren::vulkan::animation::channel_path::translation:
                 default:
-                    out.path = gltf::animation_path::translation;
+                    out.path = deren::gltf::animation_path::translation;
                     break;
                 }
                 converted.channels.push_back(out);
             }
             // The controller's translation channel REPLACES a node's local translation, so the node's
             // own rest offset has to be added back: the bake emits an offset from rest, not a position.
-            for (gltf::animation_channel const& c : converted.channels) {
-                if (c.path != gltf::animation_path::translation) {
+            for (deren::gltf::animation_channel const& c : converted.channels) {
+                if (c.path != deren::gltf::animation_path::translation) {
                     continue;
                 }
                 auto const found = scenes->node_by_source.find(c.target_node);
@@ -2216,7 +2216,7 @@ int main(int argc, char** argv) {
                     continue;
                 }
                 glm::vec3 const rest = found->second->translation;
-                gltf::animation_sampler& s = converted.samplers[c.sampler];
+                deren::gltf::animation_sampler& s = converted.samplers[c.sampler];
 
                 for (std::size_t i = 0; i + 2 < s.values.size(); i += 3) {
                     s.values[i] += rest.x;
@@ -2224,25 +2224,25 @@ int main(int argc, char** argv) {
                     s.values[i + 2] += rest.z;
                 }
             }
-            utility::log("mmd motion: baked clip '{}' - {} samplers, {} channels", converted.name,
+            deren::utility::log("mmd motion: baked clip '{}' - {} samplers, {} channels", converted.name,
                          converted.samplers.size(), converted.channels.size());
             scenes->animations.push_back(std::move(converted));
         }
     }
-    animation.init(*scenes, chores::make_animation_backend(runtime), scene_import_shift);
+    animation.init(*scenes, deren::chores::make_animation_backend(runtime), scene_import_shift);
     // [render] animation_time >= 0 PINS the pose: playback is wall-clock driven, so two captures of an
     // animated scene differ unless the time is fixed - and this is also what makes such a scene usable in
     // a measurement or a regression scenario at all. scrub() is the overlay's time slider, so the pose is a
     // function of the value alone; a negative value (the default) plays as always.
     if (settings.render.animation_time >= 0.0f) {
         animation.set_time(settings.render.animation_time);
-        utility::log("animation: pinned at {:.2f}s by [render] animation_time (playback is wall-clock driven, so captures of an animated scene are only reproducible this way)", settings.render.animation_time);
+        deren::utility::log("animation: pinned at {:.2f}s by [render] animation_time (playback is wall-clock driven, so captures of an animated scene are only reproducible this way)", settings.render.animation_time);
         if (capture.animation_seconds_per_frame != 0.0f) {
-            utility::log("capture: --capture-animation-sweep is IGNORED - [render] animation_time pins the pose, so the clock never advances (set animation_time = -1 to play)");
+            deren::utility::log("capture: --capture-animation-sweep is IGNORED - [render] animation_time pins the pose, so the clock never advances (set animation_time = -1 to play)");
         }
     }
-    // Live gui widget state (chores::gui_bindings) is declared after the authored-camera
-    // seeding below, right before chores::setup_gui() builds the overlay.
+    // Live gui widget state (deren::chores::gui_bindings) is declared after the authored-camera
+    // seeding below, right before deren::chores::setup_gui() builds the overlay.
 
     // ---- authored (glTF) camera selection ----
     // A glTF camera is used as a VIEWPOINT SEED for the orbit camera: picking one places the
@@ -2252,11 +2252,11 @@ int main(int argc, char** argv) {
     // override is not used by the demo (it stays available for exact/animated authored cameras).
     // usable cameras: those whose owning node exists in the imported tree, in scenes.cameras order
     struct authored_camera {
-        gltf::camera const* camera = nullptr;
+        deren::gltf::camera const* camera = nullptr;
         std::size_t source = 0; // owning loader node (asset node index)
     };
     std::vector<authored_camera> authored_cameras;
-    for (gltf::camera const& cam : scenes->cameras) {
+    for (deren::gltf::camera const& cam : scenes->cameras) {
         // find a node referencing this camera that is present in the imported tree (the loader's
         // asset-level node table + the controller's tree membership test)
         for (auto const& [source, loader_node] : scenes->node_by_source) {
@@ -2278,20 +2278,20 @@ int main(int argc, char** argv) {
         authored_camera const& ac = authored_cameras[static_cast<std::size_t>(index - 1)];
         glm::mat4 camera_world = glm::mat4(1.0f);
         bool found = false;
-        auto const find_world = [&](auto&& self, vulkan::scene_tree::scene_node& node, glm::mat4 const& parent_world) -> bool {
+        auto const find_world = [&](auto&& self, deren::vulkan::scene_tree::scene_node& node, glm::mat4 const& parent_world) -> bool {
             glm::mat4 const world = parent_world * node.local;
             if (node.source_index == ac.source) {
                 camera_world = world;
                 return true;
             }
-            for (vulkan::scene_tree::scene_node& child : node.children) {
+            for (deren::vulkan::scene_tree::scene_node& child : node.children) {
                 if (self(self, child, world)) {
                     return true;
                 }
             }
             return false;
         };
-        for (vulkan::scene_tree::scene_node& root : runtime.get_scene().roots) {
+        for (deren::vulkan::scene_tree::scene_node& root : runtime.get_scene().roots) {
             if (find_world(find_world, root, glm::mat4(1.0f))) {
                 found = true;
                 break;
@@ -2313,8 +2313,8 @@ int main(int argc, char** argv) {
         runtime.camera.yaw = std::atan2(d.x, d.z);
         runtime.camera.pitch = std::asin(std::clamp(d.y, -1.0f, 1.0f));
         std::string_view const cam_name = ac.camera->name.empty() ? std::string_view("<unnamed>") : std::string_view(ac.camera->name);
-        utility::log("camera: starting pose from glTF camera '{}' ({}) - you can still orbit/zoom", cam_name,
-                     ac.camera->type == gltf::camera_type::perspective ? "perspective" : "orthographic");
+        deren::utility::log("camera: starting pose from glTF camera '{}' ({}) - you can still orbit/zoom", cam_name,
+                     ac.camera->type == deren::gltf::camera_type::perspective ? "perspective" : "orthographic");
     };
     if (!authored_cameras.empty()) {
         seed_orbit_from_camera(current_camera);
@@ -2324,14 +2324,14 @@ int main(int argc, char** argv) {
     // They load straight into the editable gui light slots below (see the gui_bindings setup),
     // so imported lights are adjustable in the overlay like the demo ones.
 
-    // Optional Dear ImGui debug overlay: chores::setup_gui enables it on the runtime (when
+    // Optional Dear ImGui debug overlay: deren::chores::setup_gui enables it on the runtime (when
     // use_gui) and assembles the whole panel - fps label, frustum-culling / shadow
     // toggles, the camera-target drag, animation playback controls, the camera selector and
     // the shadow-bias sliders. The widgets bind to the live gui_bindings below (checkbox and
     // slider mirrors + the animation mirrors, which the frame loop keeps in sync each frame);
     // authored-camera names and the orbit-seeding callback are passed in, so chores never
     // touches glTF types.
-    chores::gui_bindings gui;
+    deren::chores::gui_bindings gui;
     gui.shadow_enabled = settings.render.shadow; // checkbox initial states mirror the config
     gui.fxaa_enabled = settings.render.fxaa;
     gui.gbuffer_debug = settings.render.gbuffer_debug; // gbuffer debug view initial state (M1)
@@ -2380,8 +2380,8 @@ int main(int argc, char** argv) {
 
     // ---- authored (glTF) punctual lights -> the editable gui light slots ----
     // KHR_lights_punctual lights load straight into the gui slots (up to
-    // vulkan::max_punctual_lights): main pushes the enabled set through
-    // chores::apply_point_lights() every frame, so imported lights are adjustable in the overlay
+    // deren::vulkan::max_punctual_lights): main pushes the enabled set through
+    // deren::chores::apply_point_lights() every frame, so imported lights are adjustable in the overlay
     // like the demo ones. Position comes from the owning node's loader-space world matrix,
     // shifted by the same import offset the geometry got. KHR directional lights are NOT mapped:
     // the engine sun is the shadow-casting analytic light configured by enable_shadows() above -
@@ -2394,16 +2394,16 @@ int main(int argc, char** argv) {
         if (!loader_node->light_index.has_value() || !animation.has_runtime_node(source)) {
             continue; // no light, or the node is absent from the imported tree
         }
-        gltf::light const& src = scenes->lights[*loader_node->light_index];
-        if (src.type == gltf::light_type::directional) {
+        deren::gltf::light const& src = scenes->lights[*loader_node->light_index];
+        if (src.type == deren::gltf::light_type::directional) {
             ++imported_directional;
             continue;
         }
-        if (imported_lights >= vulkan::max_punctual_lights) {
+        if (imported_lights >= deren::vulkan::max_punctual_lights) {
             ++imported_truncated;
             continue;
         }
-        chores::gui_bindings::light_slot& slot = gui.point_lights[imported_lights++];
+        deren::chores::gui_bindings::light_slot& slot = gui.point_lights[imported_lights++];
         glm::vec3 const position = glm::vec3(loader_node->transform_matrix[3]) + scene_import_shift;
         slot.enabled = true;
         slot.position[0] = position.x;
@@ -2414,7 +2414,7 @@ int main(int argc, char** argv) {
         slot.color[2] = src.color.z;
         slot.intensity = src.intensity;
         slot.range = src.range.value_or(0.0f); // 0 = infinite falloff (UBO semantics)
-        if (src.type == gltf::light_type::spot) {
+        if (src.type == deren::gltf::light_type::spot) {
             slot.spot = true;
             glm::vec3 const dir = glm::mat3(loader_node->transform_matrix) * glm::vec3(0.0f, 0.0f, -1.0f); // glTF spot axis
             glm::vec3 const axis = glm::dot(dir, dir) > 1e-8f ? glm::normalize(dir) : glm::vec3(0.0f, -1.0f, 0.0f);
@@ -2432,27 +2432,27 @@ int main(int argc, char** argv) {
         }
     }
     if (imported_lights > 0) {
-        utility::log("KHR_lights_punctual: {} point/spot light(s) loaded into the editable gui light slots (base pose; adjustable in the overlay)",
+        deren::utility::log("KHR_lights_punctual: {} point/spot light(s) loaded into the editable gui light slots (base pose; adjustable in the overlay)",
                      imported_lights);
     }
     if (imported_directional > 0) {
-        utility::log("KHR_lights_punctual: {} directional light(s) ignored - the engine sun is enable_shadows()'s analytic light",
+        deren::utility::log("KHR_lights_punctual: {} directional light(s) ignored - the engine sun is enable_shadows()'s analytic light",
                      imported_directional);
     }
     if (imported_truncated > 0) {
-        utility::log("KHR_lights_punctual: {} additional light(s) dropped (GPU punctual-light cap = {})", imported_truncated, vulkan::max_punctual_lights);
+        deren::utility::log("KHR_lights_punctual: {} additional light(s) dropped (GPU punctual-light cap = {})", imported_truncated, deren::vulkan::max_punctual_lights);
     }
     std::vector<std::string> gui_camera_names; // selector items: authored names (orbit added inside)
     gui_camera_names.reserve(authored_cameras.size());
     for (authored_camera const& ac : authored_cameras) {
         gui_camera_names.push_back(ac.camera->name.empty() ? "<unnamed>" : std::string(ac.camera->name));
     }
-    chores::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
+    deren::chores::setup_gui(runtime, use_gui, settings, gui, animation, gui_camera_names, seed_orbit_from_camera);
 
     // Per-frame cheap clock: stamp() once per presented frame on this (the frame owner) thread,
     // so any other thread can read the current frame time as a plain atomic load. Animation /
     // future parallel workers should prefer frame_clock.last_ns()/delta_ns() over now().
-    utility::frame_clock frame_clock;
+    deren::utility::frame_clock frame_clock;
 
     // All per-frame decisions (event polling, ESC/close response, minimize skip, swapchain
     // recreation on restore/resize) live inside the runtime's frame phases, which main calls at
@@ -2468,7 +2468,7 @@ int main(int argc, char** argv) {
         if (capture.target) {
             runtime.camera.target = *capture.target;
         }
-        utility::log("capture camera: yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f}, target ({:.2f}, {:.2f}, {:.2f})",
+        deren::utility::log("capture camera: yaw {:.1f} deg, pitch {:.1f} deg, distance {:.2f}, target ({:.2f}, {:.2f}, {:.2f})",
                      (*capture.camera)[0], (*capture.camera)[1], (*capture.camera)[2],
                      runtime.camera.target.x, runtime.camera.target.y, runtime.camera.target.z);
     }
@@ -2479,11 +2479,11 @@ int main(int argc, char** argv) {
     int32_t captured_frames = 0; // presented frames so far (scripted capture; see --capture-frames)
     while (true) {
         // Phase 1: poll window events (ESC / native close -> closed, minimized -> skipped)
-        vulkan::frame_status const polled = runtime.poll_events();
-        if (polled == vulkan::frame_status::closed || vulkan::is_failure(polled)) {
+        deren::vulkan::frame_status const polled = runtime.poll_events();
+        if (polled == deren::vulkan::frame_status::closed || deren::vulkan::is_failure(polled)) {
             break;
         }
-        if (polled == vulkan::frame_status::skipped) {
+        if (polled == deren::vulkan::frame_status::skipped) {
             // Minimized: skip this frame's CPU work too; refresh the fps baseline so the pause
             // is not counted as one huge rendered frame.
             frame_stats.on_skipped();
@@ -2504,11 +2504,11 @@ int main(int argc, char** argv) {
         // proceed, this slot's previous submission has completed, so the per-frame host writes
         // below (scene node locals -> culling, skin matrices, morph weights) cannot race an
         // in-flight frame.
-        vulkan::frame_status const paced = runtime.pace_and_acquire();
-        if (paced == vulkan::frame_status::closed || vulkan::is_failure(paced)) {
+        deren::vulkan::frame_status const paced = runtime.pace_and_acquire();
+        if (paced == deren::vulkan::frame_status::closed || deren::vulkan::is_failure(paced)) {
             break;
         }
-        if (paced == vulkan::frame_status::skipped) {
+        if (paced == deren::vulkan::frame_status::skipped) {
             // The swapchain is not usable this iteration - zero-sized (not sized yet / restored
             // minimized) so there are no attachments to render into, or it was recreated during the
             // acquire. Either way: skip this frame's CPU work too, like the minimized case above.
@@ -2549,13 +2549,13 @@ int main(int argc, char** argv) {
                 glm::mat4 const& joint = *bone;
                 glm::vec3 const forward_row(joint[0][2], joint[1][2], joint[2][2]); // HLSL `_31_32_33`
                 glm::vec3 const right_row(joint[0][0], joint[1][0], joint[2][0]);   // HLSL `_11_12_13`
-                gltf::head_basis const basis = gltf::head_basis_from_axes(forward_row, right_row);
+                deren::gltf::head_basis const basis = deren::gltf::head_basis_from_axes(forward_row, right_row);
                 // ---- AND THE HEAD'S OWN POSITION, FROM THE SAME MATRIX'S TRANSLATION COLUMN ----
                 //
                 // `Recalculate normal` needs `normalize(posWS - headCenter)`, and the reference gets `headCenter`
                 // from an OBJECT's `Object Info.Location` (spec §5.1: `存储已命名属性.003 <- 物体信息(HC).Location`).
                 // The equivalent here is the head BONE's world matrix translation - `joint[3]`, the same matrix the
-                // two rows above come from - which `gltf::head_basis` deliberately does not carry because every
+                // two rows above come from - which `deren::gltf::head_basis` deliberately does not carry because every
                 // consumer before this step wanted a direction. It is published UNCONDITIONALLY OF `basis.from_skeleton`
                 // on purpose: the axes falling back to glTF's constants says nothing about where the head IS, and a
                 // centre of `(0,0,0)` would make the sphere normal `normalize(posWS)`, i.e. a normal pointing away
@@ -2565,11 +2565,11 @@ int main(int argc, char** argv) {
                 // is a BAKED pose with `skins = 0` - this branch is never taken, so the face arm keeps the socket's
                 // own default instead of building a normal about the world origin.
                 glm::vec3 const head_center(joint[3][0], joint[3][1], joint[3][2]);
-                runtime.set_head_basis(vulkan::head_ubo{.front = glm::vec4(basis.front, 0.0f), .right = glm::vec4(basis.right, 0.0f), .up = glm::vec4(basis.up, 0.0f), .center = glm::vec4(head_center, 1.0f)});
+                runtime.set_head_basis(deren::vulkan::head_ubo{.front = glm::vec4(basis.front, 0.0f), .right = glm::vec4(basis.right, 0.0f), .up = glm::vec4(basis.up, 0.0f), .center = glm::vec4(head_center, 1.0f)});
                 static bool logged_head_probe = false;
                 if (!logged_head_probe) {
                     logged_head_probe = true;
-                    utility::log("head probe: bone forward row ({:.3f} {:.3f} {:.3f}) right row ({:.3f} {:.3f} {:.3f}) -> basis front ({:.3f} {:.3f} {:.3f}) from_skeleton {} center ({:.3f} {:.3f} {:.3f})",
+                    deren::utility::log("head probe: bone forward row ({:.3f} {:.3f} {:.3f}) right row ({:.3f} {:.3f} {:.3f}) -> basis front ({:.3f} {:.3f} {:.3f}) from_skeleton {} center ({:.3f} {:.3f} {:.3f})",
                                  forward_row.x, forward_row.y, forward_row.z, right_row.x, right_row.y, right_row.z,
                                  basis.front.x, basis.front.y, basis.front.z, basis.from_skeleton,
                                  head_center.x, head_center.y, head_center.z);
@@ -2578,7 +2578,7 @@ int main(int argc, char** argv) {
                 static bool logged_head_miss = false;
                 if (!logged_head_miss) {
                     logged_head_miss = true;
-                    utility::log("head probe: joint_world({}, {}) returned NOTHING", head_rig, *head_joint);
+                    deren::utility::log("head probe: joint_world({}, {}) returned NOTHING", head_rig, *head_joint);
                 }
             }
         }
@@ -2587,20 +2587,20 @@ int main(int argc, char** argv) {
         gui.anim_index = static_cast<int32_t>(animation.current());
 
         // Phase 3: record + submit + present the paced frame
-        vulkan::frame_status const rec = runtime.begin_recording();
-        if (rec == vulkan::frame_status::closed || vulkan::is_failure(rec)) {
+        deren::vulkan::frame_status const rec = runtime.begin_recording();
+        if (rec == deren::vulkan::frame_status::closed || deren::vulkan::is_failure(rec)) {
             break;
         }
         runtime.record_main_drawcalls();
-        vulkan::frame_status const ended = runtime.end_recording();
-        if (ended == vulkan::frame_status::closed || vulkan::is_failure(ended)) {
+        deren::vulkan::frame_status const ended = runtime.end_recording();
+        if (ended == deren::vulkan::frame_status::closed || deren::vulkan::is_failure(ended)) {
             break;
         }
-        vulkan::frame_status const result = runtime.submit_and_present();
-        if (result == vulkan::frame_status::closed || vulkan::is_failure(result)) {
+        deren::vulkan::frame_status const result = runtime.submit_and_present();
+        if (result == deren::vulkan::frame_status::closed || deren::vulkan::is_failure(result)) {
             break;
         }
-        if (result == vulkan::frame_status::skipped) {
+        if (result == deren::vulkan::frame_status::skipped) {
             // present reported the swapchain out of date / recreated it: retry next iteration
             frame_stats.on_skipped();
             std::this_thread::yield();
@@ -2628,7 +2628,7 @@ int main(int argc, char** argv) {
             // pipeline is the flat one - it then writes the stored albedo instead of shading, so
             // "unlit" means the same thing for the opaque scene and for the transparent pass
             start_demo.set_unlit(gui.render_mode == 1);
-            utility::log("render mode: {} ({})", mode_name, gui.render_mode == 0 ? "lit" : "unlit / flat");
+            deren::utility::log("render mode: {} ({})", mode_name, gui.render_mode == 0 ? "lit" : "unlit / flat");
         }
 
         // fps statistics: accumulate the frame gap into the rolling window
@@ -2636,7 +2636,7 @@ int main(int argc, char** argv) {
         // punctual lights: push the gui slot set every frame, INDEPENDENT of the overlay being
         // visible - imported model lights were loaded into those slots, so they must stay lit in
         // headless-overlay runs too (the demo slots stay off unless the user enabled them)
-        chores::apply_point_lights(runtime, gui, demo_lights);
+        deren::chores::apply_point_lights(runtime, gui, demo_lights);
         runtime.set_exposure(gui.exposure);                                                     // gui exposure slider -> linear scale (post-process pass)
         runtime.set_bloom(gui.bloom_enabled ? gui.bloom_intensity : 0.0f, gui.bloom_threshold); // bloom checkbox + knobs -> post pass
         runtime.set_max_fps(config.settings.render.max_fps);                                    // 0 = uncapped (see config.example.toml)
@@ -2712,7 +2712,7 @@ int main(int argc, char** argv) {
         if (runtime.consume_screenshot_request()) {
             auto const image = runtime.acquire_current_frame_image();
             if (!image) {
-                utility::log("screenshot failed: {}", image.error());
+                deren::utility::log("screenshot failed: {}", image.error());
             } else {
                 // base directory from [paths] screenshot_dir (empty = the current working
                 // directory); created on demand so a fresh checkout can capture immediately
@@ -2721,16 +2721,16 @@ int main(int argc, char** argv) {
                     std::error_code ec;
                     std::filesystem::create_directories(directory, ec);
                     if (ec) {
-                        utility::log("screenshot: cannot create '{}' - saving to the working directory", directory.string());
+                        deren::utility::log("screenshot: cannot create '{}' - saving to the working directory", directory.string());
                         directory.clear();
                     }
                 }
                 std::filesystem::path const path = directory / std::format("screenshot_{:%Y%m%d_%H%M%S}.png", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
-                auto const written = utility::write_png(path, image->width, image->height, image->rgba);
+                auto const written = deren::utility::write_png(path, image->width, image->height, image->rgba);
                 if (written) {
-                    utility::log("screenshot saved: {} ({}x{})", path.string(), image->width, image->height);
+                    deren::utility::log("screenshot saved: {} ({}x{})", path.string(), image->width, image->height);
                 } else {
-                    utility::log("screenshot save failed: {}", written.error());
+                    deren::utility::log("screenshot save failed: {}", written.error());
                 }
                 // ... AND THE POSE THAT FRAME WAS RENDERED WITH, in the form both the config and the
                 // command line take. A screenshot without its camera is a picture nobody can reproduce,
@@ -2749,19 +2749,19 @@ int main(int argc, char** argv) {
         if (frame_stats.window_rolled()) {
             // once per second: the fps log line stays for headless / non-gui runs; the overlay
             // shows the same number via smoothed_fps()
-            utility::log("fps: {:.1f} ({:.2f} ms/frame)", frame_stats.window_fps(), frame_stats.window_frame_ms());
+            deren::utility::log("fps: {:.1f} ({:.2f} ms/frame)", frame_stats.window_fps(), frame_stats.window_frame_ms());
             if (animation.has_active()) {
                 // report the playback clock + the first animated node's evaluated translation
                 // (proves the keyframes are actually moving the tree)
                 std::string_view const node_name = animation.get_debug_node_name().empty()
                                                        ? std::string_view("<no target in scene>")
                                                        : animation.get_debug_node_name();
-                utility::log("  anim '{}': t={:.3f}s/{:.2f}s, '{}' at ({:.3f}, {:.3f}, {:.3f})",
+                deren::utility::log("  anim '{}': t={:.3f}s/{:.2f}s, '{}' at ({:.3f}, {:.3f}, {:.3f})",
                              animation.active_name(), animation.current_time(), animation.loop_duration(), node_name,
                              animation.get_debug_translation().x, animation.get_debug_translation().y, animation.get_debug_translation().z);
             }
             if (animation.is_skin_debug_valid()) {
-                utility::log("  skin '{}': last joint world x-axis ({:.3f}, {:.3f}, {:.3f})", animation.get_skin_debug_name(),
+                deren::utility::log("  skin '{}': last joint world x-axis ({:.3f}, {:.3f}, {:.3f})", animation.get_skin_debug_name(),
                              animation.get_skin_debug_translation().x, animation.get_skin_debug_translation().y, animation.get_skin_debug_translation().z);
             }
         }
@@ -2773,6 +2773,6 @@ int main(int argc, char** argv) {
     log_camera_pose("exit");
     // 15. Wait for the GPU to finish; primitives and pipelines are released by the runtime destructor
     runtime->wait_idle();
-    utility::log("render loop finished");
+    deren::utility::log("render loop finished");
     return 0;
 }

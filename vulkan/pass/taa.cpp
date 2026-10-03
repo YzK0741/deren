@@ -1,5 +1,5 @@
 // The TAA resolve's implementation: the barriers, the fullscreen draw into the HDR target, and the copy that
-// becomes the next frame's history. Moved out of `vulkan.runtime` unchanged in behaviour - the same barrier
+// becomes the next frame's history. Moved out of `deren.vulkan.runtime` unchanged in behaviour - the same barrier
 // batches in the same order, the same attachment, the same copy and the same two flags - so the capture gate
 // can decide the move on `deferred_taa_fxaa`, the scenario that runs with TAA on.
 
@@ -12,14 +12,14 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.taa;
+module deren.vulkan.pass.taa;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import vulkan.pipelines;
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines;
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     taa_pass::~taa_pass() {
         this->release_owned();
@@ -33,7 +33,7 @@ namespace vulkan::pass {
         return render_resource::taa_io;
     }
 
-    vulkan::pass::behaviour const& taa_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& taa_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -88,17 +88,17 @@ namespace vulkan::pass {
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            utility::log("taa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("taa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         auto built = pipelines::build_taa(context.device, vertex_spirv, fragment_spirv);
         if (!built) {
-            utility::log("taa disabled: {}", built.error());
+            deren::utility::log("taa disabled: {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->resolve);
-        utility::log("SUCCESS: TAA resolve pipeline created (history reprojection over the deferred path)");
+        deren::utility::log("SUCCESS: TAA resolve pipeline created (history reprojection over the deferred path)");
     }
 
     void taa_pass::record(resolved_io const& io) {
@@ -120,7 +120,7 @@ namespace vulkan::pass {
         // becomes the resolve's attachment. The history is left in SHADER_READ_ONLY by the previous frame's
         // copy and is only ever read as a texture, so it needs no barrier once it is valid.
         std::array<VkImageMemoryBarrier2, 4> barriers = {};
-        barriers[0] = vulkan::hdr_sampling_transition; // scene_color: COLOR_ATTACHMENT -> SHADER_READ
+        barriers[0] = deren::vulkan::hdr_sampling_transition; // scene_color: COLOR_ATTACHMENT -> SHADER_READ
         barriers[0].image = io.own[0].image;
         // THE MOTION VECTORS ARE NOT THIS PASS'S BARRIER ANY MORE, and they were the bug: this batch used to
         // transition io.own[2] unconditionally, on the assumption that the TAA resolve is the frame's first
@@ -133,7 +133,7 @@ namespace vulkan::pass {
         // consumes it, so the first sampler in the frame publishes and the rest are no-ops.
         uint32_t barrier_count = 1;
         if (!history_valid) {
-            barriers[barrier_count] = vulkan::undefined_to_sampling_transition;
+            barriers[barrier_count] = deren::vulkan::undefined_to_sampling_transition;
             barriers[barrier_count].image = io.own[1].image;
             ++barrier_count;
         }
@@ -146,7 +146,7 @@ namespace vulkan::pass {
         // preserve is "after this batch, before the draw" only in the sense that the barrier must precede the
         // draw - the barrier commands are independent of this batch, so the host places them first.
 
-        std::array<VkImageMemoryBarrier2, 1> output_barrier = {vulkan::color_attachment_transition};
+        std::array<VkImageMemoryBarrier2, 1> output_barrier = {deren::vulkan::color_attachment_transition};
         output_barrier[0].image = io.targets[0].image;
         VkDependencyInfo const output_dependency = make_image_dependency_info(1, output_barrier.data());
         vkCmdPipelineBarrier2(io.cmd, &output_dependency);
@@ -183,9 +183,9 @@ namespace vulkan::pass {
         // stable (no per-frame descriptor rewrites). The barriers move the HDR target out to TRANSFER_SRC and back - the
         // post chain still finds it in GENERAL, exactly where it expects it.
         std::array<VkImageMemoryBarrier2, 2> copy_barriers = {};
-        copy_barriers[0] = vulkan::color_attachment_to_transfer_transition; // HDR -> TRANSFER_SRC
+        copy_barriers[0] = deren::vulkan::color_attachment_to_transfer_transition; // HDR -> TRANSFER_SRC
         copy_barriers[0].image = io.targets[0].image;
-        copy_barriers[1] = vulkan::sampling_to_transfer_dst_transition; // history: SHADER_READ -> TRANSFER_DST
+        copy_barriers[1] = deren::vulkan::sampling_to_transfer_dst_transition; // history: SHADER_READ -> TRANSFER_DST
         copy_barriers[1].image = io.own[1].image;
         VkDependencyInfo const copy_dependency = make_image_dependency_info(static_cast<uint32_t>(copy_barriers.size()), copy_barriers.data());
         vkCmdPipelineBarrier2(io.cmd, &copy_dependency);
@@ -202,9 +202,9 @@ namespace vulkan::pass {
         // hand both images on: the HDR target back to the post chain, the history copy to the next frame's
         // resolve (which will find it in TRANSFER_DST and transition it from there)
         std::array<VkImageMemoryBarrier2, 2> hand_back = {};
-        hand_back[0] = vulkan::transfer_to_color_attachment_transition; // HDR -> COLOR_ATTACHMENT
+        hand_back[0] = deren::vulkan::transfer_to_color_attachment_transition; // HDR -> COLOR_ATTACHMENT
         hand_back[0].image = io.targets[0].image;
-        hand_back[1] = vulkan::transfer_dst_to_sampling_transition; // history -> SHADER_READ
+        hand_back[1] = deren::vulkan::transfer_dst_to_sampling_transition; // history -> SHADER_READ
         hand_back[1].image = io.own[1].image;
         VkDependencyInfo const hand_back_dependency = make_image_dependency_info(static_cast<uint32_t>(hand_back.size()), hand_back.data());
         vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
@@ -213,4 +213,4 @@ namespace vulkan::pass {
         this->history_written = true;
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

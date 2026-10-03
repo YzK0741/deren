@@ -2,13 +2,13 @@ module;
 
 #include <vulkan/vulkan.h>
 
-module vulkan.core.handles;
+module deren.vulkan.core.handles;
 
-import utility;
-import vulkan.constant_init;
+import deren.utility;
+import deren.vulkan.constant_init;
 
 // vk_command_buffer
-namespace vulkan {
+namespace deren::vulkan {
     vk_command_buffer::vk_command_buffer(VkCommandBuffer const command_buffer, VkDevice const device, VkCommandPool const pool) noexcept { // NOLINT(*-misplaced-const)
         this->command_buffer = command_buffer;
         this->device = device;
@@ -67,7 +67,7 @@ namespace vulkan {
         VkCommandBufferAllocateInfo allocate_info = make_command_buffer_allocate_info(command_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
 
         if (vkAllocateCommandBuffers(device, &allocate_info, &buffer) != VK_SUCCESS) {
-            utility::panic("failed to allocate command buffer");
+            deren::utility::panic("failed to allocate command buffer");
         }
 
         return vk_command_buffer(buffer, device, command_pool);
@@ -79,15 +79,15 @@ namespace vulkan {
         VkCommandBufferAllocateInfo allocate_info = make_command_buffer_allocate_info(command_pool, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
 
         if (vkAllocateCommandBuffers(device, &allocate_info, &buffer) != VK_SUCCESS) {
-            utility::panic("failed to allocate secondary command buffer");
+            deren::utility::panic("failed to allocate secondary command buffer");
         }
 
         return vk_command_buffer(buffer, device, command_pool);
     }
-} // namespace vulkan
+} // namespace deren::vulkan
 
 // vk_shader_module
-namespace vulkan {
+namespace deren::vulkan {
     vk_shader_module::vk_shader_module(VkShaderModule shader_module, VkDevice const device) noexcept {
         this->shader_module = shader_module;
         this->device = device;
@@ -149,10 +149,10 @@ namespace vulkan {
 
         return vk_shader_module(shader_module, device);
     }
-} // namespace vulkan
+} // namespace deren::vulkan
 
 // vk_pipeline
-namespace vulkan {
+namespace deren::vulkan {
     vk_pipeline::vk_pipeline(VkPipeline const pipeline, VkDevice const device) noexcept { // NOLINT(*-misplaced-const)
         this->pipeline = pipeline;
         this->device = device;
@@ -294,4 +294,4 @@ namespace vulkan {
         other.device = VK_NULL_HANDLE;
         return *this;
     }
-} // namespace vulkan
+} // namespace deren::vulkan

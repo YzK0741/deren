@@ -11,12 +11,12 @@ module;
 #include <span>
 #include <vulkan/vulkan.h>
 
-module vulkan.primitive;
+module deren.vulkan.primitive;
 
-import utility; // DIAGNOSTIC only (see normal_draw_primitive::draw): this app is a GUI-subsystem binary, so
-                // stdout/stderr go nowhere and every traceable line has to come through utility::log.
+import deren.utility; // DIAGNOSTIC only (see normal_draw_primitive::draw): this app is a GUI-subsystem binary, so
+                // stdout/stderr go nowhere and every traceable line has to come through deren::utility::log.
 
-namespace vulkan {
+namespace deren::vulkan {
     namespace {
         /// Send this draw's stage block to the pipeline it is about to draw with.
         ///
@@ -81,7 +81,7 @@ namespace vulkan {
         bool const cullable = env.meshlets && env.meshlet_culled && env.meshlet_view_proj != nullptr && env.meshlet_culled_write != nullptr &&
                               geometry.meshlet_count != 0u && (this->push.flags & 1u) == 0u && this->push.skin_base == 0u && this->push.morph_targets == 0u;
         uint32_t survivors = not_culled;
-        std::vector<vulkan::meshlet> kept;
+        std::vector<deren::vulkan::meshlet> kept;
         if (cullable) {
             std::array<float, 16> view_proj = {};
             if (env.meshlet_view_proj(env.push_owner, view_proj.data())) {
@@ -93,7 +93,7 @@ namespace vulkan {
                 float const vp_scale = host_matrix_max_axis_scale(vp);
                 float const world_scale = host_matrix_max_axis_scale(world);
                 kept.reserve(geometry.meshlet_count);
-                for (vulkan::meshlet const& record : geometry.meshlets) {
+                for (deren::vulkan::meshlet const& record : geometry.meshlets) {
                     glm::vec4 const clip = vp * (world * glm::vec4(record.center_x, record.center_y, record.center_z, 1.0f));
                     float const radius = record.radius * world_scale * vp_scale;
                     if (host_clip_sphere_visible(clip, radius)) {
@@ -142,7 +142,7 @@ namespace vulkan {
             static bool logged = false;
             if (!logged) {
                 logged = true;
-                utility::log("[mesh] a caster at material slot {} has no buffer device address - a mesh pipeline cannot draw it", this->push.material_index.value);
+                deren::utility::log("[mesh] a caster at material slot {} has no buffer device address - a mesh pipeline cannot draw it", this->push.material_index.value);
             }
         }
         // THE PUSH COVERS THE WHOLE DECLARED BLOCK, and it starts at the previous member's END rather than at the
@@ -191,7 +191,7 @@ namespace vulkan {
                 // THE COMMAND IS THE SLOT'S CLASS, one table capacity apart: a HOST-CULLED run and an unculled one
                 // (the shadow pass) dispatch the same primitive with DIFFERENT counts, so they cannot share a
                 // command - whichever wrote last would be the count both passes got.
-                uint32_t const slot = geometry.meshlet_base + (survivors != not_culled ? vulkan::meshlet_capacity : 0u);
+                uint32_t const slot = geometry.meshlet_base + (survivors != not_culled ? deren::vulkan::meshlet_capacity : 0u);
                 [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_owner, env.command_buffer, slot, groups, instance_count, 1u);
             } else {
                 [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_owner, env.command_buffer, groups, instance_count, 1u);
@@ -208,7 +208,7 @@ namespace vulkan {
             static bool logged = false;
             if (!logged) {
                 logged = true;
-                utility::log("a geometry draw ran in a session with no mesh pipeline bound - the draw is skipped (docs/mesh_shaders.md step 4)");
+                deren::utility::log("a geometry draw ran in a session with no mesh pipeline bound - the draw is skipped (docs/mesh_shaders.md step 4)");
             }
         }
     } // namespace
@@ -448,4 +448,4 @@ namespace vulkan {
         ubo.cascade_count = 1.0f;
         return ubo;
     }
-} // namespace vulkan
+} // namespace deren::vulkan

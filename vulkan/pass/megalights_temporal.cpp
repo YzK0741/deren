@@ -16,14 +16,14 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.megalights_temporal;
+module deren.vulkan.pass.megalights_temporal;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import vulkan.pipelines; // build_megalights_temporal: the compute pipeline this pass owns
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_megalights_temporal: the compute pipeline this pass owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     megalights_temporal_pass::~megalights_temporal_pass() {
         this->release_owned();
@@ -37,7 +37,7 @@ namespace vulkan::pass {
         return render_resource::megalights_temporal_io;
     }
 
-    vulkan::pass::behaviour const& megalights_temporal_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& megalights_temporal_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -101,17 +101,17 @@ namespace vulkan::pass {
         }
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            utility::log("stochastic punctual lighting's temporal resolve disabled (the chain will stay off): the owner has no {}", shader_name);
+            deren::utility::log("stochastic punctual lighting's temporal resolve disabled (the chain will stay off): the owner has no {}", shader_name);
             return;
         }
         auto built = pipelines::build_resolve_pipeline(context.device, spirv);
         if (!built) {
-            utility::log("stochastic punctual lighting's temporal resolve disabled (the chain will stay off): {}", built.error());
+            deren::utility::log("stochastic punctual lighting's temporal resolve disabled (the chain will stay off): {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->resolve);
-        utility::log("SUCCESS: stochastic punctual lighting's temporal resolve created (running mean with a per-pixel frame count)");
+        deren::utility::log("SUCCESS: stochastic punctual lighting's temporal resolve created (running mean with a per-pixel frame count)");
     }
 
     void megalights_temporal_pass::record(resolved_io const& io) {
@@ -127,13 +127,13 @@ namespace vulkan::pass {
         // it after this pass) and the history only by the resolve, which is a copy's destination first.
         std::array<VkImageMemoryBarrier2, 2> barriers = {};
         uint32_t count = 0;
-        barriers[count] = vulkan::undefined_to_general_transition; // the accumulation is fully overwritten
+        barriers[count] = deren::vulkan::undefined_to_general_transition; // the accumulation is fully overwritten
         barriers[count].image = resolve_image;
         ++count;
         if (!this->pass_frame.history_valid) {
             // FIRST USE for this image: the history's contents are whatever the allocation held, so the
             // descriptor has to be legal without their being readable - UNDEFINED -> SHADER_READ.
-            barriers[count] = vulkan::undefined_to_sampling_transition;
+            barriers[count] = deren::vulkan::undefined_to_sampling_transition;
             barriers[count].image = history_image;
             ++count;
         }
@@ -155,9 +155,9 @@ namespace vulkan::pass {
         // stage samples, so the history has to be a second image and copying into it keeps every heap slot
         // in the frame stable.
         std::array<VkImageMemoryBarrier2, 2> copy_barriers = {};
-        copy_barriers[0] = vulkan::general_to_transfer_src_transition; // resolve: GENERAL -> TRANSFER_SRC
+        copy_barriers[0] = deren::vulkan::general_to_transfer_src_transition; // resolve: GENERAL -> TRANSFER_SRC
         copy_barriers[0].image = resolve_image;
-        copy_barriers[1] = vulkan::sampling_to_transfer_dst_transition;
+        copy_barriers[1] = deren::vulkan::sampling_to_transfer_dst_transition;
         copy_barriers[1].image = history_image;
         VkDependencyInfo const copy_dependency = make_image_dependency_info(static_cast<uint32_t>(copy_barriers.size()), copy_barriers.data());
         vkCmdPipelineBarrier2(io.cmd, &copy_dependency);
@@ -174,9 +174,9 @@ namespace vulkan::pass {
         // Hand both on: the accumulation to the lighting stage that adds it (SHADER_READ, which its binding 17
         // declares) and the history copy to the next frame's resolve.
         std::array<VkImageMemoryBarrier2, 2> hand_back = {};
-        hand_back[0] = vulkan::transfer_src_to_sampling_transition; // resolve -> SHADER_READ
+        hand_back[0] = deren::vulkan::transfer_src_to_sampling_transition; // resolve -> SHADER_READ
         hand_back[0].image = resolve_image;
-        hand_back[1] = vulkan::transfer_dst_to_sampling_transition; // history -> SHADER_READ
+        hand_back[1] = deren::vulkan::transfer_dst_to_sampling_transition; // history -> SHADER_READ
         hand_back[1].image = history_image;
         VkDependencyInfo const hand_back_dependency = make_image_dependency_info(static_cast<uint32_t>(hand_back.size()), hand_back.data());
         vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
@@ -184,4 +184,4 @@ namespace vulkan::pass {
         this->accumulation_resolved = true;
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

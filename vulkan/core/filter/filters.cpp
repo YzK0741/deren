@@ -12,9 +12,9 @@ module;
 #include <utility>
 #include <vulkan/vulkan.h>
 
-module vulkan.core.filters;
+module deren.vulkan.core.filters;
 
-namespace vulkan {
+namespace deren::vulkan {
 
     // =============================================================================================
     // the application's view
@@ -130,4 +130,4 @@ namespace vulkan {
         return {}; // the owner has none: a pass's "cannot build" branch, which every pass already has
     }
 
-} // namespace vulkan
+} // namespace deren::vulkan

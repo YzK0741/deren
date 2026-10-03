@@ -20,7 +20,7 @@
 //
 //   2. THE SYNC POINTS, on the sources' TEXT, which IS an oracle: a lane added to `toon_slot` without its
 //      format-table entry, its flag name, its colour-row name or its stride reads another material's data
-//      rather than failing (`vulkan::toon_slot`'s and `toon_colour_lane`'s own notes record that failure
+//      rather than failing (`deren::vulkan::toon_slot`'s and `toon_colour_lane`'s own notes record that failure
 //      happening once already), and none of those four places is checked by the compiler. This half is the same
 //      shape `test_toon_material_sidecar` uses for the strides, for the same reason.
 //
@@ -2987,7 +2987,7 @@ int32_t main() {
                 CHECK_MSG(app.find("\"_GooNormalStrength\",") != std::string::npos, "the strength lane's row name");
                 // THE ROW IS A `float`, so it lands in `material_sidecar::scalars` and the GENERIC lane path (which
                 // reads `others`) cannot reach it: the lane needs a branch of its own, like the two `extras` lanes.
-                CHECK_MSG(app.find("lane == vulkan::toon_colour_lane::goo_normal_strength") != std::string::npos,
+                CHECK_MSG(app.find("lane == deren::vulkan::toon_colour_lane::goo_normal_strength") != std::string::npos,
                           "the app resolves the strength lane through its own branch");
                 CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], strength.x)") != std::string::npos,
                           "and reads it with `material_sidecar::scalar` rather than `others.find`");
@@ -3050,7 +3050,7 @@ int32_t main() {
                 // other way: `main.cpp` names a row only when the row's KIND is invisible in its own log (step 8's
                 // `float` lands in `scalars`, which the log counts and never names), while no `color` row of this
                 // sidecar has ever been printed. The lane's own diagnostic is the frame.
-                CHECK_MSG(app.find("vulkan::toon_colour_lane::goo_aniso_gate") == std::string::npos,
+                CHECK_MSG(app.find("deren::vulkan::toon_colour_lane::goo_aniso_gate") == std::string::npos,
                           "the gate lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
                 // ... AND THE SHADER HALF, which is where the lane has to arrive: the read, the two components, and the
                 // ARM ORDER of the lerp (the defect this step's E1 fixed - the first argument is the ISOTROPIC
@@ -3096,7 +3096,7 @@ int32_t main() {
                 // A `color` ROW, SO NO BRANCH AND NO DIAGNOSTIC - the same two facts step 10's block asserts for its
                 // own lane, asserted the same way (by the enum spelling being absent from `main.cpp` outside the
                 // row table's ORDER comment).
-                CHECK_MSG(app.find("vulkan::toon_colour_lane::goo_aniso_rough") == std::string::npos,
+                CHECK_MSG(app.find("deren::vulkan::toon_colour_lane::goo_aniso_rough") == std::string::npos,
                           "the rough lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
                 // THE TWO HOST TABLES. The lookup's ends on this lane now; the GPU one has to override it, because
                 // that table starts every lane at `glm::vec4(1.0f)` and a lane left there would hand every material
@@ -3157,7 +3157,7 @@ int32_t main() {
             // exactly what a "half fix" breaks, and the mirror predicates at the end are the defect itself.
             {
                 // ---- D1: THE BRANCH, ITS PATH, AND WHERE IT SITS IN THE LAMBDA ----
-                std::size_t const branch_at = app.find("lane == vulkan::toon_colour_lane::goo_specular_fgd");
+                std::size_t const branch_at = app.find("lane == deren::vulkan::toon_colour_lane::goo_specular_fgd");
                 CHECK_MSG(branch_at != std::string::npos,
                           "lane 16 has its own branch in `toon_colour`: a `float`-kind row lands in `scalars`, and only `scalar()` reads those");
                 CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], fgd.x)") != std::string::npos,
@@ -4175,7 +4175,7 @@ int32_t main() {
                       "name - naming it with the switch off reads the first sheet, and so does the reverse");
             // ...AND THE BRANCH IS BEFORE THE GENERIC TAIL, which is the silent-failure shape spec §3.3 lists
             // first: placed after `if (model_tex == nullptr)`, this whole route compiles, runs, and never fires.
-            std::size_t const branch_at = app.find("if (lane == vulkan::toon_slot::goo_rs_sheet) {");
+            std::size_t const branch_at = app.find("if (lane == deren::vulkan::toon_slot::goo_rs_sheet) {");
             std::size_t const tail_at = app.find("if (model_tex == nullptr) {");
             CHECK_MSG(branch_at != std::string::npos && tail_at != std::string::npos && branch_at < tail_at,
                       "RS A8.rsi: the sheet lane's new branch sits BEFORE `toon_texture`'s generic tail - after it, "
@@ -4320,17 +4320,17 @@ int32_t main() {
                 // A MISSING BUILD TREE IS NOT A FAILURE (this block is guarded rather than CHECKed for existence), but
                 // it must not be SILENT either: on a clean clone the carrier assertion above does not run, and a reader
                 // of the log has to be able to tell that from a run in which it did.
-                vk_test::write_line("14-A7: sidecar artefact absent at {} - the hair carrier row was NOT checked", sidecar_path);
+                deren::vk_test::write_line("14-A7: sidecar artefact absent at {} - the hair carrier row was NOT checked", sidecar_path);
             }
         }
     }
 
-    return vk_test::finish("test_goo_toon_math");
+    return deren::vk_test::finish("test_goo_toon_math");
 }
 
 #else
 int32_t main() {
-    vk_test::write_line("test_goo_toon_math: VR_TEST_SOURCE_DIR is not defined, so the source checks cannot run");
+    deren::vk_test::write_line("test_goo_toon_math: VR_TEST_SOURCE_DIR is not defined, so the source checks cannot run");
     return 1;
 }
 #endif

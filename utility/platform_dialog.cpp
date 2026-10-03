@@ -1,6 +1,6 @@
 /**
  * @file utility/platform_dialog.cpp
- * @brief The platform half of utility::ask_open_file() - a plain (non-module) translation unit.
+ * @brief The platform half of deren::utility::ask_open_file() - a plain (non-module) translation unit.
  * @ingroup utility
  *
  * Sibling of platform_sleep.cpp and platform_path.cpp, and non-module for the same reason: <windows.h>

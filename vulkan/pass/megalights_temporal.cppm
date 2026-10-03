@@ -29,13 +29,13 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.megalights_temporal;
+export module deren.vulkan.pass.megalights_temporal;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /// @brief what the renderer tells the resolve: whether this image's accumulation exists yet
     struct megalights_temporal_frame {
@@ -70,7 +70,7 @@ export namespace vulkan::pass {
         ~megalights_temporal_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -125,7 +125,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"megalights_temporal"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::compute,
             .group_size_x = group_size,
             .group_size_y = group_size,
@@ -161,4 +161,4 @@ export namespace vulkan::pass {
     static_assert(sizeof(megalights_temporal_pass::push_constants) == render_resource::megalights_temporal_io.push->size,
                   "the resolve's composed push block must be the size its declaration pins");
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

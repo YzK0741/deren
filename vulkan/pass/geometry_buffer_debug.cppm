@@ -34,13 +34,13 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.geometry_buffer_debug;
+export module deren.vulkan.pass.geometry_buffer_debug;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /// @brief what the renderer hands the view: the two per-image pieces of bookkeeping it cannot own
     /**
@@ -80,7 +80,7 @@ export namespace vulkan::pass {
         ~gbuffer_debug_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -115,7 +115,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"gbuffer-debug"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the view runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -137,4 +137,4 @@ export namespace vulkan::pass {
     static_assert(sizeof(gbuffer_debug_pass::push_constants) == render_resource::gbuffer_debug_io.push->size,
                   "the debug view's declared push block must be the size of the struct the renderer composes");
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

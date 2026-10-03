@@ -17,23 +17,23 @@
 #include <thread>
 #include <vector>
 
-import utility;
+import deren.utility;
 
 namespace {
     // Compile-time self-checks: data_block is fully constexpr (zero-init default + FNV-1a).
     // FNV-1a-64 golden vectors: {1,2,3,4} -> 13725386680924731485, {0,0,0,0} -> 5558979605539197941.
     constexpr uint8_t golden_bytes[] = {1, 2, 3, 4};
-    static_assert(utility::data_block<4>(golden_bytes).hash64() == 13725386680924731485ull);
-    static_assert(utility::data_block<4>().hash64() == 5558979605539197941ull); // default = zeroed
-    static_assert(utility::data_block<4>(golden_bytes) == utility::data_block<4>(golden_bytes));
+    static_assert(deren::utility::data_block<4>(golden_bytes).hash64() == 13725386680924731485ull);
+    static_assert(deren::utility::data_block<4>().hash64() == 5558979605539197941ull); // default = zeroed
+    static_assert(deren::utility::data_block<4>(golden_bytes) == deren::utility::data_block<4>(golden_bytes));
 
-    // utility::write_png is pure CPU, so the dependency-free PNG encoder is testable headlessly:
+    // deren::utility::write_png is pure CPU, so the dependency-free PNG encoder is testable headlessly:
     // the test walks the chunk list and re-checks every CRC32 (a wrong encoder would not survive
     // a real decoder, but structure + checksums already catch the usual mistakes).
     void test_write_png() {
         std::vector<uint8_t> const pixels = {255, 0, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255, 255, 255, 255, 255}; // 2x2
         std::filesystem::path const path = "test_write_png.png";
-        auto const written = utility::write_png(path, 2, 2, pixels);
+        auto const written = deren::utility::write_png(path, 2, 2, pixels);
         CHECK(written.has_value());
         if (!written.has_value()) {
             return;
@@ -95,19 +95,19 @@ namespace {
         CHECK(crc_ok);
         std::filesystem::remove(path);
     }
-    // ---- binary writer (utility::write_binary / write_single) ----
+    // ---- binary writer (deren::utility::write_binary / write_single) ----
     // The writer is the one primitive every binary format in the project goes through, so these
     // checks pin down its contract: byte order per tagged scalar, exactly size() bytes for a range
     // (no length prefix), native layout for a POD, and a hard stop at the first failure.
     void test_write_binary_scalar_byte_order() {
         std::ostringstream out;
-        CHECK(utility::write_binary(out,
-                                    utility::be(uint16_t{0x0102}),
-                                    utility::le(uint16_t{0x0102}),
-                                    utility::be(uint32_t{0x01020304}),
-                                    utility::le(uint32_t{0x01020304}),
-                                    utility::be(uint32_t{0xFFFFFFFE}), // a full-width value, no sign surprises
-                                    utility::le(int32_t{-2}))
+        CHECK(deren::utility::write_binary(out,
+                                    deren::utility::be(uint16_t{0x0102}),
+                                    deren::utility::le(uint16_t{0x0102}),
+                                    deren::utility::be(uint32_t{0x01020304}),
+                                    deren::utility::le(uint32_t{0x01020304}),
+                                    deren::utility::be(uint32_t{0xFFFFFFFE}), // a full-width value, no sign surprises
+                                    deren::utility::le(int32_t{-2}))
                   .has_value());
         std::string const bytes = out.str();
         std::string const expected = std::string("\x01\x02", 2) + std::string("\x02\x01", 2) +
@@ -118,12 +118,12 @@ namespace {
 
         // floats go through the IEEE-754 bit pattern (1.0f == 0x3F800000)
         std::ostringstream float_out;
-        CHECK(utility::write_binary(float_out, utility::be(1.0f), utility::le(1.0f)).has_value());
+        CHECK(deren::utility::write_binary(float_out, deren::utility::be(1.0f), deren::utility::le(1.0f)).has_value());
         CHECK(std::string("\x3F\x80\x00\x00", 4) + std::string("\x00\x00\x80\x3F", 4) == float_out.str());
 
         // a bare (untagged) scalar defaults to little-endian
         std::ostringstream plain;
-        CHECK(utility::write_binary(plain, uint16_t{0x0102}).has_value());
+        CHECK(deren::utility::write_binary(plain, uint16_t{0x0102}).has_value());
         CHECK(std::string("\x02\x01", 2) == plain.str());
     }
 
@@ -135,11 +135,11 @@ namespace {
         std::vector<uint32_t> const words = {1u, 2u};
         std::span<uint8_t const> const empty = {};
 
-        CHECK(utility::write_binary(out,
+        CHECK(deren::utility::write_binary(out,
                                     std::string_view{"IHDR"}, // a fixed character sequence, no terminator
                                     raw,
                                     chunk,
-                                    utility::le(words[0]),
+                                    deren::utility::le(words[0]),
                                     std::span{words}.subspan(1, 1),
                                     empty)
                   .has_value());
@@ -160,7 +160,7 @@ namespace {
         };
         padded const pod = {};
         std::ostringstream pod_out;
-        CHECK(utility::write_binary(pod_out, pod).has_value());
+        CHECK(deren::utility::write_binary(pod_out, pod).has_value());
         CHECK(pod_out.str().size() == sizeof(padded));
         CHECK(static_cast<uint8_t>(pod_out.str()[offsetof(padded, small)]) == 0xABu);
         uint32_t restored = 0;
@@ -171,7 +171,7 @@ namespace {
         // cost exactly N * sizeof(element) bytes
         std::ostringstream block;
         std::array<float, 3> const xyz = {1.0f, 2.0f, 3.0f};
-        CHECK(utility::write_binary(block, xyz).has_value());
+        CHECK(deren::utility::write_binary(block, xyz).has_value());
         CHECK(block.str().size() == sizeof(float) * 3);
     }
 
@@ -195,22 +195,22 @@ namespace {
     void test_write_binary_failure_stops_the_fold() {
         failing_sink sink;
         sink.ok = false;
-        auto const failed = utility::write_binary(sink, utility::be(uint32_t{1}), utility::be(uint32_t{2}));
+        auto const failed = deren::utility::write_binary(sink, deren::utility::be(uint32_t{1}), deren::utility::be(uint32_t{2}));
         CHECK_MSG(!failed.has_value(), "a failed sink must be reported");
         CHECK(!failed.error().empty());
         CHECK_MSG(sink.writes == 1, "the fold stops at the first failure");
 
         failing_sink good;
-        CHECK(utility::write_binary(good, utility::be(uint32_t{0x01020304})).has_value());
+        CHECK(deren::utility::write_binary(good, deren::utility::be(uint32_t{0x01020304})).has_value());
         CHECK(good.bytes.size() == 4);
     }
 
     void test_write_binary_file_round_trip() {
         std::filesystem::path const path = "test_write_binary.bin";
         std::vector<uint8_t> const payload = {0, 1, 2, 250, 251, 252};
-        auto const written = utility::write_binary_file(path, utility::be(uint32_t{0x01020304}), payload, std::string_view{"END"});
+        auto const written = deren::utility::write_binary_file(path, deren::utility::be(uint32_t{0x01020304}), payload, std::string_view{"END"});
         CHECK(written.has_value());
-        auto const read_back = utility::read_binary_to_vector(path);
+        auto const read_back = deren::utility::read_binary_to_vector(path);
         CHECK(read_back.has_value());
         if (read_back.has_value()) {
             std::string const expected = std::string("\x01\x02\x03\x04", 4) + std::string(payload.begin(), payload.end()) + "END";
@@ -219,41 +219,41 @@ namespace {
         std::filesystem::remove(path);
 
         // a path that cannot be opened is an error, not a crash
-        CHECK(!utility::write_binary_file(std::filesystem::path{"no_such_dir/x.bin"}, uint32_t{1}).has_value());
+        CHECK(!deren::utility::write_binary_file(std::filesystem::path{"no_such_dir/x.bin"}, uint32_t{1}).has_value());
     }
 
     // Compile-time contract of the accepted types: the set is closed on purpose (see binary_writable).
     struct not_writable {
         std::string text = {};
     };
-    static_assert(utility::binary_writable<uint32_t>);
-    static_assert(utility::binary_writable<utility::ordered<uint32_t, utility::endian::big>>);
-    static_assert(utility::binary_writable<std::span<uint8_t const>>);
-    static_assert(utility::binary_writable<std::array<float, 3>>);
-    static_assert(utility::binary_writable<std::string_view>);
-    static_assert(!utility::binary_writable<not_writable>);
-    static_assert(!utility::binary_writable<char const*>); // no raw pointers: use a span
+    static_assert(deren::utility::binary_writable<uint32_t>);
+    static_assert(deren::utility::binary_writable<deren::utility::ordered<uint32_t, deren::utility::endian::big>>);
+    static_assert(deren::utility::binary_writable<std::span<uint8_t const>>);
+    static_assert(deren::utility::binary_writable<std::array<float, 3>>);
+    static_assert(deren::utility::binary_writable<std::string_view>);
+    static_assert(!deren::utility::binary_writable<not_writable>);
+    static_assert(!deren::utility::binary_writable<char const*>); // no raw pointers: use a span
 
     void test_xxh3_content_hash() {
         uint8_t const a[] = {1, 2, 3, 4, 5};
         uint8_t const b[] = {1, 2, 3, 4, 5};
         uint8_t const c[] = {1, 2, 3, 4, 6};
-        utility::xxh3_digest const da = utility::xxh3_128bits(std::span<uint8_t const>(a));
-        utility::xxh3_digest const db = utility::xxh3_128bits(std::span<uint8_t const>(b));
-        utility::xxh3_digest const dc = utility::xxh3_128bits(std::span<uint8_t const>(c));
+        deren::utility::xxh3_digest const da = deren::utility::xxh3_128bits(std::span<uint8_t const>(a));
+        deren::utility::xxh3_digest const db = deren::utility::xxh3_128bits(std::span<uint8_t const>(b));
+        deren::utility::xxh3_digest const dc = deren::utility::xxh3_128bits(std::span<uint8_t const>(c));
         CHECK(da == db); // deterministic
         CHECK(da != dc); // content-sensitive
-        CHECK(utility::xxh3_digest::size_byte == 16);
+        CHECK(deren::utility::xxh3_digest::size_byte == 16);
     }
 
     void test_data_block_key_semantics() {
-        utility::data_block<4> zeros{};
-        utility::data_block<4> x{};
-        utility::data_block<4> y{};
+        deren::utility::data_block<4> zeros{};
+        deren::utility::data_block<4> x{};
+        deren::utility::data_block<4> y{};
         x.data = {1, 2, 3, 4};
         y.data = {1, 2, 3, 4};
         // the C-array constructor copies element-for-element (also exercised at compile time above)
-        utility::data_block<4> const from_c_array(golden_bytes);
+        deren::utility::data_block<4> const from_c_array(golden_bytes);
         CHECK(from_c_array == x);
         CHECK(x == y);
         CHECK(x != zeros);
@@ -269,26 +269,26 @@ namespace {
 
     void test_gpu_timestamp_delta() {
         // 64-bit counters (the common case): a plain difference scaled by the tick period
-        check_near(utility::timestamp_delta_milliseconds(1000, 1000 + 2'000'000, 64, 1.0f), 2.0, 1e-9, "2 ms at 1 ns/tick");
+        check_near(deren::utility::timestamp_delta_milliseconds(1000, 1000 + 2'000'000, 64, 1.0f), 2.0, 1e-9, "2 ms at 1 ns/tick");
         // a sub-nanosecond tick stays exact (timestampPeriod is a float: 1/16 ns here)
-        check_near(utility::timestamp_delta_milliseconds(0, 160, 64, 0.0625f), 1.0e-5, 1e-12, "160 ticks at 0.0625 ns/tick = 10 ns");
+        check_near(deren::utility::timestamp_delta_milliseconds(0, 160, 64, 0.0625f), 1.0e-5, 1e-12, "160 ticks at 0.0625 ns/tick = 10 ns");
         // zero delta (two marks with no work between them) and a device that cannot timestamp
-        check_near(utility::timestamp_delta_milliseconds(500, 500, 64, 1.0f), 0.0, 1e-12, "empty interval");
-        check_near(utility::timestamp_delta_milliseconds(0, 1000, 0, 1.0f), 0.0, 1e-12, "no valid bits = no measurement");
-        check_near(utility::timestamp_delta_milliseconds(0, 1000, 64, 0.0f), 0.0, 1e-12, "no tick period = no measurement");
+        check_near(deren::utility::timestamp_delta_milliseconds(500, 500, 64, 1.0f), 0.0, 1e-12, "empty interval");
+        check_near(deren::utility::timestamp_delta_milliseconds(0, 1000, 0, 1.0f), 0.0, 1e-12, "no valid bits = no measurement");
+        check_near(deren::utility::timestamp_delta_milliseconds(0, 1000, 64, 0.0f), 0.0, 1e-12, "no tick period = no measurement");
         // 32-bit counter that WRAPPED inside the measured span: the reading after the wrap is
         // smaller than the one before it, and the masked difference must still be the true elapsed
         // ticks (0xFFFFFC00 -> 0x00000200 is 0x400 + 0x200 = 1536 ticks, not 4.29 s and not an
         // underflow). The high bits of both readings are noise - a driver leaves everything above
         // timestampValidBits undefined, so they must be masked away and not leak into the result.
-        check_near(utility::timestamp_delta_milliseconds(0xDEADBEEF'FFFFFC00ull, 0x12345678'00000200ull, 32, 1.0f), 1536.0e-6, 1e-12, "32-bit wrap with undefined high bits");
+        check_near(deren::utility::timestamp_delta_milliseconds(0xDEADBEEF'FFFFFC00ull, 0x12345678'00000200ull, 32, 1.0f), 1536.0e-6, 1e-12, "32-bit wrap with undefined high bits");
         // the same on a 36-bit counter, whose width is its own: from its maximum to 10 wraps to 11
         // ticks, and the junk hex digits sit above bit 35 where the mask has to drop them
-        check_near(utility::timestamp_delta_milliseconds(0x1234567F'FFFFFFFFull, 0x98765430'0000000Aull, 36, 1.0f), 11.0e-6, 1e-12, "36-bit wrap");
+        check_near(deren::utility::timestamp_delta_milliseconds(0x1234567F'FFFFFFFFull, 0x98765430'0000000Aull, 36, 1.0f), 11.0e-6, 1e-12, "36-bit wrap");
     }
 
     void test_thread_pool_runs_every_posted_task() {
-        utility::thread_pool pool(2);
+        deren::utility::thread_pool pool(2);
         std::atomic<int32_t> counter = 0;
         for (int32_t i = 0; i < 20; ++i) {
             bool const queued = pool.post([&counter] { counter.fetch_add(1, std::memory_order_relaxed); });
@@ -299,7 +299,7 @@ namespace {
     }
 
     void test_thread_pool_priority_group_wait() {
-        utility::thread_pool pool(2);
+        deren::utility::thread_pool pool(2);
         std::atomic<int32_t> counter = 0;
         std::function<void()> const tick = [&counter] { counter.fetch_add(1, std::memory_order_relaxed); };
         // runtime pattern: post_batch() then wait_until_priority_done(priority)
@@ -314,7 +314,7 @@ namespace {
     // predicate was already true and leave the other waiter sleeping forever (predicate true,
     // no further wake). Would hang this test under the old implementation.
     void test_thread_pool_two_concurrent_waiters() {
-        utility::thread_pool pool(2);
+        deren::utility::thread_pool pool(2);
         std::function<void()> const slow_tick = [] { std::this_thread::sleep_for(std::chrono::milliseconds(4)); };
         std::vector<std::function<void()>> batch(6, slow_tick);
         CHECK(pool.post_batch(batch, 11));
@@ -361,7 +361,7 @@ namespace {
         for (int32_t w = 0; w < writer_count; ++w) {
             writers.emplace_back([w, &producers_done] {
                 for (int32_t i = 0; i < per_writer; ++i) {
-                    utility::log("log sink test: writer {} message {}", w, i);
+                    deren::utility::log("log sink test: writer {} message {}", w, i);
                 }
                 producers_done.store(true, std::memory_order_relaxed);
             });
@@ -369,7 +369,7 @@ namespace {
 
         std::atomic<bool> drained = false;
         std::jthread waiter([&drained] {
-            utility::wait_log_all();
+            deren::utility::wait_log_all();
             drained.store(true, std::memory_order_release);
         });
 
@@ -384,8 +384,8 @@ namespace {
         waiter.join();
         CHECK(producers_done.load(std::memory_order_relaxed));
         // and it stays usable afterwards: the sink is a singleton shared by the whole process
-        utility::log("log sink test: still writable after a concurrent drain");
-        utility::wait_log_all();
+        deren::utility::log("log sink test: still writable after a concurrent drain");
+        deren::utility::wait_log_all();
         CHECK(true); // reaching here means the second drain returned too
     }
 
@@ -405,11 +405,11 @@ namespace {
         int32_t ids[3] = {0, 1, 2};
 
         auto const build_with = [&](glm::vec3 const& bad_min, glm::vec3 const& bad_max) {
-            std::vector<utility::aabb_box<int32_t>> boxes;
-            boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &ids[0]});
-            boxes.push_back(utility::aabb_box<int32_t>{.min = bad_min, .max = bad_max, .extra_data = &ids[1]});
-            boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(3.0f), .max = glm::vec3(5.0f), .extra_data = &ids[2]});
-            return utility::bvh<int32_t>::make(boxes);
+            std::vector<deren::utility::aabb_box<int32_t>> boxes;
+            boxes.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &ids[0]});
+            boxes.push_back(deren::utility::aabb_box<int32_t>{.min = bad_min, .max = bad_max, .extra_data = &ids[1]});
+            boxes.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(3.0f), .max = glm::vec3(5.0f), .extra_data = &ids[2]});
+            return deren::utility::bvh<int32_t>::make(boxes);
         };
 
         // Build only: this is the property under test. Whether a particular non-finite box survives
@@ -423,10 +423,10 @@ namespace {
         CHECK(inf_boxes.has_value());
 
         // and the tree stays usable afterwards (a degenerate build must not leave it half-built)
-        for (utility::bvh<int32_t> const* tree : {&*nan_boxes, &*inf_boxes}) {
+        for (deren::utility::bvh<int32_t> const* tree : {&*nan_boxes, &*inf_boxes}) {
             glm::mat4 const proj = glm::perspective(glm::radians(90.0f), 1.0f, 0.1f, 200.0f);
             glm::mat4 const view = glm::lookAt(glm::vec3(0.0f, 0.0f, 20.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            (void)tree->frustum_cull(utility::make_frustum(proj * view)); // must not crash
+            (void)tree->frustum_cull(deren::utility::make_frustum(proj * view)); // must not crash
         }
     }
 
@@ -437,40 +437,40 @@ namespace {
         int32_t id = 0;
 
         // every box at the same point: extent collapses
-        std::vector<utility::aabb_box<int32_t>> coincident;
+        std::vector<deren::utility::aabb_box<int32_t>> coincident;
         for (int32_t i = 0; i < 5; ++i) {
-            coincident.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(2.0f), .max = glm::vec3(2.0f), .extra_data = &id});
+            coincident.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(2.0f), .max = glm::vec3(2.0f), .extra_data = &id});
         }
-        auto const collapsed = utility::bvh<int32_t>::make(coincident);
+        auto const collapsed = deren::utility::bvh<int32_t>::make(coincident);
         CHECK(collapsed.has_value()); // a valid tree, just a degenerate one
         if (collapsed.has_value()) {
             // and it still culls every leaf into a frustum that contains the point
             glm::mat4 const proj = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 100.0f);
             glm::mat4 const view = glm::lookAt(glm::vec3(2.0f, 2.0f, 12.0f), glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            CHECK(collapsed->frustum_cull(utility::make_frustum(proj * view)).size() == 5);
+            CHECK(collapsed->frustum_cull(deren::utility::make_frustum(proj * view)).size() == 5);
         }
 
         // a single leaf: exercises build_from_leaves' "sole leaf" path, which must hand a
         // childless heap node to the tree (a copy of the node would drag its raw links along)
-        std::vector<utility::aabb_box<int32_t>> single;
-        single.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &id});
-        auto const one = utility::bvh<int32_t>::make(single);
+        std::vector<deren::utility::aabb_box<int32_t>> single;
+        single.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f), .max = glm::vec3(1.0f), .extra_data = &id});
+        auto const one = deren::utility::bvh<int32_t>::make(single);
         CHECK(one.has_value());
 
         // an empty input is the documented make() failure path
-        auto const empty = utility::bvh<int32_t>::make(std::vector<utility::aabb_box<int32_t>>{});
+        auto const empty = deren::utility::bvh<int32_t>::make(std::vector<deren::utility::aabb_box<int32_t>>{});
         CHECK(!empty.has_value());
     }
 
     void test_bvh_frustum_cull_keeps_visible_boxes() {
         int32_t ids[3] = {0, 1, 2};
         // camera at the origin looking down -z: boxes A and B are in front, C behind
-        std::vector<utility::aabb_box<int32_t>> boxes;
-        boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f, -1.0f, -6.0f), .max = glm::vec3(1.0f, 1.0f, -4.0f), .extra_data = &ids[0]});
-        boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-0.5f, -0.5f, -3.0f), .max = glm::vec3(0.5f, 0.5f, -2.0f), .extra_data = &ids[1]});
-        boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f, -1.0f, 4.0f), .max = glm::vec3(1.0f, 1.0f, 6.0f), .extra_data = &ids[2]});
+        std::vector<deren::utility::aabb_box<int32_t>> boxes;
+        boxes.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f, -1.0f, -6.0f), .max = glm::vec3(1.0f, 1.0f, -4.0f), .extra_data = &ids[0]});
+        boxes.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(-0.5f, -0.5f, -3.0f), .max = glm::vec3(0.5f, 0.5f, -2.0f), .extra_data = &ids[1]});
+        boxes.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(-1.0f, -1.0f, 4.0f), .max = glm::vec3(1.0f, 1.0f, 6.0f), .extra_data = &ids[2]});
 
-        auto const tree = utility::bvh<int32_t>::make(boxes);
+        auto const tree = deren::utility::bvh<int32_t>::make(boxes);
         CHECK_MSG(tree.has_value(), tree.error().c_str());
         if (!tree.has_value()) {
             return;
@@ -478,13 +478,13 @@ namespace {
 
         glm::mat4 const proj = glm::perspective(glm::radians(60.0f), 1.0f, 0.1f, 20.0f);
         glm::mat4 const view = glm::lookAt(glm::vec3(0.0f), glm::vec3(0.0f, 0.0f, -1.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-        utility::frustum const frustum = utility::make_frustum(proj * view);
+        deren::utility::frustum const frustum = deren::utility::make_frustum(proj * view);
 
-        std::vector<utility::bvh_node<int32_t>*> const inside = tree->frustum_cull(frustum);
+        std::vector<deren::utility::bvh_node<int32_t>*> const inside = tree->frustum_cull(frustum);
         bool saw_a = false;
         bool saw_b = false;
         bool saw_c = false;
-        for (utility::bvh_node<int32_t>* node : inside) {
+        for (deren::utility::bvh_node<int32_t>* node : inside) {
             saw_a |= node->extra_data == &ids[0];
             saw_b |= node->extra_data == &ids[1];
             saw_c |= node->extra_data == &ids[2];
@@ -502,14 +502,14 @@ namespace {
         constexpr int32_t initial = 12;
         constexpr int32_t grown = 18;
         int32_t ids[grown];
-        std::vector<utility::aabb_box<int32_t>> boxes;
+        std::vector<deren::utility::aabb_box<int32_t>> boxes;
         boxes.reserve(initial);
         for (int32_t i = 0; i < initial; ++i) {
             ids[i] = i;
             float const x = static_cast<float>(i % 4) * 1.5f - 2.25f;
-            boxes.push_back(utility::aabb_box<int32_t>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]});
+            boxes.push_back(deren::utility::aabb_box<int32_t>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]});
         }
-        auto tree = utility::bvh<int32_t>::make(boxes);
+        auto tree = deren::utility::bvh<int32_t>::make(boxes);
         CHECK_MSG(tree.has_value(), tree.error().c_str());
         if (!tree.has_value()) {
             return;
@@ -518,13 +518,13 @@ namespace {
         auto const visible_count = [&tree]() -> std::size_t {
             glm::mat4 const proj = glm::perspective(glm::radians(150.0f), 1.0f, 0.1f, 60.0f);
             glm::mat4 const view = glm::lookAt(glm::vec3(0.0f, 0.0f, 12.0f), glm::vec3(0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
-            return tree->frustum_cull(utility::make_frustum(proj * view)).size();
+            return tree->frustum_cull(deren::utility::make_frustum(proj * view)).size();
         };
         CHECK(visible_count() == initial);
         for (int32_t i = initial; i < grown; ++i) {
             ids[i] = i;
             float const x = static_cast<float>(i) * 1.5f;
-            CHECK(tree->add(utility::aabb_box<int32_t>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]}).has_value());
+            CHECK(tree->add(deren::utility::aabb_box<int32_t>{.min = glm::vec3(x - 0.2f, -0.2f, -3.0f), .max = glm::vec3(x + 0.2f, 0.2f, -2.6f), .extra_data = &ids[i]}).has_value());
         }
         tree->rebuild();
         CHECK(visible_count() == grown);
@@ -548,5 +548,5 @@ int32_t main() {
     test_bvh_degenerate_inputs_do_not_crash();
     test_bvh_frustum_cull_keeps_visible_boxes();
     test_bvh_add_rebuild_contract();
-    return vk_test::finish("test_utility");
+    return deren::vk_test::finish("test_utility");
 }

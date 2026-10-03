@@ -290,5 +290,5 @@ int32_t main() {
                   ("a retired GLSL stage source is in shaders/: " + file.path().filename().string()).c_str());
     }
 
-    return vk_test::finish("test_shader_sources");
+    return deren::vk_test::finish("test_shader_sources");
 }

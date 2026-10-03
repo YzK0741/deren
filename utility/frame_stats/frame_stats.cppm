@@ -2,15 +2,15 @@ module;
 
 #include <cstdint>
 
-export module utility:frame_stats;
+export module deren.utility:frame_stats;
 
-import vstd;
+import deren.vstd;
 
 /**
  * @ingroup utility
  * @defgroup frame_stats Frame Statistics
  * @file frame_stats.cppm
- * @brief per-frame FPS statistics with a rolling report window (utility::frame_stats)
+ * @brief per-frame FPS statistics with a rolling report window (deren::utility::frame_stats)
  *
  * The render loop calls tick() once per actually-presented frame; the class accumulates a
  * one-second window of frame-gap times and exposes both the running smoothed value (for a
@@ -20,21 +20,21 @@ import vstd;
  *
  * Typical use (the demo's render loop):
  * @code {.cpp}
- * utility::frame_stats stats;
+ * deren::utility::frame_stats stats;
  * while (...) {
  *     if (frame skipped) { stats.on_skipped(); continue; }
  *     // ... frame phases ...
  *     if (frame presented) {
  *         stats.tick();
  *         if (stats.window_rolled()) {
- *             utility::log("fps: {:.1f} ({:.2f} ms/frame)",
+ *             deren::utility::log("fps: {:.1f} ({:.2f} ms/frame)",
  *                          stats.window_fps(), stats.window_frame_ms());
  *         }
  *     }
  * }
  * @endcode
  */
-namespace utility {
+namespace deren::utility {
     /**
      * @ingroup frame_stats
      * @brief rolling FPS statistics over a report window (one second by default)
@@ -123,4 +123,4 @@ namespace utility {
         double last_window_fps = 0.0;                       // fps of the last completed window; called last_window_fps, not window_fps: the window_fps() method of this class would collide with a member of that name
         double last_window_frame_ms = 0.0;                  // ms/frame of the last completed window; called last_window_frame_ms, not window_frame_ms: the window_frame_ms() method of this class would collide with a member of that name
     };
-} // namespace utility
+} // namespace deren::utility

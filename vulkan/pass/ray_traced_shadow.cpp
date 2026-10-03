@@ -21,14 +21,14 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.ray_traced_shadow;
+module deren.vulkan.pass.ray_traced_shadow;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import vulkan.pipelines; // build_rt_shadow: the compute pipeline this pass owns
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_rt_shadow: the compute pipeline this pass owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     rt_shadow_pass::~rt_shadow_pass() {
         this->release_owned();
@@ -42,7 +42,7 @@ namespace vulkan::pass {
         return render_resource::rt_shadow_io;
     }
 
-    vulkan::pass::behaviour const& rt_shadow_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& rt_shadow_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -79,14 +79,14 @@ namespace vulkan::pass {
         std::span<uint8_t const> const miss = fetch(miss_name);
         std::span<uint8_t const> const any_hit = fetch(any_hit_name);
         if (raygen.empty() || closest_hit.empty() || miss.empty() || any_hit.empty()) {
-            utility::log("ray-traced shadows unavailable: the owner has not registered all of {}, {}, {} and {}", raygen_name, closest_hit_name, miss_name, any_hit_name);
+            deren::utility::log("ray-traced shadows unavailable: the owner has not registered all of {}, {}, {} and {}", raygen_name, closest_hit_name, miss_name, any_hit_name);
             return;
         }
         // Everything this pass reads is a heap slot the shaders name themselves (the scene buffers, the
         // G-buffer images, the acceleration structure), so the pipeline is all it builds.
         auto built = pipelines::build_rt_shadow_ray_tracing(context.device, raygen, closest_hit, miss, any_hit);
         if (!built) {
-            utility::log("ray-traced shadows unavailable: {}", built.error());
+            deren::utility::log("ray-traced shadows unavailable: {}", built.error());
             this->release_owned();
             return;
         }
@@ -99,7 +99,7 @@ namespace vulkan::pass {
         auto const get_group_handles = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(context.device, "vkGetRayTracingShaderGroupHandlesKHR"));
         this->trace_rays = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(context.device, "vkCmdTraceRaysKHR"));
         if (get_group_handles == nullptr || this->trace_rays == nullptr) {
-            utility::log("ray-traced shadows unavailable: the device did not publish the traceRays entry points");
+            deren::utility::log("ray-traced shadows unavailable: the device did not publish the traceRays entry points");
             this->release_owned();
             return;
         }
@@ -107,7 +107,7 @@ namespace vulkan::pass {
         uint32_t const handle_alignment = context.ray_tracing_properties.shaderGroupHandleAlignment;
         uint32_t const base_alignment = context.ray_tracing_properties.shaderGroupBaseAlignment;
         if (handle_size == 0 || handle_alignment == 0 || base_alignment == 0 || context.create_upload_buffer == nullptr) {
-            utility::log("ray-traced shadows unavailable: this device published no shader binding table numbers to build one against");
+            deren::utility::log("ray-traced shadows unavailable: this device published no shader binding table numbers to build one against");
             this->release_owned();
             return;
         }
@@ -115,7 +115,7 @@ namespace vulkan::pass {
         uint32_t const group_count = built->group_count;
         std::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
         if (get_group_handles(context.device, this->pass_pipeline->get_pipeline(), 0, group_count, handles.size(), handles.data()) != VK_SUCCESS) {
-            utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
+            deren::utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
             this->release_owned();
             return;
         }
@@ -128,7 +128,7 @@ namespace vulkan::pass {
         VkDeviceAddress address = 0;
         VkBuffer const table_buffer = context.create_upload_buffer(context.owner, table.data(), static_cast<uint64_t>(table.size()), VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR, &address);
         if (table_buffer == VK_NULL_HANDLE || address == 0) {
-            utility::log("ray-traced shadows unavailable: the shader binding table buffer could not be created");
+            deren::utility::log("ray-traced shadows unavailable: the shader binding table buffer could not be created");
             this->release_owned();
             return;
         }
@@ -138,7 +138,7 @@ namespace vulkan::pass {
         this->hit_region = region(address + 2u * region_size);
         // The line the runtime used to log when it built this pipeline: a pass that says what it built is what
         // makes a missing one visible in the startup log rather than in a frame that looks merely shadowless.
-        utility::log("SUCCESS: ray-traced sun shadow pipeline created (raygen + miss + closest hit + any hit, one ray per pixel, terminated on first hit)");
+        deren::utility::log("SUCCESS: ray-traced sun shadow pipeline created (raygen + miss + closest hit + any hit, one ray per pixel, terminated on first hit)");
     }
 
     void rt_shadow_pass::on_swapchain_recreated(pass_host const&) {
@@ -164,7 +164,7 @@ namespace vulkan::pass {
         // (SHADER_READ). Both transitions happen here, around the dispatch, because this is the only place that
         // knows the image is being rewritten - the lighting stage's descriptor declares SHADER_READ whether or
         // not this pass ran (see the off path in the frame loop).
-        VkImageMemoryBarrier2 to_general = vulkan::undefined_to_general_transition;
+        VkImageMemoryBarrier2 to_general = deren::vulkan::undefined_to_general_transition;
         to_general.image = visibility;
         // THE PRODUCER IS A RAY-TRACING STAGE, NOT A DISPATCH. The shared constants name COMPUTE_SHADER because
         // every other writer of this image was one; a barrier whose masks do not cover the stage that actually
@@ -191,7 +191,7 @@ namespace vulkan::pass {
         // compute form got from its dispatch and its bounds check.
         this->trace_rays(io.cmd, &this->raygen_region, &this->miss_region, &this->hit_region, &this->callable_region, io.extent.width, io.extent.height, 1);
 
-        VkImageMemoryBarrier2 to_sampling = vulkan::general_to_sampling_transition;
+        VkImageMemoryBarrier2 to_sampling = deren::vulkan::general_to_sampling_transition;
         to_sampling.image = visibility;
         to_sampling.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR; // the trace is the writer (see above)
         VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
@@ -199,8 +199,8 @@ namespace vulkan::pass {
 
         if (!this->logged) {
             this->logged = true;
-            utility::log("ray-traced shadows: tracing {}x{} rays per frame through the ray-tracing pipeline (one per pixel, terminated on the first hit)", io.extent.width, io.extent.height);
+            deren::utility::log("ray-traced shadows: tracing {}x{} rays per frame through the ray-tracing pipeline (one per pixel, terminated on the first hit)", io.extent.width, io.extent.height);
         }
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

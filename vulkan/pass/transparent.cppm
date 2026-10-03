@@ -30,16 +30,16 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.transparent;
+export module deren.vulkan.pass.transparent;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.render_resource.shared;
-import vulkan.constant_init;
-import vulkan.primitive;
-import vulkan.render_environment;
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
+import deren.vulkan.constant_init;
+import deren.vulkan.primitive;
+import deren.vulkan.render_environment;
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /// @brief what the renderer hands the transparent pass: the sorted leaves, one secondary, and the draw state
     struct transparent_frame {
@@ -72,7 +72,7 @@ export namespace vulkan::pass {
         ~transparent_pass() override = default;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -84,7 +84,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 0> pipeline_names = {}; // the leaves name their pipelines
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics,
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
@@ -97,4 +97,4 @@ export namespace vulkan::pass {
         transparent_frame pass_frame = {};
     };
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

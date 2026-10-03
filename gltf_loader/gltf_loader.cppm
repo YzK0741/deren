@@ -11,7 +11,7 @@
 // ============================================================================
 module;
 
-#include <array> // the CLAIMED EXTRAS ROWS table (see `gltf::claimed_extras_floats`)
+#include <array> // the CLAIMED EXTRAS ROWS table (see `deren::gltf::claimed_extras_floats`)
 #include <cstdint>
 // `std::optional`: `scenes::texture_index_by_name` returns one, because a name that matches nothing is a
 // state the caller handles rather than an error (see the method's note).
@@ -21,8 +21,8 @@ module;
 #include <optional>
 #include <string_view> // the name it looks up
 
-export module gltf_loader;
-export import vstd;
+export module deren.gltf_loader;
+export import deren.vstd;
 /**
  * @file gltf_loader.cppm
  * @defgroup gltf_loader glTF Loader
@@ -34,10 +34,10 @@ export import vstd;
  * @note
  *      - built on fastgltf
  *      - load_model() returns std::expected, failures are reported via error_code
- *      - drawable_iterator models vulkan::scene_drawable_iterator and can be fed directly
- *        to vulkan::runtime::import_scene()
+ *      - drawable_iterator models deren::vulkan::scene_drawable_iterator and can be fed directly
+ *        to deren::vulkan::runtime::import_scene()
  */
-namespace gltf {
+namespace deren::gltf {
 
     /**
      * @ingroup gltf_loader
@@ -357,7 +357,7 @@ namespace gltf {
      * @ingroup gltf_loader
      * @brief a mesh composed of primitives
      * @note weights are the mesh's default morph weights, one per target of its primitives
-     *       (glTF mesh.weights; empty = all-zero). gltf::node::weights, when present, overrides
+     *       (glTF mesh.weights; empty = all-zero). deren::gltf::node::weights, when present, overrides
      *       them; a "weights" animation channel drives them over time (see docs §10)
      */
     export struct mesh {
@@ -416,7 +416,7 @@ namespace gltf {
      * @note
      *      - sampler indexes the owning animation's samplers (glTF semantics)
      *      - target_node is the animated node's index in the glTF asset's node table. Locate
-     *        the matching node of a scene's pool by gltf::node::source_index (animations are
+     *        the matching node of a scene's pool by deren::gltf::node::source_index (animations are
      *        file-scoped; a node may be reachable from several scenes)
      */
     export struct animation_channel {
@@ -440,7 +440,7 @@ namespace gltf {
      * @brief a glTF skin: the joints driving a skinned mesh and their inverse bind matrices
      * @note
      *      - joints are asset node indices (resolve against a scene's pool through
-     *        gltf::node::source_index, like animation_channel::target_node)
+     *        deren::gltf::node::source_index, like animation_channel::target_node)
      *      - inverse_bind_matrices holds one mat4 per joint (joint order), decoded from the
      *        asset's IBM accessor; when the asset omits it (or it is broken) identity matrices
      *        are filled in — the glTF default
@@ -456,7 +456,7 @@ namespace gltf {
 
     /**
      * @ingroup gltf_loader
-     * @brief kind of a glTF camera (gltf::node::camera_index -> scenes::cameras)
+     * @brief kind of a glTF camera (deren::gltf::node::camera_index -> scenes::cameras)
      */
     export enum class camera_type : int32_t {
         perspective = 0,  // yfov / znear / aspect_ratio? / zfar? (absent zfar = infinite)
@@ -468,7 +468,7 @@ namespace gltf {
      * @brief a glTF camera attached to a node
      * @note values are the raw glTF parameters (radians / distances); the camera sits on a
      *       node, so a consumer builds the view/projection from the node's world transform
-     *       (resolved through gltf::node::source_index, like joints — cameras can be animated)
+     *       (resolved through deren::gltf::node::source_index, like joints — cameras can be animated)
      */
     export struct camera {
         std::string name = {};
@@ -487,7 +487,7 @@ namespace gltf {
 
     /**
      * @ingroup gltf_loader
-     * @brief kind of a punctual light (KHR_lights_punctual, gltf::node::light_index)
+     * @brief kind of a punctual light (KHR_lights_punctual, deren::gltf::node::light_index)
      */
     export enum class light_type : int32_t {
         directional = 0, // infinitely far, direction = -node +Z axis (world)
@@ -502,7 +502,7 @@ namespace gltf {
      *      - color is linear RGB; intensity is lux (directional) or candela (point/spot);
      *        range and the spot cone angles are optional (absent = infinite range / default cone)
      *      - position/direction come from the owning node's world transform (resolved through
-     *        gltf::node::source_index; lights can be animated) — only the light *properties*
+     *        deren::gltf::node::source_index; lights can be animated) — only the light *properties*
      *        are stored here
      */
     export struct light {
@@ -548,11 +548,11 @@ namespace gltf {
 
     /**
      * @ingroup gltf_loader
-     * @brief one node's animated state at a point in time: the TRS base pose (see gltf::node)
+     * @brief one node's animated state at a point in time: the TRS base pose (see deren::gltf::node)
      *        overridden by every channel of @p animation that targets it, plus the morph target
      *        weights when a "weights" channel targets it
      * @note the caller picks the animated node(s) per scene by matching
-     *       gltf::node::source_index against animation_channel::target_node, evaluates the
+     *       deren::gltf::node::source_index against animation_channel::target_node, evaluates the
      *       per-node pose through this function, then composes T * R * S to write the node's
      *       local transform (see §8 of docs/gltf_loader_usage.md); weights (when non-empty)
      *       feed the morph blend of the node's mesh (see §10)
@@ -573,7 +573,7 @@ namespace gltf {
      *        onto the node's TRS base pose
      * @param animation the animation to play
      * @param target_node asset node index of the animated node
-     * @param base the node's TRS base pose (gltf::node translation/rotation/scale)
+     * @param base the node's TRS base pose (deren::gltf::node translation/rotation/scale)
      * @param t playback time in seconds (clamped per sampler)
      * @return merged pose: node_pose::any_channel == true when at least one channel of the
      *         animation targeted this node and evaluated successfully
@@ -760,12 +760,12 @@ namespace gltf {
      * @note textures holds one entry per glTF texture (in texture order); material texture_indices
      *       values index into this array; primitive.material_index indexes into materials
      * @note animations holds the file's keyframe animations (glTF animation objects in order);
-     *       see gltf::animation — channels target nodes by their asset node index, resolved
-     *       against a scene's pool through gltf::node::source_index
+     *       see deren::gltf::animation — channels target nodes by their asset node index, resolved
+     *       against a scene's pool through deren::gltf::node::source_index
      * @note scenes is a range: begin()/end() yield every drawable primitive with its node's
-     *       world transform (see gltf::scene_iterator / gltf::drawable_ref), so callers can
+     *       world transform (see deren::gltf::scene_iterator / deren::gltf::drawable_ref), so callers can
      *       iterate the whole scene without manual scene -> node -> mesh -> primitive loops
-     * @note nodes_begin()/nodes_end() yield the retained node tree (see gltf::scene_node_iterator)
+     * @note nodes_begin()/nodes_end() yield the retained node tree (see deren::gltf::scene_node_iterator)
      */
     export struct scenes {
         std::vector<texture_data> textures;
@@ -840,7 +840,7 @@ namespace gltf {
     export std::future<std::expected<scenes, error_code>> load_model_async(std::string_view file_name);
 
     // ---- renderer-ready drawable iteration ------------------------------------------------
-    // Pure CPU types. The runtime's vulkan::scene_drawable_iterator concept is STRUCTURAL over
+    // Pure CPU types. The runtime's deren::vulkan::scene_drawable_iterator concept is STRUCTURAL over
     // the member shapes below, so this module never needs vulkan.model (or any Vulkan header);
     // the runtime template converts these values into its internal types itself.
 
@@ -1084,7 +1084,7 @@ namespace gltf {
          * MATERIAL NAME, so a consumer holding only the family cannot find the entry that describes this
          * material - it would have to guess, and two materials of one family (the character's two cloth
          * materials, or its face and its brow) would collapse onto one entry. Carrying the name here is the
-         * same decision as carrying it on `gltf::material`, one stage closer to the consumer.
+         * same decision as carrying it on `deren::gltf::material`, one stage closer to the consumer.
          */
         std::string name = {};
         /// the TOON FAMILY this material's name classified into (see toon_family_of), resolved ONCE here so
@@ -1102,30 +1102,30 @@ namespace gltf {
      *        texture slots, decoded to RGBA8 with full mip chains (CPU-side; shared glTF
      *        textures decode once). No Vulkan types involved.
      */
-    export std::vector<resolved_material> resolve_materials(gltf::scenes const& scenes);
+    export std::vector<resolved_material> resolve_materials(deren::gltf::scenes const& scenes);
 
     /**
      * @ingroup gltf_loader
      * @brief async twin of resolve_materials(): runs the texture decode + mip generation on a
      *        std::async thread; @p scenes must stay alive until the future is consumed
      */
-    export std::future<std::vector<resolved_material>> resolve_materials_async(gltf::scenes const& scenes);
+    export std::future<std::vector<resolved_material>> resolve_materials_async(deren::gltf::scenes const& scenes);
 
     /**
      * @ingroup gltf_loader
      * @brief iterator over every drawable primitive of the scene that models
-     *        vulkan::scene_drawable_iterator: ++ advances, then geometry/material are read
+     *        deren::vulkan::scene_drawable_iterator: ++ advances, then geometry/material are read
      *        through the getters (get_vertex / get_index / get_transform + one getter per
      *        material slot), all as pure CPU values. Interleaved geometry is built lazily per
      *        drawable and cached until the next increment. Feed it directly to
      *        runtime::import_scene(): the runtime drives the traversal and converts.
-     * @note default-constructed instance == end() (exhausted inner gltf::scene_iterator)
+     * @note default-constructed instance == end() (exhausted inner deren::gltf::scene_iterator)
      */
     export class drawable_iterator {
     public:
         drawable_iterator() = default; // end
 
-        drawable_iterator(gltf::scenes const& scenes, std::span<resolved_material const> materials)
+        drawable_iterator(deren::gltf::scenes const& scenes, std::span<resolved_material const> materials)
             : inner(scenes)
             , materials(materials) {
         }
@@ -1159,7 +1159,7 @@ namespace gltf {
         resolved_material const* current_material() const;
         image_view slot(int32_t i) const;
 
-        gltf::scene_iterator inner;
+        deren::gltf::scene_iterator inner;
         std::span<resolved_material const> materials = {};
         // scratch geometry of the current drawable (built lazily, valid until ++)
         mutable std::vector<uint8_t> vertex_bytes = {};
@@ -1193,7 +1193,7 @@ namespace gltf {
      *       and center the scene before building anything (see main.cpp); primitives without
      *       POSITION are skipped
      */
-    export scene_bounds compute_scene_bounds(gltf::scenes const& scenes);
+    export scene_bounds compute_scene_bounds(deren::gltf::scenes const& scenes);
 
     /**
      * @ingroup gltf_loader
@@ -1205,5 +1205,5 @@ namespace gltf {
      * @return the world scene bounds (see compute_scene_bounds); always valid — panics when the
      *         model has no drawable primitives (the caller needs geometry to frame the camera)
      */
-    export scene_bounds log_scene_diagnostics(gltf::scenes const& scenes);
-} // namespace gltf
+    export scene_bounds log_scene_diagnostics(deren::gltf::scenes const& scenes);
+} // namespace deren::gltf

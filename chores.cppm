@@ -2,13 +2,13 @@ module;
 
 #include <glm/glm.hpp>
 
-export module chores;
+export module deren.chores;
 
-export import vstd;
-import application_configuration;
-import utility;
-import vulkan.animation; // setup_gui builds the animation playback controls
-import vulkan.runtime;
+export import deren.vstd;
+import deren.application_configuration;
+import deren.utility;
+import deren.vulkan.animation; // setup_gui builds the animation playback controls
+import deren.vulkan.runtime;
 
 /**
  * @file chores.cppm
@@ -18,19 +18,19 @@ import vulkan.runtime;
  *        default-model dirs), creating the demo pipelines, loading shader SPIR-V files, the
  *        optional instancing stress grid, and assembling the demo's Dear ImGui debug overlay
  *        (setup_gui). Demo/application layer only - these helpers know about app_config
- *        (settings), vulkan.runtime and the utility log/panic, never about glTF (the
+ *        (settings), deren.vulkan.runtime and the utility log/panic, never about glTF (the
  *        loader's own diagnostics live in gltf_loader).
  * @note interface only - the implementations live in chores.cpp (the module follows the
  *       export import std pattern of the other split modules)
  */
-namespace chores {
+namespace deren::chores {
     /**
      * @ingroup chores
      * @brief the resolved startup environment: merged settings + located shaders dir + model path
      * @note everything main needs before it touches the runtime; produced by analyse_config()
      */
     export struct startup_config {
-        app_config::app_settings settings = {}; // merged config-file + argv settings
+        deren::app_config::app_settings settings = {}; // merged config-file + argv settings
         std::filesystem::path shaders_dir = {}; // shader SPIR-V directory (configured or located)
         std::string model_path = {};            // glTF file to load (configured, model_dir, or located)
     };
@@ -71,7 +71,7 @@ namespace chores {
      * @brief load a vertex/fragment SPIR-V pair and create the pipeline via the runtime; panic
      *        on load or creation failure
      */
-    export void load_and_create_pipeline(vulkan::runtime& runtime,
+    export void load_and_create_pipeline(deren::vulkan::runtime& runtime,
                                          std::filesystem::path const& shaders_dir,
                                          std::string_view const pipeline_name,
                                          std::string_view const vertex_file,
@@ -86,7 +86,7 @@ namespace chores {
      * @note the old triangle demo pipeline is deliberately NOT created here: nothing draws it
      *       anymore (the skybox background and the imported scene cover the screen)
      */
-    export void setup_pipeline(vulkan::runtime& runtime, std::filesystem::path const& shaders_dir);
+    export void setup_pipeline(deren::vulkan::runtime& runtime, std::filesystem::path const& shaders_dir);
 
     /**
      * @ingroup chores
@@ -99,7 +99,7 @@ namespace chores {
      * @param scene_radius radius of the imported scene (grid spacing = 2.5 x radius, so
      *        instances stay apart: the demo measures draw scaling, not overdraw)
      */
-    export void add_instancing_grid(vulkan::runtime& runtime, int32_t grid_side, float scene_radius);
+    export void add_instancing_grid(deren::vulkan::runtime& runtime, int32_t grid_side, float scene_radius);
 
     /**
      * @ingroup chores
@@ -185,9 +185,9 @@ namespace chores {
         // The emitter's angular radius (radians): the soft-shadow dial, 0 = hard. It is what moves a flickering
         // terminator, so it is a slider rather than a constant.
         float megalights_light_angle = 0.0f;
-        // demo punctual lights (count matches vulkan::max_punctual_lights): the gui rows below
+        // demo punctual lights (count matches deren::vulkan::max_punctual_lights): the gui rows below
         // edit these fields live (no per-widget callbacks), and main() pushes the enabled set to
-        // the runtime once per frame via chores::apply_point_lights(). Each slot is a point light
+        // the runtime once per frame via deren::chores::apply_point_lights(). Each slot is a point light
         // or - with `spot` set - a cone light (direction + inner/outer half-angles in degrees;
         // apply_point_lights clamps inner <= outer < 90 and converts to the shader's cosines).
         // Plain C arrays keep this interface glm-free.
@@ -241,11 +241,11 @@ namespace chores {
      * @note the overlay's glTF-side data (authored camera list, orbit seeding) stays in main:
      *       chores only ever sees display names and a callback, never glTF types
      */
-    export void setup_gui(vulkan::runtime& runtime,
+    export void setup_gui(deren::vulkan::runtime& runtime,
                           bool use_gui,
-                          app_config::app_settings const& settings,
+                          deren::app_config::app_settings const& settings,
                           gui_bindings& bindings,
-                          vulkan::animation::controller& animation,
+                          deren::vulkan::animation::controller& animation,
                           std::vector<std::string> const& camera_names,
                           std::function<void(int32_t)> const& on_camera_selected);
 
@@ -261,18 +261,18 @@ namespace chores {
      * @param bindings the overlay's live light widgets (see gui_bindings)
      * @param extra additional lights appended after the overlay's slots - the [lighting] demo_lights
      *        stress set (M5). Both share the UBO's light array, so the overlay's slots win when the
-     *        two together would overflow vulkan::max_punctual_lights.
+     *        two together would overflow deren::vulkan::max_punctual_lights.
      */
-    export void apply_point_lights(vulkan::runtime& runtime,
+    export void apply_point_lights(deren::vulkan::runtime& runtime,
                                    gui_bindings const& bindings,
-                                   std::span<vulkan::punctual_light const> extra = {});
+                                   std::span<deren::vulkan::punctual_light const> extra = {});
 
     /**
      * @ingroup chores
      * @brief assemble an animation::backend for @p runtime: the host surface an
      *        animation::controller drives (scene + per-slot buffer callbacks + the task pool),
      *        wired to the runtime's own scene, frame-slot buffers and run_tasks. Pass it to
-     *        controller::init(); the controller itself never depends on vulkan::runtime.
+     *        controller::init(); the controller itself never depends on deren::vulkan::runtime.
      */
-    export vulkan::animation::backend make_animation_backend(vulkan::runtime& runtime);
-} // namespace chores
+    export deren::vulkan::animation::backend make_animation_backend(deren::vulkan::runtime& runtime);
+} // namespace deren::chores

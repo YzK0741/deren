@@ -50,13 +50,13 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.upscale;
+export module deren.vulkan.pass.upscale;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /// @brief what this pass's frame carries: the overlay's draw, and nothing else
     struct upscale_frame {
@@ -137,7 +137,7 @@ export namespace vulkan::pass {
         ~upscale_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -172,7 +172,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"upscale"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             // THE ONE PASS IN THE FRAME WHOSE EXTENT IS NOT THE FRAME'S: the resource rule over the swapchain
             // image resolves to the OUTPUT extent (see runtime::resolve_resource_extent), which is what makes
@@ -213,4 +213,4 @@ export namespace vulkan::pass {
     static_assert(sizeof(upscale_pass::push_constants) == render_resource::upscale_io.push->size,
                   "the upscale pass's declared push block must be the size of the struct the pass composes");
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

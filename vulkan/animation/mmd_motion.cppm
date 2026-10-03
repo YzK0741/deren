@@ -15,7 +15,7 @@
  * Names are kept as the raw Shift-JIS bytes the file stores.  Converting them would need a
  * Shift-JIS codec (there is no portable one in the standard library), and guessing an encoding
  * silently is worse than preserving bytes: a retarget table compares these bytes verbatim.
- * @ref vulkan::animation::escape_mmd_name renders them for logs without assuming a codepage.
+ * @ref deren::vulkan::animation::escape_mmd_name renders them for logs without assuming a codepage.
  */
 module;
 #include <cstdint>
@@ -26,16 +26,16 @@ module;
 #include <string_view>
 #include <vector>
 
-export module vulkan.animation.mmd_motion;
+export module deren.vulkan.animation.mmd_motion;
 
-import vstd;
-import utility;
+import deren.vstd;
+import deren.utility;
 // clip / sampler / channel: the bridge at the bottom of this file builds one so the controller can
 // play a VMD without being taught about VMD.  The controller does not import this module, so the
 // dependency runs one way only.
-import vulkan.animation;
+import deren.vulkan.animation;
 
-namespace vulkan::animation {
+namespace deren::vulkan::animation {
 
     /** @ingroup vulkan_animation
      *  @brief one channel's easing: a cubic bezier from (0,0) to (1,1) with interior control
@@ -232,7 +232,7 @@ namespace vulkan::animation {
     /**
      * @brief resolve every bone of @p motion against @p joint_names
      *
-     * Matching goes through @ref vulkan::animation::mmd_bone_aliases, so a skeleton only has to name its joints after
+     * Matching goes through @ref deren::vulkan::animation::mmd_bone_aliases, so a skeleton only has to name its joints after
      * that table (mmd_head, mmd_wrist_l, ...).  Bones with no alias - the cloth, hair, accessory
      * and finger chains a motion may also carry - stay unmapped and are reported rather than
      * guessed at.
@@ -271,7 +271,7 @@ namespace vulkan::animation {
     /**
      * @brief aim a hip->knee->ankle chain at @p target_world, returning LOCAL joint rotations
      *
-     * @ref vulkan::animation::solve_two_bone works in world space, but a glTF joint carries a LOCAL rotation, so the
+     * @ref deren::vulkan::animation::solve_two_bone works in world space, but a glTF joint carries a LOCAL rotation, so the
      * solved directions have to be turned back into the parent's frame - first for the hip, then
      * for the knee whose parent is the hip's NEW world rotation.  Chain geometry arrives as the
      * two local offsets and the two local rotations, which is exactly what the node tree holds.
@@ -317,4 +317,4 @@ namespace vulkan::animation {
     export clip bake_mmd_clip(mmd_motion const& motion, mmd_retarget const& retarget,
                               mmd_bake_options const& options = {});
 
-} // namespace vulkan::animation
+} // namespace deren::vulkan::animation

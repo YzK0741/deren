@@ -37,14 +37,14 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.taa;
+export module deren.vulkan.pass.taa;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.constant_init;
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /**
      * @brief the temporal resolve: blend this frame's colour with the reprojected history, then copy the
@@ -82,7 +82,7 @@ export namespace vulkan::pass {
         ~taa_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -129,7 +129,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"taa"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the resolve runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -161,4 +161,4 @@ export namespace vulkan::pass {
     static_assert(sizeof(taa_pass::push_constants) == render_resource::taa_io.push->size,
                   "the TAA resolve's declared push block must be the size of the struct the pass pushes");
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

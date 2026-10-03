@@ -25,7 +25,7 @@
 #include <cstdint>
 
 // Sleep for a relative duration; a non-positive request returns immediately. Implemented in
-// platform_sleep.cpp. `utility::sleep_for_nanoseconds` in utility.cppm is the module-side wrapper.
+// platform_sleep.cpp. `deren::utility::sleep_for_nanoseconds` in utility.cppm is the module-side wrapper.
 extern "C" void utility_platform_sleep_ns(std::int64_t nanoseconds);
 
 // The running executable's directory, written into the caller's buffer; -1 = unavailable.

@@ -1,16 +1,16 @@
 // ============================================================================
-// module: vulkan.readback
+// module: deren.vulkan.readback
 // module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU -> CPU copies of buffer contents: a reusable staging buffer, a one-shot
 // submit and the host read, behind one synchronous call.
 //
-// Extracted from vulkan.runtime, where "read a buffer back" was spelled out inline
+// Extracted from deren.vulkan.runtime, where "read a buffer back" was spelled out inline
 // for the screenshot path only (persistent buffer, size tracking, mapped pointer,
 // wait) and could not be reused - dumping a material table, a cluster light list or
 // an SSBO needed for a test all had to re-implement it.
 //
-// Depends only on vulkan.core (device, queue, command buffer, VMA).
+// Depends only on deren.vulkan.core (device, queue, command buffer, VMA).
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
@@ -19,10 +19,10 @@ module;
 
 #include <vulkan/vulkan.h>
 
-export module vulkan.readback;
+export module deren.vulkan.readback;
 
-export import vstd;
-export import vulkan.core;
+export import deren.vstd;
+export import deren.vulkan.core;
 
 /**
  * @file vulkan/readback/readback.cppm
@@ -43,7 +43,7 @@ export import vulkan.core;
  *       that buffer - so the caller records its copy into a buffer this class stages for it
  *       (stage_for_copy), and the screenshot path is exactly that.
  */
-namespace vulkan {
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_readback
      * @brief reusable GPU -> CPU readback of buffer ranges
@@ -121,4 +121,4 @@ namespace vulkan {
             return this->last_read_size;
         }
     };
-} // namespace vulkan
+} // namespace deren::vulkan

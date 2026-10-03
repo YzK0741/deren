@@ -4,7 +4,7 @@ module; // the macro-using Vulkan header must not be imported into a module purv
 // LOAD-BEARING, for the reason chores.cpp documents at length: with -fno-exceptions and the vendored std
 // module, a TU that instantiates std::vector sees TWO 'operator new(size_t, align_val_t)' declarations - module
 // std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither. This file
-// allocates (the zero-filled heap contents, and utility::log's formatting), and it died with an access
+// allocates (the zero-filled heap contents, and deren::utility::log's formatting), and it died with an access
 // violation inside the FIRST allocation it made until this include was added, with no log line, no validation
 // message and no allocation error: exactly the shape of the ambiguous-operator-new failure, one step further
 // along. Textually including glm merges the two copies. Do not remove this include to "clean up".
@@ -47,13 +47,13 @@ module; // the macro-using Vulkan header must not be imported into a module purv
  * render a half-right picture, it renders nothing.
  */
 
-export module vulkan.core:descriptor_heap;
+export module deren.vulkan.core:descriptor_heap;
 
-import vstd;
+import deren.vstd;
 import :vma;         // the allocator the heaps are allocated from
 import :vma_handles; // vk_buffer, which is what a heap buffer is
-import utility;
-namespace vulkan {
+import deren.utility;
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_core_descriptor_heap
      * @brief the device's heap numbers, copied out of VkPhysicalDeviceDescriptorHeapPropertiesEXT at init
@@ -284,9 +284,9 @@ namespace vulkan {
         PFN_vkCmdBindResourceHeapEXT bind_resource_heap = nullptr;
         PFN_vkCmdBindSamplerHeapEXT bind_sampler_heap = nullptr;
     };
-} // namespace vulkan
+} // namespace deren::vulkan
 
-namespace vulkan {
+namespace deren::vulkan {
     namespace {
         /// The working sizes. THIS RENDERER'S LAYOUT DECIDES THEM, not the device: the slot grid every
         /// heap-native shader addresses (see docs/descriptor_heap_migration.md) starts at a FIXED 1 MiB, so the
@@ -334,7 +334,7 @@ namespace vulkan {
         if (this->write_resource_descriptors == nullptr || this->write_sampler_descriptors == nullptr || this->bind_resource_heap == nullptr || this->bind_sampler_heap == nullptr) {
             // The extension entry points come from the device rather than from the link line, the same rule the
             // acceleration-structure module follows: vulkan-1's import library exports no extension command.
-            utility::log("descriptor heap: the device did not publish the heap entry points; the heap is the only binding model this renderer has, so it cannot render without it");
+            deren::utility::log("descriptor heap: the device did not publish the heap entry points; the heap is the only binding model this renderer has, so it cannot render without it");
             return false;
         }
         this->configured_limits = limits;
@@ -357,7 +357,7 @@ namespace vulkan {
         this->resource_heap = allocator.create_buffer(zeroed_resource.data(), zeroed_resource.size(), buffer_type::storage_coherent, heap_usage);
         this->sampler_heap = allocator.create_buffer(zeroed_sampler.data(), zeroed_sampler.size(), buffer_type::storage_coherent, heap_usage);
         if (!this->resource_heap.valid() || !this->sampler_heap.valid()) {
-            utility::log("descriptor heap: the heap allocations failed; the heap is the only binding model this renderer has, so it cannot render without it");
+            deren::utility::log("descriptor heap: the heap allocations failed; the heap is the only binding model this renderer has, so it cannot render without it");
             this->destroy();
             return false;
         }
@@ -373,13 +373,13 @@ namespace vulkan {
         auto const* const sampler_detail = this->sampler_heap.valid() ? allocator.get_buffer_detail(this->sampler_heap.handle()) : nullptr;
         this->sampler_mapped = sampler_detail != nullptr ? sampler_detail->allocation_info.pMappedData : nullptr;
         if (this->resource_mapped == nullptr) {
-            utility::log("descriptor heap: the resource heap is not mapped; the heap is the only binding model this renderer has, so it cannot render without it");
+            deren::utility::log("descriptor heap: the resource heap is not mapped; the heap is the only binding model this renderer has, so it cannot render without it");
             this->destroy();
             return false;
         }
         this->sampler_heap_address = address_of(allocator, logical_device, this->sampler_heap);
         if (this->resource_heap_address == 0 || this->sampler_heap_address == 0) {
-            utility::log("descriptor heap: the heap buffers have no device address; the heap is the only binding model this renderer has, so it cannot render without it");
+            deren::utility::log("descriptor heap: the heap buffers have no device address; the heap is the only binding model this renderer has, so it cannot render without it");
             this->destroy();
             return false;
         }
@@ -388,17 +388,17 @@ namespace vulkan {
         // device-side allocations are normally 256-byte aligned, which satisfies both numbers here (64 and 32),
         // so this is a check rather than a fixup - and a failed check disables the heap instead of binding it.
         if (limits.resource_alignment != 0 && (this->resource_heap_address % limits.resource_alignment) != 0) {
-            utility::log("descriptor heap: the resource heap address {} is not a multiple of the required alignment {}", this->resource_heap_address, limits.resource_alignment);
+            deren::utility::log("descriptor heap: the resource heap address {} is not a multiple of the required alignment {}", this->resource_heap_address, limits.resource_alignment);
             this->destroy();
             return false;
         }
         if (limits.sampler_alignment != 0 && (this->sampler_heap_address % limits.sampler_alignment) != 0) {
-            utility::log("descriptor heap: the sampler heap address {} is not a multiple of the required alignment {}", this->sampler_heap_address, limits.sampler_alignment);
+            deren::utility::log("descriptor heap: the sampler heap address {} is not a multiple of the required alignment {}", this->sampler_heap_address, limits.sampler_alignment);
             this->destroy();
             return false;
         }
 
-        utility::log("SUCCESS: descriptor heap created (resource {} KiB at 0x{:x}, sampler {} KiB at 0x{:x}; strides buffer {} B, image {} B, sampler {} B)",
+        deren::utility::log("SUCCESS: descriptor heap created (resource {} KiB at 0x{:x}, sampler {} KiB at 0x{:x}; strides buffer {} B, image {} B, sampler {} B)",
                      this->resource_heap_size / 1024,
                      this->resource_heap_address,
                      this->sampler_heap_size / 1024,
@@ -431,7 +431,7 @@ namespace vulkan {
             needed += this->descriptor_stride(info.type);
         }
         if (descriptors_offset + needed > this->resource_heap_size) {
-            utility::log("descriptor heap: a write of {} descriptors ({} B) at offset {} does not fit the {} B resource heap", infos.size(), needed, descriptors_offset, this->resource_heap_size);
+            deren::utility::log("descriptor heap: a write of {} descriptors ({} B) at offset {} does not fit the {} B resource heap", infos.size(), needed, descriptors_offset, this->resource_heap_size);
             return false;
         }
         // THE HOST RANGE IS A HOST POINTER, i.e. the heap's MAPPED memory at the offset the descriptors go to - not
@@ -519,7 +519,7 @@ namespace vulkan {
         VkDeviceSize const stride = this->configured_limits.sampler_descriptor_size != 0 ? this->configured_limits.sampler_descriptor_size : 1u;
         VkDeviceSize const bytes = stride * samplers.size();
         if (descriptors_offset + bytes > this->sampler_heap_size) {
-            utility::log("descriptor heap: a write of {} sampler descriptors ({} B at {}) does not fit the {} B sampler heap", samplers.size(), bytes, descriptors_offset, this->sampler_heap_size);
+            deren::utility::log("descriptor heap: a write of {} sampler descriptors ({} B at {}) does not fit the {} B sampler heap", samplers.size(), bytes, descriptors_offset, this->sampler_heap_size);
             return false;
         }
         // A HOST ADDRESS, not the heap's device address: vkWriteSamplerDescriptorsEXT takes the same
@@ -537,7 +537,7 @@ namespace vulkan {
             return false;
         }
         if (static_cast<VkDeviceSize>(offset) + data.size() > this->configured_limits.max_push_data) {
-            utility::log("descriptor heap: a push of {} B at offset {} exceeds the {} B push-data window", data.size(), offset, this->configured_limits.max_push_data);
+            deren::utility::log("descriptor heap: a push of {} B at offset {} exceeds the {} B push-data window", data.size(), offset, this->configured_limits.max_push_data);
             return false;
         }
         VkPushDataInfoEXT const info = {
@@ -559,7 +559,7 @@ namespace vulkan {
         VkDeviceSize const offset = this->next_free != 0 ? this->next_free : this->usable_offset();
         VkDeviceSize const end = offset + stride * count;
         if (end > this->resource_heap_size) {
-            utility::log("descriptor heap: a reservation of {} descriptors ({} B) does not fit the {} B resource heap", count, stride * count, this->resource_heap_size);
+            deren::utility::log("descriptor heap: a reservation of {} descriptors ({} B) does not fit the {} B resource heap", count, stride * count, this->resource_heap_size);
             return VK_WHOLE_SIZE;
         }
         this->next_free = end;
@@ -574,10 +574,10 @@ namespace vulkan {
         VkDeviceSize const cursor = this->next_free != 0 ? this->next_free : this->usable_offset();
         VkDeviceSize const offset = ((cursor + step - 1u) / step) * step;
         if (offset + bytes > this->resource_heap_size) {
-            utility::log("descriptor heap: a reservation of {} B does not fit the {} B resource heap", bytes, this->resource_heap_size);
+            deren::utility::log("descriptor heap: a reservation of {} B does not fit the {} B resource heap", bytes, this->resource_heap_size);
             return VK_WHOLE_SIZE;
         }
         this->next_free = offset + bytes;
         return offset;
     }
-} // namespace vulkan
+} // namespace deren::vulkan

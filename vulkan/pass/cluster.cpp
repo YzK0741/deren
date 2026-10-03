@@ -4,9 +4,9 @@
 // workgroup, the same `(count + 63) / 64` group count and the same two COMPUTE_SHADER -> FRAGMENT_SHADER buffer
 // barriers over the same two buffers - so the A/B against the parent commit decides it.
 //
-// It is the first compute pipeline this branch has taken out of `vulkan.core`: `core::make_cluster_pipeline`
+// It is the first compute pipeline this branch has taken out of `deren.vulkan.core`: `core::make_cluster_pipeline`
 // built it against the core's own scene pipeline layout, which a pass cannot own. The replacement builds the
-// same shape in `vulkan.pipelines` (one set layout, no push range - `light_cluster.comp` takes no constants),
+// same shape in `deren.vulkan.pipelines` (one set layout, no push range - `light_cluster.comp` takes no constants),
 // so what changes is WHO owns the layout, not what the driver is asked for.
 
 module;
@@ -17,12 +17,12 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.cluster;
+module deren.vulkan.pass.cluster;
 
-import vulkan.pipelines; // build_cluster: the compute pipeline this pass owns
-import utility;
+import deren.vulkan.pipelines; // build_cluster: the compute pipeline this pass owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     cluster_pass::~cluster_pass() {
         this->release_owned();
@@ -36,7 +36,7 @@ namespace vulkan::pass {
         return render_resource::cluster_io;
     }
 
-    vulkan::pass::behaviour const& cluster_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& cluster_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -77,19 +77,19 @@ namespace vulkan::pass {
         }
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            utility::log("clustered lights disabled: the owner has no {}", shader_name);
+            deren::utility::log("clustered lights disabled: the owner has no {}", shader_name);
             return;
         }
         // NO SET LAYOUT IS ASKED FOR: the pipeline is heap-native (a null layout plus the heap flag), so the
         // pass's descriptors come from the frame's bound heap and not from a set handed over by the owner.
         auto built = pipelines::build_cluster(context.device, spirv);
         if (!built) {
-            utility::log("clustered lights disabled: {}", built.error());
+            deren::utility::log("clustered lights disabled: {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->trace);
-        utility::log("SUCCESS: clustered light pipeline created (the frame's punctual lights are binned per cluster)");
+        deren::utility::log("SUCCESS: clustered light pipeline created (the frame's punctual lights are binned per cluster)");
     }
 
     void cluster_pass::on_swapchain_recreated(pass_host const&) {
@@ -142,4 +142,4 @@ namespace vulkan::pass {
         vkCmdPipelineBarrier2(io.cmd, &dependency);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

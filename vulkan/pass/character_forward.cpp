@@ -14,19 +14,19 @@ module;
 #include <span>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.character_forward;
+module deren.vulkan.pass.character_forward;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     render_resource::pass_io const& character_forward_pass::io() const noexcept {
         return render_resource::character_forward_io;
     }
 
-    vulkan::pass::behaviour const& character_forward_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& character_forward_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -77,9 +77,9 @@ namespace vulkan::pass {
         // colour's last store has to be published before this instance LOADs the same image, because
         // dynamic rendering inserts no dependency between two instances.
         std::array<VkImageMemoryBarrier2, 2> barriers = {};
-        barriers[0] = vulkan::sampling_to_depth_attachment_transition;
+        barriers[0] = deren::vulkan::sampling_to_depth_attachment_transition;
         barriers[0].image = depth_image;
-        barriers[1] = vulkan::color_attachment_dependency;
+        barriers[1] = deren::vulkan::color_attachment_dependency;
         barriers[1].image = target_image;
         VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
         vkCmdPipelineBarrier2(io.cmd, &dependency);
@@ -170,10 +170,10 @@ namespace vulkan::pass {
         // image (the resolve's disocclusion guard and the composite's edge test), and this pass is what took
         // it out of SHADER_READ - so leaving it as an attachment would make every read after it a layout
         // error. The colour target needs no hand-back: the composite transitions it for itself.
-        VkImageMemoryBarrier2 to_sampling = vulkan::shadow_map_sampling_transition; // attachment -> SHADER_READ
+        VkImageMemoryBarrier2 to_sampling = deren::vulkan::shadow_map_sampling_transition; // attachment -> SHADER_READ
         to_sampling.image = depth_image;
         VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
         vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

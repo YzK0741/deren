@@ -5,7 +5,7 @@
  * @brief THE EXAMPLE: this repository's own pass chain, wired from OUTSIDE the renderer.
  * @defgroup vulkan_render_start_demo Render Start Demo
  *
- * WHY THIS MODULE EXISTS. `vulkan.runtime` is a frame loop: it owns the device, the pacing, the images and the
+ * WHY THIS MODULE EXISTS. `deren.vulkan.runtime` is a frame loop: it owns the device, the pacing, the images and the
  * frame's constants, and it records whatever chain of passes it is given. Everything that is specific to THIS
  * application's renderer - which passes there are, in what order, what each one is handed per frame, and which
  * knob belongs to which one - used to live inside the runtime as sixteen typed members and eighty-nine call sites.
@@ -14,7 +14,7 @@
  * WHAT IT IS: the app's wiring, and deliberately not a framework. It looks the passes up by declaration name, keeps
  * the typed references, and implements the two callbacks the runtime asks for (`prepare`, `collect`) by switching on
  * the STAGE name - which is the frame's own structure, so the seam needs no new vocabulary. A second application
- * that wants a different chain writes a module like this one; nothing in `vulkan.pass` or `vulkan.runtime` changes.
+ * that wants a different chain writes a module like this one; nothing in `deren.vulkan.pass` or `deren.vulkan.runtime` changes.
  *
  * WHERE IT IS HEADED: the knobs and their setters move here next (today they are
  * still the runtime's public API and forward into the passes); the descriptor families that used to be built from a
@@ -31,30 +31,30 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.render_start_demo;
+export module deren.vulkan.render_start_demo;
 
-import vulkan.runtime;
-import vulkan.constant_init;
-import vulkan.pass;
-import vulkan.pass.chain; // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
-import vulkan.pass.cluster;
-import vulkan.pass.deferred;
-import vulkan.pass.fxaa;
-import vulkan.pass.geometry_buffer_debug;
-import vulkan.pass.post;
-import vulkan.pass.ray_traced_shadow;
-import vulkan.pass.scene;
-import vulkan.pass.shadow;
-import vulkan.pass.megalights_trace;
-import vulkan.pass.megalights_temporal;
-import vulkan.pass.taa;
-import vulkan.pass.transparent;
-import vulkan.pass.character_forward; // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
-import vulkan.pass.toon_screen_rim;   // ... and its second rim: a fullscreen additive contour from the depth
-import vulkan.pass.goo_rim;           // ... and the REWRITTEN chain's rim: the same shape, the Goo reference's values
-import vulkan.pass.upscale;           // the resolve: the render chain's LDR image -> the presented swapchain
+import deren.vulkan.runtime;
+import deren.vulkan.constant_init;
+import deren.vulkan.pass;
+import deren.vulkan.pass.chain; // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
+import deren.vulkan.pass.cluster;
+import deren.vulkan.pass.deferred;
+import deren.vulkan.pass.fxaa;
+import deren.vulkan.pass.geometry_buffer_debug;
+import deren.vulkan.pass.post;
+import deren.vulkan.pass.ray_traced_shadow;
+import deren.vulkan.pass.scene;
+import deren.vulkan.pass.shadow;
+import deren.vulkan.pass.megalights_trace;
+import deren.vulkan.pass.megalights_temporal;
+import deren.vulkan.pass.taa;
+import deren.vulkan.pass.transparent;
+import deren.vulkan.pass.character_forward; // the toon character stage: the OPAQUE leaves re-shaded over the lit frame
+import deren.vulkan.pass.toon_screen_rim;   // ... and its second rim: a fullscreen additive contour from the depth
+import deren.vulkan.pass.goo_rim;           // ... and the REWRITTEN chain's rim: the same shape, the Goo reference's values
+import deren.vulkan.pass.upscale;           // the resolve: the render chain's LDR image -> the presented swapchain
 
-export namespace vulkan {
+export namespace deren::vulkan {
 
     /**
      * @brief the demo's wiring: this app's passes, found by declaration name, fed stage by stage
@@ -178,7 +178,7 @@ export namespace vulkan {
          * runtime (`set_pass_chain`), so the runtime holds no pass of its own and this object owns them all.
          */
         pass::pass_chain chain{"render"};
-        /// named `runtime_owner` rather than `runtime`: the type of this very pointer is `vulkan::runtime`, and
+        /// named `runtime_owner` rather than `runtime`: the type of this very pointer is `deren::vulkan::runtime`, and
         /// a member called `runtime` would hide that type inside this class's scope
         runtime* runtime_owner = nullptr; // the flag halves of the knobs above are the runtime's policy
         /**
@@ -200,7 +200,7 @@ export namespace vulkan {
         /// surface stage. Gated by the SAME `character_forward` feature - the contour means nothing without the
         /// shading it outlines, so the two are one switch.
         pass::toon_screen_rim_pass* toon_screen_rim = nullptr;
-        /// THE REWRITTEN CHAIN'S RIM (`vulkan.pass.goo_rim`): the same fullscreen additive shape as the contour
+        /// THE REWRITTEN CHAIN'S RIM (`deren.vulkan.pass.goo_rim`): the same fullscreen additive shape as the contour
         /// above, with the Goo reference's numbers instead of the article's, and MUTUALLY EXCLUSIVE with it - the
         /// feature table below answers this one with `goo_toon_active()` and that one with its negation.
         pass::goo_rim_pass* goo_rim = nullptr;
@@ -217,11 +217,11 @@ export namespace vulkan {
         pass::megalights_temporal_pass* megalights_temporal = nullptr;
         pass::post_composite_pass* composite = nullptr;
         pass::fxaa_pass* fxaa = nullptr;
-        /// THE RESOLVE (vulkan.pass.upscale): the render chain's LDR image -> the presented swapchain, the
+        /// THE RESOLVE (deren.vulkan.pass.upscale): the render chain's LDR image -> the presented swapchain, the
         /// frame's last writer whenever the chain runs below the output size. It is fed no frame by this owner
         /// - the overlay hook it carries is installed once in `attach`, like the composite's and FXAA's - so
         /// this view exists for that hook and for the feature table's relay.
         pass::upscale_pass* upscale = nullptr;
     };
 
-} // namespace vulkan
+} // namespace deren::vulkan

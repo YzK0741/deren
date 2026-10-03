@@ -12,11 +12,11 @@ module;
 #include <utility>
 #include <vulkan/vulkan.h>
 
-module vulkan.acceleration_structure;
+module deren.vulkan.acceleration_structure;
 
-import utility;
+import deren.utility;
 
-namespace vulkan::acceleration_structure {
+namespace deren::vulkan::acceleration_structure {
     namespace {
         /// round @p value up to the next multiple of @p alignment (a power of two, as Vulkan requires)
         constexpr VkDeviceSize align_up(VkDeviceSize const value, VkDeviceSize const alignment) noexcept {
@@ -64,7 +64,7 @@ namespace vulkan::acceleration_structure {
         : gpu(&device)
         , functions(std::make_unique<entry_points>()) {
         if (!this->functions->load(device.logical_device)) {
-            utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
+            deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
                          "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
         }
     }
@@ -355,7 +355,7 @@ namespace vulkan::acceleration_structure {
         , functions(std::make_unique<entry_points>())
         , slots(frame_slot_count) {
         if (!this->functions->load(device.logical_device)) {
-            utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
+            deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
                          "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
         }
     }
@@ -556,4 +556,4 @@ namespace vulkan::acceleration_structure {
         this->stats.build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return {};
     }
-} // namespace vulkan::acceleration_structure
+} // namespace deren::vulkan::acceleration_structure

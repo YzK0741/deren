@@ -14,13 +14,13 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.fxaa;
+module deren.vulkan.pass.fxaa;
 
-import vulkan.constant_init;
-import vulkan.pipelines; // build_fxaa_owned: the pass's own pipeline, built from its two shaders and the surface's format
-import utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_fxaa_owned: the pass's own pipeline, built from its two shaders and the surface's format
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     fxaa_pass::~fxaa_pass() {
         this->release_owned();
@@ -34,7 +34,7 @@ namespace vulkan::pass {
         return render_resource::fxaa_io;
     }
 
-    vulkan::pass::behaviour const& fxaa_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& fxaa_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -60,19 +60,19 @@ namespace vulkan::pass {
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            utility::log("fxaa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("fxaa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The surface's format is the pipeline's declared colour format (the filter writes the swapchain).
         auto built = pipelines::build_fxaa_owned(context.device, context.swap_chain_image_format, vertex_spirv, fragment_spirv);
         if (!built) {
-            utility::log("fxaa disabled: {}", built.error());
+            deren::utility::log("fxaa disabled: {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->antialias);
         this->swap_chain_format = context.swap_chain_image_format;
-        utility::log("SUCCESS: fxaa pipeline created (LDR -> anti-aliased swapchain)");
+        deren::utility::log("SUCCESS: fxaa pipeline created (LDR -> anti-aliased swapchain)");
     }
 
     void fxaa_pass::on_swapchain_recreated(pass_host const&) {
@@ -118,14 +118,14 @@ namespace vulkan::pass {
         // the one the pass named - and on a frame this pass does not run, nothing moves the image at all (the
         // composite writes it as an attachment and the next frame writes it again).
         if (!io.barrier_images.empty() && io.barrier_images[0].image != VK_NULL_HANDLE) {
-            VkImageMemoryBarrier2 to_sampling = vulkan::hdr_sampling_transition;
+            VkImageMemoryBarrier2 to_sampling = deren::vulkan::hdr_sampling_transition;
             to_sampling.image = io.barrier_images[0].image;
             VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
             vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
         }
         // ... then the swapchain, which the instance CLEARs: UNDEFINED as the old layout asserts nothing about
         // contents the filter is about to replace entirely.
-        VkImageMemoryBarrier2 to_attachment = vulkan::color_attachment_transition;
+        VkImageMemoryBarrier2 to_attachment = deren::vulkan::color_attachment_transition;
         to_attachment.image = target;
         VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
         vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
@@ -143,7 +143,7 @@ namespace vulkan::pass {
             // Same meaning as in the composite: 0 = the swapchain attachment encodes to display values in
             // hardware, so FXAA must hand it LINEAR values; 1 = the target is a UNORM format and FXAA's own
             // display-encoded result is what should be stored.
-            .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
+            .encode_gamma = deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -165,4 +165,4 @@ namespace vulkan::pass {
         vkCmdEndRendering(io.cmd);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

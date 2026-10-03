@@ -2,9 +2,9 @@ module;
 
 #include <vulkan/vulkan.h>
 
-export module vulkan.core.pipeline;
-export import vstd;
-export import vulkan.core.handles;
+export module deren.vulkan.core.pipeline;
+export import deren.vstd;
+export import deren.vulkan.core.handles;
 
 /**
  * @file pipeline.cppm
@@ -17,7 +17,7 @@ export import vulkan.core.handles;
  *        pipeline is created with a NULL layout, so a pass reaches its descriptors through the frame's heap bind
  *      - returns std::expected<vk_pipeline, std::string_view>, errors carry a message
  */
-namespace vulkan {
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_pipeline
      * @brief create a graphics pipeline directly from raw SPIR-V binary
@@ -107,4 +107,4 @@ namespace vulkan {
          *        pipeline.cpp) - a pass that needs the test on with the write off sets it per draw.
          */
         VkCompareOp depth_compare_op = VK_COMPARE_OP_LESS_OR_EQUAL);
-} // namespace vulkan
+} // namespace deren::vulkan

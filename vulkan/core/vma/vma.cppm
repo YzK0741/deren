@@ -4,12 +4,12 @@ module;
 #define VMA_IMPLEMENTATION
 #include <vma/vk_mem_alloc.h>
 
-export module vulkan.core:vma;
+export module deren.vulkan.core:vma;
 
-export import vstd;
-import utility;
+export import deren.vstd;
+import deren.utility;
 import :vma_handles;
-import vulkan.constant_init;
+import deren.vulkan.constant_init;
 
 /**
  * @file vma.cppm
@@ -19,7 +19,7 @@ import vulkan.constant_init;
  *      - buffers/images are referenced by uint64_t handles
  *      - thread-safe for creation and lookup
  */
-namespace vulkan {
+namespace deren::vulkan {
 
     /**
      * @ingroup vulkan_vma
@@ -141,7 +141,7 @@ namespace vulkan {
         VmaAllocationInfo allocation_info = {};
         // XXH3-128 content digest (data_block<16>, hex-formatable); all-zero = no content digest
         // (never deduplicated)
-        utility::xxh3_digest digest = {};
+        deren::utility::xxh3_digest digest = {};
         // creation parameters, kept so a digest hit only reuses an identical image
         image_create_info create_info = {};
         image_type type = image_type::texture_2d;
@@ -175,7 +175,7 @@ namespace vulkan {
      *      - thread-safe: creation and lookup are protected by an internal mutex
      *      - call destroy() to release the underlying VmaAllocator
      */
-    export class vma_allocator : utility::enable_handle_distribute {
+    export class vma_allocator : deren::utility::enable_handle_distribute {
         VmaAllocator allocator = {};
         // These two are named after the parameter that carries them, not after what they hold: init()`s device
         // and queue parameters would hide members of those names and MSVC /W4 reports C4458, an error under
@@ -398,7 +398,7 @@ namespace vulkan {
          */
         void log_statistics() const;
     };
-} // namespace vulkan
+} // namespace deren::vulkan
 
 namespace {
     constexpr uint32_t sizeof_vk_format(VkFormat const format) {
@@ -584,56 +584,56 @@ namespace {
             // and make the size check below compare against nothing, i.e. a silently wrong upload
             // (or a meaningless region layout) instead of a failure. Every format this engine uploads
             // is listed above, so a miss here is a bug in the table, not a caller error.
-            utility::error("sizeof_vk_format: unsupported VkFormat {}", static_cast<int32_t>(format));
-            utility::panic("sizeof_vk_format: unsupported VkFormat");
+            deren::utility::error("sizeof_vk_format: unsupported VkFormat {}", static_cast<int32_t>(format));
+            deren::utility::panic("sizeof_vk_format: unsupported VkFormat");
         }
     }
 
-    constexpr VmaAllocationCreateInfo get_allocation_info_from_type(vulkan::buffer_type const type) {
+    constexpr VmaAllocationCreateInfo get_allocation_info_from_type(deren::vulkan::buffer_type const type) {
         VmaAllocationCreateInfo info = {};
         switch (type) {
-        case vulkan::buffer_type::vertex:
+        case deren::vulkan::buffer_type::vertex:
             [[fallthrough]];
-        case vulkan::buffer_type::index:
+        case deren::vulkan::buffer_type::index:
             [[fallthrough]];
-        case vulkan::buffer_type::uniform_gpu_only: {
+        case deren::vulkan::buffer_type::uniform_gpu_only: {
             info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
             break;
         }
-        case vulkan::buffer_type::acceleration_structure_storage:
+        case deren::vulkan::buffer_type::acceleration_structure_storage:
             [[fallthrough]];
-        case vulkan::buffer_type::acceleration_structure_scratch:
+        case deren::vulkan::buffer_type::acceleration_structure_scratch:
             [[fallthrough]];
-        case vulkan::buffer_type::storage_gpu_only: {
+        case deren::vulkan::buffer_type::storage_gpu_only: {
             // All three are device-local and host-untouched: an AS, its scratch and a compute-written
             // storage buffer are filled by GPU work and never mapped, so there is nothing to keep coherent.
             info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
             break;
         }
-        case vulkan::buffer_type::uniform_coherent: {
+        case deren::vulkan::buffer_type::uniform_coherent: {
             info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
             // per-frame uniforms written straight into the persistent mapping with no flush: the
             // coherence the type documents has to be REQUIRED of the driver, not merely hoped for
             // (see coherent_host_visible_flags)
-            info.requiredFlags = vulkan::coherent_host_visible_flags;
+            info.requiredFlags = deren::vulkan::coherent_host_visible_flags;
             info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
             break;
         }
-        case vulkan::buffer_type::uniform_cached: {
+        case deren::vulkan::buffer_type::uniform_cached: {
             info.usage = VMA_MEMORY_USAGE_CPU_ONLY;
             info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
             break;
         }
-        case vulkan::buffer_type::storage_coherent: {
+        case deren::vulkan::buffer_type::storage_coherent: {
             info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
-            info.requiredFlags = vulkan::coherent_host_visible_flags; // see uniform_coherent above
+            info.requiredFlags = deren::vulkan::coherent_host_visible_flags; // see uniform_coherent above
             info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
             break;
         }
-        case vulkan::buffer_type::readback_coherent: {
+        case deren::vulkan::buffer_type::readback_coherent: {
             // written by the GPU (transfer), read by the host: host-visible local memory, mapped
             // for random access reads
             info.usage = VMA_MEMORY_USAGE_CPU_ONLY;
@@ -645,50 +645,50 @@ namespace {
         return info;
     }
 
-    constexpr VkBufferCreateInfo get_create_info_from_type(vulkan::buffer_type const type) {
+    constexpr VkBufferCreateInfo get_create_info_from_type(deren::vulkan::buffer_type const type) {
         VkBufferCreateInfo info = {};
         info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
 
         switch (type) {
-        case vulkan::buffer_type::vertex: {
+        case deren::vulkan::buffer_type::vertex: {
             info.usage = VK_BUFFER_USAGE_VERTEX_BUFFER_BIT |
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             break;
         }
-        case vulkan::buffer_type::index: {
+        case deren::vulkan::buffer_type::index: {
             info.usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT |
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             break;
         }
-        case vulkan::buffer_type::uniform_gpu_only: {
+        case deren::vulkan::buffer_type::uniform_gpu_only: {
             info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
                          VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             break;
         }
-        case vulkan::buffer_type::uniform_coherent:
-        case vulkan::buffer_type::uniform_cached: {
+        case deren::vulkan::buffer_type::uniform_coherent:
+        case deren::vulkan::buffer_type::uniform_cached: {
             info.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT;
             break;
         }
-        case vulkan::buffer_type::storage_coherent: {
+        case deren::vulkan::buffer_type::storage_coherent: {
             info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT;
             break;
         }
-        case vulkan::buffer_type::readback_coherent: {
+        case deren::vulkan::buffer_type::readback_coherent: {
             info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
             break;
         }
-        case vulkan::buffer_type::acceleration_structure_storage: {
+        case deren::vulkan::buffer_type::acceleration_structure_storage: {
             info.usage = VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR |
                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             break;
         }
-        case vulkan::buffer_type::acceleration_structure_scratch: {
+        case deren::vulkan::buffer_type::acceleration_structure_scratch: {
             info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             break;
         }
-        case vulkan::buffer_type::storage_gpu_only: {
+        case deren::vulkan::buffer_type::storage_gpu_only: {
             info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
             break;
@@ -697,24 +697,24 @@ namespace {
         return info;
     }
 
-    constexpr VmaAllocationCreateInfo get_image_allocation_info_from_type(vulkan::image_type const type) {
+    constexpr VmaAllocationCreateInfo get_image_allocation_info_from_type(deren::vulkan::image_type const type) {
         VmaAllocationCreateInfo info = {};
 
         switch (type) {
-        case vulkan::image_type::texture_2d:
-        case vulkan::image_type::texture_2d_color:
-        case vulkan::image_type::texture_2d_depth:
-        case vulkan::image_type::texture_cubemap:
-        case vulkan::image_type::render_target: {
+        case deren::vulkan::image_type::texture_2d:
+        case deren::vulkan::image_type::texture_2d_color:
+        case deren::vulkan::image_type::texture_2d_depth:
+        case deren::vulkan::image_type::texture_cubemap:
+        case deren::vulkan::image_type::render_target: {
             info.usage = VMA_MEMORY_USAGE_GPU_ONLY;
             break;
         }
-        case vulkan::image_type::texture_2d_staging: {
+        case deren::vulkan::image_type::texture_2d_staging: {
             info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
             // written through the persistent mapping by direct_image_upload, which (like the buffer
             // types above) does not flush on the per-frame path - so require coherence rather than
             // hoping for it (see coherent_host_visible_flags)
-            info.requiredFlags = vulkan::coherent_host_visible_flags;
+            info.requiredFlags = deren::vulkan::coherent_host_visible_flags;
             info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
             break;
@@ -724,8 +724,8 @@ namespace {
     }
 
     constexpr VkImageCreateInfo get_image_create_info_from_type(
-        vulkan::image_type const type,
-        vulkan::image_create_info const& info) {
+        deren::vulkan::image_type const type,
+        deren::vulkan::image_create_info const& info) {
         VkImageCreateInfo image_info = {};
         image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         image_info.extent.width = info.width;
@@ -739,14 +739,14 @@ namespace {
         image_info.format = info.format;
 
         switch (type) {
-        case vulkan::image_type::texture_2d:
+        case deren::vulkan::image_type::texture_2d:
             image_info.imageType = VK_IMAGE_TYPE_2D;
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                VK_IMAGE_USAGE_SAMPLED_BIT |
                                info.extra_usage;
             break;
 
-        case vulkan::image_type::texture_2d_staging:
+        case deren::vulkan::image_type::texture_2d_staging:
             // LINEAR tiling is what makes this type legal at all: it is uploaded by
             // direct_image_upload, which writes raw pixel bytes through the host mapping, and the
             // layout of an OPTIMAL-tiled image is implementation-defined - the write would land in
@@ -760,7 +760,7 @@ namespace {
                                info.extra_usage;
             break;
 
-        case vulkan::image_type::texture_2d_color:
+        case deren::vulkan::image_type::texture_2d_color:
             image_info.imageType = VK_IMAGE_TYPE_2D;
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                VK_IMAGE_USAGE_SAMPLED_BIT |
@@ -768,13 +768,13 @@ namespace {
                                info.extra_usage;
             break;
 
-        case vulkan::image_type::texture_2d_depth:
+        case deren::vulkan::image_type::texture_2d_depth:
             image_info.imageType = VK_IMAGE_TYPE_2D;
             image_info.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT |
                                info.extra_usage;
             break;
 
-        case vulkan::image_type::texture_cubemap:
+        case deren::vulkan::image_type::texture_cubemap:
             image_info.imageType = VK_IMAGE_TYPE_2D;
             image_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -782,7 +782,7 @@ namespace {
                                info.extra_usage;
             break;
 
-        case vulkan::image_type::render_target:
+        case deren::vulkan::image_type::render_target:
             image_info.imageType = VK_IMAGE_TYPE_2D;
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                                VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -796,7 +796,7 @@ namespace {
     }
 } // namespace
 
-namespace vulkan {
+namespace deren::vulkan {
     void vma_allocator::init(
         VkInstance const instance,              // NOLINT(*-misplaced-const)
         VkDevice const device,                  // NOLINT(*-misplaced-const)
@@ -927,7 +927,7 @@ namespace vulkan {
             &info);
 
         if (result != VK_SUCCESS) {
-            utility::error("Failed to create staging buffer: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to create staging buffer: {}", static_cast<int32_t>(result));
             return false;
         }
 
@@ -939,7 +939,7 @@ namespace vulkan {
     bool vma_allocator::direct_upload(VmaAllocation const& allocation, VmaAllocationInfo& allocation_info, void const* data, VkDeviceSize const size) const {
         void* mapped_data = nullptr;
         if (VkResult const result = vmaMapMemory(this->allocator, allocation, &mapped_data); result != VK_SUCCESS) {
-            utility::error("Failed to map memory: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to map memory: {}", static_cast<int32_t>(result));
             return false;
         }
 
@@ -1036,7 +1036,7 @@ namespace vulkan {
     bool vma_allocator::direct_image_upload(VmaAllocation const allocation, void const* data, VkDeviceSize const size) const { // NOLINT(*-misplaced-const)
         void* mapped_data = nullptr;
         if (VkResult const result = vmaMapMemory(this->allocator, allocation, &mapped_data); result != VK_SUCCESS) {
-            utility::error("Failed to map image memory: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to map image memory: {}", static_cast<int32_t>(result));
             return false;
         }
 
@@ -1238,7 +1238,7 @@ namespace vulkan {
             &alloc_info);
 
         if (result != VK_SUCCESS) {
-            utility::error("Failed to create buffer: {}", static_cast<int32_t>(result));
+            deren::utility::error("Failed to create buffer: {}", static_cast<int32_t>(result));
             this->recycle(handle);
             return vk_buffer{};
         }
@@ -1274,7 +1274,7 @@ namespace vulkan {
         if (!upload_success) {
             vmaDestroyBuffer(this->allocator, buffer, allocation);
             this->recycle(handle);
-            utility::panic("Failed to upload buffer");
+            deren::utility::panic("Failed to upload buffer");
         }
 
         {
@@ -1304,9 +1304,9 @@ namespace vulkan {
         // into, never uploaded) have no content digest (all-zero) and are never deduplicated.
         // 128 bits (not 64): a wrong dedup hit would silently render the wrong texture, so the
         // digest collision chance should be negligible even across large scenes.
-        utility::xxh3_digest digest = {};
+        deren::utility::xxh3_digest digest = {};
         if (data != nullptr && size_byte != 0) {
-            digest = utility::xxh3_128bits(std::span(data, size_byte));
+            digest = deren::utility::xxh3_128bits(std::span(data, size_byte));
         }
 
         // Only immutable, data-uploaded textures are shareable: depth / staging / render targets
@@ -1314,7 +1314,7 @@ namespace vulkan {
         constexpr auto is_dedupable = [](image_type const t) {
             return t == image_type::texture_2d || t == image_type::texture_2d_color || t == image_type::texture_cubemap;
         };
-        if (is_dedupable(type) && digest != utility::xxh3_digest{}) {
+        if (is_dedupable(type) && digest != deren::utility::xxh3_digest{}) {
             std::lock_guard guard(this->access_mutex);
             for (auto& [existing_handle, detail] : this->images) {
                 if (detail.type == type && detail.create_info == create_info && detail.digest == digest) {
@@ -1352,12 +1352,12 @@ namespace vulkan {
                 // mistake into a vkCmdCopyBufferToImage that reads past the end of the staging buffer -
                 // a device-side out-of-range access, not a cosmetic log line. The other direction
                 // (expected < given) only leaves part of the staging buffer unread, so it stays a log.
-                utility::error("incorrect image size [{}], expected [{}] - refusing the upload", image_size, expected_size);
+                deren::utility::error("incorrect image size [{}], expected [{}] - refusing the upload", image_size, expected_size);
                 this->recycle(handle);
                 return vk_image{};
             }
             if (expected_size != image_size) {
-                utility::log("incorrect image size [{}], expected [{}]", image_size, expected_size);
+                deren::utility::log("incorrect image size [{}], expected [{}]", image_size, expected_size);
             }
         }
 
@@ -1382,7 +1382,7 @@ namespace vulkan {
             &alloc_detail);
 
         if (vk_result != VK_SUCCESS) {
-            utility::error("Failed to create image: {}", static_cast<int32_t>(vk_result));
+            deren::utility::error("Failed to create image: {}", static_cast<int32_t>(vk_result));
             this->recycle(handle);
             return vk_image{};
         }
@@ -1440,7 +1440,7 @@ namespace vulkan {
         vmaCalculateStatistics(this->allocator, &totals);
         VmaBudget budgets[VK_MAX_MEMORY_HEAPS] = {};
         vmaGetHeapBudgets(this->allocator, budgets);
-        utility::log("vma: {} allocations in {} blocks | requested {:.1f} MB | blocks {:.1f} MB",
+        deren::utility::log("vma: {} allocations in {} blocks | requested {:.1f} MB | blocks {:.1f} MB",
                      totals.total.statistics.allocationCount,
                      totals.total.statistics.blockCount,
                      static_cast<double>(totals.total.statistics.allocationBytes) / (1024.0 * 1024.0),
@@ -1449,7 +1449,7 @@ namespace vulkan {
             if (totals.memoryType[type].statistics.blockCount == 0) {
                 continue;
             }
-            utility::log("vma:   memory type {}: {} allocations, requested {:.1f} MB, blocks {:.1f} MB",
+            deren::utility::log("vma:   memory type {}: {} allocations, requested {:.1f} MB, blocks {:.1f} MB",
                          type,
                          totals.memoryType[type].statistics.allocationCount,
                          static_cast<double>(totals.memoryType[type].statistics.allocationBytes) / (1024.0 * 1024.0),
@@ -1459,7 +1459,7 @@ namespace vulkan {
             if (budgets[heap].budget == 0) {
                 continue;
             }
-            utility::log("vma:   heap {}: usage {:.1f} MB of budget {:.1f} MB ({:.1f} MB of blocks)",
+            deren::utility::log("vma:   heap {}: usage {:.1f} MB of budget {:.1f} MB ({:.1f} MB of blocks)",
                          heap,
                          static_cast<double>(budgets[heap].usage) / (1024.0 * 1024.0),
                          static_cast<double>(budgets[heap].budget) / (1024.0 * 1024.0),
@@ -1524,14 +1524,14 @@ namespace vulkan {
 
         VkCommandPool command_pool;
         if (vkCreateCommandPool(this->logical_device, &command_pool_create_info, nullptr, &command_pool) != VK_SUCCESS) {
-            utility::panic("Failed to create command pool");
+            deren::utility::panic("Failed to create command pool");
         }
 
         VkCommandBuffer command_buffer;
         VkCommandBufferAllocateInfo buffer_allocate_info = make_command_buffer_allocate_info(command_pool, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
         if (vkAllocateCommandBuffers(this->logical_device, &buffer_allocate_info, &command_buffer) != VK_SUCCESS) {
-            utility::panic("Failed to create command buffer");
+            deren::utility::panic("Failed to create command buffer");
         }
         return {command_pool, command_buffer};
     }
-} // namespace vulkan
+} // namespace deren::vulkan

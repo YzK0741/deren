@@ -4,10 +4,10 @@
  * @file vulkan/pipelines/pipelines.cppm
  * @defgroup vulkan_pipelines Per-Pass Pipeline Builders
  * @brief The engine's per-pass pipelines: one builder per pass, next to the generic builder in
- *        vulkan.core.pipeline (that one knows HOW to build a pipeline, this one knows what each pass's
+ *        deren.vulkan.core.pipeline (that one knows HOW to build a pipeline, this one knows what each pass's
  *        pipeline looks like - formats, sample counts, blend state, push-constant ranges).
  *
- * Extracted from vulkan.runtime, whose implementation had grown past 4900 lines. The builders are
+ * Extracted from deren.vulkan.runtime, whose implementation had grown past 4900 lines. The builders are
  * stateless, and EVERY ONE OF THEM NOW TAKES A `VkDevice` rather than the whole core: a device is what a
  * caller that owns one has (a pass's create step gets exactly that, see vulkan.pass::pass_context), and the
  * two builders that also need the surface's format - the composite and FXAA, which write the swapchain image -
@@ -15,7 +15,7 @@
  * with whoever asked for the build (the runtime today, a pass once its three-piece has moved).
  *
  * NO BUILDER TAKES OR MAKES A PIPELINE LAYOUT: every stage is heap-native, so a pipeline is created with
- * `layout = VK_NULL_HANDLE` and the descriptor-heap flag (see vulkan.core.pipeline), and the descriptors a stage
+ * `layout = VK_NULL_HANDLE` and the descriptor-heap flag (see deren.vulkan.core.pipeline), and the descriptors a stage
  * reads come from the frame's bound heap rather than from a set. The set-layout plumbing the builders used to
  * thread through is gone with it.
  *
@@ -33,13 +33,13 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pipelines;
+export module deren.vulkan.pipelines;
 
-import vulkan.core;
-import vulkan.core.pipeline; // vk_pipeline
-import vulkan.render_resource;
+import deren.vulkan.core;
+import deren.vulkan.core.pipeline; // vk_pipeline
+import deren.vulkan.render_resource;
 
-namespace vulkan::pipelines {
+namespace deren::vulkan::pipelines {
     /// what build_post() creates: the chain's two composites
     export struct post_owned {
         std::optional<vk_pipeline> composite; // tonemap + bloom sum, writes the swapchain
@@ -85,7 +85,7 @@ namespace vulkan::pipelines {
     /// the clustered-light sort (shaders/light_cluster.slang): heap-native, and NO push constants
     /// at all - the shader reads the light UBO and writes the two cluster buffers through heap slots, which is
     /// why this builder takes no push size. It is the first compute pipeline in this module
-    /// that came out of `vulkan.core`.
+    /// that came out of `deren.vulkan.core`.
     export std::expected<compute_pipeline_owned, std::string> build_cluster(VkDevice device, std::span<uint8_t const> compute_shader_code);
 
     /**
@@ -190,7 +190,7 @@ namespace vulkan::pipelines {
         // pipeline's rendering color format must match its attachment, so one swapchain-format pipeline
         // was a validation error for the HDR passes.
         auto const make_post_variant = [&](VkFormat const color_format) -> std::expected<vk_pipeline, std::string> {
-            auto pipeline_result = vulkan::make_pipeline(
+            auto pipeline_result = deren::vulkan::make_pipeline(
                 device, color_format, VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, true, 0.0f, 0.0f, 0.0f);
             if (!pipeline_result) {
                 return std::unexpected(std::string(pipeline_result.error()));
@@ -204,7 +204,7 @@ namespace vulkan::pipelines {
         }
         out.composite = std::move(composite_pipeline).value();
 
-        auto hdr_pipeline = make_post_variant(vulkan::hdr_format);
+        auto hdr_pipeline = make_post_variant(deren::vulkan::hdr_format);
         if (!hdr_pipeline) {
             return fail(std::move(hdr_pipeline.error()));
         }
@@ -218,8 +218,8 @@ namespace vulkan::pipelines {
         using fail = std::unexpected<std::string>;
         gbuffer_owned out;
 
-        VkFormat const hdr_format_only = vulkan::hdr_format;
-        auto pipeline_result = vulkan::make_pipeline(
+        VkFormat const hdr_format_only = deren::vulkan::hdr_format;
+        auto pipeline_result = deren::vulkan::make_pipeline(
             device, hdr_format_only, VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, true, 0.0f, 0.0f, 0.0f);
         if (!pipeline_result) {
             return fail(std::string(pipeline_result.error()));
@@ -234,8 +234,8 @@ namespace vulkan::pipelines {
         using fail = std::unexpected<std::string>;
         taa_owned out;
 
-        std::array<VkFormat, 1> const color_formats = {vulkan::hdr_format};
-        auto pipeline_result = vulkan::make_pipeline(
+        std::array<VkFormat, 1> const color_formats = {deren::vulkan::hdr_format};
+        auto pipeline_result = deren::vulkan::make_pipeline(
             device, std::span<VkFormat const>(color_formats), VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, 0.0f, 0.0f, 0.0f);
         if (!pipeline_result) {
             return fail(std::string(pipeline_result.error()));
@@ -755,8 +755,8 @@ namespace vulkan::pipelines {
     std::expected<deferred_owned, std::string> build_deferred(VkDevice device, std::span<VkPipelineColorBlendAttachmentState const> const color_blend, std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<std::string>;
         deferred_owned out;
-        std::array<VkFormat, 1> const color_formats = {vulkan::hdr_format};
-        auto pipeline_result = vulkan::make_pipeline(
+        std::array<VkFormat, 1> const color_formats = {deren::vulkan::hdr_format};
+        auto pipeline_result = deren::vulkan::make_pipeline(
             device, std::span<VkFormat const>(color_formats), VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, 0.0f, 0.0f, 0.0f, color_blend);
         if (!pipeline_result) {
             return fail(std::string(pipeline_result.error()));
@@ -767,7 +767,7 @@ namespace vulkan::pipelines {
 
     std::expected<vk_pipeline, std::string> build_fxaa(VkDevice device, VkFormat const swap_chain_format, std::span<uint8_t const> const vertex_shader_code, std::span<uint8_t const> const fragment_shader_code) {
         using fail = std::unexpected<std::string>;
-        auto pipeline_result = vulkan::make_pipeline(
+        auto pipeline_result = deren::vulkan::make_pipeline(
             device, swap_chain_format, VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, true, 0.0f, 0.0f, 0.0f);
         if (!pipeline_result) {
             return fail(std::string(pipeline_result.error()));
@@ -787,7 +787,7 @@ namespace vulkan::pipelines {
         // No color attachment, depth test + write, single-sampled, and the slope-scaled bias the shadow pass needs
         // (it removes acne on surfaces angled away from the light, in units of depth per depth-unit of slope - the
         // numbers are the pass's and the caller's, not this builder's).
-        auto result = vulkan::make_pipeline(device,
+        auto result = deren::vulkan::make_pipeline(device,
                                             VK_FORMAT_UNDEFINED,
                                             depth_format,
                                             vertex_shader_code,
@@ -810,7 +810,7 @@ namespace vulkan::pipelines {
         fxaa_owned out;
 
         // The anti-aliasing pipeline renders into the SWAPCHAIN, so its declared colour format is the surface's.
-        auto pipeline_result = vulkan::make_pipeline(
+        auto pipeline_result = deren::vulkan::make_pipeline(
             device, swap_chain_format, VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, true, 0.0f, 0.0f, 0.0f);
         if (!pipeline_result) {
             return fail(std::string(pipeline_result.error()));
@@ -829,7 +829,7 @@ namespace vulkan::pipelines {
         // single-target convenience form's blend state is the engine's standard src-alpha one, which the
         // fragment shader's alpha of 1.0 reduces to a copy: the same arrangement the composite's and FXAA's
         // swapchain writes already have, and the reason no blend state is spelled out here.
-        auto pipeline_result = vulkan::make_pipeline(
+        auto pipeline_result = deren::vulkan::make_pipeline(
             device, swap_chain_format, VK_FORMAT_UNDEFINED, vertex_shader_code, fragment_shader_code, VK_SAMPLE_COUNT_1_BIT, false, true, 0.0f, 0.0f, 0.0f);
         if (!pipeline_result) {
             return fail(std::string(pipeline_result.error()));
@@ -837,4 +837,4 @@ namespace vulkan::pipelines {
         out.resolve = std::move(pipeline_result).value();
         return out;
     }
-} // namespace vulkan::pipelines
+} // namespace deren::vulkan::pipelines

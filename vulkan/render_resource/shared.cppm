@@ -5,13 +5,13 @@
  * @brief The SHARED handles: the Vulkan side of the resource description, in a nested module.
  * @defgroup vulkan_render_resource_shared Render Resource Shared Handles
  *
- * WHY THIS IS A MODULE OF ITS OWN rather than part of `vulkan.render_resource`, and it is not tidiness: the
+ * WHY THIS IS A MODULE OF ITS OWN rather than part of `deren.vulkan.render_resource`, and it is not tidiness: the
  * description layer is deliberately PURE CPU - its own enums, no Vulkan type - and that is what lets its
  * invariants (usage is a subset of the schema, kind and access fit, a pass's own bindings are contiguous, a
  * pool count is derivable) be checked in `ctest` on a machine with no GPU. The capture gate cannot run in CI
  * at all, because its references are tied to one machine's driver, so that property is the only verification
  * this layer can have there. Handles are `VkImageView`/`VkBuffer`/`VkSampler`, so they live HERE, nested under
- * the same region - the repository's own convention (`vulkan.core:vma_handles`, `vulkan.core.pipeline`) is
+ * the same region - the repository's own convention (`deren.vulkan.core:vma_handles`, `deren.vulkan.core.pipeline`) is
  * that a region's internal parts nest while peer areas stay flat.
  *
  * WHAT BELONGS HERE: handles for resources the SCHEMA declares as shared (`resource_scope::device_wide` and
@@ -34,11 +34,11 @@ module;
 #include <cstdint>
 #include <vulkan/vulkan.h>
 
-export module vulkan.render_resource.shared;
+export module deren.vulkan.render_resource.shared;
 
-import vulkan.render_resource;
+import deren.vulkan.render_resource;
 
-export namespace vulkan::render_resource::shared {
+export namespace deren::vulkan::render_resource::shared {
 
     /**
      * @brief the samplers this renderer owns, addressed by what a declaration asks for
@@ -80,4 +80,4 @@ export namespace vulkan::render_resource::shared {
         }
     };
 
-} // namespace vulkan::render_resource::shared
+} // namespace deren::vulkan::render_resource::shared

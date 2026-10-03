@@ -13,8 +13,8 @@ module;
 
 #include <cstdint>
 
-export module utility;
-export import vstd;
+export module deren.utility;
+export import deren.vstd;
 // Forward-export every utility submodule so consumers only need `import utility;`
 // (frame_clock / frame_stats are the frame-loop time + fps helpers; data_block /
 // bvh / better_pmr / thread_pool cover the rest). Submodules stay individually
@@ -30,7 +30,7 @@ export import :thread_pool;
  * @file utility.cppm
  * @defgroup utility utility functions, classes sets
  */
-namespace utility {
+namespace deren::utility {
     /**
      * @ingroup utility
      * @brief a mixin-class to enable derived class distribute unique handles
@@ -172,7 +172,7 @@ namespace utility {
      *     undefined reference to `std::__write_to_terminal(void*, std::span<char, ...>)'
      *
      * (`nm --defined-only libstdc++.a` finds no definition of either, and both are referenced from
-     * `bits/print.h`'s `vprint_unicode`.) `utility::log` is the only thing in the engine that prints and the
+     * `bits/print.h`'s `vprint_unicode`.) `deren::utility::log` is the only thing in the engine that prints and the
      * tests are the only thing that prints besides it, so owning these functions here removed the tree's last
      * use of `<print>` - which, together with one `std::unique_ptr` held over an incomplete type, was the whole
      * of what stopped the project linking with libstdc++ (see the compiler-tolerance audit).
@@ -205,7 +205,7 @@ namespace utility {
         // `std::print(std::FILE*, format_string<Args...>, Args&&...)`, which libc++'s <print> brings into an
         // unqualified lookup inside this namespace (measured: clang reports the two as candidates and calls it
         // ambiguous at this line).
-        utility::print(standard_output(), fmt, std::forward<Args>(args)...);
+        deren::utility::print(standard_output(), fmt, std::forward<Args>(args)...);
     }
 
     /// @brief `print` with the newline `std::println` adds
@@ -223,7 +223,7 @@ namespace utility {
     void println(std::format_string<Args...> fmt, Args&&... args) {
         // Qualified for the same measured reason as `print` above: libc++'s <print> has a `std::println(FILE*,
         // ...)` overload that an unqualified call finds, and the two are then ambiguous.
-        utility::println(standard_output(), fmt, std::forward<Args>(args)...);
+        deren::utility::println(standard_output(), fmt, std::forward<Args>(args)...);
     }
 
     /**
@@ -421,7 +421,7 @@ namespace utility {
             // native layout: padding bytes and the host byte order are written as they are
             result = append(&value, sizeof(T));
         } else {
-            static_assert(detail::always_false<T>, "write_single: unsupported type - see utility::binary_writable");
+            static_assert(detail::always_false<T>, "write_single: unsupported type - see deren::utility::binary_writable");
         }
         return result;
     }
@@ -534,7 +534,7 @@ namespace utility {
      *      - messages are pushed to a thread-safe queue; a background thread keeps popping
      *        them and writes each one: to the terminal in Debug builds (NDEBUG unset),
      *        to a debug.log file in Release builds (NDEBUG set)
-     *      - not exported; use the utility::log() function template instead
+     *      - not exported; use the deren::utility::log() function template instead
      */
     class log_sink { // NOLINT
         std::mutex queue_mutex = {};
@@ -671,7 +671,7 @@ namespace utility {
      * timeBeginPeriod, which would raise the timer resolution for every process on the machine; the
      * POSIX one restarts a relative nanosleep on EINTR.
      * The wait is still only good to microseconds, so a caller that wants to land exactly on a deadline
-     * sleeps to a safe margin early and spins the remainder (the frame limiter in vulkan.runtime sleeps
+     * sleeps to a safe margin early and spins the remainder (the frame limiter in deren.vulkan.runtime sleeps
      * to one millisecond before its deadline, then yields until the deadline arrives).
      */
     export void sleep_for_nanoseconds(int64_t nanoseconds);
@@ -714,4 +714,4 @@ namespace utility {
      * @ingroup hash
      */
     export xxh3_digest xxh3_128bits(std::span<uint8_t const> data_view);
-} // namespace utility
+} // namespace deren::utility

@@ -3,7 +3,7 @@
 /**
  * @file vulkan/bindings/bindings.cppm
  * @defgroup vulkan_bindings Declaration -> Vulkan Type Mapping
- * @brief The half of `vulkan.render_resource` that has to name a Vulkan enum: a declared binding kind, stage set
+ * @brief The half of `deren.vulkan.render_resource` that has to name a Vulkan enum: a declared binding kind, stage set
  *        or image layout, as the `VkDescriptorType` / `VkShaderStageFlags` / `VkImageLayout` it means.
  *
  * WHAT IS LEFT HERE, after the descriptor-set plumbing was deleted: the TYPE MAPPING alone. The generator that
@@ -19,11 +19,11 @@ module;
 #include <cstdint>
 #include <vulkan/vulkan.h>
 
-export module vulkan.bindings;
+export module deren.vulkan.bindings;
 
-import vulkan.render_resource;
+import deren.vulkan.render_resource;
 
-namespace vulkan::bindings {
+namespace deren::vulkan::bindings {
 
     /// @brief the `VkDescriptorType` a declared binding kind means
     /// @ingroup vulkan_bindings
@@ -63,4 +63,4 @@ namespace vulkan::bindings {
         return flags;
     }
 
-} // namespace vulkan::bindings
+} // namespace deren::vulkan::bindings

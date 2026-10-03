@@ -8,17 +8,17 @@ module;
 // std module, a TU that instantiates std::vector sees TWO 'operator new(size_t, align_val_t)' declarations -
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
 // "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of std::vector (the device
-// extension-name list, the descriptor pool sizes), and it began seeing both the moment vulkan.core gained an
+// extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
 // import edge it did not have before: descriptor_heap, whose own module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
 // chores.cpp and vulkan/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
-module vulkan.core;
-import vulkan.core.pipeline;
+module deren.vulkan.core;
+import deren.vulkan.core.pipeline;
 import :init_utils;
-import vulkan.constant_init;
+import deren.vulkan.constant_init;
 
-namespace vulkan {
+namespace deren::vulkan {
 
     void core::begin_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot) noexcept {
         this->gpu_timing_marks[slot] = 0;
@@ -75,21 +75,21 @@ namespace vulkan {
 
         result.mark_count = marks;
         for (uint32_t mark = 0; mark + 1 < marks; ++mark) {
-            result.milliseconds[mark] = utility::timestamp_delta_milliseconds(ticks[mark], ticks[mark + 1], this->timestamp_valid_bits, this->timestamp_period_ns);
+            result.milliseconds[mark] = deren::utility::timestamp_delta_milliseconds(ticks[mark], ticks[mark + 1], this->timestamp_valid_bits, this->timestamp_period_ns);
         }
         return result;
     }
 
     vk_command_buffer core::make_command_buffer() const {
-        return ::vulkan::make_command_buffer(this->logical_device, this->command_pool);
+        return ::deren::vulkan::make_command_buffer(this->logical_device, this->command_pool);
     }
 
     vk_command_buffer core::make_secondary_command_buffer() const {
-        return ::vulkan::make_secondary_command_buffer(this->logical_device, this->command_pool);
+        return ::deren::vulkan::make_secondary_command_buffer(this->logical_device, this->command_pool);
     }
 
     vk_command_buffer core::make_secondary_command_buffer(VkCommandPool const pool) const {
-        return ::vulkan::make_secondary_command_buffer(this->logical_device, pool);
+        return ::deren::vulkan::make_secondary_command_buffer(this->logical_device, pool);
     }
 
     VkCommandPool core::make_command_pool() {
@@ -97,7 +97,7 @@ namespace vulkan {
 
         VkCommandPool pool = VK_NULL_HANDLE;
         if (vkCreateCommandPool(this->logical_device, &pool_info, nullptr, &pool) != VK_SUCCESS) {
-            utility::panic("failed to create extra command pool");
+            deren::utility::panic("failed to create extra command pool");
         }
         // lifetime tied to this core: the pool is destroyed by the registered cleanup (LIFO,
         // after every command buffer allocated from it was freed by its RAII owner)
@@ -124,7 +124,7 @@ namespace vulkan {
     }
 
     std::optional<vk_shader_module> core::make_shader_module(std::span<uint8_t> const shader) const noexcept {
-        return ::vulkan::make_shader_module(shader, this->logical_device);
+        return ::deren::vulkan::make_shader_module(shader, this->logical_device);
     }
 
     void core::wait_frame_slot(uint32_t const slot) const {
@@ -216,7 +216,7 @@ namespace vulkan {
         if (support.capabilities.currentExtent.width == 0 || support.capabilities.currentExtent.height == 0) {
             if (!this->zero_extent_recreation_logged) {
                 this->zero_extent_recreation_logged = true;
-                utility::log("swapchain recreation deferred: the window has no drawable size yet (minimized / live resize)");
+                deren::utility::log("swapchain recreation deferred: the window has no drawable size yet (minimized / live resize)");
             }
             return false; // NOTHING was rebuilt: the caller must not invalidate the generation's state
         }
@@ -373,7 +373,7 @@ namespace vulkan {
         VkSemaphoreCreateInfo binary_info = make_binary_semaphore_info();
         for (auto& semaphore : present_ready_semaphores) {
             if (vkCreateSemaphore(logical_device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
-                utility::panic("failed to recreate present-ready semaphore!");
+                deren::utility::panic("failed to recreate present-ready semaphore!");
             }
         }
         return true; // a new generation exists: every per-image target and its state must be rebuilt
@@ -499,7 +499,7 @@ namespace vulkan {
             make_color_blend_attachment_opaque(), // motion vectors are data, not coverage
             make_color_blend_attachment_additive(),
         };
-        auto result = vulkan::make_pipeline(
+        auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             std::span<VkFormat const>(formats),
             this->depth_attachment_format,
@@ -551,7 +551,7 @@ namespace vulkan {
         // `float4(color, 1.0)` and samples `.rgb` - and the A/B that proves the rest of the character is
         // unaffected (0 px) is in `remaining_port_spec.md`'s "其余部位按参考对齐（续）" item 10.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment()};
-        auto result = vulkan::make_pipeline(
+        auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             std::span<VkFormat const>(formats),
             this->depth_attachment_format,
@@ -593,7 +593,7 @@ namespace vulkan {
         // THE MULTIPLY (see make_color_blend_attachment_multiply): this is the state that makes the article's
         // two `Trick` shaders overlays rather than surfaces, and the reason the port needs no blend extension.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_multiply()};
-        auto result = vulkan::make_pipeline(
+        auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             std::span<VkFormat const>(formats),
             this->depth_attachment_format,
@@ -640,7 +640,7 @@ namespace vulkan {
         // states no `Blend` at all and its fragment returns alpha 1 - so this is the state the TOON stage uses
         // (`make_color_blend_attachment_opaque`), not the overlay group's multiply.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_opaque()};
-        auto result = vulkan::make_pipeline(
+        auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             std::span<VkFormat const>(formats),
             this->depth_attachment_format,
@@ -687,7 +687,7 @@ namespace vulkan {
         float const depth_bias_constant_factor,
         float const depth_bias_slope_factor,
         float const depth_bias_clamp) const {
-        auto result = vulkan::make_pipeline(
+        auto result = deren::vulkan::make_pipeline(
             this->logical_device,
             VK_FORMAT_UNDEFINED, // no color attachment
             depth_format,
@@ -713,4 +713,4 @@ namespace vulkan {
             glfwSetWindowTitle(this->window, title.data());
         }
     }
-} // namespace vulkan
+} // namespace deren::vulkan

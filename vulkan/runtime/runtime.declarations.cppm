@@ -1,23 +1,23 @@
 // ============================================================================
-// module: vulkan.runtime:declarations  - the INTERFACE PARTITION of vulkan.runtime
+// module: deren.vulkan.runtime:declarations  - the INTERFACE PARTITION of deren.vulkan.runtime
 //
 // Same shape as vulkan.core: the declarations live in a partition, the primary re-exports them, and
 // the implementation partitions import THIS one (a partition does not see the primary interface, and
-// imports are not transitive). `import vulkan.runtime;` is unchanged for main, chores and
+// imports are not transitive). `import deren.vulkan.runtime;` is unchanged for main, chores and
 // render_start_demo.
 // ============================================================================
 // ============================================================================
-// module: vulkan.runtime
+// module: deren.vulkan.runtime
 // module version: 0.72.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // The renderer core: per-frame-slot frame facade (pace/record/submit phases,
 // scene resources, parallel secondary-CB recording). It re-exports its peer
-// modules vulkan.scene_tree (scene storage + GPU primitives) and
-// vulkan.render_environment (per-worker draw state) - the frame draws through
+// modules deren.vulkan.scene_tree (scene storage + GPU primitives) and
+// deren.vulkan.render_environment (per-worker draw state) - the frame draws through
 // both, so they are versioned as ONE unit because they share the scene / draw
 // interface and evolve together.
-// Depends on vulkan.core (GPU), vulkan.math (IBL), vulkan.shadow_fit (the
-// cascade fit it gathers for and caches), vulkan.readback (the screenshot's
+// Depends on deren.vulkan.core (GPU), deren.vulkan.math (IBL), deren.vulkan.shadow_fit (the
+// cascade fit it gathers for and caches), deren.vulkan.readback (the screenshot's
 // staging buffer and host read) and utility, with the frame struct
 // fills coming from vulkan.constant_init.
 //
@@ -30,48 +30,48 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <vulkan/vulkan.h>
 
-export module vulkan.runtime:declarations;
+export module deren.vulkan.runtime:declarations;
 
-import vulkan.profiling;
-import vulkan.pass;                       // the pass framework: the host the runner talks to, and the stage runner
-import vulkan.pass.taa;                   // the second, and the first GRAPHICS one
-import vulkan.pass.scene;                 // the third: the scene itself, whose work is DATA rather than a declaration
-import vulkan.pass.transparent;           // the fourth: the blended geometry, over the shaded frame
-import vulkan.pass.character_forward;     // ... and the toon character stage, which re-shades the OPAQUE leaves over it
-import vulkan.pass.toon_screen_rim;       // ... and its second rim, a fullscreen additive contour from the depth
-import vulkan.pass.goo_rim;               // ... and the REWRITTEN chain's rim, a fullscreen additive stage of its own
-import vulkan.pass.upscale;               // the resolve: the render chain's LDR image -> the presented swapchain
-import vulkan.pass.ray_traced_shadow;     // the ninth, and the only pass that traces outside the chain: the ray-traced shadow
-import vulkan.pass.mask_bake;             // ... and the one-shot MASK bake, which is a JOB rather than a frame pass
-import vulkan.pass.compute_skin;          // ... and the compute-skinning job, which is a job for the same reason
-import vulkan.pass.geometry_buffer_debug; // the fifteenth: the G-buffer debug view
-import vulkan.pass.shadow;                // the sixteenth: the directional shadow map, one depth-only cascade per layer
-import vulkan.pass.chain;                 // the chain container: what holds a run of passes and its ORDER
-import vulkan.render_resource.shared;     // the five samplers a pass's declaration chooses between
-import vulkan.frame_constants;            // one frame's shared constants, filled by the frame loop and read by passes
-import vulkan.shadow_fit;                 // the cascade fit itself (pure CPU; the runtime gathers and caches)
-import vulkan.readback;                   // GPU -> CPU buffer copies (the screenshot's staging buffer and read)
-import vulkan.acceleration_structure;     // build_input_usage: the usage bits a structure build reads a buffer through
-import vulkan.ray_tracing;                // THE STRUCTURE PHASE: the structures, the caster map and the copies (a value this class owns)
-import vulkan.init_utils;                 // the resource-creation patterns the init functions below repeat
-export import vstd;
-export import vulkan.core;
-export import vulkan.core.filters;
-export import vulkan.scene_tree;         // scene storage + the abstract leaf interface (pure CPU)
-export import vulkan.primitive;          // the GPU primitives + material/UBO records (peer module)
-export import vulkan.render_environment; // per-worker draw state (peer module)
-import utility;
-export import vulkan.graphical_user_interface; // optional debug overlay (gui_content): exported so callers can manage panels/widgets via debug_gui()
+import deren.vulkan.profiling;
+import deren.vulkan.pass;                       // the pass framework: the host the runner talks to, and the stage runner
+import deren.vulkan.pass.taa;                   // the second, and the first GRAPHICS one
+import deren.vulkan.pass.scene;                 // the third: the scene itself, whose work is DATA rather than a declaration
+import deren.vulkan.pass.transparent;           // the fourth: the blended geometry, over the shaded frame
+import deren.vulkan.pass.character_forward;     // ... and the toon character stage, which re-shades the OPAQUE leaves over it
+import deren.vulkan.pass.toon_screen_rim;       // ... and its second rim, a fullscreen additive contour from the depth
+import deren.vulkan.pass.goo_rim;               // ... and the REWRITTEN chain's rim, a fullscreen additive stage of its own
+import deren.vulkan.pass.upscale;               // the resolve: the render chain's LDR image -> the presented swapchain
+import deren.vulkan.pass.ray_traced_shadow;     // the ninth, and the only pass that traces outside the chain: the ray-traced shadow
+import deren.vulkan.pass.mask_bake;             // ... and the one-shot MASK bake, which is a JOB rather than a frame pass
+import deren.vulkan.pass.compute_skin;          // ... and the compute-skinning job, which is a job for the same reason
+import deren.vulkan.pass.geometry_buffer_debug; // the fifteenth: the G-buffer debug view
+import deren.vulkan.pass.shadow;                // the sixteenth: the directional shadow map, one depth-only cascade per layer
+import deren.vulkan.pass.chain;                 // the chain container: what holds a run of passes and its ORDER
+import deren.vulkan.render_resource.shared;     // the five samplers a pass's declaration chooses between
+import deren.vulkan.frame_constants;            // one frame's shared constants, filled by the frame loop and read by passes
+import deren.vulkan.shadow_fit;                 // the cascade fit itself (pure CPU; the runtime gathers and caches)
+import deren.vulkan.readback;                   // GPU -> CPU buffer copies (the screenshot's staging buffer and read)
+import deren.vulkan.acceleration_structure;     // build_input_usage: the usage bits a structure build reads a buffer through
+import deren.vulkan.ray_tracing;                // THE STRUCTURE PHASE: the structures, the caster map and the copies (a value this class owns)
+import deren.vulkan.init_utils;                 // the resource-creation patterns the init functions below repeat
+export import deren.vstd;
+export import deren.vulkan.core;
+export import deren.vulkan.core.filters;
+export import deren.vulkan.scene_tree;         // scene storage + the abstract leaf interface (pure CPU)
+export import deren.vulkan.primitive;          // the GPU primitives + material/UBO records (peer module)
+export import deren.vulkan.render_environment; // per-worker draw state (peer module)
+import deren.utility;
+export import deren.vulkan.graphical_user_interface; // optional debug overlay (gui_content): exported so callers can manage panels/widgets via debug_gui()
 
 /**
  * @file runtime.cppm
  * @defgroup vulkan_runtime Vulkan Runtime Facade
- * @brief runtime facade: a thin wrapper exposing all functionality of vulkan::core
+ * @brief runtime facade: a thin wrapper exposing all functionality of deren::vulkan::core
  * @note
  *      - use operator-> to access the filtered core view (core_filter, e.g. runtime->get_device())
  *      - the inner core's lifetime is tied to the runtime
  */
-namespace vulkan {
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_runtime
      * @brief orbit camera state, updated by the mouse callbacks registered in the runtime constructor
@@ -202,7 +202,7 @@ namespace vulkan {
         std::vector<vk_image_view> owned_texture_views = {};
         std::vector<vk_image> owned_textures = {};
         uint32_t white_texture_index = 0;
-        std::map<std::tuple<utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
+        std::map<std::tuple<deren::utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
         std::vector<vk_image_view> ibl_views = {};
         std::vector<vk_image> ibl_images = {};
@@ -274,8 +274,8 @@ namespace vulkan {
         // THE THIRD TERM IS SPELLED IN TERMS OF THE ENUM, so adding a colour lane grows the key by itself (a
         // hand-written 4 or 5 here is the drift this note exists to prevent), and it is in LANE ORDER, the same
         // order register_material writes the table in and the shader addresses it in.
-        std::unordered_map<utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>, material_id,
-                           utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>::hasher>
+        std::unordered_map<deren::utility::data_block<sizeof(deren::vulkan::material_record) + deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>, material_id,
+                           deren::utility::data_block<sizeof(deren::vulkan::material_record) + deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>::hasher>
             material_slot_cache = {};
         bool material_overflow_logged = false;
         // same degradation policy for the texture array: when scene_texture_capacity distinct
@@ -371,7 +371,7 @@ namespace vulkan {
             count,           // not a mark: the number of marks a frame writes
         };
         static constexpr uint32_t gpu_mark_count = static_cast<uint32_t>(gpu_mark_id::count);
-        static_assert(gpu_mark_count <= vulkan::gpu_timing_mark_capacity, "the core's timestamp pool must hold one frame's marks");
+        static_assert(gpu_mark_count <= deren::vulkan::gpu_timing_mark_capacity, "the core's timestamp pool must hold one frame's marks");
         // labels of the intervals between consecutive marks (interval i = mark i -> mark i + 1).
         // new_line starts a new line in the overlay's report, which has to fit one narrow panel
         // row; the log line ignores it and prints everything on one line.
@@ -416,7 +416,7 @@ namespace vulkan {
         // ---- CPU frame phase timing (same 60-frame window as the GPU marks) ----
         // A scope timer rather than manual marks: every phase function has early returns
         // (skipped/minimized/closed) that must still be measured, and an RAII object cannot miss one.
-        vulkan::profiling::cpu_phases cpu_timings;
+        deren::vulkan::profiling::cpu_phases cpu_timings;
         void collect_gpu_timings(uint32_t slot);
 
         // ---- G-buffer / deferred path ----
@@ -494,7 +494,7 @@ namespace vulkan {
         // know.
         /**
          * The chain the frame CREATES and RECORDS, handed over by `set_pass_chain` and owned by whoever built it
-         * (in this application, `vulkan.render_start_demo`). Every stage array and both GI halves are filled from it
+         * (in this application, `deren.vulkan.render_start_demo`). Every stage array and both GI halves are filled from it
          * BY DECLARATION NAME, which is what lets the passes live outside this class. It is REQUIRED before the
          * frame work: `create_passes` refuses to run without one and says so, and every other question this class
          * asks a chain asks it through a null check rather than falling back to a chain of its own - there is no
@@ -505,7 +505,7 @@ namespace vulkan {
         pass::pass_chain* frame_chain = nullptr;
 
         // THE PASSES ARE NOT CONSTRUCTED HERE ANY MORE, and the stage arrays below are what is left of this class's
-        // knowledge of them: the APPLICATION builds its chain (vulkan.render_start_demo) and hands it over through
+        // knowledge of them: the APPLICATION builds its chain (deren.vulkan.render_start_demo) and hands it over through
         // `set_pass_chain`, which fills these arrays and the two GI halves BY DECLARATION NAME - the stage sequence,
         // its order and the marks are the frame loop's and stay. The two JOBS are not
         // passes and are still created here, from the same context the passes are.
@@ -527,7 +527,7 @@ namespace vulkan {
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> fxaa_pass = {};
         /**
-         * THE UPSCALE PASS (vulkan.pass.upscale): the resolve that scales the render chain back up to the
+         * THE UPSCALE PASS (deren.vulkan.pass.upscale): the resolve that scales the render chain back up to the
          * output, and the frame's LAST writer on the frames it runs. It is the only pass in the frame whose
          * extent is the SWAPCHAIN's rather than the render extent's (its declaration says so - see
          * `upscale_io`), and it is mutually exclusive with the FXAA pass by `post_fxaa_active()`: both read the
@@ -609,7 +609,7 @@ namespace vulkan {
         // core::scene_color and the resolve writes the HDR target, so the whole post chain keeps
         // reading exactly what it read before TAA existed. A copy of the resolved frame becomes the
         // next frame's history (no ping-pong, hence no per-frame descriptor rewrites).
-        // The TAA resolve is a PASS (vulkan.pass.taa): it owns its pipeline and its per-image history flags, so
+        // The TAA resolve is a PASS (deren.vulkan.pass.taa): it owns its pipeline and its per-image history flags, so
         // all that is left here is the pass member and the stage the runner is handed.
         // Per swapchain image: whether that image has a GI history yet. First frame after startup or
         // after a resize there is none, and the resolve then uses the current trace alone.
@@ -619,19 +619,19 @@ namespace vulkan {
         std::vector<std::pair<std::string, std::vector<uint8_t>>> registered_shaders = {};
         // pass when the generation changed or when the chain was switched on (see on_swapchain_recreated and
         // The alphaMode MASK bake's push block is NOT here any more: its shape is the JOB's
-        // (pass::mask_bake_push_constants in vulkan.pass.mask_bake), because only that job composes it.
-        // THE SCENE PASS (vulkan.pass.scene): it owns the surface instance, the segment strategy and the draw
+        // (pass::mask_bake_push_constants in deren.vulkan.pass.mask_bake), because only that job composes it.
+        // THE SCENE PASS (deren.vulkan.pass.scene): it owns the surface instance, the segment strategy and the draw
         // loop; the renderer hands it the leaves through a typed frame (see make_scene_frame) and keeps the
         // pipeline registry, the secondary buffers and the scheduler.
         // called scene_pass, not scene_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> scene_pass = {};
-        /// THE TRANSPARENT PASS (vulkan.pass.transparent): the same scene, its own LOAD instance, after lighting
+        /// THE TRANSPARENT PASS (deren.vulkan.pass.transparent): the same scene, its own LOAD instance, after lighting
         // called transparent_pass, not transparent_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> transparent_pass = {};
         /**
-         * THE CHARACTER-FORWARD PASS (vulkan.pass.character_forward): the same OPAQUE leaves a second time,
+         * THE CHARACTER-FORWARD PASS (deren.vulkan.pass.character_forward): the same OPAQUE leaves a second time,
          * shaded by the toon pipeline and written OVER the deferred result at depth-EQUAL. It sits after the
          * transparent pass (a toon body drawn under a blended surface would be composited over, which is the
          * right order: the blend belongs on top) and before the resolve.
@@ -640,7 +640,7 @@ namespace vulkan {
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> character_forward_pass = {};
         /**
-         * THE SCREEN-SPACE DEPTH RIM (vulkan.pass.toon_screen_rim): a fullscreen additive contour, right after
+         * THE SCREEN-SPACE DEPTH RIM (deren.vulkan.pass.toon_screen_rim): a fullscreen additive contour, right after
          * the surface it outlines and before the resolve. It has no frame of its own - its parameters are the
          * pass's and its inputs are heap slots - so this array is only what the chain lookup fills.
          */
@@ -648,7 +648,7 @@ namespace vulkan {
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> toon_screen_rim_pass = {};
         /**
-         * THE REWRITTEN CHAIN'S RIM (vulkan.pass.goo_rim): the SAME screen-space shape as the contour above -
+         * THE REWRITTEN CHAIN'S RIM (deren.vulkan.pass.goo_rim): the SAME screen-space shape as the contour above -
          * a fullscreen additive stage, no frame of its own - placed right after it, and the two are mutually
          * exclusive by construction rather than by order: the owner answers this pass's feature with
          * `goo_toon_active()`, which is the negation of the predicate that answers the contour's. On a frame the
@@ -660,7 +660,7 @@ namespace vulkan {
         /// the scene frame's view of the per-slot segments (a member, so the span it hands the pass outlives it)
         std::vector<pass::segment_buffer> scene_segment_view = {};
         /// the colour formats the scene pass's secondaries inherit, in attachment order
-        std::array<VkFormat, vulkan::gbuffer_pass_attachment_count> scene_color_formats = {};
+        std::array<VkFormat, deren::vulkan::gbuffer_pass_attachment_count> scene_color_formats = {};
         // called taa_pass, not taa_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> taa_pass = {};
@@ -762,9 +762,9 @@ namespace vulkan {
          *
          * Called once per frame, after `pace_and_acquire` has computed the camera record, the light UBO and the
          * fitted scene bounds - so every pass of that frame reads the same numbers the shaders see. It exists as
-         * a function because it is the ONE place where `vulkan.frame_constants` and `camera_ubo`/`light_ubo` have
+         * a function because it is the ONE place where `deren.vulkan.frame_constants` and `camera_ubo`/`light_ubo` have
          * to agree (the facts type deliberately does not include those, so that the pass framework keeps its
-         * distance from `vulkan.core`).
+         * distance from `deren.vulkan.core`).
          */
         void update_frame_constants() noexcept;
         /**
@@ -810,7 +810,7 @@ namespace vulkan {
          * Every feature answer used to read `deferred.pipeline_ready()`, `taa_resolve.pipeline_ready()` and ten more
          * like them; they now ask the chain by the name the declaration carries, which is the only key a renderer
          * handed a chain from OUTSIDE has - and "handed from outside" is where this layer is going (see
-         * `vulkan.render_start_demo`).
+         * `deren.vulkan.render_start_demo`).
          * @note the frame's own pipelines that no pass owns (the G-buffer's, the shadow fit's) are still the
          *       renderer's members, so a feature that needs one of those AND a pass's still reads both
          */
@@ -917,7 +917,7 @@ namespace vulkan {
 
         // ---- post-processing: HDR scene target -> exposure + ACES + gamma -> swapchain ----
         // THE CHAIN'S GPU MATERIAL, THE PUSH BLOCK'S SHAPE AND THE FXAA PIPELINE ARE ALL PASSES' NOW
-        // (vulkan.pass.post, vulkan.pass.fxaa): the composite owns the chain's two pipelines, the push block's
+        // (deren.vulkan.pass.post, deren.vulkan.pass.fxaa): the composite owns the chain's two pipelines, the push block's
         // type lives with the passes that push it (this class fills a VALUE of it per frame, in the resolvers),
         // and FXAA's pipeline is its own pass's. What is left here is the two samplers the pass context hands over
         // and the values themselves.
@@ -1032,7 +1032,7 @@ namespace vulkan {
         void* screenshot_staging_mapped = nullptr;
         VkExtent2D screenshot_readback_extent = {0, 0};
         // The read-back staging (buffer, size tracking, mapped view, the one-shot submit and wait) is
-        // vulkan.readback's, because "copy a buffer to CPU memory" is not a screenshot concern - the
+        // deren.vulkan.readback's, because "copy a buffer to CPU memory" is not a screenshot concern - the
         // screenshot is one caller of it (see record_screenshot_copy / acquire_current_frame_image).
         //
         // Declared HERE, above filtered_core, and built in the runtime's initializer list: readback owns
@@ -1049,7 +1049,7 @@ namespace vulkan {
         float shadow_depth_bias_clamp = 0.0f;
 
         // ---- clustered light culling (M5) ----
-        // THE PASS (vulkan.pass.cluster) owns the pipeline AND the two
+        // THE PASS (deren.vulkan.pass.cluster) owns the pipeline AND the two
         // buffer barriers its own writes need; the renderer keeps the grid's dimensions (they come from the
         // swapchain extent) and hands the cluster count over in the pass's frame. Optional: without the shader
         // (or with clustering off) shade_surface() falls back to the brute-force loop, which is exactly what the
@@ -1075,8 +1075,8 @@ namespace vulkan {
         // an animated/deformed/programmatic scene changes it (the fit cache does NOT, which is exactly
         // the trap the animated-Fox test caught), while a static scene repeats it.
         uint32_t shadow_content_version = 1;
-        std::array<uint32_t, vulkan::core::MAX_FRAMES_IN_FLIGHT> shadow_rendered_version = {};
-        std::array<uint64_t, vulkan::core::MAX_FRAMES_IN_FLIGHT> shadow_rendered_models = {};
+        std::array<uint32_t, deren::vulkan::core::MAX_FRAMES_IN_FLIGHT> shadow_rendered_version = {};
+        std::array<uint64_t, deren::vulkan::core::MAX_FRAMES_IN_FLIGHT> shadow_rendered_models = {};
         // The other half of geometry changed: a SKINNED caster keeps a constant push.model, its
         // pose lives entirely in the joint matrices the vertex shader reads, so those are hashed at
         // upload instead (set_skin_matrices). Morph targets have no upload hook at all - the caller
@@ -1106,7 +1106,7 @@ namespace vulkan {
         // order is reverse declaration: pipelines etc. go first, the pool joins last).
         // The width is init_utils::default_task_pool_threads(), which carries the measurement
         // that decided the quarter (see vulkan/init_utils/init_utils.cppm).
-        utility::thread_pool task_pool = utility::thread_pool{init_utils::default_task_pool_threads()};
+        deren::utility::thread_pool task_pool = deren::utility::thread_pool{init_utils::default_task_pool_threads()};
 
         // Guards the pipeline registry below (pipelines / default_pipeline_name):
         // parallel recording workers read it through render_environment's binder (shared locks,
@@ -1178,7 +1178,7 @@ namespace vulkan {
         // (see set_skin_matrices / morph_scratch), so such a primitive may be frustum-culled
         // even while its deformed geometry is on screen. Conservative animation rigs stay
         // inside the authored bounds; culling can also be disabled (frustum_culling = false).
-        std::optional<utility::bvh<primitive>> cull_bvh = std::nullopt;
+        std::optional<deren::utility::bvh<primitive>> cull_bvh = std::nullopt;
         bool bvh_dirty = true;                                // scene structure/transforms changed -> rebuild
         std::pmr::vector<primitive const*> cull_visible = {}; // last culled result (main-pass set)
         // camera identity for result reuse: yaw, pitch, distance, target.xyz (7 floats)
@@ -1341,13 +1341,13 @@ namespace vulkan {
         /**
          * @brief the meshlet split's totals, for the one startup log line (docs/mesh_shaders.md step 3)
          *
-         * The split itself is `vulkan.meshlet`'s and is asserted by tests/test_meshlet.cpp; what these two count is
+         * The split itself is `deren.vulkan.meshlet`'s and is asserted by tests/test_meshlet.cpp; what these two count is
          * how much of THIS SCENE it produced, which is the number that says whether a task stage reading a meshlet
          * table is worth the table (a scene of one meshlet per primitive would not be).
          */
         std::size_t meshlet_total = 0;
         std::size_t meshlet_primitives = 0;
-        /// THE TABLE ITSELF: `meshlet_capacity` records of `sizeof(vulkan::meshlet)`, host-visible, appended to
+        /// THE TABLE ITSELF: `meshlet_capacity` records of `sizeof(deren::vulkan::meshlet)`, host-visible, appended to
         /// while the scene imports and read by a task stage through the heap (one slot, written once - see
         /// core::heap_slots::meshlets). `meshlet_total` IS the append cursor.
         vk_buffer meshlet_buffer = {};
@@ -1397,7 +1397,7 @@ namespace vulkan {
         /// HOW MANY COMMANDS one frame's lane holds (docs/mesh_shaders.md step 3): TWO runs of `meshlet_capacity`, one
         /// per COMMAND CLASS, because a HOST-CULLED run and an unculled one (the shadow pass) dispatch the same
         /// primitive with DIFFERENT counts - and a shared slot would hand both passes whichever wrote last.
-        static constexpr uint32_t mesh_command_capacity = 2u * vulkan::meshlet_capacity;
+        static constexpr uint32_t mesh_command_capacity = 2u * deren::vulkan::meshlet_capacity;
         /**
          * @brief THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): a mesh entry adds
          *        to one per workgroup, the host reads the buffer back once at shutdown and logs the totals
@@ -1432,7 +1432,7 @@ namespace vulkan {
         static bool meshlet_view_proj(void* owner, float* out16);
         static bool meshlet_culled_write(void* owner, uint32_t base, std::span<std::byte const> records);
         /**
-         * THE STRUCTURE PHASE ITSELF, which is one value now (see `vulkan.ray_tracing`): the bottom and top level
+         * THE STRUCTURE PHASE ITSELF, which is one value now (see `deren.vulkan.ray_tracing`): the bottom and top level
          * structures, the map from their indices back to the casters they were built from, and the MASK/skin
          * copies a hit's shading reads that geometry through. Built once (lazily, on the first frame the flag is
          * on, because the caster set is only known once the scene has been culled), refitted and RE-INSTANCED
@@ -1494,7 +1494,7 @@ namespace vulkan {
         // structures for it to feed.
         bool rt_skin_bake = false;
         // The ray-traced sun shadow pass (see the shaders/rt_shadow.* pipeline stages): its pipeline,
-        // push block's shape and its one-shot log line are the PASS's now (vulkan.pass.ray_traced_shadow), and its
+        // push block's shape and its one-shot log line are the PASS's now (deren.vulkan.pass.ray_traced_shadow), and its
         // member and stage are declared next to the other passes above. The renderer keeps two facts about it:
         // WHERE it sits (after the G-buffer pass, before the lighting stage - see the frame loop) and the
         // transition the lighting stage's heap slot needs on a frame where the pass does not run.
@@ -1565,7 +1565,7 @@ namespace vulkan {
         // a changed scene.
         //
         // Only the CACHE stays here. The fit itself (splits, per-cascade boxes, texel snapping, the
-        // orthographic matrices) is vulkan.shadow_fit, which needs nothing but glm - and the
+        // orthographic matrices) is deren.vulkan.shadow_fit, which needs nothing but glm - and the
         // gathering below stays here because it needs scene_tree and primitive.
         glm::mat4 shadow_fit_view_proj = glm::mat4(1.0f); // unjittered view * proj the last fit used
         // per-frame scratch for the gather: each caster's light-space AABB, then the world boxes it
@@ -1587,7 +1587,7 @@ namespace vulkan {
         // filtered view over vulkan_core, exposed via operator-> (external code never sees the raw core)
         user_filter filtered_core;
         /**
-         * THE PASS FILTER (vulkan.core.filters): the view a pass's create step is handed, which is how the
+         * THE PASS FILTER (deren.vulkan.core.filters): the view a pass's create step is handed, which is how the
          * renderer stops knowing what each pass needs. It shares the device (`core_owner`) and carries the
          * resources this runtime publishes for its passes to name - the material table, the bindless texture
          * array, the per-slot skin matrices - instead of the renderer doing it through a bespoke entry point per
@@ -1625,7 +1625,7 @@ namespace vulkan {
          * @ingroup vulkan_runtime
          * @brief collect every leaf primitive under @p node (DFS pre-order) into @p out
          * @note leaves are stored as scene_tree::primitive; every leaf this runtime creates is a
-         *       vulkan::primitive (the GPU primitive implements scene_tree::primitive), so the cast is safe
+         *       deren::vulkan::primitive (the GPU primitive implements scene_tree::primitive), so the cast is safe
          */
         static void collect_leaf_primitives(scene_tree::scene_node const& node, std::pmr::vector<primitive const*>& out);
 
@@ -1936,7 +1936,7 @@ namespace vulkan {
          * (it owns the ImGui renderer and the flag that turns it off), but WHICH pass records it is the chain
          * owner's to know - the overlay has no load op, so it has to be recorded inside whichever pass writes the
          * frame last, and that is a property of the chain. The owner installs this hook on the passes that may be
-         * last (`vulkan.render_start_demo` does it in `attach`), and each pass decides for itself whether it is.
+         * last (`deren.vulkan.render_start_demo` does it in `attach`), and each pass decides for itself whether it is.
          */
         [[nodiscard]] pass::draw_callback overlay_draw() const noexcept;
 
@@ -2180,7 +2180,7 @@ namespace vulkan {
          * record_transparent_pass() after the lighting stage, because a blended surface has to
          * compose over the SHADED image - a G-buffer cannot hold a surface that does not exist yet.
          * record_scene_tail() turns the G-buffer into the frame afterwards through the deferred
-         * lighting PASS (vulkan.pass.deferred, resolved by resolve_deferred_pass()).
+         * lighting PASS (deren.vulkan.pass.deferred, resolved by resolve_deferred_pass()).
          */
         void record_scene(VkCommandBuffer command_buffer);
 
@@ -2191,7 +2191,7 @@ namespace vulkan {
          *        depth-testing against the G-buffer depth
          * @param command_buffer the frame's primary command buffer
          *
-         * Runs AFTER the lighting stage (vulkan.pass.deferred, the stage recorded just before it), in an
+         * Runs AFTER the lighting stage (deren.vulkan.pass.deferred, the stage recorded just before it), in an
          * instance of its own, and that order is the whole
          * reason it is separate. Blending needs a shaded image underneath, and the lighting stage
          * needs the G-buffer depth as a SAMPLED texture - an image cannot be sampled and used as a
@@ -2267,7 +2267,7 @@ namespace vulkan {
          *          otherwise to the present barrier or the screenshot copy
          *  @note this function only SEQUENCES the frame's back half: the scene-side tail is recorded by
          *        record_scene_tail, and the bloom chain and the composite are two STAGES of passes
-         *        (vulkan.pass.post) whose frames this function sets and resolves - the renderer no longer records
+         *        (deren.vulkan.pass.post) whose frames this function sets and resolves - the renderer no longer records
          *        them. It used to be all of that in one 209-line body, whose real problem was not its length but
          *        that a change to any one of them had to be located inside the other two. */
         [[nodiscard]] bool record_post_process(VkCommandBuffer command_buffer);
@@ -2317,7 +2317,7 @@ namespace vulkan {
          *        from end_recording while the image still belongs to the frame being recorded -
          *        after vkQueuePresentKHR the presentation engine owns it and it must not be
          *        transitioned again.
-         * @note the staging buffer and its mapping come from vulkan.readback; what this owns is the
+         * @note the staging buffer and its mapping come from deren.vulkan.readback; what this owns is the
          *       image side (the layouts, the region, the format) and the record-time bookkeeping
          *       (screenshot_staging_mapped / screenshot_readback_extent) that the later read needs
          */
@@ -2350,7 +2350,7 @@ namespace vulkan {
             // attachment order: one entry (the HDR target) when the leaves shade into it, the four G-buffer
             // attachments when the opaque pass writes the G-buffer. Held by value because the task outlives the
             // call that builds it (it is moved into the task pool).
-            std::array<VkFormat, vulkan::gbuffer_pass_attachment_count> color_formats = {};
+            std::array<VkFormat, deren::vulkan::gbuffer_pass_attachment_count> color_formats = {};
             uint32_t color_count = 0;                    // formats in use (1 when only the HDR target, 4 for surface targets + HDR)
             VkFormat depth_format = VK_FORMAT_UNDEFINED; // main depth attachment format
             VkSampleCountFlagBits rasterization_samples = VK_SAMPLE_COUNT_1_BIT;
@@ -2635,7 +2635,7 @@ namespace vulkan {
          * @param scene_center world-space center of the shadow frustum (usually the scene bounds
          *        center after the scene offset is applied, i.e. where the models actually sit)
          * @param scene_radius conservative radius covering all shadow casters
-         * @note requires the shadow PASS's pipeline (vulkan.pass.shadow, created by create_passes()); no-op otherwise
+         * @note requires the shadow PASS's pipeline (deren.vulkan.pass.shadow, created by create_passes()); no-op otherwise
          */
         void enable_shadows(glm::vec3 const& scene_center, float scene_radius);
 
@@ -2751,7 +2751,7 @@ namespace vulkan {
          * @brief publish the toon stage's LIGHT RIG (the sun/head-light split and the chain's global scalars)
          *
          * The character stage's global numbers are one block rather than fields of every material record - see
-         * `vulkan::toon_rig` for what belongs there and `core::heap_slots::toon_rig` for why it is safe to write
+         * `deren::vulkan::toon_rig` for what belongs there and `core::heap_slots::toon_rig` for why it is safe to write
          * outside the frame path: nothing rewrites it while a frame is in flight, so a call from the import path
          * or from a settings change cannot be read half-written. It MEANS the call must be made BEFORE the frame
          * loop starts (or between frames), which is what the application does.
@@ -2807,7 +2807,7 @@ namespace vulkan {
          * the environment bake all read ONE directional light out of the light UBO, so an emitter is expressed
          * through it: `centre`/`axis` land in the two `area_light`/`area_light_axis` lanes appended after
          * `cluster_depth`, and the CALLER separately points the sun at the emitter (`set_sun_direction`) and
-         * scales its radiance (`set_sun_intensity`). See `app_config::derive_area_light`.
+         * scales its radiance (`set_sun_intensity`). See `deren::app_config::derive_area_light`.
          *
          * @param centre    emitter centre in world space (metres)
          * @param half      HALF the emitter's side (metres); <= 0 means NO area light and writes zero to both
@@ -2848,7 +2848,7 @@ namespace vulkan {
          *        blends away the single-pixel aliasing FXAA leaves on near-axis-aligned edges)
          * @param edge_threshold relative luma contrast below which a pixel counts as flat and is
          *        left untouched (FXAA default 0.166; lower = more edges treated, softer image)
-         * @note requires the FXAA PASS's pipeline (vulkan.pass.fxaa, created by create_passes()); without it the
+         * @note requires the FXAA PASS's pipeline (deren.vulkan.pass.fxaa, created by create_passes()); without it the
          *       flag has no effect. CPU-side, copied
          *       into the post push constants every frame (same timing rule as set_exposure)
          */
@@ -3128,7 +3128,7 @@ namespace vulkan {
          * @brief what a RESOLVER is given: this frame's resources and this runtime's three lookups
          *
          * The framework's `frame_pass::resolve` default resolves a declaration against `resolve_context`
-         * (see vulkan.pass): the resource table published for the frame, the frame identity and command buffer,
+         * (see deren.vulkan.pass): the resource table published for the frame, the frame identity and command buffer,
          * and the owner's answers for the DECLARATION's own keys - the set index, the extent of a resource
          * element, a pipeline name. One function, because every pass is handed the same thing.
          */
@@ -3200,7 +3200,7 @@ namespace vulkan {
         /// that image publishes it (what a stage whose pass samples it after TAA already moved it must do)
         void require_velocity_publish(uint32_t image_index);
         /// the per-cascade secondaries a shadow frame's span points at (see make_shadow_frame)
-        std::array<VkCommandBuffer, vulkan::max_shadow_cascades> shadow_secondaries_scratch = {};
+        std::array<VkCommandBuffer, deren::vulkan::max_shadow_cascades> shadow_secondaries_scratch = {};
         /// whoever owns this frame's passes; empty until `set_chain_wiring` is called, and a frame with no wiring
         /// gives its passes no frames - which is what makes the seam's absence visible rather than silent
         /// named `frame_wiring` rather than `wiring`: `set_chain_wiring`/`set_pass_chain` take a
@@ -3224,7 +3224,7 @@ namespace vulkan {
          *        history, and the result is what the post chain processes. This is the deferred path's
          *        anti-aliasing: it resolves sub-pixel detail no edge filter can, AND the
          *        shimmer in motion that no edge filter can remove. The pass builds its own pipeline
-         *        (vulkan.pass.taa); without it the flag has no effect.
+         *        (deren.vulkan.pass.taa); without it the flag has no effect.
          * @note the pass's two history weights are its own, set through `taa_pass::set_blend()`: a pixel
          *       that did not move blends 0.9 of the history (10% of the current frame per frame; higher
          *       converges smoother but reacts slower to lighting changes), and one that moves a pixel or
@@ -3252,7 +3252,7 @@ namespace vulkan {
          * @ingroup vulkan_runtime
          * @brief set how many shadow cascades to fit, render and sample
          * @param cascades 1 (one box over the whole visible range, the historic behavior) up to
-         *        vulkan::max_shadow_cascades; clamped
+         *        deren::vulkan::max_shadow_cascades; clamped
          * @note call it BEFORE the scene is imported (the resources exist by then and the cascade
          *       count only changes which layers are used). The split scheme is a practical
          *       logarithmic/uniform blend, so cascade 0 gets a fraction of the far cascade's texel
@@ -3303,7 +3303,7 @@ namespace vulkan {
          * @param name one of "deferred", "gbuffer-debug", "taa", "fxaa", "shadow", "skybox",
          *        "clustered" - unknown names return false
          *
-         * The debug overlay asks this to decide what to offer (see vulkan::gui::widget::visible_when):
+         * The debug overlay asks this to decide what to offer (see deren::vulkan::gui::widget::visible_when):
          * a control whose pipeline does not exist can never do anything, so it is hidden instead of
          * being shown inert. log_feature_status() prints the same information once at startup.
          */
@@ -3360,7 +3360,7 @@ namespace vulkan {
          * @param name "gbuffer-debug", "taa", "fxaa", "shadow", "clustered",
          *        feature_available()
          *
-         * This is what the overlay gates its controls on (`vulkan::gui::widget::visible_when`): a
+         * This is what the overlay gates its controls on (`deren::vulkan::gui::widget::visible_when`): a
          * control is offered exactly when switching it could change the frame. feature_available()
          * answers the different question "could this ever run this session", which is what the
          * startup log reports.
@@ -3423,12 +3423,12 @@ namespace vulkan {
          *        Each light is evaluated through the same BRDF path as the directional sun
          *        (inverse-square falloff, optional smooth range cutoff, spot cone mask) and
          *        never casts a shadow in this version.
-         * @param lights the lights to enable. Every `vulkan::punctual_light` field is honored:
+         * @param lights the lights to enable. Every `deren::vulkan::punctual_light` field is honored:
          *        `position`, linear `color` (radiance = color * intensity), `range` (0 =
          *        infinite falloff, otherwise a smooth cutoff at this distance), and for spot
          *        lights `spot = true` + `spot_direction` + `spot_outer_cos` (cos of the outer
          *        half-angle; the shader derives the soft inner cone as mix(outer, 1, 0.6)).
-         *        Entries beyond `vulkan::max_punctual_lights` (128) are dropped.
+         *        Entries beyond `deren::vulkan::max_punctual_lights` (128) are dropped.
          * @note same timing rule as set_brdf_model: CPU-side only, copied into the paced
          *       slot's buffer every frame, so safe at any time (GUI included). The demo GUI edits
          *       four slots ONE AT A TIME - a `punctual light` combo picks the slot and the group
@@ -3500,13 +3500,13 @@ namespace vulkan {
          */
         [[nodiscard]] scene_tree::scene& get_scene() noexcept {
             if (this->bound_scene == nullptr) {
-                utility::panic("runtime::get_scene() called before set_scene() bound a scene");
+                deren::utility::panic("runtime::get_scene() called before set_scene() bound a scene");
             }
             return *this->bound_scene;
         }
         [[nodiscard]] scene_tree::scene const& get_scene() const noexcept {
             if (this->bound_scene == nullptr) {
-                utility::panic("runtime::get_scene() called before set_scene() bound a scene");
+                deren::utility::panic("runtime::get_scene() called before set_scene() bound a scene");
             }
             return *this->bound_scene;
         }
@@ -3523,7 +3523,7 @@ namespace vulkan {
          * @ingroup vulkan_runtime
          * @brief upload the scene-wide IBL resources (prefiltered env / irradiance / BRDF LUT)
          *        into the frame's heap; call it before creating models that use IBL
-         * @param info precomputed split-sum IBL bytes (see vulkan::generate_* helpers)
+         * @param info precomputed split-sum IBL bytes (see deren::vulkan::generate_* helpers)
          * @note the images are uploaded once and shared by every primitive (they used to be
          *       duplicated per primitive)
          * @note call before the first frame, or only while the runtime is idle (no frame in
@@ -3656,10 +3656,10 @@ namespace vulkan {
          * @ingroup vulkan_runtime
          * @brief batch-import a scene by traversing the retained node hierarchy (structural
          *        node stream) and its drawables (geometry stream) together.
-         *        @p nfirst must model vulkan::scene_node_iterator: DFS pre-order over every
+         *        @p nfirst must model deren::vulkan::scene_node_iterator: DFS pre-order over every
          *        scene node INCLUDING transform-only nodes, exposing get_name() /
          *        get_local_transform() / get_depth() / get_drawable_count(). @p dfirst must
-         *        model vulkan::scene_drawable_iterator (++ plus geometry/material getters);
+         *        model deren::vulkan::scene_drawable_iterator (++ plus geometry/material getters);
          *        the loader keeps both streams over the same pool in the same order, so each
          *        node's get_drawable_count() drawables are the next entries of the drawable
          *        stream. The runtime drives the traversal: it rebuilds the node tree into
@@ -3688,7 +3688,7 @@ namespace vulkan {
             requires scene_node_iterator<NI> && scene_drawable_iterator<DI>
         scene_import_result import_scene(NI nfirst, NI nlast, DI dfirst, DI dlast, glm::vec3 const& offset, bool const environment = false) {
             if (this->bound_scene == nullptr) {
-                utility::panic("runtime::import_scene() called before set_scene() bound a scene");
+                deren::utility::panic("runtime::import_scene() called before set_scene() bound a scene");
             }
             scene_import_result result = {};
             uint32_t const materials_before = this->material_count;
@@ -3772,7 +3772,7 @@ namespace vulkan {
             // returns the created primitive or nullptr if the pipeline is missing
             auto const attach_leaf = [&](scene_tree::scene_node& node, DI& drawable) -> primitive* {
                 if (!(drawable != dlast)) {
-                    utility::panic(std::source_location::current(), "drawable stream ended before the node tree did");
+                    deren::utility::panic(std::source_location::current(), "drawable stream ended before the node tree did");
                 }
                 primitive_create_info info = {};
                 fill_info(drawable, info);
@@ -3823,7 +3823,7 @@ namespace vulkan {
                     ancestors.assign(1, &this->bound_scene->roots.back());
                 } else {
                     if (ancestors.size() != depth) {
-                        utility::panic(std::source_location::current(), "node tree stream: broken ancestor stack");
+                        deren::utility::panic(std::source_location::current(), "node tree stream: broken ancestor stack");
                     }
                     scene_tree::scene_node* const parent = ancestors[depth - 1];
                     parent->children.push_back(std::move(node));
@@ -3835,7 +3835,7 @@ namespace vulkan {
                 std::size_t const drawable_count = nfirst.get_drawable_count();
                 for (std::size_t i = 0; i < drawable_count; ++i) {
                     if (attach_leaf(*current, dfirst) == nullptr) {
-                        utility::panic(std::source_location::current(), "failed to import drawable (pipeline 'pbr' missing)");
+                        deren::utility::panic(std::source_location::current(), "failed to import drawable (pipeline 'pbr' missing)");
                     }
                 }
             }
@@ -3844,12 +3844,12 @@ namespace vulkan {
             // WHAT THE SCENE CUT INTO (docs/mesh_shaders.md step 3): the meshlets a task stage would cull, and how
             // many primitives contributed them. Logged once per import, where the whole scene's numbers exist.
             if (this->meshlet_total != 0u) {
-                utility::log("meshlets: {} over {} primitives ({} triangles each at most, object-space spheres)",
+                deren::utility::log("meshlets: {} over {} primitives ({} triangles each at most, object-space spheres)",
                              this->meshlet_total,
                              this->meshlet_primitives,
-                             vulkan::meshlet_max_triangles);
+                             deren::vulkan::meshlet_max_triangles);
             }
             return result;
         }
     };
-} // namespace vulkan
+} // namespace deren::vulkan

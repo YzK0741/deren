@@ -6,7 +6,7 @@
  * @brief Frame timing instrumentation: the CPU frame phases, measured per frame and reported as a
  *        60-frame window (see cpu_phases), with the RAII scope timer the pass recorders use.
  *
- * Extracted from vulkan.runtime, whose implementation had grown past 4900 lines with the timing, the
+ * Extracted from deren.vulkan.runtime, whose implementation had grown past 4900 lines with the timing, the
  * pass recorders, the pipelines and the resources all in one file. It is a module rather than an
  * implementation partition because the timing state is legitimately useful on its own: an overlay, a
  * test or another layer can read cpu_phases without going through the runtime facade. The GPU half
@@ -22,11 +22,11 @@ module;
 #include <string>
 #include <string_view>
 
-export module vulkan.profiling;
+export module deren.vulkan.profiling;
 
-import utility; // the completed window is logged once per fold
+import deren.utility; // the completed window is logged once per fold
 
-namespace vulkan::profiling {
+namespace deren::vulkan::profiling {
     /**
      * @brief the CPU frame phases that are measured per frame
      * @ingroup vulkan_profiling
@@ -119,7 +119,7 @@ namespace vulkan::profiling {
             this->window_frames = 0;
             report += std::format(" total {:.2f} ms", total);
             this->report_label = label + std::format("\n     total {:>5.2f} ms", total);
-            utility::log("{}", report);
+            deren::utility::log("{}", report);
         }
 
         [[nodiscard]] std::string summary() const {
@@ -174,4 +174,4 @@ namespace vulkan::profiling {
         cpu_phase phase = cpu_phase::count;
         std::chrono::steady_clock::time_point start = {};
     };
-} // namespace vulkan::profiling
+} // namespace deren::vulkan::profiling

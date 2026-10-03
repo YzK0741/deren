@@ -224,5 +224,5 @@ int main(int argc, char** argv) {
     test_the_library_is_unloaded_when_it_goes_out_of_scope(directory);
     test_the_static_half_behaves_the_same();
 
-    return vk_test::finish("test_dynamic_link");
+    return deren::vk_test::finish("test_dynamic_link");
 }

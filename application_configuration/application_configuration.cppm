@@ -20,9 +20,9 @@ module;
 // mode the code below is written against - do not remove it as "redundant" on clang.
 #include <toml++/toml.hpp>
 
-export module application_configuration;
-export import vstd;
-import utility;
+export module deren.application_configuration;
+export import deren.vstd;
+import deren.utility;
 
 /**
  * @file application_configuration.cppm
@@ -78,7 +78,7 @@ import utility;
  * environment_intensity = 0.35 # linear multiplier on that image (the reference's own world_strength)
  * @endcode
  */
-namespace app_config {
+namespace deren::app_config {
 #ifdef NDEBUG
     // Release builds default validation layers OFF (historic behavior); enable them when needed
     // via [render] validation_layers = true (e.g. debugging in a Release build).
@@ -138,7 +138,7 @@ namespace app_config {
         // the counting the shipped `calc_shadow` note calls a "4x4 texel footprint" at level 0 - i.e. 4 / 10 /
         // 20 / 42 / 50 for levels 0..4 (the continuous covered width is one texel less). 0 = OFF and
         // BIT-IDENTICAL to the shipped run: the character chain's one shadow lookup is the same single 3x3
-        // hardware PCF it always had. The value rides `vulkan::toon_rig`'s ninth lane and
+        // hardware PCF it always had. The value rides `deren::vulkan::toon_rig`'s ninth lane and
         // is read by the ONE shadow call site inside `toon_diffuse` in `shaders/character_forward.slang` -
         // a body that `shaders/goo_toon.slang` and `shaders/outline.slang` call as well, so those stages
         // carry the same code; `goo_toon.slang`'s OWN `calc_shadow` call (its `rs_shadow`) is untouched, and
@@ -305,7 +305,7 @@ namespace app_config {
         bool character_forward = false;
         // WHICH TOON CHAIN THAT STAGE DRAWS WITH ([render] goo_toon): false = the chain written against the
         // author's article (`character_forward.slang`), true = the rewritten one whose authority is XIYAG's Goo
-        // node presets (`goo_toon.slang`, see vulkan::runtime::goo_toon_pipeline_name). NOT a second way to turn
+        // node presets (`goo_toon.slang`, see deren::vulkan::runtime::goo_toon_pipeline_name). NOT a second way to turn
         // the stage on: with `character_forward` off this selects nothing, which is what keeps "the new shading
         // model" and "the character stage exists" separable - the rewrite is verified by holding one and moving
         // the other.
@@ -320,7 +320,7 @@ namespace app_config {
          * key existed (one import, one leaf set), which is what the render gate's recorded references are.
          *
          * THE PATH IS RESOLVED LIKE THE MODEL'S: a relative path is taken relative to the executable's own
-         * directory (see `utility::executable_directory()`), which is where the assets live, so the shipped
+         * directory (see `deren::utility::executable_directory()`), which is where the assets live, so the shipped
          * config can name `chars/...` or a path under the build directory without being absolute.
          *
          * WHAT IT DOES, IN ONE SENTENCE: the same importer (`runtime::import_scene`) runs a second time into
@@ -474,7 +474,7 @@ namespace app_config {
         float demo_light_range = 0.55f;  // the lights' range, as the same fraction (0 = no cutoff)
     };
 
-    /** @brief upper bound for [lighting] demo_lights (the UBO's light array is vulkan::max_punctual_lights) */
+    /** @brief upper bound for [lighting] demo_lights (the UBO's light array is deren::vulkan::max_punctual_lights) */
     export constexpr uint32_t max_demo_lights = 64;
 
     /**
@@ -537,7 +537,7 @@ namespace app_config {
 
     /**
      * @ingroup app_config
-     * @brief the TOON stage's LIGHT RIG ([toon] in the config), which is `vulkan::toon_rig`'s content
+     * @brief the TOON stage's LIGHT RIG ([toon] in the config), which is `deren::vulkan::toon_rig`'s content
      *
      * THESE ARE THE ARTICLE'S GLOBAL NUMBERS - the ones an artist tunes once for a whole character rather than per
      * material: the split between the sun and the head light the game rigs over every figure, what each of them
@@ -634,4 +634,4 @@ namespace app_config {
      *        argument is present (used when the caller does not want the cwd-relative default)
      */
     export app_settings resolve_from_argv(int32_t argc, char const* const* argv, std::string const& default_config_path);
-} // namespace app_config
+} // namespace deren::app_config

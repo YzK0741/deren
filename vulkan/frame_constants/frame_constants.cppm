@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.frame_constants
+// module: deren.vulkan.frame_constants
 // module version: 0.4.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // ONE FRAME'S SHARED CONSTANTS: the per-frame facts the frame loop produces and a
@@ -25,9 +25,9 @@
 // travels in `pass::resolved_io::frame`.
 //
 // DEPENDENCIES: glm and the Vulkan headers, and NOTHING else - deliberately not
-// `vulkan.primitive`, whose `camera_ubo`/`light_ubo` these fields mirror. The
-// framework must not depend on `vulkan.core` (vulkan.pass names that rule), and
-// `vulkan.primitive` imports it; so the mirror is written out here, and the frame
+// `deren.vulkan.primitive`, whose `camera_ubo`/`light_ubo` these fields mirror. The
+// framework must not depend on `deren.vulkan.core` (deren.vulkan.pass names that rule), and
+// `deren.vulkan.primitive` imports it; so the mirror is written out here, and the frame
 // loop is the ONE place that fills it from the UBOs - which is where the two must
 // agree, in one function, rather than in a type relationship nobody reads.
 //
@@ -39,9 +39,9 @@ module;
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
-export module vulkan.frame_constants;
+export module deren.vulkan.frame_constants;
 
-export import vstd;
+export import deren.vstd;
 
 /**
  * @file vulkan/frame_constants/frame_constants.cppm
@@ -54,7 +54,7 @@ export import vstd;
  * framework deliberately keeps away from passes (see `vulkan.pass::pass_host`).
  */
 
-namespace vulkan {
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_frame_constants
      * @brief the frame loop's RENDERER SETTINGS, for the ones more than one pass reads
@@ -84,7 +84,7 @@ namespace vulkan {
      * @note every matrix here is the SAME one the camera UBO carries for this frame, so a pass that composes a
      *       push block from it and a shader that reads the UBO cannot disagree about the camera. `proj` keeps
      *       the TAA jitter (the geometry must be sampled at the jittered offsets); `view_proj_unjittered` is
-     *       the pair the motion vectors come from (see `camera_ubo` in vulkan.primitive for the full argument).
+     *       the pair the motion vectors come from (see `camera_ubo` in deren.vulkan.primitive for the full argument).
      */
     export struct frame_constants {
         /// this frame's view matrix
@@ -107,4 +107,4 @@ namespace vulkan {
         render_settings settings = {};
     };
 
-} // namespace vulkan
+} // namespace deren::vulkan

@@ -3,10 +3,10 @@ module;
 #include <GLFW/glfw3.h>
 #include <vulkan/vulkan.h>
 
-export module vulkan.core:init_utils;
-export import vstd;
-import utility;
-import vulkan.constant_init;
+export module deren.vulkan.core:init_utils;
+export import deren.vstd;
+import deren.utility;
+import deren.vulkan.constant_init;
 
 /**
  * @file init_utils.cppm
@@ -14,7 +14,7 @@ import vulkan.constant_init;
  * @brief pure utility functions and data types for device/queue/swap chain selection and creation
  * @note
  *      - most functions are noexcept, failures either return a sentinel or panic
- *      - used by vulkan.core during initialization
+ *      - used by deren.vulkan.core during initialization
  */
 /**
  * @ingroup vulkan_init_utils
@@ -214,7 +214,7 @@ export struct device_capabilities {
 
     // ---- VK_EXT_host_image_copy: a copy between image memory and host memory that the IMPLEMENTATION performs,
     //      which is what lets a read-back skip the staging buffer and the copy command entirely (see
-    //      vulkan.readback). Unlike the unified layouts feature above it is OPTIONAL: a device without it keeps
+    //      deren.vulkan.readback). Unlike the unified layouts feature above it is OPTIONAL: a device without it keeps
     //      the command-buffer read-back, so it is enabled when present and reported unavailable otherwise.
     //      NOTE the feature bit is not the whole capability: a host copy may only read an image whose layout is
     //      one of the device's VkPhysicalDeviceHostImageCopyPropertiesEXT::pCopySrcLayouts, and this renderer
@@ -453,13 +453,13 @@ debug_callback(
     [[maybe_unused]] void* user_data) noexcept {
     if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
         // Errors go through error(): Debug prints red to stderr, Release writes to the log file
-        utility::error(callback_data->pMessage);
+        deren::utility::error(callback_data->pMessage);
     } else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-        utility::log("[WARNING] {}", callback_data->pMessage);
+        deren::utility::log("[WARNING] {}", callback_data->pMessage);
     } else if (message_severity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-        utility::log("[INFO] {}", callback_data->pMessage);
+        deren::utility::log("[INFO] {}", callback_data->pMessage);
     } else {
-        utility::log("[VERBOSE] {}", callback_data->pMessage);
+        deren::utility::log("[VERBOSE] {}", callback_data->pMessage);
     }
 
     return VK_FALSE; // VK_FALSE means not terminate this function call
@@ -752,7 +752,7 @@ namespace {
             size_t const token_end = comma == std::string::npos ? text.size() : comma;
             std::string_view const token(text.data() + start, token_end - start);
             if (current.size() > indent.size() && current.size() + token.size() + 2 > static_cast<size_t>(width)) {
-                utility::log("{}", current);
+                deren::utility::log("{}", current);
                 current = std::string(indent);
             }
             if (current.size() > indent.size()) {
@@ -765,7 +765,7 @@ namespace {
             start = comma + 2;
         }
         if (!text.empty()) {
-            utility::log("{}", current);
+            deren::utility::log("{}", current);
         }
     }
 } // namespace
@@ -774,9 +774,9 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     constexpr std::string_view box_line = "================================================";
     constexpr std::string_view sep_line = "------------------------------------------------";
 
-    utility::log("{}", box_line);
-    utility::log(" Vulkan device capabilities");
-    utility::log("{}", box_line);
+    deren::utility::log("{}", box_line);
+    deren::utility::log(" Vulkan device capabilities");
+    deren::utility::log("{}", box_line);
 
     static constexpr std::array<char const*, 5> device_type_names = {
         "other",
@@ -788,13 +788,13 @@ void print_device_capabilities(device_capabilities const& capabilities) {
     uint32_t const device_type = static_cast<uint32_t>(capabilities.properties_2.properties.deviceType);
     char const* type_name = device_type < device_type_names.size() ? device_type_names[device_type] : "unknown";
 
-    utility::log(" driver        : {} {}", capabilities.driver_properties.driverName, capabilities.driver_properties.driverInfo);
-    utility::log(" api version   : {}.{}.{}",
+    deren::utility::log(" driver        : {} {}", capabilities.driver_properties.driverName, capabilities.driver_properties.driverInfo);
+    deren::utility::log(" api version   : {}.{}.{}",
                  VK_API_VERSION_MAJOR(capabilities.properties_2.properties.apiVersion),
                  VK_API_VERSION_MINOR(capabilities.properties_2.properties.apiVersion),
                  VK_API_VERSION_PATCH(capabilities.properties_2.properties.apiVersion));
-    utility::log(" device        : {} ({})", capabilities.properties_2.properties.deviceName, type_name);
-    utility::log("{}", sep_line);
+    deren::utility::log(" device        : {} ({})", capabilities.properties_2.properties.deviceName, type_name);
+    deren::utility::log("{}", sep_line);
 
     using feature_1_1 = VkPhysicalDeviceVulkan11Features;
     using feature_1_2 = VkPhysicalDeviceVulkan12Features;
@@ -815,7 +815,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
                                                                                                  {"samplerYcbcrConversion", &feature_1_1::samplerYcbcrConversion},
                                                                                                  {"shaderDrawParameters", &feature_1_1::shaderDrawParameters},
                                                                                              });
-    utility::log(" vulkan 1.1 features ({})", count_1_1);
+    deren::utility::log(" vulkan 1.1 features ({})", count_1_1);
     print_wrapped(enabled_1_1, 100, "   ");
 
     std::string enabled_1_2;
@@ -868,7 +868,7 @@ void print_device_capabilities(device_capabilities const& capabilities) {
                                                                                                  {"shaderOutputLayer", &feature_1_2::shaderOutputLayer},
                                                                                                  {"subgroupBroadcastDynamicId", &feature_1_2::subgroupBroadcastDynamicId},
                                                                                              });
-    utility::log(" vulkan 1.2 features ({})", count_1_2);
+    deren::utility::log(" vulkan 1.2 features ({})", count_1_2);
     print_wrapped(enabled_1_2, 100, "   ");
 
     std::string enabled_1_3;
@@ -889,65 +889,65 @@ void print_device_capabilities(device_capabilities const& capabilities) {
                                                                                                  {"shaderIntegerDotProduct", &feature_1_3::shaderIntegerDotProduct},
                                                                                                  {"maintenance4", &feature_1_3::maintenance4},
                                                                                              });
-    utility::log(" vulkan 1.3 features ({})", count_1_3);
+    deren::utility::log(" vulkan 1.3 features ({})", count_1_3);
     print_wrapped(enabled_1_3, 100, "   ");
 
     // ---- Ray tracing: whether the optional extension features joined the chain (see query) ----
     if (capabilities.ray_query_available) {
-        utility::log(" ray tracing   : ray query available (VK_KHR_acceleration_structure + VK_KHR_ray_query)");
+        deren::utility::log(" ray tracing   : ray query available (VK_KHR_acceleration_structure + VK_KHR_ray_query)");
         if (capabilities.ray_tracing_pipeline_available) {
-            utility::log("   sbt         : handle {} B, base alignment {}, handle alignment {}, max recursion {}",
+            deren::utility::log("   sbt         : handle {} B, base alignment {}, handle alignment {}, max recursion {}",
                          capabilities.ray_tracing_pipeline_properties.shaderGroupHandleSize,
                          capabilities.ray_tracing_pipeline_properties.shaderGroupBaseAlignment,
                          capabilities.ray_tracing_pipeline_properties.shaderGroupHandleAlignment,
                          capabilities.ray_tracing_pipeline_properties.maxRayRecursionDepth);
         }
-        utility::log("                 {} / opacity micromap {}",
+        deren::utility::log("                 {} / opacity micromap {}",
                      capabilities.ray_tracing_pipeline_available ? "ray pipeline available (VK_KHR_ray_tracing_pipeline + maintenance1)" : "ray pipeline NOT available",
                      capabilities.opacity_micromap_available ? std::format("available (VK_EXT_opacity_micromap, max subdivision level {} 2-state / {} 4-state)", capabilities.opacity_micromap_properties.maxOpacity2StateSubdivisionLevel, capabilities.opacity_micromap_properties.maxOpacity4StateSubdivisionLevel) : "not available");
-        utility::log("   limits      : {} instances, {} geometries, scratch alignment {}",
+        deren::utility::log("   limits      : {} instances, {} geometries, scratch alignment {}",
                      capabilities.acceleration_structure_properties.maxInstanceCount,
                      capabilities.acceleration_structure_properties.maxGeometryCount,
                      capabilities.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment);
     } else {
-        utility::log(" ray tracing   : not available (ray-traced shadows and GI stay off)");
+        deren::utility::log(" ray tracing   : not available (ray-traced shadows and GI stay off)");
     }
 
     // ---- Descriptor heap: independent of ray tracing, so it reports outside that block ----
     if (capabilities.descriptor_heap_available) {
-        utility::log(" descriptor heap: available (VK_EXT_descriptor_heap, revision 1)");
-        utility::log("   descriptors : buffer {} B (align {}), image {} B (align {}), sampler {} B (align {})",
+        deren::utility::log(" descriptor heap: available (VK_EXT_descriptor_heap, revision 1)");
+        deren::utility::log("   descriptors : buffer {} B (align {}), image {} B (align {}), sampler {} B (align {})",
                      capabilities.descriptor_heap_properties.bufferDescriptorSize,
                      capabilities.descriptor_heap_properties.bufferDescriptorAlignment,
                      capabilities.descriptor_heap_properties.imageDescriptorSize,
                      capabilities.descriptor_heap_properties.imageDescriptorAlignment,
                      capabilities.descriptor_heap_properties.samplerDescriptorSize,
                      capabilities.descriptor_heap_properties.samplerDescriptorAlignment);
-        utility::log("   heaps       : resource max {} MiB (alignment {}), sampler max {} KiB (alignment {})",
+        deren::utility::log("   heaps       : resource max {} MiB (alignment {}), sampler max {} KiB (alignment {})",
                      capabilities.descriptor_heap_properties.maxResourceHeapSize / (1024 * 1024),
                      capabilities.descriptor_heap_properties.resourceHeapAlignment,
                      capabilities.descriptor_heap_properties.maxSamplerHeapSize / 1024,
                      capabilities.descriptor_heap_properties.samplerHeapAlignment);
-        utility::log("   reserved    : {} KiB resource, {} KiB sampler with embedded samplers, {} embedded samplers max, push data {} B",
+        deren::utility::log("   reserved    : {} KiB resource, {} KiB sampler with embedded samplers, {} embedded samplers max, push data {} B",
                      capabilities.descriptor_heap_properties.minResourceHeapReservedRange / 1024,
                      capabilities.descriptor_heap_properties.minSamplerHeapReservedRangeWithEmbedded / 1024,
                      capabilities.descriptor_heap_properties.maxDescriptorHeapEmbeddedSamplers,
                      capabilities.descriptor_heap_properties.maxPushDataSize);
     } else {
-        utility::log(" descriptor heap: not available (the heap is the only binding model this renderer has)");
+        deren::utility::log(" descriptor heap: not available (the heap is the only binding model this renderer has)");
     }
 
     // ---- Mesh shaders: independent of both of the above, so they report outside those blocks ----
     if (capabilities.mesh_shader_available) {
-        utility::log(" mesh shaders  : available (VK_EXT_mesh_shader, task shaders {})",
+        deren::utility::log(" mesh shaders  : available (VK_EXT_mesh_shader, task shaders {})",
                      capabilities.mesh_shader_features.taskShader == VK_TRUE ? "available" : "NOT available");
-        utility::log("   output      : {} vertices / {} primitives / {} components / {} B per workgroup, {} invocations max",
+        deren::utility::log("   output      : {} vertices / {} primitives / {} components / {} B per workgroup, {} invocations max",
                      capabilities.mesh_shader_properties.maxMeshOutputVertices,
                      capabilities.mesh_shader_properties.maxMeshOutputPrimitives,
                      capabilities.mesh_shader_properties.maxMeshOutputComponents,
                      capabilities.mesh_shader_properties.maxMeshOutputMemorySize,
                      capabilities.mesh_shader_properties.maxMeshWorkGroupInvocations);
-        utility::log("   workgroup   : mesh {}x{}x{}, task {}x{}x{}",
+        deren::utility::log("   workgroup   : mesh {}x{}x{}, task {}x{}x{}",
                      capabilities.mesh_shader_properties.maxMeshWorkGroupSize[0],
                      capabilities.mesh_shader_properties.maxMeshWorkGroupSize[1],
                      capabilities.mesh_shader_properties.maxMeshWorkGroupSize[2],
@@ -955,36 +955,36 @@ void print_device_capabilities(device_capabilities const& capabilities) {
                      capabilities.mesh_shader_properties.maxTaskWorkGroupSize[1],
                      capabilities.mesh_shader_properties.maxTaskWorkGroupSize[2]);
     } else {
-        utility::log(" mesh shaders  : not available (geometry stays on the vertex stage)");
+        deren::utility::log(" mesh shaders  : not available (geometry stays on the vertex stage)");
     }
 
     // ---- Unified image layouts: a REQUIRED feature, so this line is a receipt rather than a decision ----
     if (capabilities.unified_image_layouts_available) {
-        utility::log(" unified layout: available (VK_KHR_unified_image_layouts, every image stays in GENERAL)");
+        deren::utility::log(" unified layout: available (VK_KHR_unified_image_layouts, every image stays in GENERAL)");
     } else {
-        utility::log(" unified layout: NOT available (this renderer requires it, device creation refuses)");
+        deren::utility::log(" unified layout: NOT available (this renderer requires it, device creation refuses)");
     }
 
     // ---- Host image copy: OPTIONAL, so this line records which read-back path is in use rather than a refusal --
     if (capabilities.host_image_copy_available) {
-        utility::log(" host image copy: available (VK_EXT_host_image_copy, an image read-back skips the staging copy)");
+        deren::utility::log(" host image copy: available (VK_EXT_host_image_copy, an image read-back skips the staging copy)");
     } else {
-        utility::log(" host image copy: NOT available (an image read-back keeps its staging copy)");
+        deren::utility::log(" host image copy: NOT available (an image read-back keeps its staging copy)");
     }
 
-    utility::log("{}", box_line);
+    deren::utility::log("{}", box_line);
 }
 
 logical_device create_logical_device(
     VkPhysicalDevice const physical_device, // NOLINT(*-misplaced-const)
     device_creation_info const& create_info) noexcept {
     if (!create_info.queue_families.is_complete()) {
-        utility::error("Queue families not complete");
-        utility::panic("Queue families not complete");
+        deren::utility::error("Queue families not complete");
+        deren::utility::panic("Queue families not complete");
     }
 
     if (!create_info.queue_families.compute_family || !create_info.queue_families.graphics_family || !create_info.queue_families.present_family) {
-        utility::panic("queue family is empty");
+        deren::utility::panic("queue family is empty");
     }
 
     // Use a set to collect unique queue family indices
@@ -1006,7 +1006,7 @@ logical_device create_logical_device(
     constexpr float queue_priority = 1.0f;
 
     for (uint32_t queue_family : unique_queue_families) {
-        queue_create_infos.push_back(vulkan::make_device_queue_info(queue_family, &queue_priority));
+        queue_create_infos.push_back(deren::vulkan::make_device_queue_info(queue_family, &queue_priority));
     }
 
     VkPhysicalDevicePresentModeFifoLatestReadyFeaturesKHR fifo_latest_ready_features = {
@@ -1057,7 +1057,7 @@ logical_device create_logical_device(
     VkDevice device = {};
     VkResult const result = vkCreateDevice(physical_device, &device_create_info, nullptr, &device);
     if (result != VK_SUCCESS) {
-        utility::panic(std::source_location::current(), "Failed to create logical device: {}", std::to_string(result));
+        deren::utility::panic(std::source_location::current(), "Failed to create logical device: {}", std::to_string(result));
     }
 
     // Get queues
@@ -1157,7 +1157,7 @@ VkPhysicalDevice pick_suitable_device(VkInstance instance, VkSurfaceKHR surface)
     uint32_t device_count = 0;
     vkEnumeratePhysicalDevices(instance, &device_count, nullptr);
     if (device_count == 0) {
-        utility::panic("Failed to find GPUs with Vulkan support");
+        deren::utility::panic("Failed to find GPUs with Vulkan support");
     }
 
     std::vector<VkPhysicalDevice> devices(device_count);
@@ -1190,7 +1190,7 @@ VkPhysicalDevice pick_suitable_device(VkInstance instance, VkSurfaceKHR surface)
         return device; // suitable device found
     }
 
-    utility::panic("Failed to find a suitable GPU (Vulkan 1.3 required)!");
+    deren::utility::panic("Failed to find a suitable GPU (Vulkan 1.3 required)!");
 }
 
 swap_chain_support_details query_swap_chain_support(VkPhysicalDevice device, VkSurfaceKHR surface) noexcept {
@@ -1215,7 +1215,7 @@ swap_chain_support_details query_swap_chain_support(VkPhysicalDevice device, VkS
         vkGetPhysicalDeviceSurfacePresentModesKHR(device, surface, &present_mode_count, details.present_modes.data());
     }
 
-    utility::log("present modes count: {}", details.present_modes.size());
+    deren::utility::log("present modes count: {}", details.present_modes.size());
 
     return details;
 }
@@ -1258,7 +1258,7 @@ VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow*
     // window that is not shown (or is minimized, or has not been mapped yet) can report a 0x0 framebuffer,
     // and this renderer sizes its whole frame from that number. The log makes which path ran a fact of
     // every run rather than something deduced from the platform.
-    utility::log("swapchain extent: surface currentExtent {}x{} ({})",
+    deren::utility::log("swapchain extent: surface currentExtent {}x{} ({})",
                  capabilities.currentExtent.width,
                  capabilities.currentExtent.height,
                  capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() ? "the surface answers, the window is not consulted" : "unspecified - the window is consulted");
@@ -1280,7 +1280,7 @@ VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow*
     // not a value invented here. `requested_*` is clamped up only so that the fallback cannot itself be a
     // zero-sized image on a config that asks for 0.
     if (width <= 0 || height <= 0) {
-        utility::log("swapchain extent: the window reports a {}x{} framebuffer (surface extent unspecified), so the {}x{} the window was REQUESTED at is used instead",
+        deren::utility::log("swapchain extent: the window reports a {}x{} framebuffer (surface extent unspecified), so the {}x{} the window was REQUESTED at is used instead",
                      width,
                      height,
                      requested_width,
@@ -1319,7 +1319,7 @@ uint32_t find_memory_type(uint32_t type_filter, VkMemoryPropertyFlags properties
             return i; // return the found memory type index
         }
     }
-    utility::panic("failed to find suitable memory type");
+    deren::utility::panic("failed to find suitable memory type");
 }
 
 VkFormat find_depth_format(VkPhysicalDevice physical_device) noexcept {
@@ -1342,7 +1342,7 @@ VkFormat find_depth_format(VkPhysicalDevice physical_device) noexcept {
         }
     }
 
-    utility::panic("failed to find supported depth format!");
+    deren::utility::panic("failed to find supported depth format!");
 }
 
 VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, VkDevice device) noexcept {
@@ -1350,13 +1350,13 @@ VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags
 }
 
 VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, VkDevice device, VkImageViewType view_type) noexcept {
-    // identity swizzle, one mip + one layer (see vulkan::make_image_view_info); only the
+    // identity swizzle, one mip + one layer (see deren::vulkan::make_image_view_info); only the
     // dimensionality differs between callers
-    VkImageViewCreateInfo const view_info = vulkan::make_image_view_info(image, format, view_type, aspect_flags, 1, 1);
+    VkImageViewCreateInfo const view_info = deren::vulkan::make_image_view_info(image, format, view_type, aspect_flags, 1, 1);
 
     VkImageView image_view;
     if (vkCreateImageView(device, &view_info, nullptr, &image_view) != VK_SUCCESS) {
-        utility::panic("failed to create image view!");
+        deren::utility::panic("failed to create image view!");
     }
 
     return image_view;
@@ -1364,11 +1364,11 @@ VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags
 VkImageView create_image_view(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags, VkDevice device, VkImageViewType view_type, uint32_t layer_count) noexcept {
     // identity swizzle, one mip, and the caller''s layer count: the sixth parameter is the whole reason this
     // overload exists (a cube view covers six layers, and the other two overloads fix it at one)
-    VkImageViewCreateInfo const view_info = vulkan::make_image_view_info(image, format, view_type, aspect_flags, 1, layer_count);
+    VkImageViewCreateInfo const view_info = deren::vulkan::make_image_view_info(image, format, view_type, aspect_flags, 1, layer_count);
 
     VkImageView image_view;
     if (vkCreateImageView(device, &view_info, nullptr, &image_view) != VK_SUCCESS) {
-        utility::panic("failed to create image view!");
+        deren::utility::panic("failed to create image view!");
     }
 
     return image_view;

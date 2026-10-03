@@ -11,40 +11,40 @@
 #include <string_view>
 #include <vector>
 
-import gltf_loader;
+import deren.gltf_loader;
 
 namespace {
     void test_khr_lights_punctual_minimal() {
-        auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/lights_punctual_minimal.gltf");
+        auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/lights_punctual_minimal.gltf");
         CHECK(result.has_value());
         if (!result.has_value()) {
             return;
         }
-        gltf::scenes const& scenes = *result;
+        deren::gltf::scenes const& scenes = *result;
         CHECK(scenes.lights.size() == 3);
         if (scenes.lights.size() != 3) {
             return;
         }
         // point light: binary-clean values load exactly
-        CHECK(scenes.lights[0].type == gltf::light_type::point);
+        CHECK(scenes.lights[0].type == deren::gltf::light_type::point);
         CHECK(scenes.lights[0].intensity == 2.0f);
         CHECK(scenes.lights[0].range == std::optional<float>(8.0f));
         CHECK(scenes.lights[0].color == glm::vec3(1.0f, 0.5f, 0.25f));
         // spot light: the optional cone angles are exported
-        CHECK(scenes.lights[1].type == gltf::light_type::spot);
+        CHECK(scenes.lights[1].type == deren::gltf::light_type::spot);
         CHECK(scenes.lights[1].spot_inner_cone.has_value());
         CHECK(scenes.lights[1].spot_outer_cone.has_value());
         if (scenes.lights[1].spot_outer_cone) {
             CHECK(std::abs(*scenes.lights[1].spot_outer_cone - 0.5f) < 1e-5f);
         }
         // directional light
-        CHECK(scenes.lights[2].type == gltf::light_type::directional);
+        CHECK(scenes.lights[2].type == deren::gltf::light_type::directional);
         CHECK(scenes.lights[2].intensity == 4.0f);
 
         // every KHR node attachment landed on a node (light_index into scenes.lights)
         CHECK(scenes.scene[0].nodes.size() == 4);
         std::size_t attached = 0;
-        for (gltf::node const& node : scenes.scene[0].nodes) {
+        for (deren::gltf::node const& node : scenes.scene[0].nodes) {
             if (node.light_index) {
                 ++attached;
                 CHECK(*node.light_index < scenes.lights.size());
@@ -60,18 +60,18 @@ namespace {
     // Reading the interleaved output (rather than the raw accessor) is the point: the raw bytes are
     // correct either way - the corruption happens on the way into the vertex struct.
     void test_quantized_attributes() {
-        auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/quantized_attributes.gltf");
+        auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/quantized_attributes.gltf");
         CHECK(result.has_value());
         if (!result.has_value()) {
             return;
         }
-        std::vector<gltf::resolved_material> const materials = gltf::resolve_materials(*result);
-        gltf::drawable_iterator it(*result, materials);
-        CHECK(it != gltf::drawable_iterator());
-        if (!(it != gltf::drawable_iterator())) {
+        std::vector<deren::gltf::resolved_material> const materials = deren::gltf::resolve_materials(*result);
+        deren::gltf::drawable_iterator it(*result, materials);
+        CHECK(it != deren::gltf::drawable_iterator());
+        if (!(it != deren::gltf::drawable_iterator())) {
             return;
         }
-        gltf::vertex_view const vertex = it.get_vertex();
+        deren::gltf::vertex_view const vertex = it.get_vertex();
         CHECK(vertex.count == 3);
         CHECK(vertex.stride == 64); // position(12) normal(12) uv(8) joints(16) weights(16)
         if (vertex.count != 3 || vertex.stride != 64 || vertex.data.size() < 3u * vertex.stride) {
@@ -121,12 +121,12 @@ namespace {
     }
 
     void test_load_damaged_helmet() {
-        auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
         CHECK(result.has_value());
         if (!result.has_value()) {
             return;
         }
-        gltf::scenes const& scenes = *result;
+        deren::gltf::scenes const& scenes = *result;
 
         // the sample has one material, several textures and one mesh with one primitive
         CHECK(scenes.materials.size() == 1);
@@ -136,7 +136,7 @@ namespace {
         CHECK(!scenes.node_by_source.empty());
 
         // world AABB over every drawable primitive
-        gltf::scene_bounds const bounds = gltf::compute_scene_bounds(scenes);
+        deren::gltf::scene_bounds const bounds = deren::gltf::compute_scene_bounds(scenes);
         CHECK(bounds.valid);
         CHECK(bounds.primitive_count >= 1);
         CHECK(bounds.min.x <= bounds.max.x);
@@ -149,31 +149,31 @@ namespace {
 
         // the drawable iterator yields exactly the primitives the bounds counted
         std::size_t drawables = 0;
-        for (auto it = scenes.begin(); it != gltf::scenes::end(); ++it) {
+        for (auto it = scenes.begin(); it != deren::gltf::scenes::end(); ++it) {
             ++drawables;
         }
         CHECK(drawables == bounds.primitive_count);
 
         // renderer-ready materials resolve one per source material
-        std::vector<gltf::resolved_material> const resolved = gltf::resolve_materials(scenes);
+        std::vector<deren::gltf::resolved_material> const resolved = deren::gltf::resolve_materials(scenes);
         CHECK(resolved.size() == scenes.materials.size());
     }
 
     void test_async_load_matches_sync() {
-        auto future = gltf::load_model_async(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
+        auto future = deren::gltf::load_model_async(VR_TEST_SOURCE_DIR "/gltf_model/DamagedHelmet.gltf");
         auto const result = future.get();
         CHECK(result.has_value());
         if (result.has_value()) {
-            gltf::scene_bounds const bounds = gltf::compute_scene_bounds(*result);
+            deren::gltf::scene_bounds const bounds = deren::gltf::compute_scene_bounds(*result);
             CHECK(bounds.valid);
             CHECK(bounds.primitive_count >= 1);
         }
     }
 
     void test_missing_file_reports_file_not_found() {
-        auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/definitely_missing.gltf");
+        auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/definitely_missing.gltf");
         CHECK(!result.has_value());
-        CHECK(result.error() == gltf::error_code::file_not_found);
+        CHECK(result.error() == deren::gltf::error_code::file_not_found);
     }
 } // namespace
 
@@ -182,12 +182,12 @@ namespace {
 // test holds still is the DATA it depends on: both nodes reach the scene carrying skin_index 0, and
 // the skin is not folded away.
 void test_one_skin_used_by_two_nodes() {
-    auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/shared_skin_two_nodes.gltf");
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/shared_skin_two_nodes.gltf");
     CHECK(result.has_value());
     if (!result.has_value()) {
         return;
     }
-    gltf::scenes const& scenes = *result;
+    deren::gltf::scenes const& scenes = *result;
     CHECK(scenes.skins.size() == 1);
     std::size_t skinned = 0;
     for (auto const& [source, loader_node] : scenes.node_by_source) {
@@ -206,18 +206,18 @@ void test_the_head_frame_matcher_rejects_lookalikes() {
     // WHAT COUNTS AS A HEAD BONE, and the negative cases are the test: every rig names its head bone something
     // like these four, and every character with a hat or a hairstyle also carries `headgear`, `overhead` or
     // `Forehead` in the same skeleton. A substring test would take those.
-    CHECK(gltf::looks_like_head_joint("head"));
-    CHECK(gltf::looks_like_head_joint("Head"));
-    CHECK(gltf::looks_like_head_joint("Bip01 Head"));
-    CHECK(gltf::looks_like_head_joint("J_Head"));
-    CHECK(gltf::looks_like_head_joint("Head_Nub"));
-    CHECK(gltf::looks_like_head_joint("頭_01"));
-    CHECK(gltf::looks_like_head_joint("头"));
-    CHECK(!gltf::looks_like_head_joint("headgear"));
-    CHECK(!gltf::looks_like_head_joint("overhead"));
-    CHECK(!gltf::looks_like_head_joint("Forehead"));
-    CHECK(!gltf::looks_like_head_joint("neck"));
-    CHECK(!gltf::looks_like_head_joint(""));
+    CHECK(deren::gltf::looks_like_head_joint("head"));
+    CHECK(deren::gltf::looks_like_head_joint("Head"));
+    CHECK(deren::gltf::looks_like_head_joint("Bip01 Head"));
+    CHECK(deren::gltf::looks_like_head_joint("J_Head"));
+    CHECK(deren::gltf::looks_like_head_joint("Head_Nub"));
+    CHECK(deren::gltf::looks_like_head_joint("頭_01"));
+    CHECK(deren::gltf::looks_like_head_joint("头"));
+    CHECK(!deren::gltf::looks_like_head_joint("headgear"));
+    CHECK(!deren::gltf::looks_like_head_joint("overhead"));
+    CHECK(!deren::gltf::looks_like_head_joint("Forehead"));
+    CHECK(!deren::gltf::looks_like_head_joint("neck"));
+    CHECK(!deren::gltf::looks_like_head_joint(""));
 }
 
 void test_the_head_frame_from_a_bone_and_when_there_is_none() {
@@ -225,7 +225,7 @@ void test_the_head_frame_from_a_bone_and_when_there_is_none() {
     // SDF is measured against: the front of a glTF asset faces `+Z` and its right is `-X`. It is deliberately NOT
     // the reference's constant `(0,0,-1)`, which points 180 degrees away from the face of every model measured
     // here - see the note on `head_basis` for what that sign costs (94.1% of a face read as shadow).
-    gltf::head_basis const fallback = gltf::head_basis_fallback();
+    deren::gltf::head_basis const fallback = deren::gltf::head_basis_fallback();
     CHECK(fallback.front == glm::vec3(0.0f, 0.0f, 1.0f));
     CHECK(fallback.right == glm::vec3(-1.0f, 0.0f, 0.0f));
     CHECK(fallback.up == glm::vec3(0.0f, 1.0f, 0.0f));
@@ -237,7 +237,7 @@ void test_the_head_frame_from_a_bone_and_when_there_is_none() {
     // AN IDENTITY BONE. `row3` is `+Z` and `row1` is `+X`, so the frame is the fallback's own - and it must come
     // back flagged as a REAL frame rather than as the fallback, because those two are different answers that look
     // identical.
-    gltf::head_basis const identity = gltf::head_basis_from_axes(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+    deren::gltf::head_basis const identity = deren::gltf::head_basis_from_axes(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
     CHECK(identity.from_skeleton);
     CHECK(identity.front == glm::vec3(0.0f, 0.0f, 1.0f));
     CHECK(identity.right == glm::vec3(-1.0f, 0.0f, 0.0f));
@@ -245,13 +245,13 @@ void test_the_head_frame_from_a_bone_and_when_there_is_none() {
 
     // A DEGENERATE BONE IS THE FALLBACK. An unposed or missing bone arrives as a zero matrix, and normalising
     // that would put NaNs in the shader - i.e. a black or flickering face rather than an error.
-    CHECK(!gltf::head_basis_from_axes(glm::vec3(0.0f), glm::vec3(0.0f)).from_skeleton);
+    CHECK(!deren::gltf::head_basis_from_axes(glm::vec3(0.0f), glm::vec3(0.0f)).from_skeleton);
     // ... and so are two PARALLEL axes, where there is no third one to build.
-    CHECK(!gltf::head_basis_from_axes(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(-2.0f, 0.0f, 0.0f)).from_skeleton);
+    CHECK(!deren::gltf::head_basis_from_axes(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(-2.0f, 0.0f, 0.0f)).from_skeleton);
 
     // A NON-ORTHOGONAL BONE IS RE-ORTHOGONALISED rather than taken as it is: the returned frame's three axes
     // have to BE a frame, because the SDF's angle is taken between the light and them.
-    gltf::head_basis const skewed = gltf::head_basis_from_axes(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.5f));
+    deren::gltf::head_basis const skewed = deren::gltf::head_basis_from_axes(glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(1.0f, 0.0f, 0.5f));
     CHECK(skewed.from_skeleton);
     CHECK(std::abs(glm::dot(skewed.front, skewed.right)) < 1e-4f);
     CHECK(std::abs(glm::dot(skewed.front, skewed.up)) < 1e-4f);
@@ -262,17 +262,17 @@ void test_no_head_bone_is_found_where_there_is_none() {
     // THE TWO SKINNED FIXTURES HAVE JOINTS CALLED `pole`/`arm` AND `joint` - no head - so the finder must answer
     // "no head bone" rather than take the first joint it sees, which is the failure that would matter: a face
     // shaded from an arm's frame looks like a face shaded from a head's until the arm moves.
-    auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/animated_skin_plane.gltf");
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/animated_skin_plane.gltf");
     CHECK(result.has_value());
     if (!result.has_value()) {
         return;
     }
     CHECK(result->skins.size() == 1);
-    CHECK(!gltf::head_joint_of(*result, 0, 0).has_value());
+    CHECK(!deren::gltf::head_joint_of(*result, 0, 0).has_value());
     // OUT-OF-RANGE ASKS NOTHING RATHER THAN CRASHING: a caller that indexes a scene or a skin that this file
     // does not have gets "no head bone", which is the same answer it would get from a model with no skeleton.
-    CHECK(!gltf::head_joint_of(*result, 99, 0).has_value());
-    CHECK(!gltf::head_joint_of(*result, 0, 99).has_value());
+    CHECK(!deren::gltf::head_joint_of(*result, 99, 0).has_value());
+    CHECK(!deren::gltf::head_joint_of(*result, 0, 99).has_value());
 }
 
 void test_a_head_bone_is_found_at_its_joint_index() {
@@ -284,7 +284,7 @@ void test_a_head_bone_is_found_at_its_joint_index() {
     // a joint index, would pass a test written against joint 0 and fail here, and both of those are real
     // mistakes: the joint index is what picks a matrix out of the per-frame skin matrix array, so an off-by-one
     // shades a face from a neck.
-    auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/skinned_head.gltf");
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/skinned_head.gltf");
     CHECK(result.has_value());
     if (!result.has_value()) {
         return;
@@ -294,7 +294,7 @@ void test_a_head_bone_is_found_at_its_joint_index() {
         return;
     }
     CHECK(result->skins[0].joints.size() == 2);
-    std::optional<std::size_t> const head = gltf::head_joint_of(*result, 0, 0);
+    std::optional<std::size_t> const head = deren::gltf::head_joint_of(*result, 0, 0);
     CHECK(head.has_value());
     CHECK(head == std::optional<std::size_t>{1});
     // AND IT IS AN INDEX INTO `joints`, NOT AN ASSET NODE INDEX: the two differ here on purpose (the head is
@@ -314,78 +314,78 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
     //
     // EVERY NAME BELOW IS TAKEN FROM A MODEL IN THIS REPOSITORY rather than invented. The first group is
     // `zhuangfy_toon.glb`'s own material list, in its own spellings.
-    CHECK(gltf::toon_family_of("颜") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("肌上") == gltf::toon_family::skin);
-    CHECK(gltf::toon_family_of("肌-手") == gltf::toon_family::skin);
-    CHECK(gltf::toon_family_of("肌-耳") == gltf::toon_family::skin);
-    CHECK(gltf::toon_family_of("肌下-隐藏") == gltf::toon_family::skin);
-    CHECK(gltf::toon_family_of("目") == gltf::toon_family::eye);
-    CHECK(gltf::toon_family_of("目白") == gltf::toon_family::eye);
-    CHECK(gltf::toon_family_of("目HL") == gltf::toon_family::eye);
-    CHECK(gltf::toon_family_of("眉") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("睫") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("舌") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("口线") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("鼻线") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("齿") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("二重") == gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("颜") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("肌上") == deren::gltf::toon_family::skin);
+    CHECK(deren::gltf::toon_family_of("肌-手") == deren::gltf::toon_family::skin);
+    CHECK(deren::gltf::toon_family_of("肌-耳") == deren::gltf::toon_family::skin);
+    CHECK(deren::gltf::toon_family_of("肌下-隐藏") == deren::gltf::toon_family::skin);
+    CHECK(deren::gltf::toon_family_of("目") == deren::gltf::toon_family::eye);
+    CHECK(deren::gltf::toon_family_of("目白") == deren::gltf::toon_family::eye);
+    CHECK(deren::gltf::toon_family_of("目HL") == deren::gltf::toon_family::eye);
+    CHECK(deren::gltf::toon_family_of("眉") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("睫") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("舌") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("口线") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("鼻线") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("齿") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("二重") == deren::gltf::toon_family::face);
     // `表情` is the expression overlay - blush and tears drawn over the same face geometry - and it is the
     // last name in these models to fall through, so it is asserted with them.
-    CHECK(gltf::toon_family_of("表情") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("发") == gltf::toon_family::hair);
-    CHECK(gltf::toon_family_of("前发饰") == gltf::toon_family::hair);
-    CHECK(gltf::toon_family_of("发簪") == gltf::toon_family::hair);
-    CHECK(gltf::toon_family_of("鞋") == gltf::toon_family::cloth);
-    CHECK(gltf::toon_family_of("裤") == gltf::toon_family::cloth);
-    CHECK(gltf::toon_family_of("裤-alpha") == gltf::toon_family::cloth);
-    CHECK(gltf::toon_family_of("手") == gltf::toon_family::skin);
+    CHECK(deren::gltf::toon_family_of("表情") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("发") == deren::gltf::toon_family::hair);
+    CHECK(deren::gltf::toon_family_of("前发饰") == deren::gltf::toon_family::hair);
+    CHECK(deren::gltf::toon_family_of("发簪") == deren::gltf::toon_family::hair);
+    CHECK(deren::gltf::toon_family_of("鞋") == deren::gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("裤") == deren::gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("裤-alpha") == deren::gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("手") == deren::gltf::toon_family::skin);
 
     // THE SAME WORD IN ANOTHER SCRIPT IS A DIFFERENT WORD TO A BYTE COMPARISON, so each spelling is asserted
     // on its own: a table that gained only one of a pair reads half the models it exists to serve.
-    CHECK(gltf::toon_family_of("髪") == gltf::toon_family::hair);  // Japanese
-    CHECK(gltf::toon_family_of("髮") == gltf::toon_family::hair);  // traditional
-    CHECK(gltf::toon_family_of("顔") == gltf::toon_family::face);  // Japanese
-    CHECK(gltf::toon_family_of("臉") == gltf::toon_family::face);  // traditional
-    CHECK(gltf::toon_family_of("靴") == gltf::toon_family::cloth); // Japanese
-    CHECK(gltf::toon_family_of("褲") == gltf::toon_family::cloth); // traditional
-    CHECK(gltf::toon_family_of("襪") == gltf::toon_family::cloth);
-    CHECK(gltf::toon_family_of("腳") == gltf::toon_family::skin);
+    CHECK(deren::gltf::toon_family_of("髪") == deren::gltf::toon_family::hair);  // Japanese
+    CHECK(deren::gltf::toon_family_of("髮") == deren::gltf::toon_family::hair);  // traditional
+    CHECK(deren::gltf::toon_family_of("顔") == deren::gltf::toon_family::face);  // Japanese
+    CHECK(deren::gltf::toon_family_of("臉") == deren::gltf::toon_family::face);  // traditional
+    CHECK(deren::gltf::toon_family_of("靴") == deren::gltf::toon_family::cloth); // Japanese
+    CHECK(deren::gltf::toon_family_of("褲") == deren::gltf::toon_family::cloth); // traditional
+    CHECK(deren::gltf::toon_family_of("襪") == deren::gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("腳") == deren::gltf::toon_family::skin);
     // ... AND THE FACE IS THE ONE PLACE THE LASH AND BROW LAYERS OF `zhuangfy_toon.glb` DISAGREE WITH THE
     // BARE CHARACTERS: `睫眉` is ONE material covering both, so it must still reach `face` through either.
-    CHECK(gltf::toon_family_of("睫眉") == gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("睫眉") == deren::gltf::toon_family::face);
 
     // THE COLLISIONS THE GROUP ORDER RESOLVES, and both directions matter: `手套` (glove) must be cloth even
     // though it contains `手` (skin), and `袖口` (cuff) / `领口` (collar) must be cloth even though they
     // contain `口` (face). A table that gained the bare characters WITHOUT cloth ahead of skin and face
     // passes every assertion above and fails these three.
-    CHECK(gltf::toon_family_of("手套") == gltf::toon_family::cloth);
-    CHECK(gltf::toon_family_of("袖口") == gltf::toon_family::cloth);
-    CHECK(gltf::toon_family_of("领口") == gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("手套") == deren::gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("袖口") == deren::gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("领口") == deren::gltf::toon_family::cloth);
 
     // THE REFERENCE'S OWN NAMES ARE UNCHANGED, which is the widest risk in adding patterns: one that steals
     // a material the game data already classified moves a frame that was not supposed to move. These are
     // `actor_zhuangfy.glb`'s names, and `eyeshadow` and `tail` must stay `none` - they are the two names in
     // that file no family claims, and `eyeshadow` is the near miss that would catch a careless `eye` pattern.
-    CHECK(gltf::toon_family_of("M_actor_zhuangfy_face_01") == gltf::toon_family::face);
-    CHECK(gltf::toon_family_of("M_actor_zhuangfy_hair_01") == gltf::toon_family::hair);
-    CHECK(gltf::toon_family_of("M_actor_zhuangfy_iris_01") == gltf::toon_family::eye);
-    CHECK(gltf::toon_family_of("M_actor_zhuangfy_body_01") == gltf::toon_family::skin);
-    CHECK(gltf::toon_family_of("M_actor_zhuangfy_cloth_01") == gltf::toon_family::cloth);
-    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_eyebrow_01_lod0") == gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_face_01") == deren::gltf::toon_family::face);
+    CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_hair_01") == deren::gltf::toon_family::hair);
+    CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_iris_01") == deren::gltf::toon_family::eye);
+    CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_body_01") == deren::gltf::toon_family::skin);
+    CHECK(deren::gltf::toon_family_of("M_actor_zhuangfy_cloth_01") == deren::gltf::toon_family::cloth);
+    CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_eyebrow_01_lod0") == deren::gltf::toon_family::face);
     // THE TWO OVERLAY MATERIALS ARE `none`, NOT `hair`: the article draws them in their own framebuffer-multiply
     // pass (`MyZmdEyeDarkShader` / `MyZmdHairShadowShader`), so no toon family may claim them - see the note at the
     // top of `toon_family_of`. The hair-shadow line here asserted `hair` until that pass was being ported, which is
     // the reference's own classification of the NAME and not of the SHADING.
-    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == gltf::toon_family::none);
-    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == gltf::toon_family::none);
-    CHECK(gltf::toon_family_of("M_eyeshadow_common_01") == gltf::toon_family::none);
-    CHECK(gltf::toon_family_of("M_hairshadow_common_01") == gltf::toon_family::none);
-    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_tail_02_lod0") == gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == deren::gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == deren::gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_eyeshadow_common_01") == deren::gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_hairshadow_common_01") == deren::gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_tail_02_lod0") == deren::gltf::toon_family::none);
 
     // AN EMPTY NAME ASKS NOTHING and an unrecognised one is `none` rather than the first pattern's family -
     // an unnamed material is common in these files and must keep the family-independent path.
-    CHECK(gltf::toon_family_of("") == gltf::toon_family::none);
-    CHECK(gltf::toon_family_of("biaoq") == gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("") == deren::gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("biaoq") == deren::gltf::toon_family::none);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -398,36 +398,36 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
 // claimed by exactly one of the two channels.
 //
 // THE NUMBERING IS ASSERTED HERE TOO, because `register_material` compares the value against the literals 1 and
-// 2 to set the material record's flag bits 6 and 7 (vulkan.runtime does not import the loader's types, so the
+// 2 to set the material record's flag bits 6 and 7 (deren.vulkan.runtime does not import the loader's types, so the
 // value crosses the boundary as a number). Renumbering this enum would therefore change which shader branch an
 // overlay takes with no compile error anywhere - so the numbers are pinned where the enum is.
 void test_the_overlay_matcher_claims_the_two_masks() {
-    static_assert(static_cast<uint32_t>(gltf::overlay_kind::none) == 0u);
-    static_assert(static_cast<uint32_t>(gltf::overlay_kind::eye_dark) == 1u);
-    static_assert(static_cast<uint32_t>(gltf::overlay_kind::hair_shadow) == 2u);
+    static_assert(static_cast<uint32_t>(deren::gltf::overlay_kind::none) == 0u);
+    static_assert(static_cast<uint32_t>(deren::gltf::overlay_kind::eye_dark) == 1u);
+    static_assert(static_cast<uint32_t>(deren::gltf::overlay_kind::hair_shadow) == 2u);
 
     // the two materials `chars\chen_full2.glb` carries, which is the asset this port is measured on
-    CHECK(gltf::overlay_kind_of("M_eyeshadow_common_01") == gltf::overlay_kind::eye_dark);
-    CHECK(gltf::overlay_kind_of("M_hairshadow_common_01") == gltf::overlay_kind::hair_shadow);
+    CHECK(deren::gltf::overlay_kind_of("M_eyeshadow_common_01") == deren::gltf::overlay_kind::eye_dark);
+    CHECK(deren::gltf::overlay_kind_of("M_hairshadow_common_01") == deren::gltf::overlay_kind::hair_shadow);
     // ... and the game's own names for the same two, which are the ones the loader meets first in practice
-    CHECK(gltf::overlay_kind_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == gltf::overlay_kind::eye_dark);
-    CHECK(gltf::overlay_kind_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == gltf::overlay_kind::hair_shadow);
+    CHECK(deren::gltf::overlay_kind_of("M_S_actor_zhuangfy_eyeshadow_01_lod0") == deren::gltf::overlay_kind::eye_dark);
+    CHECK(deren::gltf::overlay_kind_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == deren::gltf::overlay_kind::hair_shadow);
     // the matcher is case-insensitive ASCII, like `toon_family_of`
-    CHECK(gltf::overlay_kind_of("M_Actor_Chen_EyeShadow_01") == gltf::overlay_kind::eye_dark);
+    CHECK(deren::gltf::overlay_kind_of("M_Actor_Chen_EyeShadow_01") == deren::gltf::overlay_kind::eye_dark);
 
     // THE INVARIANT THE PAIR HAS TO KEEP: an overlay is not a family, so every claimed name is `none` there -
     // and `hairshadow` contains `hair`, which is exactly the collision the top of `toon_family_of` exists for.
-    CHECK(gltf::toon_family_of("M_eyeshadow_common_01") == gltf::toon_family::none);
-    CHECK(gltf::toon_family_of("M_hairshadow_common_01") == gltf::toon_family::none);
-    CHECK(gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_eyeshadow_common_01") == deren::gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_hairshadow_common_01") == deren::gltf::toon_family::none);
+    CHECK(deren::gltf::toon_family_of("M_S_actor_zhuangfy_hairshadow_01_lod0") == deren::gltf::toon_family::none);
 
     // NOTHING ELSE IS AN OVERLAY, and the near miss is the point: `shadow` alone is a word that appears in
     // plenty of ordinary decals and shadow-catcher materials, so a matcher that accepted it would silently turn
     // one of them into a framebuffer multiply.
-    CHECK(gltf::overlay_kind_of("M_shadow_decal_01") == gltf::overlay_kind::none);
-    CHECK(gltf::overlay_kind_of("M_actor_chen_face_01") == gltf::overlay_kind::none);
-    CHECK(gltf::overlay_kind_of("M_actor_chen_hair_01") == gltf::overlay_kind::none);
-    CHECK(gltf::overlay_kind_of("") == gltf::overlay_kind::none);
+    CHECK(deren::gltf::overlay_kind_of("M_shadow_decal_01") == deren::gltf::overlay_kind::none);
+    CHECK(deren::gltf::overlay_kind_of("M_actor_chen_face_01") == deren::gltf::overlay_kind::none);
+    CHECK(deren::gltf::overlay_kind_of("M_actor_chen_hair_01") == deren::gltf::overlay_kind::none);
+    CHECK(deren::gltf::overlay_kind_of("") == deren::gltf::overlay_kind::none);
 }
 
 // ---------------------------------------------------------------------------------------------------
@@ -440,12 +440,12 @@ void test_the_overlay_matcher_claims_the_two_masks() {
 // property with no reader. The fixture also carries an UNCLAIMED name next to the claimed ones precisely so
 // this test can tell the two implementations apart - without it, both pass.
 void test_the_extras_block_is_read_through_the_claimed_table() {
-    auto const result = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/claimed_extras.gltf");
+    auto const result = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/claimed_extras.gltf");
     CHECK(result.has_value());
     if (!result.has_value()) {
         return;
     }
-    gltf::scenes const& scenes = *result;
+    deren::gltf::scenes const& scenes = *result;
     CHECK(scenes.materials.size() == 3);
     if (scenes.materials.size() != 3) {
         return;
@@ -497,5 +497,5 @@ int32_t main() {
     test_the_toon_family_matcher_reads_mmd_material_names();
     test_the_overlay_matcher_claims_the_two_masks();
     test_the_extras_block_is_read_through_the_claimed_table();
-    return vk_test::finish("test_gltf_loader");
+    return deren::vk_test::finish("test_gltf_loader");
 }

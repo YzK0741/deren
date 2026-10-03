@@ -6,10 +6,10 @@ module;
 #include <vulkan/vulkan.h>
 #include <vulkan/vulkan_core.h>
 
-export module vulkan.core.pipeline:spirv_parser;
+export module deren.vulkan.core.pipeline:spirv_parser;
 
-export import vstd;
-import utility;
+export import deren.vstd;
+import deren.utility;
 /**
  * @file spirv_parser.cppm
  * @defgroup vulkan_spirv_parser SPIR-V Reflection Parser
@@ -18,7 +18,7 @@ import utility;
  *      - built on SPIRV-Reflect
  *      - all functions return std::expected, errors are reported as std::string_view
  */
-namespace vulkan::pipeline {
+namespace deren::vulkan::pipeline {
     /**
      * @ingroup vulkan_spirv_parser
      * @brief byte size of the given VkFormat
@@ -114,13 +114,13 @@ namespace vulkan::pipeline {
      * @param spirv_code the SPIR-V binary code
      * @return push_constant_layout on success, error message on failure
      */
-    export std::expected<vulkan::pipeline::push_constant_layout, std::string_view> parse_push_constant_layout(
+    export std::expected<deren::vulkan::pipeline::push_constant_layout, std::string_view> parse_push_constant_layout(
         std::span<uint8_t const> spirv_code);
-} // namespace vulkan::pipeline
+} // namespace deren::vulkan::pipeline
 
 namespace {
-    vulkan::pipeline::interface_variable_info reflect_var_to_info(SpvReflectInterfaceVariable const* p_var) {
-        vulkan::pipeline::interface_variable_info info = {};
+    deren::vulkan::pipeline::interface_variable_info reflect_var_to_info(SpvReflectInterfaceVariable const* p_var) {
+        deren::vulkan::pipeline::interface_variable_info info = {};
         info.location = p_var->location;
         info.component = p_var->component;
         info.format = static_cast<VkFormat>(p_var->format);
@@ -129,9 +129,9 @@ namespace {
         return info;
     }
 
-    void sort_interface_variables(std::vector<vulkan::pipeline::interface_variable_info>& vars) {
+    void sort_interface_variables(std::vector<deren::vulkan::pipeline::interface_variable_info>& vars) {
         std::ranges::sort(vars,
-                          [](vulkan::pipeline::interface_variable_info const& a, vulkan::pipeline::interface_variable_info const& b) {
+                          [](deren::vulkan::pipeline::interface_variable_info const& a, deren::vulkan::pipeline::interface_variable_info const& b) {
                               if (a.location != b.location) {
                                   return a.location < b.location;
                               }
@@ -140,7 +140,7 @@ namespace {
     }
 } // namespace
 
-uint32_t vulkan::pipeline::format_size(VkFormat const format) {
+uint32_t deren::vulkan::pipeline::format_size(VkFormat const format) {
     uint32_t result = 0;
     switch (format) {
     case VK_FORMAT_UNDEFINED:
@@ -314,8 +314,8 @@ uint32_t vulkan::pipeline::format_size(VkFormat const format) {
     return result;
 }
 
-std::expected<vulkan::pipeline::shader_stage_interface, std::string_view>
-vulkan::pipeline::parse_shader_stage_interface(
+std::expected<deren::vulkan::pipeline::shader_stage_interface, std::string_view>
+deren::vulkan::pipeline::parse_shader_stage_interface(
     std::span<uint8_t const> const spirv_code,
     VkShaderStageFlagBits const stage) {
     using fail = std::unexpected<std::string_view>;
@@ -371,7 +371,7 @@ vulkan::pipeline::parse_shader_stage_interface(
     return out_interface;
 }
 
-bool vulkan::pipeline::validate_interface_match(
+bool deren::vulkan::pipeline::validate_interface_match(
     shader_stage_interface const& producer,
     shader_stage_interface const& consumer) {
     // Get the non-builtin outputs and inputs
@@ -397,8 +397,8 @@ bool vulkan::pipeline::validate_interface_match(
 
     // Compare one by one
     for (size_t i = 0; i < producer_outputs.size(); ++i) {
-        vulkan::pipeline::interface_variable_info const* p_out = producer_outputs[i];
-        vulkan::pipeline::interface_variable_info const* p_in = consumer_inputs[i];
+        deren::vulkan::pipeline::interface_variable_info const* p_out = producer_outputs[i];
+        deren::vulkan::pipeline::interface_variable_info const* p_in = consumer_inputs[i];
 
         if (p_out->location != p_in->location) {
             // error: location mismatch
@@ -417,8 +417,8 @@ bool vulkan::pipeline::validate_interface_match(
     return true;
 }
 
-std::expected<std::vector<vulkan::pipeline::descriptor_set_layout_data>, std::string_view>
-vulkan::pipeline::parse_descriptor_set_layouts(
+std::expected<std::vector<deren::vulkan::pipeline::descriptor_set_layout_data>, std::string_view>
+deren::vulkan::pipeline::parse_descriptor_set_layouts(
     std::span<uint8_t const> const spirv_code,
     VkShaderStageFlagBits const shader_stage) {
 
@@ -456,7 +456,7 @@ vulkan::pipeline::parse_descriptor_set_layouts(
     set_layouts.resize(sets.size());
     for (size_t i = 0; i < sets.size(); ++i) {
         SpvReflectDescriptorSet const& refl_set = *sets[i];
-        vulkan::pipeline::descriptor_set_layout_data& layout_data = set_layouts[i];
+        deren::vulkan::pipeline::descriptor_set_layout_data& layout_data = set_layouts[i];
 
         layout_data.set_number = refl_set.set;
         layout_data.bindings.resize(refl_set.binding_count);
@@ -489,7 +489,7 @@ vulkan::pipeline::parse_descriptor_set_layouts(
     return set_layouts;
 }
 
-std::expected<vulkan::pipeline::push_constant_layout, std::string_view> vulkan::pipeline::parse_push_constant_layout(
+std::expected<deren::vulkan::pipeline::push_constant_layout, std::string_view> deren::vulkan::pipeline::parse_push_constant_layout(
     std::span<uint8_t const> spirv_code) {
 
     using fail = std::unexpected<std::string_view>;

@@ -1,4 +1,4 @@
-// Headless unit tests: vulkan.math module (pure CPU - IBL precompute helpers) ===
+// Headless unit tests: deren.vulkan.math module (pure CPU - IBL precompute helpers) ===
 #include "vk_test.h"
 
 #include <algorithm>
@@ -7,8 +7,8 @@
 #include <glm/glm.hpp>
 #include <vector>
 
-import vulkan.math;
-import vulkan.primitive; // orbit_camera_pan_delta: the arrow-key camera pan
+import deren.vulkan.math;
+import deren.vulkan.primitive; // orbit_camera_pan_delta: the arrow-key camera pan
 
 namespace {
     constexpr std::size_t cubemap_float_count(int32_t size) {
@@ -16,7 +16,7 @@ namespace {
     }
 
     void test_environment_cubemap_shape() {
-        std::vector<float> const env = vulkan::generate_environment_cubemap(16);
+        std::vector<float> const env = deren::vulkan::generate_environment_cubemap(16);
         CHECK(env.size() == cubemap_float_count(16));
         bool any_positive = false;
         bool all_finite = true;
@@ -29,12 +29,12 @@ namespace {
     }
 
     void test_irradiance_map_shape() {
-        std::vector<float> const env = vulkan::generate_environment_cubemap(8);
-        std::vector<float> const irr = vulkan::generate_irradiance_map(env, 8, 4);
+        std::vector<float> const env = deren::vulkan::generate_environment_cubemap(8);
+        std::vector<float> const irr = deren::vulkan::generate_irradiance_map(env, 8, 4);
         CHECK(irr.size() == cubemap_float_count(4));
     }
 
-    // ---- THE EQUIRECTANGULAR ENVIRONMENT (vulkan::generate_environment_cubemap_from_equirect) ----
+    // ---- THE EQUIRECTANGULAR ENVIRONMENT (deren::vulkan::generate_environment_cubemap_from_equirect) ----
     //
     // The two axes of the lat-long mapping are the only thing here that can go wrong silently and neither
     // is visible in a frame as an error: a flipped v lights the ground from the ceiling, a flipped u rotates
@@ -112,7 +112,7 @@ namespace {
         constexpr int32_t source_height = 64;
         constexpr int32_t size = 16;
         std::vector<float> const ramp = make_equirect_ramp(source_width, source_height);
-        std::vector<float> const cube = vulkan::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size);
+        std::vector<float> const cube = deren::vulkan::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size);
         CHECK(cube.size() == cubemap_float_count(size));
 
         for (std::size_t i = 0; i + 3 < cube.size(); i += 4) {
@@ -158,13 +158,13 @@ namespace {
                 }
             }
         };
-        stripe_lights_only(vulkan::generate_environment_cubemap_from_equirect(make_equirect_stripe(source_width, source_height, 0.5f, 4.0f / source_width), source_width, source_height, size), 4);
-        stripe_lights_only(vulkan::generate_environment_cubemap_from_equirect(make_equirect_stripe(source_width, source_height, 0.0f, 4.0f / source_width), source_width, source_height, size), 5);
+        stripe_lights_only(deren::vulkan::generate_environment_cubemap_from_equirect(make_equirect_stripe(source_width, source_height, 0.5f, 4.0f / source_width), source_width, source_height, size), 4);
+        stripe_lights_only(deren::vulkan::generate_environment_cubemap_from_equirect(make_equirect_stripe(source_width, source_height, 0.0f, 4.0f / source_width), source_width, source_height, size), 5);
 
         // The intensity is a plain multiplier on every texel (the reference's world_strength). The ALPHA
         // channel is the exception: it is filled with 1 by both runs, so it is compared for equality rather
         // than for the ratio - a scaled alpha would be a wasted channel and a silent precision loss.
-        std::vector<float> const doubled = vulkan::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size, 4.0f);
+        std::vector<float> const doubled = deren::vulkan::generate_environment_cubemap_from_equirect(ramp, source_width, source_height, size, 4.0f);
         CHECK(doubled.size() == cube.size());
         for (std::size_t i = 0; i < cube.size(); i += 4) {
             for (std::size_t channel = 0; channel < 3; ++channel) {
@@ -175,14 +175,14 @@ namespace {
 
         // A degenerate source is a zero buffer of the right shape, never a read out of bounds: the caller
         // panics long before this, and this is the belt to that pair of braces.
-        std::vector<float> const degenerate = vulkan::generate_environment_cubemap_from_equirect({}, 0, 0, 4);
+        std::vector<float> const degenerate = deren::vulkan::generate_environment_cubemap_from_equirect({}, 0, 0, 4);
         CHECK(degenerate.size() == cubemap_float_count(4));
         CHECK(std::all_of(degenerate.begin(), degenerate.end(), [](float const value) { return value == 0.0f; }));
     }
 
     void test_brdf_lut_shape() {
         // RG32F: scale + bias per texel
-        std::vector<float> const lut = vulkan::generate_brdf_lut(16);
+        std::vector<float> const lut = deren::vulkan::generate_brdf_lut(16);
         CHECK(lut.size() == static_cast<std::size_t>(16) * 16 * 2);
     }
 
@@ -196,8 +196,8 @@ namespace {
     void test_prefiltered_environment_is_smooth() {
         constexpr int32_t env_size = 256;
         constexpr int32_t mip_count = 5;
-        std::vector<float> const env = vulkan::generate_environment_cubemap(env_size);
-        std::vector<float> const prefiltered = vulkan::prefilter_environment(env, env_size, mip_count);
+        std::vector<float> const env = deren::vulkan::generate_environment_cubemap(env_size);
+        std::vector<float> const prefiltered = deren::vulkan::prefilter_environment(env, env_size, mip_count);
         std::size_t cursor = 0;
         for (int32_t mip = 0; mip < mip_count; ++mip) {
             int32_t const size = std::max(1, env_size >> mip);
@@ -242,7 +242,7 @@ namespace {
     }
 } // namespace
 
-// ---- ARROW-KEY CAMERA PAN (vulkan::orbit_camera_pan_delta) ----
+// ---- ARROW-KEY CAMERA PAN (deren::vulkan::orbit_camera_pan_delta) ----
 // The pan is the keyboard's camera movement. Four properties are the contract the runtime depends on:
 // a frame with no arrow held must not touch the camera AT ALL (an idle frame stays byte-identical, which
 // is how the pan stays provably inert for the pinned render frames), a diagonal press must not be faster
@@ -272,8 +272,8 @@ void test_orbit_camera_pan() {
 
     for (frame_case const& c : frame) {
         // dt = 4 s is clamped to 0.25 s, so the step is the same as a well-paced frame's.
-        glm::vec3 const rise_move = vulkan::orbit_camera_pan_delta(c.yaw, distance, 0.0f, 1.0f, 4.0f, false);
-        glm::vec3 const right_move = vulkan::orbit_camera_pan_delta(c.yaw, distance, 1.0f, 0.0f, 4.0f, false);
+        glm::vec3 const rise_move = deren::vulkan::orbit_camera_pan_delta(c.yaw, distance, 0.0f, 1.0f, 4.0f, false);
+        glm::vec3 const right_move = deren::vulkan::orbit_camera_pan_delta(c.yaw, distance, 1.0f, 0.0f, 4.0f, false);
         CHECK(glm::length(rise_move - up * step) < 1e-5f);
         CHECK(glm::length(right_move - c.right * step) < 1e-5f);
         CHECK(right_move.y == 0.0f);                       // strafing never leaves the horizontal plane
@@ -283,27 +283,27 @@ void test_orbit_camera_pan() {
     // The rejected axis, pinned as a NEGATIVE: at yaw 0 the horizontal view direction is (0, 0, -1), so a
     // walk-style UP would have moved along -Z. Rising must have no Z component, DOWN must be exactly -UP,
     // and the two axes must mix as an orthogonal pair (a (+1, +1) press is 45 degrees at the same length).
-    glm::vec3 const down_move = vulkan::orbit_camera_pan_delta(0.0f, distance, 0.0f, -1.0f, 4.0f, false);
+    glm::vec3 const down_move = deren::vulkan::orbit_camera_pan_delta(0.0f, distance, 0.0f, -1.0f, 4.0f, false);
     CHECK(down_move.z == 0.0f);
     CHECK(glm::length(down_move + up * step) < 1e-5f);
-    glm::vec3 const diagonal_move = vulkan::orbit_camera_pan_delta(0.0f, distance, 1.0f, 1.0f, 4.0f, false);
+    glm::vec3 const diagonal_move = deren::vulkan::orbit_camera_pan_delta(0.0f, distance, 1.0f, 1.0f, 4.0f, false);
     CHECK(std::abs(diagonal_move.x - step / std::sqrt(2.0f)) < 1e-5f);
     CHECK(std::abs(diagonal_move.y - step / std::sqrt(2.0f)) < 1e-5f);
 
     // No arrow held: EXACTLY zero, so an idle frame never writes the target.
-    CHECK(vulkan::orbit_camera_pan_delta(0.7f, 2.0f, 0.0f, 0.0f, 0.016f, false) == glm::vec3(0.0f));
+    CHECK(deren::vulkan::orbit_camera_pan_delta(0.7f, 2.0f, 0.0f, 0.0f, 0.016f, false) == glm::vec3(0.0f));
     // A zero step is zero too (the first frame has no previous clock reading).
-    CHECK(vulkan::orbit_camera_pan_delta(0.7f, 2.0f, 1.0f, 1.0f, 0.0f, false) == glm::vec3(0.0f));
+    CHECK(deren::vulkan::orbit_camera_pan_delta(0.7f, 2.0f, 1.0f, 1.0f, 0.0f, false) == glm::vec3(0.0f));
 
     // The two axes are normalized TOGETHER: a diagonal press is not sqrt(2) times faster.
-    float const straight = glm::length(vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 0.0f, 0.016f, false));
-    float const diagonal = glm::length(vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 1.0f, 0.016f, false));
+    float const straight = glm::length(deren::vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 0.0f, 0.016f, false));
+    float const diagonal = glm::length(deren::vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 1.0f, 0.016f, false));
     CHECK(std::abs(straight - diagonal) < 1e-6f);
 
     // SHIFT multiplies by exactly 4, and the 0.1 floor keeps a fully zoomed-in rig (distance 0) moving.
-    float const fast = glm::length(vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 0.0f, 0.016f, true));
+    float const fast = glm::length(deren::vulkan::orbit_camera_pan_delta(0.4f, 2.0f, 1.0f, 0.0f, 0.016f, true));
     CHECK(std::abs(fast - 4.0f * straight) < 1e-6f);
-    CHECK(glm::length(vulkan::orbit_camera_pan_delta(0.4f, 0.0f, 1.0f, 0.0f, 1.0f, false)) > 0.0f);
+    CHECK(glm::length(deren::vulkan::orbit_camera_pan_delta(0.4f, 0.0f, 1.0f, 0.0f, 1.0f, false)) > 0.0f);
 }
 
 int32_t main() {
@@ -313,5 +313,5 @@ int32_t main() {
     test_prefiltered_environment_is_smooth();
     test_equirect_environment_axes();
     test_orbit_camera_pan();
-    return vk_test::finish("test_math");
+    return deren::vk_test::finish("test_math");
 }

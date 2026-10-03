@@ -1,6 +1,6 @@
 // ============================================================================
-// module: vulkan.scene_tree  (peer of vulkan.runtime - the scene tree the
-//         frame facade renders; versioned in lock-step with vulkan.runtime,
+// module: deren.vulkan.scene_tree  (peer of deren.vulkan.runtime - the scene tree the
+//         frame facade renders; versioned in lock-step with deren.vulkan.runtime,
 //         see that module's banner: they share the scene / draw interface)
 // module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
 //
@@ -13,7 +13,7 @@
 //     accumulate world transforms every frame
 //   - the structural iterator concepts (scene_iterator + the import template
 //     iterators) that drive runtime import
-// The GPU drawables (vulkan::primitive + draw strategies) and the
+// The GPU drawables (deren::vulkan::primitive + draw strategies) and the
 // material / camera / light UBO records live in the peer module vulkan.primitive.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
@@ -24,8 +24,8 @@ module;
 #include <cstddef>
 #include <glm/glm.hpp>
 
-export module vulkan.scene_tree;
-export import vstd;
+export module deren.vulkan.scene_tree;
+export import deren.vstd;
 
 /**
  * @file scene_tree.cppm
@@ -39,15 +39,15 @@ export import vstd;
  *     the CPU-side walkers update_world() / visit_primitives() accumulate
  *     world transforms every frame
  *   - the abstract leaf interface scene_tree::primitive (pure virtual
- *     set_world) - GPU drawables implement it (vulkan.primitive)
+ *     set_world) - GPU drawables implement it (deren.vulkan.primitive)
  *   - the structural iterator concepts (scene_iterator / the import template
  *     iterators) the runtime import templates drive
- * @note the GPU drawables (vulkan::primitive + normal/instanced/static draw
+ * @note the GPU drawables (deren::vulkan::primitive + normal/instanced/static draw
  *       strategies) and the material / camera / light UBO records live in the
- *       peer module vulkan.primitive; this module is pure CPU and does not
+ *       peer module deren.vulkan.primitive; this module is pure CPU and does not
  *       import it (leaves are held through the abstract interface).
  */
-namespace vulkan::scene_tree {
+namespace deren::vulkan::scene_tree {
     /**
      * @ingroup vulkan_scene_tree
      * @brief first motion slot of a leaf in the runtime's previous-transform buffer, or
@@ -79,7 +79,7 @@ namespace vulkan::scene_tree {
          * @return the slot, or @c no_motion_slot for a leaf whose object motion is not tracked
          *         frame to frame (an instanced draw fills its slots at setup instead, because its
          *         per-instance transforms change far less often than the frame rate)
-         * @note this is on the INTERFACE rather than on vulkan::primitive because the runtime reads
+         * @note this is on the INTERFACE rather than on deren::vulkan::primitive because the runtime reads
          *       it while walking the tree, and the walker only knows the interface: RTTI is off, so
          *       there is no downcast to reach a concrete leaf.
          */
@@ -159,7 +159,7 @@ namespace vulkan::scene_tree {
 
     /**
      * @ingroup vulkan_scene_tree
-     * @brief a named scene: a list of root nodes (mirrors gltf::scene's shape)
+     * @brief a named scene: a list of root nodes (mirrors deren::gltf::scene's shape)
      */
     export struct scene {
         // NOT `name`: find_node takes a parameter of that name, and a parameter would hide the
@@ -275,4 +275,4 @@ namespace vulkan::scene_tree {
     export inline scene_iterator end(scene&) noexcept {
         return scene_iterator{};
     }
-} // namespace vulkan::scene_tree
+} // namespace deren::vulkan::scene_tree

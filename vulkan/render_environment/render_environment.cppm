@@ -4,9 +4,9 @@ module;
 #include <span>            // std::span: what the endpoint takes
 #include <vulkan/vulkan.h> // VkCommandBuffer / VkPipelineLayout handle typedefs only
 
-export module vulkan.render_environment;
+export module deren.vulkan.render_environment;
 
-export import vstd;
+export import deren.vstd;
 
 /**
  * @defgroup vulkan_render_environment Render Environment
@@ -26,7 +26,7 @@ export import vstd;
  * pipeline is already the bound one, so consecutive draws sharing a pipeline do not re-bind
  * (the same saving the old per-pipeline grouping gave, now per session and per draw).
  */
-namespace vulkan {
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_render_environment
      * @brief per-recording-session render state handed to primitive::draw().
@@ -123,7 +123,7 @@ namespace vulkan {
         bool (*meshlet_culled_write)(void* owner, uint32_t base, std::span<std::byte const> records) = nullptr;
         /**
          * WHERE THIS SESSION'S STAGE BLOCK STARTS RECEIVING THE GEOMETRY LANES, in bytes - i.e. the end of the last
-         * member the block's earlier pushes covered (see vulkan::primitive's `mesh_geometry_push_offset_*` and
+         * member the block's earlier pushes covered (see deren::vulkan::primitive's `mesh_geometry_push_offset_*` and
          * `mesh_geometry_lanes_offset`). It is per SESSION rather than a constant because the two blocks in this
          * renderer end differently: the scene's after its heap index lanes (108), the shadow pass's after its
          * cascade lane (112). The lanes themselves are read by the shader at `mesh_geometry_lanes_offset`, which is
@@ -260,4 +260,4 @@ namespace vulkan {
             }
         }
     };
-} // namespace vulkan
+} // namespace deren::vulkan

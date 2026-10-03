@@ -1,4 +1,4 @@
-// Headless unit tests: vulkan.pass (the framework, no device) =================
+// Headless unit tests: deren.vulkan.pass (the framework, no device) =================
 // The framework's whole value is a CONTRACT: create once per generation, resolve per frame, skip an inactive
 // pass without resolving it, apply the behaviour before recording, mark once per stage, and tell every pass
 // when the swapchain was rebuilt. Each of those is something this renderer does by hand today, and does
@@ -11,21 +11,21 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <glm/glm.hpp> // the frame constants carry glm types (see vulkan.frame_constants)
+#include <glm/glm.hpp> // the frame constants carry glm types (see deren.vulkan.frame_constants)
 #include <string>
 #include <string_view>
 #include <vector>
 #include <vulkan/vulkan.h>
 
-import vulkan.pass;
-import vulkan.pass.chain;
-import vulkan.render_resource;
-import vulkan.render_resource.shared;
-import vulkan.bindings;
+import deren.vulkan.pass;
+import deren.vulkan.pass.chain;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
+import deren.vulkan.bindings;
 
 namespace {
-    namespace vp = vulkan::pass;
-    namespace rr = vulkan::render_resource;
+    namespace vp = deren::vulkan::pass;
+    namespace rr = deren::vulkan::render_resource;
 
     /// The own binding every fake pass carries: one sampled image of its OWN at binding 0. What a pass reaches
     /// through the frame's heap is not a declaration the fake host has to spell out - the framework has no set to
@@ -255,7 +255,7 @@ namespace {
         host_state* state_ptr;
     };
 
-    // the names are `vulkan.runtime`'s own pipeline keys, which is what makes this cost nothing new
+    // the names are `deren.vulkan.runtime`'s own pipeline keys, which is what makes this cost nothing new
     constexpr std::array<std::string_view, 1> compute_pipeline_names = {"megalights_trace"};
     constexpr std::array<std::string_view, 2> fullscreen_pipeline_names = {"post_composite", "fxaa"};
     /// the fullscreen fake pass also declares one render TARGET: an attachment is a use that cannot be a
@@ -275,7 +275,7 @@ namespace {
 } // namespace
 
 int32_t main() {
-    using namespace vulkan::pass;
+    using namespace deren::vulkan::pass;
 
     host_state state;
     pass_host const host = make_host(state);
@@ -469,7 +469,7 @@ int32_t main() {
     // description layer itself stays pure CPU, and everything that has to name a VkDescriptorType lives on the
     // bindings side. No device is created - an enum mapping needs none - so this still runs in CI.
     {
-        using namespace vulkan::bindings;
+        using namespace deren::vulkan::bindings;
         CHECK(descriptor_type_of(rr::binding_kind::sampled_image) == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
         CHECK(descriptor_type_of(rr::binding_kind::storage_image) == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
         CHECK(descriptor_type_of(rr::binding_kind::sampler) == VK_DESCRIPTOR_TYPE_SAMPLER);
@@ -838,5 +838,5 @@ int32_t main() {
         CHECK(!run_pass.resolve(context, run_out));
     }
 
-    return vk_test::finish("test_pass");
+    return deren::vk_test::finish("test_pass");
 }

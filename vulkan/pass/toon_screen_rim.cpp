@@ -15,21 +15,21 @@ module;
 #include <span>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.toon_screen_rim;
+module deren.vulkan.pass.toon_screen_rim;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import vulkan.core;          // vulkan::hdr_format: the one target this pass writes
-import vulkan.core.pipeline; // vulkan::make_pipeline: the generic builder this pass uses directly
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.vulkan.core;          // deren::vulkan::hdr_format: the one target this pass writes
+import deren.vulkan.core.pipeline; // deren::vulkan::make_pipeline: the generic builder this pass uses directly
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     render_resource::pass_io const& toon_screen_rim_pass::io() const noexcept {
         return render_resource::toon_screen_rim_io;
     }
 
-    vulkan::pass::behaviour const& toon_screen_rim_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& toon_screen_rim_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -69,16 +69,16 @@ namespace vulkan::pass {
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            utility::log("toon screen rim disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("toon screen rim disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
         // lighting stage, before the resolve) - a rim written to the swapchain would be tonemapped twice.
-        std::array<VkFormat, 1> const formats = {vulkan::hdr_format};
+        std::array<VkFormat, 1> const formats = {deren::vulkan::hdr_format};
         // ADDITIVE: the rim is a contribution to the frame, not a replacement for it. This is the opposite of
         // the character-forward stage's overwrite, and the two are deliberately different passes for it.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_additive()};
-        auto built = vulkan::make_pipeline(context.device,
+        auto built = deren::vulkan::make_pipeline(context.device,
                                            std::span<VkFormat const>(formats),
                                            VK_FORMAT_UNDEFINED, // NO depth attachment: the depth is sampled, not tested
                                            vertex_spirv,
@@ -90,14 +90,14 @@ namespace vulkan::pass {
                                            0.0f,
                                            std::span<VkPipelineColorBlendAttachmentState const>(blends));
         if (!built) {
-            utility::log("toon screen rim disabled: {}", built.error());
+            deren::utility::log("toon screen rim disabled: {}", built.error());
             this->release_owned();
             return;
         }
         built->viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f}; // the runner resyncs it from io.extent
         built->scissor = {{0, 0}, {1u, 1u}};
         this->pass_pipeline = std::move(*built);
-        utility::log("SUCCESS: toon screen rim pipeline created (a fullscreen additive contour from the depth)");
+        deren::utility::log("SUCCESS: toon screen rim pipeline created (a fullscreen additive contour from the depth)");
     }
 
     void toon_screen_rim_pass::on_swapchain_recreated(pass_host const&) {
@@ -165,4 +165,4 @@ namespace vulkan::pass {
         vkCmdEndRendering(io.cmd);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

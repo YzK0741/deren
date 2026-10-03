@@ -1,6 +1,6 @@
 export module deren.utility.dynamic_link;
 
-import vstd;
+import deren.vstd;
 
 // ============================================================================
 // deren.utility.dynamic_link - load a shared library at run time and resolve C

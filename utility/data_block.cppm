@@ -5,8 +5,8 @@ module;
 #include <format>
 #include <string>
 
-export module utility:data_block;
-namespace utility {
+export module deren.utility:data_block;
+namespace deren::utility {
     /**
      * @defgroup data_block Fixed-Size Byte Container
      * @ingroup utility
@@ -86,4 +86,4 @@ namespace utility {
             return result;
         }
     };
-} // namespace utility
+} // namespace deren::utility

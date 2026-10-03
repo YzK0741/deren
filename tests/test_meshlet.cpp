@@ -1,4 +1,4 @@
-// Headless unit tests: vulkan.meshlet (pure CPU) ==============================================
+// Headless unit tests: deren.vulkan.meshlet (pure CPU) ==============================================
 // The meshlet split is the one part of step 3 that can be checked WITHOUT a device, and it is the part whose
 // bugs are invisible on screen: a meshlet whose bounding sphere is too small is culled while it is visible (a
 // hole in the shadow map, on the frames where it happens to face the light), and a meshlet whose index window
@@ -22,7 +22,7 @@
 #include <span>
 #include <vector>
 
-import vulkan.meshlet;
+import deren.vulkan.meshlet;
 
 namespace {
     /// an interleaved vertex array with a position first (the renderer's layout, without the other attributes)
@@ -63,8 +63,8 @@ namespace {
         return fixture;
     }
 
-    vulkan::meshlet_build_input input_for(mesh_fixture const& fixture, uint32_t const first_index = 0, uint32_t const index_count = 0, int32_t const base_vertex = 0) {
-        return vulkan::meshlet_build_input{
+    deren::vulkan::meshlet_build_input input_for(mesh_fixture const& fixture, uint32_t const first_index = 0, uint32_t const index_count = 0, int32_t const base_vertex = 0) {
+        return deren::vulkan::meshlet_build_input{
             .vertex_data = std::span<uint8_t const>(fixture.vertices),
             .vertex_stride = fixture.vertex_stride,
             .vertex_count = fixture.vertex_count,
@@ -85,35 +85,35 @@ namespace {
 int32_t main() {
     // ---- 1. a window of exactly one meshlet, and one that needs three ----
     {
-        mesh_fixture const exact = make_fixture(vulkan::meshlet_max_triangles);
-        std::vector<vulkan::meshlet> const one = vulkan::build_meshlets(input_for(exact));
+        mesh_fixture const exact = make_fixture(deren::vulkan::meshlet_max_triangles);
+        std::vector<deren::vulkan::meshlet> const one = deren::vulkan::build_meshlets(input_for(exact));
         CHECK_MSG(one.size() == 1u, "85 triangles fit one meshlet");
         CHECK(one[0].first_index == 0u);
-        CHECK(one[0].index_count == vulkan::meshlet_max_indices);
+        CHECK(one[0].index_count == deren::vulkan::meshlet_max_indices);
         CHECK(one[0].radius > 0.0f);
 
-        mesh_fixture const three = make_fixture(vulkan::meshlet_max_triangles * 2u + 5u);
-        std::vector<vulkan::meshlet> const split = vulkan::build_meshlets(input_for(three));
+        mesh_fixture const three = make_fixture(deren::vulkan::meshlet_max_triangles * 2u + 5u);
+        std::vector<deren::vulkan::meshlet> const split = deren::vulkan::build_meshlets(input_for(three));
         CHECK_MSG(split.size() == 3u, "175 triangles need three meshlets");
-        CHECK(split[0].index_count == vulkan::meshlet_max_indices);
-        CHECK(split[1].index_count == vulkan::meshlet_max_indices);
+        CHECK(split[0].index_count == deren::vulkan::meshlet_max_indices);
+        CHECK(split[1].index_count == deren::vulkan::meshlet_max_indices);
         CHECK(split[2].index_count == 5u * 3u);
 
         // COVERAGE, exactly: the windows are contiguous, in order, and cover the whole triangle count
         uint32_t expected_first = 0;
-        for (vulkan::meshlet const& m : split) {
+        for (deren::vulkan::meshlet const& m : split) {
             CHECK(m.first_index == expected_first);
             CHECK(m.index_count % 3u == 0u);
             CHECK(m.index_count != 0u);
-            CHECK(m.index_count <= vulkan::meshlet_max_indices);
+            CHECK(m.index_count <= deren::vulkan::meshlet_max_indices);
             expected_first += m.index_count;
         }
         CHECK_MSG(expected_first == three.vertex_count, "the meshlets cover every index of the window");
 
         // DETERMINISM: the same input twice, byte for byte
-        std::vector<vulkan::meshlet> const again = vulkan::build_meshlets(input_for(three));
+        std::vector<deren::vulkan::meshlet> const again = deren::vulkan::build_meshlets(input_for(three));
         CHECK(again.size() == split.size());
-        CHECK(std::memcmp(again.data(), split.data(), split.size() * sizeof(vulkan::meshlet)) == 0);
+        CHECK(std::memcmp(again.data(), split.data(), split.size() * sizeof(deren::vulkan::meshlet)) == 0);
     }
 
     // ---- 2. CONSERVATIVE BOUNDS: every vertex of every meshlet is inside its sphere ----
@@ -121,10 +121,10 @@ int32_t main() {
         mesh_fixture const fixture = make_fixture(200u);
         for (uint32_t const width : {2u, 4u}) {
             mesh_fixture const typed = make_fixture(200u, width);
-            std::vector<vulkan::meshlet> const meshlets = vulkan::build_meshlets(input_for(typed));
+            std::vector<deren::vulkan::meshlet> const meshlets = deren::vulkan::build_meshlets(input_for(typed));
             CHECK(!meshlets.empty());
             uint32_t checked_vertices = 0;
-            for (vulkan::meshlet const& m : meshlets) {
+            for (deren::vulkan::meshlet const& m : meshlets) {
                 for (uint32_t i = m.first_index; i < m.first_index + m.index_count; ++i) {
                     uint32_t index = 0;
                     if (typed.index_width == 2u) {
@@ -157,7 +157,7 @@ int32_t main() {
     // ---- 3. base_vertex and first_index are carried through ----
     {
         mesh_fixture const fixture = make_fixture(4u);
-        std::vector<vulkan::meshlet> const tail = vulkan::build_meshlets(input_for(fixture, 3u, 6u, -7));
+        std::vector<deren::vulkan::meshlet> const tail = deren::vulkan::build_meshlets(input_for(fixture, 3u, 6u, -7));
         CHECK_MSG(tail.size() == 1u, "six indices are two triangles");
         CHECK(tail[0].first_index == 0u); // relative to the window, which is what the mesh stage adds to
         CHECK(tail[0].index_count == 6u);
@@ -168,30 +168,30 @@ int32_t main() {
     {
         mesh_fixture fixture = make_fixture(10u);
         // no triangles
-        CHECK(vulkan::build_meshlets(input_for(fixture, 0u, 2u)).empty());
+        CHECK(deren::vulkan::build_meshlets(input_for(fixture, 0u, 2u)).empty());
         // ... and an index_count the splitter's caller could not have meant: the input struct's `0` means "the
         // whole array" (see input_for), so this case is spelled with an explicitly empty index span instead
-        vulkan::meshlet_build_input empty_indices = input_for(fixture);
+        deren::vulkan::meshlet_build_input empty_indices = input_for(fixture);
         empty_indices.index_data = {};
-        CHECK(vulkan::build_meshlets(empty_indices).empty());
+        CHECK(deren::vulkan::build_meshlets(empty_indices).empty());
         // no vertices
-        vulkan::meshlet_build_input no_vertices = input_for(fixture);
+        deren::vulkan::meshlet_build_input no_vertices = input_for(fixture);
         no_vertices.vertex_count = 0u;
-        CHECK(vulkan::build_meshlets(no_vertices).empty());
+        CHECK(deren::vulkan::build_meshlets(no_vertices).empty());
         // a stride shorter than one position
-        vulkan::meshlet_build_input short_stride = input_for(fixture);
+        deren::vulkan::meshlet_build_input short_stride = input_for(fixture);
         short_stride.vertex_stride = 8u;
-        CHECK(vulkan::build_meshlets(short_stride).empty());
+        CHECK(deren::vulkan::build_meshlets(short_stride).empty());
         // a window that runs past the index buffer
-        vulkan::meshlet_build_input past_end = input_for(fixture);
+        deren::vulkan::meshlet_build_input past_end = input_for(fixture);
         past_end.index_count = fixture.vertex_count + 30u;
-        CHECK(vulkan::build_meshlets(past_end).empty());
+        CHECK(deren::vulkan::build_meshlets(past_end).empty());
         // ... and an index that points past the vertices: the window is still covered (the meshlets exist, so the
         // draw is not silently dropped) and the bogus vertex simply does not extend the bounds
-        vulkan::meshlet_build_input bad_index = input_for(fixture);
+        deren::vulkan::meshlet_build_input bad_index = input_for(fixture);
         uint32_t const bogus = fixture.vertex_count + 100u;
         std::memcpy(fixture.indices.data(), &bogus, sizeof(bogus)); // the span bad_index holds points at this vector
-        std::vector<vulkan::meshlet> const fallback = vulkan::build_meshlets(bad_index);
+        std::vector<deren::vulkan::meshlet> const fallback = deren::vulkan::build_meshlets(bad_index);
         CHECK_MSG(fallback.size() == 1u, "an out-of-range index does not drop the meshlet");
         CHECK(std::isfinite(fallback[0].radius));
     }
@@ -203,36 +203,36 @@ int32_t main() {
     // hung the GPU that way rather than drawing something wrong).
     {
         mesh_fixture const fixture = make_fixture(200u);
-        std::vector<vulkan::meshlet> const meshlets = vulkan::build_meshlets(input_for(fixture));
+        std::vector<deren::vulkan::meshlet> const meshlets = deren::vulkan::build_meshlets(input_for(fixture));
         CHECK(!meshlets.empty());
-        for (vulkan::meshlet const& m : meshlets) {
-            CHECK_MSG(vulkan::meshlet_record_sound(m, fixture.vertex_count), "the splitter's own records pass the upload's rule");
+        for (deren::vulkan::meshlet const& m : meshlets) {
+            CHECK_MSG(deren::vulkan::meshlet_record_sound(m, fixture.vertex_count), "the splitter's own records pass the upload's rule");
         }
-        vulkan::meshlet const good = meshlets.front();
+        deren::vulkan::meshlet const good = meshlets.front();
 
-        vulkan::meshlet zero_count = good;
+        deren::vulkan::meshlet zero_count = good;
         zero_count.index_count = 0u;
-        CHECK(!vulkan::meshlet_record_sound(zero_count, fixture.vertex_count)); // an empty meshlet
+        CHECK(!deren::vulkan::meshlet_record_sound(zero_count, fixture.vertex_count)); // an empty meshlet
 
-        vulkan::meshlet over_budget = good;
-        over_budget.index_count = vulkan::meshlet_max_indices + 3u;
-        CHECK(!vulkan::meshlet_record_sound(over_budget, fixture.vertex_count)); // more output than the device has
+        deren::vulkan::meshlet over_budget = good;
+        over_budget.index_count = deren::vulkan::meshlet_max_indices + 3u;
+        CHECK(!deren::vulkan::meshlet_record_sound(over_budget, fixture.vertex_count)); // more output than the device has
 
-        vulkan::meshlet partial_triangle = good;
+        deren::vulkan::meshlet partial_triangle = good;
         partial_triangle.index_count = good.index_count - 1u;
-        CHECK(!vulkan::meshlet_record_sound(partial_triangle, fixture.vertex_count)); // not whole triangles
+        CHECK(!deren::vulkan::meshlet_record_sound(partial_triangle, fixture.vertex_count)); // not whole triangles
 
-        vulkan::meshlet past_window = good;
+        deren::vulkan::meshlet past_window = good;
         past_window.first_index = fixture.vertex_count;
-        CHECK(!vulkan::meshlet_record_sound(past_window, fixture.vertex_count)); // outside the draw
+        CHECK(!deren::vulkan::meshlet_record_sound(past_window, fixture.vertex_count)); // outside the draw
 
-        vulkan::meshlet bad_radius = good;
+        deren::vulkan::meshlet bad_radius = good;
         bad_radius.radius = -1.0f;
-        CHECK(!vulkan::meshlet_record_sound(bad_radius, fixture.vertex_count));
+        CHECK(!deren::vulkan::meshlet_record_sound(bad_radius, fixture.vertex_count));
 
         // ... and a draw that is SHORTER than the window the splitter saw is rejected too: the rule is relative to
         // the draw, which is why it takes the index count rather than assuming it
-        CHECK(!vulkan::meshlet_record_sound(good, good.index_count - 3u));
+        CHECK(!deren::vulkan::meshlet_record_sound(good, good.index_count - 3u));
     }
 
     // ---- 6. THE NORMAL CONE, asserted by its defining property ----
@@ -242,10 +242,10 @@ int32_t main() {
     // culls; both directions of that trade are why the axis is the normal AVERAGE and `cone_cos` the worst dot.
     {
         mesh_fixture const fixture = make_fixture(200u);
-        std::vector<vulkan::meshlet> const meshlets = vulkan::build_meshlets(input_for(fixture));
+        std::vector<deren::vulkan::meshlet> const meshlets = deren::vulkan::build_meshlets(input_for(fixture));
         CHECK(!meshlets.empty());
         uint32_t cone_checked = 0;
-        for (vulkan::meshlet const& m : meshlets) {
+        for (deren::vulkan::meshlet const& m : meshlets) {
             CHECK(m.cone_cos <= 1.0f && m.cone_cos >= -1.0f);
             for (uint32_t t = 0; t < m.index_count; t += 3u) {
                 float a[3] = {};
@@ -275,5 +275,5 @@ int32_t main() {
         CHECK_MSG(cone_checked != 0u, "the cone was checked against real triangles");
     }
 
-    return vk_test::finish("test_meshlet");
+    return deren::vk_test::finish("test_meshlet");
 }

@@ -34,6 +34,6 @@
 // vstd/vstd.cppm's banner stays at 0.1.1a.  If the project decides the MSVC dialect is part of
 // vstd's interface (it does change which library's entities a consumer sees), bump it there and
 // here together - the choice is the project's, not this file's.
-export module vstd;
+export module deren.vstd;
 
 export import std;

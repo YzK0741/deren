@@ -31,12 +31,12 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.mask_bake;
+export module deren.vulkan.pass.mask_bake;
 
-import vulkan.pass;
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.vulkan.pass;
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this job builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /// @brief the push block, which is also `mask_bake.comp`'s
     ///
@@ -103,7 +103,7 @@ export namespace vulkan::pass {
          * @param push_owner the renderer, @param push_raw its endpoint for a stage that declares NO index lanes
          *
          * The block goes to the pipeline as DATA now: no pipeline in this renderer has a layout (`vkCmdPushConstants`
-         * would have nothing to push to), so `vulkan.core`'s conversion made every stage read `vkCmdPushDataEXT`
+         * would have nothing to push to), so `deren.vulkan.core`'s conversion made every stage read `vkCmdPushDataEXT`
          * instead. RAW - with no heap indices appended - is the exact endpoint this shader wants: it declares none,
          * because everything it reads is a device address pushed here or a material record in the heap.
          */
@@ -130,4 +130,4 @@ export namespace vulkan::pass {
     /// comment above used to claim 48 on the CPU, which nothing checked until this assertion did.
     static_assert(sizeof(mask_bake_push_constants) == 44, "the bake's push block must stay the size the shader declares");
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

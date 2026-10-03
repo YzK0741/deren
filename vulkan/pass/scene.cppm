@@ -42,16 +42,16 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.scene;
+export module deren.vulkan.pass.scene;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.render_resource.shared;
-import vulkan.constant_init;
-import vulkan.primitive;          // the leaves this pass draws (a concrete pass may know the scene types)
-import vulkan.render_environment; // the per-segment draw state the renderer builds for it
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
+import deren.vulkan.constant_init;
+import deren.vulkan.primitive;          // the leaves this pass draws (a concrete pass may know the scene types)
+import deren.vulkan.render_environment; // the per-segment draw state the renderer builds for it
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /// @brief one per-slot secondary command buffer and the pool it came from (a worker never shares its pool)
     struct segment_buffer {
@@ -117,7 +117,7 @@ export namespace vulkan::pass {
         ~scene_pass() override = default;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -136,7 +136,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 0> pipeline_names = {};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics,
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
@@ -156,4 +156,4 @@ export namespace vulkan::pass {
         scene_frame pass_frame = {};
     };
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

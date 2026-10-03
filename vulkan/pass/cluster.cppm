@@ -7,11 +7,11 @@
  * @defgroup vulkan_pass_cluster Clustered-Light Sort Pass
  *
  * WHAT IT OWNS: its pipeline layout and its compute pipeline (built at create time from the shared scene block
- * layout and its own shader - the first compute pipeline in this tree that came out of `vulkan.core`, where
+ * layout and its own shader - the first compute pipeline in this tree that came out of `deren.vulkan.core`, where
  * `core::make_cluster_pipeline` built it against the core's own scene pipeline layout); the bind of the shared
  * scene set; the one-dimensional dispatch over the cluster grid; and the TWO BUFFER BARRIERS that make its
  * writes visible to the fragment stages reading them later in the same submission. That last part is why the
- * framework grew `pass_io::barrier_buffers` in the same step - see the header of `vulkan.pass`'s
+ * framework grew `pass_io::barrier_buffers` in the same step - see the header of `deren.vulkan.pass`'s
  * `resolved_io` for the argument.
  *
  * WHY `extent_rule::none`: this dispatch is `tiles_x * tiles_y * slices` workgroups, a count derived from the
@@ -34,13 +34,13 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.cluster;
+export module deren.vulkan.pass.cluster;
 
-import vulkan.pass;
-import vulkan.render_resource;
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
+import deren.vulkan.pass;
+import deren.vulkan.render_resource;
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /**
      * @brief what the renderer hands the sort: how many clusters this frame has
@@ -67,7 +67,7 @@ export namespace vulkan::pass {
         ~cluster_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -101,7 +101,7 @@ export namespace vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"cluster"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::compute,
             .group_size_x = group_size,
             .group_size_y = 1,
@@ -122,4 +122,4 @@ export namespace vulkan::pass {
         cluster_frame pass_frame = {};
     };
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

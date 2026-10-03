@@ -1,4 +1,4 @@
-// Headless unit tests: vulkan.animation (pure CPU - format-neutral keyframe sampling)
+// Headless unit tests: deren.vulkan.animation (pure CPU - format-neutral keyframe sampling)
 // Exercises the glTF keyframe rules implemented by sample_channel / sample_node.
 #include "vk_test.h"
 
@@ -14,11 +14,11 @@
 #include <string_view>
 #include <vector>
 
-import vulkan.animation;
-import vulkan.animation.mmd_motion;
+import deren.vulkan.animation;
+import deren.vulkan.animation.mmd_motion;
 
 namespace {
-    using namespace vulkan::animation;
+    using namespace deren::vulkan::animation;
 
     [[nodiscard]] bool approx(float a, float b, float const eps = 1e-4f) {
         return std::fabs(a - b) <= eps;
@@ -109,7 +109,7 @@ namespace {
         CHECK(!sample_channel(short_values, channel_path::translation, 0.5f).valid);
     }
 
-    // --- vulkan.animation.mmd_motion (VMD) ------------------------------------------------
+    // --- deren.vulkan.animation.mmd_motion (VMD) ------------------------------------------------
     // The two format details below are the ones that fail silently on a real file, so the
     // synthetic motion writes decoys exactly where a wrong reader would look: bytes 2 and 3 of
     // the interpolation block (which hold the physics flags, not Z's and R's first control
@@ -328,7 +328,7 @@ namespace {
         char const* const path = std::getenv("VR_MMD_MOTION");
 #endif
         if (path == nullptr || *path == '\0') {
-            vk_test::write_line("  (VR_MMD_MOTION is not set - the real-motion check was skipped)");
+            deren::vk_test::write_line("  (VR_MMD_MOTION is not set - the real-motion check was skipped)");
             return;
         }
         std::optional<mmd_motion> const m = load_mmd_motion(path);
@@ -590,5 +590,5 @@ int32_t main() {
     test_mmd_two_bone_ik();
     test_mmd_leg_ik_lands_the_foot();
     test_mmd_bake_feeds_the_controller();
-    return vk_test::finish("test_animation");
+    return deren::vk_test::finish("test_animation");
 }

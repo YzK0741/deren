@@ -1,19 +1,19 @@
 // ============================================================================
-// module: vulkan.shadow_fit
+// module: deren.vulkan.shadow_fit
 // module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Directional-shadow cascade fitting, as a pure CPU calculation: given the camera,
 // the scene extent and the casters' light-space bounds, produce the per-cascade
 // light view-projection matrices, the split distances and the texel world sizes.
 //
-// Extracted from vulkan.runtime, where it was the mathematically heaviest and least
+// Extracted from deren.vulkan.runtime, where it was the mathematically heaviest and least
 // testable part of a 4257-line translation unit - it had no GPU dependency at all, only
 // the accident of living in the class that calls it. Nothing here touches Vulkan or the
 // scene tree: gathering the caster boxes stays with the runtime (that needs scene_tree
 // and primitive), and the cache that decides WHEN to refit stays with the runtime too
 // (that is policy). What is left is the fit itself.
 //
-// Depends on glm, utility (logging) and vulkan.primitive (max_shadow_cascades).
+// Depends on glm, utility (logging) and deren.vulkan.primitive (max_shadow_cascades).
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
@@ -25,10 +25,10 @@ module;
 #include <span>
 #include <vector>
 
-export module vulkan.shadow_fit;
+export module deren.vulkan.shadow_fit;
 
-export import vstd;
-export import vulkan.primitive; // max_shadow_cascades (and the light_ubo shape this produces)
+export import deren.vstd;
+export import deren.vulkan.primitive; // max_shadow_cascades (and the light_ubo shape this produces)
 
 /**
  * @file vulkan/shadow_fit/shadow_fit.cppm
@@ -51,7 +51,7 @@ export import vulkan.primitive; // max_shadow_cascades (and the light_ubo shape 
  * That keeps the module free of scene_tree and primitive, and keeps the cache policy where the state
  * it reasons about lives.
  */
-namespace vulkan::shadow_fit {
+namespace deren::vulkan::shadow_fit {
     /**
      * @ingroup vulkan_shadow_fit
      * @brief everything the fit needs about one frame's camera, scene and casters
@@ -133,4 +133,4 @@ namespace vulkan::shadow_fit {
      *         degenerate (no aspect ratio yet, or a null projection term) and nothing should be used
      */
     export fit_result fit(fit_params const& params);
-} // namespace vulkan::shadow_fit
+} // namespace deren::vulkan::shadow_fit

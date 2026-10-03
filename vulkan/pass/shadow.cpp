@@ -15,13 +15,13 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.shadow;
+module deren.vulkan.pass.shadow;
 
-import vulkan.constant_init;
-import vulkan.pipelines; // build_shadow: the depth-only pipeline this pass owns
-import utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_shadow: the depth-only pipeline this pass owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     shadow_pass::~shadow_pass() {
         this->release_owned();
@@ -36,7 +36,7 @@ namespace vulkan::pass {
         return render_resource::shadow_io;
     }
 
-    vulkan::pass::behaviour const& shadow_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& shadow_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -64,16 +64,16 @@ namespace vulkan::pass {
         // device without VK_EXT_mesh_shader does not reach here at all (the runtime refuses to start), which is why
         // the two checks below are defensive: they keep a mis-registered shader a log line rather than a crash.
         if (context.shader == nullptr || fragment_spirv.empty()) {
-            utility::log("shadow disabled: the owner has no {}", fragment_shader_name);
+            deren::utility::log("shadow disabled: the owner has no {}", fragment_shader_name);
             return;
         }
         if (!context.mesh_shaders) {
-            utility::log("shadow disabled: the device has no mesh shaders, and the vertex form is gone (docs/mesh_shaders.md step 4)");
+            deren::utility::log("shadow disabled: the device has no mesh shaders, and the vertex form is gone (docs/mesh_shaders.md step 4)");
             return;
         }
         std::span<uint8_t const> const mesh_spirv = context.shader != nullptr ? context.shader(context.owner, mesh_shader_name) : std::span<uint8_t const>{};
         if (mesh_spirv.empty()) {
-            utility::log("shadow disabled: the owner has no {}", mesh_shader_name);
+            deren::utility::log("shadow disabled: the owner has no {}", mesh_shader_name);
             return;
         }
         // The pipeline is heap-native: nothing about the draw's descriptors or push travels through a layout.
@@ -82,12 +82,12 @@ namespace vulkan::pass {
         // missing shadow rather than as a wrong picture, and named in the log.
         auto mesh_built = pipelines::build_shadow(context.device, context.depth_format, create_bias_constant, create_bias_slope, create_bias_clamp, mesh_spirv, fragment_spirv, VK_SHADER_STAGE_MESH_BIT_EXT);
         if (!mesh_built) {
-            utility::log("shadow disabled: the mesh pipeline was refused ({})", mesh_built.error());
+            deren::utility::log("shadow disabled: the mesh pipeline was refused ({})", mesh_built.error());
             this->release_owned();
             return;
         }
         this->mesh_pipeline = std::move(*mesh_built);
-        utility::log("SUCCESS: shadow MESH pipeline created (the depth-only pass, fed by mesh dispatches)");
+        deren::utility::log("SUCCESS: shadow MESH pipeline created (the depth-only pass, fed by mesh dispatches)");
         // ---- ... and the MESHLET form (docs/mesh_shaders.md step 3): only the MESH module differs (same fragment
         // stage), and a missing shader or a refusal is a log line - the mesh form above is a complete answer.
         std::span<uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.owner, meshlet_shader_name) : std::span<uint8_t const>{};
@@ -95,9 +95,9 @@ namespace vulkan::pass {
             auto meshlet_built = pipelines::build_shadow(context.device, context.depth_format, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, VK_SHADER_STAGE_MESH_BIT_EXT);
             if (meshlet_built) {
                 this->meshlet_pipeline = std::move(*meshlet_built);
-                utility::log("SUCCESS: shadow MESHLET pipeline created (one workgroup per meshlet, window read from the table)");
+                deren::utility::log("SUCCESS: shadow MESHLET pipeline created (one workgroup per meshlet, window read from the table)");
             } else {
-                utility::log("shadow: the meshlet pipeline was refused ({}), so the pass keeps the mesh form", meshlet_built.error());
+                deren::utility::log("shadow: the meshlet pipeline was refused ({}), so the pass keeps the mesh form", meshlet_built.error());
             }
         }
     }
@@ -180,7 +180,7 @@ namespace vulkan::pass {
             // THIS layer to a renderable depth attachment: one barrier per layer, because the transition constant's
             // subresource range is single-layer and each layer is its own attachment here. Its loadOp CLEAR discards
             // the previous frame's contents, so UNDEFINED as the old layout is valid.
-            VkImageMemoryBarrier2 layer_barrier = vulkan::depth_attachment_transition;
+            VkImageMemoryBarrier2 layer_barrier = deren::vulkan::depth_attachment_transition;
             layer_barrier.image = layer_image;
             layer_barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, cascade, 1};
             VkDependencyInfo const layer_dependency = make_image_dependency_info(1, &layer_barrier);
@@ -201,4 +201,4 @@ namespace vulkan::pass {
         }
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

@@ -22,8 +22,8 @@
 #include <string>
 #include <string_view>
 
-import gltf_loader;
-import toon_material_sidecar;
+import deren.gltf_loader;
+import deren.toon_material_sidecar;
 
 namespace {
 
@@ -39,12 +39,12 @@ namespace {
         "M_hair\tfloat\t_UseLineMap\t1.0\n";
 
     void test_well_formed() {
-        auto const parsed = toon::parse_sidecar(good_text);
+        auto const parsed = deren::toon::parse_sidecar(good_text);
         CHECK(parsed.has_value());
         if (!parsed.has_value()) {
             return;
         }
-        toon::sidecar const& sidecar = *parsed;
+        deren::toon::sidecar const& sidecar = *parsed;
         CHECK(sidecar.materials.size() == 2);
         if (sidecar.materials.size() != 2) {
             return;
@@ -53,7 +53,7 @@ namespace {
         CHECK(sidecar.materials[0].name == "M_body");
         CHECK(sidecar.materials[1].name == "M_hair");
 
-        toon::material_sidecar const* const body = sidecar.find("M_body");
+        deren::toon::material_sidecar const* const body = sidecar.find("M_body");
         CHECK(body != nullptr);
         if (body == nullptr) {
             return;
@@ -76,7 +76,7 @@ namespace {
         // it was switched on, so a consumer cannot turn on a feature by finding a slot.
         CHECK(!body->enabled("_ShadowLutTex"));
 
-        toon::material_sidecar const* const hair = sidecar.find("M_hair");
+        deren::toon::material_sidecar const* const hair = sidecar.find("M_hair");
         CHECK(hair != nullptr);
         CHECK(hair != nullptr && hair->enabled("_LineMap"));
         // the name prefix resolves the same way for a slot that has no leading underscore
@@ -90,7 +90,7 @@ namespace {
             "material\tkind\tname\tvalue\r\n"
             "\r\n"
             "M_a\tslot\t_BaseMap\tT_a\r\n";
-        auto const parsed = toon::parse_sidecar(text);
+        auto const parsed = deren::toon::parse_sidecar(text);
         CHECK(parsed.has_value());
         if (!parsed.has_value()) {
             return;
@@ -105,7 +105,7 @@ namespace {
     void test_header_is_recognised_by_its_column_not_its_position() {
         // a file with NO header is still readable, which is what "recognised by its first column" buys
         constexpr std::string_view text = "M_a\tslot\t_BaseMap\tT_a\n";
-        auto const parsed = toon::parse_sidecar(text);
+        auto const parsed = deren::toon::parse_sidecar(text);
         CHECK(parsed.has_value());
         CHECK(parsed.has_value() && parsed->materials.size() == 1 && parsed->materials[0].name == "M_a");
     }
@@ -115,7 +115,7 @@ namespace {
             "material\tkind\tname\tvalue\n"
             "M_a\tslot\t_BaseMap\tT_a\n"
             "M_a\tslot\t_TooFewColumns\n";
-        auto const parsed = toon::parse_sidecar(text);
+        auto const parsed = deren::toon::parse_sidecar(text);
         CHECK(!parsed.has_value()); // THE POINT OF THE TEST: it is rejected, not skipped
         if (parsed.has_value()) {
             return;
@@ -128,14 +128,14 @@ namespace {
         constexpr std::string_view text =
             "material\tkind\tname\tvalue\n"
             "M_a\tfloat\t_OutlineWidth\twide\n";
-        auto const parsed = toon::parse_sidecar(text);
+        auto const parsed = deren::toon::parse_sidecar(text);
         CHECK(!parsed.has_value());
         if (parsed.has_value()) {
             return;
         }
         CHECK(parsed.error().find("_OutlineWidth") != std::string::npos);
         // ... and a number with trailing junk is not a number either
-        auto const trailing = toon::parse_sidecar("M_a\tfloat\t_X\t1.0x\n");
+        auto const trailing = deren::toon::parse_sidecar("M_a\tfloat\t_X\t1.0x\n");
         CHECK(!trailing.has_value());
     }
 
@@ -151,14 +151,14 @@ namespace {
             "M_a\tslot\t_BaseMap\tT_a\n"
             "M_b\tslot\t_BaseMap\tT_b\n"
             "M_a\tfloat\t_UseNewThing\t1.0\n"; // appended, i.e. NOT contiguous with M_a's first row
-        auto const parsed = toon::parse_sidecar(text);
+        auto const parsed = deren::toon::parse_sidecar(text);
         CHECK(parsed.has_value());
         if (!parsed.has_value()) {
             return;
         }
         CHECK(parsed->materials.size() == 2); // one entry per NAME, not one per contiguous block
         CHECK(parsed->merged_rows == 1);      // and the merge is COUNTED, so a caller can report the shape
-        toon::material_sidecar const* const a = parsed->find("M_a");
+        deren::toon::material_sidecar const* const a = parsed->find("M_a");
         CHECK(a != nullptr);
         // BOTH rows have to be in the SAME entry: the first block's slot, and the appended flag
         CHECK(a != nullptr && a->slot("_BaseMap") == "T_a");
@@ -169,7 +169,7 @@ namespace {
 
     void test_the_path_convention_appends_rather_than_replaces() {
         // `x.glb` -> `x.glb.toon.tsv`, NOT `x.toon.tsv`: the model's own extension stays
-        std::filesystem::path const path = toon::sidecar_path_for("models/hero.glb");
+        std::filesystem::path const path = deren::toon::sidecar_path_for("models/hero.glb");
         CHECK(path.filename() == "hero.glb.toon.tsv");
         CHECK(path.parent_path() == "models");
     }
@@ -177,7 +177,7 @@ namespace {
     void test_a_missing_file_is_an_empty_sidecar_and_not_an_error() {
         // THE SECOND RULE: every non-character model has no sidecar, so this is the normal path rather than a
         // failure to handle - and the check is that it does NOT report one.
-        auto const loaded = toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/absent.gltf");
+        auto const loaded = deren::toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/absent.gltf");
         CHECK(loaded.has_value());
         CHECK(loaded.has_value() && loaded->empty());
         // an empty sidecar answers "no" to every lookup rather than asserting
@@ -185,13 +185,13 @@ namespace {
     }
 
     void test_a_file_on_disk_is_read_through_the_convention() {
-        auto const loaded = toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/minimal.gltf");
+        auto const loaded = deren::toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/minimal.gltf");
         CHECK(loaded.has_value());
         if (!loaded.has_value()) {
             return;
         }
         CHECK(loaded->materials.size() == 2);
-        toon::material_sidecar const* const body = loaded->find("M_actor_test_body_01");
+        deren::toon::material_sidecar const* const body = loaded->find("M_actor_test_body_01");
         CHECK(body != nullptr);
         if (body == nullptr) {
             return;
@@ -210,7 +210,7 @@ namespace {
     }
 
     void test_a_malformed_file_on_disk_reports_its_path() {
-        auto const loaded = toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/broken.gltf");
+        auto const loaded = deren::toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/broken.gltf");
         CHECK(!loaded.has_value());
         if (loaded.has_value()) {
             return;
@@ -223,17 +223,17 @@ namespace {
         // THE JOIN THE TWO MODULES EXIST FOR, and it is the whole reason the loader carries image names: the
         // sidecar refers to a toon map by bare asset name, and the model's IMAGE NAMES are what turn that into
         // something loadable. Nothing else connects the two files.
-        auto const model = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/named_texture.gltf");
+        auto const model = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/named_texture.gltf");
         CHECK(model.has_value());
         if (!model.has_value()) {
             return;
         }
-        auto const sidecar = toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/named_texture.gltf");
+        auto const sidecar = deren::toon::load_sidecar(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/named_texture.gltf");
         CHECK(sidecar.has_value());
         if (!sidecar.has_value()) {
             return;
         }
-        toon::material_sidecar const* const body = sidecar->find("M_actor_test_body_01");
+        deren::toon::material_sidecar const* const body = sidecar->find("M_actor_test_body_01");
         CHECK(body != nullptr);
         if (body == nullptr) {
             return;
@@ -278,12 +278,12 @@ namespace {
             "M_actor_test_body_01\tfloat\t_UseGooRSSheet\t1.0\n"
             "M_actor_test_body_01\tfloat\t_UseGooRSSheet1\t1.0\n"
             "M_actor_test_body_01\tcolor\t_GooRSArm0\t1.0,1.0,0.0,0.0\n";
-        auto const parsed = toon::parse_sidecar(two_sheets);
+        auto const parsed = deren::toon::parse_sidecar(two_sheets);
         CHECK(parsed.has_value());
         if (!parsed.has_value()) {
             return;
         }
-        toon::material_sidecar const* const body = parsed->find("M_actor_test_body_01");
+        deren::toon::material_sidecar const* const body = parsed->find("M_actor_test_body_01");
         CHECK(body != nullptr);
         if (body == nullptr) {
             return;
@@ -301,10 +301,10 @@ namespace {
         constexpr std::string_view named_but_off =
             "material\tkind\tname\tvalue\n"
             "M_actor_test_body_01\tslot\t_GooRSSheet1\tT_actor_common_body_01_RD\n";
-        auto const off_parsed = toon::parse_sidecar(named_but_off);
+        auto const off_parsed = deren::toon::parse_sidecar(named_but_off);
         CHECK(off_parsed.has_value());
         if (off_parsed.has_value()) {
-            toon::material_sidecar const* const off_body = off_parsed->find("M_actor_test_body_01");
+            deren::toon::material_sidecar const* const off_body = off_parsed->find("M_actor_test_body_01");
             CHECK(off_body != nullptr);
             CHECK(off_body != nullptr && !off_body->enabled("_GooRSSheet1"));
             CHECK(off_body != nullptr && off_body->slot("_GooRSSheet1") == "T_actor_common_body_01_RD");
@@ -323,7 +323,7 @@ namespace {
         // THE JOIN IS THE SAME ONE THE FIRST SHEET ALREADY NEEDED: both names resolve through the model's IMAGE
         // names, to two DIFFERENT images - no new lookup and no new failure mode (a name the model lacks still
         // misses, which is the state the host downgrades to the first sheet from).
-        auto const model = gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/named_texture.gltf");
+        auto const model = deren::gltf::load_model(VR_TEST_SOURCE_DIR "/tests/fixtures/toon/named_texture.gltf");
         CHECK(model.has_value());
         if (!model.has_value()) {
             return;
@@ -407,7 +407,7 @@ namespace {
         // THE COLOUR TABLE'S STRIDE IS A THIRD CONTRACT OF THE SAME KIND, and it fails the worst of the three: the
         // shader addresses that table FLAT - `material_index * lanes + lane` - so a lane count that drifts does not
         // fail, it reads ANOTHER MATERIAL's colour, one material away per lane of drift. The host's number is an
-        // enum (`vulkan::toon_colour_lane::count`) rather than a float, so the check is on the two SPELLINGS, the
+        // enum (`deren::vulkan::toon_colour_lane::count`) rather than a float, so the check is on the two SPELLINGS, the
         // way the ramp's `0.5` is checked above: the shader's constant and the enum's last line.
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
         CHECK(primitive_file.good());
@@ -478,12 +478,12 @@ namespace {
             "material\tkind\tname\tvalue\n"
             "M_iris\tslot\t_MatcapTex\tT_matcap_10_D\n"
             "M_iris\tfloat\t_UseMatcap\t1.0\n";
-        auto const parsed = toon::parse_sidecar(text);
+        auto const parsed = deren::toon::parse_sidecar(text);
         CHECK(parsed.has_value());
         if (!parsed.has_value()) {
             return;
         }
-        toon::material_sidecar const* const iris = parsed->find("M_iris");
+        deren::toon::material_sidecar const* const iris = parsed->find("M_iris");
         CHECK(iris != nullptr);
         if (iris == nullptr) {
             return;
@@ -503,12 +503,12 @@ namespace {
         // that (heap-use-after-free in `scalar()`, freed by `__libcpp_deallocate<material_sidecar>`), while
         // the unsanitized run read the freed block and happened to pass. Every pointer `find()` hands out
         // borrows from the object it was called on, so the object outlives the pointer or neither is used.
-        auto const parsed_good = toon::parse_sidecar(good_text);
+        auto const parsed_good = deren::toon::parse_sidecar(good_text);
         CHECK(parsed_good.has_value());
         if (!parsed_good.has_value()) {
             return;
         }
-        toon::material_sidecar const* const body = parsed_good->find("M_body");
+        deren::toon::material_sidecar const* const body = parsed_good->find("M_body");
         CHECK(body != nullptr);
         if (body == nullptr) {
             return;
@@ -705,7 +705,7 @@ namespace {
         // compiler already forces the two sizes to agree (a mismatch is a type error at `find`), so what is left
         // for a test is the reading: record, then the texture lane blocks, then the colour lanes.
         std::string const key_type =
-            "utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>";
+            "deren::utility::data_block<sizeof(deren::vulkan::material_record) + deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>";
         CHECK(declarations.find(key_type) != std::string::npos);
         CHECK(runtime.find(key_type) != std::string::npos);
         // ... AND IT IS THE ENUM RATHER THAN A NUMBER, which is the drift this repository has already paid for
@@ -721,7 +721,7 @@ namespace {
         // neutral, a copy taken before the lookup resolved, a differently ordered row) would dedup on the wrong
         // set of lanes and split or merge the wrong pairs.
         CHECK(runtime.find("info.toon.colours.data(),") != std::string::npos);
-        CHECK(runtime.find("static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4));") != std::string::npos);
+        CHECK(runtime.find("static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4));") != std::string::npos);
 
         // (c) THE ORDER THAT MAKES THE COLOUR TERM NECESSARY, asserted because it is the reason and not an
         // accident: the key is COMPLETE before the lookup, and the table write sits AFTER it. If a later change
@@ -761,12 +761,12 @@ namespace {
         constexpr std::string_view text =
             "material\tkind\tname\tvalue\n"
             "M_x\tfloat\t_GooSpecularFGD\t0.8\n";
-        auto const parsed = toon::parse_sidecar(text);
+        auto const parsed = deren::toon::parse_sidecar(text);
         CHECK(parsed.has_value());
         if (!parsed.has_value()) {
             return;
         }
-        toon::material_sidecar const* const material = parsed->find("M_x");
+        deren::toon::material_sidecar const* const material = parsed->find("M_x");
         CHECK(material != nullptr);
         if (material == nullptr) {
             return;
@@ -786,10 +786,10 @@ namespace {
         constexpr std::string_view shipped =
             "material\tkind\tname\tvalue\n"
             "M_actor_laevat_body_01\tfloat\t_GooSpecularFGD\t0.7999999523162842\n";
-        auto const shipped_parsed = toon::parse_sidecar(shipped);
+        auto const shipped_parsed = deren::toon::parse_sidecar(shipped);
         CHECK(shipped_parsed.has_value());
         if (shipped_parsed.has_value()) {
-            toon::material_sidecar const* const body = shipped_parsed->find("M_actor_laevat_body_01");
+            deren::toon::material_sidecar const* const body = shipped_parsed->find("M_actor_laevat_body_01");
             CHECK(body != nullptr);
             CHECK(body != nullptr && body->scalar("_GooSpecularFGD", -1.0f) == 0.7999999523162842f);
         }
@@ -815,5 +815,5 @@ int32_t main() {
     test_the_two_asset_scalar_lanes_hold_on_both_sides();
     test_the_goo_specular_fgd_row_is_a_readable_float_row();
     test_the_material_dedup_key_carries_the_colour_lanes();
-    return vk_test::finish("test_toon_material_sidecar");
+    return deren::vk_test::finish("test_toon_material_sidecar");
 }

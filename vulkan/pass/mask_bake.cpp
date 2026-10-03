@@ -13,12 +13,12 @@ module;
 #include <utility>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.mask_bake;
+module deren.vulkan.pass.mask_bake;
 
-import vulkan.pipelines; // build_mask_bake: the compute pipeline this job owns
-import utility;
+import deren.vulkan.pipelines; // build_mask_bake: the compute pipeline this job owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     mask_bake_job::~mask_bake_job() {
         this->release_owned();
@@ -55,7 +55,7 @@ namespace vulkan::pass {
             return std::unexpected(std::move(built.error()));
         }
         this->pass_pipeline = std::move(built->trace);
-        utility::log("SUCCESS: alphaMode MASK bake pipeline created (the mask is collapsed into the structures)");
+        deren::utility::log("SUCCESS: alphaMode MASK bake pipeline created (the mask is collapsed into the structures)");
         return {};
     }
 
@@ -87,4 +87,4 @@ namespace vulkan::pass {
         vkCmdDispatch(command_buffer, (bake.triangle_count + group_size - 1u) / group_size, 1, 1);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

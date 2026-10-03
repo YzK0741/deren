@@ -2,9 +2,9 @@ module;
 
 #include <vulkan/vulkan.h>
 
-module vulkan.core.pipeline;
+module deren.vulkan.core.pipeline;
 import :spirv_parser;
-import vulkan.constant_init;
+import deren.vulkan.constant_init;
 
 namespace {
     // Collects the Vulkan objects created during pipeline creation; the destructor frees the
@@ -29,7 +29,7 @@ namespace {
     };
 } // namespace
 
-namespace vulkan {
+namespace deren::vulkan {
     std::expected<vk_pipeline, std::string_view> make_pipeline(
         VkDevice device,
         VkFormat const color_format,
@@ -223,4 +223,4 @@ namespace vulkan {
         guard.release();
         return result;
     }
-} // namespace vulkan
+} // namespace deren::vulkan

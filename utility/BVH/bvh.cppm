@@ -2,8 +2,8 @@ module;
 
 #include <glm/glm.hpp>
 
-export module utility:bvh;
-export import vstd;
+export module deren.utility:bvh;
+export import deren.vstd;
 
 export import :data_block;
 
@@ -31,7 +31,7 @@ export import :data_block;
  */
 bool hit(glm::vec3 const& min, glm::vec3 const& max, glm::vec3 const& start, glm::vec3 const& direction, float t_min = 0.01f, float t_max = std::numeric_limits<float>::infinity());
 
-namespace utility {
+namespace deren::utility {
     /**
      * @ingroup bvh
      * @brief axis-aligned bounding box with an optional user data pointer
@@ -535,7 +535,7 @@ namespace utility {
             return result;
         }
     };
-} // namespace utility
+} // namespace deren::utility
 
 bool hit(glm::vec3 const& min, glm::vec3 const& max, glm::vec3 const& start, glm::vec3 const& direction, float const t_min, float const t_max) {
     float near = t_min;
@@ -572,8 +572,8 @@ namespace {
     // carries z bit i for i in [0, 32). Bits are set straight into the little-endian byte
     // array, which is byte-identical to the former __uint128_t spread + dump. constexpr so
     // the interleaving is verifiable at compile time (static_assert below).
-    constexpr utility::morton_code morton_encode(uint32_t const x, uint32_t const y, uint32_t const z) {
-        utility::morton_code code; // NSDMI: zero-initialized
+    constexpr deren::utility::morton_code morton_encode(uint32_t const x, uint32_t const y, uint32_t const z) {
+        deren::utility::morton_code code; // NSDMI: zero-initialized
         auto const set_bit = [&code](uint32_t const bit) {
             code.data[bit >> 3] =
                 static_cast<uint8_t>(code.data[bit >> 3] | static_cast<uint8_t>(1u << (bit & 7u)));
@@ -600,14 +600,14 @@ namespace {
     constexpr uint8_t axis_z[] = {4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     constexpr uint8_t mix_golden[] = {67, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
     constexpr uint8_t sat_x_golden[] = {73, 146, 36, 73, 146, 36, 73, 146, 36, 73, 146, 36};
-    static_assert(morton_encode(1, 0, 0) == utility::morton_code(axis_x));
-    static_assert(morton_encode(0, 1, 0) == utility::morton_code(axis_y));
-    static_assert(morton_encode(0, 0, 1) == utility::morton_code(axis_z));
-    static_assert(morton_encode(5, 9, 0) == utility::morton_code(mix_golden));
-    static_assert(morton_encode(0xFFFFFFFFu, 0, 0) == utility::morton_code(sat_x_golden));
+    static_assert(morton_encode(1, 0, 0) == deren::utility::morton_code(axis_x));
+    static_assert(morton_encode(0, 1, 0) == deren::utility::morton_code(axis_y));
+    static_assert(morton_encode(0, 0, 1) == deren::utility::morton_code(axis_z));
+    static_assert(morton_encode(5, 9, 0) == deren::utility::morton_code(mix_golden));
+    static_assert(morton_encode(0xFFFFFFFFu, 0, 0) == deren::utility::morton_code(sat_x_golden));
 } // namespace
 
-namespace utility {
+namespace deren::utility {
 
     std::expected<morton_code, std::string> generate_morton_from_midpoint(glm::vec3 const& midpoint, float const scale) {
         using fail = std::unexpected<std::string>;
@@ -678,4 +678,4 @@ namespace utility {
         result.planes[5] = inward(row3 - row2); // far
         return result;
     }
-} // namespace utility
+} // namespace deren::utility

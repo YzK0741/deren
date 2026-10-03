@@ -1,4 +1,4 @@
-// Headless unit tests: vulkan.render_resource (pure CPU) ======================
+// Headless unit tests: deren.vulkan.render_resource (pure CPU) ======================
 // The description layer exists so that a pass's resources are stated ONCE and the layout, the descriptor
 // writes and the pool counts are generated from that statement instead of being kept in agreement by hand.
 // These tests pin the invariants that make that worth doing, and they can do it without a device - which is
@@ -25,12 +25,12 @@
 #include <string>
 #include <vector>
 
-import vulkan.render_resource;
-import vulkan.pass.upscale; // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
+import deren.vulkan.render_resource;
+import deren.vulkan.pass.upscale; // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
 
 namespace {
-    namespace rr = vulkan::render_resource;
-    namespace up = vulkan::pass;
+    namespace rr = deren::vulkan::render_resource;
+    namespace up = deren::vulkan::pass;
 
     /// validate a declaration that holds exactly one binding, so a wrong one can be built in one line
     std::expected<void, std::string> validate_one(rr::pass_binding const& binding) {
@@ -765,5 +765,5 @@ int32_t main() {
         CHECK(shader_slots.size() > 20u);
         CHECK(host_scalars.at("heap_slot_base") == 16384u);
     }
-    return vk_test::finish("test_render_resources");
+    return deren::vk_test::finish("test_render_resources");
 }

@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.graphical_user_interface
+// module: deren.vulkan.graphical_user_interface
 // module version: 0.4.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // Dear ImGui debug overlay: widget / panel layer driven from the runtime's frame
@@ -21,8 +21,8 @@ module;
 // way (glfw3.h is already included by graphical_user_interface.cpp).
 #include <GLFW/glfw3.h>
 
-export module vulkan.graphical_user_interface;
-export import vstd;
+export module deren.vulkan.graphical_user_interface;
+export import deren.vstd;
 
 /**
  * @file graphical_user_interface.cppm
@@ -43,11 +43,11 @@ export import vstd;
  *        record_main_drawcalls() while the main rendering instance is still open, so the UI
  *        draws on top of the scene inside the same pass
  */
-namespace vulkan::gui {
+namespace deren::vulkan::gui {
     /**
      * @ingroup vulkan_gui
      * @brief everything gui_content needs to initialize its ImGui backends, decoupled from the
-     *        vulkan::core object (the runtime assembles this from its core)
+     *        deren::vulkan::core object (the runtime assembles this from its core)
      */
     export struct gui_create_info {
         // ---- GLFW platform backend ----
@@ -330,4 +330,4 @@ namespace vulkan::gui {
         // frames in flight captured at init() (the backend's min-image hint on recreation)
         uint32_t frames_in_flight = 2;
     };
-} // namespace vulkan::gui
+} // namespace deren::vulkan::gui

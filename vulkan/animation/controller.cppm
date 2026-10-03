@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.animation
+// module: deren.vulkan.animation
 // module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Keyframe playback / skinning / morph targets, format-neutral and runtime-agnostic:
@@ -15,12 +15,12 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-export module vulkan.animation;
+export module deren.vulkan.animation;
 
-import vstd;
-import utility;
-import vulkan.scene_tree; // scene + node types (pure-CPU scene storage)
-import vulkan.primitive;  // GPU leaf primitive + scene capacity constants the rigs drive
+import deren.vstd;
+import deren.utility;
+import deren.vulkan.scene_tree; // scene + node types (pure-CPU scene storage)
+import deren.vulkan.primitive;  // GPU leaf primitive + scene capacity constants the rigs drive
 
 /**
  * @file controller.cppm
@@ -30,13 +30,13 @@ import vulkan.primitive;  // GPU leaf primitive + scene capacity constants the r
  *        locals, and rebuilding the per-frame skin matrices + morph weights into the host's
  *        per-slot buffers.
  *
- * The controller never depends on the concrete host class (vulkan::runtime) NOR on a concrete
+ * The controller never depends on the concrete host class (deren::vulkan::runtime) NOR on a concrete
  * animation source format: it talks to whatever owns the scene through an injected
  * backend (callbacks + a scene&), and init() is a TEMPLATE over a source concept - any type
  * exposing the required member shapes (an animations table, a skins table, an asset-node
- * lookup) can drive it. gltf::scenes satisfies the concept and is instantiated at the call
+ * lookup) can drive it. deren::gltf::scenes satisfies the concept and is instantiated at the call
  * site, so this module never imports a loader. Animation data is value-copied into the
- * controller's own format-neutral structures (vulkan::animation) at init(); playback never
+ * controller's own format-neutral structures (deren::vulkan::animation) at init(); playback never
  * touches the source afterwards.
  *
  * Contract summary (mirrors make_primitive / import_scene / set_ibl):
@@ -46,11 +46,11 @@ import vulkan.primitive;  // GPU leaf primitive + scene capacity constants the r
  *     call it after the host paced a frame slot and before it records (after the slot's
  *     timeline wait).
  *
- * @note everything animation-related lives in vulkan::animation (the format-neutral data
+ * @note everything animation-related lives in deren::vulkan::animation (the format-neutral data
  *       model, the structural concepts, the backend host surface and the controller), so
  *       names stay short - no animation_/anim prefixes needed inside.
  */
-namespace vulkan::animation {
+namespace deren::vulkan::animation {
     /**
      * @ingroup vulkan_animation
      * @brief format-neutral animation data model (reference semantics mirror glTF keyframe
@@ -235,7 +235,7 @@ namespace vulkan::animation {
      * @ingroup vulkan_animation
      * @brief an animation data source: what controller::init() needs from a loaded
      *        file. Structural concept - any type exposing these member shapes can drive the
-     *        controller (gltf::scenes satisfies it; a future format just implements the same
+     *        controller (deren::gltf::scenes satisfies it; a future format just implements the same
      *        shapes). The members mirror what the glTF loader already provides:
      *        - animations: the file's keyframe animations (channel-bearing ones are playable)
      *        - skins: joint lists + inverse bind matrices
@@ -266,7 +266,7 @@ namespace vulkan::animation {
      * surface can drive animations. Assemble it on the host side (see chores).
      */
     export struct backend {
-        vulkan::scene_tree::scene* scene = nullptr; // tree to animate (nullptr = not bound)
+        deren::vulkan::scene_tree::scene* scene = nullptr; // tree to animate (nullptr = not bound)
 
         // ---- per-frame (active slot) access, used by update() ----
         std::function<float*()> morph_scratch_active;                             // host-visible morph scratch of the paced slot
@@ -300,7 +300,7 @@ namespace vulkan::animation {
          *        frame slot's morph buffer and upload the identity skin block into every slot's
          *        skin buffer. Skinned/morphable primitives get their push.skin_base /
          *        push.morph_* fields set here.
-         * @param scenes any type satisfying source (gltf::scenes does): clip keyframes +
+         * @param scenes any type satisfying source (deren::gltf::scenes does): clip keyframes +
          *        skins + mesh (morph) data. Only consulted as DATA; the authoritative node
          *        host is host.scene (the scene tree the controller animates) - nodes not in
          *        that tree are ignored.
@@ -321,7 +321,7 @@ namespace vulkan::animation {
             // the shift to root locals only, so animated roots must re-apply it). scene_iterator
             // walks the whole tree in DFS pre-order; roots sit at depth 0. The SCENE TREE is the
             // authoritative host: only sources that actually live in it are animated.
-            for (auto it = vulkan::scene_tree::begin(*this->host.scene); it != vulkan::scene_tree::end(*this->host.scene); ++it) {
+            for (auto it = deren::vulkan::scene_tree::begin(*this->host.scene); it != deren::vulkan::scene_tree::end(*this->host.scene); ++it) {
                 this->source_nodes[it->source_index].push_back(node_target{&*it, /*scene_root=*/it.depth() == 0});
             }
 
@@ -382,7 +382,7 @@ namespace vulkan::animation {
                 this->duration = clip_duration(*this->active);
                 this->debug_source = this->pick_debug_source(*this->active);
                 this->refresh_debug_name();
-                utility::log("animation: playing '{}' ({} channels, {:.2f}s loop)", display_name(this->active->name), this->active->channels.size(), this->duration);
+                deren::utility::log("animation: playing '{}' ({} channels, {:.2f}s loop)", display_name(this->active->name), this->active->channels.size(), this->duration);
             }
 
             // Parallel sampling decision ("lite" fan-out, not full core count): only when the
@@ -404,7 +404,7 @@ namespace vulkan::animation {
                     for (auto const& [source, targets] : this->source_nodes) {
                         this->sample_keys.push_back(source);
                     }
-                    utility::log("animation: parallel sampling enabled ({} channels / {} sources, runtime task pool)", max_channels, this->sample_keys.size());
+                    deren::utility::log("animation: parallel sampling enabled ({} channels / {} sources, runtime task pool)", max_channels, this->sample_keys.size());
                 }
             }
 
@@ -426,11 +426,11 @@ namespace vulkan::animation {
                     }
                     bool const all_joints_present = std::ranges::all_of(loader_skin.joints, [this](std::size_t const joint) { return this->source_nodes.contains(joint); });
                     if (!all_joints_present) {
-                        utility::log("skinning: skin '{}' skipped (joint(s) missing from the imported scene)", display_name(loader_skin.name));
+                        deren::utility::log("skinning: skin '{}' skipped (joint(s) missing from the imported scene)", display_name(loader_skin.name));
                         continue;
                     }
-                    if (static_cast<uint32_t>(loader_skin.joints.size()) > vulkan::scene_skin_capacity - next_block) {
-                        utility::log("skinning: skin '{}' skipped ({} joints, skin matrix buffer capacity {} exceeded)", display_name(loader_skin.name), loader_skin.joints.size(), vulkan::scene_skin_capacity);
+                    if (static_cast<uint32_t>(loader_skin.joints.size()) > deren::vulkan::scene_skin_capacity - next_block) {
+                        deren::utility::log("skinning: skin '{}' skipped ({} joints, skin matrix buffer capacity {} exceeded)", display_name(loader_skin.name), loader_skin.joints.size(), deren::vulkan::scene_skin_capacity);
                         continue;
                     }
                     uint32_t const block_base = next_block;
@@ -440,11 +440,11 @@ namespace vulkan::animation {
                     // source_index 0); real child nodes keep skin_base 0. MULTIPLE NODES, NOT JUST THE
                     // FIRST: two nodes may reference this skin, and each of them may be instantiated
                     // several times (source_nodes maps a source index to every node using it).
-                    auto const assign_block = [block_base](auto&& self, vulkan::scene_tree::scene_node& node, std::size_t const source) -> void {
+                    auto const assign_block = [block_base](auto&& self, deren::vulkan::scene_tree::scene_node& node, std::size_t const source) -> void {
                         if (node.primitive_leaf != nullptr && (node.source_index == 0 || node.source_index == source)) {
-                            static_cast<vulkan::primitive*>(node.primitive_leaf.get())->push.skin_base = block_base;
+                            static_cast<deren::vulkan::primitive*>(node.primitive_leaf.get())->push.skin_base = block_base;
                         }
-                        for (vulkan::scene_tree::scene_node& child : node.children) {
+                        for (deren::vulkan::scene_tree::scene_node& child : node.children) {
                             self(self, child, source);
                         }
                     };
@@ -454,7 +454,7 @@ namespace vulkan::animation {
                         }
                     }
                     if (mesh_sources.size() > 1) {
-                        utility::log("skinning: skin '{}' is used by {} nodes; all of them now point at its joint block", display_name(loader_skin.name), mesh_sources.size());
+                        deren::utility::log("skinning: skin '{}' is used by {} nodes; all of them now point at its joint block", display_name(loader_skin.name), mesh_sources.size());
                     }
                     // value-copy the skin (joints + inverse bind matrices) into the rig
                     skin s = {};
@@ -483,14 +483,14 @@ namespace vulkan::animation {
                     this->skin_world_cache.emplace_back(); // placeholder; rewritten every frame
                 }
                 if (!skin_rigs.empty()) {
-                    utility::log("skinning: {} skin rig(s) active ({} joint matrix block(s) + identity block)", this->skin_rigs.size(), next_block - 4);
+                    deren::utility::log("skinning: {} skin rig(s) active ({} joint matrix block(s) + identity block)", this->skin_rigs.size(), next_block - 4);
                     this->skin_debug_name = std::string(display_name(this->skin_rigs.front().s.name));
                 }
             }
             // identity block for unskinned draws: upload once into EVERY slot's skin buffer
             {
                 constexpr std::array<glm::mat4, 4> identity_block = {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)};
-                for (uint32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+                for (uint32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
                     this->host.set_skin_matrices_slot(identity_block, slot);
                 }
             }
@@ -509,18 +509,18 @@ namespace vulkan::animation {
                     return reinterpret_cast<glm::vec3 const*>(it->second.data.data())[i];
                 };
                 // collect leaves per effective source (a "/prim" extra leaf inherits its parent's source)
-                std::unordered_map<std::size_t, std::vector<vulkan::primitive*>> source_leaves;
-                auto const collect_leaves = [&source_leaves](auto&& self, vulkan::scene_tree::scene_node& node, std::size_t const parent_source) -> void {
+                std::unordered_map<std::size_t, std::vector<deren::vulkan::primitive*>> source_leaves;
+                auto const collect_leaves = [&source_leaves](auto&& self, deren::vulkan::scene_tree::scene_node& node, std::size_t const parent_source) -> void {
                     bool const is_extra = node.node_name.ends_with("/prim");
                     std::size_t const source = is_extra ? parent_source : node.source_index;
                     if (node.primitive_leaf != nullptr) {
-                        source_leaves[source].push_back(static_cast<vulkan::primitive*>(node.primitive_leaf.get()));
+                        source_leaves[source].push_back(static_cast<deren::vulkan::primitive*>(node.primitive_leaf.get()));
                     }
-                    for (vulkan::scene_tree::scene_node& child : node.children) {
+                    for (deren::vulkan::scene_tree::scene_node& child : node.children) {
                         self(self, child, source);
                     }
                 };
-                for (vulkan::scene_tree::scene_node& root : this->host.scene->roots) {
+                for (deren::vulkan::scene_tree::scene_node& root : this->host.scene->roots) {
                     collect_leaves(collect_leaves, root, 0);
                 }
                 std::size_t total_floats = 0;
@@ -558,7 +558,7 @@ namespace vulkan::animation {
                         uint32_t const verts = leaves[i]->vertex_count;
                         uint32_t const target_count = static_cast<uint32_t>(loader_prim.targets.size());
                         if (pos_portion->second.data.size() / sizeof(glm::vec3) != verts) {
-                            utility::log("morph: skipping primitive (vertex count mismatch with its POSITION data)");
+                            deren::utility::log("morph: skipping primitive (vertex count mismatch with its POSITION data)");
                             continue;
                         }
                         // SPARSE morph block: only the (vertex, target) pairs whose delta is non-zero are
@@ -596,8 +596,8 @@ namespace vulkan::animation {
                         }
                         sparse_offsets[verts] = entries;
                         std::size_t const entry_floats = static_cast<std::size_t>(entries) * 7u;
-                        if (total_floats + weight_floats + offset_floats + entry_floats > vulkan::scene_morph_capacity) {
-                            utility::log("morph: scene morph buffer capacity exceeded, remaining primitives skipped");
+                        if (total_floats + weight_floats + offset_floats + entry_floats > deren::vulkan::scene_morph_capacity) {
+                            deren::utility::log("morph: scene morph buffer capacity exceeded, remaining primitives skipped");
                             break;
                         }
                         float* dst = morph_scratch_mem + total_floats;
@@ -647,11 +647,11 @@ namespace vulkan::animation {
                     }
                 }
                 if (!this->morph_rigs.empty()) {
-                    utility::log("morph: baked {} morphable primitive(s) into the scene morph buffer ({} floats)", this->morph_rigs.size(), total_floats);
+                    deren::utility::log("morph: baked {} morphable primitive(s) into the scene morph buffer ({} floats)", this->morph_rigs.size(), total_floats);
                     // duplicate the baked blocks (contiguous [0, total_floats)) into every other
                     // frame slot's morph buffer: deltas are static, only the per-frame weight
                     // rewrites target the active slot's buffer
-                    for (uint32_t slot = 1; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+                    for (uint32_t slot = 1; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
                         float* const other = this->host.morph_scratch_slot(slot);
                         if (other != nullptr) {
                             std::memcpy(other, morph_scratch_mem, total_floats * sizeof(float));
@@ -677,7 +677,7 @@ namespace vulkan::animation {
          * after `update()` and before the next one gets a consistent frame.
          *
          * @param rig_index index into the active skin rigs, in the order the scene was imported
-         * @param joint_index index into that rig's `skin::joints` - the SAME number `gltf::head_joint_of`
+         * @param joint_index index into that rig's `skin::joints` - the SAME number `deren::gltf::head_joint_of`
          *        returns, and NOT an asset node index; the two differ and confusing them reads the wrong bone
          * @return the joint's world matrix, or nothing when either index is out of range or the joint was not
          *         collected into the cache - a caller has no matrix to use, which is not an error
@@ -748,7 +748,7 @@ namespace vulkan::animation {
 
     private:
         struct node_target {
-            vulkan::scene_tree::scene_node* node = nullptr;
+            deren::vulkan::scene_tree::scene_node* node = nullptr;
             bool scene_root = false;
         };
         struct skin_rig {
@@ -760,7 +760,7 @@ namespace vulkan::animation {
             uint32_t block_base = 0; // block start in the skin buffer (after identity)
         };
         struct morph_rig {
-            vulkan::primitive* prim = nullptr;
+            deren::vulkan::primitive* prim = nullptr;
             uint32_t vertex_count = 0;
             uint32_t target_count = 0;
             uint32_t morph_base = 0; // float index into the morph buffer
@@ -831,4 +831,4 @@ namespace vulkan::animation {
         // self-contained and can be handed to the host's run_tasks for pool execution.
         bool sample_source(std::size_t source, std::vector<node_target> const& targets);
     };
-} // namespace vulkan::animation
+} // namespace deren::vulkan::animation

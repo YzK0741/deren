@@ -3,9 +3,9 @@ module;
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
-module vulkan.scene_tree;
+module deren.vulkan.scene_tree;
 
-namespace vulkan::scene_tree {
+namespace deren::vulkan::scene_tree {
     void update_world(scene_node& node, glm::mat4 const& parent_world) {
         glm::mat4 const world = parent_world * node.local;
         if (node.primitive_leaf) {
@@ -149,4 +149,4 @@ namespace vulkan::scene_tree {
         }
         return nullptr;
     }
-} // namespace vulkan::scene_tree
+} // namespace deren::vulkan::scene_tree

@@ -15,13 +15,13 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.post;
+module deren.vulkan.pass.post;
 
-import vulkan.constant_init;
-import vulkan.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
-import utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     // =============================================================================================
     // THE COMPOSITE
@@ -40,7 +40,7 @@ namespace vulkan::pass {
         return render_resource::post_composite_io;
     }
 
-    vulkan::pass::behaviour const& post_composite_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& post_composite_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -67,7 +67,7 @@ namespace vulkan::pass {
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            utility::log("post chain disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("post chain disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The SURFACE's format is one of the two pipelines' (the other renders into R16F bloom levels and into
@@ -75,7 +75,7 @@ namespace vulkan::pass {
         // kind of reason (see pass_context::swap_chain_image_format).
         auto built = pipelines::build_post(context.device, context.swap_chain_image_format, vertex_spirv, fragment_spirv);
         if (!built) {
-            utility::log("post chain disabled: {}", built.error());
+            deren::utility::log("post chain disabled: {}", built.error());
             this->release_owned();
             return;
         }
@@ -84,7 +84,7 @@ namespace vulkan::pass {
         // The surface's format is cached here because the `encode_gamma` lane is a consequence of it (see
         // resolve): a session-stable device fact, which is exactly what a create step may keep.
         this->swap_chain_format = context.swap_chain_image_format;
-        utility::log("SUCCESS: post chain pipelines created (the composite for the swapchain and the R16F variant)");
+        deren::utility::log("SUCCESS: post chain pipelines created (the composite for the swapchain and the R16F variant)");
     }
 
     void post_composite_pass::on_swapchain_recreated(pass_host const&) {
@@ -178,7 +178,7 @@ namespace vulkan::pass {
             // for the reason that field records.
             .bloom_intensity = this->pass_frame.suppress_bloom ? 0.0f : settings.bloom_intensity,
             .bloom_threshold = settings.bloom_threshold,
-            .encode_gamma = writing_ldr ? 1.0f : (vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f),
+            .encode_gamma = writing_ldr ? 1.0f : (deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f),
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -202,7 +202,7 @@ namespace vulkan::pass {
         // inside one) with UNDEFINED as its old layout: the instance CLEARs it, so whatever it held is dead - and
         // on the FXAA path the target is the LDR image, which the previous frame's FXAA pass left in a sampled
         // layout, which is exactly the claim UNDEFINED does not make.
-        VkImageMemoryBarrier2 to_attachment = vulkan::color_attachment_transition;
+        VkImageMemoryBarrier2 to_attachment = deren::vulkan::color_attachment_transition;
         to_attachment.image = target;
         VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
         vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
@@ -238,7 +238,7 @@ namespace vulkan::pass {
         // The behaviour is a MEMBER because the ELEMENT is part of it: four instances of this class cannot share
         // one declaration of "which resource my extent comes from". Everything else is every other fullscreen
         // pass's: the runner sets the viewport and scissor from the extent the rule produced.
-        this->pass_behaviour = vulkan::pass::behaviour{
+        this->pass_behaviour = deren::vulkan::pass::behaviour{
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::resource,
             .extent_of = resource_id::bloom,
@@ -254,7 +254,7 @@ namespace vulkan::pass {
         return *this->declared_io;
     }
 
-    vulkan::pass::behaviour const& post_bloom_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& post_bloom_pass::behaviour() const noexcept {
         return this->pass_behaviour;
     }
 
@@ -299,13 +299,13 @@ namespace vulkan::pass {
         // chain (it is the one owner of that transition, because the composite reads HDR too and because it is
         // needed on the frames the bloom chain is skipped entirely).
         if (!io.barrier_images.empty() && io.barrier_images[0].image != VK_NULL_HANDLE) {
-            VkImageMemoryBarrier2 to_sampling = vulkan::hdr_sampling_transition;
+            VkImageMemoryBarrier2 to_sampling = deren::vulkan::hdr_sampling_transition;
             to_sampling.image = io.barrier_images[0].image;
             VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
             vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
         }
         // ... then the level this stage WRITES, with UNDEFINED as its old layout: the instance CLEARs it.
-        VkImageMemoryBarrier2 to_attachment = vulkan::color_attachment_transition;
+        VkImageMemoryBarrier2 to_attachment = deren::vulkan::color_attachment_transition;
         to_attachment.image = target;
         VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
         vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
@@ -336,11 +336,11 @@ namespace vulkan::pass {
         // samples ALL FOUR levels, so the last one has to be left in a sampled layout. The levels before it are
         // moved by the next level's input transition above - which is why this is one barrier and not four.
         if (this->bloom_level + 1u == render_resource::post_bloom_io.size()) {
-            VkImageMemoryBarrier2 hand_back = vulkan::hdr_sampling_transition;
+            VkImageMemoryBarrier2 hand_back = deren::vulkan::hdr_sampling_transition;
             hand_back.image = target;
             VkDependencyInfo const hand_back_dependency = make_image_dependency_info(1, &hand_back);
             vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
         }
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

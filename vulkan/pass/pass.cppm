@@ -14,10 +14,10 @@
  *
  * WHERE EACH FACT LIVES, because the point of this layer is that no fact lives twice:
  *
- *  * `vulkan.render_resource` owns WHAT EXISTS and WHAT A PASS USES (pure data, ctest-tested, no device);
+ *  * `deren.vulkan.render_resource` owns WHAT EXISTS and WHAT A PASS USES (pure data, ctest-tested, no device);
  *  * this module owns HOW A PASS IS CALLED (behaviour), WHAT A PASS IS GIVEN (`resolved_io`), and the ORDER a
  *    stage's passes run in (declaration order, never container order);
- *  * `vulkan.core` keeps owning every image; `vulkan.runtime` keeps owning every pipeline. Neither moves.
+ *  * `deren.vulkan.core` keeps owning every image; `deren.vulkan.runtime` keeps owning every pipeline. Neither moves.
  *
  * THE ONE INTERFACE A PASS HAS IS `resolved_io`: the handles its own declaration asked for, indexed by its own
  * binding numbers. The runtime resolves them FROM the declaration, so a pass cannot reach a resource it did not
@@ -40,14 +40,14 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass;
+export module deren.vulkan.pass;
 
-import vulkan.render_resource;
-import vulkan.render_resource.shared;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
 
-export import vulkan.frame_constants; // the per-frame constants a pass reads (see resolved_io::constants)
+export import deren.vulkan.frame_constants; // the per-frame constants a pass reads (see resolved_io::constants)
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     using render_resource::resource_id;
 
@@ -97,7 +97,7 @@ export namespace vulkan::pass {
      *
      * `group_size` is a DECLARED FACT, not a convenience: it must equal the shader's `local_size_x/y/z`, and
      * that equality is exactly the kind of thing this layer exists to be able to check later against the
-     * SPIR-V (the reflection parser is already in `vulkan.core.pipeline:spirv_parser`). Today the same number
+     * SPIR-V (the reflection parser is already in `deren.vulkan.core.pipeline:spirv_parser`). Today the same number
      * lives in a shader and in a dispatch call, in two files, with nothing tying them together.
      */
     struct behaviour {
@@ -123,9 +123,9 @@ export namespace vulkan::pass {
         /**
          * The pipelines this pass records with, BY NAME, in the order it will use them.
          *
-         * NAMES RATHER THAN A BUILD REQUEST, decided deliberately: `vulkan.runtime` already owns the pipelines
+         * NAMES RATHER THAN A BUILD REQUEST, decided deliberately: `deren.vulkan.runtime` already owns the pipelines
          * and already keys them by name (`make_pipeline` / `set_default_pipeline` / `get_pipeline`), so a pass
-         * naming what it needs is the existing mechanism rather than a new one - and it keeps `vulkan.pipelines`
+         * naming what it needs is the existing mechanism rather than a new one - and it keeps `deren.vulkan.pipelines`
          * where it is, with the heap-native pipelines built there. The host resolves the
          * names into `resolved_io::pipelines`, in this order, so `pipelines[i]` is the i-th name here.
          */
@@ -147,7 +147,7 @@ export namespace vulkan::pass {
         uint32_t slot = 0;        // per-frame-slot resources (shadow maps, the light/camera buffers)
         /// how many swapchain images THIS generation has, which is not the same number as `image_index` and
         /// is what a pass that owns per-image bindings sizes it from. The passes that own them need it,
-        /// and it is the kind of fact that used to be reachable only from inside `vulkan.runtime`
+        /// and it is the kind of fact that used to be reachable only from inside `deren.vulkan.runtime`
         uint32_t image_count = 0;
         VkExtent2D extent = {0, 0};
     };
@@ -186,7 +186,7 @@ export namespace vulkan::pass {
     /**
      * @brief what a pass is given: its own declaration, resolved
      *
-     * `own` is indexed by the pass's OWN BINDING NUMBER - `vulkan.render_resource`'s validator requires those
+     * `own` is indexed by the pass's OWN BINDING NUMBER - `deren.vulkan.render_resource`'s validator requires those
      * to be contiguous from zero, so the index IS the declaration's `binding` field and nothing is looked up
      * in the frame path.
      *
@@ -312,13 +312,13 @@ export namespace vulkan::pass {
         std::span<std::byte const> push = {};
         /**
          * THIS FRAME's shared constants: the camera, the fitted scene bounds and the sun, as the frame loop
-         * produced them (see `vulkan.frame_constants`).
+         * produced them (see `deren.vulkan.frame_constants`).
          *
          * WHY THEY ARE HERE RATHER THAN COMPOSED INTO THE PUSH BLOCK BY THE HOST, which is what happens today:
          * a push block's values come from three places - this frame's facts (here), the pass's own parameters
          * (the pass's), and its own per-dispatch lanes (the pass's) - and only the first is the frame loop's
          * business. Composing the whole block in the renderer is what makes every new pass a new resolver
-         * function in `vulkan.runtime`; handing the facts over as DATA is what lets the pass do it itself,
+         * function in `deren.vulkan.runtime`; handing the facts over as DATA is what lets the pass do it itself,
          * without a callback that answers arbitrary questions (the shape `pass_host` is deliberately kept away
          * from - see its note).
          *
@@ -398,7 +398,7 @@ export namespace vulkan::pass {
      * WHAT IS IN IT, and what is deliberately not: the device; the renderer's five samplers, which a
      * declaration CHOOSES between by `sampler_hint` (a pass never names a `VkSampler` of its own, or the five
      * would become six); and a pass's own shader bytes, asked by name. NOT here: no instance, no
-     * physical device, no allocator, no queue, no command pool, and no frame. `vulkan.core` remains the only
+     * physical device, no allocator, no queue, no command pool, and no frame. `deren.vulkan.core` remains the only
      * thing that creates an IMAGE, so a pass cannot take over an image family through this struct.
      */
     struct pass_context {
@@ -439,7 +439,7 @@ export namespace vulkan::pass {
          *
          * WHY A PASS NEEDS IT: a pipeline that renders into the swapchain has to be created with the format that
          * image actually has, and that format is not a compile-time constant (it is whatever the surface reports;
-         * `vulkan.core` finds it at startup, and `hdr_format`/`gbuffer_formats` are the constants the passes can
+         * `deren.vulkan.core` finds it at startup, and `hdr_format`/`gbuffer_formats` are the constants the passes can
          * already name). The post chain's pipeline builders take it as a parameter for exactly this reason, and
          * before this field the only way to hand it over was for the runtime to build those pipelines itself -
          * which is the per-stage ownership this framework has been removing.
@@ -502,9 +502,9 @@ export namespace vulkan::pass {
     /**
      * @brief the runner's interface to the renderer: callbacks plus a context, no virtuals, no allocation
      *
-     * The same injection shape `vulkan.animation`'s `backend` uses (a struct of callbacks and a context, passed
-     * in rather than inherited), which is why this framework depends on NEITHER `vulkan.runtime` NOR
-     * `vulkan.core`: `main.cpp`'s replacement, or a test, can supply one.
+     * The same injection shape `deren.vulkan.animation`'s `backend` uses (a struct of callbacks and a context, passed
+     * in rather than inherited), which is why this framework depends on NEITHER `deren.vulkan.runtime` NOR
+     * `deren.vulkan.core`: `main.cpp`'s replacement, or a test, can supply one.
      *
      * IT IS THE RUNNER'S, NOT A PASS'S: what a pass is given is `resolved_io` at record time and
      * `pass_context` at create time. A pass has no reason to see this struct at all, which is what stops it
@@ -622,13 +622,13 @@ export namespace vulkan::pass {
     };
 
     // =============================================================================================
-    // 3. WHAT A PASS IS - the base every pass derives from, shaped like vulkan.primitive
+    // 3. WHAT A PASS IS - the base every pass derives from, shaped like deren.vulkan.primitive
     // =============================================================================================
 
     /**
      * @brief the base class of every frame pass: pure virtual, one `final` class per pass
      *
-     * Modelled on `vulkan.primitive`, which has carried the renderer's dynamic dispatch since the primitive
+     * Modelled on `deren.vulkan.primitive`, which has carried the renderer's dynamic dispatch since the primitive
      * work: a small pure-virtual interface, `final` derived classes, and the CONTRACT written down - there,
      * "the runtime binds the pipeline and the scene block before calling draw()"; here, "the runner validates
      * `io()`, resolves it, applies `behaviour()`, then calls `record()`".
@@ -645,7 +645,7 @@ export namespace vulkan::pass {
         frame_pass& operator=(frame_pass const&) = delete;
         virtual ~frame_pass() = default;
 
-        /// @brief the declaration: what it uses, in `vulkan.render_resource`'s vocabulary
+        /// @brief the declaration: what it uses, in `deren.vulkan.render_resource`'s vocabulary
         [[nodiscard]] virtual render_resource::pass_io const& io() const noexcept = 0;
         /// @brief how the runner must call it
         [[nodiscard]] virtual behaviour const& behaviour() const noexcept = 0;
@@ -970,7 +970,7 @@ export namespace vulkan::pass {
          * @brief publish a WHOLE family element at once: the per-image views and images, in instance order
          *
          * WHY THIS EXISTS ON TOP OF `publish`: a family the owner already holds as one contiguous array (every
-         * per-swapchain-image family `vulkan.core` creates) is both cheaper and MORE USEFUL published as the
+         * per-swapchain-image family `deren.vulkan.core` creates) is both cheaper and MORE USEFUL published as the
          * spans it already is - the per-image channel (`resolved_io::own_per_image`) needs exactly that contiguous
          * run of views, and a per-instance copy would make the table the source of a second array that can drift
          * from the first. The spans are stored, not copied: they point at the owner's own storage, which outlives
@@ -1289,4 +1289,4 @@ export namespace vulkan::pass {
         return resolve_declaration(*this, context, out);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

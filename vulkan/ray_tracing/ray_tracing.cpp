@@ -16,11 +16,11 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-module vulkan.ray_tracing;
+module deren.vulkan.ray_tracing;
 
-import utility;
+import deren.utility;
 
-namespace vulkan::ray_tracing {
+namespace deren::vulkan::ray_tracing {
 
     structure_set::structure_set(core& device_root) noexcept
         : device(&device_root) {
@@ -305,7 +305,7 @@ namespace vulkan::ray_tracing {
         this->bottom.emplace(vk);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
         // be rewritten by the frame being recorded while the previous one still reads it.
-        this->top_level.emplace(vk, vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        this->top_level.emplace(vk, deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
         auto& structures = *this->bottom;
 
         uint32_t skipped_no_address = 0;
@@ -612,7 +612,7 @@ namespace vulkan::ray_tracing {
                                                 .imageMemoryBarrierCount = 0,
                                                 .pImageMemoryBarriers = nullptr};
                 vkCmdPipelineBarrier2(command_buffer, &after);
-                utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
+                deren::utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
                              this->micromap_resources.size(),
                              micromap_triangles,
                              skipped_micromaps);
@@ -630,28 +630,28 @@ namespace vulkan::ray_tracing {
 
         acceleration_structure::build_stats const& stats = structures.last_stats();
         double const host_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
-        utility::log("ray-traced shadows: built {} bottom level structures ({} triangles, {:.1f} MiB + {:.1f} MiB scratch) in {:.1f} ms",
+        deren::utility::log("ray-traced shadows: built {} bottom level structures ({} triangles, {:.1f} MiB + {:.1f} MiB scratch) in {:.1f} ms",
                      stats.geometry_count,
                      stats.triangle_count,
                      static_cast<double>(stats.structure_bytes) / (1024.0 * 1024.0),
                      static_cast<double>(stats.scratch_bytes) / (1024.0 * 1024.0),
                      host_ms);
         if (skipped_no_stride != 0) {
-            utility::log("  {} casters skipped (no vertex stride recorded - a primitive not created by make_primitive)", skipped_no_stride);
+            deren::utility::log("  {} casters skipped (no vertex stride recorded - a primitive not created by make_primitive)", skipped_no_stride);
         }
         if (skipped_no_address != 0) {
-            utility::log("  {} casters skipped (no vertex/index buffer)", skipped_no_address);
+            deren::utility::log("  {} casters skipped (no vertex/index buffer)", skipped_no_address);
         }
         if (mask_baked != 0 || skipped_mask_buffers != 0) {
             // The measurement this feature is read with: how much geometry the mask actually removed is a property
             // of the asset (a two-quad MASK plane whose pattern is in the middle keeps every triangle; a vase of
             // flowers loses 40% of them).
-            utility::log("ray-traced shadows: {} MASK casters baked into their structures ({} could not be - those are still cut per hit by the any-hit stage)", mask_baked, skipped_mask_buffers);
+            deren::utility::log("ray-traced shadows: {} MASK casters baked into their structures ({} could not be - those are still cut per hit by the any-hit stage)", mask_baked, skipped_mask_buffers);
         }
         if (skinned_baked != 0 || skipped_skin_buffers != 0) {
             // The skinned casters are re-skinned and REFITTED every frame (see update), so this count is also the
             // number of structures a frame's refit touches.
-            utility::log("ray-traced shadows: {} skinned casters re-skinned and REFITTED from their deformed vertices every frame ({} could not be - those keep their bind pose)", skinned_baked, skipped_skin_buffers);
+            deren::utility::log("ray-traced shadows: {} skinned casters re-skinned and REFITTED from their deformed vertices every frame ({} could not be - those keep their bind pose)", skinned_baked, skipped_skin_buffers);
         }
         return {};
     }
@@ -758,11 +758,11 @@ namespace vulkan::ray_tracing {
             this->top_logged = true;
             // The class measured the host cost of the build itself (see build_stats); reporting that rather than a
             // second timer around it keeps one definition of "what the build costs".
-            utility::log("ray-traced shadows: {} instances in the top level structure, one instance table entry each ({:.3f} ms host per frame)",
+            deren::utility::log("ray-traced shadows: {} instances in the top level structure, one instance table entry each ({:.3f} ms host per frame)",
                          top.instance_count(frame_slot),
                          top.last_stats().build_ms);
         }
         return {};
     }
 
-} // namespace vulkan::ray_tracing
+} // namespace deren::vulkan::ray_tracing

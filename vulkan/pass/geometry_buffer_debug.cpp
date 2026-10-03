@@ -13,13 +13,13 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.geometry_buffer_debug;
+module deren.vulkan.pass.geometry_buffer_debug;
 
-import vulkan.constant_init;
-import vulkan.pipelines; // build_gbuffer_debug: the view pipeline, and that is all the pass takes from the builder
-import utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_gbuffer_debug: the view pipeline, and that is all the pass takes from the builder
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     gbuffer_debug_pass::~gbuffer_debug_pass() {
         this->release_owned();
@@ -33,7 +33,7 @@ namespace vulkan::pass {
         return render_resource::gbuffer_debug_io;
     }
 
-    vulkan::pass::behaviour const& gbuffer_debug_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& gbuffer_debug_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -58,18 +58,18 @@ namespace vulkan::pass {
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            utility::log("gbuffer debug view disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("gbuffer debug view disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The debug view reads the stored surface through the frame's heap, so the pipeline is all it builds.
         auto built = pipelines::build_gbuffer_debug(context.device, vertex_spirv, fragment_spirv);
         if (!built) {
-            utility::log("gbuffer debug view disabled: {}", built.error());
+            deren::utility::log("gbuffer debug view disabled: {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->debug);
-        utility::log("SUCCESS: gbuffer debug pipeline created (the stored surface, one channel at a time)");
+        deren::utility::log("SUCCESS: gbuffer debug pipeline created (the stored surface, one channel at a time)");
     }
 
     void gbuffer_debug_pass::on_swapchain_recreated(pass_host const&) {
@@ -109,7 +109,7 @@ namespace vulkan::pass {
         // rendering instance, which is why this is here and not after vkCmdBeginRendering below.
         std::array<VkImageMemoryBarrier2, render_resource::gbuffer_debug_barriers.size()> barriers = {};
         for (std::size_t b = 0; b < barriers.size(); ++b) {
-            barriers[b] = vulkan::hdr_sampling_transition; // COLOR_ATTACHMENT -> SHADER_READ
+            barriers[b] = deren::vulkan::hdr_sampling_transition; // COLOR_ATTACHMENT -> SHADER_READ
             barriers[b].image = io.barrier_images[b].image;
         }
         VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
@@ -138,4 +138,4 @@ namespace vulkan::pass {
         vkCmdEndRendering(io.cmd);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

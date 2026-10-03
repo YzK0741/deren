@@ -53,11 +53,11 @@ module;
 #include <string_view>
 #include <vector>
 
-export module toon_material_sidecar;
+export module deren.toon_material_sidecar;
 
-import vstd;
+import deren.vstd;
 
-export namespace toon {
+export namespace deren::toon {
 
     /// @brief the suffix the asset pipeline writes beside a model: `<model path>` + this
     /// @note INCLUDING the model's own extension, so `x.glb` is described by `x.glb.toon.tsv`. That is the
@@ -168,4 +168,4 @@ export namespace toon {
      */
     [[nodiscard]] std::expected<sidecar, std::string> load_sidecar(std::filesystem::path const& model_path);
 
-} // namespace toon
+} // namespace deren::toon

@@ -1,13 +1,13 @@
 // ============================================================================
-// module: vulkan.init_utils
+// module: deren.vulkan.init_utils
 // module version: 0.1.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // The runtime's initialization utilities: the resource-creation patterns its init
-// functions repeat. Sister module: vulkan.core:init_utils holds the DEVICE-side
+// functions repeat. Sister module: deren.vulkan.core:init_utils holds the DEVICE-side
 // equivalents (device/queue/swapchain selection, memory-type and format queries);
 // this one holds the RENDERER-side ones - the host-visible buffers, the recording
 // pools and the uploaded textures the runtime's members are made of - and imports
-// vulkan.core, never the other way round.
+// deren.vulkan.core, never the other way round.
 //
 // Why this is a module rather than a set of runtime:: members: a member function of
 // a class attached to a named module must be DEFINED in that module, so
@@ -21,7 +21,7 @@
 // many frame slots, which of them are host-visible) and this module keeps the
 // CREATION (allocate, map, label the failure).
 //
-// Depends on vulkan.core (the pool factories and the vma handles) and utility
+// Depends on deren.vulkan.core (the pool factories and the vma handles) and utility
 // (panic).
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
@@ -37,15 +37,15 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-export module vulkan.init_utils;
+export module deren.vulkan.init_utils;
 
-export import vstd;
-export import vulkan.core; // the vma handles + the vk_* wrappers this interface names
+export import deren.vstd;
+export import deren.vulkan.core; // the vma handles + the vk_* wrappers this interface names
 
 /**
  * @file vulkan/init_utils/init_utils.cppm
  * @defgroup vulkan_init_utils_runtime Runtime Init Utils
- * @brief the resource-creation patterns vulkan.runtime's initialization repeats
+ * @brief the resource-creation patterns deren.vulkan.runtime's initialization repeats
  *
  * Every function here was lifted out of a `runtime::init_*` / `runtime::ensure_*` member, and each one
  * exists because the SAME sequence appeared at more than one site with a different string in it: create
@@ -62,9 +62,9 @@ export import vulkan.core; // the vma handles + the vk_* wrappers this interface
  *       two `create_image` span templates are additionally unusable as written: they forward
  *       `(data, create_info, size, type)` to an overload declared `(data, size, create_info, type)`, so
  *       instantiating either one is a compile error. Recorded rather than fixed here, because that fix
- *       belongs to vulkan.core:vma and not to this module.)
+ *       belongs to deren.vulkan.core:vma and not to this module.)
  */
-namespace vulkan::init_utils {
+namespace deren::vulkan::init_utils {
     /**
      * @ingroup vulkan_init_utils_runtime
      * @brief the shared task pool's width: hardware_concurrency() / 4 (floor 1, fall back to 2 when the
@@ -134,7 +134,7 @@ namespace vulkan::init_utils {
      * @param device the core to create both from
      * @return the {pool, buffer} pair the runtime's per-cascade and per-worker recording vectors store
      * @note one pool PER consumer, never a shared one: a VkCommandPool is not thread safe and these
-     *       buffers are filled concurrently (see the recording stages' notes in vulkan.runtime)
+     *       buffers are filled concurrently (see the recording stages' notes in deren.vulkan.runtime)
      */
     export [[nodiscard]] std::pair<VkCommandPool, vk_command_buffer> create_recording_pool(core& device);
 
@@ -165,4 +165,4 @@ namespace vulkan::init_utils {
                                                       std::span<std::byte const> pixels,
                                                       image_create_info const& info,
                                                       std::string_view what);
-} // namespace vulkan::init_utils
+} // namespace deren::vulkan::init_utils

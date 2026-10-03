@@ -11,12 +11,12 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-module vulkan.init_utils;
+module deren.vulkan.init_utils;
 
-import utility;
-import vulkan.core;
+import deren.utility;
+import deren.vulkan.core;
 
-namespace vulkan::init_utils {
+namespace deren::vulkan::init_utils {
     int32_t default_task_pool_threads() noexcept {
         uint32_t const hw = std::thread::hardware_concurrency();
         // A QUARTER of the hardware threads, not a half (see the interface's note: the measurement that
@@ -35,11 +35,11 @@ namespace vulkan::init_utils {
         // reinterpret_casts the data to `uint8_t*`), and every caller here has const bytes.
         buffer = device.vma.create_buffer(reinterpret_cast<uint8_t const*>(initial.data()), initial.size_bytes(), type, extra_usage);
         if (!buffer.valid()) {
-            utility::panic(std::source_location::current(), "failed to create {}", what);
+            deren::utility::panic(std::source_location::current(), "failed to create {}", what);
         }
         auto const* detail = device.vma.get_buffer_detail(buffer.handle());
         if (detail == nullptr) {
-            utility::panic(std::source_location::current(), "failed to get {} detail", what);
+            deren::utility::panic(std::source_location::current(), "failed to get {} detail", what);
         }
         mapped = detail->allocation_info.pMappedData;
     }
@@ -81,13 +81,13 @@ namespace vulkan::init_utils {
         // call site is the one that keeps that overload instantiated (see its comment in vma.cppm)
         texture.image = device.vma.create_image(pixels, info, image_type::texture_2d);
         if (!texture.image.valid()) {
-            utility::panic(std::source_location::current(), "failed to create {}", what);
+            deren::utility::panic(std::source_location::current(), "failed to create {}", what);
         }
         auto const* detail = device.vma.get_image_detail(texture.image.handle());
         if (detail == nullptr) {
-            utility::panic(std::source_location::current(), "failed to get {} detail", what);
+            deren::utility::panic(std::source_location::current(), "failed to get {} detail", what);
         }
         texture.view = device.make_image_view(detail->image, info.format, VK_IMAGE_VIEW_TYPE_2D);
         return texture;
     }
-} // namespace vulkan::init_utils
+} // namespace deren::vulkan::init_utils

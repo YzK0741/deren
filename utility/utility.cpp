@@ -1,7 +1,7 @@
 module;
 
 #include <cstdint>
-#include <cstdio> // utility::print(stderr, ...) below needs the stderr macro (not exportable via modules)
+#include <cstdio> // deren::utility::print(stderr, ...) below needs the stderr macro (not exportable via modules)
 #include <cstring>
 // The three platform entry points are declared in a HEADER rather than here: a global module fragment
 // may only carry preprocessing directives, and MSVC enforces that (C5202 at /W4, fatal under /WX -
@@ -11,9 +11,9 @@ module;
 
 #include <xxhash.h>
 
-module utility;
+module deren.utility;
 
-std::optional<uint64_t> utility::enable_handle_distribute::distribute() noexcept {
+std::optional<uint64_t> deren::utility::enable_handle_distribute::distribute() noexcept {
     std::lock_guard guard(this->access_mutex);
     if (!this->recycled_handles.empty()) {
         auto const it = recycled_handles.begin();
@@ -27,19 +27,19 @@ std::optional<uint64_t> utility::enable_handle_distribute::distribute() noexcept
     return std::nullopt;
 }
 
-void utility::enable_handle_distribute::recycle(uint64_t const handle) noexcept {
+void deren::utility::enable_handle_distribute::recycle(uint64_t const handle) noexcept {
     std::lock_guard guard(this->access_mutex);
     if (handle < this->handle_upper_bound && !this->recycled_handles.contains(handle)) {
         this->recycled_handles.insert(handle);
     }
 }
 
-void utility::enable_stack_destruct::register_cleanup(std::function<void()> const& destructor) noexcept {
+void deren::utility::enable_stack_destruct::register_cleanup(std::function<void()> const& destructor) noexcept {
     std::lock_guard guard(this->access_mutex);
     this->destruct_stack.push(destructor);
 }
 
-void utility::enable_stack_destruct::do_cleanup() noexcept {
+void deren::utility::enable_stack_destruct::do_cleanup() noexcept {
     // Swap the stack out under the lock, then run the destructors unlocked: a callback may
     // itself call register_cleanup() (it takes the same mutex) and would deadlock otherwise.
     std::stack<destruct_type> pending;
@@ -53,7 +53,7 @@ void utility::enable_stack_destruct::do_cleanup() noexcept {
     }
 }
 
-[[noreturn]] void utility::panic(std::string_view msg, std::source_location source_location) noexcept {
+[[noreturn]] void deren::utility::panic(std::string_view msg, std::source_location source_location) noexcept {
     error("program panic!");
 
     if (!msg.empty()) {
@@ -70,7 +70,7 @@ void utility::enable_stack_destruct::do_cleanup() noexcept {
     std::terminate();
 }
 
-double utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, uint64_t const end_ticks, uint32_t const valid_bits, float const nanoseconds_per_tick) noexcept {
+double deren::utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, uint64_t const end_ticks, uint32_t const valid_bits, float const nanoseconds_per_tick) noexcept {
     if (valid_bits == 0 || nanoseconds_per_tick <= 0.0f) {
         return 0.0;
     }
@@ -82,7 +82,7 @@ double utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, uint64_
     return static_cast<double>(delta) * static_cast<double>(nanoseconds_per_tick) * 1.0e-6;
 }
 
-std::optional<std::vector<uint8_t>> utility::read_binary_to_vector(std::filesystem::path const& path) {
+std::optional<std::vector<uint8_t>> deren::utility::read_binary_to_vector(std::filesystem::path const& path) {
     std::error_code error;
     uintmax_t const file_size = std::filesystem::file_size(path, error);
     if (error) {
@@ -102,7 +102,7 @@ std::optional<std::vector<uint8_t>> utility::read_binary_to_vector(std::filesyst
     return data;
 }
 
-std::optional<std::string> utility::read_binary_to_string(std::filesystem::path const& path) {
+std::optional<std::string> deren::utility::read_binary_to_string(std::filesystem::path const& path) {
     std::error_code error;
     uintmax_t const file_size = std::filesystem::file_size(path, error);
     if (error) {
@@ -181,12 +181,12 @@ namespace {
     }
 } // namespace
 
-utility::log_sink& utility::log_sink::instance() noexcept {
+deren::utility::log_sink& deren::utility::log_sink::instance() noexcept {
     static log_sink instance;
     return instance;
 }
 
-utility::log_sink::log_sink() {
+deren::utility::log_sink::log_sink() {
 #ifdef NDEBUG
     // Release builds: rotate the previous session's log aside, then append the new session
     rotate_previous_log();
@@ -195,7 +195,7 @@ utility::log_sink::log_sink() {
     this->worker = std::thread([this] { this->worker_loop(); });
 }
 
-utility::log_sink::~log_sink() {
+deren::utility::log_sink::~log_sink() {
     {
         // Stop accepting BEFORE waking the worker: a message enqueued after the worker has drained
         // and exited would leave `pending` above zero forever, and wait_all() (called by panic())
@@ -215,7 +215,7 @@ utility::log_sink::~log_sink() {
 #endif
 }
 
-void utility::log_sink::worker_loop() noexcept {
+void deren::utility::log_sink::worker_loop() noexcept {
     while (true) {
         std::string message;
         {
@@ -239,10 +239,10 @@ void utility::log_sink::worker_loop() noexcept {
                        << '\n'
                        << std::flush;
         } else {
-            utility::println("{}", message); // fall back to the terminal if the file cannot be opened
+            deren::utility::println("{}", message); // fall back to the terminal if the file cannot be opened
         }
 #else
-        utility::println("{}", message);
+        deren::utility::println("{}", message);
 #endif
         // Decrement pending only after the write finishes so wait_log_all also covers the message being written
         {
@@ -255,14 +255,14 @@ void utility::log_sink::worker_loop() noexcept {
     }
 }
 
-std::FILE* utility::standard_output() noexcept {
+std::FILE* deren::utility::standard_output() noexcept {
     // The macro lives HERE and not in the interface: `stdout` expands to a call into the C library's FILE table
     // rather than naming an object, so it cannot cross a module boundary - see the declaration's note for the
     // measured reason the interface does not just include <cstdio> and use the macro directly.
     return stdout;
 }
 
-void utility::log_sink::write(std::string message) {
+void deren::utility::log_sink::write(std::string message) {
     {
         std::lock_guard lock(this->queue_mutex);
         if (!this->accepting) {
@@ -277,28 +277,28 @@ void utility::log_sink::write(std::string message) {
     this->queue_cv.notify_one();
 }
 
-void utility::log_sink::wait_all() {
+void deren::utility::log_sink::wait_all() {
     std::unique_lock lock(this->queue_mutex);
     // Return as soon as the sink stopped accepting: any message still counted in `pending` at that
     // point belongs to a worker that is on its way out, and waiting for it would hang forever.
     this->drained_cv.wait(lock, [this] { return this->pending == 0 || !this->accepting; });
 }
 
-void utility::error_message(std::string message) {
+void deren::utility::error_message(std::string message) {
 #ifdef NDEBUG
     // Release: hand to the log thread (writes to debug.log)
     log_sink::instance().write("[ERROR] " + std::move(message));
 #else
     // Debug: print directly to stderr in red, no queueing (error is usually followed by terminate)
-    utility::print(stderr, "\x1b[31m[ERROR] {}\x1b[0m\n", message);
+    deren::utility::print(stderr, "\x1b[31m[ERROR] {}\x1b[0m\n", message);
 #endif
 }
 
-uint64_t utility::xxh3_64bits(std::span<uint8_t const> const data_view) {
+uint64_t deren::utility::xxh3_64bits(std::span<uint8_t const> const data_view) {
     return XXH3_64bits(data_view.data(), data_view.size_bytes());
 }
 
-void utility::sleep_for_nanoseconds(int64_t const nanoseconds) {
+void deren::utility::sleep_for_nanoseconds(int64_t const nanoseconds) {
     if (nanoseconds <= 0) {
         return;
     }
@@ -307,7 +307,7 @@ void utility::sleep_for_nanoseconds(int64_t const nanoseconds) {
     utility_platform_sleep_ns(nanoseconds);
 }
 
-std::filesystem::path utility::executable_directory() {
+std::filesystem::path deren::utility::executable_directory() {
     // The platform half fills a plain buffer (see platform_path.cpp, which keeps <windows.h> out of
     // the module's global module fragment). A path that does not fit, and a platform with no answer,
     // both come back empty - the caller then falls back to its own lookup rather than failing.
@@ -319,7 +319,7 @@ std::filesystem::path utility::executable_directory() {
     return std::filesystem::path(std::string(buffer.data(), static_cast<std::size_t>(written)));
 }
 
-std::optional<std::filesystem::path> utility::ask_open_file(std::string_view const title, std::string_view const filter_patterns) {
+std::optional<std::filesystem::path> deren::utility::ask_open_file(std::string_view const title, std::string_view const filter_patterns) {
     // The platform half fills a plain buffer and reports 1/0/-1 for picked/cancelled/unavailable (see
     // platform_dialog.cpp, which keeps <windows.h> out of the module's global module fragment). Both
     // failures are "no path" here, but they are not the same news: one is the user saying no and the other
@@ -332,14 +332,14 @@ std::optional<std::filesystem::path> utility::ask_open_file(std::string_view con
         return std::filesystem::path(std::string(buffer.data()));
     }
     if (result == 0) {
-        utility::log("file dialog: cancelled by the user");
+        deren::utility::log("file dialog: cancelled by the user");
     } else {
-        utility::log("file dialog: no platform backend could ask (headless session, or no zenity/kdialog)");
+        deren::utility::log("file dialog: no platform backend could ask (headless session, or no zenity/kdialog)");
     }
     return std::nullopt;
 }
 
-utility::xxh3_digest utility::xxh3_128bits(std::span<uint8_t const> const data_view) {
+deren::utility::xxh3_digest deren::utility::xxh3_128bits(std::span<uint8_t const> const data_view) {
     // XXH3_128bits returns a {low64, high64} pair; store its bytes in the digest
     xxh3_digest digest = {};
     XXH128_hash_t const hash = XXH3_128bits(data_view.data(), data_view.size_bytes());
@@ -406,11 +406,11 @@ namespace {
     // One PNG chunk: big-endian length, the 4 type bytes, the payload, then the CRC32 over
     // type+payload. The writer is append-only, so the length has to be known up front - which it is.
     std::expected<void, std::string> write_png_chunk(std::ostream& sink, std::string_view const type, std::span<uint8_t const> const payload) {
-        return utility::write_binary(sink, utility::be(static_cast<uint32_t>(payload.size())), type, payload, utility::be(png_crc32(type, payload)));
+        return deren::utility::write_binary(sink, deren::utility::be(static_cast<uint32_t>(payload.size())), type, payload, deren::utility::be(png_crc32(type, payload)));
     }
 } // namespace
 
-std::expected<void, std::string> utility::write_png(std::filesystem::path const& path, uint32_t const width, uint32_t const height, std::span<uint8_t const> const rgba) {
+std::expected<void, std::string> deren::utility::write_png(std::filesystem::path const& path, uint32_t const width, uint32_t const height, std::span<uint8_t const> const rgba) {
     std::size_t const expected = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4u;
     if (width == 0 || height == 0 || rgba.size() < expected) {
         return std::unexpected(std::string("write_png: pixel data does not match the dimensions"));

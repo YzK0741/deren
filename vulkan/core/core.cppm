@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.core
+// module: deren.vulkan.core
 // module version: 0.24.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // GPU scaffolding: instance / device / swapchain / VMA / pipeline / descriptor
@@ -14,8 +14,8 @@
 // THE PRIMARY INTERFACE IS DELIBERATELY THIS SMALL. It re-exports the declarations and imports NO
 // implementation partition: under -Werror that import is an error in clang 22 (see core.declarations.cppm's
 // header), and it is unnecessary - CMake compiles every partition listed in the module's file set, so
-// the definitions in them are archived and the linker finds them. `import vulkan.core;` behaves exactly
+// the definitions in them are archived and the linker finds them. `import deren.vulkan.core;` behaves exactly
 // as it did before the split, for all twelve importers.
 
-export module vulkan.core;
+export module deren.vulkan.core;
 export import :declarations;

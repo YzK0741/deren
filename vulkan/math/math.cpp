@@ -2,9 +2,9 @@ module;
 
 #include <glm/glm.hpp>
 
-module vulkan.math;
+module deren.vulkan.math;
 
-namespace vulkan {
+namespace deren::vulkan {
     namespace {
         constexpr float k_pi = 3.14159265359f;
 
@@ -486,4 +486,4 @@ namespace vulkan {
     std::future<std::vector<float>> generate_brdf_lut_async(int32_t const size) {
         return std::async(std::launch::async, [size] { return generate_brdf_lut(size); });
     }
-} // namespace vulkan
+} // namespace deren::vulkan

@@ -12,13 +12,13 @@ module;
 #include <span>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.upscale;
+module deren.vulkan.pass.upscale;
 
-import vulkan.constant_init;
-import vulkan.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
-import utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     upscale_pass::~upscale_pass() {
         this->release_owned();
@@ -32,7 +32,7 @@ namespace vulkan::pass {
         return render_resource::upscale_io;
     }
 
-    vulkan::pass::behaviour const& upscale_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& upscale_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -59,19 +59,19 @@ namespace vulkan::pass {
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            utility::log("upscale disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("upscale disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The surface's format is the pipeline's declared colour format (the resolve writes the swapchain).
         auto built = pipelines::build_upscale_owned(context.device, context.swap_chain_image_format, vertex_spirv, fragment_spirv);
         if (!built) {
-            utility::log("upscale disabled: {}", built.error());
+            deren::utility::log("upscale disabled: {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->resolve);
         this->swap_chain_format = context.swap_chain_image_format;
-        utility::log("SUCCESS: upscale pipeline created (LDR -> the presented swapchain, a linear filter)");
+        deren::utility::log("SUCCESS: upscale pipeline created (LDR -> the presented swapchain, a linear filter)");
     }
 
     void upscale_pass::on_swapchain_recreated(pass_host const&) {
@@ -167,7 +167,7 @@ namespace vulkan::pass {
         // image, so the handle is the one the pass named - and on a frame this pass does not run, nothing moves
         // the image at all (the composite writes it as an attachment, or writes the swapchain directly).
         if (!io.barrier_images.empty() && io.barrier_images[0].image != VK_NULL_HANDLE) {
-            VkImageMemoryBarrier2 to_sampling = vulkan::hdr_sampling_transition;
+            VkImageMemoryBarrier2 to_sampling = deren::vulkan::hdr_sampling_transition;
             to_sampling.image = io.barrier_images[0].image;
             VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
             vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
@@ -175,7 +175,7 @@ namespace vulkan::pass {
         // ... then the swapchain, which the instance CLEARs: UNDEFINED as the old layout asserts nothing about
         // contents the resolve is about to replace entirely (the same claim the composite and FXAA make - a
         // CLEAR instance's old layout is dead by definition).
-        VkImageMemoryBarrier2 to_attachment = vulkan::color_attachment_transition;
+        VkImageMemoryBarrier2 to_attachment = deren::vulkan::color_attachment_transition;
         to_attachment.image = target;
         VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
         vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
@@ -197,7 +197,7 @@ namespace vulkan::pass {
             .con2 = {es.con2[0], es.con2[1], es.con2[2], es.con2[3]},
             .con3 = {es.con3[0], es.con3[1], es.con3[2], es.con3[3]},
             .mode = this->filter_kind == upscale_filter::easu ? 1.0f : 0.0f,
-            .encode_gamma = vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
+            .encode_gamma = deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
         };
         VkClearValue clear = {};
         VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
@@ -218,4 +218,4 @@ namespace vulkan::pass {
         vkCmdEndRendering(io.cmd);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

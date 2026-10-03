@@ -14,12 +14,12 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.compute_skin;
+module deren.vulkan.pass.compute_skin;
 
-import vulkan.pipelines; // build_compute_skin: the compute pipeline this job owns
-import utility;
+import deren.vulkan.pipelines; // build_compute_skin: the compute pipeline this job owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     compute_skin_job::~compute_skin_job() {
         this->release_owned();
@@ -56,7 +56,7 @@ namespace vulkan::pass {
             return std::unexpected(std::move(built.error()));
         }
         this->pass_pipeline = std::move(built->trace);
-        utility::log("SUCCESS: compute skinning pipeline created (skinned casters can be refitted per frame)");
+        deren::utility::log("SUCCESS: compute skinning pipeline created (skinned casters can be refitted per frame)");
         return {};
     }
 
@@ -114,4 +114,4 @@ namespace vulkan::pass {
         return true;
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

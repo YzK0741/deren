@@ -10,19 +10,19 @@ module;
 #include <span>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.transparent;
+module deren.vulkan.pass.transparent;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     render_resource::pass_io const& transparent_pass::io() const noexcept {
         return render_resource::transparent_io;
     }
 
-    vulkan::pass::behaviour const& transparent_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& transparent_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -60,9 +60,9 @@ namespace vulkan::pass {
         // instance ended as an attachment write), but dynamic rendering inserts no dependency between two
         // instances, so that store still has to be published before this instance LOADs the same image.
         std::array<VkImageMemoryBarrier2, 2> barriers = {};
-        barriers[0] = vulkan::sampling_to_depth_attachment_transition;
+        barriers[0] = deren::vulkan::sampling_to_depth_attachment_transition;
         barriers[0].image = depth_image;
-        barriers[1] = vulkan::color_attachment_dependency;
+        barriers[1] = deren::vulkan::color_attachment_dependency;
         barriers[1].image = target_image;
         VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
         vkCmdPipelineBarrier2(io.cmd, &dependency);
@@ -100,7 +100,7 @@ namespace vulkan::pass {
             vkEndCommandBuffer(this->pass_frame.secondary);
             recorded = true;
         } else {
-            utility::log("transparent pass: secondary begin failed - transparent leaves skipped this frame");
+            deren::utility::log("transparent pass: secondary begin failed - transparent leaves skipped this frame");
         }
 
         // loadOp LOAD on both attachments: the scene target holds the shaded frame and the depth holds the
@@ -120,10 +120,10 @@ namespace vulkan::pass {
         // disocclusion guard and the composite's edge test). Nothing else would move it - the flag-driven
         // transition was already consumed by the lighting stage - so a frame with blended geometry would leave
         // the image as an attachment and every read after it would be a layout error.
-        VkImageMemoryBarrier2 to_sampling = vulkan::shadow_map_sampling_transition; // attachment -> SHADER_READ
+        VkImageMemoryBarrier2 to_sampling = deren::vulkan::shadow_map_sampling_transition; // attachment -> SHADER_READ
         to_sampling.image = depth_image;
         VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
         vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

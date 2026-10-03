@@ -4,11 +4,11 @@ module;
 #include <sstream>
 #include <toml++/toml.hpp>
 
-module application_configuration;
+module deren.application_configuration;
 
-import utility;
+import deren.utility;
 
-namespace app_config {
+namespace deren::app_config {
     app_settings load_settings(std::string const& path) {
         app_settings settings = {};
 
@@ -16,7 +16,7 @@ namespace app_config {
         // success and error() carries the message
         toml::parse_result const parsed = toml::parse_file(path);
         if (!parsed) {
-            utility::log("app_config: cannot load '{}': {}", path, parsed.error().description());
+            deren::utility::log("app_config: cannot load '{}': {}", path, parsed.error().description());
             return settings; // config_file stays empty -> caller falls back to defaults
         }
         toml::table const& table = parsed.table();
@@ -28,7 +28,7 @@ namespace app_config {
         {
             std::ostringstream dumped;
             dumped << table;
-            utility::log("app_config: '{}' contents:\n{}", path, dumped.str());
+            deren::utility::log("app_config: '{}' contents:\n{}", path, dumped.str());
         }
 
         settings.config_file = path;
@@ -300,7 +300,7 @@ namespace app_config {
                 }
             }
             // THE REWRITTEN TOON CHAIN'S SELECTOR ([render] goo_toon): which `.spv` the character stage's fragment
-            // half comes from - see `vulkan::runtime::goo_toon_pipeline_name`. It rides `[render]` rather than the
+            // half comes from - see `deren::vulkan::runtime::goo_toon_pipeline_name`. It rides `[render]` rather than the
             // `[toon]` rig table below because it is a frame's render setting rather than a piece of the
             // character's art direction, and because the capture instrument can only override `[render]` keys
             // (`scripts/windows/capture.ps1`), which is what makes the A/B runnable.
@@ -322,7 +322,7 @@ namespace app_config {
             //
             // A TABLE OF ITS OWN rather than more keys under `[render]`, because these are the CHARACTER stage's art
             // direction rather than the frame's render settings - and because they belong together: they are the
-            // lanes of one block (`vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
+            // lanes of one block (`deren::vulkan::toon_rig`), and a reader who moves one of them wants to see the others.
             if (toml::table const* toon = table.get_as<toml::table>("toon")) {
                 for (auto const& [key, target] : {std::pair{"day_strength", &settings.toon.day_strength},
                                                   std::pair{"head_light_day0", &settings.toon.head_light_day0},
@@ -511,17 +511,17 @@ namespace app_config {
         settings.gui.panel_height = std::max(settings.gui.panel_height, 0.0f);
         settings.grid_side = std::clamp(settings.grid_side, 0, 90);
         if (settings.render.shadow_cascades < 1 || settings.render.shadow_cascades > 4) {
-            utility::log("app_config: invalid shadow_cascades {} (use 1..4), falling back to 3", settings.render.shadow_cascades);
+            deren::utility::log("app_config: invalid shadow_cascades {} (use 1..4), falling back to 3", settings.render.shadow_cascades);
             settings.render.shadow_cascades = 3;
         }
         if (settings.render.shadow_map_size < 256 || settings.render.shadow_map_size > 8192) {
-            utility::log("app_config: invalid shadow_map_size {} (use 256..8192), falling back to 2048", settings.render.shadow_map_size);
+            deren::utility::log("app_config: invalid shadow_map_size {} (use 256..8192), falling back to 2048", settings.render.shadow_map_size);
             settings.render.shadow_map_size = 2048;
         }
         // THE TOON SHADOW SOFTNESS LADDER ([render] toon_shadow_softness, 0..4): rounded to the nearest level
         // and clamped into the range, with ONE log line whenever either happened - so a config that asks for
         // 2.4 or 7 renders as a level the user can read back, rather than silently. 0 is the shipped lookup
-        // and the default; the value reaches the shader through `vulkan::toon_rig`'s ninth lane, and the one
+        // and the default; the value reaches the shader through `deren::vulkan::toon_rig`'s ninth lane, and the one
         // call site that reads it is the shadow lookup inside `toon_diffuse` (`shaders/character_forward.slang`).
         //
         // NAN IS HANDLED HERE BECAUSE `std::clamp` CANNOT HANDLE IT, which is the whole reason this block is not
@@ -539,16 +539,16 @@ namespace app_config {
             bool const not_a_number = std::isnan(requested);
             float const clamped = std::clamp(not_a_number ? 0.0f : std::round(requested), 0.0f, 4.0f);
             if (not_a_number) {
-                utility::log("app_config: toon_shadow_softness is not a number (nan), using 0 (0 = shipped 3x3 PCF)");
+                deren::utility::log("app_config: toon_shadow_softness is not a number (nan), using 0 (0 = shipped 3x3 PCF)");
             } else if (clamped != requested) {
-                utility::log("app_config: toon_shadow_softness {} -> {} (0 = shipped 3x3 PCF, 1..4 = wider soft kernels)",
+                deren::utility::log("app_config: toon_shadow_softness {} -> {} (0 = shipped 3x3 PCF, 1..4 = wider soft kernels)",
                              requested,
                              clamped);
             }
             settings.render.toon_shadow_softness = clamped;
         }
         if (settings.render.ssao_samples < 1 || settings.render.ssao_samples > 16) {
-            utility::log("app_config: invalid ssao_samples {} (use 1..16), falling back to 8", settings.render.ssao_samples);
+            deren::utility::log("app_config: invalid ssao_samples {} (use 1..16), falling back to 8", settings.render.ssao_samples);
             settings.render.ssao_samples = 8;
         }
         settings.render.ssao_radius = std::clamp(settings.render.ssao_radius, 0.0f, 100.0f);
@@ -561,26 +561,26 @@ namespace app_config {
         // with exceptions disabled), and env_mip_count < 2 makes the sampler's
         // "pyramid.size() - 1" wrap around. Clamp to the range the precompute actually supports.
         if (settings.lighting.env_size < 16 || settings.lighting.env_size > 4096) {
-            utility::log("app_config: invalid env_size {} (use 16..4096), falling back to 256", settings.lighting.env_size);
+            deren::utility::log("app_config: invalid env_size {} (use 16..4096), falling back to 256", settings.lighting.env_size);
             settings.lighting.env_size = 256;
         }
         if (settings.lighting.env_mip_count < 2 || settings.lighting.env_mip_count > 12) {
-            utility::log("app_config: invalid env_mip_count {} (use 2..12), falling back to 5", settings.lighting.env_mip_count);
+            deren::utility::log("app_config: invalid env_mip_count {} (use 2..12), falling back to 5", settings.lighting.env_mip_count);
             settings.lighting.env_mip_count = 5;
         }
         if (settings.lighting.irr_size < 1 || settings.lighting.irr_size > 1024) {
-            utility::log("app_config: invalid irr_size {} (use 1..1024), falling back to 32", settings.lighting.irr_size);
+            deren::utility::log("app_config: invalid irr_size {} (use 1..1024), falling back to 32", settings.lighting.irr_size);
             settings.lighting.irr_size = 32;
         }
         if (settings.lighting.lut_size < 1 || settings.lighting.lut_size > 1024) {
-            utility::log("app_config: invalid lut_size {} (use 1..1024), falling back to 256", settings.lighting.lut_size);
+            deren::utility::log("app_config: invalid lut_size {} (use 1..1024), falling back to 256", settings.lighting.lut_size);
             settings.lighting.lut_size = 256;
         }
         // The environment multiplier scales radiance: a negative one would mirror the image into nonsense
         // and a NaN would poison every texel of the IBL it feeds. Both fall back to the reference's own
         // number instead of rendering an environment nobody chose. (`!(x >= 0)` is the NaN test.)
         if (!(settings.lighting.environment_intensity >= 0.0f)) {
-            utility::log("app_config: invalid environment_intensity {} (use a finite value >= 0), falling back to 0.35", settings.lighting.environment_intensity);
+            deren::utility::log("app_config: invalid environment_intensity {} (use a finite value >= 0), falling back to 0.35", settings.lighting.environment_intensity);
             settings.lighting.environment_intensity = 0.35f;
         }
         // The area light's own numbers. A negative size/power means "no such emitter" rather than a negative
@@ -588,26 +588,26 @@ namespace app_config {
         // frame), and a NaN or infinity in ANY of them travels straight into the light UBO and then into every
         // pixel - the same failure mode task-91 found for `toon_shadow_softness`. `!(x >= 0)` is the NaN test.
         if (!(settings.lighting.area_light_size >= 0.0f)) {
-            utility::log("app_config: invalid area_light_size {} (use a finite value >= 0), falling back to 0 (no area light)", settings.lighting.area_light_size);
+            deren::utility::log("app_config: invalid area_light_size {} (use a finite value >= 0), falling back to 0 (no area light)", settings.lighting.area_light_size);
             settings.lighting.area_light_size = 0.0f;
         }
         if (!(settings.lighting.area_light_power >= 0.0f)) {
-            utility::log("app_config: invalid area_light_power {} (use a finite value >= 0), falling back to 0", settings.lighting.area_light_power);
+            deren::utility::log("app_config: invalid area_light_power {} (use a finite value >= 0), falling back to 0", settings.lighting.area_light_power);
             settings.lighting.area_light_power = 0.0f;
         }
         if (!(settings.lighting.area_light_intensity >= 0.0f)) {
-            utility::log("app_config: invalid area_light_intensity {} (use a finite value >= 0), falling back to 1", settings.lighting.area_light_intensity);
+            deren::utility::log("app_config: invalid area_light_intensity {} (use a finite value >= 0), falling back to 1", settings.lighting.area_light_intensity);
             settings.lighting.area_light_intensity = 1.0f;
         }
         if (!(settings.lighting.area_light_softness >= 0.0f)) {
-            utility::log("app_config: invalid area_light_softness {} (use a finite value >= 0), falling back to 0 (automatic penumbra)", settings.lighting.area_light_softness);
+            deren::utility::log("app_config: invalid area_light_softness {} (use a finite value >= 0), falling back to 0 (automatic penumbra)", settings.lighting.area_light_softness);
             settings.lighting.area_light_softness = 0.0f;
         }
         for (auto const& [key, target] : {std::pair{"area_light_position", &settings.lighting.area_light_position},
                                           std::pair{"area_light_target", &settings.lighting.area_light_target}}) {
             for (std::size_t i = 0; i < target->size(); ++i) {
                 if (!std::isfinite((*target)[i])) {
-                    utility::log("app_config: invalid {}[{}] (use finite numbers), falling back to 0", key, i);
+                    deren::utility::log("app_config: invalid {}[{}] (use finite numbers), falling back to 0", key, i);
                     (*target)[i] = 0.0f;
                 }
             }
@@ -616,10 +616,10 @@ namespace app_config {
             // Not an error (the user may be stripping the key light without deleting its geometry), but it is
             // never what someone means, and the symptom - a frame lit only by the environment - looks like a
             // broken area light rather than a zero power.
-            utility::log("app_config: area_light_size {} with area_light_power {}: the main light contributes nothing", settings.lighting.area_light_size, settings.lighting.area_light_power);
+            deren::utility::log("app_config: area_light_size {} with area_light_power {}: the main light contributes nothing", settings.lighting.area_light_size, settings.lighting.area_light_power);
         }
         if (settings.lighting.demo_lights < 0 || settings.lighting.demo_lights > static_cast<int32_t>(max_demo_lights)) {
-            utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);
+            deren::utility::log("app_config: invalid demo_lights {} (use 0..{}), clamping", settings.lighting.demo_lights, max_demo_lights);
             settings.lighting.demo_lights = std::clamp(settings.lighting.demo_lights, 0, static_cast<int32_t>(max_demo_lights));
         }
         // The stochastic punctual lighting's sample count, clamped to the shader's own compile-time bound (see
@@ -633,7 +633,7 @@ namespace app_config {
         settings.render.megalights_bias = std::clamp(settings.render.megalights_bias, 0.0f, 32.0f);
         settings.render.megalights_light_angle = std::clamp(settings.render.megalights_light_angle, 0.0f, 0.1f);
         if (settings.render.camera_fit != "exterior" && settings.render.camera_fit != "interior") {
-            utility::log("app_config: invalid camera_fit '{}' (use exterior/interior), falling back to exterior", settings.render.camera_fit);
+            deren::utility::log("app_config: invalid camera_fit '{}' (use exterior/interior), falling back to exterior", settings.render.camera_fit);
             settings.render.camera_fit = "exterior";
         }
         return settings;
@@ -685,7 +685,7 @@ namespace app_config {
             // An emitter AT the author's origin (no direction to light) or aimed at itself (no emitting side).
             // There is no honest direction to hand the sun, so the area light stays off: a zero light_ubo pair
             // is the only answer that cannot invent a frame.
-            utility::log("app_config: area light at [{}, {}, {}] with target [{}, {}, {}] has no usable direction, ignoring it",
+            deren::utility::log("app_config: area light at [{}, {}, {}] with target [{}, {}, {}] has no usable direction, ignoring it",
                          lighting.area_light_position[0], lighting.area_light_position[1], lighting.area_light_position[2],
                          lighting.area_light_target[0], lighting.area_light_target[1], lighting.area_light_target[2]);
             return derived;
@@ -756,7 +756,7 @@ namespace app_config {
         if (!config_path.empty() && std::filesystem::is_regular_file(config_path, ec)) {
             settings = load_settings(config_path);
         } else if (!config_path.empty()) {
-            utility::log("app_config: config file '{}' not found, using defaults", config_path);
+            deren::utility::log("app_config: config file '{}' not found, using defaults", config_path);
         }
 
         // 2. Positional argv overrides the file: [0] = model, [1] = grid side (numeric).
@@ -776,7 +776,7 @@ namespace app_config {
                 // overflow saturates to LONG_MAX, which the clamp also absorbs)
                 settings.grid_side = std::clamp(side, int32_t{0}, int32_t{90});
             } else {
-                utility::log("app_config: ignoring unrecognized positional argument '{}' (expected a numeric grid side)", arg);
+                deren::utility::log("app_config: ignoring unrecognized positional argument '{}' (expected a numeric grid side)", arg);
             }
         }
         return settings;
@@ -786,4 +786,4 @@ namespace app_config {
         // no explicit default path: fall back to "config.toml" in the working directory
         return resolve_from_argv(argc, argv, "config.toml");
     }
-} // namespace app_config
+} // namespace deren::app_config

@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.core:constructor  - the IMPLEMENTATION PARTITION that builds a core
+// module: deren.vulkan.core:constructor  - the IMPLEMENTATION PARTITION that builds a core
 //
 // What is here is the initialisation run that was already one cohesive block in core.cpp: the two
 // constructors, the window/instance/surface/device/swapchain/image-view steps, the depth and render
@@ -24,21 +24,21 @@ module;
 // std module, a TU that instantiates std::vector sees TWO 'operator new(size_t, align_val_t)' declarations -
 // module std's and the textual libc++ copy baked into utility:data_block.pcm - and resolves neither, which is
 // "call to operator new is ambiguous" at allocate.h. This file instantiates plenty of std::vector (the device
-// extension-name list, the descriptor pool sizes), and it began seeing both the moment vulkan.core gained an
+// extension-name list, the descriptor pool sizes), and it began seeing both the moment deren.vulkan.core gained an
 // import edge it did not have before: descriptor_heap, whose own module carries a textual Vulkan header in its
 // global module fragment. Textually including glm here makes clang MERGE the two copies, exactly as it does for
 // chores.cpp and vulkan/animation/controller.cpp. Do not remove this include to "clean up".
 #include <glm/glm.hpp>
 
-module vulkan.core:constructor;
+module deren.vulkan.core:constructor;
 
 import :declarations;
-import utility;
-import vulkan.core.pipeline;
+import deren.utility;
+import deren.vulkan.core.pipeline;
 import :init_utils;
-import vulkan.constant_init;
+import deren.vulkan.constant_init;
 
-namespace vulkan {
+namespace deren::vulkan {
     // core
     core::core()
         : core(core_create_info{}) {
@@ -54,7 +54,7 @@ namespace vulkan {
         // negative scale is an invalid extent rather than a small frame.
         this->render_scale = std::clamp(options.render_scale, 0.1f, 1.0f);
         if (this->render_scale != options.render_scale) {
-            utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", options.render_scale, this->render_scale);
+            deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", options.render_scale, this->render_scale);
         }
         if (options.window.has_value()) {
             // caller-provided window: bind to it as-is - no glfwInit / glfwCreateWindow here and
@@ -115,10 +115,10 @@ namespace vulkan {
                     // then the grid; it landed at the window instead, which is the measured reason this is one
                     // call rather than two - a filler reservation is a second thing that can silently not happen.
                     this->heap_grid_offset = this->descriptor_heaps.reserve_bytes(grid_bytes, grid_base_bytes);
-                    utility::log("descriptor heap: the reserved window ends at {} B, so the grid's 1 MiB base is {} B away", this->descriptor_heaps.usable_offset(), grid_base_bytes);
+                    deren::utility::log("descriptor heap: the reserved window ends at {} B, so the grid's 1 MiB base is {} B away", this->descriptor_heaps.usable_offset(), grid_base_bytes);
                 }
                 if (descriptors_fit && this->heap_grid_offset == grid_base_bytes) {
-                    utility::log("descriptor heap: slot grid at {} ({} slots x {} B; textures {} materials {} tlas {} camera {} light {} clusters {}/{} gbuffer {} env {} lut {})",
+                    deren::utility::log("descriptor heap: slot grid at {} ({} slots x {} B; textures {} materials {} tlas {} camera {} light {} clusters {}/{} gbuffer {} env {} lut {})",
                                  this->heap_grid_offset,
                                  heap_slot_count,
                                  heap_slot_stride,
@@ -133,7 +133,7 @@ namespace vulkan {
                                  heap_slots::env_cube - heap_slot_base,
                                  heap_slots::brdf_lut - heap_slot_base);
                 } else {
-                    utility::log("descriptor heap: NO slot grid (base {} B, expected {} B, descriptors {} {} {} B against the {} B stride), so the heap stays unused",
+                    deren::utility::log("descriptor heap: NO slot grid (base {} B, expected {} B, descriptors {} {} {} B against the {} B stride), so the heap stays unused",
                                  this->heap_grid_offset,
                                  grid_base_bytes,
                                  this->descriptor_heaps.limits().buffer_descriptor_size,
@@ -147,7 +147,7 @@ namespace vulkan {
                 // own - the one way this design has of being wrong without anything saying so.
                 this->heap_texture_array_offset = this->descriptor_heaps.reserve(scene_texture_capacity, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
                 this->heap_material_table_offset = this->descriptor_heaps.reserve(1u, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                utility::log("descriptor heap: layout reserved (texture array at {}, material table at {})", this->heap_texture_array_offset, this->heap_material_table_offset);
+                deren::utility::log("descriptor heap: layout reserved (texture array at {}, material table at {})", this->heap_texture_array_offset, this->heap_material_table_offset);
 
                 // THE SAMPLERS COME LAST BECAUSE THE HEAP DID NOT EXIST WHEN THEY WERE MADE: create_samplers()
                 // ran earlier in this constructor and kept the create infos (core.cppm's shared_sampler_infos),
@@ -166,10 +166,10 @@ namespace vulkan {
                             ++written;
                         }
                     }
-                    utility::log("descriptor heap: {} shared samplers written to the sampler grid at {}", written, sampler_grid);
+                    deren::utility::log("descriptor heap: {} shared samplers written to the sampler grid at {}", written, sampler_grid);
                 }
             } else {
-                utility::log("descriptor heap: not created; the heap is the only binding model this renderer has, so it cannot render without it");
+                deren::utility::log("descriptor heap: not created; the heap is the only binding model this renderer has, so it cannot render without it");
             }
         }
     };
@@ -252,13 +252,13 @@ namespace vulkan {
 
         if (enable_validation) {
             extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-            utility::log("add debug extension: {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
+            deren::utility::log("add debug extension: {}", VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
         }
 
         // print all extensions
-        utility::log("required instance extension ({}):", extensions.size());
+        deren::utility::log("required instance extension ({}):", extensions.size());
         for (auto const& ext : extensions) {
-            utility::log("  - {}", ext);
+            deren::utility::log("  - {}", ext);
         }
 
         create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
@@ -276,16 +276,16 @@ namespace vulkan {
             if (check_validation_layer_support(validation_layers)) {
                 create_info.enabledLayerCount = static_cast<uint32_t>(validation_layers.size());
                 create_info.ppEnabledLayerNames = validation_layers.data();
-                utility::log("validation layers enabled ( {} )", validation_layers.size());
+                deren::utility::log("validation layers enabled ( {} )", validation_layers.size());
                 for (auto const& layer : validation_layers) {
-                    utility::log("  - {}", layer);
+                    deren::utility::log("  - {}", layer);
                 }
             } else {
-                utility::log("warning: VK_LAYER_KHRONOS_validation disabled");
+                deren::utility::log("warning: VK_LAYER_KHRONOS_validation disabled");
                 create_info.enabledLayerCount = 0;
             }
         } else {
-            utility::log("validation layers disabled (config [render] validation_layers = false)");
+            deren::utility::log("validation layers disabled (config [render] validation_layers = false)");
             create_info.enabledLayerCount = 0;
         }
 
@@ -315,10 +315,10 @@ namespace vulkan {
                 error_msg += std::to_string(static_cast<int32_t>(result));
                 break;
             }
-            utility::panic(error_msg);
+            deren::utility::panic(error_msg);
         }
-        utility::log("instance init succeeded");
-        utility::log("instance handler is 0x{:x}", reinterpret_cast<uint64_t>(this->instance));
+        deren::utility::log("instance init succeeded");
+        deren::utility::log("instance handler is 0x{:x}", reinterpret_cast<uint64_t>(this->instance));
 
         // register instance destruction first, then the messenger cleanup INSIDE the
         // validation branch below: cleanup runs LIFO, so the messenger (when created) is
@@ -335,7 +335,7 @@ namespace vulkan {
                 instance, "vkDestroyDebugUtilsMessengerEXT"));
 
             if ((vkCreateDebugUtilsMessengerEXT == nullptr) || (vkDestroyDebugUtilsMessengerEXT == nullptr)) {
-                utility::panic("Failed to get debug utils function pointers");
+                deren::utility::panic("Failed to get debug utils function pointers");
             }
             VkDebugUtilsMessengerCreateInfoEXT debug_info = {};
             debug_info.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
@@ -352,9 +352,9 @@ namespace vulkan {
             debug_info.pUserData = nullptr;
 
             if (vkCreateDebugUtilsMessengerEXT(instance, &debug_info, nullptr, &debug_messenger) != VK_SUCCESS) {
-                utility::error("create debug messenger failed");
+                deren::utility::error("create debug messenger failed");
             } else {
-                utility::log("create debug messenger succeeded");
+                deren::utility::log("create debug messenger succeeded");
             }
             this->register_cleanup([vkDestroyDebugUtilsMessengerEXT, this] {
                 vkDestroyDebugUtilsMessengerEXT(this->instance, this->debug_messenger, nullptr);
@@ -364,7 +364,7 @@ namespace vulkan {
 
     void core::init_surface() noexcept {
         if (glfwCreateWindowSurface(this->instance, this->window, nullptr, &this->surface) != VK_SUCCESS) {
-            utility::panic("can not init surface");
+            deren::utility::panic("can not init surface");
         }
 
         this->register_cleanup([this] {
@@ -388,7 +388,7 @@ namespace vulkan {
         // render pass / framebuffer objects exist. Double-check the feature bit anyway (a
         // conformant 1.3 driver must expose it).
         if (capabilities.features_1_3.dynamicRendering != VK_TRUE) {
-            utility::panic("dynamic rendering (Vulkan 1.3) is required but not supported by the device");
+            deren::utility::panic("dynamic rendering (Vulkan 1.3) is required but not supported by the device");
         }
 
         device_creation_info creation_info;
@@ -476,7 +476,7 @@ namespace vulkan {
         // 1.3 device this renderer creates satisfies both. It adds no commands either.
         creation_info.extensions.push_back(VK_KHR_UNIFIED_IMAGE_LAYOUTS_EXTENSION_NAME);
         if (!capabilities.unified_image_layouts_available) {
-            utility::panic("VK_KHR_unified_image_layouts is required but not supported by the device");
+            deren::utility::panic("VK_KHR_unified_image_layouts is required but not supported by the device");
         }
 
         // VK_EXT_host_image_copy is OPTIONAL, the opposite of the layout feature above: it lets an image read-back
@@ -487,7 +487,7 @@ namespace vulkan {
         }
 
         if (!check_device_extension_support(physical_device, creation_info.extensions)) {
-            utility::panic("Required device extensions not supported");
+            deren::utility::panic("Required device extensions not supported");
         }
 
         // Features go through the pNext chain (device_capabilities query result, incl. all 1.1/1.2/1.3 supported features)
@@ -555,7 +555,7 @@ namespace vulkan {
         this->opacity_micromap_properties = capabilities.opacity_micromap_properties;
         this->ray_tracing_pipeline_properties = capabilities.ray_tracing_pipeline_properties;
 
-        utility::log("device and queue init succeeded");
+        deren::utility::log("device and queue init succeeded");
 
         register_cleanup([this] {
             if (this->logical_device != VK_NULL_HANDLE) {
@@ -569,7 +569,7 @@ namespace vulkan {
 
         // Add checks:
         if (formats.empty() || present_modes.empty()) {
-            utility::panic("Swap chain not adequately supported");
+            deren::utility::panic("Swap chain not adequately supported");
         }
 
         auto const [format, color_space] = choose_swap_surface_format(formats);
@@ -587,7 +587,7 @@ namespace vulkan {
             }
             // Logged because it decides whether the fps counter can be believed: with a vsync mode the
             // presented rate is the display's, not the renderer's.
-            utility::log("swapchain: present mode {} (vsync {}, {} modes offered)", name, this->create_options.vsync, present_modes.size());
+            deren::utility::log("swapchain: present mode {} (vsync {}, {} modes offered)", name, this->create_options.vsync, present_modes.size());
         }
 
         // `create_options`' own window size is passed as the fallback extent: this is the size init_window
@@ -624,12 +624,12 @@ namespace vulkan {
         if (this->swapchain_transfer_src_supported) {
             create_info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         } else {
-            utility::log("swapchain: surface does not support VK_IMAGE_USAGE_TRANSFER_SRC_BIT - screenshots disabled");
+            deren::utility::log("swapchain: surface does not support VK_IMAGE_USAGE_TRANSFER_SRC_BIT - screenshots disabled");
         }
 
         queue_family_indices const indices = find_queue_families(this->physical_device, this->surface);
         if (!indices.compute_family || !indices.graphics_family || !indices.present_family) {
-            utility::panic("find queue family index failed");
+            deren::utility::panic("find queue family index failed");
         }
 
         uint32_t const queue_family_indices[] = {indices.graphics_family.value(), indices.present_family.value()};
@@ -651,7 +651,7 @@ namespace vulkan {
         create_info.oldSwapchain = VK_NULL_HANDLE;
 
         if (vkCreateSwapchainKHR(logical_device, &create_info, nullptr, &this->swap_chain) != VK_SUCCESS) {
-            utility::panic("failed to create swap chain!");
+            deren::utility::panic("failed to create swap chain!");
         }
 
         vkGetSwapchainImagesKHR(logical_device, this->swap_chain, &image_count, nullptr);
@@ -675,7 +675,7 @@ namespace vulkan {
         for (size_t i = 0; i < this->swap_chain_images.size(); i++) {
             VkImageViewCreateInfo const create_info = make_image_view_info(this->swap_chain_images[i], swap_chain_image_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, 1, 1);
             if (vkCreateImageView(logical_device, &create_info, nullptr, &this->swap_chain_image_views[i]) != VK_SUCCESS) {
-                utility::panic("failed to create image views!");
+                deren::utility::panic("failed to create image views!");
             }
         }
         register_cleanup([this] {
@@ -708,7 +708,7 @@ namespace vulkan {
             // No vkDestroyImage on this path: `image` is the caller's out-parameter and vkCreateImage
             // leaves it untouched when it fails, so destroying it here would pass a handle that was
             // never created.
-            utility::panic("failed to create depth image!");
+            deren::utility::panic("failed to create depth image!");
         }
 
         // 2. Allocate memory
@@ -722,7 +722,7 @@ namespace vulkan {
                                                       VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, this->physical_device);
 
         if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
-            utility::panic("failed to allocate depth image memory!");
+            deren::utility::panic("failed to allocate depth image memory!");
         }
 
         vkBindImageMemory(logical_device, image, image_memory, 0);
@@ -731,7 +731,7 @@ namespace vulkan {
         VkImageViewCreateInfo const view_info = make_image_view_info(image, this->depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, 1, 1);
 
         if (vkCreateImageView(logical_device, &view_info, nullptr, &image_view) != VK_SUCCESS) {
-            utility::panic("failed to create depth image view!");
+            deren::utility::panic("failed to create depth image view!");
         }
     }
 
@@ -741,7 +741,7 @@ namespace vulkan {
 
         // First test whether the depth format is valid
         if (depth_attachment_format == VK_FORMAT_UNDEFINED) {
-            utility::panic("can't find supported depth format");
+            deren::utility::panic("can't find supported depth format");
         }
 
         // Single-sampled, always: the scene renders into a 1x G-buffer whose depth is its own, and
@@ -815,7 +815,7 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(hdr_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::post_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the post HDR target for image {} did not reach grid slot {}", i, heap_slots::post_color + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the post HDR target for image {} did not reach grid slot {}", i, heap_slots::post_color + static_cast<uint32_t>(i));
                 }
             }
         }
@@ -847,7 +847,7 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ldr_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::display_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the display target for image {} did not reach grid slot {}", i, heap_slots::display_color + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the display target for image {} did not reach grid slot {}", i, heap_slots::display_color + static_cast<uint32_t>(i));
                 }
             }
         }
@@ -891,7 +891,7 @@ namespace vulkan {
                     uint32_t const heap_slot = target == 0u ? heap_slots::gbuffer_albedo : (target == 1u ? heap_slots::gbuffer_normal : heap_slots::gbuffer_material);
                     VkImageViewCreateInfo const heap_view = make_image_view_info(target_images[i], gbuffer_formats[target], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                     if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slot + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                        utility::log("descriptor heap: the gbuffer target {} for image {} did not reach grid slot {}", target, i, heap_slot + static_cast<uint32_t>(i));
+                        deren::utility::log("descriptor heap: the gbuffer target {} for image {} did not reach grid slot {}", target, i, heap_slot + static_cast<uint32_t>(i));
                     }
                 }
             }
@@ -922,7 +922,7 @@ namespace vulkan {
                 if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                     VkImageViewCreateInfo const heap_view = make_image_view_info(images[i], format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                     if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(slot_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                        utility::log("descriptor heap: the sampled target for image {} did not reach grid slot {}", i, slot_base + static_cast<uint32_t>(i));
+                        deren::utility::log("descriptor heap: the sampled target for image {} did not reach grid slot {}", i, slot_base + static_cast<uint32_t>(i));
                     }
                 }
             }
@@ -953,7 +953,7 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(taa_history_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::taa_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the TAA history for image {} did not reach grid slot {}", i, heap_slots::taa_history + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the TAA history for image {} did not reach grid slot {}", i, heap_slots::taa_history + static_cast<uint32_t>(i));
                 }
             }
         }
@@ -987,10 +987,10 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ml_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_trace + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the megalights trace for image {} did not reach grid slot {}", i, heap_slots::ml_trace + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the megalights trace for image {} did not reach grid slot {}", i, heap_slots::ml_trace + static_cast<uint32_t>(i));
                 }
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_trace_storage + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
-                    utility::log("descriptor heap: the megalights trace STORAGE descriptor for image {} did not reach grid slot {}", i, heap_slots::ml_trace_storage + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the megalights trace STORAGE descriptor for image {} did not reach grid slot {}", i, heap_slots::ml_trace_storage + static_cast<uint32_t>(i));
                 }
             }
         }
@@ -1021,10 +1021,10 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ml_resolve_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_resolved + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the megalights resolve for image {} did not reach grid slot {}", i, heap_slots::ml_resolved + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the megalights resolve for image {} did not reach grid slot {}", i, heap_slots::ml_resolved + static_cast<uint32_t>(i));
                 }
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_resolved_storage + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
-                    utility::log("descriptor heap: the megalights resolve STORAGE descriptor for image {} did not reach grid slot {}", i, heap_slots::ml_resolved_storage + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the megalights resolve STORAGE descriptor for image {} did not reach grid slot {}", i, heap_slots::ml_resolved_storage + static_cast<uint32_t>(i));
                 }
             }
 
@@ -1043,7 +1043,7 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_view = make_image_view_info(ml_history_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the megalights history for image {} did not reach grid slot {}", i, heap_slots::ml_history + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the megalights history for image {} did not reach grid slot {}", i, heap_slots::ml_history + static_cast<uint32_t>(i));
                 }
             }
         }
@@ -1069,10 +1069,10 @@ namespace vulkan {
         // lifetime. R16F rather than RGBA16F: the pass writes a single visibility factor, and the
         // deferred lighting stage multiplies the sun term by it. STORAGE for the compute pass that
         // writes it, SAMPLED for the lighting stage that reads it.
-        rt_shadow_images.assign(vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
-        rt_shadow_image_memories.assign(vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
-        rt_shadow_image_views.assign(vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
-        for (uint32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        rt_shadow_images.assign(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+        rt_shadow_image_memories.assign(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+        rt_shadow_image_views.assign(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
+        for (uint32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             create_target_image(
                 render.width,
                 render.height,
@@ -1092,10 +1092,10 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const visibility_view = make_image_view_info(rt_shadow_images[slot], VK_FORMAT_R16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::rt_visibility + slot) * heap_slot_stride, visibility_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the rt visibility SAMPLED descriptor did not reach grid slot {}", heap_slots::rt_visibility + slot);
+                    deren::utility::log("descriptor heap: the rt visibility SAMPLED descriptor did not reach grid slot {}", heap_slots::rt_visibility + slot);
                 }
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::rt_visibility_storage + slot) * heap_slot_stride, visibility_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
-                    utility::log("descriptor heap: the rt visibility STORAGE descriptor did not reach grid slot {}", heap_slots::rt_visibility_storage + slot);
+                    deren::utility::log("descriptor heap: the rt visibility STORAGE descriptor did not reach grid slot {}", heap_slots::rt_visibility_storage + slot);
                 }
             }
         }
@@ -1124,7 +1124,7 @@ namespace vulkan {
             if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
                 VkImageViewCreateInfo const heap_depth_view = make_image_view_info(gbuffer_depth_images[i], depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::gbuffer_depth + static_cast<uint32_t>(i)) * heap_slot_stride, heap_depth_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    utility::log("descriptor heap: the gbuffer depth for image {} did not reach grid slot {}", i, heap_slots::gbuffer_depth + static_cast<uint32_t>(i));
+                    deren::utility::log("descriptor heap: the gbuffer depth for image {} did not reach grid slot {}", i, heap_slots::gbuffer_depth + static_cast<uint32_t>(i));
                 }
             }
         }
@@ -1164,7 +1164,7 @@ namespace vulkan {
                     uint32_t const level_base = heap_slots::bloom_l0 + level * heap_image_capacity;
                     VkImageViewCreateInfo const heap_view = make_image_view_info(level_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                     if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(level_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                        utility::log("descriptor heap: bloom level {} for image {} did not reach grid slot {}", level, i, level_base + static_cast<uint32_t>(i));
+                        deren::utility::log("descriptor heap: bloom level {} for image {} did not reach grid slot {}", level, i, level_base + static_cast<uint32_t>(i));
                     }
                 }
             }
@@ -1286,7 +1286,7 @@ namespace vulkan {
         VkCommandPoolCreateInfo const pool_info = make_command_pool_info(graphics_queue_family_index);
 
         if (vkCreateCommandPool(logical_device, &pool_info, nullptr, &command_pool) != VK_SUCCESS) {
-            utility::panic("failed to create command pool");
+            deren::utility::panic("failed to create command pool");
         }
 
         register_cleanup([this] {
@@ -1321,7 +1321,7 @@ namespace vulkan {
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
-            utility::panic("can't create target image");
+            deren::utility::panic("can't create target image");
         }
 
         VkMemoryRequirements mem_requirements;
@@ -1336,7 +1336,7 @@ namespace vulkan {
             physical_device);
 
         if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
-            utility::panic("can't allocate target image memory");
+            deren::utility::panic("can't allocate target image memory");
         }
 
         vkBindImageMemory(logical_device, image, image_memory, 0);
@@ -1368,7 +1368,7 @@ namespace vulkan {
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
-            utility::panic("can't create 3D target image");
+            deren::utility::panic("can't create 3D target image");
         }
 
         VkMemoryRequirements mem_requirements;
@@ -1383,7 +1383,7 @@ namespace vulkan {
             physical_device);
 
         if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
-            utility::panic("can't allocate 3D target image memory");
+            deren::utility::panic("can't allocate 3D target image memory");
         }
 
         vkBindImageMemory(logical_device, image, image_memory, 0);
@@ -1414,7 +1414,7 @@ namespace vulkan {
         image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
         if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
-            utility::panic("can't create cube target image");
+            deren::utility::panic("can't create cube target image");
         }
 
         VkMemoryRequirements mem_requirements;
@@ -1429,7 +1429,7 @@ namespace vulkan {
             physical_device);
 
         if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
-            utility::panic("can't allocate cube target image memory");
+            deren::utility::panic("can't allocate cube target image memory");
         }
 
         vkBindImageMemory(logical_device, image, image_memory, 0);
@@ -1452,17 +1452,17 @@ namespace vulkan {
 
         for (size_t i = 0; i < MAX_FRAMES_IN_FLIGHT; ++i) {
             if (vkCreateSemaphore(logical_device, &binary_info, nullptr, &image_available_semaphores[i]) != VK_SUCCESS) {
-                utility::panic("failed to create image-available semaphore");
+                deren::utility::panic("failed to create image-available semaphore");
             }
             VkSemaphoreCreateInfo timeline_info = binary_info;
             timeline_info.pNext = &timeline_type;
             if (vkCreateSemaphore(logical_device, &timeline_info, nullptr, &frame_done_semaphores[i]) != VK_SUCCESS) {
-                utility::panic("failed to create frame-done timeline semaphore");
+                deren::utility::panic("failed to create frame-done timeline semaphore");
             }
         }
         for (auto& semaphore : present_ready_semaphores) {
             if (vkCreateSemaphore(logical_device, &binary_info, nullptr, &semaphore) != VK_SUCCESS) {
-                utility::panic("failed to create present-ready semaphore");
+                deren::utility::panic("failed to create present-ready semaphore");
             }
         }
 
@@ -1493,7 +1493,7 @@ namespace vulkan {
         this->timestamp_period_ns = this->device_properties.limits.timestampPeriod;
 
         if (this->timestamp_valid_bits == 0 || this->timestamp_period_ns <= 0.0f) {
-            utility::log("gpu timing: unavailable on this queue ({} valid bits, {} ns/tick) - pass timings are off",
+            deren::utility::log("gpu timing: unavailable on this queue ({} valid bits, {} ns/tick) - pass timings are off",
                          this->timestamp_valid_bits,
                          static_cast<double>(this->timestamp_period_ns));
             return;
@@ -1501,12 +1501,12 @@ namespace vulkan {
 
         VkQueryPoolCreateInfo const pool_info = make_query_pool_info(VK_QUERY_TYPE_TIMESTAMP, static_cast<uint32_t>(MAX_FRAMES_IN_FLIGHT) * gpu_timing_mark_capacity);
         if (vkCreateQueryPool(this->logical_device, &pool_info, nullptr, &this->timestamp_query_pool) != VK_SUCCESS) {
-            utility::log("gpu timing: timestamp query pool creation failed - pass timings are off");
+            deren::utility::log("gpu timing: timestamp query pool creation failed - pass timings are off");
             this->timestamp_query_pool = VK_NULL_HANDLE;
             return;
         }
         this->gpu_timing_supported = true;
-        utility::log("gpu timing: {} marks/frame available ({} ns/tick, {} valid bits)",
+        deren::utility::log("gpu timing: {} marks/frame available ({} ns/tick, {} valid bits)",
                      gpu_timing_mark_capacity,
                      static_cast<double>(this->timestamp_period_ns),
                      this->timestamp_valid_bits);
@@ -1517,4 +1517,4 @@ namespace vulkan {
             }
         });
     }
-} // namespace vulkan
+} // namespace deren::vulkan

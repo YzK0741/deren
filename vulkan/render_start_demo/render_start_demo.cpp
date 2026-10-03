@@ -17,12 +17,12 @@ module;
 #include <string_view>
 #include <vulkan/vulkan.h>
 
-module vulkan.render_start_demo;
+module deren.vulkan.render_start_demo;
 
-import vulkan.constant_init;
-import utility;
+import deren.vulkan.constant_init;
+import deren.utility;
 
-namespace vulkan {
+namespace deren::vulkan {
 
     std::size_t render_start_demo::attach(runtime& self) noexcept {
         this->runtime_owner = &self;
@@ -103,10 +103,10 @@ namespace vulkan {
             // NOT a fatal error: this demo is one application's chain, and a build of it that lacks a pass (a
             // shader that did not compile is the usual reason - that pass's own create step says why) renders
             // without it. Saying so once at startup is what keeps "the pass did not run" from looking like a
-            // rendering bug. NO FORMAT ARGUMENT, and that is not a style choice: `utility::log` with one crashes
+            // rendering bug. NO FORMAT ARGUMENT, and that is not a style choice: `deren::utility::log` with one crashes
             // THIS translation unit's code generation (clang 22.1.8, `EmitBuiltinNewDeleteCall` - a toolchain bug
             // this branch has seen twice).
-            utility::log("render_start_demo: a pass this demo wires is missing from the chain - it is not fed a frame and will not record");
+            deren::utility::log("render_start_demo: a pass this demo wires is missing from the chain - it is not fed a frame and will not record");
         }
         // ---- AND HAND IT OVER ----
         // `set_pass_chain` binds this chain into the runtime's own frame structure (the stage sequence, the marks,
@@ -364,7 +364,7 @@ namespace vulkan {
         if (name == "linear") {
             filter = pass::upscale_filter::linear;
         } else if (!name.empty() && name != "easu") {
-            utility::log("render_start_demo: [render] upscale = \"{}\" is not a filter this renderer has (linear, easu); using easu", name);
+            deren::utility::log("render_start_demo: [render] upscale = \"{}\" is not a filter this renderer has (linear, easu); using easu", name);
         }
         if (this->upscale != nullptr) {
             this->upscale->set_filter(filter);
@@ -559,4 +559,4 @@ namespace vulkan {
         // runner does through recreate_stage, so there is nothing left here to reset.
     }
 
-} // namespace vulkan
+} // namespace deren::vulkan

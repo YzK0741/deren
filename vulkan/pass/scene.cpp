@@ -16,19 +16,19 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.scene;
+module deren.vulkan.pass.scene;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     render_resource::pass_io const& scene_pass::io() const noexcept {
         return render_resource::scene_io;
     }
 
-    vulkan::pass::behaviour const& scene_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& scene_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -133,7 +133,7 @@ namespace vulkan::pass {
                 vkEndCommandBuffer(single);
                 vkCmdExecuteCommands(io.cmd, 1, &single);
             } else {
-                utility::log("scene pass: main secondary begin failed - scene skipped this frame");
+                deren::utility::log("scene pass: main secondary begin failed - scene skipped this frame");
             }
         } else {
             // One task per contiguous span of leaves, each recording its own secondary on its own pool (a pool
@@ -151,7 +151,7 @@ namespace vulkan::pass {
                 std::atomic<bool>* const recorded = &segment_recorded[s];
                 tasks.emplace_back([this, segment, segment_leaves, recorded] {
                     if (!this->begin_segment(segment)) {
-                        utility::log("scene pass: main segment secondary begin failed - segment skipped this frame");
+                        deren::utility::log("scene pass: main segment secondary begin failed - segment skipped this frame");
                         recorded->store(false, std::memory_order_relaxed);
                         return;
                     }
@@ -175,4 +175,4 @@ namespace vulkan::pass {
         vkCmdEndRendering(io.cmd);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

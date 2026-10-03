@@ -24,11 +24,11 @@ module;
 #include <system_error>
 #include <utility>
 
-module toon_material_sidecar;
+module deren.toon_material_sidecar;
 
-import vstd;
+import deren.vstd;
 
-namespace toon {
+namespace deren::toon {
 
     std::string_view material_sidecar::slot(std::string_view const slot_name) const noexcept {
         auto const found = this->slots.find(slot_name);
@@ -209,4 +209,4 @@ namespace toon {
         return parsed;
     }
 
-} // namespace toon
+} // namespace deren::toon

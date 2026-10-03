@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.runtime:constructor  - construction, initialisation and resource creation
+// module: deren.vulkan.runtime:constructor  - construction, initialisation and resource creation
 //
 // The two contiguous runs of runtime.cpp that BUILD a runtime rather than drive one: the constructors
 // and the whole init/ensure run (init_scene_resources through ensure_scene_heap_slots), then
@@ -11,7 +11,7 @@
 // sit inside the init run (heap_slot_offset, write_heap_grid_image, write_heap_scene_buffer) came too,
 // and runtime.cpp keeps a copy of the ones its own frame path still calls. Duplication of small
 // file-local helpers across two anonymous namespaces is legal but it IS duplication: the follow-up is to
-// publish the heap three from vulkan.core:descriptor_heap, where heap plumbing belongs.
+// publish the heap three from deren.vulkan.core:descriptor_heap, where heap plumbing belongs.
 //
 // Imports are NOT transitive: this partition imports what the moved code calls, and repeats the pmr
 // keep-alive that must run before any pmr container in this TU.
@@ -29,31 +29,31 @@ module;
 #include <thread> // std::this_thread::yield in the frame limiter
 #include <vulkan/vulkan.h>
 
-module vulkan.runtime:constructor;
+module deren.vulkan.runtime:constructor;
 
 import :declarations;
-import vulkan.profiling;
-import vulkan.pipelines;
-import vulkan.bindings;
-import vulkan.render_resource;
-import vulkan.render_resource.shared;
+import deren.vulkan.profiling;
+import deren.vulkan.pipelines;
+import deren.vulkan.bindings;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
 
-import utility;
-import vulkan.constant_init;
-import vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
-import vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
-import vulkan.core.pipeline;   // vulkan::make_pipeline for the post-process pipeline
-import vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
+import deren.utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
+import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
+import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
 
-// Route std::pmr allocations through mimalloc for this TU (utility:better_pmr). Idempotent:
+// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
 // main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
 // only forces the (dynamic) initialization before any pmr container in this TU is constructed.
-[[maybe_unused]] static auto& pmr = utility::init_pmr(); // NOLINT(keep-alive)
+[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace {
-    vulkan::runtime* runtime_from_window(GLFWwindow* window) {
-        return static_cast<vulkan::runtime*>(glfwGetWindowUserPointer(window));
+    deren::vulkan::runtime* runtime_from_window(GLFWwindow* window) {
+        return static_cast<deren::vulkan::runtime*>(glfwGetWindowUserPointer(window));
     }
 
     void mouse_button_callback(GLFWwindow* window, int32_t const button, int32_t const action, [[maybe_unused]] int32_t const mods) {
@@ -109,7 +109,7 @@ namespace {
     }
 } // namespace
 
-namespace vulkan {
+namespace deren::vulkan {
     // Run a batch of tasks on the shared pool and wait for exactly this stage's group: the
     // frame phases are synchronous (the paced slot is read right after animation sampling),
     // so run_tasks blocks until every task in the batch finished. The enum tier is mapped
@@ -221,7 +221,7 @@ namespace vulkan {
         }
         auto const* const counters = static_cast<uint32_t const*>(this->meshlet_stats_mapped);
         uint64_t total[8] = {};
-        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             for (uint32_t counter = 0; counter < 8u; ++counter) {
                 total[counter] += counters[static_cast<std::size_t>(slot) * 8u + counter];
             }
@@ -234,13 +234,13 @@ namespace vulkan {
         if (workgroups == 0u && mesh_workgroups == 0u) {
             return; // no mesh stage ran: a vertex-path session says nothing rather than reporting zeroes
         }
-        utility::log("mesh culling: {} meshlet workgroups, {} emitted their triangles, {} were culled ({}% of the workgroups emitted nothing), {} triangles from meshlets",
+        deren::utility::log("mesh culling: {} meshlet workgroups, {} emitted their triangles, {} were culled ({}% of the workgroups emitted nothing), {} triangles from meshlets",
                      workgroups,
                      emitted,
                      culled,
                      workgroups == 0u ? 0u : (culled * 100u) / workgroups,
                      triangles);
-        utility::log("mesh culling: {} workgroups of the NON-meshlet mesh path ran too, so this session's geometry cost {} workgroup launches either way - a compute pass that culled first would record {} fewer",
+        deren::utility::log("mesh culling: {} workgroups of the NON-meshlet mesh path ran too, so this session's geometry cost {} workgroup launches either way - a compute pass that culled first would record {} fewer",
                      mesh_workgroups,
                      workgroups + mesh_workgroups,
                      culled);
@@ -260,9 +260,9 @@ namespace vulkan {
         // the buffer_type names, and both bits are legal together.
         camera_ubo initial = {};
         init_utils::create_host_buffers(this->vulkan_core,
-                                        vulkan::core::MAX_FRAMES_IN_FLIGHT,
+                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(&initial, 1)),
-                                        vulkan::buffer_type::uniform_coherent,
+                                        deren::vulkan::buffer_type::uniform_coherent,
                                         "camera ubo buffer",
                                         this->camera_buffers,
                                         &this->camera_mapped,
@@ -271,7 +271,7 @@ namespace vulkan {
         // 1x1 white fallback texture, always the first entry of the scene texture array; missing
         // material textures point at it
         constexpr std::array<uint8_t, 4> white_pixels = {255, 255, 255, 255};
-        vulkan::image_create_info white_info = {};
+        deren::vulkan::image_create_info white_info = {};
         white_info.width = 1;
         white_info.height = 1;
         white_info.mip_levels = 1;
@@ -308,7 +308,7 @@ namespace vulkan {
                                                          .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
                 VkDeviceSize const white_offset = static_cast<VkDeviceSize>(core::heap_slots::textures + this->white_texture_index) * core::heap_slot_stride;
                 if (!this->vulkan_core.descriptor_heaps.write_image(white_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
-                    utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", core::heap_slots::textures + this->white_texture_index);
+                    deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", core::heap_slots::textures + this->white_texture_index);
                 }
             }
         }
@@ -320,10 +320,10 @@ namespace vulkan {
 
         // GPU material table: fixed capacity, host-visible (direct mapping); records are appended
         // at registration and read-only for the GPU (set 0 binding 5)
-        std::vector<uint8_t> const zeroed_materials(static_cast<size_t>(vulkan::material_capacity) * sizeof(material_record), 0);
+        std::vector<uint8_t> const zeroed_materials(static_cast<size_t>(deren::vulkan::material_capacity) * sizeof(material_record), 0);
         init_utils::create_host_buffer(this->vulkan_core,
                                        std::as_bytes(std::span(zeroed_materials)),
-                                       vulkan::buffer_type::storage_coherent,
+                                       deren::vulkan::buffer_type::storage_coherent,
                                        "material table buffer",
                                        this->material_buffer,
                                        this->material_mapped,
@@ -346,12 +346,12 @@ namespace vulkan {
                 VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                 bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride,
                                                                                      address,
-                                                                                     static_cast<VkDeviceSize>(vulkan::material_capacity) * sizeof(material_record),
+                                                                                     static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * sizeof(material_record),
                                                                                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
+                deren::utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
                              written ? "written" : "NOT written",
                              address,
-                             vulkan::material_capacity,
+                             deren::vulkan::material_capacity,
                              static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride);
             }
         }
@@ -367,15 +367,15 @@ namespace vulkan {
         // A BUFFER OF FLOATS, so the fill below writes 1.0f as a FLOAT - not 0xFF, which is one in a UNORM texture
         // and 0.0 in this. That distinction is the whole reason a colour lane could not reuse the texture lanes.
         {
-            std::vector<glm::vec4> neutral_colours(static_cast<size_t>(vulkan::material_capacity) * static_cast<size_t>(vulkan::toon_colour_lane::count), glm::vec4(1.0f));
+            std::vector<glm::vec4> neutral_colours(static_cast<size_t>(deren::vulkan::material_capacity) * static_cast<size_t>(deren::vulkan::toon_colour_lane::count), glm::vec4(1.0f));
             // ... EXCEPT THE OUTLINE LANE'S WIDTH, WHICH IS 0.0 AND NOT 1.0 (`toon_inputs::colours` states the
             // whole argument): three of that lane's four floats are the `_OutlineTintColor` tint, whose neutral is
             // white, and the fourth is `_OutlineWidth`, whose neutral is ZERO - a width of 1.0 would draw a hull
             // around every material that states no outline, i.e. the entire character. The layout is
             // MATERIAL-major (`material_index * toon_colour_lane::count + lane`, see `register_material`), so the
             // lane to reach is every `count`-th element.
-            for (size_t material = 0; material < static_cast<size_t>(vulkan::material_capacity); ++material) {
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::outline_edge)] =
+            for (size_t material = 0; material < static_cast<size_t>(deren::vulkan::material_capacity); ++material) {
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::outline_edge)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
                 // ... AND THE TWO SCALAR LANES' SENTINEL IS `-1.0` RATHER THAN 1.0, for the same kind of reason:
                 // neither `.x` is a tint but a STRENGTH (`_Specular`) or a DEPTH (`_ParallaxScale`), whose "no
@@ -384,9 +384,9 @@ namespace vulkan {
                 // states no `_Specular` with a full-strength highlight, and would push every material that states
                 // no `_ParallaxScale` to a parallax offset thirty-three times the one the stage's own constant
                 // gives - which is the same failure from the other side.
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::specular_strength)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::specular_strength)] =
                     glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::parallax_scale)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::parallax_scale)] =
                     glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
                 // ... AND THE GOO IRIS BRIGHTNESS LANE'S TWO COMPONENTS ARE BOTH SENTINELS, because both are
                 // BRIGHTNESSES (`Eyes brightness` / `Eyes HightLight brightness`): `0.0` is a value the reference
@@ -394,7 +394,7 @@ namespace vulkan {
                 // mean "absent", and anything else in range would be a brightness this port made up. The stage
                 // tests each component separately and answers with that interface default (see
                 // `toon_colour_lane::goo_eye_brightness`).
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_eye_brightness)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_eye_brightness)] =
                     glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f);
                 // ... AND THE TWO REWRITTEN CHAIN'S RIM LANES, whose neutrals are the REFERENCE'S OWN interface
                 // defaults rather than one convention (see `toon_colour_lane::goo_rim_colour` /
@@ -403,9 +403,9 @@ namespace vulkan {
                 // at zero - `Rim_ColorStrength = 0.0` is how its author switches a rim off
                 // (`M_actor_laevat_cloth_03`), and `Use Rimlimitation?` is a BOOLEAN whose default is 0.0. The
                 // stage resolves each of the four separately to that socket's group default (see the shader).
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rim_colour)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rim_colour)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rim_scalars)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rim_scalars)] =
                     glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);
                 // ... AND THE SCREEN-SPACE RIM'S TWO WIDTHS ARE BOTH SENTINELS TOO, because a width has no no-op
                 // number either: `0.0` is a width the reference's author really states (it collapses the offset
@@ -413,7 +413,7 @@ namespace vulkan {
                 // material by material), so it cannot mean "absent". The stage answers each component with the
                 // `DepthRim` group's OWN interface default, `0.5` (see `toon_colour_lane::goo_rim_widths`, and
                 // `gooblender/nodes.json`'s `meta.node_groups[DepthRim].interface[]`).
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rim_widths)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rim_widths)] =
                     glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);
                 // ... AND STEP 4'S SIX LANES, whose NEUTRALS ARE TWO DIFFERENT SHAPES FOR THE SAME REASON THE RIM
                 // LANES ABOVE ALREADY GAVE: two of them ARE the reference's own interface defaults
@@ -424,15 +424,15 @@ namespace vulkan {
                 // stage read those authored values as "not stated" (see `goo_lane_absent` in the shader).
                 // The stage resolves each sentineled component to its group's default - see
                 // `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion` and `shaders/goo_toon.slang`.
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_base_colour)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_base_colour)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_direct_occlusion)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_direct_occlusion)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-                for (uint32_t lane : {static_cast<uint32_t>(vulkan::toon_colour_lane::goo_diffuse_a),
-                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_diffuse_b),
-                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_fresnel_inside),
-                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_fresnel_outside)}) {
-                    neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + lane] =
+                for (uint32_t lane : {static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_diffuse_a),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_diffuse_b),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_fresnel_inside),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_fresnel_outside)}) {
+                    neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + lane] =
                         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
                 }
                 // ... AND STEP 5'S THREE LANES, whose neutrals are the reference's own `interface[]` defaults and
@@ -443,13 +443,13 @@ namespace vulkan {
                 // of THEIR eight numbers are authored negatives (`CastShadow_center` = `-0.1`,
                 // `GlobalShadowBrightnessAdjustment` = `-1.8`). The scalar lane keeps its sentinel in `.x` only
                 // (the stage resolves it to the reference's `1.0`); the two colour lanes are their own fallback.
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_specular_fgd)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_specular_fgd)] =
                     glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_light_color)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_light_color)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_ambient_tint)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_ambient_tint)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_specular_color)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_specular_color)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 // ... AND STEP 7'S FOUR, WHOSE NEUTRALS ARE THREE DIFFERENT SHAPES AGAIN, each one the socket's own
                 // `interface[]` default rather than a convention:
@@ -467,14 +467,14 @@ namespace vulkan {
                 //     `Front R`'s colour multiplies a term that is otherwise the albedo itself. A material that
                 //     states neither row therefore gets the reference's own defaults, which is what a material
                 //     calling the group without stating them gets in Goo.
-                for (uint32_t lane : {static_cast<uint32_t>(vulkan::toon_colour_lane::goo_face_scalars_a),
-                                      static_cast<uint32_t>(vulkan::toon_colour_lane::goo_face_scalars_b)}) {
-                    neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + lane] =
+                for (uint32_t lane : {static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_face_scalars_a),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_face_scalars_b)}) {
+                    neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + lane] =
                         glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
                 }
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_face_nose_shadow)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_face_nose_shadow)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_face_front_r)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_face_front_r)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
                 // STEP 8'S ONE LANE IS A `-1000` SENTINEL AND NOT THE REFERENCE'S GROUP DEFAULT `1.0`, because the
                 // lane does not carry a tint or a factor that has a neutral - it carries the SWITCH that decides
@@ -482,7 +482,7 @@ namespace vulkan {
                 // normal the chain had before this step, which is what `laevatain_no_sidecar` and the old chain's
                 // frames are pinned on; `NormalStrength = 0` is a value the reference states on some materials, so
                 // `0` could not be the "not stated" answer (see `goo_normal_strength`).
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_normal_strength)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_normal_strength)] =
                     glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
                 // STEP 10'S ONE IS `(0, 0, 0, 0)`, AND HERE - UNLIKE EVERY OTHER LANE ABOVE - THE NEUTRAL IS
                 // DOING TWO JOBS AT ONCE. It IS the reference's own group default, so a material that states no
@@ -494,7 +494,7 @@ namespace vulkan {
                 // reference does not take - instead of the `0.0` it does. `.z` is recorded and unused, `.w`
                 // reserved; keep the spelling of this initialiser and the two hosts' tables in step, because
                 // `tests/test_goo_toon_math.cpp` pins all three.
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_aniso_gate)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_aniso_gate)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
                 // STEP 12'S ONE IS `(0, 0, 0, 0)` TOO, AND THE TWO JOBS IT DOES ARE STEP 10'S OWN: it IS the
                 // reference's group default (`ng[2].interface[20]` `Aniso_SmoothnessMaxT` = `0.0`,
@@ -505,7 +505,7 @@ namespace vulkan {
                 // material `rT = (1 - 1)^2 = 0` - a mirror - instead of the `0.0` the graph means. `.z` / `.w`
                 // are reserved. Keep the spelling of this initialiser and the two hosts' tables in step, because
                 // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_aniso_rough`.
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_aniso_rough)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_aniso_rough)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
                 // STEP 13'S TWO ARE `(0, 0, 0, 0)` AS WELL, and unlike the two above them the value is not the
                 // reference's group default but the BRANCH'S OWN SWITCH: `_GooRSScalars.x` is `Use RS_Eff?`, so a
@@ -524,9 +524,9 @@ namespace vulkan {
                 // `main.cpp` is what answers a row that is absent. So this entry is not what makes the twenty
                 // `Use RS_Eff? = 0` materials unchanged; it is the honest statement of the neutral plus a guard
                 // against a future consumer that reads the buffer before any material is registered.
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rs_scalars)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rs_scalars)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rs_tint)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rs_tint)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
                 // STEP 15'S ONE IS `(0, 0, 0, 0)` FOR BOTH OF STEP 13'S REASONS, and both apply here verbatim: all
                 // four `armA` sockets default to `0.0` in the reference's `interface[]` (so a material stating no
@@ -537,12 +537,12 @@ namespace vulkan {
                 // with `Layer weight Value = 1` - a `u` of `0.5` on sheet 0 for every material in the scene. Keep
                 // the spelling of this initialiser and the two hosts' tables in step, because
                 // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_rs_arm0`.
-                neutral_colours[material * static_cast<size_t>(vulkan::toon_colour_lane::count) + static_cast<size_t>(vulkan::toon_colour_lane::goo_rs_arm0)] =
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rs_arm0)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(neutral_colours)),
-                                           vulkan::buffer_type::storage_coherent,
+                                           deren::vulkan::buffer_type::storage_coherent,
                                            "toon colour table buffer",
                                            this->toon_colour_buffer,
                                            this->toon_colour_mapped,
@@ -556,11 +556,11 @@ namespace vulkan {
                                                                                          address,
                                                                                          std::as_bytes(std::span(neutral_colours)).size(),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
+                    deren::utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
                                  written ? "written" : "NOT written",
                                  address,
-                                 static_cast<uint32_t>(vulkan::toon_colour_lane::count),
-                                 vulkan::material_capacity,
+                                 static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count),
+                                 deren::vulkan::material_capacity,
                                  static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride);
                 }
             }
@@ -581,10 +581,10 @@ namespace vulkan {
         //
         //      WRITTEN ONCE, here, like the material table beside it: the values are fixed at import and never
         //      rewritten, which is why it is one descriptor and not a per-frame pair.
-        std::vector<uint8_t> const zeroed_toon_lanes(static_cast<size_t>(vulkan::material_capacity) * vulkan::toon_lane_blocks * sizeof(glm::uvec4), 0);
+        std::vector<uint8_t> const zeroed_toon_lanes(static_cast<size_t>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4), 0);
         init_utils::create_host_buffer(this->vulkan_core,
                                        std::as_bytes(std::span(zeroed_toon_lanes)),
-                                       vulkan::buffer_type::storage_coherent,
+                                       deren::vulkan::buffer_type::storage_coherent,
                                        "toon lane table buffer",
                                        this->toon_lane_buffer,
                                        this->toon_lane_mapped,
@@ -596,12 +596,12 @@ namespace vulkan {
                 VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                 bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride,
                                                                                      address,
-                                                                                     static_cast<VkDeviceSize>(vulkan::material_capacity) * vulkan::toon_lane_blocks * sizeof(glm::uvec4),
+                                                                                     static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
                                                                                      VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
+                deren::utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
                              written ? "written" : "NOT written",
                              address,
-                             vulkan::material_capacity,
+                             deren::vulkan::material_capacity,
                              static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride);
             }
         }
@@ -611,10 +611,10 @@ namespace vulkan {
         //      core::heap_slots::toon_rig). The application fills it from its config through
         //      `runtime::set_toon_rig`, and the zeros it is created with are replaced before the first frame.
         {
-            std::vector<uint8_t> const zeroed_toon_rig(sizeof(vulkan::toon_rig), 0);
+            std::vector<uint8_t> const zeroed_toon_rig(sizeof(deren::vulkan::toon_rig), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_toon_rig)),
-                                           vulkan::buffer_type::storage_coherent,
+                                           deren::vulkan::buffer_type::storage_coherent,
                                            "toon light rig buffer",
                                            this->toon_rig_buffer,
                                            this->toon_rig_mapped,
@@ -626,28 +626,28 @@ namespace vulkan {
                     VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride,
                                                                                          address,
-                                                                                         static_cast<VkDeviceSize>(sizeof(vulkan::toon_rig)),
+                                                                                         static_cast<VkDeviceSize>(sizeof(deren::vulkan::toon_rig)),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
+                    deren::utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
                                  written ? "written" : "NOT written",
                                  address,
-                                 sizeof(vulkan::toon_rig),
+                                 sizeof(deren::vulkan::toon_rig),
                                  static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride);
                 }
             }
         }
 
-        // ---- THE MESHLET TABLE (docs/mesh_shaders.md step 3): one `vulkan::meshlet` record per meshlet - 48 bytes,
+        // ---- THE MESHLET TABLE (docs/mesh_shaders.md step 3): one `deren::vulkan::meshlet` record per meshlet - 48 bytes,
         //      the layout `static_assert`s in vulkan/meshlet/meshlet.cppm pin field by field, because a 28-byte
         //      host record against the shader's std430 stride WEDGED the GPU before it was found - appended by the
         //      primitive upload while the scene imports and read by a task stage through the heap. Created here,
         //      with the material table's shape and for its reasons: fixed capacity, host-visible (direct mapping),
         //      and a device address because a heap descriptor for a buffer IS an address range.
         {
-            std::vector<uint8_t> const zeroed_meshlets(static_cast<size_t>(vulkan::meshlet_capacity) * sizeof(vulkan::meshlet), 0);
+            std::vector<uint8_t> const zeroed_meshlets(static_cast<size_t>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_meshlets)),
-                                           vulkan::buffer_type::storage_coherent,
+                                           deren::vulkan::buffer_type::storage_coherent,
                                            "meshlet table buffer",
                                            this->meshlet_buffer,
                                            this->meshlet_mapped,
@@ -659,13 +659,13 @@ namespace vulkan {
                     VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride,
                                                                                          address,
-                                                                                         static_cast<VkDeviceSize>(vulkan::meshlet_capacity) * sizeof(vulkan::meshlet),
+                                                                                         static_cast<VkDeviceSize>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
+                    deren::utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
                                  written ? "written" : "NOT written",
                                  address,
-                                 vulkan::meshlet_capacity,
-                                 sizeof(vulkan::meshlet),
+                                 deren::vulkan::meshlet_capacity,
+                                 sizeof(deren::vulkan::meshlet),
                                  static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride);
                 }
             }
@@ -679,10 +679,10 @@ namespace vulkan {
         //      command data, not a resource any shader reads.
         {
             constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
-            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
+            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_commands)),
-                                           vulkan::buffer_type::storage_coherent,
+                                           deren::vulkan::buffer_type::storage_coherent,
                                            "mesh indirect command table",
                                            this->mesh_indirect_buffer,
                                            this->mesh_indirect_mapped,
@@ -698,10 +698,10 @@ namespace vulkan {
         //      uints per frame in flight, on the heap because a mesh stage has no other way to reach memory, and
         //      host-visible because the host reads it back once, at shutdown. Zeroed here; the entries only add.
         {
-            std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t), 0);
+            std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_stats)),
-                                           vulkan::buffer_type::storage_coherent,
+                                           deren::vulkan::buffer_type::storage_coherent,
                                            "mesh culling counter buffer",
                                            this->meshlet_stats_buffer,
                                            this->meshlet_stats_mapped,
@@ -712,10 +712,10 @@ namespace vulkan {
                     VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlet_stats) * core::heap_slot_stride,
                                                                                          address,
-                                                                                         static_cast<VkDeviceSize>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t),
+                                                                                         static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                     if (!written) {
-                        utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");
+                        deren::utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");
                     }
                 }
             }
@@ -726,10 +726,10 @@ namespace vulkan {
         //      records and the heap-bound because the mesh entry reads it. Per frame rather than one slot, unlike the
         //      table it shadows: this one is rewritten from the camera every frame.
         {
-            std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * vulkan::meshlet_capacity * sizeof(vulkan::meshlet), 0);
+            std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet), 0);
             init_utils::create_host_buffer(this->vulkan_core,
                                            std::as_bytes(std::span(zeroed_culled)),
-                                           vulkan::buffer_type::storage_coherent,
+                                           deren::vulkan::buffer_type::storage_coherent,
                                            "culled meshlet table buffer",
                                            this->meshlet_culled_buffer,
                                            this->meshlet_culled_mapped,
@@ -740,10 +740,10 @@ namespace vulkan {
                     VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
                     bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlet_culled) * core::heap_slot_stride,
                                                                                          address,
-                                                                                         static_cast<VkDeviceSize>(vulkan::core::MAX_FRAMES_IN_FLIGHT) * vulkan::meshlet_capacity * sizeof(vulkan::meshlet),
+                                                                                         static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
                                                                                          VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                     if (!written) {
-                        utility::log("descriptor heap: the culled meshlet table was NOT written - the draws stay unculled");
+                        deren::utility::log("descriptor heap: the culled meshlet table was NOT written - the draws stay unculled");
                     }
                 }
             }
@@ -751,10 +751,10 @@ namespace vulkan {
 
         // Per-instance transform buffer (set 0 binding 6): one mat4 per instance, host-visible;
         // filled by set_instanced_draw() for instanced stress draws (see pbr.vert)
-        std::vector<uint8_t> const zeroed_instances(static_cast<size_t>(vulkan::instance_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_instances(static_cast<size_t>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffer(this->vulkan_core,
                                        std::as_bytes(std::span(zeroed_instances)),
-                                       vulkan::buffer_type::storage_coherent,
+                                       deren::vulkan::buffer_type::storage_coherent,
                                        "instance transform buffer",
                                        this->instance_buffer,
                                        this->instance_mapped,
@@ -765,11 +765,11 @@ namespace vulkan {
         // frame rewrites. Zero-filled: a leaf's first frame reports "no motion", which is right -
         // nothing was there to move from. motion_previous is the CPU-side copy of what is currently
         // in it, advanced by advance_motion_transforms().
-        std::vector<uint8_t> const zeroed_motion(static_cast<size_t>(vulkan::scene_motion_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_motion(static_cast<size_t>(deren::vulkan::scene_motion_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffers(this->vulkan_core,
-                                        vulkan::core::MAX_FRAMES_IN_FLIGHT,
+                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_motion)),
-                                        vulkan::buffer_type::storage_coherent,
+                                        deren::vulkan::buffer_type::storage_coherent,
                                         "motion transform buffer",
                                         this->motion_buffers,
                                         &this->motion_mapped,
@@ -777,16 +777,16 @@ namespace vulkan {
                                         // needs the buffer to be addressable (VUID-VkBufferDeviceAddressInfo-
                                         // buffer-02601 says so, and validation did, the moment this write went in).
                                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-        this->motion_previous.assign(vulkan::scene_motion_capacity, glm::mat4(1.0f));
+        this->motion_previous.assign(deren::vulkan::scene_motion_capacity, glm::mat4(1.0f));
 
         // Per-joint skin matrices (set 0 binding 9): one buffer PER FRAME SLOT (scene_skin_capacity
         // mat4s each, host-visible) so an in-flight frame never shares the buffer the next frame
         // rewrites. Zero-filled initially (the identity block is written by the setup upload).
-        std::vector<uint8_t> const zeroed_skins(static_cast<size_t>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_skins(static_cast<size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffers(this->vulkan_core,
-                                        vulkan::core::MAX_FRAMES_IN_FLIGHT,
+                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_skins)),
-                                        vulkan::buffer_type::storage_coherent,
+                                        deren::vulkan::buffer_type::storage_coherent,
                                         "skin matrix buffer",
                                         this->skin_buffers,
                                         &this->skin_mapped,
@@ -799,26 +799,26 @@ namespace vulkan {
         // ("the matrices one frame ago") that advance_motion_deformations() publishes from, initialised to
         // IDENTITY exactly as motion_previous is - an unskinned or not-yet-animated vertex then reports no
         // deformation, and the one frame that could read it is a frame TAA gives no history to.
-        std::vector<uint8_t> const zeroed_previous_skins(static_cast<size_t>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
+        std::vector<uint8_t> const zeroed_previous_skins(static_cast<size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
         init_utils::create_host_buffers(this->vulkan_core,
-                                        vulkan::core::MAX_FRAMES_IN_FLIGHT,
+                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_previous_skins)),
-                                        vulkan::buffer_type::storage_coherent,
+                                        deren::vulkan::buffer_type::storage_coherent,
                                         "previous skin matrix buffer",
                                         this->skin_buffers_previous,
                                         &this->skin_previous_mapped,
                                         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // the heap writes this one's address
-        this->skin_previous.assign(vulkan::scene_skin_capacity, glm::mat4(1.0f));
+        this->skin_previous.assign(deren::vulkan::scene_skin_capacity, glm::mat4(1.0f));
 
         // Morph data (set 0 binding 10): one buffer PER FRAME SLOT (scene_morph_capacity floats
         // each, host-visible); the caller bakes per-primitive morph blocks (deltas + weights)
         // into every slot's buffer at setup, then rewrites only the active slot's weights per frame.
         // Zero-filled from one shared host vector (each create_buffer copies its own GPU buffer).
-        std::vector<uint8_t> const zeroed_morphs(static_cast<size_t>(vulkan::scene_morph_capacity) * sizeof(float), 0);
+        std::vector<uint8_t> const zeroed_morphs(static_cast<size_t>(deren::vulkan::scene_morph_capacity) * sizeof(float), 0);
         init_utils::create_host_buffers(this->vulkan_core,
-                                        vulkan::core::MAX_FRAMES_IN_FLIGHT,
+                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(zeroed_morphs)),
-                                        vulkan::buffer_type::storage_coherent,
+                                        deren::vulkan::buffer_type::storage_coherent,
                                         "morph data buffer",
                                         this->morph_buffers,
                                         &this->morph_mapped,
@@ -833,7 +833,7 @@ namespace vulkan {
             primitive_create_info const default_material = {};
             material_id const default_index = this->register_material(default_material);
             if (default_index.value != 0) {
-                utility::panic("default material must occupy table index 0");
+                deren::utility::panic("default material must occupy table index 0");
             }
         }
     }
@@ -848,8 +848,8 @@ namespace vulkan {
     // here, the objects are device resources.
     void runtime::init_recording_resources() {
         // One command buffer per frame slot, owned and reused every frame
-        this->command_buffers.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        this->command_buffers.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             this->command_buffers.push_back(this->vulkan_core.make_command_buffer());
         }
         // One shadow-pass + one gui-overlay secondary command buffer per frame slot (stage 2/3
@@ -859,10 +859,10 @@ namespace vulkan {
         // a VkCommandPool is not thread safe, so the workers must never begin buffers of a
         // shared pool concurrently - every worker owns its own pool + its buffer (recorded in
         // parallel; see sub_render_task).
-        this->secondary_command_buffers.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        this->main_segments.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        this->secondary_command_buffers.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        this->main_segments.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
         uint32_t const record_workers = static_cast<uint32_t>(std::max(1, this->task_pool_threads()));
-        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
             std::array<vk_command_buffer, static_cast<std::size_t>(secondary_pass::count)> pair = {
@@ -873,8 +873,8 @@ namespace vulkan {
             // Shadow cascades record on the task pool, so each cascade gets its OWN {pool, buffer}: a
             // VkCommandPool is not thread safe and concurrent recording must not share one (M9).
             std::vector<std::pair<VkCommandPool, vk_command_buffer>> cascade_recording;
-            cascade_recording.reserve(vulkan::max_shadow_cascades);
-            for (uint32_t cascade = 0; cascade < vulkan::max_shadow_cascades; ++cascade) {
+            cascade_recording.reserve(deren::vulkan::max_shadow_cascades);
+            for (uint32_t cascade = 0; cascade < deren::vulkan::max_shadow_cascades; ++cascade) {
                 cascade_recording.push_back(init_utils::create_recording_pool(this->vulkan_core));
             }
             this->shadow_recording.push_back(std::move(cascade_recording));
@@ -922,12 +922,12 @@ namespace vulkan {
         // per cascade. Depth-only images carry no uploaded content (vma::create_image with data ==
         // nullptr skips the digest / upload path), so each frame can render the scene's depth from
         // the light's view into every layer.
-        this->shadow_cascades = std::clamp(this->shadow_cascades, 1u, vulkan::max_shadow_cascades);
-        this->shadow_images.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        this->shadow_array_views.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        this->shadow_layer_views.reserve(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
-            vulkan::image_create_info shadow_info = {};
+        this->shadow_cascades = std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades);
+        this->shadow_images.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        this->shadow_array_views.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        this->shadow_layer_views.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+            deren::vulkan::image_create_info shadow_info = {};
             shadow_info.width = this->shadow_map_size;
             shadow_info.height = this->shadow_map_size;
             shadow_info.mip_levels = 1;
@@ -940,13 +940,13 @@ namespace vulkan {
             shadow_info.array_layers = this->shadow_cascades;
             shadow_info.format = this->vulkan_core.depth_attachment_format;
             shadow_info.extra_usage = VK_IMAGE_USAGE_SAMPLED_BIT; // sampled by shading.glsl
-            vk_image shadow_image = this->vulkan_core.vma.create_image(nullptr, 0, shadow_info, vulkan::image_type::texture_2d_depth);
+            vk_image shadow_image = this->vulkan_core.vma.create_image(nullptr, 0, shadow_info, deren::vulkan::image_type::texture_2d_depth);
             if (!shadow_image.valid()) {
-                utility::panic("failed to create shadow map image");
+                deren::utility::panic("failed to create shadow map image");
             }
             auto const* detail = this->vulkan_core.vma.get_image_detail(shadow_image.handle());
             if (detail == nullptr) {
-                utility::panic("failed to get shadow map image detail");
+                deren::utility::panic("failed to get shadow map image detail");
             }
             this->shadow_images.push_back(std::move(shadow_image));
             this->shadow_array_views.push_back(this->vulkan_core.make_depth_array_view(detail->image, this->vulkan_core.depth_attachment_format));
@@ -965,9 +965,9 @@ namespace vulkan {
         // (pace_and_acquire) - see the member docs for the concurrency rationale.
         light_ubo initial = {};
         init_utils::create_host_buffers(this->vulkan_core,
-                                        vulkan::core::MAX_FRAMES_IN_FLIGHT,
+                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(&initial, 1)),
-                                        vulkan::buffer_type::uniform_coherent,
+                                        deren::vulkan::buffer_type::uniform_coherent,
                                         "light ubo buffer",
                                         this->light_buffers,
                                         &this->light_mapped,
@@ -983,9 +983,9 @@ namespace vulkan {
         // `head_state` starts at the reference's fallback frame - see that member for why it is not zeros.
         head_ubo initial_head = {};
         init_utils::create_host_buffers(this->vulkan_core,
-                                        vulkan::core::MAX_FRAMES_IN_FLIGHT,
+                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
                                         std::as_bytes(std::span(&initial_head, 1)),
-                                        vulkan::buffer_type::uniform_coherent,
+                                        deren::vulkan::buffer_type::uniform_coherent,
                                         "head frame buffer",
                                         this->head_buffers,
                                         &this->head_mapped,
@@ -995,7 +995,7 @@ namespace vulkan {
     namespace {
 
         /// THE HEAP'S COPY OF ONE IMAGE, built from the SAME arguments `core::make_image_view` uses (see
-        /// vulkan::make_image_view_info in vulkan.constant_init): a heap image descriptor carries a CREATE INFO
+        /// deren::vulkan::make_image_view_info in deren.vulkan.constant_init): a heap image descriptor carries a CREATE INFO
         /// rather than a view, and the driver makes the view inside it. That is why this is called where the image
         /// and its view are created - only that site knows the format, the view type and the range.
         bool write_heap_grid_image(core& vk, uint32_t const slot, VkImage const image, VkFormat const format, VkImageViewType const type, VkImageAspectFlags const aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
@@ -1032,14 +1032,14 @@ namespace vulkan {
                 if (vk.descriptor_heaps.write_buffer(offset, address, size, type)) {
                     ++written;
                 } else {
-                    utility::log("descriptor heap: the per-frame buffer for grid slot {} (frame slot {}) did not fit at offset {}", slot_base, slot, offset);
+                    deren::utility::log("descriptor heap: the per-frame buffer for grid slot {} (frame slot {}) did not fit at offset {}", slot_base, slot, offset);
                 }
             }
             // SUCCESS IS LOGGED TOO, and that is not noise: a heap write has no picture to show for itself until
             // the shaders read the heap, so "no failure line" and "the buffers were empty, so nothing was written"
             // look exactly alike. This line is what tells them apart (it is the same reason the texture array and
             // the material table each log their count).
-            utility::log("descriptor heap: {} per-frame descriptor(s) written for grid slots {}..{}", written, slot_base, slot_base + (buffers.empty() ? 0u : static_cast<uint32_t>(buffers.size()) - 1u));
+            deren::utility::log("descriptor heap: {} per-frame descriptor(s) written for grid slots {}..{}", written, slot_base, slot_base + (buffers.empty() ? 0u : static_cast<uint32_t>(buffers.size()) - 1u));
         }
     } // namespace
 
@@ -1056,13 +1056,13 @@ namespace vulkan {
         // in-flight buffer to retire. Both are host-visible + coherent: the counts are zeroed by the
         // host each frame (that IS the pass's clear, see pace_and_acquire), and the indices only need
         // to live on the GPU between the dispatch and the shading.
-        std::size_t const slots = static_cast<std::size_t>(vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        std::vector<uint8_t> const zero_counts(static_cast<std::size_t>(vulkan::max_cluster_count) * sizeof(uint32_t), 0);
-        std::vector<uint8_t> const zero_indices(static_cast<std::size_t>(vulkan::max_cluster_count) * vulkan::cluster_light_capacity * sizeof(uint32_t), 0);
+        std::size_t const slots = static_cast<std::size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        std::vector<uint8_t> const zero_counts(static_cast<std::size_t>(deren::vulkan::max_cluster_count) * sizeof(uint32_t), 0);
+        std::vector<uint8_t> const zero_indices(static_cast<std::size_t>(deren::vulkan::max_cluster_count) * deren::vulkan::cluster_light_capacity * sizeof(uint32_t), 0);
         init_utils::create_host_buffers(this->vulkan_core,
                                         static_cast<uint32_t>(slots),
                                         std::as_bytes(std::span(zero_counts)),
-                                        vulkan::buffer_type::storage_coherent,
+                                        deren::vulkan::buffer_type::storage_coherent,
                                         "cluster count buffer",
                                         this->cluster_count_buffers,
                                         &this->cluster_count_mapped,
@@ -1072,7 +1072,7 @@ namespace vulkan {
         init_utils::create_host_buffers(this->vulkan_core,
                                         static_cast<uint32_t>(slots),
                                         std::as_bytes(std::span(zero_indices)),
-                                        vulkan::buffer_type::storage_coherent,
+                                        deren::vulkan::buffer_type::storage_coherent,
                                         "cluster index buffer",
                                         this->cluster_index_buffers,
                                         nullptr,
@@ -1085,8 +1085,8 @@ namespace vulkan {
         // The sizes are the buffers' REAL sizes, not VK_WHOLE_SIZE: a heap buffer descriptor is an
         // address RANGE, and validation states the rule as VUID-VkDeviceAddressRangeKHR-address-11365 - address plus
         // size must stay inside the buffer, which VK_WHOLE_SIZE cannot satisfy.
-        write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, core::heap_slots::cluster_counts, static_cast<VkDeviceSize>(vulkan::max_cluster_count) * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        write_heap_scene_buffer(this->vulkan_core, this->cluster_index_buffers, core::heap_slots::cluster_indices, static_cast<VkDeviceSize>(vulkan::max_cluster_count) * vulkan::cluster_light_capacity * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, core::heap_slots::cluster_counts, static_cast<VkDeviceSize>(deren::vulkan::max_cluster_count) * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->cluster_index_buffers, core::heap_slots::cluster_indices, static_cast<VkDeviceSize>(deren::vulkan::max_cluster_count) * deren::vulkan::cluster_light_capacity * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         // A STORAGE DESCRIPTOR, NOT A UNIFORM ONE, and the shaders declare it as a `buffer` block: the storage
         // class a shader reads a heap descriptor through must match the descriptor's type, and a mismatch reads
         // as zeros with NO validation finding. Slang's `DescriptorHandle<ConstantBuffer<T>>` always fetches
@@ -1099,12 +1099,12 @@ namespace vulkan {
         // morph (10), each a two-slot array whose slot is the frame's. Bound here rather than in the per-slot loop
         // because a heap descriptor is an ADDRESS: the buffers are allocated once, so their addresses do not
         // change per frame, and only the CONTENTS are rewritten (see the per-frame slot rule in runtime.cppm).
-        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, core::heap_slots::previous_transforms, static_cast<VkDeviceSize>(vulkan::scene_motion_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, core::heap_slots::skin_matrices, static_cast<VkDeviceSize>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, core::heap_slots::previous_transforms, static_cast<VkDeviceSize>(deren::vulkan::scene_motion_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, core::heap_slots::skin_matrices, static_cast<VkDeviceSize>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         // ... and the previous-frame twin of the skin block, whose CONTENTS advance_motion_deformations()
         // rewrites per frame slot - so it is registered here, from the same size, for the same reason.
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, core::heap_slots::skin_matrices_previous, static_cast<VkDeviceSize>(vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, core::heap_slots::morph_data, static_cast<VkDeviceSize>(vulkan::scene_morph_capacity) * sizeof(float), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, core::heap_slots::skin_matrices_previous, static_cast<VkDeviceSize>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, core::heap_slots::morph_data, static_cast<VkDeviceSize>(deren::vulkan::scene_morph_capacity) * sizeof(float), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
         // THE INSTANCE TRANSFORM TABLE (set 0 binding 6) is the odd one: a SINGLE buffer rather than one per frame
         // slot (see runtime.cppm's member), so it takes ONE grid slot instead of a two-slot array - which is what
         // heap_slots::instance_transforms reserved. Written from the same size the scene block gives it.
@@ -1113,8 +1113,8 @@ namespace vulkan {
             if (instance_table_detail != nullptr) {
                 VkBufferDeviceAddressInfo const instance_table_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = instance_table_detail->buffer};
                 VkDeviceAddress const instance_table_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &instance_table_address_info);
-                if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::instance_transforms), instance_table_address, static_cast<VkDeviceSize>(vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
-                    utility::log("descriptor heap: the instance transform table did not reach grid slot {}", core::heap_slots::instance_transforms);
+                if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::instance_transforms), instance_table_address, static_cast<VkDeviceSize>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                    deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", core::heap_slots::instance_transforms);
                 }
             }
         }
@@ -1141,14 +1141,14 @@ namespace vulkan {
         // per-frame re-pointing is needed and an in-flight frame never shares a buffer the next
         // frame rewrites. Only the HEAP half is left: the two bindings are written into this slot's heap block
         // (and the shadow map into its grid slot) rather than into a descriptor set.
-        for (int32_t slot = 0; slot < vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
             auto const* light_detail = this->vulkan_core.vma.get_buffer_detail(this->light_buffers[static_cast<std::size_t>(slot)].handle());
             if (light_detail == nullptr) {
-                utility::panic("failed to get light ubo buffer detail");
+                deren::utility::panic("failed to get light ubo buffer detail");
             }
             auto const* shadow_detail = this->vulkan_core.vma.get_image_detail(this->shadow_images[static_cast<std::size_t>(slot)].handle());
             if (shadow_detail == nullptr) {
-                utility::panic("failed to get shadow map image detail");
+                deren::utility::panic("failed to get shadow map image detail");
             }
 
             // THE SHADOW MAP GOES ONTO THE GRID HERE, because an image binding cannot be written the way a buffer
@@ -1157,7 +1157,7 @@ namespace vulkan {
             // aspect (a colour aspect here would be a validation error, not a wrong picture). Which slot it
             // occupies is the frame's, matching shadow_images[slot].
             if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::shadow_map + static_cast<uint32_t>(slot), shadow_detail->image, this->vulkan_core.depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT)) {
-                utility::log("descriptor heap: the shadow map for frame slot {} did not reach grid slot {}", slot, core::heap_slots::shadow_map + static_cast<uint32_t>(slot));
+                deren::utility::log("descriptor heap: the shadow map for frame slot {} did not reach grid slot {}", slot, core::heap_slots::shadow_map + static_cast<uint32_t>(slot));
             }
 
             // ---- AND THE LIGHT UBO, INTO THE HEAP'S BLOCK FOR THIS SLOT ----
@@ -1172,7 +1172,7 @@ namespace vulkan {
                 VkDeviceAddress const light_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                 VkDeviceSize const heap_offset = core::heap_slot_offset(core::heap_slots::scene_light + slot);
                 if (!this->vulkan_core.descriptor_heaps.write_buffer(heap_offset, light_address, sizeof(light_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
-                    utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
+                    deren::utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
                 }
             }
 
@@ -1188,7 +1188,7 @@ namespace vulkan {
                 VkDeviceAddress const head_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &head_address_info);
                 VkDeviceSize const head_offset = core::heap_slot_offset(core::heap_slots::scene_head + slot);
                 if (!this->vulkan_core.descriptor_heaps.write_buffer(head_offset, head_address, sizeof(head_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
-                    utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
+                    deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
                 }
             }
         }
@@ -1201,22 +1201,22 @@ namespace vulkan {
         auto const upload = [this](std::span<uint8_t const> const data, image_create_info const& create_info, image_type const type) -> vk_image {
             vk_image image = this->vulkan_core.vma.create_image(data.data(), data.size_bytes(), create_info, type);
             if (!image.valid()) {
-                utility::panic("failed to create IBL image");
+                deren::utility::panic("failed to create IBL image");
             }
             return image;
         };
 
         // prefiltered environment cubemap (mip chain)
-        vulkan::image_create_info env_info = {};
+        deren::vulkan::image_create_info env_info = {};
         env_info.width = info.env_size;
         env_info.height = info.env_size;
         env_info.mip_levels = info.env_mip_count;
         env_info.array_layers = 6;
         env_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        vk_image env_image = upload(info.prefiltered_env, env_info, vulkan::image_type::texture_cubemap);
+        vk_image env_image = upload(info.prefiltered_env, env_info, deren::vulkan::image_type::texture_cubemap);
         auto const* env_detail = this->vulkan_core.vma.get_image_detail(env_image.handle());
         if (env_detail == nullptr) {
-            utility::panic("failed to get environment image detail");
+            deren::utility::panic("failed to get environment image detail");
         }
         this->ibl_images.push_back(std::move(env_image));
         this->ibl_views.push_back(this->vulkan_core.make_image_view(env_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE));
@@ -1225,43 +1225,43 @@ namespace vulkan {
         // descriptor is made of. An image whose BINDING is later repointed (the furnace mode) needs a rewrite
         // beside that change - the heap does not follow a view.
         if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::env_cube, env_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
-            utility::log("descriptor heap: the environment cube did not reach grid slot {}", core::heap_slots::env_cube);
+            deren::utility::log("descriptor heap: the environment cube did not reach grid slot {}", core::heap_slots::env_cube);
         }
 
         // irradiance cubemap
-        vulkan::image_create_info irr_info = {};
+        deren::vulkan::image_create_info irr_info = {};
         irr_info.width = info.irr_size;
         irr_info.height = info.irr_size;
         irr_info.mip_levels = 1;
         irr_info.array_layers = 6;
         irr_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        vk_image irr_image = upload(info.irradiance, irr_info, vulkan::image_type::texture_cubemap);
+        vk_image irr_image = upload(info.irradiance, irr_info, deren::vulkan::image_type::texture_cubemap);
         auto const* irr_detail = this->vulkan_core.vma.get_image_detail(irr_image.handle());
         if (irr_detail == nullptr) {
-            utility::panic("failed to get irradiance image detail");
+            deren::utility::panic("failed to get irradiance image detail");
         }
         this->ibl_images.push_back(std::move(irr_image));
         this->ibl_views.push_back(this->vulkan_core.make_image_view(irr_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE));
         if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::irradiance_cube, irr_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
-            utility::log("descriptor heap: the irradiance cube did not reach grid slot {}", core::heap_slots::irradiance_cube);
+            deren::utility::log("descriptor heap: the irradiance cube did not reach grid slot {}", core::heap_slots::irradiance_cube);
         }
 
         // BRDF integration LUT
-        vulkan::image_create_info lut_info = {};
+        deren::vulkan::image_create_info lut_info = {};
         lut_info.width = info.lut_size;
         lut_info.height = info.lut_size;
         lut_info.mip_levels = 1;
         lut_info.array_layers = 1;
         lut_info.format = VK_FORMAT_R16G16_SFLOAT;
-        vk_image lut_image = upload(info.brdf_lut, lut_info, vulkan::image_type::texture_2d);
+        vk_image lut_image = upload(info.brdf_lut, lut_info, deren::vulkan::image_type::texture_2d);
         auto const* lut_detail = this->vulkan_core.vma.get_image_detail(lut_image.handle());
         if (lut_detail == nullptr) {
-            utility::panic("failed to get BRDF LUT image detail");
+            deren::utility::panic("failed to get BRDF LUT image detail");
         }
         this->ibl_images.push_back(std::move(lut_image));
         this->ibl_views.push_back(this->vulkan_core.make_image_view(lut_detail->image, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D));
         if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::brdf_lut, lut_detail->image, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D)) {
-            utility::log("descriptor heap: the BRDF LUT did not reach grid slot {}", core::heap_slots::brdf_lut);
+            deren::utility::log("descriptor heap: the BRDF LUT did not reach grid slot {}", core::heap_slots::brdf_lut);
         }
 
         this->env_sampler = this->vulkan_core.make_sampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, static_cast<float>(info.env_mip_count - 1));
@@ -1276,28 +1276,28 @@ namespace vulkan {
     // generated one differ only in who filled the bytes.
     void runtime::set_post_lut(std::span<uint8_t const> const pixels, uint32_t const width, uint32_t const height) {
         if (pixels.empty() || width == 0u || height == 0u) {
-            utility::log("post LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
+            deren::utility::log("post LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
             return;
         }
-        vulkan::image_create_info lut_info = {};
+        deren::vulkan::image_create_info lut_info = {};
         lut_info.width = width;
         lut_info.height = height;
         lut_info.mip_levels = 1;
         lut_info.array_layers = 1;
         lut_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-        this->post_lut_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), lut_info, vulkan::image_type::texture_2d);
+        this->post_lut_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), lut_info, deren::vulkan::image_type::texture_2d);
         if (!this->post_lut_image.valid()) {
-            utility::panic("failed to create the post LUT image");
+            deren::utility::panic("failed to create the post LUT image");
         }
         auto const* const detail = this->vulkan_core.vma.get_image_detail(this->post_lut_image.handle());
         if (detail == nullptr) {
-            utility::panic("failed to get the post LUT image detail");
+            deren::utility::panic("failed to get the post LUT image detail");
         }
         this->post_lut_view = this->vulkan_core.make_image_view(detail->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D);
         if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::post_lut, detail->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D)) {
-            utility::log("descriptor heap: the post LUT did not reach grid slot {}", core::heap_slots::post_lut);
+            deren::utility::log("descriptor heap: the post LUT did not reach grid slot {}", core::heap_slots::post_lut);
         }
-        utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::post_lut);
+        deren::utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::post_lut);
     }
 
     // THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT: the same `create_image` -> `make_image_view` ->
@@ -1319,10 +1319,10 @@ namespace vulkan {
     // map - so a lane per material would be eleven sidecar rows pointing at one file for no information at all.
     void runtime::set_goo_fgd_lut(std::span<uint8_t const> const pixels, uint32_t const width, uint32_t const height) {
         if (pixels.empty() || width == 0u || height == 0u) {
-            utility::log("goo FGD LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
+            deren::utility::log("goo FGD LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
             return;
         }
-        vulkan::image_create_info fgd_info = {};
+        deren::vulkan::image_create_info fgd_info = {};
         fgd_info.width = width;
         fgd_info.height = height;
         // ONE MIP, WHICH IS THE REFERENCE'S OWN ANSWER rather than a saving: Blender's Texture node has no `Mip`
@@ -1331,19 +1331,19 @@ namespace vulkan {
         fgd_info.mip_levels = 1;
         fgd_info.array_layers = 1;
         fgd_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-        this->goo_fgd_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), fgd_info, vulkan::image_type::texture_2d);
+        this->goo_fgd_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), fgd_info, deren::vulkan::image_type::texture_2d);
         if (!this->goo_fgd_image.valid()) {
-            utility::panic("failed to create the goo FGD LUT image");
+            deren::utility::panic("failed to create the goo FGD LUT image");
         }
         auto const* const detail = this->vulkan_core.vma.get_image_detail(this->goo_fgd_image.handle());
         if (detail == nullptr) {
-            utility::panic("failed to get the goo FGD LUT image detail");
+            deren::utility::panic("failed to get the goo FGD LUT image detail");
         }
         this->goo_fgd_view = this->vulkan_core.make_image_view(detail->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D);
         if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::goo_fgd_lut, detail->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D)) {
-            utility::log("descriptor heap: the goo FGD LUT did not reach grid slot {}", core::heap_slots::goo_fgd_lut);
+            deren::utility::log("descriptor heap: the goo FGD LUT did not reach grid slot {}", core::heap_slots::goo_fgd_lut);
         }
-        utility::log("goo FGD LUT uploaded: {}x{}, {} bytes, R8G8B8A8_UNORM -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::goo_fgd_lut);
+        deren::utility::log("goo FGD LUT uploaded: {}x{}, {} bytes, R8G8B8A8_UNORM -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::goo_fgd_lut);
     }
 
     material_id runtime::register_material(primitive_create_info const& info) {
@@ -1460,17 +1460,17 @@ namespace vulkan {
             // decoded bytes (xxh3-128, the same digest vma uses for GPU-image dedup) and key the
             // slot cache on (digest, format, dimensions): N materials over one image upload
             // once and share the array element. The image itself is also vma-deduped below.
-            utility::xxh3_digest const digest = utility::xxh3_128bits(std::span<uint8_t const>(tex.data.data(), tex.data.size_bytes()));
+            deren::utility::xxh3_digest const digest = deren::utility::xxh3_128bits(std::span<uint8_t const>(tex.data.data(), tex.data.size_bytes()));
             // key on the digest data_block itself (not a raw byte array): data_block carries the
             // equality/ordering the std::map key needs
-            auto const key = std::tuple<utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>{
+            auto const key = std::tuple<deren::utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>{
                 digest, slots[i].second, tex.width, tex.height, tex.mip_levels};
             auto const cached = this->texture_slot_cache.find(key);
             if (cached != this->texture_slot_cache.end()) {
                 texture_indices[i] = cached->second; // shared texture: reuse its slot
                 continue;
             }
-            if (this->texture_array_views.size() >= vulkan::scene_texture_capacity) {
+            if (this->texture_array_views.size() >= deren::vulkan::scene_texture_capacity) {
                 // Array full (pathological scene with > scene_texture_capacity distinct images):
                 // degrade this texture slot to the white element instead of crashing - the
                 // material still renders untextured. Same policy as the material-table overflow
@@ -1478,13 +1478,13 @@ namespace vulkan {
                 // get close to the cap.
                 if (!this->texture_overflow_logged) {
                     this->texture_overflow_logged = true;
-                    utility::log("scene texture array capacity ({}) exceeded - extra textures render as white (element {})",
-                                 vulkan::scene_texture_capacity, this->white_texture_index);
+                    deren::utility::log("scene texture array capacity ({}) exceeded - extra textures render as white (element {})",
+                                 deren::vulkan::scene_texture_capacity, this->white_texture_index);
                 }
                 texture_indices[i] = this->white_texture_index; // white fallback, like an invalid texture
                 continue;
             }
-            vulkan::image_create_info image_info = {};
+            deren::vulkan::image_create_info image_info = {};
             image_info.width = tex.width;
             image_info.height = tex.height;
             image_info.mip_levels = tex.mip_levels; // the caller uploads a full mip-major chain
@@ -1525,7 +1525,7 @@ namespace vulkan {
                     if (this->vulkan_core.descriptor_heaps.write_image(heap_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
                         ++heap_texture_descriptors;
                     } else {
-                        utility::log("descriptor heap: texture {} did not fit the resource heap at offset {}", index, heap_offset);
+                        deren::utility::log("descriptor heap: texture {} did not fit the resource heap at offset {}", index, heap_offset);
                     }
                 }
             }
@@ -1555,7 +1555,7 @@ namespace vulkan {
         // reader checks to know the texture array really is on the heap; the mapping that points a shader stage at
         // it is the step after this one.
         if (heap_texture_descriptors > 0) {
-            utility::log("descriptor heap: {} texture descriptors written ({} B each, {} KiB resource heap)",
+            deren::utility::log("descriptor heap: {} texture descriptors written ({} B each, {} KiB resource heap)",
                          heap_texture_descriptors,
                          this->vulkan_core.descriptor_heaps.limits().image_descriptor_size,
                          this->vulkan_core.descriptor_heaps.resource_size() / 1024);
@@ -1612,9 +1612,9 @@ namespace vulkan {
         // two-copies-of-one-import-fact arrangement `alpha_blend`/bit5 above already has, and it is two bits
         // rather than a lane because the record is at its 80-byte `static_assert` and `flags` had room.
         //
-        // THE NUMBERS ARE `gltf::overlay_kind`'S (1 = eye_dark, 2 = hair_shadow) and they are spelled as
+        // THE NUMBERS ARE `deren::gltf::overlay_kind`'S (1 = eye_dark, 2 = hair_shadow) and they are spelled as
         // literals here for the same reason every other flavour of this value is a number on this side of the
-        // boundary: `vulkan.runtime` does not import the loader's types - the classification is done where the
+        // boundary: `deren.vulkan.runtime` does not import the loader's types - the classification is done where the
         // NAME exists and travels onwards as a value (see `toon_family` above, which does exactly this).
         // tests/test_gltf_loader.cpp asserts the enum's numbering so this pair cannot drift silently.
         if (info.overlay_kind == 1u) {
@@ -1650,10 +1650,10 @@ namespace vulkan {
         // THIS LINE EXISTED: an instrumented probe showed the SDF texture arriving at this function VALID
         // (1024x1024, 4 MB) and every material's written lane was nevertheless 0, which is exactly the signature
         // of the material that owns the map losing the race to one that does not.
-        glm::uvec4 const toon_lanes_extra(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::sdf_lightmap)],
-                                          texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::metallic_gloss)],
-                                          texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::sdf_mask)],
-                                          texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::emotion)]);
+        glm::uvec4 const toon_lanes_extra(texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::sdf_lightmap)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::metallic_gloss)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::sdf_mask)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::emotion)]);
         // THE SECOND BLOCK, whose remaining lane (`w`) is reserved: it exists because a fifth lane does not fit a
         // `uvec4`, and it is zeroed rather than left out so that a shader reading a lane nobody set reads "do not
         // read" - the same contract the first block's lanes follow.
@@ -1666,10 +1666,10 @@ namespace vulkan {
         // while the sidecar reported `_GooMatcap05 -> texture #27 | ON` - the host never wrote the lane and the
         // shader read 0 (see `deren-ab/goo_step1_result.md`). `test_goo_toon_math` now names this line among the
         // lane's sync points, so the next lane cannot be added to the enum and forgotten here.
-        glm::uvec4 const toon_lanes_extra2(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::split_normal)],
-                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_matcap05)],
-                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_base_ramp)],
-                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_sdf)]);
+        glm::uvec4 const toon_lanes_extra2(texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::split_normal)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_matcap05)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_base_ramp)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_face_sdf)]);
         // THE THIRD BLOCK, WHICH STEP 7 ADDED AND WHICH IS WHY `toon_lane_blocks` IS 3: the FACE container's three
         // masks are lanes 11..13, and lane 11 was the last free component of the block above. `w` is reserved and
         // zeroed, the same contract every other block follows ("a lane nobody set reads DO NOT READ").
@@ -1687,16 +1687,16 @@ namespace vulkan {
         //
         // `test_goo_toon_math` pins this line by name, next to the matcap one that was pinned after step 1, so a
         // further lane cannot be added to the enum and forgotten here either.
-        glm::uvec4 const toon_lanes_extra3(texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_cm)],
-                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_face_csumt)],
-                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_rs_mask)],
+        glm::uvec4 const toon_lanes_extra3(texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_face_cm)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_face_csumt)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_rs_mask)],
                                            // STEP 15'S SHEET IS THIS BLOCK'S `.w`, and it is written HERE rather than
                                            // left at the `0u` it used to be for the reason the block comment below
                                            // gives at length: `0` is the shader's "do not read", so a slot packed as
                                            // `0u` reads as a material that states no sheet. The mask one component to
                                            // the left was left at `0u` for a whole step with the enum, the format row
                                            // and the vocabulary row all present, and the frame did not move.
-                                           texture_indices[toon_base + static_cast<std::size_t>(vulkan::toon_slot::goo_rs_sheet)]);
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_rs_sheet)]);
         // ---- AND THE COLOUR LANES, THE SAME FIX ONE TABLE FURTHER ALONG ----
         //
         // They are written BELOW, after the early return, which is the whole reason they have to be in the key:
@@ -1710,24 +1710,24 @@ namespace vulkan {
         // `info.toon.colours` IS the array the table is filled from, lane for lane and in the same order, so
         // keying exactly these bytes dedups precisely the materials whose six rows would come out identical -
         // a pair stating the same values still shares one entry (the control arm of that probe: 0 px).
-        utility::data_block<sizeof(vulkan::material_record) + vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4)> material_key = {};
+        deren::utility::data_block<sizeof(deren::vulkan::material_record) + deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4)> material_key = {};
         std::memcpy(material_key.data.data(), &record, sizeof(record));
         std::memcpy(material_key.data.data() + sizeof(record), &toon_lanes_extra, sizeof(toon_lanes_extra));
         std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra), &toon_lanes_extra2, sizeof(toon_lanes_extra2));
         std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2), &toon_lanes_extra3, sizeof(toon_lanes_extra3));
         std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2) + sizeof(toon_lanes_extra3),
                     info.toon.colours.data(),
-                    static_cast<std::size_t>(vulkan::toon_colour_lane::count) * sizeof(glm::vec4));
+                    static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4));
         if (auto const cached = this->material_slot_cache.find(material_key); cached != this->material_slot_cache.end()) {
             return cached->second; // already registered: share the existing record
         }
-        if (this->material_count >= vulkan::material_capacity) {
+        if (this->material_count >= deren::vulkan::material_capacity) {
             // Table full (pathological - 16384 unique materials): degrade to the reserved
             // default material (index 0, white + identity factors, registered at setup) instead
             // of crashing; the mesh still draws. Logged once, not per registration.
             if (!this->material_overflow_logged) {
                 this->material_overflow_logged = true;
-                utility::log("material table capacity ({}) exceeded - extra materials render with the default (index 0)", vulkan::material_capacity);
+                deren::utility::log("material table capacity ({}) exceeded - extra materials render with the default (index 0)", deren::vulkan::material_capacity);
             }
             return {};
         }
@@ -1742,13 +1742,13 @@ namespace vulkan {
         // the table, whose lanes were written when it was appended. A lane of 0 - no map, or the artist's
         // `_UseSDFLightmap` / `_UseMetallicGlossMap` off, which collapse to the same value here exactly as they do
         // for the record's four - is the "do not read" the shader tests.
-        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks] = toon_lanes_extra;
-        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks + 1u] = toon_lanes_extra2;
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::vulkan::toon_lane_blocks] = toon_lanes_extra;
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::vulkan::toon_lane_blocks + 1u] = toon_lanes_extra2;
         // ... AND THE THIRD BLOCK, for the reason the second one's own note gives: a lane the host never writes
         // reads "do not read" for every material that states it, which on the FACE would silently drop its SDF, its
         // `cm_M` and its brightness switch at once while the log still reported all three as ON (lane 11 is
         // `goo_face_sdf`, i.e. the component that closed the second block - see `toon_slot`).
-        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * vulkan::toon_lane_blocks + 2u] = toon_lanes_extra3;
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::vulkan::toon_lane_blocks + 2u] = toon_lanes_extra3;
         // AND THE MATERIAL'S COLOURS, at the same index and in the same once-written spirit: the shader addresses
         // them with `material_index * toon_colour_lane::count + lane`, so the two sides' stride has to agree - see
         // `character_toon_colour_lanes` in the stage and the drift check in the sidecar test.
@@ -1764,8 +1764,8 @@ namespace vulkan {
         // the six lanes' bytes beside the two blocks - see the `material_key` construction above and the note on
         // `material_slot_cache` in `runtime.declarations.cppm`.
         if (this->toon_colour_mapped != nullptr) {
-            glm::vec4* const colours = static_cast<glm::vec4*>(this->toon_colour_mapped) + static_cast<std::size_t>(material_index) * static_cast<std::size_t>(vulkan::toon_colour_lane::count);
-            for (uint32_t lane = 0; lane < static_cast<uint32_t>(vulkan::toon_colour_lane::count); ++lane) {
+            glm::vec4* const colours = static_cast<glm::vec4*>(this->toon_colour_mapped) + static_cast<std::size_t>(material_index) * static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count);
+            for (uint32_t lane = 0; lane < static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count); ++lane) {
                 colours[lane] = info.toon.colours[lane];
             }
         }
@@ -1777,7 +1777,7 @@ namespace vulkan {
         // gates on, and a zero here is the difference between "the asset states no ramp" and "the host resolved one
         // and never wrote it" - which is exactly the failure step 1 recorded (the iris rendered a black ball while
         // the sidecar line said `ON`).
-        utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {}, goo matcap {}, goo base ramp {} of {} texture(s)",
+        deren::utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {}, goo matcap {}, goo base ramp {} of {} texture(s)",
                      material_index,
                      record.toon_family,
                      toon_lanes_extra.x,
@@ -1793,19 +1793,19 @@ namespace vulkan {
         // shader as a number, and one of them means the family table answers. Printed for every registered
         // material, because the value is per material and the interesting case is the one that DISAGREES with its
         // family - which is exactly the case a family table cannot show.
-        utility::log("toon: material {} -> specular strength {:.4f}{}",
+        deren::utility::log("toon: material {} -> specular strength {:.4f}{}",
                      material_index,
-                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::specular_strength)].x),
-                     info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::specular_strength)].x < 0.0f ? "  <- no source stated `_Specular`: the family table's number stands" : "");
+                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x),
+                     info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x < 0.0f ? "  <- no source stated `_Specular`: the family table's number stands" : "");
         // ... AND THE PARALLAX DEPTH BESIDE IT, for the same reason one lane up and with one difference that makes
         // the line more useful rather than less: the stage's fallback for it is not a family number but its own
         // constant (`character_eye_parallax_depth`, 0.03), so `-1` here reads as "this material keeps the offset
         // the port had before the lane existed". That is the whole expected output for chen: a value on the three
         // materials whose `extras` state the row (0.03 iris / 0.5 brow / 0.5 cloth_01) and the sentinel on the rest.
-        utility::log("toon: material {} -> parallax depth {:.4f}{}",
+        deren::utility::log("toon: material {} -> parallax depth {:.4f}{}",
                      material_index,
-                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::parallax_scale)].x),
-                     info.toon.colours[static_cast<std::size_t>(vulkan::toon_colour_lane::parallax_scale)].x < 0.0f ? "  <- no source stated `_ParallaxScale`: the stage's own constant stands" : "");
+                     static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x),
+                     info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x < 0.0f ? "  <- no source stated `_ParallaxScale`: the stage's own constant stands" : "");
         // ---- AND THE EMISSIVE LANE, WHICH THE TOON STAGE ADDS AND THEREFORE HAS TO BE ABLE TO TRUST ----
         //
         // `s.emissive` is `emissive_factor * the texture at emissive_index`, and index 0 is the WHITE FALLBACK
@@ -1814,7 +1814,7 @@ namespace vulkan {
         // whole surface. That is the opposite of a missing feature and it is invisible in the log without this
         // line: measured on `chars\chen_full2.glb`, where the cloth's near-black emissive map (mean 0.3/255)
         // resolved in one file and not in the other, the difference is 30% of the frame.
-        utility::log("toon: material {} -> emissive: index {} factor ({:.3f}, {:.3f}, {:.3f}){}",
+        deren::utility::log("toon: material {} -> emissive: index {} factor ({:.3f}, {:.3f}, {:.3f}){}",
                      material_index,
                      record.emissive_index,
                      static_cast<double>(record.emissive_factor.x),
@@ -1831,9 +1831,9 @@ namespace vulkan {
         // Printing the assignment at import is what makes a mis-classification a line to read instead of a
         // look to argue about. Silent for `none`, which is every non-character model and would be log spam.
         if (record.toon_family != 0u) {
-            utility::log("toon: material {} -> family {} (1=base 2=skin 3=face 4=hair 5=eye 6=cloth)", material_index, record.toon_family);
+            deren::utility::log("toon: material {} -> family {} (1=base 2=skin 3=face 4=hair 5=eye 6=cloth)", material_index, record.toon_family);
         }
         return material_id{material_index};
     }
 
-} // namespace vulkan
+} // namespace deren::vulkan

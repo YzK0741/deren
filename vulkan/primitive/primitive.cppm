@@ -1,12 +1,12 @@
 // ============================================================================
-// module: vulkan.primitive  (peer of vulkan.scene_tree / vulkan.runtime - the
+// module: deren.vulkan.primitive  (peer of deren.vulkan.scene_tree / deren.vulkan.runtime - the
 //         GPU primitives that live in the scene-tree leaves, plus the GPU
 //         material / camera / light UBO records of the scene block; versioned in
-//         lock-step with vulkan.runtime, see that module's banner)
+//         lock-step with deren.vulkan.runtime, see that module's banner)
 // module version: 0.8.1a  (independent of the app version in CMakeLists project(VERSION))
 //
-// GPU scene contents (namespace vulkan):
-//   - vulkan::primitive (owns geometry buffers + material push constants,
+// GPU scene contents (namespace deren::vulkan):
+//   - deren::vulkan::primitive (owns geometry buffers + material push constants,
 //     implements the pure-CPU abstract scene_tree::primitive) and its draw
 //     strategies normal_draw_primitive / instanced_draw_primitive /
 //     static_draw_primitive
@@ -36,13 +36,13 @@ module;
 #include <glm/glm.hpp>
 #include <vulkan/vulkan.h>
 
-export module vulkan.primitive;
-export import vstd;
-export import vulkan.core;
-export import vulkan.render_environment;
-export import vulkan.scene_tree; // the abstract leaf interface these implement
-export import vulkan.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
-namespace vulkan {
+export module deren.vulkan.primitive;
+export import deren.vstd;
+export import deren.vulkan.core;
+export import deren.vulkan.render_environment;
+export import deren.vulkan.scene_tree; // the abstract leaf interface these implement
+export import deren.vulkan.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
+namespace deren::vulkan {
     /**
      * @ingroup vulkan_primitive
      * @brief camera UBO content, layout matches the CameraUBO block in shaders/shading.glsl (no model
@@ -179,10 +179,10 @@ namespace vulkan {
     };
     // 64: four `vec4`s and no padding, which is what lets the shader's copy be the same four members with no
     // `alignas` or explicit padding anywhere - and the values above are glTF's own basis, matching
-    // `gltf::head_basis_fallback`, so a block nobody writes is still a usable frame rather than three zeros that
+    // `deren::gltf::head_basis_fallback`, so a block nobody writes is still a usable frame rather than three zeros that
     // would produce NaNs on the way to the sigmoid. THE DEFAULTS MATTER MORE THAN THEY LOOK: a model with NO
     // SKELETON never calls `set_head_basis`, so this block IS that model's head frame - and getting its `front`
-    // backwards costs the face its terminator outright (see the note on `gltf::head_basis`).
+    // backwards costs the face its terminator outright (see the note on `deren::gltf::head_basis`).
     static_assert(sizeof(head_ubo) == 64);
 
     /**
@@ -386,7 +386,7 @@ namespace vulkan {
     /**
      * @ingroup vulkan_primitive
      * @brief PBR material factors, mirrored into the GPU material table (material_record)
-     * @note the same shape as gltf::material_factors, converted by the scene builder
+     * @note the same shape as deren::gltf::material_factors, converted by the scene builder
      */
     export struct material_factors {
         glm::vec4 base_color_factor = glm::vec4(1.0f);
@@ -683,7 +683,7 @@ namespace vulkan {
     // `export` BECAUSE THE RUNTIME NEEDS IT FOR A TYPE: the material dedup key is a `data_block` whose size is
     // `sizeof(record) + toon_lane_blocks * sizeof(uvec4) + toon_colour_lane::count * sizeof(vec4)`, and that key is
     // declared in `runtime.declarations.cppm` - a different module. A non-exported constant is not visible there
-    // (measured: "declaration of 'toon_lane_blocks' must be imported from module 'vulkan.primitive' before it is
+    // (measured: "declaration of 'toon_lane_blocks' must be imported from module 'deren.vulkan.primitive' before it is
     // required"), which is why the sibling above it is module-private and this one is not.
     //
     // THE KEY HAS A THIRD TERM AND IT IS THE COLOUR LANES - the `toon_colour_lane::count` `vec4`s below, which
@@ -761,7 +761,7 @@ namespace vulkan {
          * eye 0.0). The game states the value PER MATERIAL, and on chen one material disagrees with its family:
          * `M_actor_chen_brow_01` is classified `face` and states `_Specular = 0.0` against the face family's
          * 1.0, so the brow wore a highlight no one authored. The value arrives from the asset's own `extras`
-         * block (`gltf::claimed_extras_floats`) rather than from the sidecar, which carries no `_Specular` row
+         * block (`deren::gltf::claimed_extras_floats`) rather than from the sidecar, which carries no `_Specular` row
          * at all - it is the first property of a third source, and it is connected one property at a time.
          *
          * `.x < 0` MEANS "THE ASSET STATES NOTHING", and that sentinel is the honest form rather than a
@@ -781,7 +781,7 @@ namespace vulkan {
          *
          * THE SECOND SCALAR TO RIDE A LANE FOR THE SAME REASON AS THE FIRST: it is PER MATERIAL, the material
          * record cannot take it, and the asset's `extras` block is the only source that states it per material
-         * (`gltf::claimed_extras_floats`). What it replaces is `shaders/character_forward.slang`'s own
+         * (`deren::gltf::claimed_extras_floats`). What it replaces is `shaders/character_forward.slang`'s own
          * `character_eye_parallax_depth` constant - the value of ONE material (`M_actor_chen_iris_01`, 0.03)
          * that the stage used to apply to every material the eye path runs on, with a note saying the per-material
          * value could not be carried. The asset states 0.03 on the iris and 0.5 on the brow, so the constant was
@@ -1563,7 +1563,7 @@ namespace vulkan {
         material_factors factors = {};
 
         /**
-         * THE TOON MATERIAL FAMILY (`gltf::toon_family`), carried into the primitive's `material_record`.
+         * THE TOON MATERIAL FAMILY (`deren::gltf::toon_family`), carried into the primitive's `material_record`.
          *
          * Passed as a NUMBER rather than as a name, because the classification happens in the loader where
          * the name still exists (see gltf_loader's `toon_family_of`) and nothing downstream should be
@@ -1572,7 +1572,7 @@ namespace vulkan {
         uint32_t toon_family = 0;
 
         /**
-         * THE OVERLAY CHANNEL (`gltf::overlay_kind`), carried onto the primitive and NOT into the material
+         * THE OVERLAY CHANNEL (`deren::gltf::overlay_kind`), carried onto the primitive and NOT into the material
          * record - which is the opposite of what the family does, and the difference is what the fact is FOR.
          *
          * The family is a fact about SHADING, so the shader that shades the surface has to read it and it
@@ -1639,7 +1639,7 @@ namespace vulkan {
         float alpha_cutoff = 0.5f;       // alphaMode MASK threshold (fragment discard below it)
         float occlusion_strength = 1.0f; // occlusion map influence: mix(1, sampled AO, strength)
         /**
-         * THE TOON MATERIAL FAMILY (`gltf::toon_family`, resolved at import from the material's name).
+         * THE TOON MATERIAL FAMILY (`deren::gltf::toon_family`, resolved at import from the material's name).
          *
          * THIS LANE WAS `_pad`, and reusing it rather than adding a field is not a space optimisation: the
          * record sits in a 16-byte std430 group of four uints (`emissive_index`, `alpha_cutoff`,
@@ -1864,7 +1864,7 @@ namespace vulkan {
      *        the accumulated world matrix straight into push.model (the push block layout is
      *        shared, so draw() keeps working unchanged)
      */
-    export class primitive : public vulkan::scene_tree::primitive {
+    export class primitive : public deren::vulkan::scene_tree::primitive {
     public:
         ~primitive() override = default;
 
@@ -1882,7 +1882,7 @@ namespace vulkan {
         uint32_t vertex_count = 0;
         // Bytes per vertex of the interleaved layout (position first). Only the acceleration-structure
         // build reads it: the raster pipelines get the stride from their vertex input state, so this is
-        // the one consumer that has to be told (see vulkan.acceleration_structure).
+        // the one consumer that has to be told (see deren.vulkan.acceleration_structure).
         uint32_t vertex_stride = 0;
         /**
          * THE PRIMITIVE'S MESHLETS, in the order `build_meshlets` produced them (docs/mesh_shaders.md step 3):
@@ -1894,7 +1894,7 @@ namespace vulkan {
          * and the split is the part of that step worth having early - it is arithmetic whose bugs are invisible
          * on screen, so it is built and tested (tests/test_meshlet.cpp) before anything consumes it.
          */
-        std::vector<vulkan::meshlet> meshlets = {};
+        std::vector<deren::vulkan::meshlet> meshlets = {};
         /// where this primitive's run of meshlets starts in the GPU TABLE (docs/mesh_shaders.md step 3): the value
         /// the geometry lanes carry, so a task stage can turn "my meshlet workgroup" into a record index
         uint32_t meshlet_base = 0;
@@ -1916,7 +1916,7 @@ namespace vulkan {
         // push.motion_base and the fragment stage turns the difference into TAA's motion vector.
         // no_motion_slot = not tracked frame to frame (an instanced draw, whose slots are filled
         // once at setup with its own instance transforms, so its object motion reads as zero).
-        uint32_t motion_slot_index = vulkan::scene_tree::no_motion_slot;
+        uint32_t motion_slot_index = deren::vulkan::scene_tree::no_motion_slot;
 
         /** @brief where this leaf's previous world matrix lives (see the member) */
         [[nodiscard]] uint32_t motion_slot() const noexcept override {
@@ -1928,7 +1928,7 @@ namespace vulkan {
         // the primitive lets draw() pick the depth-write state without a GPU readback.
         bool transparent = false;
         /**
-         * THE OVERLAY CHANNEL THIS PRIMITIVE BELONGS TO (`gltf::overlay_kind`; 0 == none), i.e. whether the
+         * THE OVERLAY CHANNEL THIS PRIMITIVE BELONGS TO (`deren::gltf::overlay_kind`; 0 == none), i.e. whether the
          * frame's leaf lists put it in the overlay pass rather than in the shading passes.
          *
          * IT IS A LIST-BUILDING FACT AND NOT A DRAW-TIME ONE, which is why it is read while the frame's leaves
@@ -2176,7 +2176,7 @@ namespace vulkan {
     /**
      * @ingroup vulkan_primitive
      * @brief build the camera UBO from orbit camera state (the camera orbits the target point)
-     * @param yaw yaw angle in radians (see vulkan::runtime::camera)
+     * @param yaw yaw angle in radians (see deren::vulkan::runtime::camera)
      * @param pitch pitch angle in radians
      * @param distance camera distance from the target
      * @param target the point the camera looks at and orbits around (e.g. the centered scene origin,
@@ -2241,4 +2241,4 @@ namespace vulkan {
      * @note ortho box sized to cover a sphere of the given radius around scene_center, along @p sun_direction
      */
     export light_ubo make_directional_light_ubo(glm::vec3 const& sun_direction, glm::vec3 const& scene_center, float scene_radius, float shadow_map_size);
-} // namespace vulkan
+} // namespace deren::vulkan

@@ -17,14 +17,14 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.megalights_trace;
+module deren.vulkan.pass.megalights_trace;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import vulkan.pipelines; // build_megalights_trace: the compute pipeline this pass owns
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_megalights_trace: the compute pipeline this pass owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     megalights_trace_pass::~megalights_trace_pass() {
         this->release_owned();
@@ -38,7 +38,7 @@ namespace vulkan::pass {
         return render_resource::megalights_trace_io;
     }
 
-    vulkan::pass::behaviour const& megalights_trace_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& megalights_trace_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -94,17 +94,17 @@ namespace vulkan::pass {
         }
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
-            utility::log("stochastic punctual lighting disabled: the owner has no {}", shader_name);
+            deren::utility::log("stochastic punctual lighting disabled: the owner has no {}", shader_name);
             return;
         }
         auto built = pipelines::build_megalights_trace(context.device, spirv);
         if (!built) {
-            utility::log("stochastic punctual lighting disabled: {}", built.error());
+            deren::utility::log("stochastic punctual lighting disabled: {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->trace);
-        utility::log("SUCCESS: stochastic punctual lighting pipeline created (sampled lights with ray-traced visibility)");
+        deren::utility::log("SUCCESS: stochastic punctual lighting pipeline created (sampled lights with ray-traced visibility)");
     }
 
     void megalights_trace_pass::record(resolved_io const& io) {
@@ -120,7 +120,7 @@ namespace vulkan::pass {
         //  * GENERAL -> SHADER_READ at the end, because the deferred lighting stage samples the SAME image
         //    through its own heap slot and that descriptor declares SHADER_READ - one image, two heap descriptors,
         //    and each is only accessed while the image is in the layout it names.
-        VkImageMemoryBarrier2 to_general = vulkan::undefined_to_general_transition;
+        VkImageMemoryBarrier2 to_general = deren::vulkan::undefined_to_general_transition;
         to_general.image = output;
         VkDependencyInfo const first_use = make_image_dependency_info(1, &to_general);
         vkCmdPipelineBarrier2(io.cmd, &first_use);
@@ -139,7 +139,7 @@ namespace vulkan::pass {
         // ... and the hand-off: a compute SHADER_WRITE is not visible to the lighting stage's texture fetch
         // without this, and the layout it leaves the image in is the one the lighting stage's descriptor
         // declares.
-        VkImageMemoryBarrier2 to_sampling = vulkan::general_to_sampling_transition;
+        VkImageMemoryBarrier2 to_sampling = deren::vulkan::general_to_sampling_transition;
         to_sampling.image = output;
         VkDependencyInfo const hand_off = make_image_dependency_info(1, &to_sampling);
         vkCmdPipelineBarrier2(io.cmd, &hand_off);
@@ -147,4 +147,4 @@ namespace vulkan::pass {
         ++this->frame_index; // the next frame's ray sequence must differ (see the header)
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

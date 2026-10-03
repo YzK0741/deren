@@ -15,21 +15,21 @@ module;
 #include <span>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.goo_rim;
+module deren.vulkan.pass.goo_rim;
 
-import vulkan.render_resource;
-import vulkan.constant_init;
-import vulkan.core;          // vulkan::hdr_format: the one target this pass writes
-import vulkan.core.pipeline; // vulkan::make_pipeline: the generic builder this pass uses directly
-import utility;
+import deren.vulkan.render_resource;
+import deren.vulkan.constant_init;
+import deren.vulkan.core;          // deren::vulkan::hdr_format: the one target this pass writes
+import deren.vulkan.core.pipeline; // deren::vulkan::make_pipeline: the generic builder this pass uses directly
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     render_resource::pass_io const& goo_rim_pass::io() const noexcept {
         return render_resource::goo_rim_io;
     }
 
-    vulkan::pass::behaviour const& goo_rim_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& goo_rim_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -62,20 +62,20 @@ namespace vulkan::pass {
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
             // NO FORMAT ARGUMENT IN THIS TRANSLATION UNIT, and that is a toolchain workaround rather than a style:
             // clang 22.1.8 crashes in `EmitBuiltinNewDeleteCall` while generating a function that returns a
-            // `std::string`-carrying value through a format-argument `utility::log` here - the same bug
+            // `std::string`-carrying value through a format-argument `deren::utility::log` here - the same bug
             // `render_start_demo.cpp` records, met again while this pass was added. The message names both files
             // literally instead.
-            utility::log("goo rim disabled: the owner has no post.vert.spv or goo_rim.frag.spv");
+            deren::utility::log("goo rim disabled: the owner has no post.vert.spv or goo_rim.frag.spv");
             return;
         }
         // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
         // character stage, before the resolve) - a rim written to the swapchain would be tonemapped twice.
-        std::array<VkFormat, 1> const formats = {vulkan::hdr_format};
+        std::array<VkFormat, 1> const formats = {deren::vulkan::hdr_format};
         // ADDITIVE: the rim is `混合.019`'s ADD - a contribution to the frame, not a replacement for it. The
         // character stage's own pipeline is the opposite (blending OFF, it OVERWRITES), which is exactly why this
         // rim could not be a second draw in that pass.
         std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_additive()};
-        auto built = vulkan::make_pipeline(context.device,
+        auto built = deren::vulkan::make_pipeline(context.device,
                                            std::span<VkFormat const>(formats),
                                            VK_FORMAT_UNDEFINED, // NO depth attachment: the depth is sampled, not tested
                                            vertex_spirv,
@@ -88,15 +88,15 @@ namespace vulkan::pass {
                                            std::span<VkPipelineColorBlendAttachmentState const>(blends));
         if (!built) {
             // The reason is dropped for the same toolchain reason as the pair above; the pipeline builder logs the
-            // cause itself (see `vulkan::make_pipeline`).
-            utility::log("goo rim disabled: the pipeline builder refused (see the pipeline log above)");
+            // cause itself (see `deren::vulkan::make_pipeline`).
+            deren::utility::log("goo rim disabled: the pipeline builder refused (see the pipeline log above)");
             this->release_owned();
             return;
         }
         built->viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f}; // the runner resyncs it from io.extent
         built->scissor = {{0, 0}, {1u, 1u}};
         this->pass_pipeline = std::move(*built);
-        utility::log("SUCCESS: goo rim pipeline created (the rewritten toon chain's rim, recomposed from the G-buffer)");
+        deren::utility::log("SUCCESS: goo rim pipeline created (the rewritten toon chain's rim, recomposed from the G-buffer)");
     }
 
     void goo_rim_pass::on_swapchain_recreated(pass_host const&) {
@@ -147,4 +147,4 @@ namespace vulkan::pass {
         vkCmdEndRendering(io.cmd);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

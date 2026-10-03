@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.acceleration_structure
+// module: deren.vulkan.acceleration_structure
 // module version: 0.4.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // Ray-tracing acceleration structures: the bottom level structures of the
@@ -7,7 +7,7 @@
 // already hold (no copy, no re-upload), and the host-side bookkeeping a later
 // top level structure and its instance table are built on.
 //
-// Depends on vulkan.core (device, queue, VMA).
+// Depends on deren.vulkan.core (device, queue, VMA).
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
@@ -23,10 +23,10 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-export module vulkan.acceleration_structure;
+export module deren.vulkan.acceleration_structure;
 
-export import vstd;
-export import vulkan.core;
+export import deren.vstd;
+export import deren.vulkan.core;
 
 /**
  * @file vulkan/acceleration_structure/acceleration_structure.cppm
@@ -64,7 +64,7 @@ export import vulkan.core;
  *    its bind-pose shadow until a compute skinning pass exists to write deformed vertices somewhere a
  *    build can read.
  */
-namespace vulkan::acceleration_structure {
+namespace deren::vulkan::acceleration_structure {
     /**
      * @ingroup vulkan_acceleration_structure
      * @brief the usage bits a buffer must carry to be an acceleration-structure build input
@@ -425,4 +425,4 @@ namespace vulkan::acceleration_structure {
             return this->stats;
         }
     };
-} // namespace vulkan::acceleration_structure
+} // namespace deren::vulkan::acceleration_structure

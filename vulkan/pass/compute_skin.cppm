@@ -31,12 +31,12 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-export module vulkan.pass.compute_skin;
+export module deren.vulkan.pass.compute_skin;
 
-import vulkan.pass;
-import vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.vulkan.pass;
+import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this job builds
 
-export namespace vulkan::pass {
+export namespace deren::vulkan::pass {
 
     /// @brief the push block, which is also `compute_skin.comp`'s
     ///
@@ -114,4 +114,4 @@ export namespace vulkan::pass {
         std::optional<vk_pipeline> pass_pipeline = std::nullopt;
     };
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

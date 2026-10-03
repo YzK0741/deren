@@ -1,6 +1,6 @@
 /**
  * @file utility/platform_path.cpp
- * @brief The platform half of utility::executable_directory() - a plain (non-module) translation unit.
+ * @brief The platform half of deren::utility::executable_directory() - a plain (non-module) translation unit.
  * @ingroup utility
  *
  * Sibling of platform_sleep.cpp, and non-module for the same reason: <windows.h> pulls in (via

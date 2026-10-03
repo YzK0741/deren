@@ -1,5 +1,5 @@
 // ============================================================================
-// module: vulkan.constant_init
+// module: deren.vulkan.constant_init
 // module version: 0.9.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // Compile-time Vulkan info-struct conventions: constexpr factories + constinit
@@ -15,7 +15,7 @@ module;
 
 #include <vulkan/vulkan.h>
 
-export module vulkan.constant_init;
+export module deren.vulkan.constant_init;
 
 /**
  * @defgroup vulkan_constant_init Vulkan Info-Struct Builders (fixed conventions)
@@ -24,8 +24,8 @@ export module vulkan.constant_init;
  * @brief constexpr constructors and constinit defaults for the Vulkan info structs the engine
  *        fills the same way everywhere.
  *
- * Top-level module (sibling of vulkan.core): it depends on nothing but the Vulkan headers, so
- * any Vulkan module can use it. The name sets it apart from vulkan.core:init_utils - that
+ * Top-level module (sibling of deren.vulkan.core): it depends on nothing but the Vulkan headers, so
+ * any Vulkan module can use it. The name sets it apart from deren.vulkan.core:init_utils - that
  * module performs the initialization PROCEDURES (instance/device/swapchain), while this one
  * holds the compile-time CONSTANTS of those calls: the fixed field values ("constant init").
  *
@@ -40,7 +40,7 @@ export module vulkan.constant_init;
  * This module is header-only in effect: all definitions live in the interface, so callers can
  * constant-fold the factories.
  */
-export namespace vulkan {
+export namespace deren::vulkan {
     // ---- Object create infos (one line per object; fields fixed by engine convention) ----
 
     /**
@@ -511,7 +511,7 @@ export namespace vulkan {
      * @param depth_test_enabled enable the test; DEPTH WRITE FOLLOWS IT, which is this family's rule and
      *        is why a pass that needs the test ON with the write OFF must turn the write off through the
      *        DYNAMIC setter instead: depth write is a dynamic state here (see the dynamic-state list in
-     *        vulkan.core.pipeline), the compare operator is not.
+     *        deren.vulkan.core.pipeline), the compare operator is not.
      * @param depth_compare_op the operator. LESS_OR_EQUAL is what every pipeline in the renderer used
      *        before this parameter existed; the CHARACTER-FORWARD pass is the first caller that needs a
      *        different one, and the reason is the whole point of that pass: it OVERWRITES the pixels the
@@ -1118,4 +1118,4 @@ export namespace vulkan {
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
-} // namespace vulkan
+} // namespace deren::vulkan

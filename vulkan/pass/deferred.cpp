@@ -15,13 +15,13 @@ module;
 #include <string>
 #include <vulkan/vulkan.h>
 
-module vulkan.pass.deferred;
+module deren.vulkan.pass.deferred;
 
-import vulkan.constant_init;
-import vulkan.pipelines; // build_deferred: the pipeline this pass owns
-import utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.pipelines; // build_deferred: the pipeline this pass owns
+import deren.utility;
 
-namespace vulkan::pass {
+namespace deren::vulkan::pass {
 
     deferred_pass::~deferred_pass() {
         this->release_owned();
@@ -35,7 +35,7 @@ namespace vulkan::pass {
         return render_resource::deferred_io;
     }
 
-    vulkan::pass::behaviour const& deferred_pass::behaviour() const noexcept {
+    deren::vulkan::pass::behaviour const& deferred_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -76,7 +76,7 @@ namespace vulkan::pass {
         std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
         std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
         if (vertex_spirv.empty() || fragment_spirv.empty()) {
-            utility::log("deferred lighting disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            deren::utility::log("deferred lighting disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
         // The blend state is the stage's own: the attachment is LOADed and the lighting ADDS to the emissive the
@@ -85,12 +85,12 @@ namespace vulkan::pass {
         auto built = pipelines::build_deferred(context.device,
                                                std::span<VkPipelineColorBlendAttachmentState const>(blend), vertex_spirv, fragment_spirv);
         if (!built) {
-            utility::log("deferred lighting disabled: {}", built.error());
+            deren::utility::log("deferred lighting disabled: {}", built.error());
             this->release_owned();
             return;
         }
         this->pass_pipeline = std::move(built->lighting);
-        utility::log("SUCCESS: deferred lighting pipeline created (shades the stored surface, additive over the emissive)");
+        deren::utility::log("SUCCESS: deferred lighting pipeline created (shades the stored surface, additive over the emissive)");
     }
 
     void deferred_pass::on_swapchain_recreated(pass_host const&) {
@@ -133,7 +133,7 @@ namespace vulkan::pass {
         // change layout, and its consumer is this instance's LOAD - a color-attachment access, not the
         // FRAGMENT_SHADER read those transitions publish. Dynamic rendering inserts no dependency of its own between
         // two instances, so without it the load is not ordered after the G-buffer pass's store.
-        VkImageMemoryBarrier2 dependency_barrier = vulkan::color_attachment_dependency;
+        VkImageMemoryBarrier2 dependency_barrier = deren::vulkan::color_attachment_dependency;
         dependency_barrier.image = target;
         VkDependencyInfo const dependency = make_image_dependency_info(1, &dependency_barrier);
         vkCmdPipelineBarrier2(io.cmd, &dependency);
@@ -159,4 +159,4 @@ namespace vulkan::pass {
         vkCmdEndRendering(io.cmd);
     }
 
-} // namespace vulkan::pass
+} // namespace deren::vulkan::pass

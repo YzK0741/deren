@@ -5,12 +5,12 @@ module;
 #include <imgui_impl_glfw.h>
 #include <imgui_impl_vulkan.h>
 
-module vulkan.graphical_user_interface;
+module deren.vulkan.graphical_user_interface;
 
-import utility;
-import vulkan.constant_init;
+import deren.utility;
+import deren.vulkan.constant_init;
 
-namespace vulkan::gui {
+namespace deren::vulkan::gui {
     // ---- gui_content lifecycle (see the module docs: ImGui state lives in ImGui's globals) ----
 
     gui_content::~gui_content() {
@@ -22,7 +22,7 @@ namespace vulkan::gui {
             return true; // idempotent
         }
         if (info.device == VK_NULL_HANDLE || info.graphics_queue == VK_NULL_HANDLE || info.window == nullptr) {
-            utility::log("gui_content: init skipped (incomplete gui_create_info)");
+            deren::utility::log("gui_content: init skipped (incomplete gui_create_info)");
             return false;
         }
 
@@ -58,13 +58,13 @@ namespace vulkan::gui {
             // the framebuffer resolution while the layout - and the mouse coordinates the GLFW
             // backend feeds - stay in logical window units.
             ImGui::GetStyle().FontScaleDpi = scale;
-            utility::log("gui_content: display content scale {:.2f} x {:.2f} - overlay font rasterized at {:.1f} px (logical layout unchanged)", static_cast<double>(scale_x), static_cast<double>(scale_y), 13.0 * static_cast<double>(scale));
+            deren::utility::log("gui_content: display content scale {:.2f} x {:.2f} - overlay font rasterized at {:.1f} px (logical layout unchanged)", static_cast<double>(scale_x), static_cast<double>(scale_y), 13.0 * static_cast<double>(scale));
         }
 
         // Platform backend. install_callbacks=true makes imgui chain-call the runtime's own
         // GLFW callbacks (mouse/scroll -> orbit camera) which were registered earlier.
         if (!ImGui_ImplGlfw_InitForVulkan(info.window, /*install_callbacks=*/true)) {
-            utility::log("gui_content: ImGui_ImplGlfw_InitForVulkan failed");
+            deren::utility::log("gui_content: ImGui_ImplGlfw_InitForVulkan failed");
             ImGui::DestroyContext();
             return false;
         }
@@ -97,12 +97,12 @@ namespace vulkan::gui {
         backend_info.PipelineInfoMain.PipelineRenderingCreateInfo = rendering_info;
         backend_info.CheckVkResultFn = [](VkResult const err) {
             if (err != VK_SUCCESS) {
-                utility::log("imgui vulkan backend error: {}", static_cast<int32_t>(err));
+                deren::utility::log("imgui vulkan backend error: {}", static_cast<int32_t>(err));
             }
         };
 
         if (!ImGui_ImplVulkan_Init(&backend_info)) {
-            utility::log("gui_content: ImGui_ImplVulkan_Init failed");
+            deren::utility::log("gui_content: ImGui_ImplVulkan_Init failed");
             ImGui_ImplGlfw_Shutdown();
             ImGui::DestroyContext();
             return false;
@@ -110,7 +110,7 @@ namespace vulkan::gui {
 
         this->active = true;
         this->frames_in_flight = info.frames_in_flight;
-        utility::log("gui_content: ImGui overlay initialized (dynamic rendering, 1x swapchain)");
+        deren::utility::log("gui_content: ImGui overlay initialized (dynamic rendering, 1x swapchain)");
         return true;
     }
 
@@ -358,4 +358,4 @@ namespace vulkan::gui {
             this->on_change(*this->current_item);
         }
     }
-} // namespace vulkan::gui
+} // namespace deren::vulkan::gui
