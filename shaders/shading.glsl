@@ -96,14 +96,14 @@ layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D 
 // Light UBO (scene set binding 7): the orthographic light view-proj (world -> shadow map) and the
 // light direction, followed by the active punctual lights. The direction is filled by the CPU
 // (make_directional_light_ubo) and matches the sky sun, so the direct light, the visible sun disc
-// and the shadows all agree. Layout must match vulkan::light_ubo in primitive.cppm (std140):
+// and the shadows all agree. Layout must match deren::vulkan::light_ubo in primitive.cppm (std140):
 // mat4 | vec4 | 4 floats | uint + 3 pad floats | PunctualLight[4] - the CPU mirrors the "uint + pad"
 // slot with one glm::vec4, so the array starts at byte 112 and the block is 368 bytes. (A vec3 pad
 // would force 16-byte alignment to 128 and shift every light by 16.)
-const int MAX_PUNCTUAL_LIGHTS = 128; // vulkan::max_punctual_lights
-const int CLUSTER_TILE_SIZE = 64;    // vulkan::cluster_tile_size (pixels per cluster tile)
-const int CLUSTER_LIGHT_CAPACITY = 32; // vulkan::cluster_light_capacity (lights stored per cluster)
-const int MAX_SHADOW_CASCADES = 4; // vulkan::max_shadow_cascades
+const int MAX_PUNCTUAL_LIGHTS = 128; // deren::vulkan::max_punctual_lights
+const int CLUSTER_TILE_SIZE = 64;    // deren::vulkan::cluster_tile_size (pixels per cluster tile)
+const int CLUSTER_LIGHT_CAPACITY = 32; // deren::vulkan::cluster_light_capacity (lights stored per cluster)
+const int MAX_SHADOW_CASCADES = 4; // deren::vulkan::max_shadow_cascades
 
 struct PunctualLight {
     vec4 position; // xyz: world position (w unused)

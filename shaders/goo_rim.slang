@@ -143,7 +143,7 @@ struct GooRimPush
 // (`heap_camera_slot`, `heap_light_slot`) - so `pc` and the two `#define`s above have to exist before it.
 #include "shading.glsl"
 
-/// @brief how many `vec4` lanes `vulkan::toon_colour_lane` has - the stride of the colour table
+/// @brief how many `vec4` lanes `deren::vulkan::toon_colour_lane` has - the stride of the colour table
 ///
 /// THE THIRD COPY OF THIS NUMBER, and the copies are deliberate (`character_forward.slang` and `pbr.slang` carry
 /// the other two): a stage cannot include a file that has an entry point, so each reader spells the host's

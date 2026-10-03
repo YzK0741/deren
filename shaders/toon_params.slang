@@ -10,7 +10,7 @@
 // the GLSL spellings. It touches no heap slot and declares nothing, so it may be included at any point in a
 // stage's include order.
 //
-// THE FAMILY IDS MUST MATCH `gltf::toon_family` (see gltf_loader.cppm) - the same enum, written out here
+// THE FAMILY IDS MUST MATCH `deren::gltf::toon_family` (see gltf_loader.cppm) - the same enum, written out here
 // because a shader cannot include a C++ enum, and the numbers ARE the contract.
 /**
  * @brief the toon stage's ramp, PER MATERIAL FAMILY
@@ -45,7 +45,7 @@
  * which family gets the hard edge, which gets the soft one, and which side of the albedo each one's tint moves
  * toward.
  *
- * THE FAMILY IDS MUST MATCH `gltf::toon_family` (gltf_loader.cppm) - they are the same enum, written out
+ * THE FAMILY IDS MUST MATCH `deren::gltf::toon_family` (gltf_loader.cppm) - they are the same enum, written out
  * here because a shader cannot include a C++ enum and the numbers ARE the contract.
  */
 #define VR_FAMILY_BASE 1u
@@ -84,7 +84,7 @@ struct toon_params {
     // WHAT IS HERE IS WHAT THE ARTICLE ITSELF VARIES PER MATERIAL - the three albedo layers and how much of the
     // ramp's colour reaches the result. Everything else the article calls a global (the day/night split, the head
     // light, the backlight and edge weights, the occlusion exponent, the rim's and the environment's strengths) is
-    // the LIGHT RIG's and lives in `vulkan::toon_rig`, because it is one set of numbers for a whole character
+    // the LIGHT RIG's and lives in `deren::vulkan::toon_rig`, because it is one set of numbers for a whole character
     // rather than one per material family - see that struct, and the stage's `ToonRigUBO`, for the split's
     // reasoning.
     //
@@ -181,7 +181,7 @@ struct toon_params {
     //     otherLightNoL = otherLightNoL * _OtherLightStrength + _OtherLightStrength_Offset;
     // The FIRST line is the one that matters: the author starts the term at LITERALLY ZERO in all five shaders,
     // and with `_OtherLightOffset` / `_OtherLightStrength` / `_OtherLightStrength_Offset` at their defaults
-    // (0 / 1 / 0 - `vulkan::toon_rig`'s `day.y/z/w`) it STAYS zero, so his head light is a FLAT fill whose colour
+    // (0 / 1 / 0 - `deren::vulkan::toon_rig`'s `day.y/z/w`) it STAYS zero, so his head light is a FLAT fill whose colour
     // is chosen by the shadow term and which no surface normal can modulate.
     //
     // THIS PORT DRIVES THAT SAME TERM FROM THE WORLD UP AXIS (`head_no_l = saturate(dot(up, shading_normal) +
@@ -192,7 +192,7 @@ struct toon_params {
     // line - the EYE and the SKIN - and left at 1.0 everywhere else until that family's own shader is read.
     //
     // MEASURED, AND THE HONEST HEADLINE IS THAT IT IS ALMOST A NO-OP AT THIS PORT'S DEFAULTS - which is a fact
-    // about the CONFIG rather than about the article. `vulkan::toon_rig`'s `day.y/z/w` are 0/1/0
+    // about the CONFIG rather than about the article. `deren::vulkan::toon_rig`'s `day.y/z/w` are 0/1/0
     // (`_OtherLightOffset` / `_OtherLightStrength` / `_OtherLightStrength_Offset`), so the port's head term is
     // `saturate(dot(up, n) + 0) * 1 + 0` - already the article's value on every surface whose normal does not face
     // up, which on a flat-faced character at these two poses is nearly all of it. The change moves
@@ -219,7 +219,7 @@ struct toon_params {
     // They were this family's reading of `M_actor_chen_iris_01`'s `_EyeHighLightColor` / `_EyeScatteringColor`,
     // which is the wrong shape for a value the game states PER MATERIAL: the brow material carries the same row
     // (chen's is (2,2,2)) and would have worn the iris' tint. They now arrive through the material colour table
-    // (`vulkan::toon_colour_lane::eye_highlight` / `eye_scattering`, read by the stage from
+    // (`deren::vulkan::toon_colour_lane::eye_highlight` / `eye_scattering`, read by the stage from
     // `core::heap_slots::toon_colours`), gated on the material's own `_UseMatcap` - which is the game's own way of
     // saying "this material is an eye". A field left here would be a second source of truth for a value that has
     // exactly one, so it is deleted rather than defaulted.
@@ -249,7 +249,7 @@ toon_params toon_params_for(uint family) {
     //   `spec_strength`          <- `_Specular`                (skin 0.454, cloth/face/hair 1.0, eye 0.0)
     //                               ** NOW A FALLBACK RATHER THAN THE SOURCE **: the value is per MATERIAL in the
     //                               game's own table, and it arrives in the material's `extras` block
-    //                               (`gltf::claimed_extras_floats`) as a `toon_colour_lane::specular_strength`
+    //                               (`deren::gltf::claimed_extras_floats`) as a `toon_colour_lane::specular_strength`
     //                               lane, which the stage prefers whenever the asset states one. This constant
     //                               answers for a material whose asset states nothing - and it was already
     //                               right for six of chen's seven, the exception being `M_actor_chen_brow_01`

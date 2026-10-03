@@ -56,15 +56,15 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 // the character's head bone or from the reference's fallback and uploaded every frame - see head_ubo in
 // vulkan/primitive.cppm. The struct is declared by the stage that reads it, like every other block here.
 #define head_frame_at(slot) heap_at<ConstantBuffer<HeadUBO>>(slot)
-/// the TOON LIGHT RIG, one block for the run - see `vulkan::toon_rig` and the stage's own `ToonRigUBO`.
+/// the TOON LIGHT RIG, one block for the run - see `deren::vulkan::toon_rig` and the stage's own `ToonRigUBO`.
 #define toon_rig_at(slot) heap_at<ConstantBuffer<ToonRigUBO>>(slot)
 /// THE MATERIAL COLOURS, one flat `float4` array: read as `toon_colour_at(slot, material * kLanes + lane)`, because
-/// the lanes are per material and a flat array keeps the stride question away (see `vulkan::toon_colour_lane`).
+/// the lanes are per material and a flat array keeps the stride question away (see `deren::vulkan::toon_colour_lane`).
 #define toon_colour_at(slot, index) heap_at<StructuredBuffer<float4>>(slot)[index]
-/// THE SECOND BLOCK of the toon lane table (lanes 8..11, see `vulkan::toon_slot`): the same buffer, read at the
+/// THE SECOND BLOCK of the toon lane table (lanes 8..11, see `deren::vulkan::toon_slot`): the same buffer, read at the
 /// middle `uvec4` - `material_index * 3 + 1`, a stride the stage names as `character_toon_lane_blocks`.
 #define toon_lanes2_at(slot, index) heap_at<StructuredBuffer<uint4>>(slot)[(index) * 3u + 1u]
-/// THE THIRD BLOCK (lanes 12..15), which STEP 7 raised `vulkan::toon_lane_blocks` TO 3 FOR: the FACE container's
+/// THE THIRD BLOCK (lanes 12..15), which STEP 7 raised `deren::vulkan::toon_lane_blocks` TO 3 FOR: the FACE container's
 /// three masks (`_GooFaceSDF` / `_GooFaceCmM` / `_GooFaceCsutm`) are lanes 11..13, and lane 11 closed the second
 /// block. The three accessors must move TOGETHER - a stale stride here reads another material's block, which is
 /// the silent-drift failure the note on `toon_lanes_at` below records.
@@ -98,7 +98,7 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 /// THE FIRST BLOCK of the toon lane table (lanes 4..7), read at `material * blocks + 0`.
 ///
 /// THE STRIDE IS THE WHOLE POINT OF THIS MACRO AND IT WAS WRONG FOR THREE ROUNDS: the table holds
-/// `vulkan::toon_lane_blocks` `uvec4`s per material, so block 0 sits at `material * blocks`, block 1 at
+/// `deren::vulkan::toon_lane_blocks` `uvec4`s per material, so block 0 sits at `material * blocks`, block 1 at
 /// `material * blocks + 1` and block 2 at `material * blocks + 2` - while this accessor read `[material]` and the
 /// host wrote `[material * 2]`. The two sides
 /// therefore disagreed about EVERY material: element `m` held the host's material `m / 2`, block `m % 2`. What that

@@ -68,7 +68,7 @@ const uint heap_slots_meshlet_stats = heap_slot_base + 746u;
 const uint heap_slots_meshlet_culled = heap_slot_base + 747u;
 // THE TOON LANES BESIDE THE MATERIAL RECORD: one `uvec4` per material - x is that material's `_SDFLightmap`
 // texture-array index, y its `_MetallicGlossMap`'s, and z and w are reserved - where 0 in a component is "do not
-// read", the same contract `material_record::toon_indices` uses for its four. Lanes 0..3 of `vulkan::toon_slot`
+// read", the same contract `material_record::toon_indices` uses for its four. Lanes 0..3 of `deren::vulkan::toon_slot`
 // live in the record; every lane from `sdf_lightmap` on lives here.
 //
 // WHY A BUFFER OF ITS OWN RATHER THAN A FIFTH COMPONENT THERE, and it is a measurement rather than a preference:
@@ -93,14 +93,14 @@ const uint heap_slots_toon_lanes = heap_slot_base + 748u;
 // would have a second thing to move the day a scene holds two characters facing different ways.
 const uint heap_slots_scene_head = heap_slot_base + 749u;
 // THE TOON LIGHT RIG: the character stage's global numbers (the sun/head-light split, their shadow-side colours,
-// the chain's scalars), written once from the application's config - see `vulkan::toon_rig`.
+// the chain's scalars), written once from the application's config - see `deren::vulkan::toon_rig`.
 //
 // 751 AND NOT 750, because `heap_slots_scene_head` above is a PER-FRAME-SLOT array: with two frames in flight it
 // occupies 749 and 750, and a rig at 750 is overwritten by the second slot's head frame every frame - which reads
 // as a rig that simply has the head frame's numbers in it, with no error anywhere.
 const uint heap_slots_toon_rig = heap_slot_base + 751u;
 // THE MATERIAL COLOURS: `toon_colour_lane::count` `vec4`s per material, `material_index`-addressed. Read through
-// the stage's own `character_toon_colour_lanes`, which must match `vulkan::toon_colour_lane::count` EXACTLY - all
+// the stage's own `character_toon_colour_lanes`, which must match `deren::vulkan::toon_colour_lane::count` EXACTLY - all
 // four of the spellings of it (`character_forward.slang`, `pbr.slang`, `goo_rim.slang` and `outline.slang` through
 // its `#include` of `pbr.slang`) are pinned against both the host enum and each other, most recently at 29 by step
 // 13 (two `RS EFF` lanes, `_GooRSScalars` / `_GooRSTint`), before that at 27 by step

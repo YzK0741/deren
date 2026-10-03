@@ -126,7 +126,7 @@
 //
 // `Eyes brightness` (1.5) and `Eyes HightLight brightness` (10.0) are the two MATERIAL overrides on Laevatain's
 // iris in the Goo project (`goo_params_laevatain.tsv`, both `材质覆写`), and they ride
-// `vulkan::toon_colour_lane::goo_eye_brightness` - the carrier this renderer already uses for a per-material pair
+// `deren::vulkan::toon_colour_lane::goo_eye_brightness` - the carrier this renderer already uses for a per-material pair
 // of scalars (`_Specular`, `_ParallaxScale`), because the material record is inline in the per-draw push block
 // and has no room for them. `< 0` in a component means "this asset states no such row FOR THAT SOCKET", tested
 // one component at a time because the reference lets a material state one and not the other; the answer then is
@@ -134,7 +134,7 @@
 // group's interface, which is what a material that calls the group without stating them gets in Goo.
 //
 // THE MATCAP IMAGE IS A PER-FAMILY TEXTURE IN THE REFERENCE - it is inside the group, not an input of it - and it
-// rides a per-material lane here anyway (`vulkan::toon_slot::goo_matcap05`). That is the asset pipeline's shape
+// rides a per-material lane here anyway (`deren::vulkan::toon_slot::goo_matcap05`). That is the asset pipeline's shape
 // rather than a claim about the art: every toon texture in this port arrives as a named glTF image joined through
 // the model's sidecar, and a material that states no such row simply reads no ball (see the `!= 0u` guard below,
 // whose "no ball" is BLACK rather than this renderer's white fallback - white would be a much stronger statement
@@ -304,7 +304,7 @@ static float3 goo_iris_emission(const float3 albedo,
 //
 // THE FAMILY IS THE GATE, and it is the reference's own partition rather than a heuristic: the Goo project attaches
 // `Arknights: Endfield_PBRToon_irisBase` to exactly four materials - `M_actor_{chen,laevat,_pelica,yvonne}_iris_01`
-// - and `gltf::toon_family_of` classifies exactly the names that contain `iris` (among its eye tokens) as
+// - and `deren::gltf::toon_family_of` classifies exactly the names that contain `iris` (among its eye tokens) as
 // `toon_family::eye`. Measured over every character glb in this repository: one eye-classified material per
 // character (two on `tangtang`), each an `*_iris_0*`, and no other material of any of them matches. So "family ==
 // eye" and "the reference uses the iris group" are the same set on every asset here, and the enumeration is in
@@ -418,7 +418,7 @@ float4 goo_toon_frag_main(
     //   L1 - ONE SHEET PER DRAW, CHOSEN ON THE HOST, SO `RS_Index` IS QUANTISED TO AN ENDPOINT. The reference
     //        MIXES two per-character `_RS` sheets CONTINUOUSLY - `mix(A, B, clamp(RS_Index, 0, 1))` (`混合.032`) -
     //        and a sheet is a TEXTURE lane, slot 15 being the last one this table has (see
-    //        `vulkan::toon_slot::goo_rs_sheet`), so `RS_Index` rides lane 29's `.x` and is answered by the HOST
+    //        `deren::vulkan::toon_slot::goo_rs_sheet`), so `RS_Index` rides lane 29's `.x` and is answered by the HOST
     //        instead of here: `main.cpp` resolves the second sheet by name when `RS_Index >= 0.5` and this block
     //        still samples exactly ONE sheet (`.x` is never read in this file). A material stating `RS_Index = 1`
     //        therefore reads the second sheet; one stating a FRACTION between the endpoints is read as an endpoint
@@ -574,7 +574,7 @@ float4 goo_toon_frag_main(
                 // are NOT measured by this step. Only the `_RS` sheet gets the texel-centre clamp here.
                 //
                 // 256 IS THE SHEET'S OWN WIDTH and is not invented here: every `_RS` sheet in the dumps is
-                // `256x1`, and the slot documentation of `vulkan::toon_slot::goo_rs_sheet` states the same.
+                // `256x1`, and the slot documentation of `deren::vulkan::toon_slot::goo_rs_sheet` states the same.
                 const float goo_rs_sheet_width = 256.0f;
                 const float2 sheet_uv = clamp(
                     float2(rs_sheet_u, 0.5f),
@@ -582,7 +582,7 @@ float4 goo_toon_frag_main(
                     float2(1.0f - 0.5f / goo_rs_sheet_width, 0.5f));
                 const float4 rs_sheet_texel = heap_texel(heap_at<Texture2D<float4>>(heap_slots_textures + rs_block3.w), heap_sampler_texture, sheet_uv);
                 // LINEAR, AND THE DECODE IS THE SAMPLER'S: the lane is `VK_FORMAT_R8G8B8A8_SRGB` (see
-                // `vulkan::toon_slot::goo_rs_sheet`), so the texel arrives already decoded and a second decode
+                // `deren::vulkan::toon_slot::goo_rs_sheet`), so the texel arrives already decoded and a second decode
                 // here would double-apply the curve. `RS_Index` IS NOT READ **HERE**: it selects WHICH sheet the
                 // host bound to this one slot (see L1 above), so by the time this line runs the choice is already
                 // made and lane 29's `.x` has nothing left to say.

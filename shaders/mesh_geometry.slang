@@ -116,7 +116,7 @@ uint mesh_index_at(const MeshGeometryLanes geometry, const uint i)
     return words[0];
 }
 
-/// @brief one MESHLET RECORD: exactly the 28 bytes `vulkan::meshlet` holds and the GPU table stores, in byte order
+/// @brief one MESHLET RECORD: exactly the 28 bytes `deren::vulkan::meshlet` holds and the GPU table stores, in byte order
 struct MeshletRecord
 {
     uint first_index;

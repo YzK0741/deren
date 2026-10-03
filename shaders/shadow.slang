@@ -102,7 +102,7 @@ struct shadow_vertex_output
 ///       UV passthrough.
 /// @note THE NORMAL IS READ HERE even though a depth pass has no use for it, and that is not dead code:
 ///       the raster pipelines derive their vertex INPUT STATE from the vertex stage's declarations
-///       (vulkan::make_pipeline), so a normal that Slang can prove unused is dropped from the module and
+///       (deren::vulkan::make_pipeline), so a normal that Slang can prove unused is dropped from the module and
 ///       the input's stride silently shrinks by 12 bytes - every vertex after the first would then be
 ///       read from the wrong place. The never-taken branch is what keeps it declared; it is the same
 ///       guard the pre-mesh version of this file carried, now shared by both entries.

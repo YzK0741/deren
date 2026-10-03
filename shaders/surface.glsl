@@ -19,7 +19,7 @@
  * push constant block are the shared scene set convention - see docs/shaders.md. A shader that
  * includes this file must NOT declare them again, and a host that creates a pipeline from such a
  * shader must use the runtime's shared scene pipeline layout (it does: every scene pipeline shares
- * vulkan::core::scene_pipeline_layout).
+ * deren::vulkan::core::scene_pipeline_layout).
  */
 
 #ifndef DEREN_SURFACE_GLSL

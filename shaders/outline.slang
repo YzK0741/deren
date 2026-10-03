@@ -56,7 +56,7 @@
 // ---- WHERE THE COLOUR AND THE WIDTH COME FROM, AND WHICH NUMBERS ARE THE ARTICLE'S ----
 //
 // BOTH ARE PER MATERIAL, and they ride the ONE per-material carrier this renderer has left: a lane of the
-// `heap_slots::toon_colours` table (`vulkan::toon_colour_lane::outline_edge`), whose `.rgb` is the game's
+// `heap_slots::toon_colours` table (`deren::vulkan::toon_colour_lane::outline_edge`), whose `.rgb` is the game's
 // `_OutlineTintColor` row and whose `.w` is the game's `_OutlineWidth` row. The mesh entry reads the same lane
 // for the width (its `> 0` gate is there), so the hull and the colour cannot disagree about whether a material
 // is outlined at all.
@@ -96,7 +96,7 @@
 
 #include "character_forward.slang"
 
-/// `vulkan::toon_colour_lane::outline_edge` - the material's outline lane in `heap_slots::toon_colours`, whose
+/// `deren::vulkan::toon_colour_lane::outline_edge` - the material's outline lane in `heap_slots::toon_colours`, whose
 /// `.rgb` is `_OutlineTintColor` and whose `.w` is `_OutlineWidth`. Spelled out here (and again in `pbr.slang`)
 /// because a shader cannot include a C++ enum; the STRIDE of the table is the stage's own existing
 /// `character_toon_colour_lanes`, which is the constant the host's `toon_colour_lane::count` is checked against.

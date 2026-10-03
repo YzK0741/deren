@@ -12,7 +12,7 @@
 // keeps a mask registered to the surface as the character animates. So the varyings below are pbr's, and the
 // push block is `surface.glsl`'s, declared once for every entry of that pipeline.
 //
-// THE TWO CHANNELS SHARE THIS STAGE AND DIFFER BY THE RECORD'S FLAGS (bits 6 and 7, see `gltf::overlay_kind`
+// THE TWO CHANNELS SHARE THIS STAGE AND DIFFER BY THE RECORD'S FLAGS (bits 6 and 7, see `deren::gltf::overlay_kind`
 // and `material_record::flags`), which is a decision rather than an economy: the two masks read DIFFERENT
 // inputs - the eye shadow is shaped by its mask texture and the hair shadow is a flat multiply gated by
 // `_DayStrength` that never samples its mask - so the branch is the port, and folding them into one expression
@@ -32,7 +32,7 @@
 #include "surface.glsl"
 
 /// THE TOON LIGHT RIG, declared here exactly as `character_forward.slang` declares it - the layout must match
-/// `vulkan::toon_rig` (nine `float4`s) and `runtime::set_toon_rig` is the only writer.
+/// `deren::vulkan::toon_rig` (nine `float4`s) and `runtime::set_toon_rig` is the only writer.
 ///
 /// THE OVERLAY STAGE NEEDS THE RIG FOR ONE LANE, and it is worth saying why that is not a layering mistake:
 /// `_DayStrength` is a MATERIAL property in the article's two overlay shaders, but this port already models
@@ -52,7 +52,7 @@ struct ToonRigUBO {
     float4 env;
     float4 misc;
     // x = `[render] toon_shadow_softness` (0 = the shipped 3x3 PCF). UNUSED BY THIS STAGE, and present only
-    // because the struct's size is the shader's view of `vulkan::toon_rig`'s layout: the two mirrors and the
+    // because the struct's size is the shader's view of `deren::vulkan::toon_rig`'s layout: the two mirrors and the
     // C++ struct move together or the lanes after them read the wrong floats.
     float4 shadow_softness;
 };

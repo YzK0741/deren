@@ -94,7 +94,7 @@ static const float character_cornea_bump = 0.125;
 ///       exactly as `character_matcap_strength` records another's" ... the per-material value cannot be carried)
 ///       is now WRONG and was replaced by what is measured: `_ParallaxScale` reaches the GPU as
 ///       `toon_colour_lane::parallax_scale` (the asset's `extras` block, via
-///       `gltf::claimed_extras_floats`), and the read in `toon_diffuse` is
+///       `deren::gltf::claimed_extras_floats`), and the read in `toon_diffuse` is
 ///       `lane.x >= 0 ? lane.x : this constant`. On `chars\chen.glb` the asset states the row for exactly three
 ///       materials - iris 0.03, brow 0.5, `M_actor_chen_cloth_01` 0.5 - and stays silent for the other four, so
 ///       THIS CONSTANT IS STILL LIVE and still 0.03: it is the answer for every material whose sources say
@@ -129,7 +129,7 @@ static const float character_eye_trick_scale = 2.5;
 /// @brief the article's `_SpecularMatcap`: the matcap's own tint, which the game's table carries ONLY for chen's
 ///        iris (`_MatcapColor` = (0.145, 0.161, 0.314, 0.933)) and which this port does NOT read yet
 /// @note RECORDED RATHER THAN INVENTED, and the note is why it is written down instead of implemented: every other
-///       colour lane in this stage exists because something consumes it (see `vulkan::toon_colour_lane`), and this
+///       colour lane in this stage exists because something consumes it (see `deren::vulkan::toon_colour_lane`), and this
 ///       one has no consumer, so writing it into a lane would be a second source of truth for a value nothing
 ///       reads. The reference's own name for the property is `EF_EYE_IRIS_MATCAP05_STRENGTH` for the STRENGTH
 ///       (`character_matcap_strength` below, 0.5666667) and the article's is `_SpecularMatcap`; the TINT is a
@@ -224,7 +224,7 @@ struct HeadUBO {
 };
 
 /// THE TOON LIGHT RIG (scene block slot 751): the character stage's global numbers, declared BY THIS STAGE
-/// exactly as `HeadUBO` is. THE LAYOUT MUST MATCH `vulkan::toon_rig` - nine `float4`s, lane by lane named
+/// exactly as `HeadUBO` is. THE LAYOUT MUST MATCH `deren::vulkan::toon_rig` - nine `float4`s, lane by lane named
 /// here - and `runtime::set_toon_rig` is the only writer. A rig nobody writes is not a broken frame: the
 /// application always publishes one, and the host's defaults are the article's own values.
 struct ToonRigUBO {
@@ -316,7 +316,7 @@ static ToonRigUBO toon_rig_value() {
  * `actor_zhuangfy.glb`. `EfFaceGetHeadBasis`'s `-row3` pointed the other way for ITS assets, and following it
  * here is not a cosmetic difference: it puts the sun 0.83 of the way round the head for a light the face is
  * looking almost straight into, and 94.1% of the texels the face's own UVs sample then read as shadow - the whole
- * face wears the family's shadow tint and this function shapes nothing. See `gltf::head_basis` for the numbers.
+ * face wears the family's shadow tint and this function shapes nothing. See `deren::gltf::head_basis` for the numbers.
  *
  * THE MIRROR IS THE PART WORTH STATING, because it looks like a trick and is the reference's design: the atlas
  * holds ONE face, and a light from the other side reads it MIRRORED (`1 - uv.x`). Measured on the real asset
@@ -450,10 +450,10 @@ static const float character_ramp_half_width = 0.035;
 /// `tests/test_toon_material_sidecar.cpp` compares the two.
 static const float character_shadow_lut_tiles = 32.0;
 
-/// @brief how many `vec4` lanes `vulkan::toon_colour_lane` has - the stride of the colour table
+/// @brief how many `vec4` lanes `deren::vulkan::toon_colour_lane` has - the stride of the colour table
 ///
 /// THE SHADER ADDRESSES THE COLOUR TABLE FLAT (`material_index * this + lane`), so this number is HALF OF A
-/// CONTRACT and the other half is `vulkan::toon_colour_lane::count` in the host. A mismatch reads another
+/// CONTRACT and the other half is `deren::vulkan::toon_colour_lane::count` in the host. A mismatch reads another
 /// material's colour rather than failing, which is the silent-drift shape `tests/test_toon_material_sidecar.cpp`
 /// exists to catch - it compares this against the enum for the same reason it compares the LUT's tile count.
 /// LANE 3 IS THE OUTLINE'S (`.rgb` = `_OutlineTintColor`, `.w` = `_OutlineWidth`), and IT IS WHY THIS FILE IS
@@ -468,7 +468,7 @@ static const float character_shadow_lut_tiles = 32.0;
 /// whose "absent" cannot be a number in the value's own range, and the read below resolves them together.
 /// LANE 6 IS THE REWRITTEN CHAIN'S AND THIS STAGE DOES NOT READ IT (`_GooEyeBrightness`, the Goo iris group's
 /// `Eyes brightness` / `Eyes HightLight brightness`, in `.x` / `.y` - see `shaders/goo_toon.slang` and
-/// `vulkan::toon_colour_lane::goo_eye_brightness`). It is counted here because the STRIDE is what this constant
+/// `deren::vulkan::toon_colour_lane::goo_eye_brightness`). It is counted here because the STRIDE is what this constant
 /// is: a table whose stride disagreed with the host's would make every material read its neighbour's lanes, and
 /// the stage that reads none of a lane still has to address around it.
 /// LANES 7 AND 8 ARE THE SAME STAGE'S OBJECT-SPACE RIM (`_GooRimColour`, `.rgb` = the Goo base/hair group's
@@ -528,14 +528,14 @@ static const float character_shadow_lut_tiles = 32.0;
 /// `goo_rim.slang`'s `goo_rim_colour_lanes`, `pbr.slang`'s `pbr_toon_colour_lanes` and (through the `#include` at
 /// the top of it) `outline.slang` all address the SAME table, so a stale copy in any one of them reads another
 /// material's lanes - a plausible wrong picture rather than an error. `tests/test_toon_material_sidecar.cpp` and
-/// `tests/test_goo_toon_math.cpp` pin all four against `vulkan::toon_colour_lane::count`.
+/// `tests/test_goo_toon_math.cpp` pin all four against `deren::vulkan::toon_colour_lane::count`.
 static const uint character_toon_colour_lanes = 30u;
 
 /// @brief how many `uvec4` BLOCKS of sidecar lanes the table holds - the stride of lanes 4 and up
 ///
 /// LANES 4..7 LIVE IN BLOCK 0, 8..11 IN BLOCK 1 AND 12..15 IN BLOCK 2, so the shader addresses block 1 at
 /// `material * 3 + 1` and block 2 at `material * 3 + 2` (see `toon_lanes2_at` / `toon_lanes3_at`). This number is
-/// half of that contract and `vulkan::toon_lane_blocks` is the other half - WHICH STEP 7 RAISED FROM 2 TO 3,
+/// half of that contract and `deren::vulkan::toon_lane_blocks` is the other half - WHICH STEP 7 RAISED FROM 2 TO 3,
 /// because the FACE's three masks did not fit the second block. The three accessors' literals and this constant
 /// have to move together; a stale one reads another material's block, silently.
 static const uint character_toon_lane_blocks = 3u;
@@ -1178,7 +1178,7 @@ float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, 
  *        ... AND IT IS A SECOND CONSUMER'S ENTIRE SOURCE: the article's SKIN reads its OCCLUSION out of this
  *        same channel (`ZmdSkinToonMain.hlsl:154`), which is the one family whose `ao` is not the metallic/gloss
  *        map's blue - see `ao_used` below.
- * @param family the material's `gltf::toon_family`, which this function needs for the TWO places the article's
+ * @param family the material's `deren::gltf::toon_family`, which this function needs for the TWO places the article's
  *        shaders disagree BY FAMILY rather than by material: the occlusion's source (`ao_used`) and nothing else
  *        - every other branch here is selected by a LANE, because a lane is what the asset states.
  * @param n world-space shading normal
@@ -1189,7 +1189,7 @@ float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, 
  *        radiance, because a baked occlusion term is a statement about the sky's reach.
  * @param params the material FAMILY's numbers (see toon_params.slang): the thresholds and tints the procedural
  *        branch uses, the rim's shape, and the 终末地 fields this chain added
- * @param toon_indices the material's FOUR in-record sidecar LANES (see `vulkan::toon_slot`): x is the diffuse
+ * @param toon_indices the material's FOUR in-record sidecar LANES (see `deren::vulkan::toon_slot`): x is the diffuse
  *        ramp, y the shadow LUT, z the specular ramp, w the matcap. A lane of 0 is "the artist switched this off,
  *        or the model does not have it", and every read below is gated on that rather than on a separate flag -
  *        which is what makes the `_Use` flag in the sidecar the only switch there is.
@@ -1299,7 +1299,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // `_ParallaxScale` IS A PER-MATERIAL ROW AND THE STAGE USED ONE MATERIAL'S VALUE ON EVERY MATERIAL. It
     // carried chen's iris number (`character_eye_parallax_depth`, 0.03) with a note saying the per-material row
     // could not be carried. It can: the row is in the asset's own `extras` block
-    // (`gltf::claimed_extras_floats`, read into `toon_colour_lane::parallax_scale`), which the host resolves
+    // (`deren::gltf::claimed_extras_floats`, read into `toon_colour_lane::parallax_scale`), which the host resolves
     // before the sidecar and before the constant. MEASURED on `chars\chen.glb`, the asset states it for three
     // materials - iris 0.03, brow 0.5, cloth_01 0.5 - and holds no such row for the rest, and the `.toon.tsv`
     // sidecar this repository carries has no `_ParallaxScale` row at all, so the asset is the only source that
@@ -1418,7 +1418,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     //
     // THE SECOND HALF OF THE SIDECAR'S VOCABULARY: the `color` rows are four floats rather than a texture name, so
     // they cannot ride `toon_lanes` (a `uvec4` of texture indices) and they live in a flat `float4` array the
-    // shader addresses as `material_index * character_toon_colour_lanes + lane` (see `vulkan::toon_colour_lane`).
+    // shader addresses as `material_index * character_toon_colour_lanes + lane` (see `deren::vulkan::toon_colour_lane`).
     // A MATERIAL WITH NO SUCH ROW READS WHITE, which is the neutral every one of these lanes is defined against -
     // so the shading falls back to doing nothing rather than to doing something black. THE TWO SCALAR LANES (4
     // and 5) ARE THE EXCEPTIONS to that neutral (`-1`, read below), because their values are a strength and a
@@ -1441,7 +1441,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     //
     // WHERE THE NUMBER COMES FROM IS A THIRD SOURCE, and this lane is the first property connected from it: the
     // ASSET'S OWN `extras` block, which is the game's exported material table travelling inside the .glb
-    // (`gltf::claimed_extras_floats`). The host resolves the order - extras first, then the `.toon.tsv` sidecar
+    // (`deren::gltf::claimed_extras_floats`). The host resolves the order - extras first, then the `.toon.tsv` sidecar
     // (which carries no `_Specular` row at all), then this family table - and the ONLY thing this stage has to
     // know is the sentinel: `.x < 0` means neither source spoke, and the family's number stands. `0.0` is a value
     // the game really states (the iris and the brow), which is why "absent" could not be encoded as zero.
@@ -1491,7 +1491,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // ---- THE MATERIAL'S OWN NUMBERS: the metallic/gloss lane, or THE FAMILY'S ----
     //
     // THE FOUR CHANNELS ARE THE ARTICLE'S `ORM`: metallic, reflectivity, ambient occlusion and smoothness. A LANE
-    // OF 0 IS "DO NOT READ" (see `vulkan::toon_slot`) and that is the SKIN's normal case: the game ships no
+    // OF 0 IS "DO NOT READ" (see `deren::vulkan::toon_slot`) and that is the SKIN's normal case: the game ships no
     // metallic/gloss map for skin at all, so the family's own `roughness` / `reflectivity` are what the shading
     // uses - which is the article's "give the default material's numbers to a material that has no map" written as
     // a family default instead of as a second material.
@@ -2269,7 +2269,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // THREE THINGS GATE IT, and each one is a statement the ASSET makes rather than a switch invented here:
     //
     //   * `family == VR_FAMILY_FACE` - the reference gives `PBRToonBaseFace` to exactly one material per character,
-    //     which is the same partition the loader's classifier draws (`gltf::toon_family_of`).
+    //     which is the same partition the loader's classifier draws (`deren::gltf::toon_family_of`).
     //   * `goo_base_ramp != 0u` - the material states `_GooRampIndex` / `_GooBaseRamp`, i.e. IT IS a material the
     //     FACE container is instantiated for. This is the same lane the base/skin/cloth arm reads and it is why
     //     `face_01` needed a ramp row: without it this arm cannot run at all.
@@ -2540,7 +2540,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // ---- the reference's own lanes, each component behind the group's `interface[]` default ----
         //
         // EVERY `< 0` COMPONENT ANSWERS THE REFERENCE'S OWN DEFAULT rather than a number chosen here, which is the
-        // contract `vulkan::toon_colour_lane` states for this lane: the material states nothing for that socket, so
+        // contract `deren::vulkan::toon_colour_lane` states for this lane: the material states nothing for that socket, so
         // what it gets is what a material calling the group without stating it gets in Goo.
         const float4 goo_diffuse_a = toon_colour_at(heap_slots_toon_colours, colour_base + 11u);
         const float4 goo_diffuse_b = toon_colour_at(heap_slots_toon_colours, colour_base + 12u);
@@ -3671,7 +3671,7 @@ float4 main(
     const toon_params params = toon_params_for(s.toon_family);
     // THE LANES BESIDE THE RECORD, read once here: `.x` is the face SDF map the SDF lane shades with, and
     // `.y` is the metallic/gloss map, which the shading below reads as its metallic, reflectivity, occlusion
-    // and smoothness - the four MATERIAL numbers glTF's own five slots cannot carry (see `vulkan::toon_slot`).
+    // and smoothness - the four MATERIAL numbers glTF's own five slots cannot carry (see `deren::vulkan::toon_slot`).
     const uint4 toon_lanes = toon_lanes_at(heap_slots_toon_lanes, push.material_index);
     // STEP 6's SATURATION COMES BACK OUT OF THE SHADING (see the out-parameter's note): it is the reference's
     // `色相/饱和度/明度.Saturation`, and it is applied to the FINISHED PIXEL below rather than to this stage's

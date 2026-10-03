@@ -317,13 +317,13 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 // outline pass be recorded in ONE batch: the game's own `chen` cloth_02 states `_OutlineWidth = 0.0` (measured),
 // so "this material has no outline" is data rather than a host-side list.
 // =============================================================================================================
-/// `vulkan::toon_colour_lane::outline_edge`: the material's outline lane in `heap_slots::toon_colours`, whose
+/// `deren::vulkan::toon_colour_lane::outline_edge`: the material's outline lane in `heap_slots::toon_colours`, whose
 /// `.rgb` is the game's `_OutlineTintColor` and whose `.w` is its `_OutlineWidth`. Spelled out here (and again in
 /// `outline.slang`) because a shader cannot include a C++ enum; the STRIDE below is the same quantity as
 /// `character_forward.slang`'s `character_toon_colour_lanes`, which is the spelling the host's
 /// `toon_colour_lane::count` is checked against by `test_toon_material_sidecar`.
 static const uint pbr_outline_edge_lane = 3u;
-// THE STRIDE IS THE HOST'S LANE COUNT, so it is 29 (`vulkan::toon_colour_lane::count`) and NOT the number of lanes
+// THE STRIDE IS THE HOST'S LANE COUNT, so it is 29 (`deren::vulkan::toon_colour_lane::count`) and NOT the number of lanes
 // THIS STAGE reads - which is one. A stride left at an older count would address a NEIGHBOURING MATERIAL's lane:
 // the hull of material 4 would be expanded by material 1's width, silently, with the frame merely looking wrong.
 // `test_toon_material_sidecar` pins this spelling against `character_toon_colour_lanes`. STEP 7 MOVED BOTH, and

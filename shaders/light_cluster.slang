@@ -22,8 +22,8 @@
 
 #include "heap_access.slang"
 
-const int MAX_PUNCTUAL_LIGHTS = 128;   // vulkan::max_punctual_lights
-const int CLUSTER_LIGHT_CAPACITY = 32; // vulkan::cluster_light_capacity (lights stored per cluster)
+const int MAX_PUNCTUAL_LIGHTS = 128;   // deren::vulkan::max_punctual_lights
+const int CLUSTER_LIGHT_CAPACITY = 32; // deren::vulkan::cluster_light_capacity (lights stored per cluster)
 
 struct PunctualLight
 {
@@ -34,7 +34,7 @@ struct PunctualLight
 };
 
 // The fields this stage needs; the members in between are declared so the offsets match the shared layout
-// (vulkan::light_ubo - see the static_asserts there). A stage may declare fewer members than the CPU writes,
+// (deren::vulkan::light_ubo - see the static_asserts there). A stage may declare fewer members than the CPU writes,
 // but not a different layout up to the ones it uses. The matrix array is declared for that reason alone: this
 // stage reads none of it (and a matrix ARRAY in a Slang block would lose its majorness decoration anyway - see
 // docs/slang_migration.md section 9).
@@ -100,7 +100,7 @@ void cluster_bounds(uint tile_x, uint tile_y, uint slice, uint3 grid, out float3
     const float slice_far = near_depth * pow(ratio, float(slice + 1u) / float(grid.z));
 
     const float2 screen = max(light_at(heap_light_slot).cluster_depth.zw, float2(1.0, 1.0));
-    const float2 px_min = float2(float(tile_x), float(tile_y)) * 64.0; // vulkan::cluster_tile_size
+    const float2 px_min = float2(float(tile_x), float(tile_y)) * 64.0; // deren::vulkan::cluster_tile_size
     const float2 px_max = min(px_min + 64.0, screen);
     const float2 ndc_min = px_min / screen * 2.0 - 1.0;
     const float2 ndc_max = px_max / screen * 2.0 - 1.0;

@@ -16,7 +16,7 @@
 // their GLSL meaning, which `surface.glsl` already relies on - it is compiled by the Slang leaves today and
 // uses these same types. One spelling, one layout, both consumers.
 //
-// THE LAYOUT MUST MATCH `vulkan::material_record` (std430, 80 bytes, `static_assert`ed on the host side).
+// THE LAYOUT MUST MATCH `deren::vulkan::material_record` (std430, 80 bytes, `static_assert`ed on the host side).
 // A field added here without the host - or the host without here - moves every material's texture indices,
 // and the failure is a wrong texture rather than a build error.
 //
@@ -44,7 +44,7 @@ struct Material {
     uint flags; // bit0: normal map, bit1: occlusion map, bit2: emissive map, bit3: double-sided,
                 // bit4: alphaMode MASK, bit5: alphaMode BLEND,
                 // bit6: the EYE-DARK overlay, bit7: the HAIR-SHADOW overlay (see overlay.slang and
-                //       `gltf::overlay_kind`: the article's two framebuffer multiplies compute different
+                //       `deren::gltf::overlay_kind`: the article's two framebuffer multiplies compute different
                 //       multipliers - one from the mask, one from `_DayStrength` - so the shared overlay
                 //       fragment stage is told which it is drawing here rather than by a second pipeline),
                 // bit8: the article's own TRANSPARENT variant of the toon material (`_TRANSPARENT_ON`), which
