@@ -120,22 +120,22 @@ export namespace deren::utility::dynamic_link {
     public:
         /** @brief adopt an already-loaded handle (normally done by load()); nullptr is the empty state */
         explicit library(void* opened) noexcept
-            : handle_(opened) {
+            : handle(opened) {
         }
 
         library(library const&) = delete;
         library& operator=(library const&) = delete;
 
         library(library&& other) noexcept
-            : handle_(other.handle_) {
-            other.handle_ = nullptr;
+            : handle(other.handle) {
+            other.handle = nullptr;
         }
 
         library& operator=(library&& other) noexcept {
             if (this != &other) {
                 this->close();
-                this->handle_ = other.handle_;
-                other.handle_ = nullptr;
+                this->handle = other.handle;
+                other.handle = nullptr;
             }
             return *this;
         }
@@ -155,13 +155,13 @@ export namespace deren::utility::dynamic_link {
 
         /** @brief the raw platform handle (nullptr when empty); owned by this object, never freed by the caller */
         [[nodiscard]] void* native_handle() const noexcept {
-            return this->handle_;
+            return this->handle;
         }
 
     private:
         void close() noexcept;
 
-        void* handle_ = nullptr;
+        void* handle = nullptr;
     };
 
     /**
@@ -258,7 +258,7 @@ namespace {
 namespace deren::utility::dynamic_link {
 
     std::expected<void const*, load_error> library::symbol(std::string_view name) const noexcept {
-        if (this->handle_ == nullptr) {
+        if (this->handle == nullptr) {
             return std::unexpected(load_error{0, "the library is not loaded"});
         }
         if (name.empty() || name.contains('\0')) {
@@ -266,7 +266,7 @@ namespace deren::utility::dynamic_link {
         }
         std::string const terminated{name}; // GetProcAddress/dlsym want a NUL-terminated name
 #ifdef _WIN32
-        void* const address = GetProcAddress(this->handle_, terminated.c_str());
+        void* const address = GetProcAddress(this->handle, terminated.c_str());
         if (address == nullptr) {
             unsigned long const code = GetLastError();
             return std::unexpected(load_error{static_cast<std::int32_t>(code),
@@ -275,7 +275,7 @@ namespace deren::utility::dynamic_link {
         }
 #else
         static_cast<void>(dlerror()); // clear the pending error so the next call is unambiguous
-        void* const address = dlsym(this->handle_, terminated.c_str());
+        void* const address = dlsym(this->handle, terminated.c_str());
         if (address == nullptr) {
             return std::unexpected(
                 load_error{0, std::format("the library has no symbol '{}' ({})", name, last_dl_error())});
@@ -285,15 +285,15 @@ namespace deren::utility::dynamic_link {
     }
 
     void library::close() noexcept {
-        if (this->handle_ == nullptr) {
+        if (this->handle == nullptr) {
             return;
         }
 #ifdef _WIN32
-        FreeLibrary(this->handle_);
+        FreeLibrary(this->handle);
 #else
-        dlclose(this->handle_);
+        dlclose(this->handle);
 #endif
-        this->handle_ = nullptr;
+        this->handle = nullptr;
     }
 
     std::expected<library, load_error> load(std::string_view file_name) noexcept {
