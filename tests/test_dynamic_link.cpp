@@ -13,7 +13,7 @@
 // by the linker) and the DLL half is only ever opened at run time (the shared branch). Both halves
 // are then driven through the SAME function, `check_core_contract()`, because "the two answer the
 // same" is the whole point of the export keywords - and the C ABI is declared once, in
-// boundary/backend_entry.hpp, rather than again here.
+// promise/rhi/backend_entry.hpp, rather than again here.
 #include "vk_test.h"
 
 #include <cstdint>
@@ -28,7 +28,7 @@ import deren.promise.rhi;
 import deren.utility.dynamic_link;
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
-#include "../boundary/backend_entry.hpp"
+#include "../promise/rhi/backend_entry.hpp"
 
 namespace {
 

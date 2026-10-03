@@ -243,7 +243,9 @@ target_sources(utility
 # and it is listed here, once, for the same reason. There is no .cpp: every declaration below this
 # line is an interface, so the STATIC target exists only to carry the module's file set (the shape
 # vstd_lib has for deren.vstd). The C ABI surface is deliberately NOT here (m03159): it is
-# boundary/backend_entry.hpp, a header, because an entry point is not a virtual base class.
+# promise/rhi/backend_entry.hpp - in the same directory, but a plain header, not a partition and not
+# in the file set below, because an entry point is not a virtual base class. The keyword it is
+# declared with is a build concern and lives in utility/abi_export.hpp (m04074).
 add_library(promise STATIC)
 
 target_sources(promise
@@ -469,7 +471,7 @@ target_include_directories(stb_vendored
 # backends are compiled as plain C++ (imgui is not a module and does not follow the project's
 # -Werror policy — upstream code triggers warnings we do not own). No clang-format: the
 # PROJECT_FORMAT_SOURCES glob only covers main/application_configuration/gltf_loader/utility/
-# vulkan/tests/promise/boundary, never third_party.
+# vulkan/tests/promise, never third_party.
 add_library(imgui STATIC)
 
 target_sources(imgui
@@ -945,8 +947,9 @@ endforeach()
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 
 if(CLANG_FORMAT_EXECUTABLE)
-    # promise/rhi/ and boundary/ are the module of interfaces and the C ABI header the boundary is
-    # built from (both sides compile them), so they are listed by extension rather than by the
+    # promise/rhi/ holds the contract module (`*.cppm`) AND the one header that is deliberately not
+    # part of it (`backend_entry.hpp`); utility/abi_export.hpp is the macro header. All three are
+    # compiled by both sides of the boundary, so they are listed by extension rather than by the
     # *.cpp* wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
             ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
@@ -956,7 +959,8 @@ if(CLANG_FORMAT_EXECUTABLE)
             ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/promise/rhi/*.cppm
-            ${CMAKE_CURRENT_SOURCE_DIR}/boundary/*.hpp)
+            ${CMAKE_CURRENT_SOURCE_DIR}/promise/rhi/*.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/utility/abi_export.hpp)
 
     set(CLANG_FORMAT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/.clang-format.stamp")
 

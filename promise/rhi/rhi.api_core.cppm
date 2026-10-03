@@ -7,7 +7,7 @@
 //
 // `api_core` is the ONE object that crosses the boundary as a C++ type, and it is
 // reached through a single C function, `deren_make_api_core` - declared with the
-// other two entry points in boundary/backend_entry.hpp, because an entry point is
+// other two entry points in promise/rhi/backend_entry.hpp, because an entry point is
 // the ABI surface rather than a virtual base class (m03159). Everything below
 // follows from the cross-boundary rules in §4.2:
 //
@@ -48,7 +48,7 @@ import :extension;
  * @ingroup promise
  *
  * `api_core` is the one object that crosses the boundary as a C++ type, and it is reached through a
- * single C function, `deren_make_api_core()` in `boundary/backend_entry.hpp` (§1.11: the way to
+ * single C function, `deren_make_api_core()` in `promise/rhi/backend_entry.hpp` (§1.11: the way to
  * obtain the context stays C++, the rest of the boundary is C). It is also the one interface the
  * plan lets grow "big" - it is the backend's whole context and factory set - under the one
  * restriction that it never learns an engine concept: no scene, no pass, no camera (§4.1 item 2).

@@ -1,17 +1,21 @@
 // -*- C++ -*-
 // ============================================================================
-// file: boundary/backend_entry.hpp
+// file: promise/rhi/backend_entry.hpp
 //
 // The backend's C ABI surface: the three `extern "C"` symbols a backend exports and
 // a host resolves (RHI plan v4, §1.15, §4.1 item 3).
 //
-// WHY THIS IS NOT PART OF deren.promise.rhi (m03159): the contract is a collection of
-// virtual base classes, and an entry point is not one. A backend DEFINES these
-// three, a host RESOLVES them, and neither side derives from anything to do it, so
-// they live next to the keyword that makes them visible across the DLL boundary
-// rather than inside the interface module. Nothing here is a type the engine and the
-// backend share; the only shared thing is the NAME and the SIGNATURE, which is what
-// this file is for.
+// WHY THIS IS NOT PART OF deren.promise.rhi (m03159), EVEN THOUGH IT LIVES IN ITS
+// DIRECTORY (m04074): the contract is a collection of virtual base classes, and an
+// entry point is not one. A backend DEFINES these three, a host RESOLVES them, and
+// neither side derives from anything to do it. So the file sits in `promise/rhi/`
+// because it is the graphics-API boundary's surface and belongs with the contract it
+// hands out - but it is NOT a module partition, never appears in the module's file
+// set, and is not imported: it is an ordinary header that both sides `#include`, and
+// a translation unit that includes it must first `import deren.promise.rhi;` for the
+// types the declarations name. Nothing here is a type the engine and the backend
+// share; the only shared thing is the NAME and the SIGNATURE, which is what this file
+// is for.
 //
 // WHO INCLUDES IT, AND IN WHICH ORDER. The declarations below name
 // `deren::promise::rhi::api_core` and `deren::promise::rhi::error`, so the translation unit has
@@ -19,10 +23,10 @@
 // cannot live in a header, and the two orderings that matter are already exercised by
 // the two sides of the probe:
 //
-//     import deren.promise.rhi;                  // the boundary's types
-//     #include "../boundary/backend_entry.hpp"  // the entry points
+//     import deren.promise.rhi;                    // the boundary's types
+//     #include "../promise/rhi/backend_entry.hpp" // the entry points
 //
-// The keyword comes from boundary/abi_export.hpp, so the same declaration is
+// The keyword comes from utility/abi_export.hpp, so the same declaration is
 // `dllexport` while the backend is being built, `dllimport` while the host imports
 // it, and nothing at all when the backend is linked in statically. CMake builds
 // tests/probe_backend.cpp twice for exactly that reason.
@@ -32,12 +36,12 @@
 // ============================================================================
 #pragma once
 
-#include "abi_export.hpp"
+#include "../../utility/abi_export.hpp"
 
 #include <cstdint>
 
 /**
- * @file boundary/backend_entry.hpp
+ * @file promise/rhi/backend_entry.hpp
  * @brief the three `extern "C"` entry points that hand an `api_core` across the boundary.
  * @ingroup boundary
  *

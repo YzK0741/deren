@@ -7,11 +7,11 @@
 // CMake builds this one source file twice - as a DLL (with DEREN_API_SHARED +
 // DEREN_API_BUILD) and as a static library (with neither) - and the test links the
 // static half while opening the DLL half at run time, so both branches of
-// boundary/abi_export.hpp are exercised and the two halves must answer the same.
+// utility/abi_export.hpp are exercised and the two halves must answer the same.
 //
 // This file imports the contract and includes the ABI surface instead of declaring
 // either itself (it used to declare the C ABI; the declarations live in
-// boundary/backend_entry.hpp now), which is also the check that the header can be
+// promise/rhi/backend_entry.hpp now), which is also the check that the header can be
 // compiled by the backend side: the three entry points below are EXACTLY the ones
 // the header declares, and deriving from the module's abstract classes is what makes
 // the compiler verify that every virtual is implemented.
@@ -36,7 +36,7 @@
 // ============================================================================
 import deren.promise.rhi;
 
-#include "../boundary/backend_entry.hpp"
+#include "../promise/rhi/backend_entry.hpp"
 
 #include <cstdint>
 #include <span>
