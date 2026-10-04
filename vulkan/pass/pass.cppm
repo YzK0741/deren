@@ -42,6 +42,8 @@ module;
 
 export module deren.vulkan.pass;
 
+import deren.promise.rhi;
+
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
@@ -404,6 +406,13 @@ export namespace deren::vulkan::pass {
     struct pass_context {
         /// the device a pass builds its own objects on (the owner fills this from the filtered core view)
         VkDevice device = VK_NULL_HANDLE;
+        /// THE CONTRACT FACE (abi 8): what a pass's own create step builds its pipelines through -
+        /// `rhi::api_core&` of the same backend `device` belongs to, so a call through it emits no
+        /// backend symbol. Null only before the owner fills it.
+        deren::promise::rhi::api_core* face = nullptr;
+        /// the swapchain's format in the contract's spelling (the passes that render into it name it
+        /// through the pipeline descriptors now)
+        deren::promise::rhi::image_format swap_chain_format = deren::promise::rhi::image_format::unknown;
         render_resource::shared::sampler_set samplers = {};
         /**
          * The SPIR-V of one of this pass's shaders, by the name it declares; empty when the owner does not

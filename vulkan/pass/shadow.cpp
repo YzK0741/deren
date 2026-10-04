@@ -17,9 +17,12 @@ module;
 
 module deren.vulkan.pass.shadow;
 
+import deren.promise.rhi;
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_shadow: the depth-only pipeline this pass owns
 import deren.utility;
+
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -48,7 +51,9 @@ namespace deren::vulkan::pass {
     }
 
     void shadow_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE || context.depth_format == VK_FORMAT_UNDEFINED) {
+        // THE DEPTH FORMAT IS THE CONTRACT'S `depth` ROLE now (abi 8): the backend picks the device's
+        // concrete depth format, so there is no "the context must name one" precondition any more.
+        if (context.device == VK_NULL_HANDLE || context.face == nullptr) {
             return;
         }
         if (this->device != VK_NULL_HANDLE && this->device != context.device) {
@@ -80,7 +85,7 @@ namespace deren::vulkan::pass {
         // IT IS THE MESH FORM THAT IS BUILT FIRST NOW, and it is required: with the vertex form gone this pass cannot
         // draw its casters any other way, so a refusal is a DISABLED PASS rather than a fallback - visible as a
         // missing shadow rather than as a wrong picture, and named in the log.
-        auto mesh_built = pipelines::build_shadow(context.device, context.depth_format, create_bias_constant, create_bias_slope, create_bias_clamp, mesh_spirv, fragment_spirv, VK_SHADER_STAGE_MESH_BIT_EXT);
+        auto mesh_built = pipelines::build_shadow(*context.face, context.device, rhi::image_format::depth, create_bias_constant, create_bias_slope, create_bias_clamp, mesh_spirv, fragment_spirv, rhi::shader_stage::mesh);
         if (!mesh_built) {
             deren::utility::log("shadow disabled: the mesh pipeline was refused ({})", mesh_built.error());
             this->release_owned();
@@ -92,7 +97,7 @@ namespace deren::vulkan::pass {
         // stage), and a missing shader or a refusal is a log line - the mesh form above is a complete answer.
         std::span<uint8_t const> const meshlet_spirv = context.shader != nullptr ? context.shader(context.owner, meshlet_shader_name) : std::span<uint8_t const>{};
         if (!meshlet_spirv.empty()) {
-            auto meshlet_built = pipelines::build_shadow(context.device, context.depth_format, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto meshlet_built = pipelines::build_shadow(*context.face, context.device, rhi::image_format::depth, create_bias_constant, create_bias_slope, create_bias_clamp, meshlet_spirv, fragment_spirv, rhi::shader_stage::mesh);
             if (meshlet_built) {
                 this->meshlet_pipeline = std::move(*meshlet_built);
                 deren::utility::log("SUCCESS: shadow MESHLET pipeline created (one workgroup per meshlet, window read from the table)");

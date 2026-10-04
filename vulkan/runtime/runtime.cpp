@@ -22,7 +22,7 @@ import deren.vulkan.render_resource.shared;
 import deren.utility;
 import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
-import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
+import deren.vulkan.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
 import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
@@ -397,25 +397,25 @@ namespace deren::vulkan {
         // reduces the blend math to the source colour), while the span-based form's default is "overwrite".
         // Omitting it is not a no-op - the gate caught it as a changed scenario, and this is why the conversion
         // is a re-expression rather than a rewrite.
-        std::array<VkPipelineColorBlendAttachmentState, 1> const blend_attachments = {make_color_blend_attachment()};
+        std::array<rhi::blend_mode, 1> const blend_attachments = {rhi::blend_mode::alpha};
         // ---- THE MESH FORM, which IS the pipeline now (docs/mesh_shaders.md step 4): built before the registry
         //      insert, cached with the same two viewport values its draws need (begin_pipeline re-emits them and
         //      update_pass_geometry resyncs every registered pipeline once per frame), and a failure is the CALLER's
         //      - the vertex pipeline that used to absorb a refusal does not exist any more.
-        std::optional<vk_pipeline> mesh_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
-            auto built = deren::vulkan::make_pipeline(this->vulkan_core.logical_device,
-                                                      std::span<VkFormat const>(color_formats),
-                                                      this->vulkan_core.depth_attachment_format,
-                                                      mesh_vertex_shader_code,
-                                                      fragment_shader_code,
-                                                      VK_SAMPLE_COUNT_1_BIT,
-                                                      /*depth_test_enabled=*/true,
-                                                      0.0f,
-                                                      0.0f,
-                                                      0.0f,
-                                                      std::span<VkPipelineColorBlendAttachmentState const>(blend_attachments),
-                                                      VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = pipelines::make_graphics_pipeline(this->rhi_face(),
+                                                           std::span<rhi::image_format const>(color_formats),
+                                                           rhi::image_format::depth,
+                                                           mesh_vertex_shader_code,
+                                                           fragment_shader_code,
+                                                           1u,
+                                                           /*depth_test_enabled=*/true,
+                                                           0.0f,
+                                                           0.0f,
+                                                           0.0f,
+                                                           std::span<rhi::blend_mode const>(blend_attachments),
+                                                           rhi::shader_stage::mesh);
             if (built) {
                 // the two cached values every named pipeline needs (begin_pipeline re-emits them, and
                 // update_pass_geometry resyncs every registered pipeline once per frame)
@@ -427,24 +427,24 @@ namespace deren::vulkan {
                 return fail("pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
             }
         }
-        std::optional<vk_pipeline> meshlet_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> meshlet_result = std::nullopt;
         if (want_mesh && !meshlet_shader_code.empty()) {
             // THE MESHLET FORM (docs/mesh_shaders.md step 3): the same fragment stage again, with the entry that
             // reads one meshlet per workgroup out of the heap table and culls it against the camera. Built exactly
             // like the mesh form - it IS a mesh stage - and a refusal leaves the mesh form as the answer, which is
             // why this is a third entry rather than a replacement.
-            auto built = deren::vulkan::make_pipeline(this->vulkan_core.logical_device,
-                                                      std::span<VkFormat const>(color_formats),
-                                                      this->vulkan_core.depth_attachment_format,
-                                                      meshlet_shader_code,
-                                                      fragment_shader_code,
-                                                      VK_SAMPLE_COUNT_1_BIT,
-                                                      /*depth_test_enabled=*/true,
-                                                      0.0f,
-                                                      0.0f,
-                                                      0.0f,
-                                                      std::span<VkPipelineColorBlendAttachmentState const>(blend_attachments),
-                                                      VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = pipelines::make_graphics_pipeline(this->rhi_face(),
+                                                           std::span<rhi::image_format const>(color_formats),
+                                                           rhi::image_format::depth,
+                                                           meshlet_shader_code,
+                                                           fragment_shader_code,
+                                                           1u,
+                                                           /*depth_test_enabled=*/true,
+                                                           0.0f,
+                                                           0.0f,
+                                                           0.0f,
+                                                           std::span<rhi::blend_mode const>(blend_attachments),
+                                                           rhi::shader_stage::mesh);
             if (built) {
                 built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
                 built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
@@ -495,7 +495,7 @@ namespace deren::vulkan {
         }
         // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
         // never be blocked by shader compilation.
-        std::optional<vk_pipeline> mesh_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
             auto built = this->vulkan_core.make_character_forward_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
             if (!built) {
@@ -503,7 +503,7 @@ namespace deren::vulkan {
             }
             mesh_result = std::move(*built);
         }
-        std::optional<vk_pipeline> meshlet_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> meshlet_result = std::nullopt;
         if (!meshlet_shader_code.empty()) {
             // A refusal here leaves the mesh form as the answer rather than failing the call - the same
             // relationship the named forward pipelines have between their two forms.
@@ -552,7 +552,7 @@ namespace deren::vulkan {
         }
         // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
         // never be blocked by shader compilation.
-        std::optional<vk_pipeline> mesh_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
             auto built = this->vulkan_core.make_overlay_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
             if (!built) {
@@ -560,7 +560,7 @@ namespace deren::vulkan {
             }
             mesh_result = std::move(*built);
         }
-        std::optional<vk_pipeline> meshlet_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> meshlet_result = std::nullopt;
         if (!meshlet_shader_code.empty()) {
             // A refusal here leaves the mesh form as the answer rather than failing the call - the same
             // relationship both other families have between their two forms. The overlay meshes are two to nine
@@ -613,7 +613,7 @@ namespace deren::vulkan {
         }
         // GPU pipeline creation outside the lock, for the reason make_pipeline gives: a recording worker must
         // never be blocked by shader compilation.
-        std::optional<vk_pipeline> mesh_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
             auto built = this->vulkan_core.make_outline_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
             if (!built) {
@@ -621,7 +621,7 @@ namespace deren::vulkan {
             }
             mesh_result = std::move(*built);
         }
-        std::optional<vk_pipeline> meshlet_result = std::nullopt;
+        std::optional<pipelines::pipeline_handle> meshlet_result = std::nullopt;
         if (!meshlet_shader_code.empty()) {
             // A refusal here leaves the mesh form as the answer rather than failing the call - the same
             // relationship the other families have between their two forms. Every leaf that carries an outline

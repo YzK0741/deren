@@ -14,10 +14,13 @@ module;
 
 module deren.vulkan.pass.taa;
 
+import deren.promise.rhi;
 import deren.vulkan.render_resource;
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines;
 import deren.utility;
+
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -91,7 +94,7 @@ namespace deren::vulkan::pass {
             deren::utility::log("taa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
-        auto built = pipelines::build_taa(context.device, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_taa(*context.face, context.device, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("taa disabled: {}", built.error());
             this->release_owned();

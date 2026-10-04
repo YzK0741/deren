@@ -54,7 +54,7 @@ export module deren.vulkan.pass.upscale;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
-import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
 export namespace deren::vulkan::pass {
 
@@ -187,7 +187,7 @@ export namespace deren::vulkan::pass {
         VkDevice device = VK_NULL_HANDLE;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
-        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         /// the surface's format, cached at create: the push block's `encode_gamma` lane follows from it, and a
         /// session-stable device fact is exactly what a create step may keep (see the FXAA pass, which does the
         /// same for the same lane)

@@ -1692,6 +1692,10 @@ namespace deren::vulkan {
             // be created with (see pass_context). The post chain needs it today; the graphics passes being
             // extracted need it tomorrow.
             .swap_chain_image_format = this->vulkan_core.swap_chain_image_format,
+            // abi 8: the CONTRACT face the passes' own create steps build through, and the swapchain
+            // format in the contract's spelling (both derived from the same facts the raw fields carry)
+            .face = &this->rhi_face(),
+            .swap_chain_format = contract_image_format(this->vulkan_core.swap_chain_image_format),
             // ... and the DEPTH format, which the shadow pass`s pipeline needs (it has a depth attachment and no
             // colour one): the same kind of session-stable device fact, and the second one a context carries.
             .depth_format = this->vulkan_core.depth_attachment_format,

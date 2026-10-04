@@ -15,9 +15,12 @@ module;
 
 module deren.vulkan.pass.geometry_buffer_debug;
 
+import deren.promise.rhi;
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_gbuffer_debug: the view pipeline, and that is all the pass takes from the builder
 import deren.utility;
+
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -62,7 +65,7 @@ namespace deren::vulkan::pass {
             return;
         }
         // The debug view reads the stored surface through the frame's heap, so the pipeline is all it builds.
-        auto built = pipelines::build_gbuffer_debug(context.device, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_gbuffer_debug(*context.face, context.device, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("gbuffer debug view disabled: {}", built.error());
             this->release_owned();

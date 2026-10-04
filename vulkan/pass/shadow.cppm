@@ -40,8 +40,8 @@ export module deren.vulkan.pass.shadow;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
-import deren.vulkan.primitive;    // max_shadow_cascades: the run of layers this pass's declaration claims
-import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.vulkan.primitive; // max_shadow_cascades: the run of layers this pass's declaration claims
+import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
 export namespace deren::vulkan::pass {
 
@@ -146,9 +146,9 @@ export namespace deren::vulkan::pass {
         /// THE MESH FORM, and since step 4 (docs/mesh_shaders.md) it is the pass's ONLY form: the vertex pipeline is
         /// gone with the rest of the vertex geometry path, so a device that cannot build this one gets no shadow map
         /// rather than a different rasterizer. It fetches its casters' vertices the way the input assembler used to.
-        std::optional<vk_pipeline> mesh_pipeline = std::nullopt;
+        std::optional<pipelines::pipeline_handle> mesh_pipeline = std::nullopt;
         /// ... and the MESHLET form, preferred over it when it exists (see meshlet_shader_name)
-        std::optional<vk_pipeline> meshlet_pipeline = std::nullopt;
+        std::optional<pipelines::pipeline_handle> meshlet_pipeline = std::nullopt;
         // called pass_frame, not frame: set_frame()'s frame parameter in shadow.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         shadow_frame pass_frame = {};

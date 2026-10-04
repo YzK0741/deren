@@ -34,7 +34,7 @@ module;
 export module deren.vulkan.pass.compute_skin;
 
 import deren.vulkan.pass;
-import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
 
 export namespace deren::vulkan::pass {
 
@@ -111,7 +111,7 @@ export namespace deren::vulkan::pass {
         VkDevice device = VK_NULL_HANDLE;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
-        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
     };
 
 } // namespace deren::vulkan::pass

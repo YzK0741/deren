@@ -63,7 +63,7 @@ namespace deren::vulkan {
         if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
-        auto const built = pipelines::build_heap_probe(vk.logical_device, spirv);
+        auto const built = pipelines::build_heap_probe(vk, vk.logical_device, spirv);
         if (!built.has_value()) {
             deren::utility::log("descriptor heap: the heap-native probe's pipeline was refused: {}", built.error());
             return;
@@ -156,7 +156,7 @@ namespace deren::vulkan {
             return;
         }
         constexpr VkFormat probe_format = VK_FORMAT_R8G8B8A8_UNORM;
-        auto const built = pipelines::build_heap_probe_graphics(vk.logical_device, probe_format, vertex_code, fragment_code, mesh_shader ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT);
+        auto const built = pipelines::build_heap_probe_graphics(vk, vk.logical_device, contract_image_format(probe_format), vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
         // vkCmdDrawMeshTasksEXT IS AN EXTENSION ENTRY POINT and is loaded the way this project loads every other
         // one (see acceleration_structure.cpp): the loader's import library does not export it, so it arrives
         // through vkGetDeviceProcAddr - and a null there is the honest "this device cannot run this probe"

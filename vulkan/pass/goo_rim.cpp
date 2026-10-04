@@ -17,11 +17,14 @@ module;
 
 module deren.vulkan.pass.goo_rim;
 
+import deren.promise.rhi;
 import deren.vulkan.render_resource;
 import deren.vulkan.constant_init;
-import deren.vulkan.core;          // deren::vulkan::hdr_format: the one target this pass writes
-import deren.vulkan.core.pipeline; // deren::vulkan::make_pipeline: the generic builder this pass uses directly
+import deren.vulkan.core;      // deren::vulkan::hdr_format: the one target this pass writes
+import deren.vulkan.pipelines; // make_graphics_pipeline: the contract factory this pass builds through
 import deren.utility;
+
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -70,22 +73,22 @@ namespace deren::vulkan::pass {
         }
         // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
         // character stage, before the resolve) - a rim written to the swapchain would be tonemapped twice.
-        std::array<VkFormat, 1> const formats = {deren::vulkan::hdr_format};
+        std::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
         // ADDITIVE: the rim is `混合.019`'s ADD - a contribution to the frame, not a replacement for it. The
         // character stage's own pipeline is the opposite (blending OFF, it OVERWRITES), which is exactly why this
         // rim could not be a second draw in that pass.
-        std::array<VkPipelineColorBlendAttachmentState, 1> const blends = {make_color_blend_attachment_additive()};
-        auto built = deren::vulkan::make_pipeline(context.device,
-                                                  std::span<VkFormat const>(formats),
-                                                  VK_FORMAT_UNDEFINED, // NO depth attachment: the depth is sampled, not tested
-                                                  vertex_spirv,
-                                                  fragment_spirv,
-                                                  VK_SAMPLE_COUNT_1_BIT,
-                                                  /*depth_test_enabled=*/false,
-                                                  0.0f,
-                                                  0.0f,
-                                                  0.0f,
-                                                  std::span<VkPipelineColorBlendAttachmentState const>(blends));
+        std::array<rhi::blend_mode, 1> const blends = {rhi::blend_mode::additive};
+        auto built = pipelines::make_graphics_pipeline(*context.face,
+                                                       std::span<rhi::image_format const>(formats),
+                                                       rhi::image_format::unknown, // NO depth attachment: the depth is sampled, not tested
+                                                       vertex_spirv,
+                                                       fragment_spirv,
+                                                       1u,
+                                                       /*depth_test_enabled=*/false,
+                                                       0.0f,
+                                                       0.0f,
+                                                       0.0f,
+                                                       std::span<rhi::blend_mode const>(blends));
         if (!built) {
             // The reason is dropped for the same toolchain reason as the pair above; the pipeline builder logs the
             // cause itself (see `deren::vulkan::make_pipeline`).

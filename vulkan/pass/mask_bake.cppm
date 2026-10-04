@@ -34,7 +34,7 @@ module;
 export module deren.vulkan.pass.mask_bake;
 
 import deren.vulkan.pass;
-import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
 
 export namespace deren::vulkan::pass {
 
@@ -122,7 +122,7 @@ export namespace deren::vulkan::pass {
         VkDevice device = VK_NULL_HANDLE;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
-        std::optional<vk_pipeline> pass_pipeline = std::nullopt;
+        std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
     };
 
     /// THE PUSH BLOCK'S SIZE IS PART OF THE SHADER'S CONTRACT, and it is the range the pipeline layout is

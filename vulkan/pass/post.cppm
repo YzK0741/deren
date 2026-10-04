@@ -48,7 +48,7 @@ export module deren.vulkan.pass.post;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
-import deren.vulkan.core.handles; // vk_pipeline: the RAII owner of the pipelines this pass builds
+import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipelines this pass builds
 
 export namespace deren::vulkan::pass {
 
@@ -235,8 +235,8 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool fill_push(resolved_io& out, bool writing_ldr) const;
 
         VkDevice device = VK_NULL_HANDLE;
-        std::optional<vk_pipeline> composite = std::nullopt;
-        std::optional<vk_pipeline> hdr = std::nullopt;
+        std::optional<pipelines::pipeline_handle> composite = std::nullopt;
+        std::optional<pipelines::pipeline_handle> hdr = std::nullopt;
         /// the surface's format, cached at create: the `encode_gamma` lane is a consequence of it (and of the
         /// frame's target choice), and a session-stable device fact is exactly what a create step may cache
         VkFormat swap_chain_format = VK_FORMAT_UNDEFINED;

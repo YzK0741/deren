@@ -17,9 +17,12 @@ module;
 
 module deren.vulkan.pass.deferred;
 
+import deren.promise.rhi;
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_deferred: the pipeline this pass owns
 import deren.utility;
+
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -81,9 +84,9 @@ namespace deren::vulkan::pass {
         }
         // The blend state is the stage's own: the attachment is LOADed and the lighting ADDS to the emissive the
         // G-buffer pass wrote.
-        std::array<VkPipelineColorBlendAttachmentState, 1> const blend = {make_color_blend_attachment_additive()};
-        auto built = pipelines::build_deferred(context.device,
-                                               std::span<VkPipelineColorBlendAttachmentState const>(blend), vertex_spirv, fragment_spirv);
+        std::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::additive};
+        auto built = pipelines::build_deferred(*context.face, context.device,
+                                               std::span<rhi::blend_mode const>(blend), vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("deferred lighting disabled: {}", built.error());
             this->release_owned();
