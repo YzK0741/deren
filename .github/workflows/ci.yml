@@ -106,20 +106,13 @@ jobs:
       # objects and report 130 where the archive truth is 78. The number has to reach 0 before
       # deren_vulkan can become a resolved-at-run-time DLL.
       #
-      # WARN PHASE ON PURPOSE, and it is also why the step cannot fail this job: a ratchet only means
-      # something once every toolchain has its own baseline recorded (the counting rule is the
-      # mangled symbol set, which is not comparable across compilers or standard libraries), and this
-      # runner's clang minor version is whatever MSYS2 shipped that day. Warnings here are free;
-      # a red job caused by a ratchet with no baseline would be the kind of gate people delete.
-      # Phase two: add the runner's baseline with --update, add python to the MSYS2 install list if
-      # it is not there, and drop both the `|| true` and the `--warn`.
-      - name: Backend boundary gate (warn phase)
-        run: |
-          if command -v python >/dev/null 2>&1; then
-            python scripts/check_backend_boundary.py --build-dir build --warn || true
-          else
-            echo "python is not on PATH in this job, so the boundary gate did not run."
-          fi
+      # MANDATORY NOW, and that is what makes it a gate instead of a suggestion: every toolchain
+      # records its OWN baseline (the counting rule is the mangled symbol set, which is not
+      # comparable across compilers or standard libraries), so a joiner fails this job instead of
+      # scrolling past - and the target builds the full product first, so a half-built tree cannot
+      # report a fake improvement (see the check-backend-boundary target in CMakeLists).
+      - name: Check backend boundary ratchet
+        run: cmake --build build --target check-backend-boundary
 
       # README claims this target exists "for CI"; until now nothing called it, so a formatting
       # regression could only be caught by a human noticing the next auto-format diff.
