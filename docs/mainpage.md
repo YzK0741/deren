@@ -155,7 +155,7 @@ Modular composition is the point, not a side effect:
   storage a caller injects through the `backend` surface and initializes from any loader
   whose data satisfies the structural `source` concept (it imports no loader and no
   `deren.vulkan.runtime`);
-- `deren.vulkan.core` / `deren.vulkan.runtime` are a configurable facade (`core_create_info`, granular
+- `deren.vulkan.core` / `deren.vulkan.runtime` are a configurable facade (`create_info`, granular
   per-frame phase calls) - the demo entry point (`main.cpp` + `deren.chores`) is a thin glue layer
   on top and can be replaced wholesale.
 

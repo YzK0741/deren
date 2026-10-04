@@ -267,8 +267,9 @@ correctly, but the content still does not survive to the swapchain, so at least 
 (TAA resolve, the megalights chain, the composite's source lane, or FXAA). The next measurement is the
 multi-image read-back that located this one: copy the swapchain, `hdr`, `scene_color`, `ldr` and the
 G-buffer albedo into one staging buffer per capture and print each centre pixel - that shows exactly which
-stage drops it. The read-back code is in this branch's history (it was reverted; re-add it in
-`record_screenshot_copy`).
+stage drops it. The read-back code is in this branch's history (it was reverted; re-add it where the copy
+is recorded today - `runtime::end_recording`, through the contract's `command_list::copy_image_to_buffer`
+with `frame_readback_buffer()` as its destination; the old `record_screenshot_copy` no longer exists).
 
 ## The bug the write path hid: a fallback texture nobody gave a heap slot
 

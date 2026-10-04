@@ -58,7 +58,7 @@ that do not consume a semver slot (e.g. `deren.gltf_loader` 0.1.0a after the swi
 >   neither imports a loader nor depends on `deren::vulkan::runtime` — swap in another
 >   format or drive it from your own scene storage;
 > - `deren.vulkan.core` / `deren.vulkan.runtime` expose a configured facade
->   (`core_create_info`, per-frame phase calls), and the top-level
+>   (`create_info`, per-frame phase calls), and the top-level
 >   `main.cpp` + `deren.chores` are just a thin glue layer — replace them with your own
 >   entry point, or wire only the stages you want.
 >
@@ -72,7 +72,7 @@ that do not consume a semver slot (e.g. `deren.gltf_loader` 0.1.0a after the swi
 > something measurable; the modules below the backend are deliberately not API
 > modules, and the backend boundary itself is still being drawn.
 
-- **Vulkan wrapper (`deren.vulkan.*` modules)**: C++ modules wrapping the full initialization flow. `deren::vulkan::runtime` is created from a `core_create_info` (window, vsync, validation, or a caller-provided `GLFWwindow`) and drives each frame through granular phases - `poll_events()` → `pace_and_acquire()` → `begin_recording()` → `record_main_drawcalls()` → `end_recording()` → `submit_and_present()` - each returning a `frame_status`, with `render_frame()` running them all for callers that have no interleaved per-frame updates; the runtime owns the scene-wide GPU resources. Frame pacing uses timeline semaphores (one per frame slot, no fences) while acquire/present signals stay binary, and pass recording is multi-threaded into per-slot secondary command buffers.
+- **Vulkan wrapper (`deren.vulkan.*` modules)**: C++ modules wrapping the full initialization flow. `deren::vulkan::runtime` is created from a `create_info` (window, vsync, validation, or a caller-provided `GLFWwindow`) and drives each frame through granular phases - `poll_events()` → `pace_and_acquire()` → `begin_recording()` → `record_main_drawcalls()` → `end_recording()` → `submit_and_present()` - each returning a `frame_status`, with `render_frame()` running them all for callers that have no interleaved per-frame updates; the runtime owns the scene-wide GPU resources. Frame pacing uses timeline semaphores (one per frame slot, no fences) while acquire/present signals stay binary, and pass recording is multi-threaded into per-slot secondary command buffers.
 - **Scene tree / GPU primitives (`deren.vulkan.scene_tree` + `deren.vulkan.primitive`)**: a pure-CPU tree of nodes (deren.vulkan.scene_tree), walked once per frame to accumulate world matrices; GPU drawables live in the peer `deren.vulkan.primitive`: every one is a `primitive` subclass with a polymorphic `draw()`. `scene_node` / `scene` expose mounting helpers (`add_root()` / `add_child()` / `attach()` / `find_node()`). **Pipeline binding is decoupled from the scene tree**: a leaf carries either *default semantics* (empty `pipeline_name`) or an explicit pipeline name, and `draw(render_environment&)` requests the pipeline through the `deren.vulkan.render_environment` (`bind_default()` / `bind_pipeline(name)`); default leaves are pipeline-agnostic, so the same geometry renders under any default. The tree is **caller-owned** (`runtime::set_scene()`), and must be destroyed before the runtime, so its leaves' GPU buffers (`vk_buffer`/`vk_image` RAII owners from `deren.vulkan.core:vma_handles`) release through the still-alive allocator.
 - **Multi-pipeline scenes (`deren.vulkan.render_environment`)**: pipelines are named and cached in the runtime (`make_pipeline(name, vs, frag)`); the **first created pipeline becomes the implicit default**, `set_default_pipeline(name)` overrides. Every pipeline shares the single flat scene descriptor layout, so any number can coexist in one scene — leaves choose per draw. Each parallel recording worker builds its own `render_environment` (thread-local bind state, never shared), which describes the session's available pipelines and hands `draw()` a deduplicated binder: default leaves request the session default, custom strategies request a name. The shadow pass binds its depth-only pipeline through the same mechanism (its environment ignores the requested name), so custom leaves still cast their geometry into the shadow map.
 - **BVH frustum culling**: per-frame, a BVH is built over every leaf's world AABB and tested against the camera frustum; the tree is rebuilt only when the scene changed and the culled result is reused while the camera is static. Toggle with `set_frustum_culling()`.
@@ -179,6 +179,57 @@ Related source docs (tracked in the repo):
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
 - Everything else is vendored under `third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode) and **mimalloc** (allocator behind `deren.utility:better_pmr`, compiled into a `mimalloc_vendored` static target). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. The **Windows Release** executable links fully static (`-static`: libc++ / libc++abi / libunwind, glfw3, mimalloc are all pulled in statically), so `build-release-clang64/deren.exe` is a single portable file — only the OS's own DLLs (kernel32, the UCRT, `vulkan-1.dll`) remain dynamic. Debug builds stay dynamic for faster iteration.
 - **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/windows/build.ps1` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `vstd/vstd_msvc.cppm` instead of `vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - which is why an MSVC Release exe is not the single self-contained file the clang64 Release exe is.
+
+#### Platform
+
+- **Windows x64** is the shipped configuration: the environment check, configure/build/run scripts under `scripts/windows/` are MSYS2 + PowerShell, and the Release executable links fully static (see the bullet above) so it runs on a machine with nothing installed but the GPU driver.
+- **POSIX (Linux / WSL / macOS)** builds through the `sh` scripts and the same CMake files. The **MSVC** branch is maintained but is not what the scripts or CI drive (see the *Toolchains* bullet above).
+- Measured reference platform: **Windows 11 build 26300, x64**, MSYS2 **clang64**.
+
+#### Toolchain
+
+The version column gives **the minimum the build actually enforces** where there is one (CMake, Python) and **the version measured on the reference machine** where the constraint is "this is what it works with" rather than a hard check. A newer version is therefore a risk to be retested, not an error — except at a stated minimum, where the build refuses.
+
+| | version | why it is required |
+|---|---|---|
+| **CMake** | **≥ 4.3** (`cmake_minimum_required` in `CMakeLists.txt`); 4.4.3 measured | |
+| **Clang + libc++ + lld** | MSYS2 **clang64**, clang **22.1.8** measured | C++23 with **C++20 modules** (`.cppm`). `vstd/vstd.cppm` is a trimmed fork of libc++'s generated `std` module, so the STL half of the build is tied to *libc++ from clang64* rather than to "a C++23 compiler" in the abstract — that is the toolchain `.github/workflows/ci.yml` installs and the one this tree's module/`import` semantics are tested on. |
+| **Ninja** | 1.13.2 measured | the generator every script and CI job uses |
+| **slangc** | **required**, pinned upstream release **2026.18.2** (`sha256 747602ae…`, the checksum CI verifies) | **Every shader stage is built from a `.slang` source and CMake refuses to configure without `slangc`** (`find_program` + `FATAL_ERROR`; the GLSL fallback and GLSL stage sources were both removed). MSYS2 ships no Slang package, so it comes from the upstream release zip or the Vulkan SDK's `Bin/`. Pass `-DVR_SLANGC_EXECUTABLE=<path>` or put it on `PATH`. |
+| **Python** | **≥ 3.8** for the scripts (3.14.7 measured) | `scripts/make_config.py`, `scripts/make_default_config.py`, and the boundary gate |
+| **PowerShell** | **7** (`pwsh`) | `scripts/windows/*`, including the render regression check |
+| **`llvm-nm`** | clang-tools-extra (`llvm-nm-18`/`-17` or GNU `nm` also work) | reads the static archives for `scripts/check_backend_boundary.py` (the backend-boundary ratchet). Build-time optional; the gate needs one of them. |
+
+**Compiler dialect** (not a preference — the tree depends on it): C++23, `-fno-rtti`, `-fno-exceptions`, `-Werror`, and `-march=native` for local Release builds (CI sets `-DVR_NATIVE_ARCH=OFF` because it uploads the binary).
+
+#### Hardware (the Vulkan device)
+
+**Mandatory — the renderer refuses to start without these:**
+
+- A Vulkan **1.3** device. Device selection enforces `apiVersion >= VK_API_VERSION_1_3`, because every frame records through `vkCmdBeginRendering` (dynamic rendering) — there are no render passes or framebuffer objects in this renderer at all.
+- **`VK_KHR_unified_image_layouts`** — a hard requirement, not an optimisation: `core.constructor.cppm` panics with *"VK_KHR_unified_image_layouts is required but not supported by the device"*.
+- **`VK_EXT_host_image_copy`**, and `GENERAL` must appear in the device's copy-**destination** layout list. Both are hard requirements: the renderer's image upload and read-back go through `vkCopyMemoryToImageEXT` / `vkCopyImageToMemoryEXT`, and it panics by name (*"required (image upload and read-back) but not usable on this device"*) if the extension is missing or if `GENERAL` is not a legal copy-destination layout.
+- `VK_KHR_swapchain`, and **`bufferDeviceAddress`** (core 1.2; the startup log prints it as part of the enabled 1.2 feature set) — this is what the bindless descriptor heap's writes and the acceleration-structure builds address their buffers with.
+- A Vulkan **1.3-capable driver**; the loader (`vulkan-1.dll`) is the only graphics-related dynamic dependency of the Release executable.
+
+> **"Vulkan 1.3" is necessary but not sufficient, and that is measured rather than inferred.** The three mandatory items above are *driver* features as much as device ones: on the reference machine (NVIDIA **616.92**) they are present, while the same GPU model on an older driver (**560.70**, Vulkan 1.3.280) lacks all three — and `deren.exe` then exits at `init_device_and_queue` with the named panic instead of rendering. Before reporting a rendering problem, check the startup log's capability block: the renderer prints what the device actually offers.
+
+**Conditional — each one buys a feature, and each degrades by name rather than silently.** These are the capabilities the renderer queries at startup and reports in its log; without them the corresponding paths stay off:
+
+| capability | extensions the code queries | what it turns off |
+|---|---|---|
+| ray queries (traced shadows / GI) | `VK_KHR_acceleration_structure`, `VK_KHR_ray_query`, `VK_KHR_deferred_host_operations` | the log says it outright: *"ray tracing: not available (ray-traced shadows and GI stay off)"* |
+| ray tracing pipeline + SBT | `VK_KHR_ray_tracing_pipeline` | the pipeline-based RT paths |
+| opacity micromaps | `VK_EXT_opacity_micromap` | the micromap paths (the log prints the 2-state/4-state subdivision limits when present) |
+| bindless descriptor heap | `VK_EXT_descriptor_heap` + one of its two dependencies (`VK_KHR_maintenance5` preferred, else `VK_KHR_extended_flags`), and `VK_KHR_shader_untyped_pointers` | the heap-native paths |
+| mesh and task shaders | `VK_EXT_mesh_shader` | mesh dispatch (falls back to the direct call, logged once) |
+
+Measured reference device (this repository's development machine, and the hardware the numbers in `DYNAMIC_LINK_V2.md` and the local regression baselines were taken on): **NVIDIA GeForce RTX 4060 Laptop GPU, NVIDIA driver 616.92**.
+
+#### Disk & data
+
+- Each build tree is **~3.2 GB** measured (a Release tree with all test targets, `build-release-clang64`). A clean configure+build needs that much free space plus the object/PDB growth of a Debug tree if you keep one too.
+- **Models are not in the repository**: the renderer is run against `.glb` files you put under `chars/` next to the executable (or point `model` in `config.toml` elsewhere). The character models used for the regression scenarios are tens of megabytes each. A scenario whose model file is absent fails at load with a panic naming the path — that is a missing input, not a rendering bug.
 
 ### Scripts
 
