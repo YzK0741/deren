@@ -39,6 +39,8 @@
 // ============================================================================
 module;
 
+#include <algorithm>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <format>
@@ -181,6 +183,154 @@ namespace deren::vulkan {
             }
             if (covered_by(declared, offsetof(rhi_buffer_desc, initial_bytes), sizeof(rhi_buffer_desc::initial_bytes))) {
                 options.initial_bytes = desc.initial_bytes;
+            }
+            return options;
+        }
+
+        // ---- ABI 7'S IMAGE FACE: THE CONTRACT'S VOCABULARY IN THIS BACKEND'S ------------------------
+        // The same one-to-one, written-out mapping rule create_buffer uses: a new contract value must
+        // not silently become whatever the integer happens to mean here.
+
+        /// the contract's format name in this backend's spelling; UNDEFINED means "refuse" (unknown),
+        /// and the `depth` ROLE resolves to the device's own depth attachment format - which concrete
+        /// depth format a device serves is the backend's capability question, not the caller's (§17).
+        [[nodiscard]] VkFormat native_image_format(deren::promise::rhi::image_format const format, VkFormat const depth_format) noexcept {
+            using rhi_image_format = deren::promise::rhi::image_format;
+            switch (format) {
+            case rhi_image_format::rgba8_unorm:
+                return VK_FORMAT_R8G8B8A8_UNORM;
+            case rhi_image_format::rgba8_srgb:
+                return VK_FORMAT_R8G8B8A8_SRGB;
+            case rhi_image_format::bgra8_unorm:
+                return VK_FORMAT_B8G8R8A8_UNORM;
+            case rhi_image_format::bgra8_srgb:
+                return VK_FORMAT_B8G8R8A8_SRGB;
+            case rhi_image_format::r16g16_sfloat:
+                return VK_FORMAT_R16G16_SFLOAT;
+            case rhi_image_format::r16g16b16a16_sfloat:
+                return VK_FORMAT_R16G16B16A16_SFLOAT;
+            case rhi_image_format::r32g32b32_sfloat:
+                return VK_FORMAT_R32G32B32_SFLOAT;
+            case rhi_image_format::depth:
+                return depth_format;
+            case rhi_image_format::unknown:
+                return VK_FORMAT_UNDEFINED;
+            }
+            return VK_FORMAT_UNDEFINED;
+        }
+
+        /// the contract's capability flags as the usage bits they LET THE CALLER DO.
+        [[nodiscard]] VkImageUsageFlags native_image_usage(rhi::image_flags const flags) noexcept {
+            namespace rf = rhi;
+            VkImageUsageFlags usage = 0;
+            if (rf::has_flag(flags, rf::image_flag::sampled)) {
+                usage |= VK_IMAGE_USAGE_SAMPLED_BIT;
+            }
+            if (rf::has_flag(flags, rf::image_flag::storage)) {
+                usage |= VK_IMAGE_USAGE_STORAGE_BIT;
+            }
+            if (rf::has_flag(flags, rf::image_flag::color_attachment)) {
+                usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
+            }
+            if (rf::has_flag(flags, rf::image_flag::depth_attachment)) {
+                usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+            }
+            if (rf::has_flag(flags, rf::image_flag::transfer_source)) {
+                usage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+            }
+            if (rf::has_flag(flags, rf::image_flag::transfer_destination)) {
+                usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
+            }
+            if (rf::has_flag(flags, rf::image_flag::cube_compatible)) {
+                // no usage bit: the flag's other half is the ALLOCATOR's type (see create_image), which
+                // is what makes the six layers cube-creatable at all
+            }
+            return usage;
+        }
+
+        /// the same ABI guard `sanitize_buffer_desc` runs, field by field for `image_desc`.
+        [[nodiscard]] deren::promise::rhi::image_desc sanitize_image_desc(deren::promise::rhi::image_desc const& desc) {
+            using rhi_image_desc = deren::promise::rhi::image_desc;
+
+            uint32_t const declared = desc.struct_size;
+            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_image_desc));
+            if (declared != known) {
+                deren::utility::log("core: the RHI image_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
+                                    known, declared);
+            }
+
+            rhi_image_desc options = {};
+            if (covered_by(declared, offsetof(rhi_image_desc, extent), sizeof(rhi_image_desc::extent))) {
+                options.extent = desc.extent;
+            }
+            if (covered_by(declared, offsetof(rhi_image_desc, mip_levels), sizeof(rhi_image_desc::mip_levels))) {
+                options.mip_levels = desc.mip_levels;
+            }
+            if (covered_by(declared, offsetof(rhi_image_desc, array_layers), sizeof(rhi_image_desc::array_layers))) {
+                options.array_layers = desc.array_layers;
+            }
+            if (covered_by(declared, offsetof(rhi_image_desc, format), sizeof(rhi_image_desc::format))) {
+                options.format = desc.format;
+            }
+            if (covered_by(declared, offsetof(rhi_image_desc, flags), sizeof(rhi_image_desc::flags))) {
+                options.flags = desc.flags;
+            }
+            if (covered_by(declared, offsetof(rhi_image_desc, initial_bytes), sizeof(rhi_image_desc::initial_bytes))) {
+                options.initial_bytes = desc.initial_bytes;
+            }
+            if (covered_by(declared, offsetof(rhi_image_desc, debug_name), sizeof(rhi_image_desc::debug_name))) {
+                options.debug_name = desc.debug_name;
+            }
+            return options;
+        }
+
+        /// the same ABI guard for `image_view_desc`.
+        [[nodiscard]] deren::promise::rhi::image_view_desc sanitize_image_view_desc(deren::promise::rhi::image_view_desc const& desc) {
+            using rhi_view_desc = deren::promise::rhi::image_view_desc;
+
+            uint32_t const declared = desc.struct_size;
+            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_view_desc));
+            if (declared != known) {
+                deren::utility::log("core: the RHI image_view_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
+                                    known, declared);
+            }
+
+            rhi_view_desc options = {};
+            if (covered_by(declared, offsetof(rhi_view_desc, base_layer), sizeof(rhi_view_desc::base_layer))) {
+                options.base_layer = desc.base_layer;
+            }
+            if (covered_by(declared, offsetof(rhi_view_desc, layer_count), sizeof(rhi_view_desc::layer_count))) {
+                options.layer_count = desc.layer_count;
+            }
+            if (covered_by(declared, offsetof(rhi_view_desc, base_mip), sizeof(rhi_view_desc::base_mip))) {
+                options.base_mip = desc.base_mip;
+            }
+            if (covered_by(declared, offsetof(rhi_view_desc, mip_count), sizeof(rhi_view_desc::mip_count))) {
+                options.mip_count = desc.mip_count;
+            }
+            if (covered_by(declared, offsetof(rhi_view_desc, role), sizeof(rhi_view_desc::role))) {
+                options.role = desc.role;
+            }
+            return options;
+        }
+
+        /// the same ABI guard for `sampler_desc`.
+        [[nodiscard]] deren::promise::rhi::sampler_desc sanitize_sampler_desc(deren::promise::rhi::sampler_desc const& desc) {
+            using rhi_sampler_desc = deren::promise::rhi::sampler_desc;
+
+            uint32_t const declared = desc.struct_size;
+            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_sampler_desc));
+            if (declared != known) {
+                deren::utility::log("core: the RHI sampler_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
+                                    known, declared);
+            }
+
+            rhi_sampler_desc options = {};
+            if (covered_by(declared, offsetof(rhi_sampler_desc, address_mode), sizeof(rhi_sampler_desc::address_mode))) {
+                options.address_mode = desc.address_mode;
+            }
+            if (covered_by(declared, offsetof(rhi_sampler_desc, max_lod), sizeof(rhi_sampler_desc::max_lod))) {
+                options.max_lod = desc.max_lod;
             }
             return options;
         }
@@ -375,12 +525,203 @@ namespace deren::vulkan {
         delete this;
     }
 
-    rhi::image* core::create_image(rhi::image_desc const& /*desc*/) {
-        return nullptr;
+    rhi::image* core::create_image(rhi::image_desc const& declared_desc) {
+        // ---- THE ABI GUARD, THEN THE DESCRIPTOR ------------------------------------------------
+        // Same rule create_buffer runs: only the caller's declared prefix is read.
+        rhi::image_desc const desc = sanitize_image_desc(declared_desc);
+        char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed image";
+
+        // ---- THE REFUSALS, EACH NAMED -----------------------------------------------------------
+        // The contract's answer to "this descriptor cannot be honoured" is nullptr plus a log line
+        // (§4.2: no throwing path) - a caller that needs the reason looks at the log the name marks.
+        if (desc.extent.width == 0 || desc.extent.height == 0) {
+            deren::utility::log("rhi: create_image {} refused: zero extent ({}x{})", what, desc.extent.width, desc.extent.height);
+            return nullptr;
+        }
+        if (desc.format == rhi::image_format::unknown) {
+            deren::utility::log("rhi: create_image {} refused: image_format::unknown names no format", what);
+            return nullptr;
+        }
+
+        // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
+        // The format: named formats map one to one; the `depth` ROLE resolves to the device's own depth
+        // attachment format, which is the capability question §17 moved out of the caller's hands.
+        VkFormat const native_format = native_image_format(desc.format, this->depth_attachment_format);
+        // The allocator's type: the shape flags pick it, because the type is what carries the memory
+        // intent and the cube-creatability (vma.cppm's image_type note).
+        image_type type = image_type::texture_2d;
+        if (desc.format == rhi::image_format::depth || rhi::has_flag(desc.flags, rhi::image_flag::depth_attachment)) {
+            type = image_type::texture_2d_depth;
+        } else if (rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible)) {
+            if (desc.array_layers != 6) {
+                deren::utility::log("rhi: create_image {} refused: cube_compatible needs 6 layers, asked for {}", what, desc.array_layers);
+                return nullptr;
+            }
+            type = image_type::texture_cubemap;
+        }
+        image_create_info const create_info = {
+            .width = desc.extent.width,
+            .height = desc.extent.height,
+            .mip_levels = desc.mip_levels == 0
+                              ? static_cast<uint32_t>(std::bit_width(std::max(desc.extent.width, desc.extent.height)))
+                              : desc.mip_levels, // 0 means "the full chain", the contract's spelling
+            .array_layers = desc.array_layers,
+            .format = native_format,
+            .extra_usage = native_image_usage(desc.flags),
+        };
+
+        // ---- THE ALLOCATION (the allocator's own dedup sees the content at creation) --------------
+        // create_image uploads the staging copy itself for data-carrying types and answers an owning
+        // RAII handle (vma.cppm's type table); empty bytes mean allocate-only.
+        vk_image const owned = this->vma.create_image(
+            reinterpret_cast<uint8_t const*>(desc.initial_bytes.data()), desc.initial_bytes.size(), create_info, type);
+        if (owned.handle() == 0) {
+            deren::utility::log("rhi: create_image {} refused: the allocator could not serve {}x{}, {} layer(s), {} mip(s)",
+                                what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels);
+            return nullptr;
+        }
+
+        // The detail lookup is an UNLOCKED BORROW: the VkImage is copied out NOW (the same rule
+        // owned_buffer's comment states), never the pointer into the allocator's map.
+        image_detail const* const detail = this->vma.get_image_detail(owned.handle());
+        if (detail == nullptr) {
+            deren::utility::log("rhi: create_image {} refused: the allocator holds no detail for the allocation", what);
+            return nullptr;
+        }
+        auto* const answer = new owned_image();
+        answer->owner = this;
+        answer->owned = owned;
+        answer->native_handle = detail->image;
+        answer->resolved_format = native_format;
+        answer->width = create_info.width;
+        answer->height = create_info.height;
+        answer->mip_levels = create_info.mip_levels;
+        answer->array_layers = create_info.array_layers;
+        answer->cube_compatible = rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible);
+        answer->declared_format = desc.format;
+        deren::utility::log("rhi: create_image {} {}x{} layers {} mips {} -> handle {:#x}",
+                            what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels, owned.handle());
+        return answer;
     }
 
-    rhi::sampler* core::create_sampler(rhi::sampler_desc const& /*desc*/) {
-        return nullptr;
+    rhi::sampler* core::create_sampler(rhi::sampler_desc const& declared_desc) {
+        rhi::sampler_desc const desc = sanitize_sampler_desc(declared_desc);
+
+        // The contract's four modes are exactly VkSamplerAddressMode's common four, written out per
+        // the same rule as every mapping above.
+        VkSamplerAddressMode mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+        switch (desc.address_mode) {
+        case rhi::sampler_address_mode::repeat:
+            mode = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+            break;
+        case rhi::sampler_address_mode::mirrored_repeat:
+            mode = VK_SAMPLER_ADDRESS_MODE_MIRRORED_REPEAT;
+            break;
+        case rhi::sampler_address_mode::clamp_to_edge:
+            mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+            break;
+        case rhi::sampler_address_mode::clamp_to_border:
+            mode = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_BORDER;
+            break;
+        }
+
+        VkSamplerCreateInfo const info = make_texture_sampler_info(mode, desc.max_lod);
+        VkSampler handle = VK_NULL_HANDLE;
+        if (vkCreateSampler(this->logical_device, &info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
+            deren::utility::log("rhi: create_sampler refused: vkCreateSampler failed (mode {}, max lod {})",
+                                static_cast<int>(desc.address_mode), desc.max_lod);
+            return nullptr;
+        }
+        auto* const answer = new owned_sampler();
+        answer->native_sampler_handle = handle;
+        answer->device = this->logical_device;
+        return answer;
+    }
+
+    // ---- THE OWNED IMAGE FACE'S OBJECTS (abi 7, §17's design) --------------------------------------
+
+    rhi::image_extent core::owned_image::extent() const noexcept {
+        return {.width = this->width, .height = this->height, .depth = 1};
+    }
+
+    rhi::image_format core::owned_image::format() const noexcept {
+        return this->declared_format;
+    }
+
+    rhi::image_view* core::owned_image::make_view(rhi::image_view_desc const& declared_desc) {
+        // The range is validated against THIS image's shape, per the contract's rule: a range the
+        // image does not have is refused, not clamped - a clamped view would sample the wrong mip and
+        // say nothing.
+        rhi::image_view_desc const desc = sanitize_image_view_desc(declared_desc);
+        uint32_t const layers = desc.layer_count == 0 ? this->array_layers - desc.base_layer : desc.layer_count;
+        uint32_t const mips = desc.mip_count == 0 ? this->mip_levels - desc.base_mip : desc.mip_count;
+        if (desc.base_layer >= this->array_layers || layers == 0 || desc.base_layer + layers > this->array_layers) {
+            deren::utility::log("rhi: make_view refused: layer range [{} + {}) outside the image's {}", desc.base_layer, layers, this->array_layers);
+            return nullptr;
+        }
+        if (desc.base_mip >= this->mip_levels || mips == 0 || desc.base_mip + mips > this->mip_levels) {
+            deren::utility::log("rhi: make_view refused: mip range [{} + {}) outside the image's {}", desc.base_mip, mips, this->mip_levels);
+            return nullptr;
+        }
+
+        // The role picks the aspect (the format is the image's own). The view TYPE follows the image's
+        // shape: a cube-compatible six-layer image viewed whole IS the cube view; any other
+        // multi-layer image is a 2D array; everything else a plain 2D.
+        VkImageAspectFlags const aspect = this->declared_format == rhi::image_format::depth
+                                              ? VK_IMAGE_ASPECT_DEPTH_BIT
+                                              : VK_IMAGE_ASPECT_COLOR_BIT;
+        bool const whole_cube = this->cube_compatible && this->array_layers == 6 && desc.base_layer == 0 && layers == this->array_layers;
+        VkImageViewType const view_type = whole_cube               ? VK_IMAGE_VIEW_TYPE_CUBE
+                                          : this->array_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
+                                                                   : VK_IMAGE_VIEW_TYPE_2D;
+        VkImageViewCreateInfo const base_info = make_image_view_info(this->native_handle,
+                                                                     this->resolved_format,
+                                                                     view_type, aspect, mips, layers);
+        // make_image_view_info always bases at 0; the contract's desc carries the base explicitly.
+        VkImageViewCreateInfo view_info = base_info;
+        view_info.subresourceRange.baseMipLevel = desc.base_mip;
+        view_info.subresourceRange.baseArrayLayer = desc.base_layer;
+        view_info.subresourceRange.levelCount = mips;
+        view_info.subresourceRange.layerCount = layers;
+
+        VkImageView handle = VK_NULL_HANDLE;
+        if (vkCreateImageView(this->owner->logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
+            deren::utility::log("rhi: make_view refused: vkCreateImageView failed");
+            return nullptr;
+        }
+        auto* const answer = new owned_image_view();
+        answer->native_view = handle;
+        answer->device = this->owner->logical_device;
+        return answer;
+    }
+
+    void core::owned_image::release() noexcept {
+        // `delete this`: the destructor resets the `vk_image` RAII owner, which is the allocator's
+        // reference-count decrement (rhi.api_core.cppm's ownership note - release, not necessarily
+        // destruction: a content-deduplicated image dies when its LAST reference goes).
+        delete this;
+    }
+
+    core::owned_image_view::~owned_image_view() noexcept {
+        if (this->native_view != VK_NULL_HANDLE && this->device != VK_NULL_HANDLE) {
+            vkDestroyImageView(this->device, this->native_view, nullptr);
+            this->native_view = VK_NULL_HANDLE;
+        }
+    }
+
+    void core::owned_image_view::release() noexcept {
+        delete this;
+    }
+
+    core::owned_sampler::~owned_sampler() noexcept {
+        if (this->native_sampler_handle != VK_NULL_HANDLE && this->device != VK_NULL_HANDLE) {
+            vkDestroySampler(this->device, this->native_sampler_handle, nullptr);
+            this->native_sampler_handle = VK_NULL_HANDLE;
+        }
+    }
+
+    void core::owned_sampler::release() noexcept {
+        delete this;
     }
 
     rhi::shader* core::create_shader(rhi::shader_desc const& /*desc*/) {
@@ -483,6 +824,17 @@ namespace deren::vulkan {
     rhi::image_extent core::frame_image_slot::extent() const noexcept {
         VkExtent2D const extent = this->owner->swap_chain_extent;
         return rhi::image_extent{.width = extent.width, .height = extent.height, .depth = 1};
+    }
+
+    rhi::image_view* core::frame_image_slot::make_view(rhi::image_view_desc const& /*desc*/) {
+        // A BORROWED VIEW DOES NOT MAKE VIEWS (abi 7's make_view on the frame image): the swapchain
+        // image's views belong to the backend's own presentation path. The one-time log is the same
+        // borrowed-view rule the release override below lives by.
+        if (!this->borrowed_make_view_logged) {
+            this->borrowed_make_view_logged = true;
+            deren::utility::log("rhi: make_view on the borrowed frame image answers nullptr - the swapchain image has no contract views");
+        }
+        return nullptr;
     }
 
     void core::frame_image_slot::release() noexcept {
@@ -746,6 +1098,25 @@ namespace deren::vulkan {
         // the contract names; this would turn it into a crash instead of a wrong answer).
         auto const* const owned = static_cast<owned_buffer const*>(&resource);
         return reinterpret_cast<void*>(owned->native);
+    }
+
+    void* core::frame_escape::native_image(rhi::image const& resource) const noexcept {
+        // THE SAME BORROWED-HANDLE RULE native_buffer states (abi 7's image face): the precondition is
+        // the caller's - only images this backend's create_image handed out reach here, and a released
+        // one must not. The VkImage was copied into the owned object at creation, so no detail lookup
+        // runs per call.
+        auto const* const owned = static_cast<owned_image const*>(&resource);
+        return reinterpret_cast<void*>(owned->native_handle);
+    }
+
+    void* core::frame_escape::native_image_view(rhi::image_view const& resource) const noexcept {
+        auto const* const owned = static_cast<owned_image_view const*>(&resource);
+        return reinterpret_cast<void*>(owned->native_view);
+    }
+
+    void* core::frame_escape::native_sampler(rhi::sampler const& resource) const noexcept {
+        auto const* const owned = static_cast<owned_sampler const*>(&resource);
+        return reinterpret_cast<void*>(owned->native_sampler_handle);
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {

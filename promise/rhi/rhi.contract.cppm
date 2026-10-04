@@ -86,7 +86,15 @@ export namespace deren::promise::rhi {
     /// was removed is a PROSE requirement (the gate walks abilities() bits against objects, not
     /// symbols), not a virtual, an entry point, or any type the ABI numbers exist to compare - no
     /// vtable shape moves, so the rule above gives no reason for a bump.
-    inline constexpr std::uint32_t abi_version = 6u;
+    /// 6 -> 7 in the image face (DYNAMIC_LINK_V2.md §17's decided design, landed):
+    /// `image` GAINED `make_view()` and with it the owned `image_view` interface, `image_desc` /
+    /// `sampler_desc` / `image_view_desc` became defined types, `image_format` grew the creation
+    /// formats and the `depth` role, and `vulkan_escape` grew `native_image` / `native_image_view` /
+    /// `native_sampler`. Every change APPENDS to an existing vtable or adds a new interface, which is
+    /// the case the number exists for: an engine compiled for 6 dispatches those slots differently.
+    /// The `depth` format value is pinned at 0x7FFFFFFF so later named formats can append without
+    /// moving it.
+    inline constexpr std::uint32_t abi_version = 7u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

@@ -285,6 +285,71 @@ namespace {
 
             // frame_image() before any acquire is nullptr by contract; the frame verbs refuse rather
             // than record nonsense. Driving them here would need a swapchain acquisition.
+
+            // ---- THE IMAGE FACE (abi 7, §17's design), ON THE REAL DEVICE --------------------------
+            // create_image with CONTENT (the contract's dedup-visible path), a view of the whole image,
+            // a view of ONE mip/layer range, the refusals, and the escape's borrowed handles. This is
+            // the section §17's landing order asks for before any engine call site moves: real image,
+            // real views, release, on hardware.
+            mark("create_image: 4x4 rgba8 with initial content, sampled + transfer destination");
+            rhi::image_desc image_desc{};
+            image_desc.extent = rhi::image_extent{.width = 4u, .height = 4u, .depth = 1u};
+            image_desc.format = rhi::image_format::rgba8_unorm;
+            image_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
+            image_desc.debug_name = "spike image";
+            std::array<std::byte, 4u * 4u * 4u> texels{};
+            for (std::size_t index = 0; index < texels.size(); ++index) {
+                texels[index] = static_cast<std::byte>(index & 0xFFu);
+            }
+            image_desc.initial_bytes = std::span<std::byte const>(texels.data(), texels.size());
+
+            rhi::object_manager<rhi::image> image_handle{core->create_image(image_desc)};
+            CHECK(static_cast<bool>(image_handle));
+            if (image_handle) {
+                CHECK(image_handle->extent().width == 4u);
+                CHECK(image_handle->extent().height == 4u);
+                CHECK(image_handle->format() == rhi::image_format::rgba8_unorm);
+
+                mark("make_view: the whole image, one mip range, then two refusals");
+                rhi::image_view_desc whole{};
+                whole.layer_count = 0; // "all remaining layers"
+                whole.mip_count = 0;   // "all remaining mips"
+                rhi::object_manager<rhi::image_view> full_view{image_handle->make_view(whole)};
+                CHECK(static_cast<bool>(full_view));
+
+                rhi::image_view_desc range{};
+                range.base_layer = 0u;
+                range.layer_count = 1u;
+                range.base_mip = 0u;
+                range.mip_count = 1u;
+                rhi::object_manager<rhi::image_view> layer_view{image_handle->make_view(range)};
+                CHECK(static_cast<bool>(layer_view));
+
+                rhi::image_view_desc bad_layer{};
+                bad_layer.base_layer = 4u; // the image has one layer
+                CHECK(image_handle->make_view(bad_layer) == nullptr);
+                rhi::image_view_desc bad_mip{};
+                bad_mip.base_mip = 1u; // the image has one mip
+                CHECK(image_handle->make_view(bad_mip) == nullptr);
+
+                mark("escape: native_image / native_image_view / native_sampler on real objects");
+                rhi::extension* const image_escape = core->query_extension(rhi::extension_kind::vulkan_escape);
+                if (image_escape != nullptr && full_view) {
+                    auto* const natives = static_cast<rhi::vulkan_escape*>(image_escape);
+                    CHECK(natives->native_image(*image_handle) != nullptr);
+                    CHECK(natives->native_image_view(*full_view) != nullptr);
+
+                    rhi::sampler_desc sampler_desc{};
+                    sampler_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+                    sampler_desc.max_lod = 1.0f;
+                    rhi::object_manager<rhi::sampler> sampler_handle{core->create_sampler(sampler_desc)};
+                    CHECK(static_cast<bool>(sampler_handle));
+                    if (sampler_handle) {
+                        CHECK(natives->native_sampler(*sampler_handle) != nullptr);
+                    }
+                }
+            }
+
             mark("about to leave the scope: two releases and the DLL's deleter (core teardown) run next");
         } // <- the managers release their buffers, then the DLL's deleter runs
         mark("core teardown returned");

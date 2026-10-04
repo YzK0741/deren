@@ -71,8 +71,11 @@ namespace {
         // `device_address` ability to `ray_tracing`, so BOTH tier-2 abilities changed shape.
         // 5 -> 6 when `vulkan_escape` gained `native_buffer` (a virtual appended to an existing
         // ability).
+        // 6 -> 7 in the image face (DYNAMIC_LINK_V2.md §17 landed): `image` gained `make_view()`,
+        // the owned `image_view` interface and the image/sampler descriptors became defined types,
+        // and `vulkan_escape` grew the image/sampler native-handle borrows.
         // plan §10.3 measured the mechanism; this line is the number itself.
-        CHECK(rhi::abi_version == 6u);
+        CHECK(rhi::abi_version == 7u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

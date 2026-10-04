@@ -67,6 +67,8 @@ export namespace deren::promise::rhi {
     struct buffer;
     struct command_list;
     struct image;
+    struct image_view;
+    struct sampler;
 
     // Descriptor shapes that are still S1 design surface (§5's capability table and
     // §6.4's usage/barrier decisions). A reference to an incomplete type is all a
@@ -275,6 +277,19 @@ export namespace deren::promise::rhi {
         /// `device_address::buffer_address()` answers the addressable case; this is the escape hatch for
         /// the rest, and it is why the engine can stop reaching for the allocator's detail map.
         [[nodiscard]] virtual void* native_buffer(buffer const& resource) const noexcept = 0;
+
+        /// The native image behind a contract `image`; same borrowed-handle rule as `native_buffer`
+        /// (valid only while `resource` holds its reference). APPENDED IN ABI 7 with the image face
+        /// (§17): the engine's raw recording and descriptor writes need the `VkImage` itself.
+        [[nodiscard]] virtual void* native_image(image const& resource) const noexcept = 0;
+
+        /// The native `VkImageView` behind a contract `image_view` - the handle a descriptor write and
+        /// a raw `vkCmdBindDescriptorSets` consume. Same lifetime rule as `native_buffer`: borrowed,
+        /// valid only while the view holds its reference.
+        [[nodiscard]] virtual void* native_image_view(image_view const& resource) const noexcept = 0;
+
+        /// The native `VkSampler` behind a contract `sampler`; same lifetime rule as the two above.
+        [[nodiscard]] virtual void* native_sampler(sampler const& resource) const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

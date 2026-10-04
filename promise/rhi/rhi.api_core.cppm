@@ -178,11 +178,22 @@ export namespace deren::promise::rhi {
     /// can be unpacked from, plus `unknown` ("the backend cannot describe it"). Values are only ever
     /// APPENDED: the one decision the engine makes from a format is the BGRA/RGBA swizzle of a
     /// screenshot and whether it can be encoded at all.
+    ///
+    /// 7 appends the creation formats (§17's survey, DYNAMIC_LINK_V2.md): the values whose BYTE LAYOUT
+    /// matters to the caller (CPU-uploaded content that a sampler interprets) are named one by one, and
+    /// `depth` is a ROLE, not a byte layout - "a depth attachment" is all a caller needs to say, because
+    /// which concrete depth format a device serves is the backend's capability question, not the
+    /// caller's. The judge is §17's: does the caller need to know the byte layout? Named formats say
+    /// yes; `depth` says no.
     enum class image_format : std::uint32_t { unknown = 0,
                                               rgba8_unorm,
                                               rgba8_srgb,
                                               bgra8_unorm,
-                                              bgra8_srgb };
+                                              bgra8_srgb,
+                                              r16g16_sfloat,         ///< two half-float channels (BRDF LUT)
+                                              r16g16b16a16_sfloat,   ///< four half-float channels (environment/irradiance cubes)
+                                              r32g32b32_sfloat,      ///< three 32-bit float channels
+                                              depth = 0x7FFFFFFFu }; ///< ROLE: a depth attachment the backend shapes
 
     // ---- OWNERSHIP: WHAT `release()` IS, AND WHAT IT IS NOT ---------------------------------------
     //
@@ -245,6 +256,28 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual std::span<std::byte> mapped() noexcept = 0;
     };
 
+    /// How a view's `VkImageView` will be USED - the backend maps it to the aspect and usage the
+    /// descriptor needs, and a caller that asks for a role the image's format cannot serve
+    /// (depth_attachment on a color image) gets a refusal, not a wrong handle.
+    enum class view_role : std::uint32_t {
+        sampled = 0,          ///< read by a sampler (textures, per-cascade depth layer views)
+        storage = 1,          ///< read/written by a compute pass as an image
+        color_attachment = 2, ///< rendered into as a color target
+        depth_attachment = 3, ///< rendered into as a depth target
+    };
+
+    /// WHICH RANGE of an image a view covers: the slice selector of `image::make_view()`. It carries no
+    /// Vulkan type and no format - the image already has both - and a caller that wants "layer i of the
+    /// shadow cascade" says so with `base_layer = i, layer_count = 1`.
+    struct image_view_desc {
+        std::uint32_t struct_size = sizeof(image_view_desc); ///< ABI guard, same rule as `buffer_desc`
+        std::uint32_t base_layer = 0;
+        std::uint32_t layer_count = 1; ///< 0 means "all remaining layers", like VkImageViewCreateInfo
+        std::uint32_t base_mip = 0;
+        std::uint32_t mip_count = 1; ///< 0 means "all remaining mips"
+        view_role role = view_role::sampled;
+    };
+
     /// An image, owned by the backend and released by the caller through `release()`.
     struct image {
         virtual ~image() noexcept = default;
@@ -255,11 +288,89 @@ export namespace deren::promise::rhi {
 
         [[nodiscard]] virtual image_extent extent() const noexcept = 0;
         [[nodiscard]] virtual image_format format() const noexcept = 0;
+
+        /// A view of this image: WHERE THE BACKEND MAKES THE `VkImageView`, the caller only says WHICH
+        /// RANGE of the image it wants (§17's design: the engine wants "one array layer" and "the whole
+        /// image", not a raw `VkImageViewCreateInfo`). The view is an owned handle like every other
+        /// factory product - `release()` drops it, and the raw `VkImageView` travels only through
+        /// `vulkan_escape::native_image_view()`. The backend refuses a descriptor that asks for a range
+        /// the image does not have (a layer past `array_layers`, a mip past `mip_levels`) with
+        /// `error::invalid_argument` rather than clamping.
+        /// APPENDED IN ABI 7 (§17's image face): a new virtual on an existing interface moves the
+        /// vtable's shape, which is exactly the case `abi_version` exists to number.
+        [[nodiscard]] virtual image_view* make_view(image_view_desc const& desc) = 0;
+    };
+
+    /// A view of an image, owned by the backend: the contract's substitute for a raw `VkImageView`.
+    /// The image it was made from keeps its own reference; releasing the view does not release the
+    /// image. The raw handle travels through `vulkan_escape::native_image_view()`.
+    struct image_view {
+        virtual ~image_view() noexcept = default;
+        /// see `buffer::release()`; this drops the VIEW, never the image behind it
+        virtual void release() noexcept = 0;
+    };
+
+    /// Capabilities an image needs beyond its shape - same rule as `buffer_flag`: the caller says WHAT
+    /// IT NEEDS, the backend knows the usage bits, and a descriptor the backend cannot serve is refused.
+    /// The set is §17's survey of this renderer's creation sites, not an attempt to mirror VkImageUsage.
+    enum class image_flag : std::uint32_t {
+        sampled = 1u << 0,              ///< read by a sampler (every texture and the shadow maps)
+        storage = 1u << 1,              ///< bound as a storage image to compute
+        color_attachment = 1u << 2,     ///< rendered into as a color target
+        depth_attachment = 1u << 3,     ///< rendered into as a depth target (the shadow cascades)
+        transfer_source = 1u << 4,      ///< copy SOURCE (a probe's capture target)
+        transfer_destination = 1u << 5, ///< copy DESTINATION (a capture's read-back path)
+        cube_compatible = 1u << 6,      ///< six layers, creatable as a cube (the environment maps)
+    };
+
+    /// A set of `image_flag` bits, spelled like `buffer_flags`.
+    using image_flags = std::uint32_t;
+
+    /// The empty flag set, spelled where a caller passes "none".
+    inline constexpr image_flags no_image_flags = 0u;
+
+    [[nodiscard]] constexpr auto to_bits(image_flag flag) noexcept -> image_flags {
+        return static_cast<image_flags>(flag);
+    }
+
+    [[nodiscard]] constexpr auto has_flag(image_flags flags, image_flag flag) noexcept -> bool {
+        return (flags & to_bits(flag)) != no_image_flags;
+    }
+
+    /// How an image is created: its shape, its format (named, or the `depth` ROLE), the capabilities it
+    /// needs, and - when the caller already has the texels - their bytes. Same append-only `struct_size`
+    /// guard as `buffer_desc`; the initial bytes are part of the descriptor for the same reason they are
+    /// on `buffer_desc` (§17: the five IBL/LUT sites are "content + one upload", and a backend that
+    /// deduplicates on content can only recognise it when creation sees it).
+    struct image_desc {
+        std::uint32_t struct_size = sizeof(image_desc); ///< size of this structure as the CALLER compiled it
+        image_extent extent = {};                       ///< texels; width and height must be non-zero for a 2D image
+        std::uint32_t mip_levels = 1;                   ///< full chain is `(bits width/height)+1`; 0 means "full chain"
+        std::uint32_t array_layers = 1;                 ///< 6 with `cube_compatible`
+        image_format format = image_format::unknown;    ///< a NAMED format, or `depth` ("a depth attachment")
+        image_flags flags = no_image_flags;
+        std::span<std::byte const> initial_bytes; ///< the texels to upload at creation; empty = allocate only
+        char const* debug_name = nullptr;         ///< what the backend logs on refusal; not retained
+    };
+
+    /// How a sampler addresses outside its last mip/edge: the modes this renderer's creation sites
+    /// actually ask for (make_texture_sampler_info's callers). Appended like every enum, never moved.
+    enum class sampler_address_mode : std::uint32_t {
+        repeat = 0,
+        mirrored_repeat = 1,
+        clamp_to_edge = 2,
+        clamp_to_border = 3,
+    };
+
+    /// How a sampler is created: the addressing mode and the mip LOD it clamps at - the two knobs this
+    /// renderer's sampler sites turn (§17's survey). Everything else is the backend's device judgement.
+    struct sampler_desc {
+        std::uint32_t struct_size = sizeof(sampler_desc); ///< ABI guard, same rule as `buffer_desc`
+        sampler_address_mode address_mode = sampler_address_mode::repeat;
+        float max_lod = 0.0f; ///< the mip the sampler clamps at (the shadow comparators use small values)
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).
-    struct image_desc;
-    struct sampler_desc;
     struct shader_desc;
     struct pipeline_desc;
     struct swapchain_desc;

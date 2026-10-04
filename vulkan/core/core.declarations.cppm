@@ -269,9 +269,15 @@ namespace deren::vulkan {
             /// one log per process, not one per call: a loop that mis-uses the view must not flood the log
             /// (the same shape `frame_commands::use` uses for a foreign image)
             mutable bool borrowed_release_logged = false;
+            /// the same one-log rule for abi 7's make_view on this borrowed view
+            mutable bool borrowed_make_view_logged = false;
 
             [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
+            /// abi 7's make_view on a BORROWED view: the swapchain image's views belong to the backend's
+            /// own presentation path, so the contract's one borrowed-view rule applies - a one-time log
+            /// and nullptr, never a handle
+            [[nodiscard]] deren::promise::rhi::image_view* make_view(deren::promise::rhi::image_view_desc const& desc) override;
             /// BORROWED: logs once and drops no reference (see the note above)
             void release() noexcept override;
             /// the raw handle the backend's own recording needs (never carried across the boundary)
@@ -327,6 +333,75 @@ namespace deren::vulkan {
             void release() noexcept override;
         };
 
+        /// AN OWNED IMAGE: what `create_image()` hands the caller (abi 7's image face, §17's design).
+        ///
+        /// THE SAME SHAPE AS `owned_buffer`: heap-allocated by the factory, `release()` is `delete this`,
+        /// and the destructor gives the allocator reference back through the `vk_image` RAII owner - which
+        /// is the allocator's reference-count decrement, so a content-deduplicated image survives while
+        /// any view or handle still refers to it. The allocation's registry key (the `vk_image` handle,
+        /// a uint64) is what the escape's `native_image()` resolves through `get_image_detail()` - an
+        /// UNLOCKED BORROW whose values are copied out, never whose pointer.
+        struct owned_image final : deren::promise::rhi::image {
+            /// the core that created this image: `make_view()` needs the device, and every owned
+            /// object that calls back into the backend carries its owner (the shape `frame_escape`
+            /// and `buffer_address_view` use)
+            core* owner = nullptr;
+            deren::vulkan::vk_image owned = {};
+            /// the `VkImage`, copied out of the allocator's detail map AT CREATION (an unlocked borrow:
+            /// the pointer into the map must not be kept, the values read out of it may - the rule
+            /// `owned_buffer`'s comment states)
+            VkImage native_handle = VK_NULL_HANDLE;
+            /// the RESOLVED format: the descriptor's `depth` role became the device's concrete depth
+            /// format at creation, and a view of this image needs that concrete format, not the role
+            VkFormat resolved_format = VK_FORMAT_UNDEFINED;
+            /// the shape the descriptor declared, cached: `extent()` answers from these rather than
+            /// re-borrowing the allocator's map on every query
+            std::uint32_t width = 0;
+            std::uint32_t height = 0;
+            std::uint32_t mip_levels = 1;
+            std::uint32_t array_layers = 1;
+            /// whether the descriptor declared `cube_compatible`: the only case a six-layer image
+            /// views as a CUBE rather than a 2D array
+            bool cube_compatible = false;
+            /// the contract format the descriptor named (the `depth` role stays the role here; the
+            /// concrete spelling lives in `resolved_format`)
+            deren::promise::rhi::image_format declared_format = deren::promise::rhi::image_format::unknown;
+
+            [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::image_view* make_view(deren::promise::rhi::image_view_desc const& desc) override;
+            /// give the reference back: `delete this`, whose destructor resets `owned`
+            void release() noexcept override;
+        };
+
+        /// AN OWNED IMAGE VIEW: what `owned_image::make_view()` hands out. The view holds NO reference
+        /// to the image (the caller keeps its own image handle alive), only the `VkImageView` its
+        /// destructor destroys - a view outliving its image is a Vulkan error the validation layers
+        /// name, so the caller's ordering duty is documented, not mechanized.
+        struct owned_image_view final : deren::promise::rhi::image_view {
+            VkImageView native_view = VK_NULL_HANDLE;
+            /// the device the view was created on; the destructor needs it and the object must not
+            /// outlive the core it came from (the core's own cleanup order guarantees that)
+            VkDevice device = VK_NULL_HANDLE;
+
+            /// the `VkImageView` is a raw handle with no RAII owner of its own, so the view's
+            /// destruction is this object's destructor
+            ~owned_image_view() noexcept override;
+            /// give the view back: `delete this`, whose destructor destroys the `VkImageView`
+            void release() noexcept override;
+        };
+
+        /// AN OWNED SAMPLER: what `create_sampler()` hands the caller, the same shape as the view.
+        struct owned_sampler final : deren::promise::rhi::sampler {
+            VkSampler native_sampler_handle = VK_NULL_HANDLE;
+            VkDevice device = VK_NULL_HANDLE;
+
+            /// same rule as the view: the raw handle dies with this object
+            ~owned_sampler() noexcept override;
+            /// `delete this`, whose destructor destroys the `VkSampler`
+            void release() noexcept override;
+        };
+
         /// tier-2 `device_address`: a buffer's device address.
         ///
         /// ANNOUNCED ONLY NOW, AND THE REASON IS THE ABILITY'S OWN RULE rather than a change of heart:
@@ -364,6 +439,11 @@ namespace deren::vulkan {
             /// BORROWED: the `VkBuffer` behind a contract buffer this backend handed out (nullptr when it
             /// carries none). A released buffer must not be passed - see the contract's note.
             [[nodiscard]] void* native_buffer(deren::promise::rhi::buffer const& resource) const noexcept override;
+            /// abi 7's image face (§17): the same borrowed-handle rule, for the image a raw recording or
+            /// descriptor write consumes, the `VkImageView` a descriptor binds, and the `VkSampler`.
+            [[nodiscard]] void* native_image(deren::promise::rhi::image const& resource) const noexcept override;
+            [[nodiscard]] void* native_image_view(deren::promise::rhi::image_view const& resource) const noexcept override;
+            [[nodiscard]] void* native_sampler(deren::promise::rhi::sampler const& resource) const noexcept override;
         };
 
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------
