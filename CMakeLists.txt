@@ -254,6 +254,9 @@ target_sources(promise
         FILES
         promise/rhi/rhi.cppm
         promise/rhi/rhi.contract.cppm
+        # The creation parameters, as a contract type: the program fills it, the backend builds its
+        # context from it, and the factory that takes it (S2) needs no backend-specific structure.
+        promise/rhi/rhi.core_desc.cppm
         promise/rhi/rhi.extension.cppm
         promise/rhi/rhi.api_core.cppm
 )

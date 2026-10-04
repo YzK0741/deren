@@ -66,10 +66,18 @@ DEREN_API_EXPORT std::uint32_t deren_abi_version();
 
 /// The only producer of an `api_core`: transfers ownership of a raw pointer.
 ///
+/// `desc` is the contract's ONE creation structure (promise/rhi/rhi.core_desc.cppm), passed by
+/// POINTER because it is an append-only POD whose size the caller declares in `struct_size` - the
+/// backend reads only the bytes the caller says it compiled, which is what lets an older program
+/// talk to a newer backend. It is never null in a well-formed call, and a null one is refused with
+/// `error::invalid_argument` rather than defaulted, because "I have no creation parameters" is a
+/// caller bug and not a request for the standard context (`create_info{}` is how that is spelled).
+///
 /// On a version mismatch it returns `nullptr` and writes
 /// `deren::promise::rhi::error::abi_mismatch`, which is why a caller may not assume the
 /// out-parameter was written on failure.
 DEREN_API_EXPORT deren::promise::rhi::api_core* deren_make_api_core(std::uint32_t abi_version,
+                                                                    deren::promise::rhi::create_info const* desc,
                                                                     deren::promise::rhi::error* out_error);
 
 /// The deleter itself, exported by name: the engine builds its `shared_ptr` around
