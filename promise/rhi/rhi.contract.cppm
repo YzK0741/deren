@@ -104,7 +104,9 @@ export namespace deren::promise::rhi {
     /// reports actual heap readiness. Appending changes the vtable shape.
     /// 9 -> 10: vulkan_escape appends native image/buffer heap descriptor writes.
     /// Native image view data is a value-only POD; pNext is deliberately unsupported.
-    inline constexpr std::uint32_t abi_version = 10u;
+    /// 10 -> 11: vulkan_escape appends native heap bind/push and binding snapshots.
+    /// Native primary/secondary command buffers are borrowed from this device's recording domain.
+    inline constexpr std::uint32_t abi_version = 11u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

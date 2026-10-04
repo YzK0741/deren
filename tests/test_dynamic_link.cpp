@@ -75,8 +75,8 @@ namespace {
         // the owned `image_view` interface and the image/sampler descriptors became defined types,
         // and `vulkan_escape` grew the image/sampler native-handle borrows.
         // plan §10.3 measured the mechanism; this line is the number itself.
-        // ABI9 added heap queries; ABI10 adds native heap writes. Older DLLs must be refused.
-        CHECK(rhi::abi_version == 10u);
+        // ABI9/10 added heap queries/writes; ABI11 adds native recording. Older DLLs must be refused.
+        CHECK(rhi::abi_version == 11u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

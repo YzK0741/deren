@@ -492,6 +492,31 @@ namespace deren::vulkan {
         return this->owner->descriptor_heaps.write_buffer(offset, address, size, static_cast<VkDescriptorType>(type));
     }
 
+    bool core::frame_escape::bind_heaps(void* const native_commands) const noexcept {
+        if (native_commands == nullptr || !this->owner->descriptor_heaps.ready()) {
+            return false;
+        }
+        this->owner->descriptor_heaps.record_bind(static_cast<VkCommandBuffer>(native_commands));
+        return true;
+    }
+
+    bool core::frame_escape::push_heap_data(void* const native_commands, std::uint32_t const offset,
+                                            std::span<std::byte const> const data) const noexcept {
+        return this->owner->descriptor_heaps.push_data(static_cast<VkCommandBuffer>(native_commands), offset, data);
+    }
+
+    rhi::vulkan_heap_bindings core::frame_escape::heap_bindings() const noexcept {
+        if (!this->owner->descriptor_heaps.ready()) {
+            return {};
+        }
+        VkBindHeapInfoEXT resource{}, sampler{};
+        this->owner->descriptor_heaps.bind_infos(resource, sampler);
+        return {
+            .resource = {resource.heapRange.address, resource.heapRange.size, resource.reservedRangeOffset, resource.reservedRangeSize},
+            .sampler = {sampler.heapRange.address, sampler.heapRange.size, sampler.reservedRangeOffset, sampler.reservedRangeSize},
+        };
+    }
+
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
         // The invariant is two-way and is checked in two places: at startup on the REAL backend
         // (core.constructor.cppm, gate G2) and on the probe backend in tests/test_dynamic_link.cpp

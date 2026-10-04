@@ -1216,7 +1216,7 @@ namespace deren::vulkan {
         /// Push @p bytes and then @p lanes index lanes (see runtime::push_stage_block). The three endpoints differ
         /// only in that count, because a stage's shader declares exactly as many lanes as it reads: the post chain
         /// three (its source slot included), everything else two, the mask bake none.
-        bool push_with_lanes(core const& vk, uint32_t const frame_slot, uint32_t const image_index, VkCommandBuffer const command_buffer,
+        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, VkCommandBuffer const command_buffer,
                              std::span<std::byte const> const bytes, uint32_t const extra_lane, std::size_t const lanes) {
             constexpr std::size_t window = 256; // maxPushDataSize on this device (see heap_limits)
             std::array<std::byte, window> staging = {};
@@ -1228,7 +1228,7 @@ namespace deren::vulkan {
             std::memcpy(staging.data(), bytes.data(), bytes.size());
             std::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
             std::memcpy(staging.data() + bytes.size(), indices.data(), lane_bytes);
-            return vk.descriptor_heaps.push_data(command_buffer, 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
+            return contract_push_heap_data(face, command_buffer, 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
         }
     } // namespace
 
@@ -1249,17 +1249,17 @@ namespace deren::vulkan {
         uint32_t const source_slot = extra_lane == 0u
                                          ? core::heap_slots::post_color + self->current_image_index
                                          : core::heap_slots::bloom_l0 + (extra_lane - 1u) * core::heap_image_capacity + self->current_image_index;
-        return push_with_lanes(self->vulkan_core, static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, source_slot, 3u);
+        return push_with_lanes(self->rhi_face(), static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, source_slot, 3u);
     }
 
     bool runtime::push_index_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->vulkan_core, static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
+        return push_with_lanes(self->rhi_face(), static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
     }
 
     bool runtime::push_raw_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->vulkan_core, 0u, 0u, command_buffer, bytes, 0u, 0u);
+        return push_with_lanes(self->rhi_face(), 0u, 0u, command_buffer, bytes, 0u, 0u);
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -1282,7 +1282,7 @@ namespace deren::vulkan {
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
-        return self->vulkan_core.descriptor_heaps.push_data(command_buffer, offset, bytes);
+        return contract_push_heap_data(self->rhi_face(), command_buffer, offset, bytes);
     }
 
     bool runtime::draw_mesh_tasks(void* const owner, VkCommandBuffer const command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
@@ -1398,7 +1398,7 @@ namespace deren::vulkan {
     }
 
     void runtime::fill_heap_bind(void* const owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) {
-        static_cast<runtime*>(owner)->vulkan_core.descriptor_heaps.bind_infos(resource, sampler);
+        contract_heap_bind_infos(static_cast<runtime*>(owner)->rhi_face(), resource, sampler);
     }
 
     void runtime::structure_record_mask_bake(void* const owner, VkCommandBuffer const command_buffer, pass::mask_bake_request const& request) {

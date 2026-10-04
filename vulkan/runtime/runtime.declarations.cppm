@@ -168,6 +168,10 @@ namespace deren::vulkan {
                                                  VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
     [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, VkDeviceAddress address,
                                                   VkDeviceSize size, VkDescriptorType type) noexcept;
+    void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer commands) noexcept;
+    void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept;
+    [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer commands, std::uint32_t offset,
+                                               std::span<std::byte const> data) noexcept;
 
     [[nodiscard]] constexpr rhi::image_format contract_image_format(VkFormat const format) noexcept {
         switch (format) {

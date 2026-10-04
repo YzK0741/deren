@@ -164,6 +164,36 @@ namespace deren::vulkan {
         return escape != nullptr && escape->write_heap_buffer(offset, address, size, static_cast<std::uint32_t>(type));
     }
 
+    void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer const commands) noexcept {
+        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        if (escape != nullptr) {
+            // 原录制 API 返回 void；保留调用方行为，能力本身仍返回真实结果供后续错误传播使用。
+            [[maybe_unused]] bool const bound = escape->bind_heaps(static_cast<void*>(commands));
+        }
+    }
+
+    void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept {
+        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        rhi::vulkan_heap_bindings const bindings = escape != nullptr ? escape->heap_bindings() : rhi::vulkan_heap_bindings{};
+        // 二级命令缓冲的继承信息仍在原来的录制点构造，逐字段保留两个 heap 的范围。
+        resource = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
+                    .pNext = nullptr,
+                    .heapRange = {bindings.resource.address, bindings.resource.size},
+                    .reservedRangeOffset = bindings.resource.reserved_offset,
+                    .reservedRangeSize = bindings.resource.reserved_size};
+        sampler = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
+                   .pNext = nullptr,
+                   .heapRange = {bindings.sampler.address, bindings.sampler.size},
+                   .reservedRangeOffset = bindings.sampler.reserved_offset,
+                   .reservedRangeSize = bindings.sampler.reserved_size};
+    }
+
+    bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer const commands, std::uint32_t const offset,
+                                 std::span<std::byte const> const data) noexcept {
+        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        return escape != nullptr && escape->push_heap_data(static_cast<void*>(commands), offset, data);
+    }
+
     rhi::api_core& runtime::rhi_face() const noexcept {
         // §18's rule in one line: the interface reference of the SAME object. Before the flip the
         // vtable points into this archive; after it, into the DLL - the call sites cannot tell.

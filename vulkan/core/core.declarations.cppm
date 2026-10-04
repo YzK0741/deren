@@ -478,6 +478,10 @@ namespace deren::vulkan {
                                                 std::uint32_t layout, std::uint32_t type) noexcept override;
             [[nodiscard]] bool write_heap_buffer(std::uint64_t offset, std::uint64_t address,
                                                  std::uint64_t size, std::uint32_t type) noexcept override;
+            [[nodiscard]] bool bind_heaps(void* native_commands) const noexcept override;
+            [[nodiscard]] bool push_heap_data(void* native_commands, std::uint32_t offset,
+                                              std::span<std::byte const> data) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::vulkan_heap_bindings heap_bindings() const noexcept override;
         };
 
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------

@@ -417,7 +417,7 @@ namespace deren::vulkan {
         // stage's own push block (see shaders/heap_slots.glsl), which is what replaced the mapping shim's pushed
         // index - the binding is per frame, the indices are per stage.
         if (contract_heap_ready(vk)) {
-            vk.descriptor_heaps.record_bind(*command_buffer);
+            contract_record_heap_bind(vk, *command_buffer);
         }
         // GPU pass timing: open this frame's timestamp range and take the first mark. Marks are
         // written in gpu_mark_id order from here on (see gpu_mark); opening the range outside any
@@ -911,7 +911,7 @@ namespace deren::vulkan {
         // light matrices and the shadow map straight out of the heaps.
         VkBindHeapInfoEXT resource_bind = {};
         VkBindHeapInfoEXT sampler_bind = {};
-        vk.descriptor_heaps.bind_infos(resource_bind, sampler_bind);
+        contract_heap_bind_infos(self->rhi_face(), resource_bind, sampler_bind);
         VkCommandBufferInheritanceDescriptorHeapInfoEXT const heap_inheritance = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
             .pNext = &inheritance,
@@ -932,7 +932,7 @@ namespace deren::vulkan {
         // render_environment::push_block). This is ONE 4-byte slice of the shadow stage's block - the cascade
         // index's own offset - while the rest of the block is the material's, pushed per caster below. A
         // secondary records its own state (nothing is inherited from the primary), which is why it is set here.
-        [[maybe_unused]] bool const pushed = vk.descriptor_heaps.push_data(secondary, render_resource::shadow_io.push->offset, std::as_bytes(std::span(&index, 1)));
+        [[maybe_unused]] bool const pushed = contract_push_heap_data(self->rhi_face(), secondary, render_resource::shadow_io.push->offset, std::as_bytes(std::span(&index, 1)));
         self->record_shadow_content(secondary, pipeline, mesh_stage, meshlets);
         vkEndCommandBuffer(secondary);
         return true;

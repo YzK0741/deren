@@ -248,6 +248,18 @@ export namespace deren::promise::rhi {
         std::uint32_t layer_count = 1;
     };
 
+    struct vulkan_heap_binding {
+        std::uint64_t address = 0;
+        std::uint64_t size = 0;
+        std::uint64_t reserved_offset = 0;
+        std::uint64_t reserved_size = 0;
+    };
+
+    struct vulkan_heap_bindings {
+        vulkan_heap_binding resource;
+        vulkan_heap_binding sampler;
+    };
+
     /// tier-2 ability: the raw Vulkan handles a pass needs when the contract has no concept for what it
     /// does. ONLY a Vulkan backend can answer these, which is exactly why this is an ability and not
     /// tier-1; a non-Vulkan backend does not announce the bit, and G1/G2 then require `nullptr` from
@@ -351,6 +363,13 @@ export namespace deren::promise::rhi {
                                                     std::uint32_t layout, std::uint32_t type) noexcept = 0;
         [[nodiscard]] virtual bool write_heap_buffer(std::uint64_t offset, std::uint64_t address,
                                                      std::uint64_t size, std::uint32_t type) noexcept = 0;
+
+        /// 借用同一 device 上、正在录制的主/二级命令缓冲；不冒充 frame_commands，不转移所有权。
+        /// bindings 是当前 heap 的值快照，heap 重建后必须重新查询；未就绪返回空快照。
+        [[nodiscard]] virtual bool bind_heaps(void* native_commands) const noexcept = 0;
+        [[nodiscard]] virtual bool push_heap_data(void* native_commands, std::uint32_t offset,
+                                                  std::span<std::byte const> data) const noexcept = 0;
+        [[nodiscard]] virtual vulkan_heap_bindings heap_bindings() const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi
