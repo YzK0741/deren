@@ -1236,7 +1236,35 @@ namespace deren::vulkan {
         if (!this->evaluate_mesh_shaders(nullptr)) {
             return std::unexpected(std::string("the device cannot run the mesh stage the G-buffer pass now requires"));
         }
-        auto mesh_result = this->vulkan_core.make_gbuffer_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+        // 保留原来的五目标配方：四张数据图覆盖写入，HDR 目标累加自发光。
+        // 深度写入仍由绘制时的动态状态控制，mesh/meshlet 共用同一份创建配方。
+        auto const build_gbuffer = [this, fragment_shader_code](std::span<uint8_t const> const stage_code) {
+            std::array<rhi::image_format, gbuffer_pass_attachment_count> const formats = {
+                contract_image_format(gbuffer_formats[0]),
+                contract_image_format(gbuffer_formats[1]),
+                contract_image_format(gbuffer_formats[2]),
+                contract_image_format(gbuffer_velocity_format),
+                contract_image_format(hdr_format),
+            };
+            std::array<rhi::blend_mode, gbuffer_pass_attachment_count> const blends = {
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::additive,
+            };
+            auto built = pipelines::make_graphics_pipeline(this->rhi_face(), formats, rhi::image_format::depth,
+                                                           stage_code, fragment_shader_code, 1u, true,
+                                                           0.0f, 0.0f, 0.0f, blends, rhi::shader_stage::mesh,
+                                                           rhi::depth_compare::less_or_equal, "G-buffer");
+            if (built) {
+                VkExtent2D const extent = this->vulkan_core.render_extent();
+                built->viewport = {0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
+                built->scissor = {{0, 0}, extent};
+            }
+            return built;
+        };
+        auto mesh_result = build_gbuffer(mesh_vertex_shader_code);
         if (!mesh_result) {
             return std::unexpected(std::string(mesh_result.error()));
         }
@@ -1246,7 +1274,7 @@ namespace deren::vulkan {
         //      out of the table and each meshlet culled against the camera before it emits anything. Preferred over
         //      the mesh form when it exists, and a refusal is again a log line rather than a failure.
         if (!meshlet_vertex_shader_code.empty()) {
-            auto meshlet_result = this->vulkan_core.make_gbuffer_pipeline(meshlet_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto meshlet_result = build_gbuffer(meshlet_vertex_shader_code);
             if (meshlet_result) {
                 this->gbuffer_pipeline_meshlet = std::move(meshlet_result).value();
                 deren::utility::log("SUCCESS: G-buffer MESHLET pipeline created (one workgroup per meshlet, camera-culled)");
@@ -1650,6 +1678,8 @@ namespace deren::vulkan {
         // remove - so there is one builder now, and everything that constructs a pass uses it.
         return pass::pass_context{
             .device = this->vulkan_core.logical_device,
+            .face = &this->rhi_face(),
+            .swap_chain_format = contract_image_format(this->vulkan_core.swap_chain_image_format),
             .samplers = this->shared_samplers(),
             .shader = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->registered_shader(name); },
             // The SBT numbers a tracing pass builds its table against, straight from the capability query (see
@@ -2313,10 +2343,6 @@ namespace deren::vulkan {
             .cmd = command_buffer,
             .image_index = static_cast<uint32_t>(this->current_image_index),
             .device = this->vulkan_core.logical_device,
-            // abi 8: the CONTRACT face the passes' own create steps build through, and the swapchain
-            // format in the contract's spelling (declaration order follows pass_context's)
-            .face = &this->rhi_face(),
-            .swap_chain_format = contract_image_format(this->vulkan_core.swap_chain_image_format),
             .samplers = this->shared_samplers(),
             .table = &this->frame_resources,
             .frame = this->pass_frame(),
@@ -2450,7 +2476,7 @@ namespace deren::vulkan {
     }
 
     pass::owned_pipeline runtime::resolve_pipeline(std::string_view const name) const noexcept {
-        if (vk_pipeline const* const pipeline = this->get_pipeline(name); pipeline != nullptr) {
+        if (pipelines::pipeline_handle const* const pipeline = this->get_pipeline(name); pipeline != nullptr) {
             return pass::owned_pipeline{.pipeline = pipeline->get_pipeline()};
         }
         // ... AND THEN THE CHAIN'S OWN PASSES, because a chain's stages may SHARE one pipeline: the post chain's

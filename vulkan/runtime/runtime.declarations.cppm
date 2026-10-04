@@ -210,7 +210,7 @@ namespace deren::vulkan {
         /// THE TOON FAMILY'S SHARED RECIPE (abi 8): one HDR colour target, the depth ROLE, the depth
         /// TEST with per-draw write, the caller's blend mode and compare - formerly three near-equal
         /// core members (character-forward / overlay / outline), now one contract-face builder here.
-        [[nodiscard]] std::expected<pipelines::pipeline_handle, std::string_view> build_toon_family_pipeline(
+        [[nodiscard]] std::expected<pipelines::pipeline_handle, std::string> build_toon_family_pipeline(
             std::span<uint8_t const> first_stage_code, std::span<uint8_t const> fragment_code,
             rhi::blend_mode mode, rhi::depth_compare compare, char const* what);
 
@@ -3602,7 +3602,7 @@ namespace deren::vulkan {
          * @param pipeline_name the name passed to make_pipeline()
          * @return pointer to the cached pipeline, or nullptr if no pipeline with that name exists
          */
-        [[nodiscard]] vk_pipeline const* get_pipeline(std::string_view pipeline_name) const noexcept;
+        [[nodiscard]] pipelines::pipeline_handle const* get_pipeline(std::string_view pipeline_name) const noexcept;
 
         /**
          * @ingroup vulkan_runtime

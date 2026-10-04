@@ -473,7 +473,7 @@ namespace deren::vulkan {
         return {};
     }
 
-    std::expected<pipelines::pipeline_handle, std::string_view> runtime::build_toon_family_pipeline(
+    std::expected<pipelines::pipeline_handle, std::string> runtime::build_toon_family_pipeline(
         std::span<uint8_t const> const first_stage_code, std::span<uint8_t const> const fragment_code,
         rhi::blend_mode const mode, rhi::depth_compare const compare, char const* const what) {
         // ONE HDR colour target, the depth ROLE (the backend picks the device's format), the depth TEST
@@ -500,6 +500,7 @@ namespace deren::vulkan {
             built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
             built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
         }
+        // 工厂的错误文本属于 built；返回拥有文本的 string，避免 string_view 随局部对象失效。
         return built;
     }
 
@@ -1627,7 +1628,7 @@ namespace deren::vulkan {
         }
     }
 
-    vk_pipeline const* runtime::get_pipeline(std::string_view const pipeline_name) const noexcept {
+    pipelines::pipeline_handle const* runtime::get_pipeline(std::string_view const pipeline_name) const noexcept {
         std::shared_lock const lock(this->access_mutex);
         // A GEOMETRY NAME LIVES IN THE MESH MAPS NOW (docs/mesh_shaders.md step 4), so the lookup asks all three: the
         // vertex registry is what is left of the non-geometry pipelines that still have one.
