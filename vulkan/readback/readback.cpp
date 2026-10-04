@@ -3,6 +3,7 @@ module;
 #include <array>
 #include <cstring>
 #include <optional>
+#include <span>
 #include <string>
 #include <vector>
 #include <vulkan/vulkan.h>
@@ -12,6 +13,36 @@ module deren.vulkan.readback;
 import deren.utility;
 
 namespace deren::vulkan {
+    namespace {
+        /// The contract's view of the device. EVERY factory and ability call in this file goes through
+        /// one of these two helpers, and that is a measured rule rather than style: `core` implements
+        /// `api_core`, so a call written on the CONCRETE `core&` compiles to a direct call and emits an
+        /// undefined reference to `core::create_buffer` / `core::query_extension` in the engine half -
+        /// i.e. it JOINS the backend-boundary worklist this migration is measured by. Through the
+        /// contract's interface the call is virtual and emits no symbol at all.
+        deren::promise::rhi::api_core& contract_of(core& gpu) {
+            return static_cast<deren::promise::rhi::api_core&>(gpu);
+        }
+
+        /// The escape, obtained from the contract once and then used through ITS pointer.
+        deren::promise::rhi::vulkan_escape* escape_of(core& gpu) {
+            return static_cast<deren::promise::rhi::vulkan_escape*>(
+                contract_of(gpu).query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
+        }
+
+        /// The VkBuffer a contract buffer carries, through the escape - the contract's own rule for a
+        /// native handle, and the reason the allocator's detail map is consulted nowhere in this class.
+        /// Null when the backend announced no escape (it does, and the startup gate refuses a backend
+        /// that does not) or when the buffer carries no handle at all.
+        VkBuffer native_buffer_of(core& gpu, deren::promise::rhi::buffer const& buffer) {
+            auto* const escape = escape_of(gpu);
+            if (escape == nullptr) {
+                return VK_NULL_HANDLE;
+            }
+            return reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
+        }
+    } // namespace
+
     readback::readback(core& device)
         : gpu(&device) {
     }
@@ -24,7 +55,8 @@ namespace deren::vulkan {
             vkDestroyFence(this->gpu->logical_device, this->fence, nullptr);
             this->fence = VK_NULL_HANDLE;
         }
-        // `staging` releases itself (RAII), and with it the allocation the copies were writing into
+        // `staging` is a contract owner now: it drops this class's reference on destruction, and the
+        // allocation the copies were writing into dies with the last reference.
     }
 
     void readback::wait() {
@@ -41,29 +73,33 @@ namespace deren::vulkan {
         if (size == 0) {
             return std::nullopt;
         }
-        if (this->staging.valid() && this->staging_size >= size && this->staging_mapped != nullptr) {
-            return staged_target{.buffer = this->staging_buffer, .mapped = this->staging_mapped, .size = static_cast<std::size_t>(size)};
+        if (this->staging && this->staging_size >= size) {
+            std::span<std::byte> const current_mapping = this->staging->mapped();
+            if (current_mapping.data() != nullptr) {
+                return staged_target{.buffer = native_buffer_of(vk, *this->staging), .mapped = current_mapping.data(), .size = static_cast<std::size_t>(size)};
+            }
         }
         // Growing replaces the buffer, so the copy that used the old one has to have completed:
-        // assigning the new owner would release an allocation the GPU may still be writing into.
+        // assigning the new owner drops this class's reference to an allocation the GPU may still be
+        // writing into (release is not destruction, but the reference is what keeps it alive).
         this->wait();
-        this->staging = vk.vma.create_buffer(nullptr, size, buffer_type::readback_coherent);
-        this->staging_buffer = VK_NULL_HANDLE;
-        this->staging_mapped = nullptr;
+        this->staging = deren::promise::rhi::object_manager<deren::promise::rhi::buffer>{
+            contract_of(vk).create_buffer(deren::promise::rhi::buffer_desc{.size = size, .usage = deren::promise::rhi::buffer_usage::readback_coherent})};
         this->staging_size = 0;
-        if (!this->staging.valid()) {
+        if (!this->staging) {
             deren::utility::log("readback: staging buffer creation failed ({} bytes)", size);
             return std::nullopt;
         }
-        auto const* const detail = vk.vma.get_buffer_detail(this->staging.handle());
-        if (detail == nullptr) {
+        std::span<std::byte> const mapped = this->staging->mapped();
+        if (mapped.data() == nullptr) {
+            // A read-back buffer whose bytes cannot be mapped has nothing to hand the caller: drop the
+            // reference rather than keep a staging buffer no read could ever answer from. EMPTY is the
+            // contract's spelling of "this buffer is not host-visible" (buffer::mapped()).
             this->staging.reset();
             return std::nullopt;
         }
-        this->staging_buffer = detail->buffer;
-        this->staging_mapped = detail->allocation_info.pMappedData;
         this->staging_size = size;
-        return staged_target{.buffer = this->staging_buffer, .mapped = this->staging_mapped, .size = static_cast<std::size_t>(size)};
+        return staged_target{.buffer = native_buffer_of(vk, *this->staging), .mapped = mapped.data(), .size = static_cast<std::size_t>(size)};
     }
 
     std::expected<std::vector<uint8_t>, std::string> readback::read(VkBuffer const source, VkDeviceSize const size, VkDeviceSize const offset) {
@@ -147,14 +183,15 @@ namespace deren::vulkan {
         vkResetFences(vk.logical_device, 1, &this->fence);
         this->fence_pending = false;
 
-        // The staging type is HOST_VISIBLE | HOST_COHERENT by contract (see the vma module), so the CPU
-        // can normally read the mapping directly. The invalidate is the belt to that suspenders: a
-        // device that served the allocation from a non-coherent host-visible type would otherwise hand
-        // back stale bytes. It costs one property lookup per read, not per byte.
-        if (auto const* const detail = vk.vma.get_buffer_detail(this->staging.handle()); detail != nullptr) {
-            vk.vma.invalidate_if_not_coherent(detail->allocation, detail->allocation_info.memoryType, 0, size);
-        }
-
+        // NO INVALIDATE HERE, and it is a deliberate removal rather than an omission. The dropped call
+        // asked the allocation's MEMORY TYPE and answered a no-op for this buffer: `readback_coherent`
+        // is documented host-visible and HOST_COHERENT (vulkan/core/vma/vma.cppm's buffer_type table) and
+        // is allocated through VMA_MEMORY_USAGE_CPU_ONLY, whose memory properties are that same pair
+        // (vma.cppm's allocation table), so `invalidate_if_not_coherent` never invalidated anything for
+        // it. The reliance is not new: the backend's own frame read-back slot hands out its mapping with
+        // no invalidate at all (core.api_core.cpp's frame_readback_slot::mapped), and the contract has
+        // no invalidate to carry. A device that served a non-coherent type here would be a violation of
+        // the allocator's type table - the table is what the host read below now rests on.
         std::vector<uint8_t> out(static_cast<std::size_t>(size));
         std::memcpy(out.data(), target->mapped, static_cast<std::size_t>(size));
         this->last_read_size = out.size();

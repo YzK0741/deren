@@ -25,6 +25,7 @@ module;
 
 export module deren.vulkan.acceleration_structure;
 
+import deren.promise.rhi; // the contract's buffer handle + object_manager: the storage/scratch owners
 export import deren.vstd;
 export import deren.vulkan.core;
 
@@ -69,9 +70,13 @@ namespace deren::vulkan::acceleration_structure {
      * @ingroup vulkan_acceleration_structure
      * @brief the usage bits a buffer must carry to be an acceleration-structure build input
      * @note the second bit needs VK_KHR_acceleration_structure, so this must only be OR'd into a
-     *       buffer's usage when the device has it (see vma_allocator::create_buffer's extra_usage and
-     *       core::ray_query_available). The first bit needs only the core 1.2 bufferDeviceAddress
-     *       feature, which this engine enables by policy.
+     *       buffer's usage when the device has it (the contract's spelling is
+     *       `rhi::buffer_flag::acceleration_structure_input`, which core maps onto it). The first bit needs
+     *       only the core 1.2 bufferDeviceAddress feature, which this engine enables by policy.
+     * @note NO LONGER THE WAY THE RENDERER ASKS FOR THEM: both halves now pass the contract's
+     *       `rhi::buffer_flag::device_address | acceleration_structure_input` to `create_buffer()` and the
+     *       backend does this OR. The value is kept because it is exported surface that already shipped
+     *       (removing it is a separate decision), not because a call site still reads it.
      */
     export constexpr VkBufferUsageFlags build_input_usage =
         VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
@@ -182,7 +187,9 @@ namespace deren::vulkan::acceleration_structure {
     export class bottom_level_structures {
         struct entry {
             VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-            vk_buffer storage = {};          // the memory the structure lives in (RAII)
+            // the memory the structure lives in: the contract's owner holds ONE reference and releases it
+            // when the entry dies (release is not destruction - the backend may share the memory)
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> storage = {};
             VkDeviceSize scratch_offset = 0; // into the shared scratch buffer, already aligned
             VkDeviceSize scratch_size = 0;
             bool refittable = false;                                         // built with ALLOW_UPDATE, so record_update may refit it
@@ -210,7 +217,7 @@ namespace deren::vulkan::acceleration_structure {
         /// and defined there.
         struct entry_points;
         std::unique_ptr<entry_points> functions;
-        vk_buffer scratch = {};
+        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> scratch = {};
         VkDeviceAddress scratch_address = 0;
         VkDeviceSize scratch_size = 0;
         build_stats stats = {};
@@ -319,19 +326,18 @@ namespace deren::vulkan::acceleration_structure {
      */
     export class top_level_structure {
         struct slot {
-            vk_buffer instances = {}; // host-visible VkAccelerationStructureInstanceKHR[capacity]
-            VkBuffer instances_buffer = VK_NULL_HANDLE;
-            void* instances_mapped = nullptr;
-            vk_buffer records = {}; // host-visible instance_record[capacity] (the instance table)
-            VkBuffer records_buffer = VK_NULL_HANDLE;
-            void* records_mapped = nullptr;
-            uint32_t capacity = 0;  // instances the buffers above can hold
-            uint32_t count = 0;     // instances added this frame
-            vk_buffer storage = {}; // the structure's own memory, sized for `capacity`
+            // The two host-visible arrays the caller fills through add(). They are contract owners now,
+            // and the native handle / the mapping are asked OF THE HANDLE where they are used
+            // (vulkan_escape::native_buffer() / buffer::mapped()) instead of being cached beside it.
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> instances = {}; // host-visible VkAccelerationStructureInstanceKHR[capacity]
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> records = {};   // host-visible instance_record[capacity] (the instance table)
+            uint32_t capacity = 0;                                                           // instances the buffers above can hold
+            uint32_t count = 0;                                                              // instances added this frame
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> storage = {};   // the structure's own memory, sized for `capacity`
             VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-            VkDeviceSize structure_size = 0; // the size it was CREATED with: what a heap address-range descriptor carries
-            VkDeviceSize scratch_size = 0;   // what the build of `count` instances needs
-            vk_buffer scratch = {};          // the build's scratch memory, kept once sized
+            VkDeviceSize structure_size = 0;                                               // the size it was CREATED with: what a heap address-range descriptor carries
+            VkDeviceSize scratch_size = 0;                                                 // what the build of `count` instances needs
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> scratch = {}; // the build's scratch memory, kept once sized
         };
 
         /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
@@ -410,10 +416,22 @@ namespace deren::vulkan::acceleration_structure {
             return frame_slot < this->slots.size() ? static_cast<VkDeviceSize>(this->slots[frame_slot].capacity) * sizeof(instance_record) : 0;
         }
 
-        /** @brief the slot's instance table (instance_record[count]); the shading-at-a-hit step binds it */
-        [[nodiscard]] VkBuffer instance_table(uint32_t frame_slot) const noexcept {
-            return frame_slot < this->slots.size() ? this->slots[frame_slot].records_buffer : VK_NULL_HANDLE;
-        }
+        /** @brief the slot's instance table (instance_record[count]); the shading-at-a-hit step binds it
+         *  @note the slot holds a CONTRACT buffer now, so this asks the escape for the native handle
+         *        (defined in the .cpp, where the escape helper lives) */
+        [[nodiscard]] VkBuffer instance_table(uint32_t frame_slot) const noexcept;
+
+        /**
+         * @brief the slot's instance table as the CONTRACT buffer it is, or nullptr when the slot has no top
+         *        level structure yet
+         * @note ADDITIVE to `instance_table()` above rather than a replacement: that one answers the raw
+         *       handle a caller that records raw Vulkan needs, and this one exists so a caller that needs the
+         *       buffer's DEVICE ADDRESS can ask the backend for it (`rhi::device_address::buffer_address()`)
+         *       instead of spelling `vkGetBufferDeviceAddress` on a handle it had to narrow itself.
+         * @note A POINTER AND NOT A REFERENCE, because "no structure yet" has to stay expressible - it is
+         *       exactly the state `instance_table()` answers VK_NULL_HANDLE for, and a reference cannot say it.
+         */
+        [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
 
         /** @brief how many instances the slot's last build held */
         [[nodiscard]] uint32_t instance_count(uint32_t frame_slot) const noexcept {

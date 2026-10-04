@@ -70,14 +70,20 @@ namespace deren::vulkan {
         }
 
         // The answer's buffer: 16 bytes, host-visible, and ADDRESSABLE because the push carries its address.
-        vk_buffer answer = vk.vma.create_buffer(nullptr, 16u, buffer_type::storage_coherent, VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-        auto const* const answer_detail = answer.valid() ? vk.vma.get_buffer_detail(answer.handle()) : nullptr;
-        if (answer_detail == nullptr || answer_detail->allocation_info.pMappedData == nullptr) {
+        // THE CONTRACT OWNS IT (object_manager releases the reference on every path out of this function,
+        // including the two early returns below), and `mapped()` is the byte view `create_buffer` threw away
+        // for everything that is not host-visible.
+        rhi::object_manager<rhi::buffer> answer{this->vulkan_core.create_buffer(rhi::buffer_desc{
+            .size = 16u,
+            .usage = rhi::buffer_usage::storage_coherent,
+            .flags = rhi::to_bits(rhi::buffer_flag::device_address),
+        })};
+        std::span<std::byte> const answer_bytes = answer ? answer->mapped() : std::span<std::byte>{};
+        if (answer_bytes.empty()) {
             deren::utility::log("descriptor heap: the heap-native probe could not allocate its answer buffer");
             return;
         }
-        VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = answer_detail->buffer};
-        uint64_t const answer_address = vkGetBufferDeviceAddress(vk.logical_device, &address_info);
+        uint64_t const answer_address = this->buffer_address(*answer);
 
         VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = vk.graphics_queue_family_index};
         VkCommandPool pool = VK_NULL_HANDLE;
@@ -117,8 +123,8 @@ namespace deren::vulkan {
         vkQueueSubmit(vk.graphics_queue_handle, 1, &submit, fence);
         vkWaitForFences(vk.logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
 
-        uint32_t const readback = *static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData);
-        uint32_t const material_readback = static_cast<uint32_t const*>(answer_detail->allocation_info.pMappedData)[1];
+        uint32_t const readback = *reinterpret_cast<uint32_t const*>(answer_bytes.data());
+        uint32_t const material_readback = reinterpret_cast<uint32_t const*>(answer_bytes.data())[1];
         deren::utility::log("descriptor heap: the heap-native probe sampled grid slot {} through sampler slot {} and read back 0x{:08x} (texture red 0x{:04x}, alpha 0x{:04x}); the material table's DEFAULT record read 0x{:04x} (its white base colour is 0xffff)",
                             texture_slot,
                             sampler_slot,
@@ -168,12 +174,11 @@ namespace deren::vulkan {
             return;
         }
 
-        // ---- WHICH READ-BACK PATH, DECIDED ONCE (docs/host_image_copy.md) ----
-        // With VK_EXT_host_image_copy the copy out of the image is performed by the IMPLEMENTATION into a pointer of
-        // the app's own memory: the target then needs the HOST_TRANSFER usage instead of TRANSFER_SRC, no staging
-        // buffer is created and no copy command is recorded. Without it, nothing below changes. `use_host_copy` is
-        // the single predicate every later branch tests, so the two paths cannot disagree about which one is running.
-        bool const use_host_copy = vk.host_image_copy_available;
+        // ---- THE READ-BACK PATH, NOW SINGLE (docs/host_image_copy.md) ----
+        // With VK_EXT_host_image_copy the copy out of the image is performed by the IMPLEMENTATION into a pointer
+        // of the app's own memory: the target needs the HOST_TRANSFER usage instead of TRANSFER_SRC, no staging
+        // buffer is created and no copy command is recorded. The capability is REQUIRED of the device now, so
+        // there is no second path to choose between and no predicate for later branches to disagree about.
         constexpr VkDeviceSize probe_bytes = static_cast<VkDeviceSize>(pipelines::heap_probe_extent) * pipelines::heap_probe_extent * 4u;
         image_create_info target_info = {};
         target_info.width = pipelines::heap_probe_extent;
@@ -181,7 +186,7 @@ namespace deren::vulkan {
         target_info.mip_levels = 1;
         target_info.array_layers = 1;
         target_info.format = probe_format;
-        target_info.extra_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | (use_host_copy ? VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT : VK_IMAGE_USAGE_TRANSFER_SRC_BIT);
+        target_info.extra_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
         vk_image target = vk.vma.create_image(nullptr, 0, target_info, image_type::texture_2d);
         auto const* const target_detail = target.valid() ? vk.vma.get_image_detail(target.handle()) : nullptr;
         if (target_detail == nullptr) {
@@ -189,22 +194,8 @@ namespace deren::vulkan {
             return;
         }
         vk_image_view target_view = vk.make_image_view(target_detail->image, probe_format, VK_IMAGE_VIEW_TYPE_2D);
-        // The staging buffer is created ONLY on the staging path: creating one and then not using it would be a
-        // buffer the probe paid for for nothing. `readback_buffer`/`readback_mapped` are what the copy command and
-        // the log need, whichever path produced them.
-        vk_buffer readback = {};
-        VkBuffer readback_buffer = VK_NULL_HANDLE;
-        void* readback_mapped = nullptr;
-        if (!use_host_copy) {
-            readback = vk.vma.create_buffer(nullptr, probe_bytes, buffer_type::storage_coherent, VK_BUFFER_USAGE_TRANSFER_DST_BIT);
-            auto const* const readback_detail = readback.valid() ? vk.vma.get_buffer_detail(readback.handle()) : nullptr;
-            if (readback_detail != nullptr) {
-                readback_buffer = readback_detail->buffer;
-                readback_mapped = readback_detail->allocation_info.pMappedData;
-            }
-        }
-        if (*target_view == VK_NULL_HANDLE || (!use_host_copy && readback_mapped == nullptr)) {
-            deren::utility::log("descriptor heap: the heap-native graphics probe could not prepare its view or readback buffer");
+        if (*target_view == VK_NULL_HANDLE) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe could not prepare its target view");
             return;
         }
 
@@ -272,10 +263,10 @@ namespace deren::vulkan {
         to_copy.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
         to_copy.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
         to_copy.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        // The consumer of the render's writes is the HOST stage when the implementation performs the copy and the
-        // transfer stage when a copy command reads the image; this barrier is what makes them visible to either.
-        to_copy.dstStageMask = use_host_copy ? VK_PIPELINE_STAGE_2_HOST_BIT : VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-        to_copy.dstAccessMask = use_host_copy ? VK_ACCESS_2_HOST_READ_BIT : VK_ACCESS_2_TRANSFER_READ_BIT;
+        // The consumer of the render's writes is the HOST stage: the implementation performs the copy between
+        // image memory and the app's pointer, so this barrier is what makes those writes visible to it.
+        to_copy.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
+        to_copy.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
         to_copy.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
         to_copy.newLayout = VK_IMAGE_LAYOUT_GENERAL;
         to_copy.image = target_detail->image;
@@ -283,15 +274,6 @@ namespace deren::vulkan {
         VkDependencyInfo const to_copy_dependency = make_image_dependency_info(1, &to_copy);
         vkCmdPipelineBarrier2(command_buffer, &to_copy_dependency);
 
-        if (!use_host_copy) {
-            VkBufferImageCopy const region = {.bufferOffset = 0,
-                                              .bufferRowLength = 0,
-                                              .bufferImageHeight = 0,
-                                              .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                                              .imageOffset = {0, 0, 0},
-                                              .imageExtent = {pipelines::heap_probe_extent, pipelines::heap_probe_extent, 1}};
-            vkCmdCopyImageToBuffer(command_buffer, target_detail->image, VK_IMAGE_LAYOUT_GENERAL, readback_buffer, 1, &region);
-        }
         vkEndCommandBuffer(command_buffer);
 
         VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
@@ -313,38 +295,31 @@ namespace deren::vulkan {
         //      barrier above has been submitted and waited on (the render's writes are visible to the host stage and
         //      the image is in GENERAL, the layout this renderer keeps every image in). The region is the whole image
         //      tightly packed (memoryRowLength and memoryImageHeight 0 - both a multiple of the texel block extent,
-        //      and pHostPointer large enough for it), which is exactly what the staging path's buffer held, so the two
-        //      paths leave the same bytes in the same order and the log line below is comparable across them.
-        std::vector<uint8_t> host_pixels;
-        uint8_t const* pixel = nullptr;
-        if (use_host_copy) {
-            host_pixels.resize(static_cast<std::size_t>(probe_bytes));
-            VkImageToMemoryCopy const host_region = {.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT,
-                                                     .pNext = nullptr,
-                                                     .pHostPointer = host_pixels.data(),
-                                                     .memoryRowLength = 0,
-                                                     .memoryImageHeight = 0,
-                                                     .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-                                                     .imageOffset = {0, 0, 0},
-                                                     .imageExtent = {pipelines::heap_probe_extent, pipelines::heap_probe_extent, 1}};
-            VkCopyImageToMemoryInfo const copy_info = {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT,
-                                                       .pNext = nullptr,
-                                                       .flags = 0,
-                                                       .srcImage = target_detail->image,
-                                                       .srcImageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                                       .regionCount = 1,
-                                                       .pRegions = &host_region};
-            VkResult const copied = vk.copy_image_to_memory(vk.logical_device, &copy_info);
-            if (copied != VK_SUCCESS) {
-                deren::utility::log("descriptor heap: the heap-native {} probe's HOST image copy failed (VkResult {})", mesh_shader ? "MESH" : "GRAPHICS", static_cast<int>(copied));
-                vkDestroyFence(vk.logical_device, fence, nullptr);
-                vkDestroyCommandPool(vk.logical_device, pool, nullptr);
-                return;
-            }
-            pixel = host_pixels.data();
-        } else {
-            pixel = static_cast<uint8_t const*>(readback_mapped);
+        //      and pHostPointer large enough for it).
+        std::vector<uint8_t> host_pixels(static_cast<std::size_t>(probe_bytes));
+        VkImageToMemoryCopy const host_region = {.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT,
+                                                 .pNext = nullptr,
+                                                 .pHostPointer = host_pixels.data(),
+                                                 .memoryRowLength = 0,
+                                                 .memoryImageHeight = 0,
+                                                 .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
+                                                 .imageOffset = {0, 0, 0},
+                                                 .imageExtent = {pipelines::heap_probe_extent, pipelines::heap_probe_extent, 1}};
+        VkCopyImageToMemoryInfo const copy_info = {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT,
+                                                   .pNext = nullptr,
+                                                   .flags = 0,
+                                                   .srcImage = target_detail->image,
+                                                   .srcImageLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                                   .regionCount = 1,
+                                                   .pRegions = &host_region};
+        VkResult const copied = vk.copy_image_to_memory(vk.logical_device, &copy_info);
+        if (copied != VK_SUCCESS) {
+            deren::utility::log("descriptor heap: the heap-native {} probe's HOST image copy failed (VkResult {})", mesh_shader ? "MESH" : "GRAPHICS", static_cast<int>(copied));
+            vkDestroyFence(vk.logical_device, fence, nullptr);
+            vkDestroyCommandPool(vk.logical_device, pool, nullptr);
+            return;
         }
+        uint8_t const* const pixel = host_pixels.data();
         deren::utility::log("descriptor heap: the heap-native {} probe rendered grid slot {} into a {}x{} target and read back rgba {},{},{},{} (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)",
                             mesh_shader ? "MESH" : "GRAPHICS",
                             material_slot,
@@ -354,9 +329,8 @@ namespace deren::vulkan {
                             pixel[1],
                             pixel[2],
                             pixel[3]);
-        deren::utility::log("descriptor heap: the heap-native {} probe read that pixel back through the {}",
-                            mesh_shader ? "MESH" : "GRAPHICS",
-                            use_host_copy ? "HOST IMAGE COPY (no staging buffer, no copy command)" : "staging buffer (vkCmdCopyImageToBuffer)");
+        deren::utility::log("descriptor heap: the heap-native {} probe read that pixel back through the HOST IMAGE COPY (no staging buffer, no copy command)",
+                            mesh_shader ? "MESH" : "GRAPHICS");
 
         vkDestroyFence(vk.logical_device, fence, nullptr);
         vkDestroyCommandPool(vk.logical_device, pool, nullptr);

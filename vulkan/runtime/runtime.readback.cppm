@@ -1,77 +1,87 @@
 // ============================================================================
-// module: deren.vulkan.runtime:readback  - the screenshot read-back
+// module: deren.vulkan.runtime:readback  - the screenshot read-back, READ half
 //
-// THE SCREENSHOT PATH: acquire_current_frame_image waits for the GPU and hands back pixels,
-// record_screenshot_copy is the copy recorded INSIDE the frame command buffer before the present
-// transition, and consume_screenshot_request is the one-shot flag the caller reads.
+// THE READ HALF OF THE SCREENSHOT, AND NOTHING ELSE. Since S2 batch 2 the COPY is recorded through the
+// promise contract's recording surface, inside the frame it belongs to (see end_recording in
+// runtime.frames.cppm), and it writes into the BACKEND's read-back slot. What is left here is what
+// happens after the frame lands:
 //
-// Imports are NOT transitive: this partition imports what its own code calls, and repeats the pmr
-// keep-alive that must run before any pmr container in this TU.
+//   acquire_current_frame_image waits for the device, reads the bytes the backend mapped for us and
+//   unpacks them (the swapchain's BGRA byte order becomes the PNG writer's RGBA);
+//   consume_screenshot_request is the one-shot flag the caller reads.
+//
+// THE ENGINE TOUCHES NO VULKAN HANDLE HERE ANY MORE - that is the point of the migration: the image,
+// its extent and its format come from the contract's frame image, the bytes come from the contract's
+// buffer view, and the wait is the contract's context call. What stays the engine's is the DECISION:
+// which bytes to unpack, in which order, and what to say when the format cannot be described.
+//
+// Imports are NOT transitive: this partition imports what its own code calls.
 // ============================================================================
 module;
 
-#include <GLFW/glfw3.h>
-#include <algorithm> // std::min in the resource publication
-#include <bit>       // std::bit_cast for the caster world-matrix hash
-#include <chrono>
-#include <cstring> // std::memcpy, for composing a pass's push block
-#include <glm/glm.hpp>
-#include <glm/gtc/matrix_transform.hpp>
-#include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
-#include <thread> // std::this_thread::yield in the frame limiter
-#include <vulkan/vulkan.h>
+#include <cstddef>
+#include <cstdint>
+#include <cstring>  // std::memcpy of an RGBA frame
+#include <expected> // std::unexpected for the failure strings
+#include <span>     // the bytes the contract's buffer view hands back
+#include <string>
+#include <vector>
 
 module deren.vulkan.runtime:readback;
 
 import :declarations;
 
-import deren.vulkan.profiling;
-import deren.vulkan.pipelines;
-import deren.vulkan.bindings;
-import deren.vulkan.render_resource;
-import deren.vulkan.render_resource.shared;
-
-import deren.utility;
-import deren.vulkan.constant_init;
-import deren.vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
-import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
-import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
-
-// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
-// init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
-// main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
-// only forces the (dynamic) initialization before any pmr container in this TU is constructed.
+import deren.promise.rhi;
 
 namespace deren::vulkan {
     std::expected<runtime::frame_image, std::string> runtime::acquire_current_frame_image() {
-        core& vk = this->vulkan_core;
-        if (vk.swap_chain == VK_NULL_HANDLE || vk.swap_chain_images.empty()) {
-            return std::unexpected(std::string("screenshot: no swapchain image available"));
+        // NO `screenshot_pending` CHECK HERE, AND THAT IS A MEASURED DECISION rather than an omission:
+        // the one caller is `if (consume_screenshot_request()) { acquire_current_frame_image(); }`
+        // (main.cpp), and consume_screenshot_request() CLEARS the flag while answering it - so a check
+        // here fired on every SUCCESSFUL capture and reported "no captured frame" for a frame that had
+        // just been captured (measured: 14/14 scenarios came back "no screenshot produced"). What is
+        // checked instead is what actually has to hold: a frame image with an extent, and a backend slot
+        // that is mapped and large enough.
+        core& device = this->vulkan_core;
+        // THE SAME IMAGE AND THE SAME SLOT THE COPY USED. `frame_image()` answers for the image the last
+        // acquire returned - the copy was recorded into THAT frame's command buffer, and by the time the
+        // caller asks the frame has been submitted - and the read-back slot is the backend's own,
+        // host-visible buffer.
+        deren::promise::rhi::image* const image = device.frame_image();
+        deren::promise::rhi::buffer* const slot = device.frame_readback_buffer();
+        if (image == nullptr || slot == nullptr) {
+            return std::unexpected(std::string("screenshot: the backend has no frame image or read-back slot"));
         }
-
-        VkFormat const format = vk.swap_chain_image_format;
-        bool const bgra = format == VK_FORMAT_B8G8R8A8_SRGB || format == VK_FORMAT_B8G8R8A8_UNORM;
-        bool const rgba = format == VK_FORMAT_R8G8B8A8_SRGB || format == VK_FORMAT_R8G8B8A8_UNORM;
+        deren::promise::rhi::image_extent const extent = image->extent();
+        if (extent.width == 0 || extent.height == 0) {
+            return std::unexpected(std::string("screenshot: the frame image has no extent"));
+        }
+        // The format the backend names for the frame image decides how the bytes are unpacked. A format
+        // the contract cannot describe is the "unsupported swapchain format" error this path always had.
+        deren::promise::rhi::image_format const format = image->format();
+        bool const bgra = format == deren::promise::rhi::image_format::bgra8_srgb || format == deren::promise::rhi::image_format::bgra8_unorm;
+        bool const rgba = format == deren::promise::rhi::image_format::rgba8_srgb || format == deren::promise::rhi::image_format::rgba8_unorm;
         if (!bgra && !rgba) {
             return std::unexpected(std::string("screenshot: unsupported swapchain format (need 8-bit RGBA/BGRA)"));
         }
 
-        // The pixels come from the staging buffer record_screenshot_copy() filled while the frame was
-        // being recorded (see the class docs): by the time the caller asks, the frame has been
-        // submitted, so one wait for the GPU is all that is left - and the staging's owner is
-        // deren.vulkan.readback, which is also what sized the buffer and handed out the mapping.
-        if (this->screenshot_staging_mapped == nullptr || this->screenshot_readback_extent.width == 0) {
-            return std::unexpected(std::string("screenshot: no captured frame (the read-back copy was never recorded)"));
+        // ONE WAIT IS ALL THAT IS LEFT. The copy was recorded INSIDE the submitted frame, so the bytes
+        // are on the device until that frame completes; the contract's buffer view carries no fence, so
+        // the caller's pacing - this wait, which is the context's own - is the ordering. The same rule
+        // the contract states for `buffer::mapped()`.
+        device.wait_idle();
+
+        std::size_t const buffer_size = static_cast<std::size_t>(extent.width) * static_cast<std::size_t>(extent.height) * 4u;
+        std::span<std::byte> const mapped = slot->mapped();
+        if (mapped.empty() || mapped.size() < buffer_size) {
+            return std::unexpected(std::string("screenshot: read-back slot unavailable or too small"));
         }
-        VkExtent2D const extent = this->screenshot_readback_extent;
-        VkDeviceSize const buffer_size = static_cast<VkDeviceSize>(extent.width) * static_cast<VkDeviceSize>(extent.height) * 4u;
-        vk.wait_idle();
 
         frame_image result = {};
         result.width = extent.width;
         result.height = extent.height;
-        result.rgba.resize(static_cast<std::size_t>(buffer_size));
-        auto const* source = static_cast<uint8_t const*>(this->screenshot_staging_mapped);
+        result.rgba.resize(buffer_size);
+        auto const* source = reinterpret_cast<std::uint8_t const*>(mapped.data());
         if (bgra) {
             // the swapchain is BGRA (sRGB); the PNG writer wants RGBA
             for (std::size_t i = 0; i < result.rgba.size(); i += 4) {
@@ -81,69 +91,16 @@ namespace deren::vulkan {
                 result.rgba[i + 3] = source[i + 3]; // A
             }
         } else {
-            std::memcpy(result.rgba.data(), source, static_cast<std::size_t>(buffer_size));
+            std::memcpy(result.rgba.data(), source, buffer_size);
         }
         return result;
-    }
-
-    void runtime::record_screenshot_copy(VkCommandBuffer const command_buffer) {
-        core& vk = this->vulkan_core;
-        VkExtent2D const extent = vk.swap_chain_extent;
-        if (extent.width == 0 || extent.height == 0 || this->current_image_index >= vk.swap_chain_images.size()) {
-            return; // nothing sensible to copy (the frame will be skipped anyway)
-        }
-        if (!vk.swapchain_transfer_src_supported) {
-            // The swapchain images lack VK_IMAGE_USAGE_TRANSFER_SRC_BIT, so vkCmdCopyImageToBuffer
-            // from one of them would violate VUID-vkCmdCopyImageToBuffer-srcImage-00186. The surface
-            // cannot do screenshots at all: say it once, drop the request (a permanent condition -
-            // retrying every frame would only spam), and let main see "nothing captured".
-            if (!this->screenshot_unsupported_logged) {
-                this->screenshot_unsupported_logged = true;
-                deren::utility::log("screenshot: unsupported (swapchain has no TRANSFER_SRC usage) - F12 disabled");
-            }
-            this->screenshot_requested = false;
-            return;
-        }
-        // The staging buffer and its mapping are deren.vulkan.readback's; only the IMAGE side is this function's
-        // business (the layout transitions, the region, the format the caller will unpack).
-        auto const staged = this->readback_staging.stage_for_copy(static_cast<VkDeviceSize>(extent.width) * static_cast<VkDeviceSize>(extent.height) * 4u);
-        if (!staged) {
-            deren::utility::log("screenshot: read-back staging buffer unavailable");
-            return;
-        }
-        this->screenshot_staging_mapped = staged->mapped;
-        this->screenshot_readback_extent = extent;
-
-        // The swapchain image is in GENERAL here (the composite pass just wrote it, and the
-        // overlay with it): COLOR_ATTACHMENT -> TRANSFER_SRC -> copy -> back to COLOR_ATTACHMENT, so
-        // end_recording's present_transition still sees the layout it expects.
-        std::array<VkImageMemoryBarrier2, 1> barriers = {deren::vulkan::color_attachment_to_transfer_transition};
-        barriers[0].image = vk.swap_chain_images[this->current_image_index];
-        VkDependencyInfo dependency_info = make_image_dependency_info(1, barriers.data());
-        vkCmdPipelineBarrier2(command_buffer, &dependency_info);
-
-        VkBufferImageCopy region = {};
-        region.bufferOffset = 0;
-        region.bufferRowLength = 0;
-        region.bufferImageHeight = 0;
-        region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-        region.imageOffset = {0, 0, 0};
-        region.imageExtent = {extent.width, extent.height, 1};
-        vkCmdCopyImageToBuffer(command_buffer, vk.swap_chain_images[this->current_image_index], VK_IMAGE_LAYOUT_GENERAL, staged->buffer, 1, &region);
-
-        barriers[0] = deren::vulkan::transfer_to_color_attachment_transition;
-        barriers[0].image = vk.swap_chain_images[this->current_image_index];
-        dependency_info = make_image_dependency_info(1, barriers.data());
-        vkCmdPipelineBarrier2(command_buffer, &dependency_info);
-
-        this->screenshot_pending = true;
     }
 
     bool runtime::consume_screenshot_request() noexcept {
         // Could the requested frame be captured? Single-shot by design: the flag is cleared HERE, on
         // success and on failure alike. A failing read-back (unsupported swapchain format, missing
         // read-back buffer) used to leave the flag set, so main's loop called
-        // acquire_current_frame_image() - which begins with vkDeviceWaitIdle - and logged an error
+        // acquire_current_frame_image() - which begins with a device-wide wait - and logged an error
         // every single frame until exit. A dropped capture is the correct outcome; one F12 is one
         // attempt.
         bool const captured = this->screenshot_pending;

@@ -37,6 +37,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.primitive;
+import deren.promise.rhi; // the contract's buffer handle + object_manager: this module's geometry owners
 export import deren.vstd;
 export import deren.vulkan.core;
 export import deren.vulkan.render_environment;
@@ -1855,11 +1856,11 @@ namespace deren::vulkan {
      *        stays a generic "for each primitive: primitive->draw()" — new strategies only add
      *        a subclass. Implements the scene tree's leaf concept (scene_tree::primitive).
      * @note
-     *      - owns only its geometry (vma buffers); textures live in the runtime's shared texture
+     *      - owns only its geometry (contract buffers); textures live in the runtime's shared texture
      *        array, and the descriptors that reach them are the runtime's (the frame's one heap,
      *        bound once, holding this frame slot's scene block)
      *      - the runtime binds the pipeline and the scene block before calling draw()
-     *      - destroy() frees whatever the instance owns (vma buffers); call it before teardown
+     *      - destroy() frees whatever the instance owns (contract buffers); call it before teardown
      *      - a scene tree node holds one of these as its primitive_leaf and update_world() feeds
      *        the accumulated world matrix straight into push.model (the push block layout is
      *        shared, so draw() keeps working unchanged)
@@ -1868,12 +1869,17 @@ namespace deren::vulkan {
     public:
         ~primitive() override = default;
 
-        // geometry: RAII owners (vk_buffer) release the GPU buffers on destruction; the detail
-        // pointers are cached accessors for binding (the allocator's objects outlive the tree)
-        vk_buffer vertex_buffer = {};
-        buffer_detail const* vertex_detail = nullptr;
-        vk_buffer index_buffer = {};
-        buffer_detail const* index_detail = nullptr;
+        // geometry: the contract's move-only owners, ONE reference each, dropped when this leaf is
+        // destroyed. The drop is `rhi::buffer::release()` - the contract deliberately does not call it
+        // "destroy", because a backend that shares a resource hands the same object to several callers and
+        // the object dies with its LAST reference (this backend's buffer registry reference-counts; it does
+        // not yet key buffers on content, so today this drop is the last one) - see the ownership note in
+        // promise/rhi/rhi.api_core.cppm. NOTHING IS CACHED BESIDE THEM: this used to keep a
+        // `buffer_detail const*` per buffer for the draws to read, and that pointer was an UNLOCKED
+        // BORROW into the allocator's map (DYNAMIC_LINK_V2.md §11.2) - the handle itself is what the
+        // draw now reaches the buffer through, so the borrow is gone rather than kept in parallel.
+        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> vertex_buffer = {};
+        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> index_buffer = {};
         VkIndexType index_type = VK_INDEX_TYPE_UINT32;
         // called draw_index_count, not index_count: push_geometry_lanes_impl, push_meshlet_lanes and
         // mesh_dispatch keep a parameter named index_count, which would hide the member of that name and
@@ -2148,11 +2154,9 @@ namespace deren::vulkan {
      */
     export class static_draw_primitive final : public primitive {
     public:
-        // merged geometry: owned (RAII vk_buffer releases on destroy, like normal_draw)
-        vk_buffer vertex_buffer = {};
-        buffer_detail const* vertex_detail = nullptr;
-        vk_buffer index_buffer = {};
-        buffer_detail const* index_detail = nullptr;
+        // merged geometry: owned the same way normal_draw owns its two buffers (see the note there)
+        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> vertex_buffer = {};
+        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> index_buffer = {};
         VkIndexType index_type = VK_INDEX_TYPE_UINT32;
         uint32_t index_count = 0; // whole merged index count (upper bound for chunk validation)
         uint32_t vertex_count = 0;

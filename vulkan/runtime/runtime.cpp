@@ -7,7 +7,7 @@ module;
 #include <cstring> // std::memcpy, for composing a pass's push block
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-#include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
+#include <span>   // the byte spans the contract's buffer descriptors and the push endpoints take
 #include <thread> // std::this_thread::yield in the frame limiter
 #include <vulkan/vulkan.h>
 
@@ -21,7 +21,6 @@ import deren.vulkan.render_resource.shared;
 
 import deren.utility;
 import deren.vulkan.constant_init;
-import deren.vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
 import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
@@ -63,11 +62,13 @@ namespace deren::vulkan {
         // ... AND THE INSTANCE TABLE, which is rebuilt WITH the structures and whose slot is the same event's: the
         // descriptor is an address range at heap_slots::mask_instances + frame slot, and the capacity is the
         // structures module's to know (instance_table_size).
-        VkBuffer const instance_table = this->structures.instance_table(frame_slot);
-        if (instance_table != VK_NULL_HANDLE) {
-            VkBufferDeviceAddressInfo const table_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = instance_table};
-            VkDeviceAddress const table_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &table_address_info);
-            if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::mask_instances + frame_slot), table_address, this->structures.instance_table_size(frame_slot), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+        //
+        // IT ARRIVES AS A CONTRACT HANDLE (`instance_table_buffer()`), which is what lets the address come from
+        // the `device_address` ability instead of `vkGetBufferDeviceAddress` on a handle this side had to narrow
+        // out of the escape - the same path every other converted site takes. The pointer is BORROWED from the
+        // structure's own slot (see that accessor's note): it is read here and nothing keeps it.
+        if (rhi::buffer const* const instance_table = this->structures.instance_table_buffer(frame_slot); instance_table != nullptr) {
+            if (!this->write_heap_buffer(*instance_table, core::heap_slots::mask_instances + frame_slot, this->structures.instance_table_size(frame_slot), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                 deren::utility::log("descriptor heap: the instance table did not reach grid slot {}", core::heap_slots::mask_instances + frame_slot);
             }
         }
@@ -1221,17 +1222,16 @@ namespace deren::vulkan {
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
     //      needs and only the device's owner can answer. ----
 
-    VkDeviceAddress runtime::mesh_buffer_address(void* const owner, VkBuffer const buffer) {
+    VkDeviceAddress runtime::mesh_buffer_address(void* const owner, rhi::buffer const& buffer) {
         runtime* const self = static_cast<runtime*>(owner);
-        // A buffer carries an address only when it was created with SHADER_DEVICE_ADDRESS_BIT, which the primitive
-        // upload asks for whenever the device has buffer device addresses - so a zero here is "this device does
-        // not", and the caller reports the caster rather than drawing from address 0. (No error is raised by the
-        // query itself: a null handle is a validation ERROR, so it is not asked about.)
-        if (buffer == VK_NULL_HANDLE) {
-            return 0;
-        }
-        VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = buffer};
-        return vkGetBufferDeviceAddress(self->vulkan_core.logical_device, &info);
+        // THE HOOK TAKES A CONTRACT BUFFER (render_environment's own note says why: the primitive's geometry is
+        // `object_manager` members now, and a hook that demanded a raw handle would force every primitive to keep
+        // one - i.e. to keep reaching into the backend for exactly what this migration removes).
+        //
+        // A buffer carries an address only when it was created with `buffer_flag::device_address`, which the
+        // primitive upload asks for unconditionally - so a zero here is "this backend cannot serve addresses",
+        // and the caller reports the caster rather than drawing from address 0.
+        return self->buffer_address(buffer);
     }
 
     bool runtime::push_geometry_block(void* const owner, VkCommandBuffer const command_buffer, uint32_t const offset, std::span<std::byte const> const bytes) {
@@ -1622,25 +1622,24 @@ namespace deren::vulkan {
         // instead of a second copy of the geometry. The flag is the DEVICE's, not the config's: the
         // usage bit needs the extension enabled, and a buffer uploaded without it can never be built
         // from - so it is decided where the upload happens, once, and not per frame by whoever wants
-        // to trace.
-        VkBufferUsageFlags const rt_input_usage = this->vulkan_core.ray_query_available ? acceleration_structure::build_input_usage : 0u;
-        result->vertex_buffer = this->vulkan_core.vma.create_buffer(info.vertex_data.data(), info.vertex_data.size_bytes(), deren::vulkan::buffer_type::vertex, rt_input_usage);
-        if (!result->vertex_buffer.valid()) {
-            deren::utility::panic("failed to create vertex buffer");
-        }
-        result->vertex_detail = this->vulkan_core.vma.get_buffer_detail(result->vertex_buffer.handle());
-        if (result->vertex_detail == nullptr) {
-            deren::utility::panic("failed to get vertex buffer detail");
-        }
-
-        result->index_buffer = this->vulkan_core.vma.create_buffer(info.index_data.data(), info.index_data.size_bytes(), deren::vulkan::buffer_type::index, rt_input_usage);
-        if (!result->index_buffer.valid()) {
-            deren::utility::panic("failed to create index buffer");
-        }
-        result->index_detail = this->vulkan_core.vma.get_buffer_detail(result->index_buffer.handle());
-        if (result->index_detail == nullptr) {
-            deren::utility::panic("failed to get index buffer detail");
-        }
+        // to trace. THE BYTES THEMSELVES TRAVEL IN THE DESCRIPTOR (`initial_bytes` IS the upload),
+        // which is also what lets the backend's content-keyed registry see them at creation.
+        rhi::buffer_flags const geometry_flags = rhi::to_bits(rhi::buffer_flag::device_address) |
+                                                 (this->vulkan_core.ray_query_available ? rhi::to_bits(rhi::buffer_flag::acceleration_structure_input) : rhi::no_buffer_flags);
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::vertex,
+                      geometry_flags,
+                      std::as_bytes(info.vertex_data),
+                      "vertex buffer",
+                      result->vertex_buffer,
+                      nullptr);
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::index,
+                      geometry_flags,
+                      std::as_bytes(info.index_data),
+                      "index buffer",
+                      result->index_buffer,
+                      nullptr);
 
         result->index_type = info.index_type;
         result->draw_index_count = info.index_count;

@@ -37,6 +37,7 @@ import deren.vulkan.constant_init;
 import deren.vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
+import deren.promise.rhi;            // the contract's recording surface: the frame's list, image and read-back slot
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
@@ -44,6 +45,87 @@ import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the pos
 // only forces the (dynamic) initialization before any pmr container in this TU is constructed.
 
 namespace deren::vulkan {
+
+    // ---- THE BUFFER-CREATION HELPERS THE CONVERTED SITES SHARE (see their notes in :declarations) ----
+    //
+    // THE INITIAL BYTES ARE THE UPLOAD, and the contract's `initial_bytes` is where they travel: a
+    // host-visible buffer the caller then writes through `mapped()` keeps an EMPTY span, which is the
+    // descriptor's own "allocate only" (the backend keys its content registry on those bytes, so handing it
+    // a span it never wrote would be a lie about the content). Only a buffer the caller already has the
+    // bytes for - the vertex and index geometry - passes a non-empty one.
+
+    // ... AND A SIZE SMALLER THAN THE UPLOAD IS NOT A BUFFER AT ALL, so it is a PANIC rather than a
+    // truncation: every call site here passes either the upload's own size or a buffer it fills later
+    // through `mapped()`, and a backend handed the first without the bytes would allocate a buffer nobody
+    // described. The panic is loud on purpose - the alternative, a silently empty allocation, is the class
+    // of failure this migration is removing.
+    [[nodiscard]] rhi::buffer_desc make_buffer_desc(std::uint64_t const size, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes) noexcept {
+        if (initial_bytes.size() > size) {
+            deren::utility::panic(std::source_location::current(), "buffer descriptor: {} initial bytes for a {} B buffer", initial_bytes.size(), size);
+        }
+        return rhi::buffer_desc{
+            .size = size,
+            .usage = usage,
+            .flags = flags,
+            .initial_bytes = initial_bytes,
+        };
+    }
+
+    void create_buffer(core& device, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, rhi::object_manager<rhi::buffer>& output, void** const mapped) {
+        // THE FACTORY IS CALLED THROUGH THE CONTRACT INTERFACE, not through `core`: a call on the concrete
+        // class emits an undefined symbol in this half that the backend defines (it JOINS the boundary
+        // worklist), while a virtual call through `rhi::api_core&` loads the vptr and emits none. `core`
+        // derives from `api_core`, so the cast is the upcast the interface was built for.
+        //
+        // THE OUTPUT IS THE OWNER, not the handle: an `object_manager` is move-only and null-on-move, so the
+        // reference the factory hands over is taken by the manager and released by ITS destructor - on every
+        // path out, which is the whole reason the type exists.
+        output = rhi::object_manager<rhi::buffer>{static_cast<rhi::api_core&>(device).create_buffer(make_buffer_desc(initial_bytes.size(), usage, flags, initial_bytes))};
+        if (!output) {
+            deren::utility::panic(std::source_location::current(), "failed to create {}", what);
+        }
+        if (mapped != nullptr) {
+            *mapped = output->mapped().data();
+        }
+    }
+
+    void create_buffers(core& device, std::vector<rhi::object_manager<rhi::buffer>>& outputs, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, std::vector<void*>* const mapped) {
+        for (int32_t slot = 0; slot < core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+            outputs.emplace_back();
+            void* slot_mapped = nullptr;
+            create_buffer(device, usage, flags, initial_bytes, what, outputs.back(), mapped != nullptr ? &slot_mapped : nullptr);
+            if (mapped != nullptr) {
+                mapped->push_back(slot_mapped);
+            }
+        }
+    }
+
+    VkDeviceAddress buffer_address(core& device, rhi::buffer const& buffer) noexcept {
+        // THROUGH THE ABILITY POINTER, never through a concrete member: `query_extension` is a virtual on
+        // `rhi::api_core`, and `buffer_address` is called on the `device_address` interface it answers with -
+        // a call on the backend's own `buffer_address_view` member would emit a symbol into this half.
+        auto* const addresses = static_cast<rhi::device_address*>(device.query_extension(rhi::extension_kind::device_address));
+        // The ability answers 0 itself for a buffer that was not created with `buffer_flag::device_address`,
+        // so a null ability is the only additional case here - and it is the contract's "this backend cannot
+        // serve addresses", which every call site rules out by creating the buffer WITH that flag.
+        return addresses == nullptr ? 0u : addresses->buffer_address(buffer, 0u);
+    }
+
+    VkBuffer runtime::buffer_of(rhi::buffer const& buffer) noexcept {
+        // `query_extension` is a NON-const virtual on `api_core` (the abilities it answers with are the
+        // backend's own objects), so this reads the core through a non-const reference - the member is one.
+        core& device = this->vulkan_core;
+        auto* const escape = static_cast<rhi::vulkan_escape*>(device.query_extension(rhi::extension_kind::vulkan_escape));
+        return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
+    }
+
+    VkDeviceAddress runtime::buffer_address(rhi::buffer const& buffer) const noexcept {
+        return deren::vulkan::buffer_address(this->vulkan_core, buffer);
+    }
+
+    bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, VkDeviceSize const size, VkDescriptorType const type) const {
+        return this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
+    }
 
     frame_status runtime::pace_and_acquire() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::pace};
@@ -112,12 +194,11 @@ namespace deren::vulkan {
 
         // Acquire the next swapchain image; on out-of-date (e.g. the window was resized)
         //    rebuild the swapchain and let the caller retry on the next iteration.
-        VkResult const acquire_result = vkAcquireNextImageKHR(vk.logical_device,
-                                                              vk.swap_chain,
-                                                              UINT64_MAX,
-                                                              vk.image_available_semaphores[frame_slot],
-                                                              VK_NULL_HANDLE,
-                                                              &this->current_image_index);
+        // THE ACQUIRE ITSELF IS THE CORE'S (receiver of this step): the device and the swapchain are
+        //    its objects, and the contract's frame_begin() goes through the same primitive. What stays
+        //    here is the POLICY for the result, because rebuilding a swapchain means recompiling the
+        //    renderer's targets, which is this object's business and not the backend's.
+        VkResult const acquire_result = vk.acquire_next_image(this->current_image_index);
         if (acquire_result == VK_ERROR_OUT_OF_DATE_KHR) {
             deren::utility::log("swapchain out of date, recreating");
             if (vk.recreate_swap_chain()) {
@@ -1579,22 +1660,33 @@ namespace deren::vulkan {
             .create_upload_buffer =
                 [](void* owner, void const* data, uint64_t const bytes, VkBufferUsageFlags const usage, VkDeviceAddress* const out_address) -> VkBuffer {
                 runtime* const self = static_cast<runtime*>(owner);
-                vk_buffer buffer = self->vulkan_core.vma.create_buffer(static_cast<uint8_t const*>(data), bytes, buffer_type::storage_coherent,
-                                                                       usage | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
-                if (!buffer.valid()) {
-                    return VK_NULL_HANDLE;
+                // THE CALLER'S USAGE BITS BECOME CONTRACT FLAGS HERE, and a bit this mapping does not name is
+                // a NAMED FAILURE rather than a silent drop - the pass framework's own rule ("a missing
+                // capability is a named failure, never a silent skip"), and the reason it matters here is that
+                // a buffer created WITHOUT the bit its descriptor needs reads as zeros, with no validation
+                // finding at all. The census today is one caller: the ray-traced shadow's shader binding table.
+                rhi::buffer_flags flags = rhi::to_bits(rhi::buffer_flag::device_address);
+                switch (usage) {
+                case 0u:
+                    break;
+                case VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR:
+                    flags |= rhi::to_bits(rhi::buffer_flag::shader_binding_table);
+                    break;
+                default:
+                    deren::utility::panic(std::source_location::current(),
+                                          "pass upload buffer: the caller asked for Vulkan usage bits {:#x}, which the contract has no flag for", usage);
                 }
-                auto const* const detail = self->vulkan_core.vma.get_buffer_detail(buffer.handle());
-                if (detail == nullptr) {
-                    return VK_NULL_HANDLE;
-                }
-                VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
+                // The mapping is APPENDED BEFORE the address is asked for, so the reference the address call
+                // reads is the one this class owns - and the raw handle handed back is borrowed from it, exactly
+                // as `vulkan_escape::native_buffer` documents: valid while `pass_upload_buffers` holds it.
+                self->pass_upload_buffers.emplace_back();
+                create_buffer(self->vulkan_core, rhi::buffer_usage::storage_coherent, flags,
+                              std::span<std::byte const>(static_cast<std::byte const*>(data), static_cast<std::size_t>(bytes)),
+                              "pass upload buffer", self->pass_upload_buffers.back(), nullptr);
                 if (out_address != nullptr) {
-                    *out_address = vkGetBufferDeviceAddress(self->vulkan_core.logical_device, &address_info);
+                    *out_address = self->buffer_address(*self->pass_upload_buffers.back());
                 }
-                VkBuffer const handle = detail->buffer;
-                self->pass_upload_buffers.push_back(std::move(buffer));
-                return handle;
+                return self->buffer_of(*self->pass_upload_buffers.back());
             },
             // The surface's format: a SESSION-STABLE device fact a pipeline that renders into the swapchain must
             // be created with (see pass_context). The post chain needs it today; the graphics passes being
@@ -1627,17 +1719,14 @@ namespace deren::vulkan {
         // Everything here is SESSION-STABLE by the filter's contract (the material table and the texture array
         // are created once and only rewritten; the skin matrix buffers are created once and rewritten per slot),
         // which is what makes them safe for a pass to name at create time.
-        if (auto const* const materials = this->vulkan_core.vma.get_buffer_detail(this->material_buffer.handle()); materials != nullptr && this->material_mapped != nullptr) {
-            this->pass_resources.register_resource(render_resource::resource_id::material_table, 0, resource_handles{.buffer = materials->buffer});
+        if (this->material_mapped != nullptr) {
+            this->pass_resources.register_resource(render_resource::resource_id::material_table, 0, resource_handles{.buffer = this->buffer_of(*this->material_buffer)});
         }
         if (!this->owned_texture_views.empty()) {
             this->pass_resources.register_resource(render_resource::resource_id::scene_textures, 0, resource_handles{.view = *this->owned_texture_views[0]});
         }
         for (uint32_t slot = 0; slot < this->skin_buffers.size(); ++slot) {
-            auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->skin_buffers[slot].handle());
-            if (detail != nullptr) {
-                this->pass_resources.register_resource(render_resource::resource_id::skin_matrices, slot, resource_handles{.buffer = detail->buffer});
-            }
+            this->pass_resources.register_resource(render_resource::resource_id::skin_matrices, slot, resource_handles{.buffer = this->buffer_of(*this->skin_buffers[slot])});
         }
     }
 
@@ -1686,12 +1775,8 @@ namespace deren::vulkan {
         };
         // One buffer: the RAII wrapper holds a handle and the descriptor needs the VkBuffer behind it, so the
         // lookup goes through vma exactly where the renderer's own binding writes do.
-        auto const buffer = [this, &table](render_resource::resource_id const id, uint32_t const instance, vk_buffer const& owned) {
-            auto const* const detail = this->vulkan_core.vma.get_buffer_detail(owned.handle());
-            if (detail == nullptr) {
-                return;
-            }
-            table.publish(id, 0, instance, pass::resolved_binding{.buffer = detail->buffer});
+        auto const buffer = [this, &table](render_resource::resource_id const id, uint32_t const instance, rhi::object_manager<rhi::buffer> const& owned) {
+            table.publish(id, 0, instance, pass::resolved_binding{.buffer = this->buffer_of(*owned)});
         };
         auto const image = [this](vk_image const& owned) -> pass::resolved_binding {
             auto const* const detail = this->vulkan_core.vma.get_image_detail(owned.handle());
@@ -3045,14 +3130,80 @@ namespace deren::vulkan {
         // The return value says whether a fullscreen pass actually wrote the swapchain image: only
         // then is it in GENERAL and only then does it hold this frame's result.
         bool const post_wrote_swapchain = this->record_post_process(*command_buffer);
-        // Screenshot: while the post pass wrote the swapchain image it is still in
-        // GENERAL and still owned by this frame - the only point where a read-back
-        // copy is legal. Doing it here (rather than after the present, as the old path did) also
-        // means the capture needs no extra submit, no re-acquire and no layout hand-back to the WSI.
+        // Screenshot: while the post pass wrote the swapchain image it is still in GENERAL and still owned
+        // by this frame - the only point where a read-back copy is legal. Doing it here (rather than after
+        // the present) also means the capture needs no extra submit, no re-acquire and no layout hand-back
+        // to the WSI.
+        //
+        // S2 BATCH 2: THE COPY IS THE FIRST FULLY CONTRACT-RECORDED OPERATION OF THIS FRAME. The list is
+        // the frame's own primary command buffer (borrowed from the backend), the image is the frame image,
+        // the destination is the backend's read-back slot, and the two use() calls are the layout pair the
+        // hand-written version carried - the shadow gate (A5) proves they land on the same barriers. THE
+        // SUBMITTER DOES NOT CHANGE: this runtime submits the same command buffer below.
         if (post_wrote_swapchain && this->screenshot_requested) {
-            this->record_screenshot_copy(*command_buffer);
-            if (this->screenshot_pending) {
-                this->screenshot_requested = false; // served; a failed copy stays pending for a retry
+            deren::promise::rhi::command_list* const commands = vk.begin_commands();
+            deren::promise::rhi::image* const frame_image = vk.frame_image();
+            deren::promise::rhi::buffer* const slot = vk.frame_readback_buffer();
+            if (commands != nullptr && frame_image != nullptr && slot != nullptr) {
+                deren::promise::rhi::image_copy_region const region{.extent = frame_image->extent()};
+                // BOTH BARRIERS ARE CHECKED (the recording surface answers with an error instead of
+                // dropping one silently - a dropped barrier leaves the image in a state nobody declared,
+                // which is the failure class task-148 measured). A refused first barrier skips the copy:
+                // there is no point recording a copy whose entry barrier never happened.
+                deren::promise::rhi::error const to_source =
+                    commands->use(*frame_image, deren::promise::rhi::image_use::color_attachment, deren::promise::rhi::image_use::transfer_source);
+                deren::promise::rhi::error copied = to_source;
+                deren::promise::rhi::error hand_back = deren::promise::rhi::error::ok;
+                if (to_source == deren::promise::rhi::error::ok) {
+                    copied = commands->copy_image_to_buffer(*slot, *frame_image, region);
+                    // The image gets its render-target role back even when the copy was refused: the
+                    // present transition below assumes the frame's own state, and the refusal is reported
+                    // rather than swallowed.
+                    hand_back = commands->use(*frame_image, deren::promise::rhi::image_use::transfer_source, deren::promise::rhi::image_use::color_attachment);
+                }
+
+                // ---- AND THE ESCAPE, MEASURED WHERE IT HAS TO AGREE WITH THE CONTRACT -----------------
+                // `vulkan_escape` is the one ability this backend announces, and its
+                // `native_command_buffer()` has no other caller yet: the engine records through its own
+                // `core&` until S3 moves the passes, so this line is the measurement that the escape
+                // answers with the VERY buffer this frame is being recorded into - and that the two
+                // extension lists the guard rail checks are the ones the context enabled. It sits on the
+                // screenshot path on purpose: rare, and next to the operation it is about.
+                auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
+                    vk.query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
+                if (escape != nullptr) {
+                    void* const native = escape->native_command_buffer(*commands);
+                    deren::utility::log("rhi: vulkan_escape names this frame's command buffer {} (device {:#x}, {} instance extension(s), {} device extension(s))",
+                                        native == reinterpret_cast<void const*>(*command_buffer) ? "identically" : "DIFFERENTLY",
+                                        reinterpret_cast<uintptr_t>(escape->native_device()),
+                                        escape->enabled_instance_extensions().size(),
+                                        escape->enabled_device_extensions().size());
+                }
+                if (to_source != deren::promise::rhi::error::ok) {
+                    // The capture is dropped for this frame; the request stays pending, so the next frame
+                    // retries - and the refusal is on the record instead of being silently ignored.
+                    deren::utility::log("screenshot: the read-back's first barrier was refused ({}); this frame's capture is dropped",
+                                        static_cast<std::uint32_t>(to_source));
+                } else if (hand_back != deren::promise::rhi::error::ok) {
+                    deren::utility::log("screenshot: the read-back's hand-back barrier was refused ({}); this frame's capture is dropped",
+                                        static_cast<std::uint32_t>(hand_back));
+                } else if (copied == deren::promise::rhi::error::ok) {
+                    this->screenshot_pending = true;
+                    this->screenshot_requested = false; // served
+                } else if (copied == deren::promise::rhi::error::unsupported) {
+                    // This surface cannot be a copy source at all (the swapchain images lack TRANSFER_SRC),
+                    // so the copy would violate VUID-vkCmdCopyImageToBuffer-srcImage-00186. The JUDGEMENT
+                    // is the backend's - the swapchain is its object - and the one-time log and the F12
+                    // shutdown that go with it stay here, where they always were. A permanent condition:
+                    // retrying every frame would only spam.
+                    if (!this->screenshot_unsupported_logged) {
+                        this->screenshot_unsupported_logged = true;
+                        deren::utility::log("screenshot: unsupported (swapchain has no TRANSFER_SRC usage) - F12 disabled");
+                    }
+                    this->screenshot_requested = false;
+                }
+                // not_ready / invalid_argument: the request stays pending and the next frame retries, which
+                // is the posture the hand-written version had ("a failed copy stays pending").
             }
         }
         // Dynamic rendering has no render pass finalLayout to hand the image back to the

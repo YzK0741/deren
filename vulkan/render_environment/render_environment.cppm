@@ -7,6 +7,7 @@ module;
 export module deren.vulkan.render_environment;
 
 export import deren.vstd;
+import deren.promise.rhi;
 
 /**
  * @defgroup vulkan_render_environment Render Environment
@@ -135,7 +136,16 @@ namespace deren::vulkan {
          * session's stages declare no lanes" (a fullscreen pass's own block, a compute push).
          */
         uint32_t mesh_geometry_push_offset = 0;
-        VkDeviceAddress (*buffer_address)(void* owner, VkBuffer buffer) = nullptr;
+        /// The device address of a contract buffer, asked for by the OWNER (the runtime), which is the
+        /// side that holds the escape and the `device_address` ability.
+        ///
+        /// IT TAKES A CONTRACT BUFFER, NOT A `VkBuffer`, AND THAT IS A DELIBERATE NARROWING: the
+        /// primitive's buffers are contract handles now (the migration for which this hook was
+        /// rewritten), and a hook that demanded a raw handle would have forced every primitive to keep
+        /// one - i.e. to keep reaching into the backend for exactly the thing the migration removes. The
+        /// `owner` void* is the runtime's own state, and the address comes back through
+        /// `native_buffer()` + `device_address::buffer_address()` on that side.
+        VkDeviceAddress (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
         bool (*push_at)(void* owner, VkCommandBuffer command_buffer, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
         bool (*draw_mesh_tasks)(void* owner, VkCommandBuffer command_buffer, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         /**

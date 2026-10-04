@@ -35,6 +35,7 @@ module;
 
 export module deren.vulkan.ray_tracing;
 
+import deren.promise.rhi; // the contract's buffer handle + object_manager: the copies this phase owns
 import deren.vulkan.acceleration_structure;
 import deren.vulkan.pass.compute_skin; // the skinning job's request, which this module composes
 import deren.vulkan.pass.mask_bake;    // ... and the MASK bake's
@@ -196,6 +197,15 @@ export namespace deren::vulkan::ray_tracing {
         [[nodiscard]] VkDeviceSize instance_table_size(uint32_t frame_slot) const noexcept;
         /// @brief this slot's instance table buffer, whose device ADDRESS the GI frame constants carry
         [[nodiscard]] VkBuffer instance_table(uint32_t frame_slot) const noexcept;
+        /**
+         * @brief this slot's instance table as the CONTRACT buffer it is, or nullptr when there is no top
+         *        level structure for that slot yet
+         * @note ADDITIVE to `instance_table()` above (the raw-handle form) and forwarded for the same reason
+         *       it is: the buffer is `top_level`'s. This is the form a caller uses to reach the buffer's
+         *       device ADDRESS through the contract's `device_address` ability instead of narrowing it and
+         *       calling `vkGetBufferDeviceAddress` itself.
+         */
+        [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
         /// @brief the casters that were built, in the order they were added (see caster_level)
         [[nodiscard]] std::span<caster_level const> casters() const noexcept;
         /**
@@ -238,9 +248,10 @@ export namespace deren::vulkan::ray_tracing {
         /// underscore would declare the same name twice
         std::vector<caster_level> caster_list = {};
         /// the MASK expansions and the skinned vertex buffers: owned here for as long as the structures are, so
-        /// the addresses inside `caster_list` stay valid
-        std::vector<vk_buffer> mask_buffers = {};
-        std::vector<vk_buffer> skin_buffers = {};
+        /// the addresses inside `caster_list` stay valid. Contract owners now, so the GPU memory dies with
+        /// this object's last reference rather than through the allocator's map.
+        std::vector<deren::promise::rhi::object_manager<deren::promise::rhi::buffer>> mask_buffers = {};
+        std::vector<deren::promise::rhi::object_manager<deren::promise::rhi::buffer>> skin_buffers = {};
         /// the bottom levels a per-frame refit touches, by index
         std::vector<uint32_t> skin_levels = {};
         /// named `build_attempted` rather than `attempted`: the query below is `attempted()`, and dropping
@@ -254,19 +265,22 @@ export namespace deren::vulkan::ray_tracing {
          * @brief ONE built opacity micromap and every buffer that describes it
          * @note the ownership of `micromap` is explicit rather than RAII: VkMicromapEXT has no wrapper in this
          *       project (it is not a buffer, an image or a pipeline), so `structure_set::abandon()` destroys it
-         *       with vkDestroyMicromapEXT and the buffers below free themselves.
+         *       with vkDestroyMicromapEXT and the buffers below release their contract references with this
+         *       struct.
          * @note the five buffers are the micromap's own memory (`storage`, created with MICROMAP_STORAGE), the
          *       packed opacity states (`data`), the per-triangle descriptor array (`triangles`), the build's
          *       scratch and the per-triangle index the GEOMETRY reads to find its micromap triangle (`indices` -
          *       the attachment's input, filled here so the two halves of the mechanism are created together).
+         *       Each one is a move-only contract owner, which is what keeps the addresses below valid for as
+         *       long as this struct lives.
          */
         struct micromap_resource {
             VkMicromapEXT micromap = VK_NULL_HANDLE;
-            vk_buffer storage = {};
-            vk_buffer data = {};
-            vk_buffer triangles = {};
-            vk_buffer indices = {};
-            vk_buffer scratch = {};
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> storage = {};
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> data = {};
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> triangles = {};
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> indices = {};
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> scratch = {};
             VkMicromapUsageEXT usage = {}; // count / subdivisionLevel / format - the geometry attachment repeats it
             VkDeviceAddress data_address = 0;
             VkDeviceAddress triangles_address = 0;

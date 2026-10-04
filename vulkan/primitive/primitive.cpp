@@ -118,9 +118,15 @@ namespace deren::vulkan {
             return; // a session that does not use the shared scene block (or a test one) has nothing to fill
         }
         // ---- the geometry lanes: what the input assembler used to consume, as data ----
+        // A PRIMITIVE WITHOUT GEOMETRY CAN REACH HERE (a leaf whose destroy() has run, or one built without
+        // buffers), and the contract's handle makes that state READABLE as an empty manager - the old code
+        // read it through a `buffer_detail const*` that was simply dereferenced, so this is the same
+        // precondition with a defined answer instead of a null dereference. The answer is the zeroes the
+        // block below already documents: "no buffer device address", which a mesh session can see in the
+        // lanes it was just pushed.
         mesh_geometry_lanes lanes;
-        lanes.vertex_address = env.buffer_address(env.push_owner, geometry.vertex_detail->buffer);
-        lanes.index_address = env.buffer_address(env.push_owner, geometry.index_detail->buffer);
+        lanes.vertex_address = geometry.vertex_buffer ? env.buffer_address(env.push_owner, *geometry.vertex_buffer) : 0;
+        lanes.index_address = geometry.index_buffer ? env.buffer_address(env.push_owner, *geometry.index_buffer) : 0;
         // A MESHLET SESSION CARRIES THE MESHLET RUN HERE (docs/mesh_shaders.md step 3): the meshlet entry reads each
         // record's own window, so these two fields describe WHICH RECORDS this draw owns; the buffer addresses and
         // the index width are still the draw's, which is why the lanes carry both kinds of fact.
@@ -237,19 +243,19 @@ namespace deren::vulkan {
     }
 
     void normal_draw_primitive::destroy(vma_allocator&) noexcept {
-        // geometry is owned by the vk_buffer members and released when this primitive (the tree
-        // node's leaf) is destroyed; here we only drop the cached accessors so a dangling detail
-        // pointer can never be used after the owner went away
+        // geometry is owned by the two contract handles: reset() drops THIS leaf's reference (the GPU
+        // memory dies with the last one - release is not destruction, see rhi::buffer::release()), and
+        // there is no cached accessor to drop beside them any more. The old code nulled two
+        // `buffer_detail const*` fields by hand, which existed only because those were borrows into the
+        // allocator's map rather than part of the handle.
         this->vertex_buffer.reset();
-        this->vertex_detail = nullptr;
         this->index_buffer.reset();
-        this->index_detail = nullptr;
         this->draw_index_count = 0;
         this->vertex_count = 0;
     }
 
     bool normal_draw_primitive::is_valid() const noexcept {
-        return this->vertex_detail != nullptr && this->index_detail != nullptr &&
+        return static_cast<bool>(this->vertex_buffer) && static_cast<bool>(this->index_buffer) &&
                this->draw_index_count != 0;
     }
 
@@ -311,19 +317,17 @@ namespace deren::vulkan {
     }
 
     void static_draw_primitive::destroy(vma_allocator&) noexcept {
-        // owns the merged buffers: releasing them (and the cached detail pointers) frees the
-        // GPU memory when the last copy of the vk_buffer members goes away
+        // owns the merged buffers: dropping the two handles' references frees the GPU memory when the
+        // last reference goes (see the note on normal_draw_primitive::destroy above)
         this->vertex_buffer.reset();
-        this->vertex_detail = nullptr;
         this->index_buffer.reset();
-        this->index_detail = nullptr;
         this->draw_index_count = 0;
         this->vertex_count = 0;
         this->chunks.clear();
     }
 
     bool static_draw_primitive::is_valid() const noexcept {
-        if (this->vertex_detail == nullptr || this->index_detail == nullptr || this->chunks.empty()) {
+        if (!static_cast<bool>(this->vertex_buffer) || !static_cast<bool>(this->index_buffer) || this->chunks.empty()) {
             return false; // a validated, non-empty chunk table is required (see the static-draw builder)
         }
         return std::ranges::all_of(this->chunks, [](chunk_record const& c) { return c.index_count != 0; });

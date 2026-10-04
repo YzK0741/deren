@@ -22,6 +22,50 @@ import deren.utility;
 
 namespace deren::vulkan::ray_tracing {
 
+    namespace rhi = deren::promise::rhi;
+
+    namespace {
+        /// The contract's view of the device, and the reason EVERY factory and ability call in this file
+        /// goes through one of these helpers. `core` implements `api_core`, so a call written on the
+        /// CONCRETE `core&` compiles to a direct call and emits an undefined reference to
+        /// `core::create_buffer` / `core::query_extension` in the engine half - which JOINS the
+        /// backend-boundary worklist this migration is measured by. Through the contract's interface the
+        /// call is virtual and emits no symbol at all.
+        rhi::api_core& contract_of(core& gpu) {
+            return static_cast<rhi::api_core&>(gpu);
+        }
+
+        /// The escape, obtained from the contract once and then used through ITS pointer.
+        rhi::vulkan_escape* escape_of(core& gpu) {
+            return static_cast<rhi::vulkan_escape*>(contract_of(gpu).query_extension(rhi::extension_kind::vulkan_escape));
+        }
+
+        /// ... and the address ability the same way (`device_address` is its own tier-2 ability).
+        rhi::device_address* address_of(core& gpu) {
+            return static_cast<rhi::device_address*>(contract_of(gpu).query_extension(rhi::extension_kind::device_address));
+        }
+
+        /// The borrowed VkBuffer behind a contract buffer; null when the buffer carries none.
+        VkBuffer native_buffer_of(core& gpu, rhi::buffer const& buffer) {
+            auto* const escape = escape_of(gpu);
+            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
+        }
+
+        /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
+        /// the address could not be answered (the flag was not set, or the ability is not announced).
+        VkDeviceAddress buffer_address_of(core& gpu, rhi::buffer const& buffer) {
+            auto* const addresses = address_of(gpu);
+            return addresses == nullptr ? 0 : static_cast<VkDeviceAddress>(addresses->buffer_address(buffer, 0));
+        }
+
+        /// The pair every buffer this module builds a structure FROM carries: an address, and the
+        /// acceleration-structure build-input capability (the renderer's own `build_input_usage`).
+        constexpr rhi::buffer_flags build_input_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
+
+        /// ... and the single flag a buffer whose address is read but which a build does not read needs.
+        constexpr rhi::buffer_flags addressable_flag = rhi::to_bits(rhi::buffer_flag::device_address);
+    } // namespace
+
     structure_set::structure_set(core& device_root) noexcept
         : device(&device_root) {
     }
@@ -53,6 +97,13 @@ namespace deren::vulkan::ray_tracing {
 
     VkBuffer structure_set::instance_table(uint32_t const frame_slot) const noexcept {
         return this->top_level.has_value() ? this->top_level->instance_table(frame_slot) : VK_NULL_HANDLE;
+    }
+
+    rhi::buffer const* structure_set::instance_table_buffer(uint32_t const frame_slot) const noexcept {
+        // Forwarded, not re-derived (the table is `top_level`'s), and nullable for the same reason the
+        // accessor it forwards is: "this slot has no top level structure yet" is a state the caller has to
+        // be able to see, and it is what `instance_table()` spells VK_NULL_HANDLE.
+        return this->top_level.has_value() ? this->top_level->instance_table_buffer(frame_slot) : nullptr;
     }
 
     std::span<caster_level const> structure_set::casters() const noexcept {
@@ -148,36 +199,27 @@ namespace deren::vulkan::ray_tracing {
         // device address, the scratch must be STORAGE, and the micromap's own memory must carry MICROMAP_STORAGE.
         //
         // THE ADDRESS ALIGNMENT IS 256 BYTES and it is a requirement on the ADDRESS rather than on the buffer
-        // (VUID-vkCmdBuildMicromapsEXT-pInfos-07515, which validation reported the first time this ran), so the
-        // buffers are allocated with a quarter-kilobyte of slack and the payload is written at the first
-        // 256-aligned address inside them. The allocator's addresses are not aligned to anything in particular,
-        // so there is no "create it aligned" flag that could have done this for us.
+        // (VUID-vkCmdBuildMicromapsEXT-pInfos-07515, which validation reported the first time this ran): the
+        // allocator's addresses are aligned to nothing in particular and no address exists until after the
+        // allocation, so each setup buffer is allocated with a quarter-kilobyte of slack and the payload is
+        // written through its MAPPING at the first 256-aligned address inside it - which is why `initial_bytes`
+        // stays empty here even though the content is known when the buffer is created.
         constexpr VkDeviceSize micromap_address_alignment = 256u;
-        VkBufferUsageFlags const input_usage = VK_BUFFER_USAGE_MICROMAP_BUILD_INPUT_READ_ONLY_BIT_EXT | VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
-        // A `vk_buffer` holds a VMA handle, so the VkBuffer behind it (and the address of that) comes from
-        // get_buffer_detail() - the same shape the mask bake's expanded buffer uses. Every buffer here carries
-        // SHADER_DEVICE_ADDRESS_BIT, which is what makes its address queryable at all.
-        auto const buffer_of = [&vk](vk_buffer const& buffer) -> VkBuffer {
-            auto const* const detail = buffer.valid() ? vk.vma.get_buffer_detail(buffer.handle()) : nullptr;
-            return detail != nullptr ? detail->buffer : VK_NULL_HANDLE;
-        };
-        auto const address_of = [&vk, &buffer_of](vk_buffer const& buffer) -> VkDeviceAddress {
-            VkBuffer const handle = buffer_of(buffer);
-            if (handle == VK_NULL_HANDLE) {
-                return 0;
-            }
-            VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = handle};
-            return vkGetBufferDeviceAddress(vk.logical_device, &info);
-        };
-        auto const create_setup_buffer = [&vk, &address_of](std::vector<uint8_t> const& bytes) -> std::pair<vk_buffer, VkDeviceAddress> {
-            vk_buffer buffer = vk.vma.create_buffer(nullptr, bytes.size() + micromap_address_alignment, buffer_type::storage_coherent, input_usage);
-            VkDeviceAddress const base = address_of(buffer);
-            auto const* const detail = buffer.valid() ? vk.vma.get_buffer_detail(buffer.handle()) : nullptr;
-            if (base == 0 || detail == nullptr || detail->allocation_info.pMappedData == nullptr) {
+        // THE SETUP BUFFERS CARRY TWO CAPABILITIES, and both are load-bearing: the build reads them (so
+        // MICROMAP_BUILD_INPUT_READ_ONLY) and it is handed their device ADDRESSES (so SHADER_DEVICE_ADDRESS).
+        // The contract names the pair `micromap_build_input` + `device_address`; `storage_coherent` is what
+        // makes them mappable at all.
+        constexpr rhi::buffer_flags setup_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_build_input);
+        auto const create_setup_buffer = [&vk](std::vector<uint8_t> const& bytes) -> std::pair<rhi::object_manager<rhi::buffer>, VkDeviceAddress> {
+            rhi::object_manager<rhi::buffer> buffer{contract_of(vk).create_buffer(
+                rhi::buffer_desc{.size = bytes.size() + micromap_address_alignment, .usage = rhi::buffer_usage::storage_coherent, .flags = setup_flags})};
+            VkDeviceAddress const base = buffer ? buffer_address_of(vk, *buffer) : 0;
+            std::span<std::byte> const mapped = buffer ? buffer->mapped() : std::span<std::byte>{};
+            if (base == 0 || mapped.data() == nullptr) {
                 return {std::move(buffer), 0};
             }
             VkDeviceSize const offset = (micromap_address_alignment - (base % micromap_address_alignment)) % micromap_address_alignment;
-            std::memcpy(static_cast<uint8_t*>(detail->allocation_info.pMappedData) + offset, bytes.data(), bytes.size());
+            std::memcpy(mapped.data() + offset, bytes.data(), bytes.size());
             return {std::move(buffer), base + offset};
         };
 
@@ -195,7 +237,7 @@ namespace deren::vulkan::ray_tracing {
         auto [index_buffer, index_address] = create_setup_buffer(index_bytes);
         out.indices = std::move(index_buffer);
         out.indices_address = index_address;
-        if (!out.data.valid() || !out.triangles.valid() || !out.indices.valid() || out.data_address == 0 || out.triangles_address == 0 || out.indices_address == 0) {
+        if (!out.data || !out.triangles || !out.indices || out.data_address == 0 || out.triangles_address == 0 || out.indices_address == 0) {
             return std::nullopt;
         }
         if (out.data_address == 0 || out.triangles_address == 0 || out.indices_address == 0) {
@@ -219,22 +261,31 @@ namespace deren::vulkan::ray_tracing {
         if (sizes.micromapSize == 0) {
             return std::nullopt;
         }
-        out.storage = vk.vma.create_buffer(nullptr, sizes.micromapSize, buffer_type::storage_gpu_only, VK_BUFFER_USAGE_MICROMAP_STORAGE_BIT_EXT);
+        // The micromap's own memory: MICROMAP_STORAGE is what the create call needs of it, and the build
+        // receives its ADDRESS, so the contract's device_address flag rides along. It is GPU-only.
+        out.storage = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+            rhi::buffer_desc{.size = sizes.micromapSize, .usage = rhi::buffer_usage::storage_gpu_only, .flags = addressable_flag | rhi::to_bits(rhi::buffer_flag::micromap_storage)})};
         if (sizes.buildScratchSize != 0) {
-            out.scratch = vk.vma.create_buffer(nullptr, sizes.buildScratchSize, buffer_type::storage_gpu_only, 0);
-            out.scratch_address = address_of(out.scratch);
+            // only its ADDRESS is read (by the build), so it needs the device-address flag and nothing else
+            out.scratch = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+                rhi::buffer_desc{.size = sizes.buildScratchSize, .usage = rhi::buffer_usage::storage_gpu_only, .flags = addressable_flag})};
+            out.scratch_address = out.scratch ? buffer_address_of(vk, *out.scratch) : 0;
             if (out.scratch_address == 0) {
                 return std::nullopt;
             }
         }
-        VkDeviceAddress const storage_address = address_of(out.storage);
+        VkDeviceAddress const storage_address = out.storage ? buffer_address_of(vk, *out.storage) : 0;
         if (storage_address == 0) {
+            return std::nullopt;
+        }
+        VkBuffer const storage_native = out.storage ? native_buffer_of(vk, *out.storage) : VK_NULL_HANDLE;
+        if (storage_native == VK_NULL_HANDLE) {
             return std::nullopt;
         }
 
         VkMicromapCreateInfoEXT create_info = {};
         create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
-        create_info.buffer = buffer_of(out.storage);
+        create_info.buffer = storage_native;
         create_info.offset = 0;
         create_info.size = sizes.micromapSize;
         create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
@@ -327,13 +378,7 @@ namespace deren::vulkan::ray_tracing {
             if (caster == nullptr) {
                 continue;
             }
-            VkBufferDeviceAddressInfo vertex_address_info = {};
-            vertex_address_info.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO;
-            VkBufferDeviceAddressInfo index_address_info = vertex_address_info;
-
-            auto const* const vertex_detail = caster->vertex_detail;
-            auto const* const index_detail = caster->index_detail;
-            if (vertex_detail == nullptr || index_detail == nullptr || vertex_detail->buffer == VK_NULL_HANDLE || index_detail->buffer == VK_NULL_HANDLE) {
+            if (!caster->vertex_buffer || !caster->index_buffer) {
                 ++skipped_no_address;
                 continue;
             }
@@ -346,10 +391,8 @@ namespace deren::vulkan::ray_tracing {
                 ++skipped_no_stride;
                 continue;
             }
-            vertex_address_info.buffer = vertex_detail->buffer;
-            index_address_info.buffer = index_detail->buffer;
-            VkDeviceAddress const source_vertex_address = vkGetBufferDeviceAddress(vk.logical_device, &vertex_address_info);
-            VkDeviceAddress const source_index_address = vkGetBufferDeviceAddress(vk.logical_device, &index_address_info);
+            VkDeviceAddress const source_vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
+            VkDeviceAddress const source_index_address = buffer_address_of(vk, *caster->index_buffer);
 
             // alphaMode MASK: bake the material's holes into an EXPANDED copy of this caster's vertices and build
             // the structure from that. An inline ray query has no any-hit stage, so a traversal cannot run the
@@ -417,12 +460,13 @@ namespace deren::vulkan::ray_tracing {
                     // the build reads it.
                     constexpr uint32_t mask_vertex_stride = 32u;
                     uint64_t const expanded_bytes = static_cast<uint64_t>(caster->draw_index_count) * mask_vertex_stride;
-                    vk_buffer expanded = vk.vma.create_buffer(nullptr, expanded_bytes, buffer_type::storage_gpu_only, acceleration_structure::build_input_usage);
-                    auto const* const expanded_detail = expanded.valid() ? vk.vma.get_buffer_detail(expanded.handle()) : nullptr;
-                    if (expanded_detail != nullptr) {
-                        VkBufferDeviceAddressInfo const expanded_info = {
-                            .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = expanded_detail->buffer};
-                        mask_address = vkGetBufferDeviceAddress(vk.logical_device, &expanded_info);
+                    rhi::object_manager<rhi::buffer> expanded{contract_of(vk).create_buffer(
+                        rhi::buffer_desc{.size = expanded_bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags})};
+                    // The factory answering non-null IS the old "the allocator has a detail record" test:
+                    // `create_buffer()` only returns an object after the allocation succeeded, and it is the
+                    // contract's own way of saying the descriptor was honoured.
+                    if (expanded) {
+                        mask_address = buffer_address_of(vk, *expanded);
                         mask_stride = mask_vertex_stride;
                         inputs.hooks.record_mask_bake(inputs.hooks.owner,
                                                       command_buffer,
@@ -465,12 +509,10 @@ namespace deren::vulkan::ray_tracing {
                 caster->push.skin_base != 0 && caster->vertex_count != 0 && caster->vertex_stride == skin_source_stride_expected) {
                 constexpr uint32_t skin_vertex_stride = 32u; // position, normal, uv - what hit shading reads
                 uint64_t const skinned_bytes = static_cast<uint64_t>(caster->vertex_count) * skin_vertex_stride;
-                vk_buffer skinned_vertices = vk.vma.create_buffer(nullptr, skinned_bytes, buffer_type::storage_gpu_only, acceleration_structure::build_input_usage);
-                auto const* const skinned_detail = skinned_vertices.valid() ? vk.vma.get_buffer_detail(skinned_vertices.handle()) : nullptr;
-                if (skinned_detail != nullptr) {
-                    VkBufferDeviceAddressInfo const skinned_info = {
-                        .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = skinned_detail->buffer};
-                    skin_address = vkGetBufferDeviceAddress(vk.logical_device, &skinned_info);
+                rhi::object_manager<rhi::buffer> skinned_vertices{contract_of(vk).create_buffer(
+                    rhi::buffer_desc{.size = skinned_bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags})};
+                if (skinned_vertices) {
+                    skin_address = buffer_address_of(vk, *skinned_vertices);
                     skin_stride = skin_vertex_stride;
                     skin_source_stride = caster->vertex_stride;
                     skin_vertex_count = caster->vertex_count;
@@ -688,7 +730,7 @@ namespace deren::vulkan::ray_tracing {
         for (auto const& built : this->caster_list) {
             primitive const* const caster = built.caster;
             // The addresses a hit-shading path reads the hit triangle from: the same buffers, and the same
-            // vkGetBufferDeviceAddress calls, the bottom level build already used for this caster - so the triangle
+            // device addresses, the bottom level build already used for this caster - so the triangle
             // a shader fetches with them IS the triangle the ray hit. They are the buffers' base addresses (the
             // build applies no offset), which is also what makes them legal as a buffer reference: a buffer's
             // address is aligned, an offset into one need not be.
@@ -700,17 +742,11 @@ namespace deren::vulkan::ray_tracing {
             VkDeviceAddress index_address = 0;
             uint32_t vertex_stride = built.mask_vertex_address != 0 ? built.mask_stride : built.skin_destination_stride;
             if (vertex_address == 0) {
-                VkBufferDeviceAddressInfo const vertex_address_info = {
-                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = caster->vertex_detail->buffer};
-                VkBufferDeviceAddressInfo const index_address_info = {
-                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = caster->index_detail->buffer};
-                vertex_address = vkGetBufferDeviceAddress(vk.logical_device, &vertex_address_info);
-                index_address = vkGetBufferDeviceAddress(vk.logical_device, &index_address_info);
+                vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
+                index_address = buffer_address_of(vk, *caster->index_buffer);
                 vertex_stride = caster->vertex_stride;
             } else if (built.skin_destination_address != 0) {
-                VkBufferDeviceAddressInfo const index_address_info = {
-                    .sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = caster->index_detail->buffer};
-                index_address = vkGetBufferDeviceAddress(vk.logical_device, &index_address_info);
+                index_address = buffer_address_of(vk, *caster->index_buffer);
             }
             acceleration_structure::instance_source const instance = {
                 .transform = caster->push.model,

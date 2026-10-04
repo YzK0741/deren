@@ -9,8 +9,8 @@
 // both, so they are versioned as ONE unit because they share the scene / draw
 // interface and evolve together.
 // Depends on deren.vulkan.core (GPU), deren.vulkan.math (IBL), deren.vulkan.shadow_fit (the
-// cascade fit it gathers for and caches), deren.vulkan.readback (the screenshot's
-// staging buffer and host read) and utility, with the frame struct
+// cascade fit it gathers for and caches), the promise contract (the recording surface the read-back
+// copy now goes through) and utility, with the frame struct
 // fills coming from vulkan.constant_init.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,

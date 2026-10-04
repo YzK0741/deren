@@ -44,6 +44,7 @@ import deren.vulkan.init_utils;      // the resource-creation patterns the init/
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
 import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
+import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
@@ -123,10 +124,13 @@ namespace deren::vulkan {
     }
 
     runtime::runtime()
-        : runtime(core_create_info{}) {
+        : runtime(deren::promise::rhi::create_info{}) {
     }
 
-    runtime::runtime(core_create_info const& options)
+    // THE ONE CREATION CONSTRUCTOR: the contract's structure goes straight to `core`, so the runtime
+    // cannot tell where its creation parameters came from - the program's startup config, a test, or
+    // (once the flip lands) the same structure handed to `deren_make_api_core()`.
+    runtime::runtime(deren::promise::rhi::create_info const& options)
         : runtime(std::make_shared<core>(options)) {
         // The device root is built here and owned by this runtime; the constructor below is the one that does the
         // work, so a caller that ALREADY has a core takes the same path (see its doc note).
@@ -135,13 +139,16 @@ namespace deren::vulkan {
     runtime::runtime(std::shared_ptr<core> shared_core)
         : core_owner{std::move(shared_core)}
         , vulkan_core{*this->core_owner}
-        // readback owns GPU resources and is deliberately neither copyable nor movable (two owners of
-        // one staging buffer is the bug its deletion prevents), so it must be constructed here - which
-        // is why its member declaration sits ABOVE filtered_core's, matching this order. Both only need
-        // the core, so the order between them is otherwise free.
-        , readback_staging{vulkan_core}
         , filtered_core{core_owner}
         , pass_resources{core_owner} {
+        // ---- THE ONE PLACE GLFW CALLBACKS ARE INSTALLED, and it stays here now that the WINDOW belongs to
+        //      the APPLICATION: the callbacks dereference THIS runtime through the window's user pointer, so
+        //      they can only be installed once both exist - which is exactly this constructor, running after
+        //      the caller created the window and handed it over. The application installs no GLFW callback
+        //      and must not touch the user pointer (it is this object's slot). The debug overlay's ImGui
+        //      backend chains onto whatever is installed here (ImGui_ImplGlfw_InitForVulkan with
+        //      install_callbacks = true, later), so the ORDER - orbit camera first, ImGui after - must not
+        //      move.
         glfwSetWindowUserPointer(this->vulkan_core.window, this);
         glfwSetMouseButtonCallback(this->vulkan_core.window, mouse_button_callback);
         glfwSetCursorPosCallback(this->vulkan_core.window, cursor_pos_callback);
@@ -259,14 +266,13 @@ namespace deren::vulkan {
         // a failure. UNIFORM_BUFFER stays set: the buffer's allocation policy (host-visible, coherent) is what
         // the buffer_type names, and both bits are legal together.
         camera_ubo initial = {};
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
-                                        std::as_bytes(std::span(&initial, 1)),
-                                        deren::vulkan::buffer_type::uniform_coherent,
-                                        "camera ubo buffer",
-                                        this->camera_buffers,
-                                        &this->camera_mapped,
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT); // heap-bound: see the scene-set block
+        create_buffers(this->vulkan_core,
+                       this->camera_buffers,
+                       rhi::buffer_usage::uniform_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage), // heap-bound: see the scene-set block
+                       std::as_bytes(std::span(&initial, 1)),
+                       "camera ubo buffer",
+                       &this->camera_mapped);
 
         // 1x1 white fallback texture, always the first entry of the scene texture array; missing
         // material textures point at it
@@ -321,15 +327,15 @@ namespace deren::vulkan {
         // GPU material table: fixed capacity, host-visible (direct mapping); records are appended
         // at registration and read-only for the GPU (set 0 binding 5)
         std::vector<uint8_t> const zeroed_materials(static_cast<size_t>(deren::vulkan::material_capacity) * sizeof(material_record), 0);
-        init_utils::create_host_buffer(this->vulkan_core,
-                                       std::as_bytes(std::span(zeroed_materials)),
-                                       deren::vulkan::buffer_type::storage_coherent,
-                                       "material table buffer",
-                                       this->material_buffer,
-                                       this->material_mapped,
-                                       // it goes on the descriptor heap, and a heap descriptor for a buffer is an
-                                       // ADDRESS RANGE - so this buffer needs a device address
-                                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::storage_coherent,
+                      // it goes on the descriptor heap, and a heap descriptor for a buffer is an
+                      // ADDRESS RANGE - so this buffer needs a device address
+                      rhi::to_bits(rhi::buffer_flag::device_address),
+                      std::as_bytes(std::span(zeroed_materials)),
+                      "material table buffer",
+                      this->material_buffer,
+                      &this->material_mapped);
 
         // ---- THE MATERIAL TABLE'S HEAP DESCRIPTOR, written ONCE here ----
         //
@@ -340,20 +346,16 @@ namespace deren::vulkan {
         // heap-native shader bakes as `heap_slots_materials` (shaders/heap_slots.glsl): the write and the read are
         // the same number by construction rather than by review.
         if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-            auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->material_buffer.handle());
-            if (detail != nullptr) {
-                VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
-                bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride,
-                                                                                     address,
-                                                                                     static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * sizeof(material_record),
-                                                                                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                deren::utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
-                                    written ? "written" : "NOT written",
-                                    address,
-                                    deren::vulkan::material_capacity,
-                                    static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride);
-            }
+            VkDeviceAddress const address = this->buffer_address(*this->material_buffer);
+            bool const written = this->write_heap_buffer(*this->material_buffer,
+                                                         core::heap_slots::materials,
+                                                         static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * sizeof(material_record),
+                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            deren::utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
+                                written ? "written" : "NOT written",
+                                address,
+                                deren::vulkan::material_capacity,
+                                static_cast<VkDeviceSize>(core::heap_slots::materials) * core::heap_slot_stride);
         }
 
         // ---- THE MATERIAL COLOURS: ONE `vec4` PER LANE PER MATERIAL, WHITE to begin with ----
@@ -540,29 +542,25 @@ namespace deren::vulkan {
                 neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rs_arm0)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
-            init_utils::create_host_buffer(this->vulkan_core,
-                                           std::as_bytes(std::span(neutral_colours)),
-                                           deren::vulkan::buffer_type::storage_coherent,
-                                           "toon colour table buffer",
-                                           this->toon_colour_buffer,
-                                           this->toon_colour_mapped,
-                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(neutral_colours)),
+                          "toon colour table buffer",
+                          this->toon_colour_buffer,
+                          &this->toon_colour_mapped);
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-                auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_colour_buffer.handle());
-                if (detail != nullptr) {
-                    VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
-                    bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride,
-                                                                                         address,
-                                                                                         std::as_bytes(std::span(neutral_colours)).size(),
-                                                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    deren::utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
-                                        written ? "written" : "NOT written",
-                                        address,
-                                        static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count),
-                                        deren::vulkan::material_capacity,
-                                        static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride);
-                }
+                VkDeviceAddress const address = this->buffer_address(*this->toon_colour_buffer);
+                bool const written = this->write_heap_buffer(*this->toon_colour_buffer,
+                                                             core::heap_slots::toon_colours,
+                                                             std::as_bytes(std::span(neutral_colours)).size(),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                deren::utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count),
+                                    deren::vulkan::material_capacity,
+                                    static_cast<VkDeviceSize>(core::heap_slots::toon_colours) * core::heap_slot_stride);
             }
         }
 
@@ -582,28 +580,24 @@ namespace deren::vulkan {
         //      WRITTEN ONCE, here, like the material table beside it: the values are fixed at import and never
         //      rewritten, which is why it is one descriptor and not a per-frame pair.
         std::vector<uint8_t> const zeroed_toon_lanes(static_cast<size_t>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4), 0);
-        init_utils::create_host_buffer(this->vulkan_core,
-                                       std::as_bytes(std::span(zeroed_toon_lanes)),
-                                       deren::vulkan::buffer_type::storage_coherent,
-                                       "toon lane table buffer",
-                                       this->toon_lane_buffer,
-                                       this->toon_lane_mapped,
-                                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::storage_coherent,
+                      rhi::to_bits(rhi::buffer_flag::device_address),
+                      std::as_bytes(std::span(zeroed_toon_lanes)),
+                      "toon lane table buffer",
+                      this->toon_lane_buffer,
+                      &this->toon_lane_mapped);
         if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-            auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_lane_buffer.handle());
-            if (detail != nullptr) {
-                VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
-                bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride,
-                                                                                     address,
-                                                                                     static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
-                                                                                     VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                deren::utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
-                                    written ? "written" : "NOT written",
-                                    address,
-                                    deren::vulkan::material_capacity,
-                                    static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride);
-            }
+            VkDeviceAddress const address = this->buffer_address(*this->toon_lane_buffer);
+            bool const written = this->write_heap_buffer(*this->toon_lane_buffer,
+                                                         core::heap_slots::toon_lanes,
+                                                         static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
+                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            deren::utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
+                                written ? "written" : "NOT written",
+                                address,
+                                deren::vulkan::material_capacity,
+                                static_cast<VkDeviceSize>(core::heap_slots::toon_lanes) * core::heap_slot_stride);
         }
 
         // ---- THE TOON LIGHT RIG: ONE BLOCK FOR THE RUN, and it is not a per-frame pair for the reason the two
@@ -612,28 +606,24 @@ namespace deren::vulkan {
         //      `runtime::set_toon_rig`, and the zeros it is created with are replaced before the first frame.
         {
             std::vector<uint8_t> const zeroed_toon_rig(sizeof(deren::vulkan::toon_rig), 0);
-            init_utils::create_host_buffer(this->vulkan_core,
-                                           std::as_bytes(std::span(zeroed_toon_rig)),
-                                           deren::vulkan::buffer_type::storage_coherent,
-                                           "toon light rig buffer",
-                                           this->toon_rig_buffer,
-                                           this->toon_rig_mapped,
-                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_toon_rig)),
+                          "toon light rig buffer",
+                          this->toon_rig_buffer,
+                          &this->toon_rig_mapped);
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-                auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->toon_rig_buffer.handle());
-                if (detail != nullptr) {
-                    VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
-                    bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride,
-                                                                                         address,
-                                                                                         static_cast<VkDeviceSize>(sizeof(deren::vulkan::toon_rig)),
-                                                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    deren::utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
-                                        written ? "written" : "NOT written",
-                                        address,
-                                        sizeof(deren::vulkan::toon_rig),
-                                        static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride);
-                }
+                VkDeviceAddress const address = this->buffer_address(*this->toon_rig_buffer);
+                bool const written = this->write_heap_buffer(*this->toon_rig_buffer,
+                                                             core::heap_slots::toon_rig,
+                                                             static_cast<VkDeviceSize>(sizeof(deren::vulkan::toon_rig)),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                deren::utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    sizeof(deren::vulkan::toon_rig),
+                                    static_cast<VkDeviceSize>(core::heap_slots::toon_rig) * core::heap_slot_stride);
             }
         }
 
@@ -645,29 +635,25 @@ namespace deren::vulkan {
         //      and a device address because a heap descriptor for a buffer IS an address range.
         {
             std::vector<uint8_t> const zeroed_meshlets(static_cast<size_t>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet), 0);
-            init_utils::create_host_buffer(this->vulkan_core,
-                                           std::as_bytes(std::span(zeroed_meshlets)),
-                                           deren::vulkan::buffer_type::storage_coherent,
-                                           "meshlet table buffer",
-                                           this->meshlet_buffer,
-                                           this->meshlet_mapped,
-                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_meshlets)),
+                          "meshlet table buffer",
+                          this->meshlet_buffer,
+                          &this->meshlet_mapped);
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-                auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->meshlet_buffer.handle());
-                if (detail != nullptr) {
-                    VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
-                    bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride,
-                                                                                         address,
-                                                                                         static_cast<VkDeviceSize>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),
-                                                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    deren::utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
-                                        written ? "written" : "NOT written",
-                                        address,
-                                        deren::vulkan::meshlet_capacity,
-                                        sizeof(deren::vulkan::meshlet),
-                                        static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride);
-                }
+                VkDeviceAddress const address = this->buffer_address(*this->meshlet_buffer);
+                bool const written = this->write_heap_buffer(*this->meshlet_buffer,
+                                                             core::heap_slots::meshlets,
+                                                             static_cast<VkDeviceSize>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                deren::utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    deren::vulkan::meshlet_capacity,
+                                    sizeof(deren::vulkan::meshlet),
+                                    static_cast<VkDeviceSize>(core::heap_slots::meshlets) * core::heap_slot_stride);
             }
         }
 
@@ -680,18 +666,17 @@ namespace deren::vulkan {
         {
             constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
             std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
-            init_utils::create_host_buffer(this->vulkan_core,
-                                           std::as_bytes(std::span(zeroed_commands)),
-                                           deren::vulkan::buffer_type::storage_coherent,
-                                           "mesh indirect command table",
-                                           this->mesh_indirect_buffer,
-                                           this->mesh_indirect_mapped,
-                                           VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
-            // the raw handle the command takes: vk_buffer::handle() is the allocator's id, and a null here is what
-            // silently sent every dispatch down the DIRECT path in the first version of this seam
-            if (auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->mesh_indirect_buffer.handle()); detail != nullptr) {
-                this->mesh_indirect_table = detail->buffer;
-            }
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::indirect),
+                          std::as_bytes(std::span(zeroed_commands)),
+                          "mesh indirect command table",
+                          this->mesh_indirect_buffer,
+                          &this->mesh_indirect_mapped);
+            // the raw handle the command takes: `vk_buffer::handle()` was the allocator's id rather than a
+            // `VkBuffer`, and a null here is what silently sent every dispatch down the DIRECT path in the
+            // first version of this seam. It comes from the escape now, off the handle this class owns.
+            this->mesh_indirect_table = this->buffer_of(*this->mesh_indirect_buffer);
         }
 
         // ---- THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one lane of eight
@@ -699,24 +684,20 @@ namespace deren::vulkan {
         //      host-visible because the host reads it back once, at shutdown. Zeroed here; the entries only add.
         {
             std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t), 0);
-            init_utils::create_host_buffer(this->vulkan_core,
-                                           std::as_bytes(std::span(zeroed_stats)),
-                                           deren::vulkan::buffer_type::storage_coherent,
-                                           "mesh culling counter buffer",
-                                           this->meshlet_stats_buffer,
-                                           this->meshlet_stats_mapped,
-                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_stats)),
+                          "mesh culling counter buffer",
+                          this->meshlet_stats_buffer,
+                          &this->meshlet_stats_mapped);
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-                if (auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->meshlet_stats_buffer.handle()); detail != nullptr) {
-                    VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
-                    bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlet_stats) * core::heap_slot_stride,
-                                                                                         address,
-                                                                                         static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t),
-                                                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    if (!written) {
-                        deren::utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");
-                    }
+                bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
+                                                             core::heap_slots::meshlet_stats,
+                                                             static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                if (!written) {
+                    deren::utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");
                 }
             }
         }
@@ -727,24 +708,20 @@ namespace deren::vulkan {
         //      table it shadows: this one is rewritten from the camera every frame.
         {
             std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet), 0);
-            init_utils::create_host_buffer(this->vulkan_core,
-                                           std::as_bytes(std::span(zeroed_culled)),
-                                           deren::vulkan::buffer_type::storage_coherent,
-                                           "culled meshlet table buffer",
-                                           this->meshlet_culled_buffer,
-                                           this->meshlet_culled_mapped,
-                                           VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_culled)),
+                          "culled meshlet table buffer",
+                          this->meshlet_culled_buffer,
+                          &this->meshlet_culled_mapped);
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-                if (auto const* const detail = this->vulkan_core.vma.get_buffer_detail(this->meshlet_culled_buffer.handle()); detail != nullptr) {
-                    VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                    VkDeviceAddress const address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &info);
-                    bool const written = this->vulkan_core.descriptor_heaps.write_buffer(static_cast<VkDeviceSize>(core::heap_slots::meshlet_culled) * core::heap_slot_stride,
-                                                                                         address,
-                                                                                         static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
-                                                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-                    if (!written) {
-                        deren::utility::log("descriptor heap: the culled meshlet table was NOT written - the draws stay unculled");
-                    }
+                bool const written = this->write_heap_buffer(*this->meshlet_culled_buffer,
+                                                             core::heap_slots::meshlet_culled,
+                                                             static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                if (!written) {
+                    deren::utility::log("descriptor heap: the culled meshlet table was NOT written - the draws stay unculled");
                 }
             }
         }
@@ -752,13 +729,13 @@ namespace deren::vulkan {
         // Per-instance transform buffer (set 0 binding 6): one mat4 per instance, host-visible;
         // filled by set_instanced_draw() for instanced stress draws (see pbr.vert)
         std::vector<uint8_t> const zeroed_instances(static_cast<size_t>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), 0);
-        init_utils::create_host_buffer(this->vulkan_core,
-                                       std::as_bytes(std::span(zeroed_instances)),
-                                       deren::vulkan::buffer_type::storage_coherent,
-                                       "instance transform buffer",
-                                       this->instance_buffer,
-                                       this->instance_mapped,
-                                       VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // the heap writes this one's address
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::storage_coherent,
+                      rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                      std::as_bytes(std::span(zeroed_instances)),
+                      "instance transform buffer",
+                      this->instance_buffer,
+                      &this->instance_mapped);
 
         // Per-motion-slot previous world matrices (set 0 binding 13): ONE buffer per frame slot, like
         // the skin and morph buffers below, so a frame in flight never shares the buffer the next
@@ -766,31 +743,29 @@ namespace deren::vulkan {
         // nothing was there to move from. motion_previous is the CPU-side copy of what is currently
         // in it, advanced by advance_motion_transforms().
         std::vector<uint8_t> const zeroed_motion(static_cast<size_t>(deren::vulkan::scene_motion_capacity) * sizeof(glm::mat4), 0);
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
-                                        std::as_bytes(std::span(zeroed_motion)),
-                                        deren::vulkan::buffer_type::storage_coherent,
-                                        "motion transform buffer",
-                                        this->motion_buffers,
-                                        &this->motion_mapped,
-                                        // THE HEAP'S REQUIREMENT: a descriptor written as a device ADDRESS range
-                                        // needs the buffer to be addressable (VUID-VkBufferDeviceAddressInfo-
-                                        // buffer-02601 says so, and validation did, the moment this write went in).
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT);
+        create_buffers(this->vulkan_core,
+                       this->motion_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       // THE HEAP'S REQUIREMENT: a descriptor written as a device ADDRESS range
+                       // needs the buffer to be addressable (VUID-VkBufferDeviceAddressInfo-
+                       // buffer-02601 says so, and validation did, the moment this write went in).
+                       rhi::to_bits(rhi::buffer_flag::device_address),
+                       std::as_bytes(std::span(zeroed_motion)),
+                       "motion transform buffer",
+                       &this->motion_mapped);
         this->motion_previous.assign(deren::vulkan::scene_motion_capacity, glm::mat4(1.0f));
 
         // Per-joint skin matrices (set 0 binding 9): one buffer PER FRAME SLOT (scene_skin_capacity
         // mat4s each, host-visible) so an in-flight frame never shares the buffer the next frame
         // rewrites. Zero-filled initially (the identity block is written by the setup upload).
         std::vector<uint8_t> const zeroed_skins(static_cast<size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
-                                        std::as_bytes(std::span(zeroed_skins)),
-                                        deren::vulkan::buffer_type::storage_coherent,
-                                        "skin matrix buffer",
-                                        this->skin_buffers,
-                                        &this->skin_mapped,
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // the heap writes this one's address
+        create_buffers(this->vulkan_core,
+                       this->skin_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                       std::as_bytes(std::span(zeroed_skins)),
+                       "skin matrix buffer",
+                       &this->skin_mapped);
 
         // The SAME joint blocks as of ONE FRAME AGO (heap: skin_matrices_previous), one buffer per frame
         // slot: a DEFORMING vertex's motion vector is the difference between the two frames' skinning, so
@@ -800,14 +775,13 @@ namespace deren::vulkan {
         // IDENTITY exactly as motion_previous is - an unskinned or not-yet-animated vertex then reports no
         // deformation, and the one frame that could read it is a frame TAA gives no history to.
         std::vector<uint8_t> const zeroed_previous_skins(static_cast<size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
-                                        std::as_bytes(std::span(zeroed_previous_skins)),
-                                        deren::vulkan::buffer_type::storage_coherent,
-                                        "previous skin matrix buffer",
-                                        this->skin_buffers_previous,
-                                        &this->skin_previous_mapped,
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // the heap writes this one's address
+        create_buffers(this->vulkan_core,
+                       this->skin_buffers_previous,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                       std::as_bytes(std::span(zeroed_previous_skins)),
+                       "previous skin matrix buffer",
+                       &this->skin_previous_mapped);
         this->skin_previous.assign(deren::vulkan::scene_skin_capacity, glm::mat4(1.0f));
 
         // Morph data (set 0 binding 10): one buffer PER FRAME SLOT (scene_morph_capacity floats
@@ -815,14 +789,13 @@ namespace deren::vulkan {
         // into every slot's buffer at setup, then rewrites only the active slot's weights per frame.
         // Zero-filled from one shared host vector (each create_buffer copies its own GPU buffer).
         std::vector<uint8_t> const zeroed_morphs(static_cast<size_t>(deren::vulkan::scene_morph_capacity) * sizeof(float), 0);
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
-                                        std::as_bytes(std::span(zeroed_morphs)),
-                                        deren::vulkan::buffer_type::storage_coherent,
-                                        "morph data buffer",
-                                        this->morph_buffers,
-                                        &this->morph_mapped,
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // the heap writes this one's address
+        create_buffers(this->vulkan_core,
+                       this->morph_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                       std::as_bytes(std::span(zeroed_morphs)),
+                       "morph data buffer",
+                       &this->morph_mapped);
 
         // Reserve table index 0 as the DEFAULT material (white textures + identity factors):
         // registrations that overflow the table degrade to it (see register_material). Done
@@ -847,11 +820,13 @@ namespace deren::vulkan {
     // secondaries" item of the trim list): the SHAPE is policy and stays
     // here, the objects are device resources.
     void runtime::init_recording_resources() {
-        // One command buffer per frame slot, owned and reused every frame
-        this->command_buffers.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
-            this->command_buffers.push_back(this->vulkan_core.make_command_buffer());
-        }
+        // THE FRAME'S PRIMARY COMMAND BUFFERS ARE THE BACKEND'S NOW (S2 batch 2): core allocates one per
+        // frame slot in its own constructor and releases them through its cleanup, and this runtime
+        // BORROWS the container for the frame it begins, ends and submits. The shape is unchanged - the
+        // count is still MAX_FRAMES_IN_FLIGHT, allocated once and reused - only the owner moved, which is
+        // what lets the contract's begin_commands() hand out the frame's list (see
+        // core.declarations.cppm's frame_command_buffers).
+        this->command_buffers = this->vulkan_core.frame_command_buffers;
         // One shadow-pass + one gui-overlay secondary command buffer per frame slot (stage 2/3
         // of parallel recording): pre-allocated with the primaries so the GPU can read them
         // while this slot's primary executes. Stage 3 additionally gives the main pass one
@@ -964,32 +939,30 @@ namespace deren::vulkan {
         // content lives in light_state; the frame loop memcpys it into the paced slot's buffer
         // (pace_and_acquire) - see the member docs for the concurrency rationale.
         light_ubo initial = {};
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
-                                        std::as_bytes(std::span(&initial, 1)),
-                                        deren::vulkan::buffer_type::uniform_coherent,
-                                        "light ubo buffer",
-                                        this->light_buffers,
-                                        &this->light_mapped,
-                                        // it goes on the descriptor heap (a heap descriptor for a buffer is its
-                                        // device address), so the address has to exist - validation states it as
-                                        // VUID-VkBufferDeviceAddressInfo-buffer-02601 the moment it is queried -
-                                        // and it is written as a STORAGE descriptor, so the buffer needs the
-                                        // matching usage bit (see the camera UBO above and the note on
-                                        // write_heap_scene_buffer)
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        create_buffers(this->vulkan_core,
+                       this->light_buffers,
+                       rhi::buffer_usage::uniform_coherent,
+                       // it goes on the descriptor heap (a heap descriptor for a buffer is its
+                       // device address), so the address has to exist - validation states it as
+                       // VUID-VkBufferDeviceAddressInfo-buffer-02601 the moment it is queried -
+                       // and it is written as a STORAGE descriptor, so the buffer needs the
+                       // matching usage bit (see the camera UBO above and the note on
+                       // write_heap_scene_buffer)
+                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage),
+                       std::as_bytes(std::span(&initial, 1)),
+                       "light ubo buffer",
+                       &this->light_mapped);
 
         // THE HEAD FRAME (scene block slot 749): the same per-frame-slot arrangement as the light UBO above, and
         // `head_state` starts at the reference's fallback frame - see that member for why it is not zeros.
         head_ubo initial_head = {};
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
-                                        std::as_bytes(std::span(&initial_head, 1)),
-                                        deren::vulkan::buffer_type::uniform_coherent,
-                                        "head frame buffer",
-                                        this->head_buffers,
-                                        &this->head_mapped,
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+        create_buffers(this->vulkan_core,
+                       this->head_buffers,
+                       rhi::buffer_usage::uniform_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage),
+                       std::as_bytes(std::span(&initial_head, 1)),
+                       "head frame buffer",
+                       &this->head_mapped);
     }
 
     namespace {
@@ -1016,20 +989,14 @@ namespace deren::vulkan {
          * neighbours). The heap is the only path now, so "the heap is not in use" is a startup
          * failure rather than a quiet fall back to a descriptor set.
          */
-        void write_heap_scene_buffer(core& vk, std::vector<vk_buffer> const& buffers, uint32_t const slot_base, VkDeviceSize const size, VkDescriptorType const type) {
+        void write_heap_scene_buffer(core& vk, std::vector<rhi::object_manager<rhi::buffer>> const& buffers, uint32_t const slot_base, VkDeviceSize const size, VkDescriptorType const type) {
             if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE) {
                 return;
             }
             uint32_t written = 0;
             for (uint32_t slot = 0; slot < buffers.size(); ++slot) {
-                auto const* const detail = vk.vma.get_buffer_detail(buffers[slot].handle());
-                if (detail == nullptr) {
-                    continue;
-                }
-                VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = detail->buffer};
-                VkDeviceAddress const address = vkGetBufferDeviceAddress(vk.logical_device, &info);
                 VkDeviceSize const offset = core::heap_slot_offset(slot_base + slot);
-                if (vk.descriptor_heaps.write_buffer(offset, address, size, type)) {
+                if (vk.descriptor_heaps.write_buffer(offset, buffer_address(vk, *buffers[slot]), size, type)) {
                     ++written;
                 } else {
                     deren::utility::log("descriptor heap: the per-frame buffer for grid slot {} (frame slot {}) did not fit at offset {}", slot_base, slot, offset);
@@ -1056,27 +1023,23 @@ namespace deren::vulkan {
         // in-flight buffer to retire. Both are host-visible + coherent: the counts are zeroed by the
         // host each frame (that IS the pass's clear, see pace_and_acquire), and the indices only need
         // to live on the GPU between the dispatch and the shading.
-        std::size_t const slots = static_cast<std::size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
         std::vector<uint8_t> const zero_counts(static_cast<std::size_t>(deren::vulkan::max_cluster_count) * sizeof(uint32_t), 0);
         std::vector<uint8_t> const zero_indices(static_cast<std::size_t>(deren::vulkan::max_cluster_count) * deren::vulkan::cluster_light_capacity * sizeof(uint32_t), 0);
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        static_cast<uint32_t>(slots),
-                                        std::as_bytes(std::span(zero_counts)),
-                                        deren::vulkan::buffer_type::storage_coherent,
-                                        "cluster count buffer",
-                                        this->cluster_count_buffers,
-                                        &this->cluster_count_mapped,
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // heap-bound
+        create_buffers(this->vulkan_core,
+                       this->cluster_count_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // heap-bound
+                       std::as_bytes(std::span(zero_counts)),
+                       "cluster count buffer",
+                       &this->cluster_count_mapped);
         // The index rows are host-visible for the same reason, but nothing on the CPU ever writes
         // through the mapping: the dispatch fills them, so the mapped list stays a nullptr.
-        init_utils::create_host_buffers(this->vulkan_core,
-                                        static_cast<uint32_t>(slots),
-                                        std::as_bytes(std::span(zero_indices)),
-                                        deren::vulkan::buffer_type::storage_coherent,
-                                        "cluster index buffer",
-                                        this->cluster_index_buffers,
-                                        nullptr,
-                                        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT); // heap-bound
+        create_buffers(this->vulkan_core,
+                       this->cluster_index_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // heap-bound
+                       std::as_bytes(std::span(zero_indices)),
+                       "cluster index buffer");
 
         // The clustered-light pass's TWO buffers, into the heap's per-slot blocks (bindings 11 and 12): this stage
         // is the first whose WHOLE set-0 interface is buffers (camera 0, light 7, counts 11, indices 12), which is
@@ -1109,13 +1072,8 @@ namespace deren::vulkan {
         // slot (see runtime.cppm's member), so it takes ONE grid slot instead of a two-slot array - which is what
         // heap_slots::instance_transforms reserved. Written from the same size the scene block gives it.
         if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-            auto const* const instance_table_detail = this->vulkan_core.vma.get_buffer_detail(this->instance_buffer.handle());
-            if (instance_table_detail != nullptr) {
-                VkBufferDeviceAddressInfo const instance_table_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = instance_table_detail->buffer};
-                VkDeviceAddress const instance_table_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &instance_table_address_info);
-                if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::instance_transforms), instance_table_address, static_cast<VkDeviceSize>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
-                    deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", core::heap_slots::instance_transforms);
-                }
+            if (!this->write_heap_buffer(*this->instance_buffer, core::heap_slots::instance_transforms, static_cast<VkDeviceSize>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", core::heap_slots::instance_transforms);
             }
         }
     }
@@ -1142,10 +1100,6 @@ namespace deren::vulkan {
         // frame rewrites. Only the HEAP half is left: the two bindings are written into this slot's heap block
         // (and the shadow map into its grid slot) rather than into a descriptor set.
         for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
-            auto const* light_detail = this->vulkan_core.vma.get_buffer_detail(this->light_buffers[static_cast<std::size_t>(slot)].handle());
-            if (light_detail == nullptr) {
-                deren::utility::panic("failed to get light ubo buffer detail");
-            }
             auto const* shadow_detail = this->vulkan_core.vma.get_image_detail(this->shadow_images[static_cast<std::size_t>(slot)].handle());
             if (shadow_detail == nullptr) {
                 deren::utility::panic("failed to get shadow map image detail");
@@ -1168,10 +1122,8 @@ namespace deren::vulkan {
             // carries a VkImageViewCreateInfo while a VkDescriptorImageInfo carries a view, not the image and range
             // that create info is made of - which is why the shadow map above is written where its image is known.
             if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-                VkBufferDeviceAddressInfo const address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = light_detail->buffer};
-                VkDeviceAddress const light_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &address_info);
                 VkDeviceSize const heap_offset = core::heap_slot_offset(core::heap_slots::scene_light + slot);
-                if (!this->vulkan_core.descriptor_heaps.write_buffer(heap_offset, light_address, sizeof(light_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                if (!this->write_heap_buffer(*this->light_buffers[static_cast<std::size_t>(slot)], core::heap_slots::scene_light + slot, sizeof(light_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                     deren::utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
                 }
             }
@@ -1182,12 +1134,9 @@ namespace deren::vulkan {
             // than of the scene's lighting - see `core::heap_slots::scene_head`. Written here beside the light
             // because it is per-frame-slot for the same reason: on a model whose head turns it changes every
             // frame, so each slot needs its own copy.
-            auto const* const head_detail = this->vulkan_core.vma.get_buffer_detail(this->head_buffers[static_cast<std::size_t>(slot)].handle());
-            if (head_detail != nullptr && this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
-                VkBufferDeviceAddressInfo const head_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = head_detail->buffer};
-                VkDeviceAddress const head_address = vkGetBufferDeviceAddress(this->vulkan_core.logical_device, &head_address_info);
+            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkDeviceSize const head_offset = core::heap_slot_offset(core::heap_slots::scene_head + slot);
-                if (!this->vulkan_core.descriptor_heaps.write_buffer(head_offset, head_address, sizeof(head_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], core::heap_slots::scene_head + slot, sizeof(head_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                     deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
                 }
             }

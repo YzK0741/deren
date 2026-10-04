@@ -1,3 +1,4 @@
+#include <GLFW/glfw3.h> // the application's window: this file creates it and the backend only binds to it (see glfw_window_host)
 #include <charconv>
 #include <fstream>
 #include <glm/glm.hpp>
@@ -27,6 +28,8 @@ import deren.vulkan.animation;
 import deren.vulkan.animation.mmd_motion; // VMD (MMD motion) parsing, retargeting and clip baking      // animation::controller: glTF playback / skinning / morphs on the runtime tree
 import deren.vulkan.math;
 import deren.vulkan.scene_tree; // scene storage + GPU primitives (was vulkan.model)
+// the backend-creation contract (create_info): what this app hands the runtime below
+import deren.promise.rhi;
 import deren.vulkan.runtime;
 import deren.vulkan.render_start_demo; // the example's pass wiring: this app's chain, from outside the renderer
 
@@ -74,6 +77,64 @@ namespace {
         }
         return found->second;
     }
+
+    // ---- THE APPLICATION'S WINDOW, AND GLFW'S LIFETIME (the window moved out of the backend) ----
+    //
+    // THE WINDOW BELONGS TO THE APPLICATION NOW: this type initialises GLFW, creates the window the frame
+    // is presented in, and destroys both on the way out. The engine only BINDS to it - the pointer travels
+    // through `create_info::native_window`, the core builds its surface from it and never creates and
+    // never destroys a window (see core::init_window, which is the other path: the one taken when a caller
+    // hands over no window at all).
+    //
+    // THE DECLARATION ORDER IS THE CONTRACT: an instance of this type is constructed BEFORE the runtime, so
+    // that it is destroyed AFTER it. The core's surface was created from this window, and GLFW's
+    // `glfwTerminate` destroys every remaining window - so tearing the window (or GLFW) down while the
+    // runtime is still alive would pull it out from under a live surface. Default local destruction order
+    // (reverse of construction) gives exactly the order this needs.
+    //
+    // THE HINTS ARE COPIED VERBATIM FROM `core::init_window` (vulkan/core/core.constructor.cppm), which is
+    // the path a caller without a window still takes: `GLFW_CLIENT_API = GLFW_NO_API` (Vulkan owns the
+    // drawing; GLFW must not create a GL context), `GLFW_RESIZABLE = GLFW_TRUE`, and `GLFW_VISIBLE` from
+    // the capture flag. A SCRIPTED CAPTURE ASKS FOR A HIDDEN WINDOW: `--capture-frames` runs this binary
+    // dozens of times in a row (the gate, the A/B batches) with nobody watching, so a visible window is a
+    // row of flashes - and the pixels cannot notice, because the screenshot is a read-back of the swapchain
+    // image, not a capture of the window (measured; see capture_options).
+    struct glfw_window_host {
+        GLFWwindow* window = nullptr;
+
+        glfw_window_host(int32_t const width, int32_t const height, char const* const title, bool const visible) {
+            // THE BACKEND USED TO CALL THIS AND IGNORE THE RESULT (`core::init_window`'s bare `glfwInit()`).
+            // The application owns the initialisation now, so a failure is reported where it happens instead
+            // of surfacing later as a null extension list or a window that never appears.
+            if (glfwInit() != GLFW_TRUE) {
+                deren::utility::panic("glfwInit failed");
+            }
+            glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+            glfwWindowHint(GLFW_RESIZABLE, GLFW_TRUE);
+            glfwWindowHint(GLFW_VISIBLE, visible ? GLFW_TRUE : GLFW_FALSE);
+            this->window = glfwCreateWindow(width, height, title, nullptr, nullptr);
+            if (this->window == nullptr) {
+                deren::utility::panic("glfwCreateWindow failed");
+            }
+            // belt and braces, as in `core::init_window`: a platform may ignore the hint, so the visibility
+            // is also enforced explicitly (both calls are idempotent)
+            if (visible) {
+                glfwShowWindow(this->window);
+            } else {
+                glfwHideWindow(this->window);
+            }
+        }
+        // one owner: the pointer is handed to the engine as a BORROWED handle, so a second owner of the
+        // same window (a copy) would destroy it twice
+        glfw_window_host(glfw_window_host const&) = delete;
+        glfw_window_host& operator=(glfw_window_host const&) = delete;
+        ~glfw_window_host() {
+            if (this->window != nullptr) {
+                glfwDestroyWindow(this->window);
+            }
+            glfwTerminate();
+        }
+    };
 
     // ---- scripted capture (dev tool) ----
     // Verifying anything visual used to need a human at the keyboard (F12). Two flags remove
@@ -434,16 +495,32 @@ int main(int argc, char** argv) {
                           : deren::vulkan::generate_environment_cubemap_from_equirect_async(std::move(environment_pixels), environment_width, environment_height, env_size, settings.lighting.environment_intensity);
     auto load_future = deren::gltf::load_model_async(model_path);
 
+    // 4b. THE WINDOW IS THE APPLICATION'S (see glfw_window_host above): GLFW is initialised and the window
+    //     created HERE, before the runtime, so that the declaration order above gives the teardown order the
+    //     engine needs - the runtime (and the core's surface, built from this window) is destroyed first,
+    //     then the window, then GLFW. What travels to the backend is the borrowed pointer, nothing else.
+    glfw_window_host const window{settings.render.window_width, settings.render.window_height,
+                                  settings.render.window_title.c_str(), capture.frames == 0};
+
     // 5. Construct deren::vulkan::runtime from the startup render settings (window size / title /
-    //    vsync; the defaults in render_settings mirror the historic hardcoded values)
-    deren::vulkan::core_create_info core_options = {};
+    //    vsync; the defaults in render_settings mirror the historic hardcoded values).
+    //    THE TYPE IS THE RHI CONTRACT'S, and it is the ONLY creation structure there is: the program
+    //    fills `deren::promise::rhi::create_info` (promise/rhi/rhi.core_desc.cppm) and hands it to the
+    //    runtime, whose constructor passes it straight to the core and - once the flip lands - is the
+    //    same structure `deren_make_api_core()` receives. There is no backend-side twin to translate
+    //    into, so a new field is added in exactly one place.
+    deren::promise::rhi::create_info core_options = {};
     core_options.window_width = settings.render.window_width;
     core_options.window_height = settings.render.window_height;
-    core_options.window_title = settings.render.window_title;
+    // the title is a BORROWED `char const*` (a std::string cannot cross the boundary): it has to outlive the
+    // core's construction. `settings` is a reference to `config.settings`, which lives to the end of main, so
+    // this `.c_str()` is valid for the whole run - and it must never be a TEMPORARY's `.c_str()`, whose text
+    // would be gone by the time the core reads it.
+    core_options.window_title = settings.render.window_title.c_str();
     core_options.vsync = settings.render.vsync;
     core_options.validation_layers = settings.render.validation_layers;
     // the render scale is a CREATION option and not a runtime setter, because it decides the extent every
-    // render target is created with (see core_create_info::render_scale): it has to be in the options the
+    // render target is created with (see create_info::render_scale): it has to be in the options the
     // core is constructed from, and it applies from the first frame.
     core_options.render_scale = settings.render.render_scale;
     // ---- A SCRIPTED CAPTURE GETS NO WINDOW, which is the one place a human would have seen one. The
@@ -455,6 +532,14 @@ int main(int argc, char** argv) {
     //      recorded A/B anchors are byte-identical with this line and without it, which is the measurement
     //      behind the claim. The interactive path (`capture.frames == 0`) is untouched: a normal window.
     core_options.window_visible = capture.frames == 0;
+    // ---- AND THE WINDOW IS HANDED OVER HERE: the pointer the application created above (and keeps alive for
+    //      the whole run) selects the core's caller-window branch - it binds to that window, creates none of
+    //      its own and destroys none, so the window is still there when the runtime (and its surface) goes
+    //      down. `window_visible` above is now redundant for THIS path (a caller's window is bound as-is),
+    //      but it is still filled because the contract carries the field and the fallback path - no window
+    //      handed over - reads it; the visibility this run actually gets is the `GLFW_VISIBLE` hint on the
+    //      window created above.
+    core_options.native_window = window.window;
     deren::vulkan::runtime runtime{core_options};
     runtime.background_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
     // shadow is applied after enable_shadows() below (it needs the shadow maps to exist)

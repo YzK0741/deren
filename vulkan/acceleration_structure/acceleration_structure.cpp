@@ -17,6 +17,46 @@ module deren.vulkan.acceleration_structure;
 import deren.utility;
 
 namespace deren::vulkan::acceleration_structure {
+    namespace rhi = deren::promise::rhi;
+
+    namespace {
+        /// The contract's view of the device, and the reason EVERY factory and ability call in this file
+        /// goes through one of these helpers. `core` implements `api_core`, so a call written on the
+        /// CONCRETE `core&` compiles to a direct call and emits an undefined reference to
+        /// `core::create_buffer` / `core::query_extension` in the engine half - which JOINS the
+        /// backend-boundary worklist this migration is measured by. Through the contract's interface the
+        /// call is virtual and emits no symbol at all.
+        rhi::api_core& contract_of(core& gpu) {
+            return static_cast<rhi::api_core&>(gpu);
+        }
+
+        /// The escape, obtained from the contract once and then used through ITS pointer.
+        rhi::vulkan_escape* escape_of(core& gpu) {
+            return static_cast<rhi::vulkan_escape*>(contract_of(gpu).query_extension(rhi::extension_kind::vulkan_escape));
+        }
+
+        /// ... and the address ability the same way (`device_address` is its own tier-2 ability).
+        rhi::device_address* address_of(core& gpu) {
+            return static_cast<rhi::device_address*>(contract_of(gpu).query_extension(rhi::extension_kind::device_address));
+        }
+
+        /// The borrowed VkBuffer behind a contract buffer; null when the buffer carries none.
+        VkBuffer native_buffer_of(core& gpu, rhi::buffer const& buffer) {
+            auto* const escape = escape_of(gpu);
+            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
+        }
+
+        /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
+        /// the address could not be answered (the flag was not set, or the ability is not announced).
+        VkDeviceAddress buffer_address_of(core& gpu, rhi::buffer const& buffer) {
+            auto* const addresses = address_of(gpu);
+            return addresses == nullptr ? 0 : static_cast<VkDeviceAddress>(addresses->buffer_address(buffer, 0));
+        }
+
+        /// The memory intent + capability flags a device address is asked through: what the renderer's
+        /// own `build_input_usage` carries, as the contract's two names for it.
+        constexpr rhi::buffer_flags device_address_flag = rhi::to_bits(rhi::buffer_flag::device_address);
+    } // namespace
     namespace {
         /// round @p value up to the next multiple of @p alignment (a power of two, as Vulkan requires)
         constexpr VkDeviceSize align_up(VkDeviceSize const value, VkDeviceSize const alignment) noexcept {
@@ -70,9 +110,9 @@ namespace deren::vulkan::acceleration_structure {
     }
 
     bottom_level_structures::~bottom_level_structures() {
-        // The structures are destroyed before their storage buffers are released (the vk_buffer owners
-        // below free the memory): vkDestroyAccelerationStructureKHR only drops the handle, but a
-        // structure whose memory is gone is not something to leave to member-destruction order.
+        // The structures are destroyed before their storage buffers are released (the contract owners
+        // below drop their reference when the entries die): vkDestroyAccelerationStructureKHR only drops
+        // the handle, but a structure whose memory is gone is not something to leave to member-destruction order.
         for (entry const& item : this->entries) {
             if (item.handle != VK_NULL_HANDLE && this->gpu != nullptr && this->functions != nullptr && this->functions->loaded()) {
                 this->functions->destroy(this->gpu->logical_device, item.handle, nullptr);
@@ -173,18 +213,19 @@ namespace deren::vulkan::acceleration_structure {
             return std::unexpected(std::string("acceleration structure: the device reported a zero-sized bottom level structure"));
         }
 
-        item.storage = vk.vma.create_buffer(nullptr, sizes.accelerationStructureSize, buffer_type::acceleration_structure_storage);
-        if (!item.storage.valid()) {
+        item.storage = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+            rhi::buffer_desc{.size = sizes.accelerationStructureSize, .usage = rhi::buffer_usage::acceleration_structure_storage})};
+        if (!item.storage) {
             return std::unexpected(std::string("acceleration structure: the bottom level storage allocation failed"));
         }
-        auto const* const storage_detail = vk.vma.get_buffer_detail(item.storage.handle());
-        if (storage_detail == nullptr) {
-            return std::unexpected(std::string("acceleration structure: the bottom level storage has no VMA detail"));
+        VkBuffer const storage_native = native_buffer_of(vk, *item.storage);
+        if (storage_native == VK_NULL_HANDLE) {
+            return std::unexpected(std::string("acceleration structure: the bottom level storage has no native buffer"));
         }
 
         VkAccelerationStructureCreateInfoKHR create = {};
         create.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-        create.buffer = storage_detail->buffer;
+        create.buffer = storage_native;
         create.offset = 0;
         create.size = sizes.accelerationStructureSize;
         create.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
@@ -222,16 +263,15 @@ namespace deren::vulkan::acceleration_structure {
         for (entry& item : this->entries) {
             total += item.scratch_size + alignment;
         }
-        this->scratch = vk.vma.create_buffer(nullptr, total, buffer_type::acceleration_structure_scratch);
-        if (!this->scratch.valid()) {
+        this->scratch = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+            rhi::buffer_desc{.size = total, .usage = rhi::buffer_usage::acceleration_structure_scratch, .flags = device_address_flag})};
+        if (!this->scratch) {
             return std::unexpected(std::string("acceleration structure: the scratch allocation failed"));
         }
-        auto const* const scratch_detail = vk.vma.get_buffer_detail(this->scratch.handle());
-        if (scratch_detail == nullptr) {
-            return std::unexpected(std::string("acceleration structure: the scratch buffer has no VMA detail"));
+        VkDeviceAddress const scratch_base = buffer_address_of(vk, *this->scratch);
+        if (scratch_base == 0) {
+            return std::unexpected(std::string("acceleration structure: the scratch buffer has no device address"));
         }
-        VkBufferDeviceAddressInfo const scratch_address_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = scratch_detail->buffer};
-        VkDeviceAddress const scratch_base = vkGetBufferDeviceAddress(vk.logical_device, &scratch_address_info);
 
         this->build_infos.clear();
         this->range_ptrs.clear();
@@ -400,21 +440,22 @@ namespace deren::vulkan::acceleration_structure {
             if (wanted > vk.acceleration_structure_properties.maxInstanceCount) {
                 return std::unexpected(std::string("acceleration structures: the scene has more instances than the device allows in one top level structure"));
             }
-            target.instances = vk.vma.create_buffer(nullptr, static_cast<uint64_t>(wanted) * sizeof(VkAccelerationStructureInstanceKHR), buffer_type::storage_coherent, build_input_usage);
-            target.records = vk.vma.create_buffer(nullptr, static_cast<uint64_t>(wanted) * sizeof(instance_record), buffer_type::storage_coherent, build_input_usage);
-            if (!target.instances.valid() || !target.records.valid()) {
+            // The two arrays are HOST-VISIBLE and coherent (the caller fills them through add()), and they
+            // carry a device address + the acceleration-structure build-input capability - the pair the
+            // renderer's own geometry buffers are uploaded with, so a build can read them directly.
+            constexpr rhi::buffer_flags instance_flags = device_address_flag | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
+            target.instances = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+                rhi::buffer_desc{.size = static_cast<uint64_t>(wanted) * sizeof(VkAccelerationStructureInstanceKHR),
+                                 .usage = rhi::buffer_usage::storage_coherent,
+                                 .flags = instance_flags})};
+            target.records = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+                rhi::buffer_desc{.size = static_cast<uint64_t>(wanted) * sizeof(instance_record),
+                                 .usage = rhi::buffer_usage::storage_coherent,
+                                 .flags = instance_flags})};
+            if (!target.instances || !target.records) {
                 return std::unexpected(std::string("acceleration structures: the instance buffers could not be allocated"));
             }
-            auto const* const instance_detail = vk.vma.get_buffer_detail(target.instances.handle());
-            auto const* const record_detail = vk.vma.get_buffer_detail(target.records.handle());
-            if (instance_detail == nullptr || record_detail == nullptr) {
-                return std::unexpected(std::string("acceleration structures: the instance buffers have no VMA detail"));
-            }
-            target.instances_buffer = instance_detail->buffer;
-            target.instances_mapped = instance_detail->allocation_info.pMappedData;
-            target.records_buffer = record_detail->buffer;
-            target.records_mapped = record_detail->allocation_info.pMappedData;
-            if (target.instances_mapped == nullptr || target.records_mapped == nullptr) {
+            if (target.instances->mapped().data() == nullptr || target.records->mapped().data() == nullptr) {
                 return std::unexpected(std::string("acceleration structures: the instance buffers are not mapped"));
             }
 
@@ -444,17 +485,18 @@ namespace deren::vulkan::acceleration_structure {
             if (sizes.accelerationStructureSize == 0) {
                 return std::unexpected(std::string("acceleration structures: the device reported a zero-sized top level structure"));
             }
-            target.storage = vk.vma.create_buffer(nullptr, sizes.accelerationStructureSize, buffer_type::acceleration_structure_storage);
-            if (!target.storage.valid()) {
+            target.storage = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+                rhi::buffer_desc{.size = sizes.accelerationStructureSize, .usage = rhi::buffer_usage::acceleration_structure_storage})};
+            if (!target.storage) {
                 return std::unexpected(std::string("acceleration structures: the top level storage allocation failed"));
             }
-            auto const* const storage_detail = vk.vma.get_buffer_detail(target.storage.handle());
-            if (storage_detail == nullptr) {
-                return std::unexpected(std::string("acceleration structures: the top level storage has no VMA detail"));
+            VkBuffer const top_storage_native = native_buffer_of(vk, *target.storage);
+            if (top_storage_native == VK_NULL_HANDLE) {
+                return std::unexpected(std::string("acceleration structures: the top level storage has no native buffer"));
             }
             VkAccelerationStructureCreateInfoKHR create = {};
             create.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-            create.buffer = storage_detail->buffer;
+            create.buffer = top_storage_native;
             create.offset = 0;
             create.size = sizes.accelerationStructureSize;
             create.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
@@ -484,10 +526,10 @@ namespace deren::vulkan::acceleration_structure {
         instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
         instance.accelerationStructureReference = this->functions->get_device_address(vk.logical_device, &address_info);
 
-        std::memcpy(static_cast<uint8_t*>(target.instances_mapped) + static_cast<std::size_t>(target.count) * sizeof(VkAccelerationStructureInstanceKHR),
+        std::memcpy(target.instances->mapped().data() + static_cast<std::size_t>(target.count) * sizeof(VkAccelerationStructureInstanceKHR),
                     &instance,
                     sizeof(instance));
-        std::memcpy(static_cast<uint8_t*>(target.records_mapped) + static_cast<std::size_t>(target.count) * sizeof(instance_record),
+        std::memcpy(target.records->mapped().data() + static_cast<std::size_t>(target.count) * sizeof(instance_record),
                     &source.record,
                     sizeof(source.record));
         target.count += 1;
@@ -502,10 +544,7 @@ namespace deren::vulkan::acceleration_structure {
             return {}; // an empty scene has an empty top level structure, and nothing to trace against
         }
 
-        VkDeviceAddress const instances_address = [&] {
-            VkBufferDeviceAddressInfo const info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = target.instances_buffer};
-            return vkGetBufferDeviceAddress(vk.logical_device, &info);
-        }();
+        VkDeviceAddress const instances_address = buffer_address_of(vk, *target.instances);
 
         VkDeviceSize const alignment = std::max<VkDeviceSize>(vk.acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1);
         target.scratch_size = 0;
@@ -532,19 +571,21 @@ namespace deren::vulkan::acceleration_structure {
         // One scratch buffer per slot, sized for the count actually being built. It is allocated on the
         // FIRST build of a slot and kept: the count is culled per frame and drifts, but a buffer sized
         // for the largest count seen is what a build of any smaller count needs.
-        if (!target.scratch.valid() || target.scratch_size < sizes.buildScratchSize) {
-            target.scratch = vk.vma.create_buffer(nullptr, sizes.buildScratchSize + alignment, buffer_type::acceleration_structure_scratch);
-            if (!target.scratch.valid()) {
+        if (!target.scratch || target.scratch_size < sizes.buildScratchSize) {
+            target.scratch = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+                rhi::buffer_desc{.size = sizes.buildScratchSize + alignment,
+                                 .usage = rhi::buffer_usage::acceleration_structure_scratch,
+                                 .flags = device_address_flag})};
+            if (!target.scratch) {
                 return std::unexpected(std::string("acceleration structures: the top level scratch allocation failed"));
             }
         }
         target.scratch_size = sizes.buildScratchSize + alignment;
-        auto const* const scratch_detail = vk.vma.get_buffer_detail(target.scratch.handle());
-        if (scratch_detail == nullptr) {
-            return std::unexpected(std::string("acceleration structures: the top level scratch has no VMA detail"));
+        VkDeviceAddress const scratch_base = buffer_address_of(vk, *target.scratch);
+        if (scratch_base == 0) {
+            return std::unexpected(std::string("acceleration structures: the top level scratch has no device address"));
         }
-        VkBufferDeviceAddressInfo const scratch_info = {.sType = VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO, .pNext = nullptr, .buffer = scratch_detail->buffer};
-        info.scratchData.deviceAddress = align_up(vkGetBufferDeviceAddress(vk.logical_device, &scratch_info), alignment);
+        info.scratchData.deviceAddress = align_up(scratch_base, alignment);
 
         VkAccelerationStructureBuildRangeInfoKHR range = {};
         range.primitiveCount = target.count;
@@ -555,5 +596,31 @@ namespace deren::vulkan::acceleration_structure {
         this->stats.scratch_bytes = target.scratch_size;
         this->stats.build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return {};
+    }
+
+    VkBuffer top_level_structure::instance_table(uint32_t const frame_slot) const noexcept {
+        // The slot holds a CONTRACT buffer, so the native handle is asked of the escape - borrowed, and
+        // valid while the slot's owner holds its reference (the descriptor heap writes a range over this
+        // buffer, so it must not outlive the slot).
+        if (this->gpu == nullptr || frame_slot >= this->slots.size()) {
+            return VK_NULL_HANDLE;
+        }
+        slot const& target = this->slots[frame_slot];
+        return target.records ? native_buffer_of(*this->gpu, *target.records) : VK_NULL_HANDLE;
+    }
+
+    rhi::buffer const* top_level_structure::instance_table_buffer(uint32_t const frame_slot) const noexcept {
+        // THE SAME SLOT, ANSWERED AS THE CONTRACT HELPER RATHER THAN AS A NARROWED HANDLE, so the caller that
+        // needs the buffer's device address asks this backend's `device_address` ability for it instead of
+        // calling vkGetBufferDeviceAddress on a handle it had to obtain from the escape itself.
+        //
+        // BORROWED, AND THE SLOT OWNS THE REFERENCE: the pointer is valid for as long as this slot holds the
+        // buffer - `add()` replaces it only while GROWING the capacity, which happens before the build of the
+        // frame that uses it, and never releases a slot's buffer while a frame could still read it.
+        if (frame_slot >= this->slots.size()) {
+            return nullptr;
+        }
+        slot const& target = this->slots[frame_slot];
+        return target.records ? target.records.get() : nullptr;
     }
 } // namespace deren::vulkan::acceleration_structure
