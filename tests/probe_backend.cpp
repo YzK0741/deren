@@ -18,8 +18,9 @@
 //
 // What the probe implements, and why it is this small:
 //
-//   - `api_core::abilities()` announces device_address | descriptor_heap, and
-//     `query_extension()` answers those two and returns nullptr for anything else.
+//   - `api_core::abilities()` announces device_address, and
+//     `query_extension()` answers it and returns nullptr for anything else.
+//     ABI12 removed the old inert descriptor_heap: this probe has no recording domain.
 //     That pair is what the plan's "named failure, no silent downgrade" rests on
 //     (§1.9, §3.6): an engine that asks for ray_tracing gets a null, not a stub.
 //   - The factories return nullptr except `create_buffer()`: a probe has no device,
@@ -91,9 +92,6 @@ namespace {
     /// IT HAS ONE METHOD (buffer addresses) since abi 5: the acceleration-structure half moved to
     /// `ray_tracing`, which is the only ability that can hand out that operand.
     struct probe_device_address final : rhi::device_address {
-        [[nodiscard]] rhi::extension_kind kind() const noexcept override {
-            return rhi::extension_kind::device_address;
-        }
 
         [[nodiscard]] std::uint64_t buffer_address(rhi::buffer const& resource, std::uint64_t offset) const noexcept override {
             return address_base + resource.size() + offset;
@@ -102,31 +100,17 @@ namespace {
         static constexpr std::uint64_t address_base = 0x1000ull;
     };
 
-    /// descriptor_heap, announced but inert: recording into a command list needs a
-    /// device, and the probe's `begin_commands()` returns nullptr.
-    struct probe_descriptor_heap final : rhi::descriptor_heap {
-        [[nodiscard]] rhi::extension_kind kind() const noexcept override {
-            return rhi::extension_kind::descriptor_heap;
-        }
-
-        void push_data(rhi::command_list&, std::span<std::byte const>) override {
-        }
-    };
-
     /// The probe's api_core. `final` so that a missing override is a compile error
     /// rather than an inherited pure virtual in an abstract class nobody notices.
     struct impl final : rhi::api_core {
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
-            return rhi::to_bits(rhi::extension_kind::device_address) |
-                   rhi::to_bits(rhi::extension_kind::descriptor_heap);
+            return rhi::to_bits(rhi::extension_kind::device_address);
         }
 
         [[nodiscard]] rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
             switch (kind) {
             case rhi::extension_kind::device_address:
                 return &this->address;
-            case rhi::extension_kind::descriptor_heap:
-                return &this->heap;
             default:
                 return nullptr; // not announced, so not available (§3.6)
             }
@@ -196,7 +180,6 @@ namespace {
 
         probe_buffer buffer{};
         probe_device_address address{};
-        probe_descriptor_heap heap{};
         std::uint32_t frames_handed_out = 7; // deliberately not 0: a default would hide a lost write
         /// the creation descriptor's `window_width`, carried in by deren_make_api_core and echoed out
         /// of frame_begin(); 0 would be an impl nobody filled, which the test's non-zero fill catches

@@ -16,12 +16,14 @@
 // promise/rhi/backend_entry.hpp, rather than again here.
 #include "vk_test.h"
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <memory>
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 
 import deren.promise.rhi;
@@ -34,6 +36,50 @@ namespace {
 
     namespace fs = std::filesystem;
     namespace rhi = deren::promise::rhi;
+
+    // 推送常量的地址与长度都以4字节为单位；越界检查必须避免加法溢出。
+    static_assert(rhi::validate_heap_push_range(0u, 4u, 4u) == rhi::error::ok);
+    static_assert(rhi::validate_heap_push_range(4u, 4u, 8u) == rhi::error::ok);
+    static_assert(rhi::validate_heap_push_range(1u, 4u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_heap_push_range(0u, 1u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_heap_push_range(0u, 0u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_heap_push_range(4u, 8u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_heap_push_range(12u, 4u, 8u) == rhi::error::invalid_argument);
+    static_assert(rhi::validate_heap_push_range(4u, UINT64_MAX - 3u, 8u) == rhi::error::invalid_argument);
+
+    // ABI 参数误标、截断及未知扩展必须被拒绝；这些用例在编译时执行，不需要GPU。
+    static_assert(rhi::validate_structure(rhi::heap_buffer_write_info{}.header, rhi::structure_type::heap_buffer_write,
+                                          sizeof(rhi::heap_buffer_write_info)) == rhi::error::ok);
+    static_assert([] {
+        auto info = rhi::heap_buffer_write_info{};
+        info.header.s_type = rhi::structure_type::heap_push;
+        return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::invalid_argument;
+    }());
+    static_assert([] {
+        auto info = rhi::heap_buffer_write_info{};
+        info.header.struct_size = sizeof(rhi::structure_header) - 1u;
+        return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::invalid_argument;
+    }());
+    static_assert([] {
+        auto info = rhi::heap_buffer_write_info{};
+        rhi::structure_header extra{};
+        info.header.next = &extra;
+        return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::unsupported;
+    }());
+    static_assert(rhi::buffer::interface_id != rhi::image::interface_id);
+    static_assert(rhi::extension_interface_type(rhi::extension_kind::descriptor_heap) == rhi::descriptor_heap::interface_id);
+    static_assert(std::is_standard_layout_v<rhi::vulkan_heap_image_info> && offsetof(rhi::vulkan_heap_image_info, header) == 0);
+    static_assert(std::is_standard_layout_v<rhi::vulkan_command_buffer_info> && offsetof(rhi::vulkan_command_buffer_info, header) == 0);
+    static_assert([] {
+        auto info = rhi::heap_buffer_write_info{};
+        info.header.struct_size = sizeof(info) - 1u;
+        return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::invalid_argument;
+    }());
+    static_assert([] {
+        auto info = rhi::heap_buffer_write_info{};
+        info.header.struct_size += 64u;
+        return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::ok;
+    }());
 
     // From CMake ($<TARGET_FILE_NAME:probe_backend>): the DLL suffix is platform-dependent, so the
     // test does not hard-code it.
@@ -75,8 +121,8 @@ namespace {
         // the owned `image_view` interface and the image/sampler descriptors became defined types,
         // and `vulkan_escape` grew the image/sampler native-handle borrows.
         // plan §10.3 measured the mechanism; this line is the number itself.
-        // ABI9/10 added heap queries/writes; ABI11 adds native recording. Older DLLs must be refused.
-        CHECK(rhi::abi_version == 11u);
+        // ABI12 adds object identity and moves heap services into tagged descriptor_heap requests.
+        CHECK(rhi::abi_version == 12u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -117,6 +163,7 @@ namespace {
         if (core == nullptr) {
             return;
         }
+        CHECK(core->type() == rhi::api_core::interface_id);
 
         // Ownership is real: the deleter the engine installed is the backend's own (for the DLL
         // half, the pointer resolved out of that DLL), the count is observable, and copying the
@@ -129,12 +176,11 @@ namespace {
         CHECK(core.use_count() == 1);
 
         // ---- tier-2: what the backend says it can do, and what it hands over ---------------
-        // The probe announces exactly two abilities. What matters here is the shape of the answer:
+        // The probe announces only its working address ability. What matters here is the shape of the answer:
         // a bit set (not an ordered enum), no bit outside the known set, and every announced
         // ability reachable through `query_extension()` with the kind it claims.
         rhi::ability_bits const abilities = core->abilities();
-        CHECK_MSG(abilities == (rhi::to_bits(rhi::extension_kind::device_address) |
-                                rhi::to_bits(rhi::extension_kind::descriptor_heap)),
+        CHECK_MSG(abilities == rhi::to_bits(rhi::extension_kind::device_address),
                   which_half);
         CHECK((abilities & ~rhi::all_abilities()) == rhi::no_abilities);
 
@@ -150,6 +196,7 @@ namespace {
                 CHECK_MSG(ability != nullptr, which_half);
                 if (ability != nullptr) {
                     CHECK(ability->kind() == kind);
+                    CHECK(ability->type() == rhi::extension_interface_type(kind));
                 }
             } else {
                 CHECK_MSG(ability == nullptr, which_half);
@@ -161,6 +208,8 @@ namespace {
         // asked for this kind, so the downcast below is a static_cast and not a dynamic_cast (-fno-rtti).
         // The traversal above already checked that an announced bit answers with a matching object.
         rhi::extension* const address_ability = core->query_extension(rhi::extension_kind::device_address);
+        CHECK(rhi::query_extension<rhi::device_address>(*core) == address_ability);
+        CHECK(rhi::query_extension<rhi::descriptor_heap>(*core) == nullptr);
 
         // The descriptor is a POD that crosses the boundary by value; the answer is a polymorphic
         // handle the caller can only see through the base. The other factories take descriptors
@@ -169,6 +218,7 @@ namespace {
         rhi::buffer* const buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
         CHECK(buffer != nullptr);
         if (buffer != nullptr) {
+            CHECK(buffer->type() == rhi::buffer::interface_id);
             CHECK(buffer->size() == 64u);
             if (address_ability != nullptr) {
                 // -fno-rtti: the caller knows what it asked for, so the downcast is a static_cast

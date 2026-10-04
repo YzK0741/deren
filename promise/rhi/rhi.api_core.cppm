@@ -11,8 +11,9 @@
 // the ABI surface rather than a virtual base class (m03159). Everything below
 // follows from the cross-boundary rules in §4.2:
 //
-//   - every member is virtual, the destructor is `virtual ... noexcept`, and there
-//     is no data member and no non-inline definition: the vtable is the boundary,
+//   - operations are virtual, the destructor is `virtual ... noexcept`, and the
+//     common object root carries only a sealed interface identity (ABI12). No owning
+//     data or non-inline definition crosses this interface: the vtable is the boundary,
 //     and destruction has to reach the backend's own `operator delete`;
 //   - an OWNED handle carries ONE REFERENCE, dropped by `release()`, once, inside the
 //     backend; `object_manager<T>` is the owner spelling of that call (RAII, move-only).
@@ -240,7 +241,11 @@ export namespace deren::promise::rhi {
     // ----------------------------------------------------------------------------------------------
 
     /// A buffer, owned by the backend and released by the caller through `release()`.
-    struct buffer {
+    struct buffer : object {
+        static constexpr interface_type interface_id = interface_type::buffer;
+        buffer() noexcept
+            : object(interface_id) {
+        }
         virtual ~buffer() noexcept = default;
 
         /// RELEASE THE CALLER'S ONE REFERENCE. Runs inside the backend, whatever the compiler's `delete`
@@ -279,7 +284,11 @@ export namespace deren::promise::rhi {
     };
 
     /// An image, owned by the backend and released by the caller through `release()`.
-    struct image {
+    struct image : object {
+        static constexpr interface_type interface_id = interface_type::image;
+        image() noexcept
+            : object(interface_id) {
+        }
         virtual ~image() noexcept = default;
 
         /// see `buffer::release()`: drops one reference inside the backend; the object may survive
@@ -304,7 +313,11 @@ export namespace deren::promise::rhi {
     /// A view of an image, owned by the backend: the contract's substitute for a raw `VkImageView`.
     /// The image it was made from keeps its own reference; releasing the view does not release the
     /// image. The raw handle travels through `vulkan_escape::native_image_view()`.
-    struct image_view {
+    struct image_view : object {
+        static constexpr interface_type interface_id = interface_type::image_view;
+        image_view() noexcept
+            : object(interface_id) {
+        }
         virtual ~image_view() noexcept = default;
         /// see `buffer::release()`; this drops the VIEW, never the image behind it
         virtual void release() noexcept = 0;
@@ -441,31 +454,51 @@ export namespace deren::promise::rhi {
     /// decision. What they carry today is ownership: destroying one through this base
     /// has to reach the backend's destructor, which is the property the boundary rests
     /// on.
-    struct sampler {
+    struct sampler : object {
+        static constexpr interface_type interface_id = interface_type::sampler;
+        sampler() noexcept
+            : object(interface_id) {
+        }
         virtual ~sampler() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
     };
 
-    struct shader {
+    struct shader : object {
+        static constexpr interface_type interface_id = interface_type::shader;
+        shader() noexcept
+            : object(interface_id) {
+        }
         virtual ~shader() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
     };
 
-    struct pipeline {
+    struct pipeline : object {
+        static constexpr interface_type interface_id = interface_type::pipeline;
+        pipeline() noexcept
+            : object(interface_id) {
+        }
         virtual ~pipeline() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
     };
 
-    struct swapchain {
+    struct swapchain : object {
+        static constexpr interface_type interface_id = interface_type::swapchain;
+        swapchain() noexcept
+            : object(interface_id) {
+        }
         virtual ~swapchain() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
     };
 
-    struct query {
+    struct query : object {
+        static constexpr interface_type interface_id = interface_type::query;
+        query() noexcept
+            : object(interface_id) {
+        }
         virtual ~query() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
@@ -571,7 +604,11 @@ export namespace deren::promise::rhi {
         object* owned_ = nullptr;
     };
 
-    struct command_list {
+    struct command_list : object {
+        static constexpr interface_type interface_id = interface_type::command_list;
+        command_list() noexcept
+            : object(interface_id) {
+        }
         virtual ~command_list() noexcept = default;
 
         /// Declare that `resource` moves from one role to the other, and let the backend record what that
@@ -618,7 +655,11 @@ export namespace deren::promise::rhi {
     /// the engine's `std::shared_ptr`. It is deliberately allowed to grow (it is the one
     /// interface the plan lets be "big"), and deliberately not allowed to learn engine
     /// concepts (§4.1 item 2).
-    struct api_core {
+    struct api_core : object {
+        static constexpr interface_type interface_id = interface_type::api_core;
+        api_core() noexcept
+            : object(interface_id) {
+        }
         virtual ~api_core() noexcept = default;
 
         /// tier-2: the abilities this backend SERVES THROUGH THIS CONTRACT, as `extension_kind`
@@ -702,5 +743,15 @@ export namespace deren::promise::rhi {
         /// Block until nothing is in flight.
         virtual void wait_idle() = 0;
     };
+
+    /// 在已完成ABI握手的有效对象上检查扩展身份；不能验证悬空指针或不可信后端。
+    template <typename ability>
+    [[nodiscard]] ability* query_extension(api_core& core) noexcept {
+        extension* const result = core.query_extension(ability::extension_id);
+        if (result == nullptr || result->kind() != ability::extension_id || result->type() != ability::interface_id) {
+            return nullptr;
+        }
+        return static_cast<ability*>(result);
+    }
 
 } // namespace deren::promise::rhi

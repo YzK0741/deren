@@ -164,6 +164,9 @@ namespace deren::vulkan {
     /// spelling. `unknown` for anything the contract does not name - create_image refuses those.
     // 独立定义在 constructor 分区，避免调用点优化成具体 core 的 query_extension 符号。
     [[nodiscard]] bool contract_heap_ready(rhi::api_core& face) noexcept;
+    [[nodiscard]] rhi::descriptor_heap_properties contract_heap_properties(rhi::api_core& face) noexcept;
+    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, rhi::image const& resource,
+                                                 rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept;
     [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, VkImageViewCreateInfo const& view,
                                                  VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
     [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, VkDeviceAddress address,

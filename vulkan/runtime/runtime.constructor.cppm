@@ -128,8 +128,49 @@ namespace deren::vulkan {
     }
 
     bool contract_heap_ready(rhi::api_core& face) noexcept {
-        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        return escape != nullptr && escape->heap_ready();
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        return heap != nullptr && heap->ready();
+    }
+
+    rhi::descriptor_heap_properties contract_heap_properties(rhi::api_core& face) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        return heap != nullptr ? heap->properties() : rhi::descriptor_heap_properties{};
+    }
+
+    namespace {
+        [[nodiscard]] constexpr rhi::descriptor_type contract_descriptor_type(VkDescriptorType const type) noexcept {
+            switch (type) {
+            case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                return rhi::descriptor_type::sampled_image;
+            case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                return rhi::descriptor_type::storage_image;
+            case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                return rhi::descriptor_type::combined_image_sampler;
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                return rhi::descriptor_type::uniform_buffer;
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                return rhi::descriptor_type::storage_buffer;
+            case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
+                return rhi::descriptor_type::acceleration_structure;
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+                return rhi::descriptor_type::uniform_buffer_dynamic;
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+                return rhi::descriptor_type::storage_buffer_dynamic;
+            default:
+                return static_cast<rhi::descriptor_type>(UINT32_MAX);
+            }
+        }
+    } // namespace
+
+    bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize const offset, rhi::image const& resource,
+                                   rhi::image_view_desc const& view, rhi::descriptor_type const type) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        rhi::heap_image_write_info info{};
+        info.offset = offset;
+        info.resource = &resource;
+        info.view = &view;
+        info.type = type;
+        return heap != nullptr && heap->write_image(info) == rhi::error::ok;
     }
 
     bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize const offset, VkImageViewCreateInfo const& view,
@@ -138,8 +179,8 @@ namespace deren::vulkan {
         if (view.sType != VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO || view.pNext != nullptr) {
             return false;
         }
-        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        if (escape == nullptr) {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        if (heap == nullptr || view.sType != VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO || view.pNext != nullptr) {
             return false;
         }
         rhi::vulkan_heap_image_desc const desc{
@@ -155,26 +196,43 @@ namespace deren::vulkan {
             .base_layer = view.subresourceRange.baseArrayLayer,
             .layer_count = view.subresourceRange.layerCount,
         };
-        return escape->write_heap_image(offset, desc, static_cast<std::uint32_t>(layout), static_cast<std::uint32_t>(type));
+        rhi::vulkan_heap_image_info native{};
+        native.view = desc;
+        native.layout = static_cast<std::uint32_t>(layout);
+        native.context = &face;
+        rhi::heap_image_write_info info{};
+        info.header.next = &native.header;
+        info.offset = offset;
+        info.type = contract_descriptor_type(type);
+        return heap->write_image(info) == rhi::error::ok;
     }
 
     bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize const offset, VkDeviceAddress const address,
                                     VkDeviceSize const size, VkDescriptorType const type) noexcept {
-        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        return escape != nullptr && escape->write_heap_buffer(offset, address, size, static_cast<std::uint32_t>(type));
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        rhi::heap_buffer_write_info info{};
+        info.offset = offset;
+        info.address = address;
+        info.size = size;
+        info.type = contract_descriptor_type(type);
+        return heap != nullptr && heap->write_buffer(info) == rhi::error::ok;
     }
 
     void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer const commands) noexcept {
-        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        if (escape != nullptr) {
-            // 原录制 API 返回 void；保留调用方行为，能力本身仍返回真实结果供后续错误传播使用。
-            [[maybe_unused]] bool const bound = escape->bind_heaps(static_cast<void*>(commands));
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        if (heap != nullptr) {
+            rhi::vulkan_command_buffer_info native{};
+            native.commands = static_cast<void*>(commands);
+            native.context = &face;
+            rhi::heap_bind_info info{};
+            info.header.next = &native.header;
+            [[maybe_unused]] rhi::error const result = heap->bind(info);
         }
     }
 
     void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept {
-        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        rhi::vulkan_heap_bindings const bindings = escape != nullptr ? escape->heap_bindings() : rhi::vulkan_heap_bindings{};
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        rhi::heap_bindings const bindings = heap != nullptr ? heap->bindings() : rhi::heap_bindings{};
         // 二级命令缓冲的继承信息仍在原来的录制点构造，逐字段保留两个 heap 的范围。
         resource = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
                     .pNext = nullptr,
@@ -190,8 +248,17 @@ namespace deren::vulkan {
 
     bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer const commands, std::uint32_t const offset,
                                  std::span<std::byte const> const data) noexcept {
-        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        return escape != nullptr && escape->push_heap_data(static_cast<void*>(commands), offset, data);
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        if (heap == nullptr)
+            return false;
+        rhi::vulkan_command_buffer_info native{};
+        native.commands = static_cast<void*>(commands);
+        native.context = &face;
+        rhi::heap_push_info info{};
+        info.header.next = &native.header;
+        info.offset = offset;
+        info.data = data;
+        return heap->push_data(info) == rhi::error::ok;
     }
 
     rhi::api_core& runtime::rhi_face() const noexcept {
@@ -203,7 +270,7 @@ namespace deren::vulkan {
     rhi::vulkan_escape& runtime::escape() noexcept {
         // query_extension is a CONTRACT virtual: this call emits no backend symbol no matter which
         // side of the boundary the object lives on.
-        return *static_cast<rhi::vulkan_escape*>(this->vulkan_core.query_extension(rhi::extension_kind::vulkan_escape));
+        return *rhi::query_extension<rhi::vulkan_escape>(this->rhi_face());
     }
 
     // THE ONE CREATION CONSTRUCTOR: the contract's structure goes straight to `core`, so the runtime
@@ -1259,9 +1326,6 @@ namespace deren::vulkan {
             range.mip_count = 0;
             return rhi::object_manager<rhi::image_view>{image.make_view(range)};
         };
-        auto const native_of = [this](rhi::image& image) -> VkImage {
-            return static_cast<VkImage>(this->escape().native_image(image));
-        };
 
         // prefiltered environment cubemap (mip chain)
         rhi::object_manager<rhi::image> env_image = upload(info.prefiltered_env, info.env_size, info.env_size, info.env_mip_count, rhi::image_format::r16g16b16a16_sfloat, true, "environment cubemap image");
@@ -1271,7 +1335,7 @@ namespace deren::vulkan {
         // HERE because this is the site that knows the format and the view type, which is what a heap image
         // descriptor is made of. An image whose BINDING is later repointed (the furnace mode) needs a rewrite
         // beside that change - the heap does not follow a view.
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::env_cube, native_of(*this->ibl_images.back()), VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
+        if (!contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(core::heap_slots::env_cube), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
             deren::utility::log("descriptor heap: the environment cube did not reach grid slot {}", core::heap_slots::env_cube);
         }
 
@@ -1279,7 +1343,7 @@ namespace deren::vulkan {
         rhi::object_manager<rhi::image> irr_image = upload(info.irradiance, info.irr_size, info.irr_size, 1u, rhi::image_format::r16g16b16a16_sfloat, true, "irradiance cubemap image");
         this->ibl_images.push_back(std::move(irr_image));
         this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::irradiance_cube, native_of(*this->ibl_images.back()), VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
+        if (!contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(core::heap_slots::irradiance_cube), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
             deren::utility::log("descriptor heap: the irradiance cube did not reach grid slot {}", core::heap_slots::irradiance_cube);
         }
 
@@ -1287,7 +1351,7 @@ namespace deren::vulkan {
         rhi::object_manager<rhi::image> lut_image = upload(info.brdf_lut, info.lut_size, info.lut_size, 1u, rhi::image_format::r16g16_sfloat, false, "BRDF LUT image");
         this->ibl_images.push_back(std::move(lut_image));
         this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::brdf_lut, native_of(*this->ibl_images.back()), VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D)) {
+        if (!contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(core::heap_slots::brdf_lut), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
             deren::utility::log("descriptor heap: the BRDF LUT did not reach grid slot {}", core::heap_slots::brdf_lut);
         }
 
@@ -1602,8 +1666,8 @@ namespace deren::vulkan {
         if (heap_texture_descriptors > 0) {
             deren::utility::log("descriptor heap: {} texture descriptors written ({} B each, {} KiB resource heap)",
                                 heap_texture_descriptors,
-                                this->escape().heap_properties().image_descriptor_size,
-                                this->escape().heap_properties().resource_size / 1024);
+                                contract_heap_properties(this->rhi_face()).image_descriptor_size,
+                                contract_heap_properties(this->rhi_face()).resource_size / 1024);
         }
 
         // ---- 2. Append one material record: texture indices + presence flags; factors keep

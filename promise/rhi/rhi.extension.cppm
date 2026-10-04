@@ -27,7 +27,7 @@
 //   2. Every ability derives from `extension`, whose only virtual is `kind()`.
 //      Adding a sixth ability therefore cannot disturb the vtable of the other
 //      five, and `query_extension()` stays a one-line lookup in the backend.
-//   3. These are pure interfaces: no data member, no non-inline definition, no
+//   3. These interfaces carry only the common immutable identity (ABI12), no owning state, no non-inline definition, no
 //      `std::string`, no exception across the boundary (§4.2). The engine and the
 //      backend each compile this partition; neither exports a module symbol for it.
 //
@@ -64,6 +64,14 @@ export namespace deren::promise::rhi {
     // The tier-1 objects the abilities below take by reference. They are declared by
     // promise/rhi/rhi.api_core.cppm: an ability is a tier-2 view of the same backend, so it
     // speaks about the same objects.
+    struct api_core;
+    struct image_view_desc;
+    struct descriptor_heap_properties;
+    struct heap_bindings;
+    struct heap_image_write_info;
+    struct heap_buffer_write_info;
+    struct heap_bind_info;
+    struct heap_push_info;
     struct buffer;
     struct command_list;
     struct image;
@@ -139,7 +147,13 @@ export namespace deren::promise::rhi {
     /// that ability's type. It does NOT use `dynamic_cast`: the repository builds with
     /// `-fno-rtti`, and it would not be needed anyway - the caller asked for a
     /// specific kind, so it already knows the type (plan §3.3).
-    struct extension {
+    struct extension : object {
+    protected:
+        explicit extension(interface_type const type) noexcept
+            : object(type) {
+        }
+
+    public:
         virtual ~extension() noexcept = default;
         [[nodiscard]] virtual extension_kind kind() const noexcept = 0;
     };
@@ -157,26 +171,49 @@ export namespace deren::promise::rhi {
     /// it hostage to a resource the backend could not yet make. One ability per operand stays honest;
     /// bundling an unreachable operand with a reachable one gets the bit announced never, or wrongly.
     struct device_address : extension {
+        static constexpr interface_type interface_id = interface_type::device_address;
+        static constexpr extension_kind extension_id = extension_kind::device_address;
+        device_address() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
         /// The device address of `resource`, `offset` bytes into it; 0 when the buffer was not created
         /// with `buffer_flag::device_address` (the caller asked for no address, so there is none to give).
         [[nodiscard]] virtual std::uint64_t buffer_address(buffer const& resource, std::uint64_t offset) const noexcept = 0;
     };
 
-    /// tier-2 ability: the bindless descriptor heap (VK_EXT_descriptor_heap).
+    /// 可选的bindless heap服务；使用通用资源/地址/命令语义。原生参数只能显式放在next中。
+    /// 不承诺所有后端支持；广播此能力必须提供可用实现，不能用空操作冒充。
     struct descriptor_heap : extension {
-        /// Append `data` to the heap the recording command list will see.
-        virtual void push_data(command_list& commands, std::span<std::byte const> data) = 0;
-
-        // Plan §5's census counts four more entries for this ability:
-        // write_resource_descriptors (6), write_sampler_descriptors (4),
-        // bind_resource_heap (2) and bind_sampler_heap (2). Their signatures land with
-        // S1, together with the handover shape (docs/descriptor_heap_handover.md); the
-        // names are listed here so this ability is not mistaken for "push_data and
-        // nothing else".
+        static constexpr interface_type interface_id = interface_type::descriptor_heap;
+        static constexpr extension_kind extension_id = extension_kind::descriptor_heap;
+        descriptor_heap() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        [[nodiscard]] virtual bool ready() const noexcept = 0;
+        [[nodiscard]] virtual descriptor_heap_properties properties() const noexcept = 0;
+        [[nodiscard]] virtual heap_bindings bindings() const noexcept = 0;
+        [[nodiscard]] virtual error write_image(heap_image_write_info const& info) noexcept = 0;
+        [[nodiscard]] virtual error write_buffer(heap_buffer_write_info const& info) noexcept = 0;
+        [[nodiscard]] virtual error bind(heap_bind_info const& info) const noexcept = 0;
+        [[nodiscard]] virtual error push_data(heap_push_info const& info) const noexcept = 0;
     };
 
     /// tier-2 ability: mesh and task shaders.
     struct mesh_shader : extension {
+        static constexpr interface_type interface_id = interface_type::mesh_shader;
+        static constexpr extension_kind extension_id = extension_kind::mesh_shader;
+        mesh_shader() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
         /// Record `groups_x` x `groups_y` x `groups_z` mesh workgroups into `commands`
         /// (plan §5: 19 `vkCmdDrawMeshTasksEXT` calls plus 4 indirect ones).
         virtual void dispatch_mesh(command_list& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
@@ -184,6 +221,14 @@ export namespace deren::promise::rhi {
 
     /// tier-2 ability: acceleration structures and ray tracing.
     struct ray_tracing : extension {
+        static constexpr interface_type interface_id = interface_type::ray_tracing;
+        static constexpr extension_kind extension_id = extension_kind::ray_tracing;
+        ray_tracing() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
         /// Allocate an acceleration structure (plan §5: 47 creates and 21 destroys go
         /// through the generic `create`/`destroy` members, which is why the census
         /// undercounts this ability by name).
@@ -211,6 +256,14 @@ export namespace deren::promise::rhi {
     /// to make the image's writes visible to the host first (a barrier and a wait, see
     /// docs/host_image_copy.md).
     struct host_image_copy : extension {
+        static constexpr interface_type interface_id = interface_type::host_image_copy;
+        static constexpr extension_kind extension_id = extension_kind::host_image_copy;
+        host_image_copy() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
         /// Copy `region` of `source` into `destination`, which must be at least as
         /// large as the region the backend resolves.
         [[nodiscard]] virtual error copy_image_to_memory(image const& source, std::span<std::byte> destination,
@@ -233,7 +286,7 @@ export namespace deren::promise::rhi {
         std::uint32_t max_embedded_samplers = 0;
     };
 
-    /// 原生 Vulkan 描述符写入的值参数。image 借用，调用期间有效；不传 pNext 链。
+    /// 原生Vulkan视图的过渡参数，只能用于vulkan_heap_image_info；不冒充通用格式。
     struct vulkan_heap_image_desc {
         std::uint32_t struct_size = sizeof(vulkan_heap_image_desc);
         void* native_image = nullptr;
@@ -248,17 +301,93 @@ export namespace deren::promise::rhi {
         std::uint32_t layer_count = 1;
     };
 
-    struct vulkan_heap_binding {
+    struct heap_binding {
         std::uint64_t address = 0;
         std::uint64_t size = 0;
         std::uint64_t reserved_offset = 0;
         std::uint64_t reserved_size = 0;
     };
 
-    struct vulkan_heap_bindings {
-        vulkan_heap_binding resource;
-        vulkan_heap_binding sampler;
+    struct heap_bindings {
+        heap_binding resource;
+        heap_binding sampler;
     };
+
+    // 通用语义与原生参数分开；普通请求不解释Vulkan枚举。
+    enum class descriptor_type : std::uint32_t {
+        sampled_image = 0,
+        storage_image = 1,
+        combined_image_sampler = 2,
+        uniform_buffer = 3,
+        storage_buffer = 4,
+        acceleration_structure = 5,
+        uniform_buffer_dynamic = 6,
+        storage_buffer_dynamic = 7,
+    };
+
+    struct heap_image_write_info {
+        structure_header header{structure_type::heap_image_write, sizeof(heap_image_write_info), nullptr};
+        std::uint64_t offset = 0;
+        image const* resource = nullptr;
+        image_view_desc const* view = nullptr;
+        descriptor_type type = descriptor_type::sampled_image;
+    };
+    struct heap_buffer_write_info {
+        structure_header header{structure_type::heap_buffer_write, sizeof(heap_buffer_write_info), nullptr};
+        std::uint64_t offset = 0;
+        std::uint64_t address = 0;
+        std::uint64_t size = 0;
+        descriptor_type type = descriptor_type::storage_buffer;
+    };
+    struct heap_bind_info {
+        structure_header header{structure_type::heap_bind, sizeof(heap_bind_info), nullptr};
+        command_list* commands = nullptr;
+    };
+    struct heap_push_info {
+        structure_header header{structure_type::heap_push, sizeof(heap_push_info), nullptr};
+        command_list* commands = nullptr;
+        std::uint32_t offset = 0;
+        std::span<std::byte const> data;
+    };
+
+    /// 推送常量以4字节为单位；先比较offset再相减，避免大跨度输入溢出。
+    [[nodiscard]] constexpr error validate_heap_push_range(std::uint32_t const offset, std::uint64_t const size,
+                                                           std::uint32_t const limit) noexcept {
+        return size == 0 || (offset & 3u) != 0 || (size & 3u) != 0 || offset > limit || size > limit - offset
+                   ? error::invalid_argument
+                   : error::ok;
+    }
+
+    /// 过渡的Vulkan参数通过next显式借用；不是通用格式/句柄的别名。
+    struct vulkan_heap_image_info {
+        structure_header header{structure_type::vulkan_heap_image, sizeof(vulkan_heap_image_info), nullptr};
+        vulkan_heap_image_desc view;
+        std::uint32_t layout = 0;
+        api_core const* context = nullptr;
+    };
+    struct vulkan_command_buffer_info {
+        structure_header header{structure_type::vulkan_command_buffer, sizeof(vulkan_command_buffer_info), nullptr};
+        void* commands = nullptr;
+        api_core const* context = nullptr;
+    };
+
+    [[nodiscard]] constexpr interface_type extension_interface_type(extension_kind const kind) noexcept {
+        switch (kind) {
+        case extension_kind::device_address:
+            return interface_type::device_address;
+        case extension_kind::descriptor_heap:
+            return interface_type::descriptor_heap;
+        case extension_kind::mesh_shader:
+            return interface_type::mesh_shader;
+        case extension_kind::ray_tracing:
+            return interface_type::ray_tracing;
+        case extension_kind::host_image_copy:
+            return interface_type::host_image_copy;
+        case extension_kind::vulkan_escape:
+            return interface_type::vulkan_escape;
+        }
+        return interface_type::unknown;
+    }
 
     /// tier-2 ability: the raw Vulkan handles a pass needs when the contract has no concept for what it
     /// does. ONLY a Vulkan backend can answer these, which is exactly why this is an ability and not
@@ -279,6 +408,14 @@ export namespace deren::promise::rhi {
     /// Once the passes record through the contract, the escape shrinks to the few calls the contract has
     /// no concept for.
     struct vulkan_escape : extension {
+        static constexpr interface_type interface_id = interface_type::vulkan_escape;
+        static constexpr extension_kind extension_id = extension_kind::vulkan_escape;
+        vulkan_escape() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
         /// VkInstance / VkPhysicalDevice / VkDevice / VkQueue as their own types. All four are
         /// DISPATCHABLE handles (pointers), so `void*` carries them without naming a Vulkan type in the
         /// contract. Null before the device exists; the context's lifetime covers them.
@@ -352,24 +489,6 @@ export namespace deren::promise::rhi {
         /// `VkPipelineShaderStageCreateInfo` (the compute and ray-tracing pipelines the engine still
         /// assembles) consumes. Same borrowed rule.
         [[nodiscard]] virtual void* native_shader_module(shader const& resource) const noexcept = 0;
-
-        /// 查询不会启动帧或录制命令；状态取自当前实际 heap，不以能力位代替 ready。
-        [[nodiscard]] virtual bool heap_ready() const noexcept = 0;
-        [[nodiscard]] virtual descriptor_heap_properties heap_properties() const noexcept = 0;
-
-        /// layout/type/swizzle 等整数保持 Vulkan 公开枚举值，只有本能力接收原生语义。
-        /// 返回后端真实写入结果；资源寿命继续由资源拥有者保证，写入不取得所有权。
-        [[nodiscard]] virtual bool write_heap_image(std::uint64_t offset, vulkan_heap_image_desc const& desc,
-                                                    std::uint32_t layout, std::uint32_t type) noexcept = 0;
-        [[nodiscard]] virtual bool write_heap_buffer(std::uint64_t offset, std::uint64_t address,
-                                                     std::uint64_t size, std::uint32_t type) noexcept = 0;
-
-        /// 借用同一 device 上、正在录制的主/二级命令缓冲；不冒充 frame_commands，不转移所有权。
-        /// bindings 是当前 heap 的值快照，heap 重建后必须重新查询；未就绪返回空快照。
-        [[nodiscard]] virtual bool bind_heaps(void* native_commands) const noexcept = 0;
-        [[nodiscard]] virtual bool push_heap_data(void* native_commands, std::uint32_t offset,
-                                                  std::span<std::byte const> data) const noexcept = 0;
-        [[nodiscard]] virtual vulkan_heap_bindings heap_bindings() const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi
