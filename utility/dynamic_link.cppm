@@ -115,6 +115,9 @@ export namespace deren::utility::dynamic_link {
      *       object is left empty and safe to destroy
      *     - the destructor closes the handle, so the library must not outlive the symbols
      *       taken from it
+     *     - `detach()` is the other exit: it hands the handle back and leaves this object empty, so
+     *       the destructor does NOT unload - which is what a library that must live until the process
+     *       ends needs (see its own note)
      */
     class library {
     public:
@@ -156,6 +159,30 @@ export namespace deren::utility::dynamic_link {
         /** @brief the raw platform handle (nullptr when empty); owned by this object, never freed by the caller */
         [[nodiscard]] void* native_handle() const noexcept {
             return this->handle;
+        }
+
+        /**
+         * @brief give up the platform handle WITHOUT unloading the library
+         * @return the raw handle, which the CALLER now owns; nullptr on an already-empty library
+         *
+         * THE EXIT FOR "THE LIBRARY LIVES UNTIL THE PROCESS ENDS", which is the rule the backend's
+         * boundary runs on (DYNAMIC_LINK_V2.md §13). MEASURED: unloading the backend after a context had
+         * been built and torn down NEVER RETURNED - the destructor called `FreeLibrary` and the process
+         * sat at 0.45 s of CPU for 80+ s with ten threads and a working set that never moved, while the
+         * same program with the unload removed exited immediately. The wait is on the DLL's own detach
+         * path (GLFW is initialised inside it and this backend terminates GLFW on no path -
+         * `core.constructor.cppm` says so), so a product that unloads as it exits deadlocks where
+         * nothing is watching: the window has already closed.
+         *
+         * AFTER DETACH THIS OBJECT IS EMPTY: `native_handle()` answers nullptr and `symbol()` refuses
+         * with "the library is not loaded", so detach is the last call a caller makes on it. Whoever
+         * holds the returned handle owns the decision to free it, and the product's answer is that
+         * nobody does.
+         */
+        [[nodiscard]] void* detach() noexcept {
+            void* const detached = this->handle;
+            this->handle = nullptr;
+            return detached;
         }
 
     private:

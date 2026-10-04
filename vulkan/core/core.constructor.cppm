@@ -18,6 +18,8 @@ module;
 
 #define GLFW_INCLUDE_VULKAN
 #include <GLFW/glfw3.h>
+#include <cstddef>
+#include <cstdint>
 #include <vulkan/vulkan.h>
 
 // LOAD-BEARING, and it is the same trap chores.cpp documents at length: with -fno-exceptions and the vendored
@@ -33,36 +35,133 @@ module;
 module deren.vulkan.core:constructor;
 
 import :declarations;
+// THE CONTRACT'S CREATION STRUCTURE IS IMPORTED HERE, NOT VIA :declarations: a partition does not see
+// the primary interface and imports are NOT transitive (see the banner above), so the delegating
+// constructor below - whose parameter is deren::promise::rhi::create_info - needs this edge.
+import deren.promise.rhi;
 import deren.utility;
 import deren.vulkan.core.pipeline;
 import :init_utils;
 import deren.vulkan.constant_init;
 
+// ============================================================================
+// THE ABI GUARD, AND WHY THERE IS NO LONGER A TRANSLATION HERE.
+//
+// `deren::promise::rhi::create_info` is the contract's ONE creation structure and the backend's
+// constructor takes it directly (plan_rhi_v4.md §4.1 item 3: the renderer's creation parameters
+// cross as a POD structure). It used to be two structures plus a `to_backend_create_info()` mapping
+// between them - the portable shape and this backend's own `core_create_info` - and that pair is
+// gone: one structure means one place to add the next field, and the initialisation run below reads
+// the boundary's fields directly.
+//
+// WHAT REMAINS IS THE GUARD, NOT A MAPPING. `struct_size` is the structure's ABI guard
+// (rhi.core_desc.cppm's "EVOLUTION" note: fields are only ever APPENDED, never reordered), so a
+// value that differs from this build's size means the caller compiled a different shape. The
+// conservative answer the guard exists for is taken and logged instead of assumed: the caller's
+// structure is treated as TOO SHORT, and a field is copied only when its whole extent lies inside
+// the bytes the caller declares. A shorter structure is an older caller; a longer one is a newer
+// caller whose appended tail this backend has never heard of - either way only the common prefix is
+// read and everything else keeps THIS build's default.
+// ============================================================================
+namespace {
+
+    // THE APPEND-ONLY GUARD ITSELF LIVES IN core.declarations.cppm (`covered_by`) because the buffer
+    // descriptor is read through the same rule in core.api_core.cpp: one implementation of the
+    // arithmetic, two callers.
+
+    /// the ABI guard applied to the contract's own structure: a default-initialised copy that takes a
+    /// field only when the caller's declared size covers it
+    deren::promise::rhi::create_info sanitize_create_info(deren::promise::rhi::create_info const& desc) {
+        using rhi_create_info = deren::promise::rhi::create_info;
+
+        uint32_t const declared = desc.struct_size;
+        uint32_t const known = static_cast<uint32_t>(sizeof(rhi_create_info));
+        if (declared != known) {
+            deren::utility::log("core: the RHI create_info is {} B here and {} B in the caller -> the caller's structure is treated as TOO SHORT: a field whose whole extent is not inside those {} B keeps this build's default",
+                                known, declared, declared);
+        }
+
+        deren::promise::rhi::create_info options = {};
+
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, window_title), sizeof(rhi_create_info::window_title)) && desc.window_title != nullptr) {
+            // A NULL POINTER KEEPS THE DEFAULT rather than being stored: the title is `char const*`
+            // (a std::string cannot cross the boundary) and a null one is not an empty title but the
+            // absence of an answer. The pointer itself is BORROWED until the constructor returns -
+            // `init_window` hands it to GLFW, which copies it into the window - so nothing here keeps
+            // it: `create_options` holds the pointer and the note on that member says why it is never
+            // read again.
+            options.window_title = desc.window_title;
+        }
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, window_width), sizeof(rhi_create_info::window_width))) {
+            options.window_width = desc.window_width;
+        }
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, window_height), sizeof(rhi_create_info::window_height))) {
+            options.window_height = desc.window_height;
+        }
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, render_scale), sizeof(rhi_create_info::render_scale))) {
+            options.render_scale = desc.render_scale;
+        }
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, vsync), sizeof(rhi_create_info::vsync))) {
+            options.vsync = desc.vsync;
+        }
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, validation_layers), sizeof(rhi_create_info::validation_layers))) {
+            options.validation_layers = desc.validation_layers;
+        }
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, window_visible), sizeof(rhi_create_info::window_visible))) {
+            options.window_visible = desc.window_visible;
+        }
+        if (deren::vulkan::covered_by(declared, offsetof(rhi_create_info, native_window), sizeof(rhi_create_info::native_window))) {
+            // A CALLER-PROVIDED WINDOW IS BOUND, NEVER CREATED AND NEVER DESTROYED. `void*` is the
+            // contract's spelling because the contract does not know what a window system is; for THIS
+            // backend it is a GLFWwindow* the caller has already made Vulkan-capable. It is copied
+            // through as the contract's own `void*` - the constructor below reinterprets it - and the
+            // size, title and window_visible fields are IGNORED in that mode, as the field documents.
+            //
+            // THE CALLER ALSO OWNS GLFW'S LIFETIME IN THAT MODE: it initialised GLFW before this core was
+            // constructed (the window could not exist otherwise) and it is the caller that terminates it -
+            // after this core and its surface are destroyed. This backend therefore does not initialise
+            // GLFW on this path and never terminates it on any path.
+            options.native_window = desc.native_window;
+        }
+
+        return options;
+    }
+
+} // namespace
+
 namespace deren::vulkan {
     // core
     core::core()
-        : core(core_create_info{}) {
+        : core(deren::promise::rhi::create_info{}) {
     }
 
-    core::core(core_create_info const& options)
-        : create_options{options} {
+    // THE ONE CONSTRUCTION. The contract's structure goes through the ABI guard ONCE, in the member
+    // initialiser, and what the run below reads is this core's own copy of it: there is no second
+    // spelling to translate into, and the initialisation run exists exactly once. The guard is a
+    // member initialiser rather than a delegating constructor because the two spellings collapsed
+    // into one signature - `core(create_info const&)` is the only constructor left to delegate to.
+    core::core(deren::promise::rhi::create_info const& desc)
+        : create_options{sanitize_create_info(desc)} {
         // THE RENDER SCALE BEFORE ANYTHING IS CREATED: `init_swap_chain` below sets `swap_chain_extent`,
         // which `render_extent()` multiplies, and `create_depth_resources` / `create_render_targets` are
         // created with the result. Clamped rather than rejected: 1.0 is the historic behaviour and the
         // value a caller writes by omission, a value above 1.0 would ask the render chain for MORE pixels
         // than are presented (a supersample this renderer's resolve does not implement), and a zero or
         // negative scale is an invalid extent rather than a small frame.
-        this->render_scale = std::clamp(options.render_scale, 0.1f, 1.0f);
-        if (this->render_scale != options.render_scale) {
-            deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", options.render_scale, this->render_scale);
+        this->render_scale = std::clamp(this->create_options.render_scale, 0.1f, 1.0f);
+        if (this->render_scale != this->create_options.render_scale) {
+            deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", this->create_options.render_scale, this->render_scale);
         }
-        if (options.window.has_value()) {
+        if (this->create_options.native_window != nullptr) {
             // caller-provided window: bind to it as-is - no glfwInit / glfwCreateWindow here and
-            // no glfwDestroyWindow cleanup (ownership stays with the caller; see
-            // core_create_info::window)
-            window = *options.window;
+            // no glfwDestroyWindow cleanup (ownership stays with the caller). The `void*` is the
+            // backend's own reinterpretation of the contract's opaque handle.
+            window = reinterpret_cast<GLFWwindow*>(this->create_options.native_window);
         } else {
-            init_window(options.window_width, options.window_height, options.window_title);
+            // the title is read HERE and nowhere else: it is the contract's borrowed `char const*`
+            // and GLFW copies the text into the window during this call (the member note says so).
+            init_window(this->create_options.window_width, this->create_options.window_height,
+                        this->create_options.window_title != nullptr ? this->create_options.window_title : "");
         }
         init_instance();
         init_surface();
@@ -172,6 +271,55 @@ namespace deren::vulkan {
                 deren::utility::log("descriptor heap: not created; the heap is the only binding model this renderer has, so it cannot render without it");
             }
         }
+
+        // ---- S2 BATCH 2: THE CONTRACT'S VIEWS, THE FRAME'S COMMAND BUFFERS, THE READ-BACK RELEASE --
+        //
+        // THE FRAME'S PRIMARY COMMAND BUFFERS ARE ALLOCATED HERE NOW (they moved out of the runtime:
+        // see core.declarations.cppm). The SHAPE is unchanged - one primary per frame slot, allocated
+        // once and reused every frame - and the runtime still begins, ends and submits them; what
+        // changed is who owns the RAII objects, which is what lets `begin_commands()` hand out the
+        // frame's list.
+        this->commands_view.owner = this;
+        this->frame_image_view.owner = this;
+        this->readback_slot_view.owner = this;
+        this->escape_view.owner = this;
+        this->address_view.owner = this;
+        this->frame_command_buffers.reserve(static_cast<std::size_t>(MAX_FRAMES_IN_FLIGHT));
+        for (int32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
+            this->frame_command_buffers.push_back(this->make_command_buffer());
+        }
+        // THE VIEWS THAT OWN DEVICE MEMORY HAVE TO BE EMPTIED BEFORE THE DEVICE GOES AWAY, and that is
+        // what this cleanup is for: `vk_command_buffer` frees itself through the device and its pool,
+        // and `vk_buffer` through VMA's allocator - do_cleanup() destroys both from the destructor
+        // BODY, i.e. before any member destructor runs. do_cleanup() is LIFO and this is the LAST
+        // cleanup registered in this constructor, so it runs FIRST.
+        this->register_cleanup([this] {
+            this->frame_command_buffers.clear();
+            this->readback_slot_buffer.reset();
+            this->readback_slot_handle = VK_NULL_HANDLE;
+            this->readback_slot_mapped = nullptr;
+            this->readback_slot_size = 0;
+        });
+        // ---- THE ABILITY INVARIANT, CHECKED AT STARTUP (batch-1 spec §4.3, gate G2) -----------------
+        // `abilities()` may only report a bit whose `query_extension()` answers with an object of that
+        // kind: "reported but not retrievable" and "retrievable but not reported" are both backend bugs,
+        // and both are NAMED startup failures here rather than log lines - a broken invariant is not a
+        // missing device feature. THIS BACKEND NOW ANNOUNCES `vulkan_escape`, so the loop runs on a
+        // NON-EMPTY set for the first time and `query_extension(vulkan_escape)` must answer with the
+        // escape object (it does: core.api_core.cpp) - a bit without its object refuses to start.
+        // The test half of the same gate is check_core_contract() in tests/test_dynamic_link.cpp.
+        for (deren::promise::rhi::extension_kind const kind : deren::promise::rhi::all_extension_kinds()) {
+            bool const announced = deren::promise::rhi::has_ability(this->abilities(), kind);
+            deren::promise::rhi::extension* const ability = this->query_extension(kind);
+            bool const serves = ability != nullptr && ability->kind() == kind;
+            if (announced != serves) {
+                deren::utility::log("rhi: abilities() and query_extension() disagree about extension_kind {} (announced {}, answers {})",
+                                    static_cast<std::uint32_t>(kind),
+                                    announced,
+                                    serves);
+                deren::utility::panic("rhi: abilities()/query_extension() are inconsistent");
+            }
+        }
     };
 
     core::~core() {
@@ -179,8 +327,13 @@ namespace deren::vulkan {
         this->do_cleanup();
     }
 
-    // self-owned window path: only taken when core_create_info::window is empty (a caller-provided
-    // window skips glfwInit/glfwCreateWindow entirely and registers no destroy cleanup)
+    // self-owned window path: only taken when create_options.native_window is null (a caller-provided
+    // window skips glfwInit/glfwCreateWindow entirely and registers no destroy cleanup).
+    //
+    // GLFW'S LIFETIME BELONGS TO WHOEVER INITIALISED IT. An application that owns its window (main.cpp)
+    // calls glfwInit before this core exists and glfwTerminate after it is gone, so this path is not
+    // reached there - and when it IS reached (no caller window) the core initialises GLFW here and never
+    // terminates it. glfwInit is idempotent: a caller that already initialised GLFW makes this a no-op.
     void core::init_window(int32_t const width, int32_t const height, std::string_view const window_name) noexcept {
         glfwInit();
 
@@ -193,7 +346,8 @@ namespace deren::vulkan {
         //      hidden-console STARTUPINFO the capture scripts use is a CONSOLE mechanism - a GUI process
         //      ignores it, which is why the flashing survived it. What the window shows cannot matter to
         //      the result: the screenshot is a vkCmdCopyImageToBuffer read-back of the SWAPCHAIN IMAGE
-        //      (runtime::record_screenshot_copy), i.e. of the render target, not of the window, so no
+        //      (the read-back copy recorded inside the frame - runtime.frames.cppm's end_recording), i.e.
+        //      of the render target, not of the window, so no
         //      presented-window state can change a byte of it - measured, not asserted: the gate's ten
         //      references and the four recorded A/B anchors are byte-identical either way.
         //      GLFW_VISIBLE before glfwCreateWindow is the whole mechanism; GLFW's default is TRUE.
@@ -263,6 +417,11 @@ namespace deren::vulkan {
 
         create_info.enabledExtensionCount = static_cast<uint32_t>(extensions.size());
         create_info.ppEnabledExtensionNames = extensions.data();
+        // The escape's guard rail: the names this INSTANCE enabled, in this core's own storage. Taken
+        // from the very list that went into VkInstanceCreateInfo, so "enabled" cannot drift from what
+        // the escape reports, and the strings are literals/`VK_*_EXTENSION_NAME` - valid for the
+        // context's lifetime.
+        this->instance_extension_names = extensions;
 
         // enable validation_layers
         std::vector<char const*> validation_layers;
@@ -479,11 +638,20 @@ namespace deren::vulkan {
             deren::utility::panic("VK_KHR_unified_image_layouts is required but not supported by the device");
         }
 
-        // VK_EXT_host_image_copy is OPTIONAL, the opposite of the layout feature above: it lets an image read-back
-        // skip its staging buffer and its copy command, but every path that uses it still works without it, so this
-        // asks for it when the queried capability says it is usable and never refuses a device over it.
-        if (capabilities.host_image_copy_available) {
-            creation_info.extensions.push_back(VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME);
+        // VK_EXT_host_image_copy is the SECOND non-optional extension here, the opposite of what it used to be:
+        // the images this renderer creates for itself are uploaded with `vkCopyMemoryToImageEXT` and read back
+        // with `vkCopyImageToMemoryEXT` (the heap probe, and the texture-upload path), so a device without it
+        // would run against assumptions that are simply false - it is refused, not degraded. The name is pushed
+        // REGARDLESS of the flag, exactly like the layout feature above, so "the extension is enabled" and "its
+        // feature struct is in the pNext chain" can never disagree; the checks below decide whether startup
+        // continues. (The SWAPCHAIN read-back is a separate case and NOT part of this requirement: a swapchain
+        // image cannot carry HOST_TRANSFER, so that read-back uses the copy command - see init_swap_chain.)
+        creation_info.extensions.push_back(VK_EXT_HOST_IMAGE_COPY_EXTENSION_NAME);
+        if (!capabilities.host_image_copy_available) {
+            deren::utility::panic("VK_EXT_host_image_copy is required (image upload and read-back) but not usable on this device");
+        }
+        if (!capabilities.host_image_copy_upload_available) {
+            deren::utility::panic("VK_EXT_host_image_copy is present but GENERAL is not in the device's copy-DESTINATION layout list, so vkCopyMemoryToImageEXT is unusable");
         }
 
         if (!check_device_extension_support(physical_device, creation_info.extensions)) {
@@ -491,6 +659,10 @@ namespace deren::vulkan {
         }
 
         // Features go through the pNext chain (device_capabilities query result, incl. all 1.1/1.2/1.3 supported features)
+        // The escape's guard rail, device half: exactly the extension names this DEVICE was created
+        // with (the list checked above), so a pass can ask "is the extension I am about to resolve an
+        // entry point for actually enabled" and get the truth rather than a promise.
+        this->device_extension_names = creation_info.extensions;
         creation_info.pNext = capabilities.device_pnext();
 
         auto const [device, graphics_family_index, present_family_index, graphics_queue, present_queue] = create_logical_device(physical_device, creation_info); // NOLINT(*-misplaced-const)
@@ -510,15 +682,27 @@ namespace deren::vulkan {
             this->mesh_dispatch_indirect = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
         }
 
-        // ---- HOST IMAGE COPY: the same shape as the mesh commands above (an extension entry point fetched through
-        //      vkGetDeviceProcAddr, because the loader's import library does not export it), except that a null here
-        //      is NOT a failure - it means "read images back through the staging path", which is why the capability
-        //      is recomputed from the entry point rather than copied. See docs/host_image_copy.md.
+        // ---- HOST IMAGE COPY: the same shape as the mesh commands above (extension entry points fetched
+        //      through vkGetDeviceProcAddr, because the loader's import library does not export them) - and
+        //      the OPPOSITE POLICY: VK_EXT_host_image_copy is required, so a name that does not resolve is a
+        //      NAMED STARTUP FAILURE rather than a quiet switch to another mechanism. BOTH directions are
+        //      resolved here and checked: `vkCopyImageToMemoryEXT` (image -> host) and `vkCopyMemoryToImageEXT`
+        //      (host -> image, the texture upload path), because "the extension is enabled" has to mean both
+        //      are callable. See docs/host_image_copy.md.
         this->host_image_copy_available = capabilities.host_image_copy_available;
-        if (this->host_image_copy_available) {
-            this->copy_image_to_memory = reinterpret_cast<PFN_vkCopyImageToMemoryEXT>(vkGetDeviceProcAddr(device, "vkCopyImageToMemoryEXT"));
-            this->host_image_copy_available = this->copy_image_to_memory != nullptr;
+        this->copy_image_to_memory = reinterpret_cast<PFN_vkCopyImageToMemoryEXT>(vkGetDeviceProcAddr(device, "vkCopyImageToMemoryEXT"));
+        this->copy_memory_to_image = reinterpret_cast<PFN_vkCopyMemoryToImageEXT>(vkGetDeviceProcAddr(device, "vkCopyMemoryToImageEXT"));
+        if (this->copy_image_to_memory == nullptr) {
+            deren::utility::panic("VK_EXT_host_image_copy is enabled but vkCopyImageToMemoryEXT did not resolve through vkGetDeviceProcAddr");
         }
+        if (this->copy_memory_to_image == nullptr) {
+            deren::utility::panic("VK_EXT_host_image_copy is enabled but vkCopyMemoryToImageEXT did not resolve through vkGetDeviceProcAddr");
+        }
+        // ... and the allocator gets it, because THE IMAGE UPLOAD IS THAT CALL: vma.cppm's
+        // host_image_upload() copies each mip from the caller's memory into the image with it (the image
+        // carries VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT for exactly that reason). Handing the resolved
+        // pointer down keeps the capability check in ONE place - here, before anything is uploaded.
+        this->vma.set_host_image_copy(this->copy_memory_to_image);
 
         // ---- THE DESCRIPTOR HEAP's LIMITS, recorded here and not created here: the heap's buffers come from the
         //      ALLOCATOR, and vma.init() runs at the END of the constructor (after every init_* step), so a
@@ -625,6 +809,21 @@ namespace deren::vulkan {
             create_info.imageUsage |= VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
         } else {
             deren::utility::log("swapchain: surface does not support VK_IMAGE_USAGE_TRANSFER_SRC_BIT - screenshots disabled");
+        }
+        // ---- AND THE SURFACE FACT ABOUT HOST_TRANSFER, RECORDED AND NOT BRANCHED ON. A swapchain image's
+        //      usage must be a subset of the surface's supportedUsageFlags
+        //      (VUID-VkSwapchainCreateInfoKHR-imageUsage-01276), and `vkCopyImageToMemoryEXT` needs its
+        //      source image created with VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT - so where that bit is
+        //      absent (every surface this renderer has been run on; the raw vulkaninfo output is in the
+        //      batch report), a host copy of a swapchain image is impossible and the read-back uses the
+        //      copy command (recorded inside the frame, before the present transition - see
+        //      the read-back copy in runtime.frames.cppm's end_recording). That is a property of the
+        //      SURFACE, not a capability the
+        //      backend may require, so it selects nothing at run time: one line RECORDS which mechanism
+        //      the read-back uses, and there is only one.
+        if ((capabilities.supportedUsageFlags & VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT) == 0) {
+            deren::utility::log("swapchain: the surface does not list VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT, so the read-back uses vkCmdCopyImageToBuffer "
+                                "(the host image copy serves the images this renderer creates itself)");
         }
 
         queue_family_indices const indices = find_queue_families(this->physical_device, this->surface);

@@ -187,6 +187,10 @@ namespace deren::vulkan {
         VkResult const result = vkQueueSubmit(this->graphics_queue_handle, 1, &submit_info, VK_NULL_HANDLE);
         if (result == VK_SUCCESS) {
             this->frame_done_values[slot] = signal_value;
+            // THE FRAME IS HANDED OVER, so there is no frame in flight to record into any more:
+            // begin_commands()/frame_image() answer nullptr until the next acquire. This is the other
+            // half of acquire_next_image() (core.api_core.cpp), which is what set the flag.
+            this->frame_in_flight = false;
         }
         return result;
     }

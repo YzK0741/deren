@@ -29,7 +29,9 @@ module;
 
 #include <GLFW/glfw3.h>
 #include <array>
+#include <cstddef>
 #include <memory>
+#include <span>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:declarations;
@@ -38,6 +40,17 @@ export import deren.vstd;
 export import deren.vulkan.core.handles;
 export import :vma;
 export import :descriptor_heap;
+
+// THE BACKEND IMPLEMENTS THE RHI CONTRACT IN PLACE: `core` IS the `api_core` a host gets back from
+// `deren_make_api_core()`, not a wrapper object standing beside it. It owns the instance, the device,
+// the swapchain and the frame machinery, so it is the thing the contract describes; a second type in
+// front of it would be a second lifetime to keep in step, and `deren_make_api_core()` would have to
+// invent an owner for it. With the base here, the S2 factory returns `this` and the deleter deletes it.
+//
+// THE DEPENDENCY DIRECTION IS THE POINT: backend -> contract, never contract -> backend. The contract
+// module imports nothing (promise/rhi/*.cppm), so a backend that implements it cannot drag anything
+// back into the engine's contract.
+import deren.promise.rhi;
 export import :vma_handles;
 
 /**
@@ -82,9 +95,17 @@ namespace deren::vulkan {
      *       descriptor / push constant parsing and every stage shares this one binding contract, which the
      *       frame's heap carries
      */
-    export constexpr uint32_t scene_texture_capacity = 128;
+    // WHY `inline` AND NOT A PLAIN `constexpr` (this is the dynamic backend's one prerequisite in this
+    // file): a namespace-scope constexpr declared in a module purview has MODULE linkage, so a consumer
+    // in ANOTHER IMAGE does not fold it - it references the variable and needs the owning image to
+    // export DATA for it. Measured on the DLL probe tree: the executable imported exactly one data
+    // symbol, `_ZN5deren6vulkanW5derenW6vulkanW4core22scene_texture_capacityE`, and the runtime entry
+    // veneer the boundary is built on can carry functions (a naked jump stub is a function) but NOT data.
+    // `inline` gives the constant external linkage with a definition every importer may use, so each side
+    // keeps its own copy and nothing crosses the boundary as data. The values are unchanged.
+    export inline constexpr uint32_t scene_texture_capacity = 128;
     // material_push_constants: 6 uints + aligned mat4 = 96 bytes, see vulkan/scene_tree/scene_tree.cppm
-    export constexpr uint32_t scene_push_constant_size = 96;
+    export inline constexpr uint32_t scene_push_constant_size = 96;
     /**
      * @ingroup vulkan_core
      * @brief offset of the SECOND push constant range of the shared scene layout, right after the
@@ -94,21 +115,21 @@ namespace deren::vulkan {
      *       bytes and the two together would exceed the 128 bytes the spec guarantees every
      *       implementation provides (the engine does not rely on a vendor's larger limit).
      */
-    export constexpr uint32_t scene_cascade_push_offset = scene_push_constant_size;
-    export constexpr uint32_t scene_cascade_push_size = sizeof(uint32_t);
+    export inline constexpr uint32_t scene_cascade_push_offset = scene_push_constant_size;
+    export inline constexpr uint32_t scene_cascade_push_size = sizeof(uint32_t);
 
     /**
      * @brief format of the HDR scene target the deferred lighting stage renders into and the post-process
      *        pass samples: the scene color target uses it, and each swapchain image owns one
      *        single-sample resolve target in it (see core::create_render_targets)
      */
-    export constexpr VkFormat hdr_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    export inline constexpr VkFormat hdr_format = VK_FORMAT_R16G16B16A16_SFLOAT;
 
     /**
      * @ingroup vulkan_core
      * @brief how many color targets the G-buffer pass writes (see gbuffer_formats)
      */
-    export constexpr uint32_t gbuffer_target_count = 3;
+    export inline constexpr uint32_t gbuffer_target_count = 3;
 
     /**
      * @ingroup vulkan_core
@@ -123,7 +144,7 @@ namespace deren::vulkan {
      *       without per-sample shading, which is the trade that makes TAA the anti-aliasing
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
      */
-    export constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = {
+    export inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = {
         VK_FORMAT_R8G8B8A8_UNORM,
         VK_FORMAT_R16G16B16A16_SFLOAT,
         VK_FORMAT_R8G8B8A8_UNORM,
@@ -136,7 +157,7 @@ namespace deren::vulkan {
      *        8-bit would quantize it to ~1/255 of the screen - coarser than the jitter TAA exists to
      *        resolve)
      */
-    export constexpr VkFormat gbuffer_velocity_format = VK_FORMAT_R16G16_SFLOAT;
+    export inline constexpr VkFormat gbuffer_velocity_format = VK_FORMAT_R16G16_SFLOAT;
 
     /**
      * @ingroup vulkan_core
@@ -150,7 +171,7 @@ namespace deren::vulkan {
      *       It is CLEARed to zero by the instance, and the deferred lighting stage adds the lighting
      *       (and the sky, where no geometry wrote depth) on top.
      */
-    export constexpr uint32_t gbuffer_pass_attachment_count = gbuffer_target_count + 2; // + velocity + scene color
+    export inline constexpr uint32_t gbuffer_pass_attachment_count = gbuffer_target_count + 2; // + velocity + scene color
 
     /**
      * @ingroup vulkan_core
@@ -161,7 +182,7 @@ namespace deren::vulkan {
      *       that records more marks than this silently stops marking (the extra passes are simply
      *       not measured) instead of overflowing into the next slot's range.
      */
-    export constexpr uint32_t gpu_timing_mark_capacity = 16;
+    export inline constexpr uint32_t gpu_timing_mark_capacity = 16;
 
     /**
      * @ingroup vulkan_core
@@ -176,65 +197,17 @@ namespace deren::vulkan {
 
     /**
      * @ingroup vulkan_core
-     * @brief everything the core needs at construction, decoupled from the caller (the runtime
-     *        assembles this, typically from the app's startup config)
-     * @note fields mirror the app_config render settings; defaults keep the historic behavior
+     * @brief whether a field @p size bytes long at @p offset of a contract structure is inside the
+     *        @p struct_size bytes the caller says it compiled
+     *
+     * THE APPEND-ONLY ABI GUARD, written once because both the context's descriptor and the buffer's
+     * are read through it (core.constructor.cppm and core.api_core.cppm). A contract structure grows by
+     * APPENDING fields and every field carries a default, so a caller that compiled an older, shorter
+     * shape is served the defaults it never declared instead of having this build read past its end.
      */
-    export struct core_create_info {
-        int32_t window_width = 1080;
-        int32_t window_height = 960;
-        std::string window_title = "deren"; // GLFW window title
-        // vsync: true (default) prefers VK_PRESENT_MODE_FIFO_LATEST_READY and falls back to FIFO - the
-        // frame goes out at the display's rate and the acquire blocks instead of spinning, which is what
-        // keeps an idle window off the CPU. false prefers VK_PRESENT_MODE_MAILBOX_KHR, the uncapped path
-        // a throughput measurement needs (see the [render] vsync note in config.example.toml).
-        bool vsync = true;
-        /**
-         * THE RENDER SCALE: the fraction of the swapchain's extent the RENDER chain runs at.
-         *
-         * 1.0 - the default - is what every frame before this field did: the render targets are the
-         * output's own size and the frame's last pass writes the swapchain directly. Below 1.0 the scene
-         * is shaded at fewer pixels than are presented (see `core::render_extent()`), which saves the
-         * per-pixel cost of every scene stage and needs a pass that resolves those pixels onto the output
-         * extent. The swapchain, the screenshot read-back and the debug overlay stay at the output's size
-         * either way.
-         *
-         * A STARTUP value rather than a runtime knob: it is read when the render targets are created
-         * (`create_render_targets`, which runs at construction and again on every swapchain recreation),
-         * so changing it mid-run would mean recreating every one of them.
-         */
-        float render_scale = 1.0f;
-        // Vulkan validation layers + debug messenger (instance layer VK_LAYER_KHRONOS_validation
-        // and the VK_EXT_debug_utils messenger); off by default - the caller (app_config) keeps
-        // the historic Debug-on / Release-off default and can override it per build
-        bool validation_layers = false;
-        // optional caller-provided window: when set, the core binds to that window instead of
-        // creating its own - it does NOT call glfwInit/glfwCreateWindow, keeps no ownership and
-        // never destroys it. The caller owns the window, must have initialized GLFW and created
-        // it Vulkan-capable (GLFW_NO_API) before constructing the core; the size/title fields
-        // above are ignored in this mode. The core still installs nothing on the window itself
-        // (no GLFW callbacks), so any caller-side callbacks keep working.
-        std::optional<GLFWwindow*> window = std::nullopt;
-        /**
-         * @brief whether the window this core creates itself is SHOWN (`glfwCreateWindow` with
-         *        `GLFW_VISIBLE`), or created hidden (`GLFW_VISIBLE = GLFW_FALSE` plus an explicit
-         *        `glfwHideWindow`, which is what a platform that ignores the hint needs)
-         *
-         * A SCRIPTED CAPTURE HAS NO HUMAN TO SHOW A WINDOW TO. `--capture-frames N` renders N frames,
-         * saves a screenshot through the F12 read-back path and quits - the run is the project's own
-         * "headless-ish, no human" case (see the runtime's frame-loop notes) - and the gate and the A/B
-         * batches launch it dozens of times in a row, so a visible window is a row of flashes on the
-         * screen of whoever is using the machine. The pixels cannot notice: the screenshot is a
-         * `vkCmdCopyImageToBuffer` of the SWAPCHAIN IMAGE the frame rendered into (see
-         * runtime::record_screenshot_copy), not a capture of the window, so hiding the window changes no
-         * value the read-back can read. That claim is MEASURED, not asserted: the gate's references and
-         * the four recorded A/B anchors are byte-identical with this false and with it true.
-         *
-         * Ignored when `window` above is set: a caller's window is bound as-is and its visibility stays
-         * the caller's business.
-         */
-        bool window_visible = true;
-    };
+    [[nodiscard]] constexpr bool covered_by(uint32_t const struct_size, size_t const offset, size_t const size) noexcept {
+        return static_cast<size_t>(struct_size) >= offset + size;
+    }
 
     /**
      * @brief the device, its allocator and every resource created on it - the renderer's lifetime ROOT
@@ -244,10 +217,199 @@ namespace deren::vulkan {
      * created through it, so a creation site can hand out a reference-counted handle to the device it is
      * building on. It does NOT mean a `core` must be heap-allocated: nothing calls `shared_from_this()` yet.
      */
-    export struct core : deren::utility::enable_stack_destruct, std::enable_shared_from_this<core> {
+    export struct core : deren::promise::rhi::api_core, deren::utility::enable_stack_destruct, std::enable_shared_from_this<core> {
         // creation options this core was built with (window size, vsync); the window and the
         // swap chain honor them
-        core_create_info create_options = {};
+        deren::promise::rhi::create_info create_options = {};
+
+        // ---- S2 BATCH 2: THE RECORDING SURFACE, THE FRAME'S VIEWS AND THE ESCAPE --------------------
+        //
+        // THE CONTRACT SPEAKS IN BORROWED VIEWS AND THESE ARE THE FOUR THIS BACKEND CAN ANSWER. The
+        // factories still answer nullptr (the resource model is S3), so the only `rhi` handles that can
+        // exist today are borrowings of objects this class ALREADY OWNS: the frame's primary command
+        // buffer, the swapchain image the frame draws into, the host-visible read-back slot, and the
+        // Vulkan escape. Each is a member of this class, so "the backend owns it, the caller borrows
+        // it" is the object graph rather than a rule in a comment.
+        //
+        // `owner` is raw and non-owning: the views live INSIDE the core they point at, so their
+        // lifetime is this object's, and a caller that keeps one past the core's death holds a
+        // dangling pointer - the contract says the same thing about every borrowed view.
+        //
+        // `use()` turns the contract's (from, to) ROLE PAIR into the barrier this renderer's own recipe
+        // describes, and `copy_image_to_buffer()` records the copy the screenshot path used to spell
+        // out by hand. The compile-time shadow gate in core.api_core.cpp proves, field by field, that
+        // the first lands exactly on constant_init's two recipes (plan §8.3, gate A5).
+
+        /// The frame's PRIMARY command buffer, as the contract's recording surface (`begin_commands()`).
+        struct frame_commands final : deren::promise::rhi::command_list {
+            core* owner = nullptr;
+            /// `use()` ANSWERS with an `error` now (it does not drop a barrier silently); this flag is only
+            /// about how often the backend spells out the REASON for a refusal, so a per-frame caller
+            /// cannot turn one broken pair into a log flood
+            bool unexpected_use_logged = false;
+            /// the A5 dump (both sides of each barrier) is emitted once per pair per process
+            std::uint32_t shadow_gate_dumped = 0;
+
+            [[nodiscard]] deren::promise::rhi::error use(deren::promise::rhi::image const& resource, deren::promise::rhi::image_use from, deren::promise::rhi::image_use to) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error copy_image_to_buffer(deren::promise::rhi::buffer& destination,
+                                                                          deren::promise::rhi::image const& source,
+                                                                          deren::promise::rhi::image_copy_region const& region) noexcept override;
+        };
+
+        /// The swapchain image the frame in flight draws into, as the contract's `image`.
+        ///
+        /// A BORROWED VIEW, NOT AN OWNED HANDLE: this object is a member of the core, the core owns the
+        /// swapchain image behind it, and the contract's `release()` must never drop a reference for it
+        /// (the caller never held one). That is why the override below answers with a ONE-TIME NAMED LOG
+        /// instead of a silent no-op (rhi.api_core.cppm's ownership note): a caller that wrapped a
+        /// borrowed view in `object_manager` has a bug, and the log is the only place that bug can be
+        /// said out loud.
+        struct frame_image_slot final : deren::promise::rhi::image {
+            core* owner = nullptr;
+            /// one log per process, not one per call: a loop that mis-uses the view must not flood the log
+            /// (the same shape `frame_commands::use` uses for a foreign image)
+            mutable bool borrowed_release_logged = false;
+
+            [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
+            /// BORROWED: logs once and drops no reference (see the note above)
+            void release() noexcept override;
+            /// the raw handle the backend's own recording needs (never carried across the boundary)
+            [[nodiscard]] VkImage handle() const noexcept;
+        };
+
+        /// The backend's host-visible read-back slot, as the contract's `buffer`.
+        ///
+        /// A borrowed view for exactly the reasons `frame_image_slot` is; see its note.
+        struct frame_readback_slot final : deren::promise::rhi::buffer {
+            core* owner = nullptr;
+            mutable bool borrowed_release_logged = false;
+
+            [[nodiscard]] std::uint64_t size() const noexcept override;
+            [[nodiscard]] std::span<std::byte> mapped() noexcept override;
+            /// BORROWED: logs once and drops no reference
+            void release() noexcept override;
+            /// the raw handle `copy_image_to_buffer()` records into
+            [[nodiscard]] VkBuffer handle() const noexcept;
+        };
+
+        /// AN OWNED BUFFER: what `create_buffer()` hands the caller.
+        ///
+        /// THE OPPOSITE OF THE TWO VIEWS ABOVE, and the difference is the whole ownership model:
+        /// this object is HEAP-ALLOCATED BY THE FACTORY, so the caller's one `release()` can give the
+        /// reference back to the allocator that made it - `release()` is `delete this`, and the
+        /// destructor resets the `vk_buffer` RAII owner, which IS the allocator's reference-count
+        /// decrement (rhi.api_core.cppm's ownership note: release, not necessarily destruction).
+        ///
+        /// It caches the size and the mapped pointer because the allocator's detail lookup is an
+        /// UNLOCKED BORROW of its internal map (vulkan/core/vma/vma.cppm's `get_buffer_detail`): the
+        /// pointer into that map must not be kept, the VALUES read out of it may be. That is the rule
+        /// the ownership analysis (DYNAMIC_LINK_V2.md §11.2) says every contract query has to follow.
+        struct owned_buffer final : deren::promise::rhi::buffer {
+            deren::vulkan::vk_buffer owned = {};
+            /// the Vulkan handle, cached at creation: `vk_buffer::handle()` is the ALLOCATOR's registry
+            /// key (a uint64), not the `VkBuffer`, and reaching the real handle means a detail lookup -
+            /// an unlocked borrow whose VALUES may be copied but whose pointer must not be kept.
+            VkBuffer native = VK_NULL_HANDLE;
+            std::uint64_t size_bytes = 0;
+            void* mapped_bytes = nullptr;
+            /// whether the descriptor asked for `buffer_flag::device_address`; the ability answers 0
+            /// when it did not, because Vulkan only gives an address to a buffer created with the usage
+            /// - asking for one this object never declared is the caller's bug, not a backend guess.
+            bool addressable = false;
+            /// the capability bits the descriptor declared, kept for the diagnostic a failed address
+            /// query needs (nothing else reads it)
+            deren::promise::rhi::buffer_flags declared_flags = deren::promise::rhi::no_buffer_flags;
+
+            [[nodiscard]] std::uint64_t size() const noexcept override;
+            [[nodiscard]] std::span<std::byte> mapped() noexcept override;
+            /// give the reference back: `delete this`, whose destructor resets `owned`
+            void release() noexcept override;
+        };
+
+        /// tier-2 `device_address`: a buffer's device address.
+        ///
+        /// ANNOUNCED ONLY NOW, AND THE REASON IS THE ABILITY'S OWN RULE rather than a change of heart:
+        /// it used to declare an acceleration-structure address as well, and no backend could produce an
+        /// acceleration structure, so the bit would have promised a service nothing could perform
+        /// (rhi.extension.cppm's "every operation the ability declares must be performable"). With that
+        /// operand moved to `ray_tracing` (abi 5) and buffers producible since the buffer batch, the
+        /// bit is servable in the strict sense: `query_extension(device_address)` answers, and
+        /// `buffer_address()` is real.
+        struct buffer_address_view final : deren::promise::rhi::device_address {
+            core* owner = nullptr;
+
+            [[nodiscard]] deren::promise::rhi::extension_kind kind() const noexcept override;
+            [[nodiscard]] std::uint64_t buffer_address(deren::promise::rhi::buffer const& resource, std::uint64_t offset) const noexcept override;
+        };
+
+        /// tier-2 `vulkan_escape`: the raw handles a pass needs where the contract has no concept.
+        ///
+        /// REQUIRED BY THE ENGINE TODAY, AND THAT IS TRANSITIONAL rather than a designed exception: the
+        /// engine still records its own frame by hand (54 `vkCmdPipelineBarrier2` sites, 17 of them in
+        /// runtime.frames.cppm), so a Vulkan backend that did not announce this bit would make the
+        /// engine fail at startup by name. Once the passes record through the contract, the escape
+        /// shrinks to the few calls the contract has no concept for.
+        struct frame_escape final : deren::promise::rhi::vulkan_escape {
+            core* owner = nullptr;
+
+            [[nodiscard]] deren::promise::rhi::extension_kind kind() const noexcept override;
+            [[nodiscard]] void* native_instance() const noexcept override;
+            [[nodiscard]] void* native_physical_device() const noexcept override;
+            [[nodiscard]] void* native_device() const noexcept override;
+            [[nodiscard]] void* native_queue() const noexcept override;
+            [[nodiscard]] void* native_command_buffer(deren::promise::rhi::command_list& commands) const noexcept override;
+            [[nodiscard]] std::span<char const* const> enabled_instance_extensions() const noexcept override;
+            [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override;
+            /// BORROWED: the `VkBuffer` behind a contract buffer this backend handed out (nullptr when it
+            /// carries none). A released buffer must not be passed - see the contract's note.
+            [[nodiscard]] void* native_buffer(deren::promise::rhi::buffer const& resource) const noexcept override;
+        };
+
+        // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------
+        //
+        // THE COMMAND BUFFERS MOVED HERE FROM THE RUNTIME. They are RAII device objects and
+        // `begin_commands()` has to hand out the frame's list, so the type that owns the device owns
+        // them. WHAT DID NOT MOVE: the frame's SHAPE (one primary per frame slot, allocated once at
+        // construction) and its LIFECYCLE - the engine still begins, ends and submits them, and still
+        // decides the present recipe (runtime.frames.cppm). The runtime borrows the container as a span.
+        //
+        // RELEASED BY A CLEANUP, NOT BY THE MEMBER DESTRUCTORS: a `vk_command_buffer` frees itself
+        // through the device and its pool, and a `vk_buffer` through VMA's allocator - both are gone by
+        // the time member destructors run, because do_cleanup() destroys them from the destructor BODY.
+        // A cleanup registered last runs first (do_cleanup is LIFO) and empties these two.
+        std::vector<vk_command_buffer> frame_command_buffers;
+        /// the recording view `begin_commands()` answers with (one object, reused every frame)
+        frame_commands commands_view;
+        /// the two frame-domain views `frame_image()` / `frame_readback_buffer()` answer with
+        frame_image_slot frame_image_view;
+        frame_readback_slot readback_slot_view;
+        /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
+        frame_escape escape_view;
+        /// the tier-2 address object `query_extension(device_address)` answers with
+        buffer_address_view address_view;
+        /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,
+        /// host-coherent and TRANSFER_DST, grown on demand (see frame_readback_buffer())
+        vk_buffer readback_slot_buffer;
+        VkBuffer readback_slot_handle = VK_NULL_HANDLE;
+        void* readback_slot_mapped = nullptr;
+        VkDeviceSize readback_slot_size = 0;
+        /// the extension names this context ENABLED, in this core's own storage (the escape's guard
+        /// rail: a pass checks the extension it wants is in here BEFORE it resolves an entry point).
+        /// Filled once at construction; the names are literals, so the pointers stay valid.
+        std::vector<char const*> instance_extension_names;
+        std::vector<char const*> device_extension_names;
+        /// true between the ACQUIRE of a frame and the SUBMIT that hands it to the queue: it is the window
+        /// `begin_commands()`, `use()`, `copy_image_to_buffer()` and `native_command_buffer()` answer in
+        /// (nullptr, or `error::not_ready`, outside it)
+        bool frame_in_flight = false;
+        /// whether an acquire has EVER succeeded. `frame_image()` answers nullptr before the first one:
+        /// `acquired_image_index` defaults to 0, which is a REAL image (the wrong one), so the index alone
+        /// cannot tell "no frame yet" from "frame 0"
+        bool frame_acquired = false;
+
+        /// the VkCommandBuffer of the frame slot in flight (VK_NULL_HANDLE when there is none)
+        [[nodiscard]] VkCommandBuffer frame_command_buffer() const noexcept;
 
         VkInstance instance = VK_NULL_HANDLE;
         // called logical_device, not device: the structured binding of that name in core.constructor.cppm
@@ -296,14 +458,21 @@ namespace deren::vulkan {
         /// the seam a COMPUTE culling pass needs - the counts are then decided on the GPU, after culling, rather
         /// than by the host that recorded the draw (see runtime::draw_mesh_tasks_indirect)
         PFN_vkCmdDrawMeshTasksIndirectEXT mesh_dispatch_indirect = nullptr;
-        /// VK_EXT_host_image_copy (OPTIONAL, see host_image_copy_available below): the copy between an image and
-        /// HOST memory that the IMPLEMENTATION performs - no command buffer, no staging buffer, no submission.
-        /// Resolved through vkGetDeviceProcAddr like the mesh commands above, because the loader's import library
-        /// does not export it; null means this device cannot perform one (see docs/host_image_copy.md).
+        /// VK_EXT_host_image_copy (REQUIRED - see host_image_copy_available below): the copy between an
+        /// image and HOST memory that the IMPLEMENTATION performs - no command buffer, no staging buffer,
+        /// no submission. Resolved through vkGetDeviceProcAddr like the mesh commands above, because the
+        /// loader's import library does not export it; the startup check panics when it cannot be resolved.
         PFN_vkCopyImageToMemoryEXT copy_image_to_memory = nullptr;
-        /// whether a host image copy is usable on THIS device AND for THIS renderer's images: the extension, its
-        /// hostImageCopy feature and GENERAL among the device's copy-source layouts - the three things the call
-        /// needs. Every caller tests it before choosing a host copy, so false always means the staging path.
+        /// the other direction of the same extension: HOST memory -> image. The image upload path uses it
+        /// (instead of staging buffer + vkCmdCopyBufferToImage); resolved here and checked at startup for
+        /// the same reason as its twin above.
+        PFN_vkCopyMemoryToImageEXT copy_memory_to_image = nullptr;
+        /// whether the host image copy is CONFIRMED USABLE on this device: the extension, its
+        /// hostImageCopy feature, BOTH entry points resolving, and GENERAL present in the device's
+        /// copy-source AND copy-destination layout lists - every one of them checked at construction, and
+        /// a missing one is a NAMED STARTUP FAILURE (core.constructor.cppm), not a downgrade. In a running
+        /// process this member is therefore true: it exists so the paths that use the extension can state
+        /// their precondition, not to choose between implementations.
         bool host_image_copy_available = false;
         // called graphics_queue_family_index, not graphics_family_index: the structured binding of that name
         // in core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
@@ -319,6 +488,37 @@ namespace deren::vulkan {
         void wait_idle() const noexcept;                              // vkDeviceWaitIdle
         void set_window_title(std::string_view title) const noexcept; // glfwSetWindowTitle
 
+        // ---- deren.promise.rhi::api_core: THE RHI CONTRACT, IMPLEMENTED IN PLACE -------------------
+        //
+        // Declared here, defined in vulkan/core/core.api_core.cpp. The rule for every one of them is
+        // "answer for the device that was really created, never in the abstract": `abilities()` probes
+        // the physical device below, the frame calls run the acquire/submit/present machinery on THIS
+        // swapchain, and a factory that cannot honour a descriptor answers nullptr instead of a
+        // half-built object (the plan's no-throwing-path rule, §4.2).
+        //
+        // `wait_idle()` below is the non-const OVERLOAD of the const facade call above - the contract's
+        // virtual is not const, and both spellings answer `vkDeviceWaitIdle`.
+        [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
+        [[nodiscard]] deren::promise::rhi::swapchain* create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::buffer* create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::image* create_image(deren::promise::rhi::image_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::sampler* create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::shader* create_shader(deren::promise::rhi::shader_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::pipeline* create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::query* create_query(deren::promise::rhi::query_desc const& desc) override;
+        [[nodiscard]] deren::promise::rhi::command_list* begin_commands() override;
+        // ---- S2 batch 2: the recording surface's frame-domain views --------------------------------
+        // `begin_commands()` now hands out a REAL list (the frame's primary command buffer, which this
+        // class owns - see command_buffers below), so the tier-2 verbs that take a `command_list&`
+        // (push_data / dispatch_mesh / build_acceleration_structure) become reachable, and the
+        // read-back's copy can be recorded into the frame it belongs to.
+        [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept override;
+        [[nodiscard]] deren::promise::rhi::buffer* frame_readback_buffer() noexcept override;
+        [[nodiscard]] deren::promise::rhi::submit_info frame_begin() override;
+        void present() override;
+        void wait_idle() override;
+
         VkSurfaceKHR surface = VK_NULL_HANDLE;
 
         // called graphics_queue_handle, not graphics_queue: the structured binding of that name in
@@ -333,6 +533,10 @@ namespace deren::vulkan {
         std::vector<VkImage> swap_chain_images = {};
         VkFormat swap_chain_image_format = {};
         VkExtent2D swap_chain_extent = {};
+        /// the swapchain image the contract's frame_begin() acquired (vkAcquireNextImageKHR), i.e. what
+        /// the contract's present() hands to the presentation engine. The runtime's own pacing path
+        /// keeps its own `current_image_index` until it migrates onto the contract (S3).
+        uint32_t acquired_image_index = 0;
         /**
          * @brief the extent the RENDER chain runs at: `swap_chain_extent` scaled by `render_scale`
          *
@@ -359,6 +563,12 @@ namespace deren::vulkan {
         // surface supports it). The screenshot read-back copies from a swapchain image and is only
         // legal when this is true - see init_swap_chain().
         bool swapchain_transfer_src_supported = false;
+        // NOTE: there is deliberately NO `swapchain_host_transfer_supported` beside it. A swapchain
+        // image's usage has to be a subset of the surface's supportedUsageFlags
+        // (VUID-VkSwapchainCreateInfoKHR-imageUsage-01276), and the surfaces this renderer runs on do not
+        // list VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT - so `vkCopyImageToMemoryEXT` can never read a
+        // swapchain image here, and the read-back has exactly one mechanism (the copy command). A member
+        // whose only purpose was to choose between two mechanisms is a liability, not a capability.
 
         // MSAA used to live here. It is gone with the forward path that was its only consumer: a
         // G-buffer cannot be multisampled without per-sample shading, so the scene has always
@@ -877,7 +1087,33 @@ namespace deren::vulkan {
         }
 
         core();
-        explicit core(core_create_info const& options);
+        /**
+         * @ingroup vulkan_core
+         * @brief THE construction: the contract's creation structure, taken directly
+         * @param options the creation descriptor, `deren::promise::rhi::create_info`
+         *        (promise/rhi/rhi.core_desc.cppm): title, size, render scale, vsync, validation layers,
+         *        window visibility, and the optional native_window the CALLER owns
+         *
+         * THE CONTRACT'S STRUCTURE IS THE ONLY ONE. `vulkan::core_create_info` and the
+         * `to_backend_create_info()` translation that stood between the two spellings are gone: the
+         * initialisation run below reads the boundary's own fields, so there is one structure to add
+         * a field to instead of two plus a mapping to keep in step. The one thing a translation still
+         * does is the ABI GUARD: `options.struct_size` is compared once and a field whose whole extent
+         * is not inside the bytes the caller declares keeps this build's default (see
+         * core.constructor.cppm's `sanitize_create_info`), per the append-only rule in
+         * rhi.core_desc.cppm.
+         *
+         * `options.native_window` non-null means BIND THE CALLER'S WINDOW: no window is created, none
+         * is destroyed and none is shown or hidden - the caller keeps it alive for as long as this
+         * core lives (the size/title/visibility fields are ignored in that mode). The caller also owns
+         * GLFW's lifetime in that mode: it initialised GLFW before this core was constructed and it
+         * terminates it after this core and its surface are gone.
+         *
+         * `options.window_title` is BORROWED until this call returns (GLFW copies it into the window);
+         * the other fields are copied into `create_options` and read for the core's whole life, which
+         * is why nothing here stores the title pointer.
+         */
+        explicit core(deren::promise::rhi::create_info const& options);
         ~core();
 
         vk_command_buffer make_command_buffer() const;
@@ -1018,6 +1254,15 @@ namespace deren::vulkan {
          * on the image means an image is only re-acquired after its own present finished, which keeps
          * a re-signal from racing across queues.
          */
+        /// @brief acquire the next swapchain image (vkAcquireNextImageKHR) for the frame slot in progress
+        ///
+        /// THE ACQUIRE BELONGS TO WHOEVER OWNS THE DEVICE AND THE SWAPCHAIN, which is this object: it
+        /// is the primitive behind the contract's `frame_begin()` AND behind the runtime's own pacing
+        /// path, so both go through one implementation instead of two copies.
+        /// The POLICY for the result stays with the caller: the runtime maps OUT_OF_DATE to a
+        /// swapchain rebuild plus `skipped`, while the contract's `frame_begin()` collapses anything
+        /// but success into a zeroed `submit_info` (tier-1 has no error channel, plan §3.3).
+        [[nodiscard]] VkResult acquire_next_image(uint32_t& image_index);
         VkResult submit(VkCommandBuffer command_buffer, uint32_t image_index);
 
         /**

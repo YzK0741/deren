@@ -212,24 +212,32 @@ export struct device_capabilities {
     ///        silently falling back to per-layout transitions.
     bool unified_image_layouts_available = false;
 
-    // ---- VK_EXT_host_image_copy: a copy between image memory and host memory that the IMPLEMENTATION performs,
-    //      which is what lets a read-back skip the staging buffer and the copy command entirely (see
-    //      deren.vulkan.readback). Unlike the unified layouts feature above it is OPTIONAL: a device without it keeps
-    //      the command-buffer read-back, so it is enabled when present and reported unavailable otherwise.
-    //      NOTE the feature bit is not the whole capability: a host copy may only read an image whose layout is
-    //      one of the device's VkPhysicalDeviceHostImageCopyPropertiesEXT::pCopySrcLayouts, and this renderer
-    //      keeps every image in GENERAL - so "available" here also means "GENERAL is in that list" (see query()).
+    // ---- VK_EXT_host_image_copy: a copy between image memory and host memory that the IMPLEMENTATION performs.
+    //      It is REQUIRED by this renderer now (device creation refuses a device without it): the images the
+    //      renderer creates for itself are uploaded with vkCopyMemoryToImageEXT and read back with
+    //      vkCopyImageToMemoryEXT, so there is no second mechanism to fall back to. The feature bit is not the
+    //      whole capability, though: a host copy may only read an image whose layout is one of the device's
+    //      VkPhysicalDeviceHostImageCopyPropertiesEXT::pCopySrcLayouts, and only write one whose layout is in its
+    //      pCopyDstLayouts, while this renderer keeps every image in GENERAL - so availability means "GENERAL is
+    //      in the SOURCE list" (read-back) AND "GENERAL is in the DESTINATION list" (upload), checked separately
+    //      below because a device may list one and not the other.
     VkPhysicalDeviceHostImageCopyFeaturesEXT host_image_copy_features = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_FEATURES_EXT};
     VkPhysicalDeviceHostImageCopyPropertiesEXT host_image_copy_properties = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_HOST_IMAGE_COPY_PROPERTIES_EXT};
     /// @brief the layouts a host copy may read FROM (host_image_copy_properties.pCopySrcLayouts). A fixed array
     ///        because the only question asked of it is "is GENERAL listed": if a device listed more layouts than
-    ///        fit here the tail would be invisible, whose worst case is a false "unavailable" (the staging path
-    ///        stays), never a copy issued in a layout the device does not accept.
+    ///        fit here the tail would be invisible, whose worst case is a named startup failure (GENERAL not
+    ///        found), never a copy issued in a layout the device does not accept.
     static constexpr uint32_t host_image_copy_max_src_layouts = 16;
     std::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_src_layouts = {};
+    /// @brief the layouts a host copy may write TO (host_image_copy_properties.pCopyDstLayouts) - the upload
+    ///        direction's list, kept separate from the source list for the same reason the properties are.
+    std::array<VkImageLayout, host_image_copy_max_src_layouts> host_image_copy_dst_layouts = {};
     /// @brief whether the device has VK_EXT_host_image_copy, its hostImageCopy feature AND GENERAL among its
-    ///        copy-source layouts - the three things a host copy of THIS renderer's images needs.
+    ///        copy-SOURCE layouts - what a host copy of an image OUT of this renderer needs (the read-back).
     bool host_image_copy_available = false;
+    /// @brief the same for the other direction: GENERAL among the device's copy-DESTINATION layouts, which is
+    ///        what vkCopyMemoryToImageEXT (the image upload) needs. Separate, because the two lists differ.
+    bool host_image_copy_upload_available = false;
 
     // ---- Property chain (query only, for renderer decisions/diagnostics) ----
     VkPhysicalDeviceProperties2 properties_2 = {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
@@ -674,6 +682,8 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     // query: copySrcLayoutCount comes back as the device's total and at most the number passed in is written.
     host_image_copy_properties.pCopySrcLayouts = host_image_copy_src_layouts.data();
     host_image_copy_properties.copySrcLayoutCount = static_cast<uint32_t>(host_image_copy_src_layouts.size());
+    host_image_copy_properties.pCopyDstLayouts = host_image_copy_dst_layouts.data();
+    host_image_copy_properties.copyDstLayoutCount = static_cast<uint32_t>(host_image_copy_dst_layouts.size());
     maintenance4_properties.pNext = host_image_copy_extension ? reinterpret_cast<VkBaseOutStructure*>(&host_image_copy_properties) : nullptr;
     host_image_copy_properties.pNext = descriptor_heap_extension ? reinterpret_cast<VkBaseOutStructure*>(&descriptor_heap_properties) : nullptr;
     // The mesh shader limits are queried on extension PRESENCE rather than availability: the printout must be
@@ -686,11 +696,14 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
     ray_tracing_pipeline_properties.pNext = nullptr;
     vkGetPhysicalDeviceProperties2(physical_device, &properties_2);
 
-    // ---- The rest of the host-image-copy capability. The feature bit promises the entry points work; it says
-    //      nothing about whether THIS renderer's images may be read that way. A host copy needs the image's actual
-    //      layout to be one of the device's copy-source layouts, and every image here is in GENERAL
-    //      (VK_KHR_unified_image_layouts), so a device whose list omits GENERAL gets the staging fallback instead
-    //      of a call that would be invalid. The count is clamped to the array for the same reason as above.
+    // ---- The rest of the host-image-copy capability, in BOTH directions. The feature bit promises the entry
+    //      points work; it says nothing about whether THIS renderer's images may be copied that way. A host copy
+    //      needs the image's actual layout to be one of the device's copy-source layouts (the read-back) or one
+    //      of its copy-destination layouts (the upload), and every image here is in GENERAL
+    //      (VK_KHR_unified_image_layouts) - so each direction is checked against its OWN list, separately,
+    //      because a device may list GENERAL in one and not the other. A miss is a named startup failure at
+    //      device creation; it is not a downgrade to another mechanism. Counts are clamped to the arrays for the
+    //      same reason as above.
     if (host_image_copy_available) {
         uint32_t const listed = host_image_copy_properties.copySrcLayoutCount < host_image_copy_max_src_layouts
                                     ? host_image_copy_properties.copySrcLayoutCount
@@ -700,6 +713,15 @@ void device_capabilities::query(VkPhysicalDevice const physical_device, uint32_t
             general_listed = general_listed || host_image_copy_src_layouts[index] == VK_IMAGE_LAYOUT_GENERAL;
         }
         host_image_copy_available = general_listed;
+
+        uint32_t const upload_listed = host_image_copy_properties.copyDstLayoutCount < host_image_copy_max_src_layouts
+                                           ? host_image_copy_properties.copyDstLayoutCount
+                                           : host_image_copy_max_src_layouts;
+        bool general_dst_listed = false;
+        for (uint32_t index = 0; index < upload_listed; ++index) {
+            general_dst_listed = general_dst_listed || host_image_copy_dst_layouts[index] == VK_IMAGE_LAYOUT_GENERAL;
+        }
+        host_image_copy_upload_available = general_dst_listed;
     }
 
     // ---- Feature policy: pass through driver support except explicitly disabled ones (take most features except ray tracing) ----
@@ -965,12 +987,13 @@ void print_device_capabilities(device_capabilities const& capabilities) {
         deren::utility::log(" unified layout: NOT available (this renderer requires it, device creation refuses)");
     }
 
-    // ---- Host image copy: OPTIONAL, so this line records which read-back path is in use rather than a refusal --
-    if (capabilities.host_image_copy_available) {
-        deren::utility::log(" host image copy: available (VK_EXT_host_image_copy, an image read-back skips the staging copy)");
-    } else {
-        deren::utility::log(" host image copy: NOT available (an image read-back keeps its staging copy)");
-    }
+    // ---- Host image copy: REQUIRED (device creation refuses a device without it), so this line reports the two
+    //      direction-specific layout facts the checks above measured rather than a choice of path ---------------
+    deren::utility::log(" host image copy: REQUIRED - GENERAL in the copy-source layouts: {}, in the copy-destination layouts: {} "
+                        "(VK_EXT_host_image_copy; the swapchain read-back still uses the copy command, because a swapchain image's "
+                        "usage is bounded by the surface's supportedUsageFlags)",
+                        capabilities.host_image_copy_available,
+                        capabilities.host_image_copy_upload_available);
 
     deren::utility::log("{}", box_line);
 }

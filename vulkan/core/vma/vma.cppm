@@ -204,6 +204,11 @@ namespace deren::vulkan {
         std::mutex staging_mutex = {};
         // see the note on logical_device above: the same C4458 rule for init()`s queue_family_index parameter
         uint32_t upload_queue_family_index = 0;
+        /// The host image copy's UPLOAD entry point (`vkCopyMemoryToImageEXT`), handed down by `core`,
+        /// which resolves and CHECKS it at startup - the extension is required, so a running process has
+        /// it. It is a device-level call rather than a queue one, which is exactly why the image upload
+        /// lives on the allocator's side of the fence and needs this pointer.
+        PFN_vkCopyMemoryToImageEXT copy_memory_to_image = nullptr;
 
         // ---- ownership: release/retain are private - the only public way to release a
         // buffer/image is to destroy (or reset) the vk_buffer / vk_image RAII owner that
@@ -228,7 +233,9 @@ namespace deren::vulkan {
         bool direct_upload(VmaAllocation const& allocation, VmaAllocationInfo& allocation_info, void const* data, uint64_t size) const;
         bool staging_upload(VkBuffer dst_buffer, void const* data, VkDeviceSize size);
         bool direct_image_upload(VmaAllocation allocation, void const* data, VkDeviceSize size) const;
-        bool staging_image_upload(VkImage dst_image, void const* data, VkDeviceSize size, image_create_info const& info);
+        /// THE image upload: one mechanism, `vkCopyMemoryToImageEXT` (see its definition). The name says
+        /// so - nothing is staged any more.
+        bool host_image_upload(VkImage dst_image, void const* data, VkDeviceSize size, image_create_info const& info);
         [[nodiscard]] std::pair<VkCommandPool, VkCommandBuffer> create_command_pair() const;
 
     public:
@@ -242,6 +249,18 @@ namespace deren::vulkan {
          * @param queue_family_index the queue family of the given queue
          */
         void init(VkInstance instance, VkDevice device, VkPhysicalDevice physical_device, VkQueue queue, uint32_t queue_family_index);
+
+        /**
+         * @ingroup vulkan_vma
+         * @brief hand this allocator the `vkCopyMemoryToImageEXT` entry point the image upload uses
+         * @param to_image the resolved entry point; `core` resolves it through `vkGetDeviceProcAddr` at
+         *        startup and REFUSES to run without it (VK_EXT_host_image_copy is a required capability)
+         * @note stored rather than resolved here: the capability check belongs to the device-creation
+         *       path, which is the one place that can fail by name before anything is uploaded
+         */
+        void set_host_image_copy(PFN_vkCopyMemoryToImageEXT to_image) noexcept {
+            this->copy_memory_to_image = to_image;
+        }
 
         /**
          * @ingroup vulkan_vma
@@ -580,7 +599,7 @@ namespace {
             return 8;
 
         default:
-            // Deliberately not 0: a 0 would zero every mip's bufferOffset in staging_image_upload()
+            // Deliberately not 0: a 0 would zero every mip's host pointer offset in host_image_upload()
             // and make the size check below compare against nothing, i.e. a silently wrong upload
             // (or a meaningless region layout) instead of a failure. Every format this engine uploads
             // is listed above, so a miss here is a bug in the table, not a caller error.
@@ -741,8 +760,12 @@ namespace {
         switch (type) {
         case deren::vulkan::image_type::texture_2d:
             image_info.imageType = VK_IMAGE_TYPE_2D;
+            // HOST_TRANSFER is what the ONE upload mechanism needs (vkCopyMemoryToImageEXT, see
+            // host_image_upload): the image is written by the implementation from the caller's memory, so
+            // the usage bit follows the mechanism rather than a choice between mechanisms.
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                VK_IMAGE_USAGE_SAMPLED_BIT |
+                               VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT |
                                info.extra_usage;
             break;
 
@@ -765,6 +788,7 @@ namespace {
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                VK_IMAGE_USAGE_SAMPLED_BIT |
                                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                               VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | // see texture_2d above
                                info.extra_usage;
             break;
 
@@ -779,6 +803,7 @@ namespace {
             image_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT;
             image_info.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                VK_IMAGE_USAGE_SAMPLED_BIT |
+                               VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | // see texture_2d above
                                info.extra_usage;
             break;
 
@@ -788,6 +813,7 @@ namespace {
                                VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                                VK_IMAGE_USAGE_SAMPLED_BIT |
                                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT |
+                               VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT | // see texture_2d above: a target WITH data is uploaded the same way
                                info.extra_usage;
             break;
         }
@@ -1056,29 +1082,19 @@ namespace deren::vulkan {
         return true;
     }
 
-    bool vma_allocator::staging_image_upload(VkImage dst_image, void const* data, VkDeviceSize size, image_create_info const& info) {
-        VkBuffer staging_buffer = VK_NULL_HANDLE;
-        VmaAllocation staging_allocation = VK_NULL_HANDLE;
-        VmaAllocationInfo staging_info = {};
-
-        // The staging buffer is shared; it must be held exclusively during writes + GPU copies
-        std::lock_guard staging_guard(this->staging_mutex);
-
-        // Reuse the cached staging buffer, rebuilding automatically when too small
-        if (!this->ensure_staging_buffer(size, staging_buffer, staging_allocation, staging_info)) {
-            return false;
+    bool vma_allocator::host_image_upload(VkImage dst_image, void const* data, VkDeviceSize size, image_create_info const& info) {
+        // ---- THE IMAGE UPLOAD, AND THE ONLY ONE: VK_EXT_host_image_copy. The implementation performs the
+        //      copy between the caller's memory and the image, so there is no staging buffer, no
+        //      VkBufferImageCopy and no copy command - and no second path to choose between. It needs two
+        //      things of the image, and both are OURS to provide: the VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT
+        //      usage bit (asked for at creation; see get_image_create_info_from_type) and the GENERAL
+        //      layout, which this renderer keeps every image in (VK_KHR_unified_image_layouts). The
+        //      extension is a REQUIRED device capability checked at startup, so reaching here means both
+        //      entry points resolved and GENERAL is in the device's copy-destination list.
+        if (data == nullptr || size == 0) {
+            return true; // an empty image (a shadow map or a target that is only rendered into) has no payload
         }
 
-        // Copy data into the staging buffer
-        if (staging_info.pMappedData) {
-            memcpy(staging_info.pMappedData, data, size);
-            if (!this->is_host_coherent(staging_info.memoryType)) {
-                vmaFlushAllocation(this->allocator, staging_allocation, 0, size);
-            }
-        } else {
-            return false;
-        }
-        // Execute the copy command (cache access guarded by cache_mutex)
         std::pair<VkCommandPool, VkCommandBuffer> command_pair;
         VkFence fence = VK_NULL_HANDLE;
         {
@@ -1089,7 +1105,6 @@ namespace deren::vulkan {
             } else {
                 command_pair = this->create_command_pair();
             }
-
             if (!this->fence_cache.empty()) {
                 fence = this->fence_cache.back();
                 this->fence_cache.pop_back();
@@ -1097,50 +1112,72 @@ namespace deren::vulkan {
                 fence = this->create_fence();
             }
         }
-        VkCommandBuffer command_buffer = command_pair.second;
+        VkCommandBuffer const command_buffer = command_pair.second;
 
-        VkCommandBufferBeginInfo begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
-        vkBeginCommandBuffer(command_buffer, &begin_info);
+        auto const release_pair = [&]() {
+            std::lock_guard guard(this->cache_mutex);
+            this->fence_cache.push_back(fence);
+            this->command_cache.push_back(command_pair);
+        };
 
-        // ========== Fix point 1: correct layout transition order ==========
-        // Step 1: UNDEFINED -> GENERAL
-        VkImageMemoryBarrier barrier = {};
-        barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
-        barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-        barrier.image = dst_image;
-        barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        barrier.subresourceRange.levelCount = info.mip_levels;
-        barrier.subresourceRange.layerCount = info.array_layers;
-        barrier.srcAccessMask = 0;
-        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        // ONE barrier, recorded into the shared command buffer, submitted and waited for. The host copy
+        // between the two calls is NOT a queue operation, so the ordering around it has to be spelled as
+        // two submissions: "make the image available TO THE HOST" before, "publish the host's writes to
+        // the shaders" after. HOST as a pipeline stage is what carries both directions.
+        auto const submit_barrier = [&](VkImageLayout const old_layout, VkImageLayout const new_layout, VkAccessFlags const src_access, VkAccessFlags const dst_access,
+                                        VkPipelineStageFlags const src_stage, VkPipelineStageFlags const dst_stage) {
+            VkCommandBufferBeginInfo const begin_info = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, nullptr);
+            vkBeginCommandBuffer(command_buffer, &begin_info);
 
-        vkCmdPipelineBarrier(
-            command_buffer,
-            VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            0,
-            0, nullptr,
-            0, nullptr,
-            1, &barrier);
+            VkImageMemoryBarrier barrier = {};
+            barrier.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER;
+            barrier.oldLayout = old_layout;
+            barrier.newLayout = new_layout;
+            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+            barrier.image = dst_image;
+            barrier.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            barrier.subresourceRange.levelCount = info.mip_levels;
+            barrier.subresourceRange.layerCount = info.array_layers;
+            barrier.srcAccessMask = src_access;
+            barrier.dstAccessMask = dst_access;
 
-        // Step 2: copy per mip.
-        // Data is laid out in mip-major order (all layers of mip0 -> all layers of mip1 -> ...),
-        // with layers contiguous within each mip (face0, face1, ...), located via bufferOffset.
+            vkCmdPipelineBarrier(command_buffer, src_stage, dst_stage, 0, 0, nullptr, 0, nullptr, 1, &barrier);
+            vkEndCommandBuffer(command_buffer);
+
+            VkSubmitInfo const submit_info = make_submit_info(&command_buffer);
+            {
+                // VkQueue is externally synchronized; submits must be serialized
+                std::lock_guard guard(this->queue_mutex);
+                vkQueueSubmit(this->upload_queue, 1, &submit_info, fence);
+            }
+            vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
+            vkResetFences(this->logical_device, 1, &fence);
+            vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
+        };
+
+        // Step 1: UNDEFINED -> GENERAL, and the transition's target stage is the HOST: the image is not
+        // being written by a transfer command any more, it is about to be written BY THE CPU through the
+        // extension, so HOST_WRITE (not TRANSFER_WRITE) is the access that has to be made available.
+        submit_barrier(VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_GENERAL, 0, VK_ACCESS_HOST_WRITE_BIT, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, VK_PIPELINE_STAGE_HOST_BIT);
+
+        // Step 2: the copy itself, one region per mip. The data is laid out in mip-major order (all layers
+        // of mip 0, then all layers of mip 1, ...) exactly as the staging path's VkBufferImageCopy
+        // described it with bufferOffset; here the same offset is a POINTER into the caller's memory.
         uint32_t const bytes_per_pixel = sizeof_vk_format(info.format);
-        std::vector<VkBufferImageCopy> regions;
+        std::vector<VkMemoryToImageCopyEXT> regions;
         regions.reserve(info.mip_levels);
-        VkDeviceSize buffer_offset = 0;
+        VkDeviceSize memory_offset = 0;
         for (uint32_t mip = 0; mip < info.mip_levels; ++mip) {
             uint32_t const mip_width = std::max(1u, info.width >> mip);
             uint32_t const mip_height = std::max(1u, info.height >> mip);
 
-            VkBufferImageCopy region = {};
-            region.bufferOffset = buffer_offset;
-            region.bufferRowLength = 0; // 0 means tightly packed
-            region.bufferImageHeight = 0;
+            VkMemoryToImageCopyEXT region = {};
+            region.sType = VK_STRUCTURE_TYPE_MEMORY_TO_IMAGE_COPY_EXT;
+            region.pNext = nullptr;
+            region.pHostPointer = static_cast<uint8_t const*>(data) + memory_offset;
+            region.memoryRowLength = 0; // 0 means tightly packed
+            region.memoryImageHeight = 0;
             region.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
             region.imageSubresource.mipLevel = mip;
             region.imageSubresource.baseArrayLayer = 0;
@@ -1149,57 +1186,37 @@ namespace deren::vulkan {
             region.imageExtent = {mip_width, mip_height, 1};
             regions.push_back(region);
 
-            buffer_offset += static_cast<VkDeviceSize>(mip_width) * mip_height * info.array_layers * bytes_per_pixel;
+            memory_offset += static_cast<VkDeviceSize>(mip_width) * mip_height * info.array_layers * bytes_per_pixel;
+        }
+        if (memory_offset > size) {
+            // The caller already refuses a short payload (see create_image's expected-size check); this is
+            // the same fact where the per-mip offsets are computed, and it is the reason that check exists.
+            deren::utility::error("host image upload: the per-mip layout needs {} bytes, the caller provided {}", memory_offset, size);
+            release_pair();
+            return false;
         }
 
-        vkCmdCopyBufferToImage(
-            command_buffer,
-            staging_buffer,
-            dst_image,
-            VK_IMAGE_LAYOUT_GENERAL,
-            static_cast<uint32_t>(regions.size()),
-            regions.data());
-
-        // Step 3: publish it to the fragment stage (GENERAL -> GENERAL; the barrier is the dependency)
-        barrier.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-        vkCmdPipelineBarrier(
-            command_buffer,
-            VK_PIPELINE_STAGE_TRANSFER_BIT,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-            0,
-            0, nullptr,
-            0, nullptr,
-            1, &barrier);
-
-        vkEndCommandBuffer(command_buffer);
-
-        // Submit and wait for completion
-        VkSubmitInfo submit_info = make_submit_info(&command_buffer);
-
-        {
-            // VkQueue is externally synchronized; submits must be serialized
-            std::lock_guard guard(this->queue_mutex);
-            vkQueueSubmit(this->upload_queue, 1, &submit_info, fence);
+        VkCopyMemoryToImageInfoEXT const copy_info = {.sType = VK_STRUCTURE_TYPE_COPY_MEMORY_TO_IMAGE_INFO_EXT,
+                                                      .pNext = nullptr,
+                                                      .flags = 0,
+                                                      .dstImage = dst_image,
+                                                      .dstImageLayout = VK_IMAGE_LAYOUT_GENERAL,
+                                                      .regionCount = static_cast<uint32_t>(regions.size()),
+                                                      .pRegions = regions.data()};
+        VkResult const copied = this->copy_memory_to_image(this->logical_device, &copy_info);
+        if (copied != VK_SUCCESS) {
+            deren::utility::error("host image upload: vkCopyMemoryToImageEXT failed (VkResult {})", static_cast<int32_t>(copied));
+            release_pair();
+            return false;
         }
 
-        vkWaitForFences(this->logical_device, 1, &fence, VK_TRUE, UINT64_MAX);
+        // Step 3: publish it to the fragment stage (GENERAL -> GENERAL; the barrier is the dependency). The
+        // source side is the HOST stage, because that is where the writes came from.
+        submit_barrier(VK_IMAGE_LAYOUT_GENERAL, VK_IMAGE_LAYOUT_GENERAL, VK_ACCESS_HOST_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_HOST_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
-        // Cleanup
-        vkResetFences(this->logical_device, 1, &fence);
-        vkResetCommandBuffer(command_buffer, VK_COMMAND_BUFFER_RESET_RELEASE_RESOURCES_BIT);
-        {
-            std::lock_guard guard(this->cache_mutex);
-            this->fence_cache.push_back(fence);
-            this->command_cache.push_back(command_pair);
-        }
-
+        release_pair();
         return true;
     }
-
     vk_buffer vma_allocator::create_buffer(uint8_t const* data, uint64_t const size_byte, buffer_type const type, VkBufferUsageFlags const extra_usage) {
         // the returned owner carries lambdas that call back into this allocator; they are
         // created here (a member function), so they may call the private free/retain below
@@ -1346,12 +1363,12 @@ namespace deren::vulkan {
             }
             expected_size *= create_info.array_layers;
             if (expected_size > image_size) {
-                // REFUSE, rather than log and carry on. staging_image_upload() below lays the per-mip
-                // copy regions out from `expected_size` (the bufferOffset accumulation) while the
-                // staging buffer holds `image_size` bytes, so continuing here turns a caller's size
-                // mistake into a vkCmdCopyBufferToImage that reads past the end of the staging buffer -
-                // a device-side out-of-range access, not a cosmetic log line. The other direction
-                // (expected < given) only leaves part of the staging buffer unread, so it stays a log.
+                // REFUSE, rather than log and carry on. host_image_upload() below lays the per-mip
+                // regions out from `expected_size` (the pointer-offset accumulation) while the caller's
+                // memory holds `image_size` bytes, so continuing here turns a caller's size mistake into
+                // a vkCopyMemoryToImageEXT that reads past the end of that memory - a host-side
+                // out-of-range access, not a cosmetic log line. The other direction (expected < given)
+                // only leaves part of the payload unread, so it stays a log.
                 deren::utility::error("incorrect image size [{}], expected [{}] - refusing the upload", image_size, expected_size);
                 this->recycle(handle);
                 return vk_image{};
@@ -1398,7 +1415,7 @@ namespace deren::vulkan {
         case image_type::texture_2d_color:
         case image_type::texture_cubemap:
         case image_type::render_target:
-            upload_success = staging_image_upload(image, data, image_size, create_info);
+            upload_success = host_image_upload(image, data, image_size, create_info);
             break;
 
         case image_type::texture_2d_depth:

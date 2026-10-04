@@ -52,7 +52,8 @@ endif()
 # GLFW (window + input): linked STATICALLY so the released exe carries no glfw3.dll.
 # The MSYS2 clang64 package's own CMake config exports a SHARED import (libglfw3.dll.a),
 # so we do not use find_package(glfw3): a plain INTERFACE target linking the bare name
-# resolves to the static archive once the executable links with -static (see below), and
+# would now resolve to that shared import (the exe no longer links with -static - see the
+# link-options block below), which is why the interface names libglfw3.a outright, and
 # crucially does NOT define GLFW_DLL (the dynamic-import macro static builds must not see).
 # Headers live on the compiler's implicit include path; an explicit dir is added when found.
 #
@@ -71,7 +72,12 @@ if(WIN32)
                 NO_DEFAULT_PATH REQUIRED)
         target_link_libraries(glfw INTERFACE ${VR_GLFW_LIBRARY} gdi32)
     else()
-        target_link_libraries(glfw INTERFACE glfw3 gdi32) # glfw3.pc: Libs.private = -lgdi32
+        # MINGW ONLY: a bare `glfw3` is "the linker's choice", and that choice is the SHARED import
+        # (libglfw3.dll.a) whenever the executable is not linked with -static. The C++ runtime is
+        # dynamic now (see the link-options block below), so the static archive is named explicitly
+        # here instead - the released exe must still carry no glfw3.dll (see the note above).
+        find_library(VR_GLFW_STATIC_LIBRARY NAMES libglfw3.a REQUIRED)
+        target_link_libraries(glfw INTERFACE ${VR_GLFW_STATIC_LIBRARY} gdi32) # glfw3.pc: Libs.private = -lgdi32
     endif()
 else()
     find_package(Threads REQUIRED)
@@ -109,10 +115,11 @@ endif()
 #   -fmerge-all-constants
 #   -fno-sanitize=float-cast-overflow   nothing. MSVC has no UBSan, so the app_config suppression below
 #                                       disappears - its subject cannot fire there.
-#   -static, -Wl,--gc-sections, -s      /OPT:REF /OPT:ICF is the real --gc-sections equivalent; the
-#                                       static CRT and the symbol strip have no counterpart, so an
-#                                       MSVC Release exe is not the single self-contained file the
-#                                       clang64 Release exe is.
+#   -Wl,--gc-sections, -s              /OPT:REF /OPT:ICF is the real --gc-sections equivalent; the
+#                                       symbol strip has no counterpart. (The clang64 exe no longer
+#                                       links -static - see the link-options block below - so it is
+#                                       not the single self-contained file it used to be either: both
+#                                       toolchains now ship against a shared C++ runtime.)
 # =============================================================================================
 
 # Tuning target for Release. -march=native is right for a build on your own machine and wrong for an
@@ -307,16 +314,84 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # (vulkan.animation: plays keyframe clips / skins / morphs onto the runtime scene; it never
 # imports a loader - deren::gltf::scenes satisfies its structural source concept at the call site).
 # This library does NOT depend on gltf_loader (pure CPU, used by the demo layer only).
-add_library(vulkancorekit STATIC)
+# ============================================================================================
+# ============================================================================================
+# deren_vulkan - THE BACKEND HALF AS A TARGET OF ITS OWN (plan_rhi_v4.md §11.2, S1-A).
+#
+# The minimum cut, measured with deren-ab/rhi/_s1_import_graph.py: the import closure of the seed
+# {deren.vulkan.core, deren.vulkan.init_utils} is 7 modules with ZERO edges leaving the closure.
+# A wider cut drags bindings / pipelines / render_resource / scene_tree in, which is not S1 - that
+# is S3. So this target carries exactly the engine-service layer (core, its vma / descriptor-heap
+# / handles / init_utils / pipeline / spirv_parser, and the transition constants) and the 17 files
+# listed below, and NOTHING about render passes.
+#
+# WHY A TARGET AND NOT A DIRECTORY MOVE: every consumer of the backend keeps using vulkancorekit
+# unchanged (the BMI comes across through `target_link_libraries(vulkancorekit PUBLIC deren_vulkan)`,
+# the shape utility / vstd_lib already have). Products are expected to be byte-identical: same TUs,
+# same flags, same executable - S1-A is the one step of S1 that is constructive.
+#
+# STATIC ON PURPOSE, AND SHARED ONLY AT S2: the plan's order is S1-C first (this backend implements
+# deren::promise::rhi::api_core, and one in-process instance is all that needs to exist to prove the
+# contract), and S2 second (this same target becomes SHARED, exports the THREE C entry points of
+# promise/rhi/backend_entry.hpp, and deren.utility.dynamic_link resolves them at run time). Making it
+# SHARED before the contract exists produces exactly what the plan does not ask for: an ordinary
+# auto-import DLL, whose load-time binding is what dynamic_link is supposed to replace.
+#
+# -DDEREN_BACKEND_SPIKE=ON IS THE S2 SPIKE, NOT S2 (DYNAMIC_LINK_V2.md §4 step 1b). It turns THIS
+# target into the SHARED library in a THROWAWAY build tree so the boundary's four known-unknowns are
+# measured BEFORE the contract migration is paid for instead of after it (plan_rhi_v4.md §9 items
+# 14-17: sanitizers with an instrumented DLL, the real DLL's shared_ptr deleter, two static mimalloc
+# instances, a module BMI crossing a target boundary). It is not a second mechanism and not a second
+# code path: same TUs, same flags, one build-tree variable.
+#
+# WITH IT ON THE ENGINE HALF CANNOT LINK, and that is the point rather than a side effect:
+# vulkancorekit still reaches into this target with 78 symbols (measured; the worklist is
+# scripts/check_backend_boundary.py --list), so only the spike target below is built. The spike tree
+# is disposable; the product tree is untouched because the option defaults OFF.
+# ============================================================================================
+option(DEREN_BACKEND_SPIKE
+        "build deren_vulkan as a SHARED library plus the boundary spike test (S2 spike; the engine targets will not link)"
+        OFF)
 
-target_sources(vulkancorekit
+if(DEREN_BACKEND_SPIKE)
+    add_library(deren_vulkan SHARED)
+else()
+    add_library(deren_vulkan STATIC)
+endif()
+add_library(deren::vulkan ALIAS deren_vulkan)
+
+if(DEREN_BACKEND_SPIKE)
+    # The dllexport side of the boundary (utility/abi_export.hpp). The importing side needs neither
+    # macro: a host that resolves the symbols by name is not linked against this library at all.
+    target_compile_definitions(deren_vulkan PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
+
+    # MEASURED, AND IT IS WORSE THAN "DOES NOT LINK": with the CI sanitizer job's flags
+    # (-DCMAKE_CXX_FLAGS="-fsanitize=address,undefined ...", which carry the runtime only on the
+    # EXE link line) the `-shared` link of this library does not merely leave ASan undefined - it
+    # CRASHES lld:
+    #
+    #     LLVM ERROR: Associative COMDAT symbol '.str.5' is not a key for its COMDAT.
+    #     Exception Code: 0xC000001D   (ld.lld, clang 22.1.8, --coff)
+    #
+    # so the instrumented objects of a SHARED C++ library are not a shape this toolchain can link at
+    # all. The suppression below is the same one tests/probe_backend.cpp already carries, and it is
+    # the reason the flip COSTS THE BACKEND ITS SANITIZER COVERAGE: the DLL is uninstrumented by
+    # construction, and an instrumented process cannot host a second sanitizer runtime anyway.
+    # Keeping the coverage means running the sanitizers over the STATIC half, which is why this is
+    # recorded as a cost of the flip rather than fixed here.
+    if(NOT MSVC)
+        target_compile_options(deren_vulkan PRIVATE -fno-sanitize=all)
+        target_link_options(deren_vulkan PRIVATE -fno-sanitize=all)
+    endif()
+endif()
+
+target_sources(deren_vulkan
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
         vulkan/core/core.cppm
-    vulkan/core/core.declarations.cppm
-    vulkan/core/core.constructor.cppm
-        vulkan/core/filter/filters.cppm
+        vulkan/core/core.declarations.cppm
+        vulkan/core/core.constructor.cppm
         vulkan/core/vma/vma.cppm
         vulkan/core/descriptor_heap/descriptor_heap.cppm
         vulkan/core/vma/handles/vma_handles.cppm
@@ -324,8 +399,48 @@ target_sources(vulkancorekit
         vulkan/core/init_utils/init_utils.cppm
         vulkan/init_utils/init_utils.cppm
         vulkan/core/pipeline/pipeline.cppm
-        vulkan/math/math.cppm
+        vulkan/core/pipeline/spirv_parser.cppm
         vulkan/constant_init/constant_init.cppm
+    PRIVATE
+        vulkan/core/core.cpp
+        # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
+        # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
+        vulkan/core/core.api_core.cpp
+        # The THREE C entry points, DEFINED for the real backend (promise/rhi/backend_entry.hpp,
+        # S2). A plain TU rather than a module implementation unit, because an entry point has to be
+        # reachable BY NAME from an image that imports no module of this target - the same reason
+        # tests/probe_backend.cpp is a plain TU. Harmless while this target is STATIC (an ordinary C
+        # symbol nothing calls) and the dllexport half of the boundary under -DDEREN_BACKEND_SPIKE.
+        vulkan/core/core.entry.cpp
+        vulkan/core/handles/handles.cpp
+        vulkan/init_utils/init_utils.cpp
+        vulkan/core/pipeline/pipeline.cpp
+        third_party/spirv-reflect/spirv_reflect.c
+)
+target_link_libraries(deren_vulkan
+        # The backend implements the contract, so the contract's module is a dependency of THIS target
+        # and of nothing else in the backend's direction (promise/rhi/*.cppm imports nothing back).
+        promise
+        Vulkan::Vulkan
+        glfw
+        utility
+        glm::glm
+        ${CMAKE_DL_LIBS}
+        vstd_lib
+)
+target_include_directories(deren_vulkan
+    SYSTEM PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+)
+
+add_library(vulkancorekit STATIC)
+
+target_sources(vulkancorekit
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        vulkan/core/filter/filters.cppm
+        vulkan/math/math.cppm
         vulkan/runtime/runtime.cppm
     vulkan/runtime/runtime.declarations.cppm
     vulkan/runtime/runtime.constructor.cppm
@@ -363,7 +478,6 @@ target_sources(vulkancorekit
         vulkan/readback/readback.cppm
         vulkan/acceleration_structure/acceleration_structure.cppm
         vulkan/ray_tracing/ray_tracing.cppm
-        vulkan/core/pipeline/spirv_parser.cppm
         vulkan/scene_tree/scene_tree.cppm
         vulkan/meshlet/meshlet.cppm
         vulkan/primitive/primitive.cppm
@@ -372,11 +486,7 @@ target_sources(vulkancorekit
         vulkan/animation/controller.cppm
         vulkan/animation/mmd_motion.cppm
     PRIVATE
-        vulkan/core/core.cpp
         vulkan/core/filter/filters.cpp
-        vulkan/core/handles/handles.cpp
-        vulkan/init_utils/init_utils.cpp
-        vulkan/core/pipeline/pipeline.cpp
         vulkan/math/math.cpp
         vulkan/runtime/runtime.cpp
         vulkan/pass/taa.cpp
@@ -407,7 +517,6 @@ target_sources(vulkancorekit
         vulkan/graphical_user_interface/graphical_user_interface.cpp
         vulkan/animation/controller.cpp
         vulkan/animation/mmd_motion.cpp
-        third_party/spirv-reflect/spirv_reflect.c
 )
 add_library(gltf_loader STATIC)
 target_sources(gltf_loader
@@ -563,6 +672,7 @@ target_link_libraries(gltf_loader
 # library comment above). The executable links gltf_loader itself (main.cpp is its only
 # consumer) and passes the parsed deren::gltf::scenes down to the runtime at the call site.
 target_link_libraries(vulkancorekit
+        PUBLIC
         Vulkan::Vulkan
         glfw
         utility
@@ -582,6 +692,11 @@ target_include_directories(vulkancorekit
     SYSTEM PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
+
+# The engine side gets the backend's modules (BMIs) and symbols from deren_vulkan. PUBLIC, because a
+# static library's link interface is what carries the module file set to the exe and to the tests
+# (§11.2): vulkancorekit's own name and its outward link surface are unchanged by S1-A.
+target_link_libraries(vulkancorekit PUBLIC deren_vulkan)
 
 add_executable(deren main.cpp)
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
@@ -647,11 +762,29 @@ target_link_libraries(${PROJECT_NAME}
         imgui
 )
 
-# Release on Windows (MSYS2 clang64) links fully static (-static): libc++.a / libc++abi.a /
-# libunwind.a and libglfw3.a are resolved by the bare names above, so the shipped exe is a
-# single file (only the OS's own DLLs - kernel32, the UCRT, the Vulkan loader - remain
-# dynamic). Debug stays dynamic for faster dev iteration; POSIX builds stay dynamic (system
-# distro packages are shared objects; static glibc would need extra dev packages).
+# The C++ RUNTIME IS DYNAMIC, ON PURPOSE (Windows/GNU-Clang): the exe used to link with -static,
+# which pinned libc++.a / libc++abi.a / libunwind.a INTO the executable. A first-party DLL cannot
+# do that and still be a DLL: it takes the toolchain's default and imports libc++.dll. That left
+# the process holding TWO C++ runtimes - the exe's private copy and the shared libc++.dll - which
+# is the one combination that is wrong in both directions: no sharing where sharing is desirable
+# (exceptions, RTTI, locale/iostream globals, thread-locals, out-of-line std::string code, weak
+# symbol de-duplication) and no isolation where isolation is needed. The exe therefore takes the
+# same default as the DLL: one libc++.dll, one C++ runtime for the whole program.
+#
+# What stays static, deliberately: glfw (named as an archive by the INTERFACE target above, so
+# dropping -static did not turn the exe into a glfw3.dll consumer) and the vendored C libraries
+# (mimalloc, xxhash). Their static archives mean the process still has one operator new/delete
+# per image - the allocator is NOT unified by this, only the runtime around it is (see
+# deren-ab/rhi/dll_compat_entry_plan.md, "the C++ runtime and the allocator are two questions").
+#
+# WHAT THIS COSTS: the shipped exe now needs libc++.dll beside it or on PATH - the single-file
+# Release build is gone. Measured on MSYS2 clang64: libc++.dll 1659392 B, and it is the ONLY
+# added file (libc++.dll's own imports are KERNEL32 plus the UCRT api-ms-win-crt-* set, and
+# neither image imports libunwind.dll, so that 63488 B copy in the toolchain is not needed).
+# The exe itself got smaller: 3719168 -> 3139072 B.
+#
+# Debug stays dynamic for faster dev iteration; POSIX builds stay dynamic (system distro
+# packages are shared objects; static glibc would need extra dev packages).
 #
 # THE MSVC SPELLING of this is only the sections half: /OPT:REF /OPT:ICF is a real replacement for
 # -Wl,--gc-sections, while the static CRT and the strip below have no counterpart - an MSVC Release exe
@@ -677,7 +810,6 @@ if(MSVC)
     )
 else()
     target_link_options(${PROJECT_NAME} PRIVATE
-            $<$<AND:$<CONFIG:Release>,$<PLATFORM_ID:Windows>>:-static>
             # drop unused function/data sections at link (first-party code is compiled with
             # -ffunction-sections -fdata-sections; see the vendored-lib gc test below)
             $<$<CONFIG:Release>:-Wl,--gc-sections>
@@ -930,11 +1062,19 @@ target_compile_definitions(vulkancorekit PRIVATE
         >
 )
 
+# S1-A (§11.2's fourth list): the backend half had this define while it was compiled by vulkancorekit,
+# so the new target carries it too - the split is supposed to be invisible in the products.
+target_compile_definitions(deren_vulkan PRIVATE
+        $<$<CONFIG:Debug>:
+        _DEBUG
+        >
+)
+
 # -- version: single source of truth is project(VERSION) above. Injected into the C++ targets
 #    that surface it: the Vulkan app_info (vulkan/core/core.cpp, applicationVersion /
 #    engineVersion), the --version flag and the startup log banner (main.cpp). Bump the number
 #    in project(VERSION) and keep README/docs' "current version" lines in sync.
-foreach(version_target IN ITEMS vulkancorekit deren)
+foreach(version_target IN ITEMS vulkancorekit deren deren_vulkan)
     target_compile_definitions(${version_target} PRIVATE
             DEREN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
             DEREN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
@@ -982,7 +1122,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt utility promise app_config vulkancorekit gltf_loader deren)
+    foreach(_tgt utility promise app_config deren_vulkan vulkancorekit gltf_loader deren)
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
