@@ -33,3 +33,7 @@ config.toml
 # python bytecode from the project's own tools
 __pycache__/
 *.pyc
+
+# Captures the app writes into the working directory (F12 / --capture-frames): output, not
+# repository content. 'snapshot/*.png' stays tracked - those are the hand-picked README shots.
+/screenshot_*.png
