@@ -709,3 +709,62 @@ buffer 建得完全正确（`flags 0x1`、`extra 0x20000` = `VK_BUFFER_USAGE_SHA
 **Lead 复核**：三个产物哈希与验证者认证值逐字节相同（`deren.exe CF323C5ECCC58093`、`libderen_vulkan.a F288B6D75CF586BC`、`libvulkancorekit.a DE2C12C36036A88D`）；`cmake --build build-release-clang64` → **"ninja: no work to do"**（这才是真正的冻结证明：每个产物都对上每个源文件）；`ctest` 14/14；`clang-format-check` exit 0；边界 66；尖刺 `--with-device` 36 checks / 0 failed / 自行退出。
 
 **一并记下一次事故与它的价值**：`build-release-clang64` 在 21:04 一度整个消失（C: 只剩 4.10 GB），我据此向验证者断言"树已被删除"；验证者**拒绝把我的断言当事实写进报告**，它只记录我的观测（21:04:25）与它自己的测量（21:05:29 三个产物仍在且逐字节相同），并指出容器不稳定（`render-check\` 消失、空闲空间 4.10→2.00→1.14 GB、却没有任何构建进程）。后来你把它放回来了。**这是"独立验证"最实际的一次收益：它对我和对代码用同一把尺子。**
+
+---
+
+## §20 评审修订的逐条裁决与回话摘要（2026-10-04 移植轮）
+
+`codex/dynamic-link-v3` 的成果已按 `DYNAMIC_LINK_V3_PORT.md` 逐条移植进本树（不合并分支，逐补丁 + provenance）：
+门硬化 `@11fd95d`（本仓 `98ae679`）、加载器空串/NUL `@948cc1a`（`1dac3e5`）、F1/F2/F3 `@ec39712`（`59e2c0b`）、
+F4 `@ec39712`（`cb0c64c`）、`query_extension` 单入口 `@ab14ca6`（`9561db1`，外加它那行 `GLFW_INCLUDE_NONE`，`4e9c70d`）。
+它对本文三处口径的修订，逐条裁决如下——接受与反驳都给实测依据。
+
+### 裁决 1：「计数棘轮即翻转证明」——**接受它的批评，已成为事实**
+
+棘轮通过只证明"集合没有变大"，不证明"翻转可以发生"。翻转门是单独的
+`--require-zero`：要求 0 个跨边界符号 **并且** 有主程序对象（main + chores）作为应用消费者的证据。
+P1 落地后这已是脚本事实，反向见证过：在 66 符号的树上 `--require-zero` 按设计拒绝（exit 1）。
+§步④ 的硬门以此为准；棘轮只是迁移期的防倒退工具。另按它的口径：**过期半构建不许 `--update`**
+（脚本的时间戳守卫会在消费者落后于后端 5 分钟时拒绝测量——P3/P4 各触发过一次，处理方式是全目标干净重建，未放宽检查、未改基线）。
+
+### 裁决 2：「EXE 导入三个入口」——**接受它的修正**
+
+运行期解析下 EXE 对后端 DLL 的静态导入是**零**：三个 `deren_*` 是 DLL 的**导出**，不是 EXE 的导入。
+§步④ 原文"从 deren_vulkan 只导入 3 个 deren_*"是错误口径，以本节为准。
+翻转后的导入表判据应写成：EXE 导入表中**无任何第一方 DLL**（后端、契约都不许出现）；
+三个入口出现在 DLL 的**导出表**且是窄导出全集。今天（翻转前、后端静态）实测
+`objdump -p deren.exe`：导入仅 KERNEL32 / libc++.dll（S1-A 动态运行时的代价，CMakeLists 有专段）/ UCRT api-ms-* / vulkan-1.dll（引擎侧遗留 `vk*` 解耦债的另一条轴）/ 系统 UI 库，**无任何 deren_*，无 glfw3.dll**。
+
+### 裁决 3：「PRIVATE 切断静态库传递依赖」——**接受机制批评，保留今天的事实**
+
+CMake 的 PRIVATE 确实不保证切断：静态库依赖会经 `$<LINK_ONLY:...>` 进链接接口。
+但今天的 `target_link_libraries(vulkancorekit PUBLIC deren_vulkan)` 是**故意的**（S1-A）：
+BMI 文件集要靠链接接口传给 exe 与测试，且后端此刻是 STATIC、没有 import lib 可泄漏。
+翻转步的 CMake 改动（PRIVATE/INTERFACE 拆分）不能以关键字为验收，验收判据就是裁决 2 的真实导入表——这一点与它的修订一致。
+
+### 证据边界（照实写，不包装）
+
+* **F1/F2/F3 本机不可行为验证**：本机（NVIDIA 616.92）强制能力齐全，缺陷路径根本不发生；
+  证据止于 CPU 回归 37/37（fixture 执行真实模块分区的查询/选卡函数体，只换 Vulkan 查询入口）+
+  全套门不变 + 渲染哈希不变。行为差异只在缺能力的设备上显现。
+* **F4 不能解释任何现有失败**：gltf_loader 把**所有**纹理解码为 RGBA8 再上传，渲染目标均为非压缩格式；
+  14 个门场景没有任何压缩纹理进入 `host_image_upload`（实测：调用点唯一，来源为 RGBA8 解码路径）。
+  它是修复了一个潜在缺陷（4×4 BC1 被算成 128 B 而非 8 B），78/78 CPU 回归含两条算例锚点
+  （4×4 BC1 = 8 B；5×7 BC1、2 layers、3 mips = 96 B，mip 起点 0/64/80）。
+* **基线跨工具链问题没有发生**：它的 66 符号基线（clang64 mangled 名）在本机归档上逐名匹配，
+  门直接 OK（66/180/3 consumers/0 owning STL），未动一个基线名；它机器的 application evidence
+  路径随 json 带过来了（`D:\deren-workspace\...`），但基线的可比集合只是符号名——证据块每次运行由本机重新产生。
+
+### 回话摘要（给 codex/dynamic-link-v3 线，避免重复劳动）
+
+接受并已落地：门硬化全套（joiners 即失败、`--update` 只降不写、`--initialize`/`--app-object`/`--report`、
+反向依赖、过期消费者、原子写、**`--require-zero` 已采用**）；加载器空串/NUL 拒绝；F1/F2/F3；F4；
+`query_extension` 单一能力入口（§6 裁决 1 的答案：采纳你的修订 #5，`deren_ext_*` 层取消，abi **不**跳号，
+理由记在 `abi_version` 旁——删的是成文要求，不是虚函数/入口）。
+另取：`GLFW_INCLUDE_NONE` 一行。**未移植**你的 `application_window`（本树的 `glfw_window_host` 已以同一
+不变式强制同一条声明顺序；移植只会产生第二套表达）与 `aaa99cb` 正式后端包架构（80 文件，自标注 compile
+FAILING；留作步 ④ 设计输入，`FormalBackendPackage.cmake` 等逐份评审后再说）。
+`detach()` 的定位同意你的 #7：它是"保持引用"的策略并被 `test_a_detached_library_is_not_unloaded` 固化，
+不是 FreeLibrary 死锁的根因修复——根因仍在 §13 挂账。
+外部复核承认：它那台机器上 17/17 CTest 与远程 CI 我们无法复核；本机的对应数字是 **ctest 17/17**（含
+test_backend_boundary 27/27、能力 37/37、纹理 78/78），边界 66/180/3/0，渲染 core 集实际哈希与 §5 冻结值逐一相同。

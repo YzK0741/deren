@@ -143,3 +143,41 @@
 | 双份维护 | 两条线仍在各自推进 | §6 的集成点与回话约定 |
 
 **未验**：它的远程 CI 是否跑过（它自己说"远程 GitHub CI 尚未运行"）；它那台机器上的 17/17 CTest 我们无法复核；`aaa99cb` 是否真的只差编译（未读全量 diff）。
+
+---
+
+## §8 执行记录（2026-10-04，本方案已按此执行完毕）
+
+| 步 | 提交 | 落法与偏差 | 见证 |
+|---|---|---|---|
+| §2 前置 | 5 笔逻辑提交（contract → backend → engine → tests+gate → docs），每笔后 ctest 全过 | CMakeLists 按 hunk 拆进 1/2/4 三笔；ci.yml 整体进第 4 笔（core_desc 由第 1 笔先行入库）；截图 / probe dll / u2.log 不入库 | 树全程未变，ctest 14/14 × 5；exe sha `CF323C5ECCC58093` |
+| P1 | `98ae679` | 补丁落 4 文件（排除 ci.yml），CI 由 warn 步骤**换成**强制 `check-backend-boundary` 目标；基线 66 逐名匹配本机归档，**未 --update** | 27/27；66/180/3/0；反向 ×3（冒充消费者 exit 1 / `--update` 集合变大拒绝且不写 / `--require-zero` 按设计拒绝）；ctest 15/15；渲染 core 集实际哈希 = §5 冻结值 |
+| P2 | `1dac3e5` | 整块 exit 0 | 118 checks（补丁恰加 3 条：§4 的"119+"为预估偏差）；含 detach 见证；ctest 15/15 |
+| P3 | `59e2c0b` | 取 init_utils/core.constructor + 两个测试文件；CMake/CI 手工接线（只挂 capabilities 测试） | 37/37；ctest 16/16；边界 66/180/3/0（符号集未动）；渲染不变；证据边界照 §4 写入提交 |
+| P4 | `cb0c64c` | vma 子集 + 新头 + 纹理测试；fixture 生成器 P3 已接好（pre-P4 的 vma 也满足锚点） | 78/78（含 4×4 BC1=8 B、5×7/2/3=96 B、mip 起点 0/64/80 断言）；压缩格式查证：**14 场景无任何压缩纹理进入上传路径**（gltf 全解码 RGBA8） |
+| P5a | `9561db1` | extension.cppm 那半整块可落；abi 判断记在 `rhi.contract.cppm` 的 `abi_version` 旁（不跳号 + 理由） | 纯注释改动；promise 重编；ctest 17/17 |
+| P5b | `4e9c70d` 见下 | 只取 `GLFW_INCLUDE_NONE` 一行 | 构建/ctest/格式过 |
+| P6 | 见 V2 §20 | 三条口径裁决（全部接受 + 实测立场）、F4 查证、回话摘要、provenance 全部入提交 | §20 即回话文档 |
+
+### 最终门（收尾轮，全部通过）
+
+构建 no-op；ctest **17/17**（含门回归 27/27、能力 37/37、纹理 78/78、加载器 118 checks）；
+边界 **66/180/3/0**（基线未动）；clang-format-check exit 0；
+尖刺 `--with-device` **36 checks / 0 failed**（`-DDEREN_BACKEND_SPIKE=ON` 一次性树，
+SHARED 后端 + 真实设备：abi 6 握手、`query_extension(device_address)`、detach 策略全过——
+F1/F2/F3 修复后的能力链在真硬件上成立）；渲染 **-Full 14/14 运行、flaky 0、FAIL 0**，
+§5 冻结的 11 个哈希逐一**字节相同**（unlit/deformation 与存储参考一致，其余 9 个打印值逐一比对）。
+
+### 执行中的一次计划外事件（与移植无关，照实记）
+
+收尾轮 `-Full` 首跑出现一个 FAIL：`laevatain_no_sidecar` 以 0xC0000409 退出。诊断：这是
+**门脚本的场景定义悬空**，不是移植回归——该场景按设计用"没有 `.toon.tsv` 的模型名"触发回退，
+指向 `chars/laevatain.glb`；该资产早已改名为 `laevatain_goo.glb`（其余三个 laevatain 场景
+随之改了路径，唯独它漏了，移植未触碰 .ps1/.glb/场景定义）。exe 的行为是**正确的拒绝**
+（main.cpp:602 对缺模型 panic）。修复：构建树内复制 `laevatain_goo.glb` -> `laevatain.glb`
+（chars/ 不入库，64 MB 不进仓库），场景机制原样恢复；复跑确定性哈希 `E9A2983BEB57D5C5`，
+随后 14/14 全绿。**待办**：该场景的模型路径来源应当用配置显式表达而不是文件名巧合，
+留给步 ④。
+
+**未验（继承 §7）**：它那台机器的 17/17 与远程 CI 不可复核；`aaa99cb` 只留作步 ④ 输入。
+**门的新事实**：强制边界门会因"消费者比后端旧 5 分钟"拒绝测量（P3/P4 各一次），处置是全目标干净重建——这条写进 V2 §20 裁决 1。
