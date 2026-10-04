@@ -80,6 +80,12 @@ export namespace deren::promise::rhi {
     /// reaches through is a different shape, which is the case this number exists for. It is the call
     /// that lets an escaping pass use a contract buffer's raw handle instead of the allocator's detail
     /// map, i.e. one more way for the engine to stop reaching into the backend.
+    /// NOT a bump - recorded so the decision outlives the session: the extension.cppm revision
+    /// (codex/dynamic-link-v3 @ ab14ca6) deleted the documented `deren_ext_<ability>_v1` C
+    /// function-table requirement, leaving `query_extension()` as the only ability entrance. What
+    /// was removed is a PROSE requirement (the gate walks abilities() bits against objects, not
+    /// symbols), not a virtual, an entry point, or any type the ABI numbers exist to compare - no
+    /// vtable shape moves, so the rule above gives no reason for a bump.
     inline constexpr std::uint32_t abi_version = 6u;
 
     /// Why a promise entry point could not do what it was asked.
