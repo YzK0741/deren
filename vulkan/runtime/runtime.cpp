@@ -391,7 +391,7 @@ namespace deren::vulkan {
         // exactly what a caller that is not the runtime (a pass, whose create step has a device and its own
         // layout) cannot do. The four facts are read here instead, and they are the ones that entry point used,
         // so this is a re-expression: same layout, same formats, same single-sampled pipeline.
-        std::array<VkFormat, 1> const color_formats = {this->vulkan_core.swap_chain_image_format};
+        std::array<rhi::image_format, 1> const color_formats = {contract_image_format(this->vulkan_core.swap_chain_image_format)};
         // ... AND THE BLEND STATE, which the old entry point got from the convenience overload: the FORWARD
         // pipelines' convention is src-alpha blending (alpha is coverage, and an opaque draw's alpha of one
         // reduces the blend math to the source colour), while the span-based form's default is "overwrite".
@@ -473,6 +473,36 @@ namespace deren::vulkan {
         return {};
     }
 
+    std::expected<pipelines::pipeline_handle, std::string_view> runtime::build_toon_family_pipeline(
+        std::span<uint8_t const> const first_stage_code, std::span<uint8_t const> const fragment_code,
+        rhi::blend_mode const mode, rhi::depth_compare const compare, char const* const what) {
+        // ONE HDR colour target, the depth ROLE (the backend picks the device's format), the depth TEST
+        // with the WRITE left as per-draw dynamic state, single-sampled, and the caller's blend mode and
+        // compare operator - the recipes the three former core members carried, now at one call.
+        std::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
+        std::array<rhi::blend_mode, 1> const blends = {mode};
+        auto built = pipelines::make_graphics_pipeline(this->rhi_face(),
+                                                       std::span<rhi::image_format const>(formats),
+                                                       rhi::image_format::depth,
+                                                       first_stage_code,
+                                                       fragment_code,
+                                                       1u,
+                                                       true,
+                                                       0.0f,
+                                                       0.0f,
+                                                       0.0f,
+                                                       std::span<rhi::blend_mode const>(blends),
+                                                       rhi::shader_stage::mesh,
+                                                       compare,
+                                                       what);
+        if (built) {
+            // the fullscreen viewport/scissor default the frame path re-syncs on every swapchain recreation
+            built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
+            built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
+        }
+        return built;
+    }
+
     std::expected<void, std::string> runtime::make_character_forward_pipeline(std::string_view const pipeline_name,
                                                                               std::span<uint8_t const> const fragment_shader_code,
                                                                               std::span<uint8_t const> const mesh_vertex_shader_code,
@@ -497,7 +527,9 @@ namespace deren::vulkan {
         // never be blocked by shader compilation.
         std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
-            auto built = this->vulkan_core.make_character_forward_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = this->build_toon_family_pipeline(mesh_vertex_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::alpha, rhi::depth_compare::equal,
+                                                          "character-forward pipeline");
             if (!built) {
                 return fail("character-forward pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
             }
@@ -507,7 +539,9 @@ namespace deren::vulkan {
         if (!meshlet_shader_code.empty()) {
             // A refusal here leaves the mesh form as the answer rather than failing the call - the same
             // relationship the named forward pipelines have between their two forms.
-            auto built = this->vulkan_core.make_character_forward_pipeline(meshlet_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = this->build_toon_family_pipeline(meshlet_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::alpha, rhi::depth_compare::equal,
+                                                          "character-forward meshlet pipeline");
             if (built) {
                 meshlet_result = std::move(*built);
             } else {
@@ -554,7 +588,9 @@ namespace deren::vulkan {
         // never be blocked by shader compilation.
         std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
-            auto built = this->vulkan_core.make_overlay_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = this->build_toon_family_pipeline(mesh_vertex_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::multiply, rhi::depth_compare::less_or_equal,
+                                                          "overlay pipeline");
             if (!built) {
                 return fail("overlay pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
             }
@@ -565,7 +601,9 @@ namespace deren::vulkan {
             // A refusal here leaves the mesh form as the answer rather than failing the call - the same
             // relationship both other families have between their two forms. The overlay meshes are two to nine
             // meshlets apiece, so the meshlet form is a small win here and its absence costs nothing.
-            auto built = this->vulkan_core.make_overlay_pipeline(meshlet_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = this->build_toon_family_pipeline(meshlet_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::multiply, rhi::depth_compare::less_or_equal,
+                                                          "overlay meshlet pipeline");
             if (built) {
                 meshlet_result = std::move(*built);
             } else {
@@ -615,7 +653,9 @@ namespace deren::vulkan {
         // never be blocked by shader compilation.
         std::optional<pipelines::pipeline_handle> mesh_result = std::nullopt;
         {
-            auto built = this->vulkan_core.make_outline_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = this->build_toon_family_pipeline(mesh_vertex_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::opaque, rhi::depth_compare::less_or_equal,
+                                                          "outline pipeline");
             if (!built) {
                 return fail("outline pipeline '" + std::string(pipeline_name) + "': the mesh stage was refused (" + std::string(built.error()) + ")");
             }
@@ -627,7 +667,9 @@ namespace deren::vulkan {
             // relationship the other families have between their two forms. Every leaf that carries an outline
             // width is still drawn by the mesh form, so the absence of a meshlet form costs throughput, not
             // correctness.
-            auto built = this->vulkan_core.make_outline_pipeline(meshlet_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto built = this->build_toon_family_pipeline(meshlet_shader_code, fragment_shader_code,
+                                                          rhi::blend_mode::opaque, rhi::depth_compare::less_or_equal,
+                                                          "outline meshlet pipeline");
             if (built) {
                 meshlet_result = std::move(*built);
             } else {

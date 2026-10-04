@@ -58,6 +58,7 @@ import deren.vulkan.acceleration_structure; // build_input_usage: the usage bits
 import deren.vulkan.ray_tracing;            // THE STRUCTURE PHASE: the structures, the caster map and the copies (a value this class owns)
 import deren.vulkan.init_utils;             // the resource-creation patterns the init functions below repeat
 import deren.promise.rhi;                   // the creation contract (create_info): the type the constructor below takes
+import deren.vulkan.pipelines;              // pipeline_handle: the toon family builder answers it (abi 8)
 export import deren.vstd;
 export import deren.vulkan.core;
 export import deren.vulkan.core.filters;
@@ -206,6 +207,12 @@ namespace deren::vulkan {
         [[nodiscard]] rhi::api_core& rhi_face() noexcept;
         /// the escape the transitional raw sites borrow through (`native_image` and friends, abi 7).
         [[nodiscard]] rhi::vulkan_escape& escape() noexcept;
+        /// THE TOON FAMILY'S SHARED RECIPE (abi 8): one HDR colour target, the depth ROLE, the depth
+        /// TEST with per-draw write, the caller's blend mode and compare - formerly three near-equal
+        /// core members (character-forward / overlay / outline), now one contract-face builder here.
+        [[nodiscard]] std::expected<pipelines::pipeline_handle, std::string_view> build_toon_family_pipeline(
+            std::span<uint8_t const> first_stage_code, std::span<uint8_t const> fragment_code,
+            rhi::blend_mode mode, rhi::depth_compare compare, char const* what);
 
         /**
          * @ingroup vulkan_runtime
@@ -474,14 +481,14 @@ namespace deren::vulkan {
         // The G-buffer pipeline shades nothing: albedo/metallic, normal/roughness and material
         // id/AO/flags go into core::gbuffer_* (1x targets + the pass's own 1x depth), so the opaque
         // pass runs at 1x.
-        std::optional<vk_pipeline> gbuffer_pipeline = std::nullopt;
+        std::optional<pipelines::pipeline_handle> gbuffer_pipeline = std::nullopt;
         /// ... and the MESH form of the same pass (docs/mesh_shaders.md step 2), when the device can run one and the
         /// app handed the mesh stage's SPIR-V over: the scene session prefers it the way the shadow pass prefers
         /// its own, and a device without it keeps `gbuffer_pipeline` above.
-        std::optional<vk_pipeline> gbuffer_pipeline_mesh = std::nullopt;
+        std::optional<pipelines::pipeline_handle> gbuffer_pipeline_mesh = std::nullopt;
         /// ... and its MESHLET form (docs/mesh_shaders.md step 3): one workgroup per meshlet, its window read out of the
         /// table, each meshlet culled against the camera before it emits anything. Preferred over both others when built.
-        std::optional<vk_pipeline> gbuffer_pipeline_meshlet = std::nullopt;
+        std::optional<pipelines::pipeline_handle> gbuffer_pipeline_meshlet = std::nullopt;
         /**
          * @brief THE MESH FORM OF EACH NAMED PIPELINE, under the same name (docs/mesh_shaders.md step 2)
          *
@@ -496,7 +503,7 @@ namespace deren::vulkan {
         // partition holds a `std::unordered_map` data member (lead_lab/rr_map_lab/FINDINGS.md: 7/7
         // `std::map` variants compile clean, 11/11 `unordered_map` ones ICE).
         // `std::less<>` matches the `std::map<..., vk_pipeline, std::less<>> pipelines` member below.
-        std::map<std::string_view, vk_pipeline, std::less<>> mesh_pipelines = {};
+        std::map<std::string_view, pipelines::pipeline_handle, std::less<>> mesh_pipelines = {};
         /**
          * @brief THE MESHLET FORM OF EACH NAMED PIPELINE, under the same name (docs/mesh_shaders.md step 3)
          *
@@ -509,7 +516,7 @@ namespace deren::vulkan {
          * one - so the three are tried in the order of how much they save, and the last is always a complete answer.
          */
         // the same cl 19.44 C1001 reason as `mesh_pipelines` above (see lead_lab/rr_map_lab/FINDINGS.md)
-        std::map<std::string_view, vk_pipeline, std::less<>> meshlet_pipelines = {};
+        std::map<std::string_view, pipelines::pipeline_handle, std::less<>> meshlet_pipelines = {};
         // whether the opaque pass writes the G-buffer this frame (see set_gbuffer_debug). Only
         // takes effect once the needed pipelines exist, so the flags can be set before setup ends.
         bool gbuffer_debug = false;
@@ -1163,7 +1170,7 @@ namespace deren::vulkan {
         // stay valid regardless of the caller's storage lifetime. std::less<> enables heterogeneous
         // lookup, so the string_view-based API (get_pipeline / ...) still works without
         // constructing a std::string per call.
-        std::map<std::string, vk_pipeline, std::less<>> pipelines;
+        std::map<std::string, pipelines::pipeline_handle, std::less<>> pipelines;
         // NOTE: there used to be a `std::deque<std::string> pipeline_names` here, "mirroring the
         // pipelines map" so a stable pointer could be handed to render_environment::available. That
         // API does not exist (the recording workers ask the binder by name), so the deque was written
