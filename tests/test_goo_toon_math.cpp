@@ -2764,10 +2764,10 @@ int32_t main() {
             std::string const core = slurp("vulkan/core/core.declarations.cppm");
             CHECK_MSG(core.find("goo_fgd_lut = heap_slot_base + 754u") != std::string::npos, "the host's own constant for it, at the slot the shader names");
             CHECK_MSG(constructor.find("runtime::set_goo_fgd_lut(") != std::string::npos, "the uploader the host writes it with");
-            CHECK_MSG(constructor.find("fgd_info.format = VK_FORMAT_R8G8B8A8_UNORM;") != std::string::npos,
-                      "its format is UNORM and NOT sRGB: the reference's data-block is `Non-Color`, so an sRGB upload would decode all three FGD outputs once");
+            CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != std::string::npos,
+                      "its format is UNORM and NOT sRGB: the reference's data-block is `Non-Color`, so an sRGB upload would decode all three FGD outputs once (abi 7: the named contract value maps 1:1 to VK_FORMAT_R8G8B8A8_UNORM in the backend)");
             CHECK_MSG(constructor.find("write_heap_grid_image(this->vulkan_core, core::heap_slots::goo_fgd_lut") != std::string::npos, "and it reaches the slot");
-            CHECK_MSG(constructor.find("fgd_info.mip_levels = 1;") != std::string::npos, "one mip, which is the reference's own `image_user` (no Mip input)");
+            CHECK_MSG(constructor.find("fgd_desc.mip_levels = 1;") != std::string::npos, "one mip, which is the reference's own `image_user` (no Mip input)");
             // ... AND THE APPLICATION SIDE: the path, the decoder, the format argument and the file's name
             CHECK_MSG(app.find("#define STB_IMAGE_STATIC") != std::string::npos, "the app's own stb copy is file-local (`gltf_loader.cpp` defines the extern one)");
             CHECK_MSG(app.find("\"PreIntegratedFGD_GGXDisneyDiffuse.png\"") != std::string::npos, "the reference's own file name");

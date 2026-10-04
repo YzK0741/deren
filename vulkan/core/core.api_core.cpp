@@ -241,6 +241,9 @@ namespace deren::vulkan {
             if (rf::has_flag(flags, rf::image_flag::transfer_destination)) {
                 usage |= VK_IMAGE_USAGE_TRANSFER_DST_BIT;
             }
+            if (rf::has_flag(flags, rf::image_flag::host_transfer)) {
+                usage |= VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
+            }
             if (rf::has_flag(flags, rf::image_flag::cube_compatible)) {
                 // no usage bit: the flag's other half is the ALLOCATOR's type (see create_image), which
                 // is what makes the six layers cube-creatable at all
@@ -670,10 +673,14 @@ namespace deren::vulkan {
         VkImageAspectFlags const aspect = this->declared_format == rhi::image_format::depth
                                               ? VK_IMAGE_ASPECT_DEPTH_BIT
                                               : VK_IMAGE_ASPECT_COLOR_BIT;
-        bool const whole_cube = this->cube_compatible && this->array_layers == 6 && desc.base_layer == 0 && layers == this->array_layers;
-        VkImageViewType const view_type = whole_cube               ? VK_IMAGE_VIEW_TYPE_CUBE
-                                          : this->array_layers > 1 ? VK_IMAGE_VIEW_TYPE_2D_ARRAY
-                                                                   : VK_IMAGE_VIEW_TYPE_2D;
+        bool const whole_cube = this->cube_compatible && this->array_layers == 6 && desc.base_layer == 0 && layers == 6u;
+        // THE RANGE DECIDES THE TYPE, because the shader's sampler must agree with it: a single-layer
+        // range is a plain 2D view even on a layered image (the per-cascade shadow layer view samples
+        // as texture2D), a whole six-layer cube-compatible image is the CUBE, and every other
+        // multi-layer range is a 2D array.
+        VkImageViewType const view_type = whole_cube    ? VK_IMAGE_VIEW_TYPE_CUBE
+                                          : layers == 1 ? VK_IMAGE_VIEW_TYPE_2D
+                                                        : VK_IMAGE_VIEW_TYPE_2D_ARRAY;
         VkImageViewCreateInfo const base_info = make_image_view_info(this->native_handle,
                                                                      this->resolved_format,
                                                                      view_type, aspect, mips, layers);
@@ -1117,6 +1124,11 @@ namespace deren::vulkan {
     void* core::frame_escape::native_sampler(rhi::sampler const& resource) const noexcept {
         auto const* const owned = static_cast<owned_sampler const*>(&resource);
         return reinterpret_cast<void*>(owned->native_sampler_handle);
+    }
+
+    std::uint32_t core::frame_escape::native_image_format(rhi::image const& resource) const noexcept {
+        auto const* const owned = static_cast<owned_image const*>(&resource);
+        return static_cast<std::uint32_t>(owned->resolved_format);
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {

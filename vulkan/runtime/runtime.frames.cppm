@@ -815,8 +815,8 @@ namespace deren::vulkan {
         bool const shadow_reuse = this->shadow_rendered_version[frame_slot] == this->shadow_content_version && this->shadow_rendered_models[frame_slot] == geometry_signature;
         if (features.shadow && !shadow_reuse) {
             deren::vulkan::profiling::cpu_phase_timer const shadow_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::shadow}; // the sub-phase of scene that records every cascade
-            auto const* shadow_detail = vk.vma.get_image_detail(this->shadow_images[frame_slot].handle());
-            if (shadow_detail != nullptr) {
+            if (static_cast<bool>(this->shadow_images[static_cast<std::size_t>(frame_slot)])) {
+                VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(*this->shadow_images[static_cast<std::size_t>(frame_slot)]));
                 // Secondary: inherit only the depth attachment (dynamic rendering 1.3). The
                 // shadow map is single-sampled; viewMask 0 = no multiview. The rendering
                 // inheritance struct hangs off VkCommandBufferInheritanceInfo::pNext (NOT the
@@ -843,7 +843,7 @@ namespace deren::vulkan {
                 // every allocated layer, so "one barrier, whole array" is the invariant. That count is the IMAGE's,
                 // which is why this is the host's and not the pass's.
                 std::array<VkImageMemoryBarrier2, 1> shadow_read_barrier = {shadow_map_sampling_transition};
-                shadow_read_barrier[0].image = shadow_detail->image;
+                shadow_read_barrier[0].image = shadow_native;
                 shadow_read_barrier[0].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, this->shadow_allocated_layers};
                 VkDependencyInfo const shadow_read_dependency = make_image_dependency_info(1, shadow_read_barrier.data());
                 vkCmdPipelineBarrier2(*command_buffer, &shadow_read_dependency);
@@ -863,10 +863,10 @@ namespace deren::vulkan {
             // is UNDEFINED" - the message is quoted from a run made before VK_KHR_unified_image_layouts
             // collapsed every layout to GENERAL, which is what the driver expects now). Contents do not
             // matter (the shader returns "fully lit"), hence UNDEFINED as the old layout.
-            auto const* shadow_detail = vk.vma.get_image_detail(this->shadow_images[frame_slot].handle());
-            if (shadow_detail != nullptr) {
+            if (static_cast<bool>(this->shadow_images[static_cast<std::size_t>(frame_slot)])) {
+                VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(*this->shadow_images[static_cast<std::size_t>(frame_slot)]));
                 VkImageMemoryBarrier2 shadow_read_barrier = deren::vulkan::undefined_to_depth_sampling_transition;
-                shadow_read_barrier.image = shadow_detail->image;
+                shadow_read_barrier.image = shadow_native;
                 // Every layer the image OWNS, not just layer 0: the constant's range is single-layer
                 // and the whole array view the descriptor covers must be sampleable. The count is
                 // shadow_allocated_layers - the layer count the image was actually created with - and
@@ -1723,7 +1723,7 @@ namespace deren::vulkan {
             this->pass_resources.register_resource(render_resource::resource_id::material_table, 0, resource_handles{.buffer = this->buffer_of(*this->material_buffer)});
         }
         if (!this->owned_texture_views.empty()) {
-            this->pass_resources.register_resource(render_resource::resource_id::scene_textures, 0, resource_handles{.view = *this->owned_texture_views[0]});
+            this->pass_resources.register_resource(render_resource::resource_id::scene_textures, 0, resource_handles{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views[0]))});
         }
         for (uint32_t slot = 0; slot < this->skin_buffers.size(); ++slot) {
             this->pass_resources.register_resource(render_resource::resource_id::skin_matrices, slot, resource_handles{.buffer = this->buffer_of(*this->skin_buffers[slot])});
@@ -1778,9 +1778,9 @@ namespace deren::vulkan {
         auto const buffer = [this, &table](render_resource::resource_id const id, uint32_t const instance, rhi::object_manager<rhi::buffer> const& owned) {
             table.publish(id, 0, instance, pass::resolved_binding{.buffer = this->buffer_of(*owned)});
         };
-        auto const image = [this](vk_image const& owned) -> pass::resolved_binding {
-            auto const* const detail = this->vulkan_core.vma.get_image_detail(owned.handle());
-            return detail == nullptr ? pass::resolved_binding{} : pass::resolved_binding{.image = detail->image};
+        auto const image = [this](rhi::object_manager<rhi::image> const& owned) -> pass::resolved_binding {
+            return static_cast<bool>(owned) ? pass::resolved_binding{.image = static_cast<VkImage>(this->escape().native_image(*owned))}
+                                            : pass::resolved_binding{};
         };
 
         // ---- the render-target chain: the image families core owns ----
@@ -1818,13 +1818,13 @@ namespace deren::vulkan {
         // layered depth array per slot and the pass renders one layer at a time, so every layer the image
         // currently HAS is published, by cascade index, with the image behind it for the layer's own barrier.
         for (std::size_t slot = 0; slot < this->shadow_images.size() && slot < this->shadow_layer_views.size(); ++slot) {
-            auto const* const detail = this->vulkan_core.vma.get_image_detail(this->shadow_images[slot].handle());
-            if (detail == nullptr) {
+            if (!static_cast<bool>(this->shadow_images[slot])) {
                 continue;
             }
+            VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(*this->shadow_images[slot]));
             for (std::size_t layer = 0; layer < this->shadow_layer_views[slot].size(); ++layer) {
                 single(render_resource::resource_id::shadow_map, static_cast<uint32_t>(layer), static_cast<uint32_t>(slot),
-                       pass::resolved_binding{.view = *this->shadow_layer_views[slot][layer], .buffer = VK_NULL_HANDLE, .image = detail->image});
+                       pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->shadow_layer_views[slot][layer])), .buffer = VK_NULL_HANDLE, .image = shadow_native});
             }
         }
         // The per-slot buffers, each into its own instance: a frame in flight reads its own copy, which is the
@@ -1869,18 +1869,18 @@ namespace deren::vulkan {
         // element that always exists, which is also the one every declaration can name (element 0).
         if (this->white_texture_index < this->owned_textures.size() && this->white_texture_index < this->owned_texture_views.size()) {
             pass::resolved_binding white = image(this->owned_textures[this->white_texture_index]);
-            white.view = *this->owned_texture_views[this->white_texture_index];
+            white.view = static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views[this->white_texture_index]));
             single(render_resource::resource_id::white_texture, 0, 0, white);
             single(render_resource::resource_id::scene_textures, 0, 0, white);
         }
         // The IBL triple, in the order set_ibl uploads it: prefiltered environment, irradiance, BRDF LUT.
         if (this->ibl_views.size() >= 3 && this->ibl_images.size() >= 3) {
             pass::resolved_binding env = image(this->ibl_images[0]);
-            env.view = *this->ibl_views[0];
+            env.view = static_cast<VkImageView>(this->escape().native_image_view(*this->ibl_views[0]));
             pass::resolved_binding irradiance = image(this->ibl_images[1]);
-            irradiance.view = *this->ibl_views[1];
+            irradiance.view = static_cast<VkImageView>(this->escape().native_image_view(*this->ibl_views[1]));
             pass::resolved_binding lut = image(this->ibl_images[2]);
-            lut.view = *this->ibl_views[2];
+            lut.view = static_cast<VkImageView>(this->escape().native_image_view(*this->ibl_views[2]));
             single(render_resource::resource_id::ibl_env, 0, 0, env);
             single(render_resource::resource_id::ibl_irradiance, 0, 0, irradiance);
             single(render_resource::resource_id::brdf_lut, 0, 0, lut);

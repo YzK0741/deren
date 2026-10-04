@@ -159,6 +159,29 @@ namespace deren::vulkan {
      *      - default construction performs the whole core initialization (window/instance/device/swap chain etc.)
      *        and registers the orbit camera mouse callbacks on the window
      */
+    /// A Vulkan format the engine still holds (a slot table, a probe's choice) in the contract's
+    /// spelling. `unknown` for anything the contract does not name - create_image refuses those.
+    [[nodiscard]] constexpr rhi::image_format contract_image_format(VkFormat const format) noexcept {
+        switch (format) {
+        case VK_FORMAT_R8G8B8A8_UNORM:
+            return rhi::image_format::rgba8_unorm;
+        case VK_FORMAT_R8G8B8A8_SRGB:
+            return rhi::image_format::rgba8_srgb;
+        case VK_FORMAT_B8G8R8A8_UNORM:
+            return rhi::image_format::bgra8_unorm;
+        case VK_FORMAT_B8G8R8A8_SRGB:
+            return rhi::image_format::bgra8_srgb;
+        case VK_FORMAT_R16G16_SFLOAT:
+            return rhi::image_format::r16g16_sfloat;
+        case VK_FORMAT_R16G16B16A16_SFLOAT:
+            return rhi::image_format::r16g16b16a16_sfloat;
+        case VK_FORMAT_R32G32B32_SFLOAT:
+            return rhi::image_format::r32g32b32_sfloat;
+        default:
+            return rhi::image_format::unknown;
+        }
+    }
+
     export class runtime {
         /**
          * THE DEVICE ROOT, and the reason it is a `shared_ptr`: the core is the one object every other device
@@ -175,6 +198,14 @@ namespace deren::vulkan {
         std::shared_ptr<core> core_owner;
         /// the alias every method and member keeps using: it IS `*core_owner`, and owns nothing of its own
         core& vulkan_core;
+
+        /// THE CONTRACT FACE of the backend this runtime drives (§18's rule: the factories and the
+        /// frame calls go through THIS, never through the concrete class - a call through the
+        /// interface emits no backend symbol, which is what makes the flip a load-line change
+        /// instead of a rewrite).
+        [[nodiscard]] rhi::api_core& rhi_face() noexcept;
+        /// the escape the transitional raw sites borrow through (`native_image` and friends, abi 7).
+        [[nodiscard]] rhi::vulkan_escape& escape() noexcept;
 
         /**
          * @ingroup vulkan_runtime
@@ -210,26 +241,26 @@ namespace deren::vulkan {
         std::vector<rhi::object_manager<rhi::buffer>> camera_buffers = {};
         std::vector<void*> camera_mapped = {};
         // texture registry: flat entries of the set 0 binding 1 array (raw handles); the owning
-        // views / vma images live in the vectors below (vk_image RAII frees the GPU image when
-        // the runtime goes away). texture_slot_cache deduplicates uploads by CONTENT (xxh3 of
-        // the decoded bytes + format + dimensions): several materials sharing one glTF image
-        // (same decoded pixels, different byte copies) all point at the same array slot instead
-        // of uploading a copy per material - the loader hands each material its own byte copy,
-        // so a pointer key would never match.
+        // images / views live in the vectors below as CONTRACT handles (abi 7's image face) - their
+        // release() runs inside the backend when the runtime goes away. texture_slot_cache
+        // deduplicates uploads by CONTENT (xxh3 of the decoded bytes + format + dimensions): several
+        // materials sharing one glTF image (same decoded pixels, different byte copies) all point at
+        // the same array slot instead of uploading a copy per material - the loader hands each
+        // material its own byte copy, so a pointer key would never match.
         std::vector<VkImageView> texture_array_views = {};
-        std::vector<vk_image_view> owned_texture_views = {};
-        std::vector<vk_image> owned_textures = {};
+        std::vector<rhi::object_manager<rhi::image_view>> owned_texture_views = {};
+        std::vector<rhi::object_manager<rhi::image>> owned_textures = {};
         uint32_t white_texture_index = 0;
         std::map<std::tuple<deren::utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
-        std::vector<vk_image_view> ibl_views = {};
-        std::vector<vk_image> ibl_images = {};
+        std::vector<rhi::object_manager<rhi::image_view>> ibl_views = {};
+        std::vector<rhi::object_manager<rhi::image>> ibl_images = {};
         // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`) IS ITS OWN IMAGE, kept alive here for the same
         // reason the IBL's three are: the heap holds a DESCRIPTOR, and an image the host lets go of leaves that
         // descriptor pointing at nothing. Uploaded once by `set_post_lut`, which the application calls with a baked
         // neutral cube.
-        vk_image post_lut_image = {};
-        vk_image_view post_lut_view = {};
+        rhi::object_manager<rhi::image> post_lut_image = {};
+        rhi::object_manager<rhi::image_view> post_lut_view = {};
         // THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT (`PreIntegratedFGD_GGXDisneyDiffuse.png`) IS THE SAME KIND OF
         // RESOURCE FOR THE SAME REASON: the heap holds a DESCRIPTOR, so an image the host lets go of leaves that
         // descriptor pointing at nothing. Uploaded ONCE by `set_goo_fgd_lut`, by the application, from the
@@ -240,9 +271,9 @@ namespace deren::vulkan {
         // the reference's image data-block is `colorspace = 'Non-Color'`, i.e. Blender does NOT linearize it, so
         // the node graph reads the texel's BYTES as the value. An `_SRGB` upload would decode every channel once
         // and move all three outputs of the group (spec §3.1 item 1).
-        vk_image goo_fgd_image = {};
-        vk_image_view goo_fgd_view = {};
-        vk_sampler env_sampler = {};
+        rhi::object_manager<rhi::image> goo_fgd_image = {};
+        rhi::object_manager<rhi::image_view> goo_fgd_view = {};
+        rhi::object_manager<rhi::sampler> env_sampler = {};
         // GPU material table (set 0 binding 5): one material_record per entry (texture indices +
         // factors + flags); primitives only push their material_index. Host-visible, written at
         // registration, read-only for the GPU.
@@ -978,9 +1009,9 @@ namespace deren::vulkan {
         // shadow_cascades layers - each layer fitted to its own sub-range of the camera view.
         // Rendering goes through the per-layer views (one cascade = one dynamic rendering instance),
         // sampling through the array view (the fragment shader picks its cascade per pixel).
-        std::vector<vk_image> shadow_images = {};                        // layered depth images
-        std::vector<vk_image_view> shadow_array_views = {};              // 2D ARRAY views (sampled)
-        std::vector<std::vector<vk_image_view>> shadow_layer_views = {}; // per slot: one 2D view per cascade
+        std::vector<rhi::object_manager<rhi::image>> shadow_images = {};                        // layered depth images
+        std::vector<rhi::object_manager<rhi::image_view>> shadow_array_views = {};              // 2D ARRAY views (sampled)
+        std::vector<std::vector<rhi::object_manager<rhi::image_view>>> shadow_layer_views = {}; // per slot: one 2D view per cascade
         // Active cascades (1 = exactly the single-shadow-map behavior; [render] shadow_cascades) and
         // the fraction of a cascade's range over which the shader blends into the next one.
         uint32_t shadow_cascades = 1;

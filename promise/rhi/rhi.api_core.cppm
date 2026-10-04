@@ -321,6 +321,8 @@ export namespace deren::promise::rhi {
         transfer_source = 1u << 4,      ///< copy SOURCE (a probe's capture target)
         transfer_destination = 1u << 5, ///< copy DESTINATION (a capture's read-back path)
         cube_compatible = 1u << 6,      ///< six layers, creatable as a cube (the environment maps)
+        host_transfer = 1u << 7,        ///< the implementation copies from it into host memory
+                                        ///< (VK_EXT_host_image_copy; the startup probe's target)
     };
 
     /// A set of `image_flag` bits, spelled like `buffer_flags`.

@@ -180,24 +180,28 @@ namespace deren::vulkan {
         // buffer is created and no copy command is recorded. The capability is REQUIRED of the device now, so
         // there is no second path to choose between and no predicate for later branches to disagree about.
         constexpr VkDeviceSize probe_bytes = static_cast<VkDeviceSize>(pipelines::heap_probe_extent) * pipelines::heap_probe_extent * 4u;
-        image_create_info target_info = {};
-        target_info.width = pipelines::heap_probe_extent;
-        target_info.height = pipelines::heap_probe_extent;
-        target_info.mip_levels = 1;
-        target_info.array_layers = 1;
-        target_info.format = probe_format;
-        target_info.extra_usage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT;
-        vk_image target = vk.vma.create_image(nullptr, 0, target_info, image_type::texture_2d);
-        auto const* const target_detail = target.valid() ? vk.vma.get_image_detail(target.handle()) : nullptr;
-        if (target_detail == nullptr) {
+        rhi::image_desc target_desc{};
+        target_desc.extent = rhi::image_extent{.width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent, .depth = 1u};
+        target_desc.mip_levels = 1;
+        target_desc.array_layers = 1;
+        target_desc.format = contract_image_format(probe_format);
+        target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::host_transfer);
+        target_desc.debug_name = "heap probe target";
+        rhi::object_manager<rhi::image> target{this->rhi_face().create_image(target_desc)};
+        if (!static_cast<bool>(target)) {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not allocate its target");
             return;
         }
-        vk_image_view target_view = vk.make_image_view(target_detail->image, probe_format, VK_IMAGE_VIEW_TYPE_2D);
-        if (*target_view == VK_NULL_HANDLE) {
+        VkImage const target_native = static_cast<VkImage>(this->escape().native_image(*target));
+        rhi::image_view_desc target_view_range{};
+        target_view_range.layer_count = 0;
+        target_view_range.mip_count = 0;
+        rhi::object_manager<rhi::image_view> target_view{target->make_view(target_view_range)};
+        if (!static_cast<bool>(target_view)) {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not prepare its target view");
             return;
         }
+        VkImageView const target_view_native = static_cast<VkImageView>(this->escape().native_image_view(*target_view));
 
         VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = vk.graphics_queue_family_index};
         VkCommandPool pool = VK_NULL_HANDLE;
@@ -216,14 +220,14 @@ namespace deren::vulkan {
         to_colour.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
         to_colour.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         to_colour.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_colour.image = target_detail->image;
+        to_colour.image = target_native;
         to_colour.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         VkDependencyInfo const to_colour_dependency = make_image_dependency_info(1, &to_colour);
         vkCmdPipelineBarrier2(command_buffer, &to_colour_dependency);
 
         VkRenderingAttachmentInfo const attachment = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
                                                       .pNext = nullptr,
-                                                      .imageView = *target_view,
+                                                      .imageView = target_view_native,
                                                       .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
                                                       .resolveMode = VK_RESOLVE_MODE_NONE,
                                                       .resolveImageView = VK_NULL_HANDLE,
@@ -269,7 +273,7 @@ namespace deren::vulkan {
         to_copy.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
         to_copy.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
         to_copy.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_copy.image = target_detail->image;
+        to_copy.image = target_native;
         to_copy.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
         VkDependencyInfo const to_copy_dependency = make_image_dependency_info(1, &to_copy);
         vkCmdPipelineBarrier2(command_buffer, &to_copy_dependency);
@@ -308,7 +312,7 @@ namespace deren::vulkan {
         VkCopyImageToMemoryInfo const copy_info = {.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT,
                                                    .pNext = nullptr,
                                                    .flags = 0,
-                                                   .srcImage = target_detail->image,
+                                                   .srcImage = target_native,
                                                    .srcImageLayout = VK_IMAGE_LAYOUT_GENERAL,
                                                    .regionCount = 1,
                                                    .pRegions = &host_region};

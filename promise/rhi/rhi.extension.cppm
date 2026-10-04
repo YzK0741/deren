@@ -290,6 +290,13 @@ export namespace deren::promise::rhi {
 
         /// The native `VkSampler` behind a contract `sampler`; same lifetime rule as the two above.
         [[nodiscard]] virtual void* native_sampler(sampler const& resource) const noexcept = 0;
+
+        /// The concrete format behind a contract `image`, as the integer VkFormat spells it - the one
+        /// image FACT a `native_image` consumer still needs while the heap's image descriptors are
+        /// raw `VkImageViewCreateInfo` (the `depth` ROLE resolved to the device's own format inside
+        /// the backend, and only the backend knows which). Same borrowed rule as the three above.
+        /// TRANSITIONAL by the same measure the escape is: the raw heap path is Face D's to remove.
+        [[nodiscard]] virtual std::uint32_t native_image_format(image const& resource) const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

@@ -127,6 +127,18 @@ namespace deren::vulkan {
         : runtime(deren::promise::rhi::create_info{}) {
     }
 
+    rhi::api_core& runtime::rhi_face() noexcept {
+        // §18's rule in one line: the interface reference of the SAME object. Before the flip the
+        // vtable points into this archive; after it, into the DLL - the call sites cannot tell.
+        return this->vulkan_core;
+    }
+
+    rhi::vulkan_escape& runtime::escape() noexcept {
+        // query_extension is a CONTRACT virtual: this call emits no backend symbol no matter which
+        // side of the boundary the object lives on.
+        return *static_cast<rhi::vulkan_escape*>(this->vulkan_core.query_extension(rhi::extension_kind::vulkan_escape));
+    }
+
     // THE ONE CREATION CONSTRUCTOR: the contract's structure goes straight to `core`, so the runtime
     // cannot tell where its creation parameters came from - the program's startup config, a test, or
     // (once the flip lands) the same structure handed to `deren_make_api_core()`.
@@ -277,17 +289,22 @@ namespace deren::vulkan {
         // 1x1 white fallback texture, always the first entry of the scene texture array; missing
         // material textures point at it
         constexpr std::array<uint8_t, 4> white_pixels = {255, 255, 255, 255};
-        deren::vulkan::image_create_info white_info = {};
-        white_info.width = 1;
-        white_info.height = 1;
-        white_info.mip_levels = 1;
-        white_info.array_layers = 1;
-        white_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-        init_utils::texture_2d white = init_utils::create_texture_2d(this->vulkan_core, std::as_bytes(std::span(white_pixels)), white_info, "white fallback texture");
-        this->owned_textures.push_back(std::move(white.image));
-        this->owned_texture_views.push_back(std::move(white.view));
+        rhi::image_desc white_desc{};
+        white_desc.extent = rhi::image_extent{.width = 1u, .height = 1u, .depth = 1u};
+        white_desc.format = rhi::image_format::rgba8_unorm;
+        white_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        white_desc.initial_bytes = std::as_bytes(std::span(white_pixels));
+        white_desc.debug_name = "white fallback texture";
+        this->owned_textures.push_back(rhi::object_manager<rhi::image>{this->rhi_face().create_image(white_desc)});
+        rhi::image_view_desc white_view_range{};
+        white_view_range.layer_count = 0; // all remaining layers
+        white_view_range.mip_count = 0;   // all remaining mips
+        this->owned_texture_views.push_back(rhi::object_manager<rhi::image_view>{this->owned_textures.back()->make_view(white_view_range)});
+        if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
+            deren::utility::panic("failed to create the white fallback texture");
+        }
         this->white_texture_index = static_cast<uint32_t>(this->texture_array_views.size());
-        this->texture_array_views.push_back(*this->owned_texture_views.back());
+        this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
 
         // THE WHITE ELEMENT NEEDS ITS OWN HEAP DESCRIPTOR HERE, and its absence was a class of black frames.
         // Every texture that reaches the bindless array through register_material has its heap slot written
@@ -302,12 +319,12 @@ namespace deren::vulkan {
         // @note core::heap_slot_offset() is defined below this constructor, so the arithmetic is spelled out: a slot
         //       number is already absolute and the stride is the one every heap array agrees on.
         if (this->vulkan_core.descriptor_heaps.ready()) {
-            auto const* const white_detail = this->vulkan_core.vma.get_image_detail(this->owned_textures.back().handle());
-            if (white_detail != nullptr) {
+            VkImage const white_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
+            {
                 VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                                                          .pNext = nullptr,
                                                          .flags = 0,
-                                                         .image = white_detail->image,
+                                                         .image = white_native,
                                                          .viewType = VK_IMAGE_VIEW_TYPE_2D,
                                                          .format = VK_FORMAT_R8G8B8A8_UNORM,
                                                          .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
@@ -902,33 +919,37 @@ namespace deren::vulkan {
         this->shadow_array_views.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
         this->shadow_layer_views.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
         for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
-            deren::vulkan::image_create_info shadow_info = {};
-            shadow_info.width = this->shadow_map_size;
-            shadow_info.height = this->shadow_map_size;
-            shadow_info.mip_levels = 1;
+            rhi::image_desc shadow_desc{};
+            shadow_desc.extent = rhi::image_extent{.width = this->shadow_map_size, .height = this->shadow_map_size, .depth = 1u};
+            shadow_desc.mip_levels = 1;
             // One layer per ACTIVE cascade, NOT max_shadow_cascades: the spare layers the old code
             // always allocated were 2048x2048x4 B each per frame slot (33.5 MB with the default three
             // cascades) that nothing ever fitted, rendered or sampled. Growing the count rebuilds
             // these images (see set_shadow_cascades) and SHRINKING keeps the layers already owned,
             // which is why shadow_allocated_layers - not shadow_cascades - is the image's real layer
             // count and the value every subresource range over the whole array has to use.
-            shadow_info.array_layers = this->shadow_cascades;
-            shadow_info.format = this->vulkan_core.depth_attachment_format;
-            shadow_info.extra_usage = VK_IMAGE_USAGE_SAMPLED_BIT; // sampled by shading.glsl
-            vk_image shadow_image = this->vulkan_core.vma.create_image(nullptr, 0, shadow_info, deren::vulkan::image_type::texture_2d_depth);
-            if (!shadow_image.valid()) {
+            shadow_desc.array_layers = this->shadow_cascades;
+            // THE `depth` ROLE (§17): which concrete depth format the device serves is the backend's
+            // capability question; the runtime names the ROLE and the flags it needs.
+            shadow_desc.format = rhi::image_format::depth;
+            shadow_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::depth_attachment);
+            shadow_desc.debug_name = "shadow map image";
+            rhi::object_manager<rhi::image> shadow_image{this->rhi_face().create_image(shadow_desc)};
+            if (!static_cast<bool>(shadow_image)) {
                 deren::utility::panic("failed to create shadow map image");
             }
-            auto const* detail = this->vulkan_core.vma.get_image_detail(shadow_image.handle());
-            if (detail == nullptr) {
-                deren::utility::panic("failed to get shadow map image detail");
-            }
             this->shadow_images.push_back(std::move(shadow_image));
-            this->shadow_array_views.push_back(this->vulkan_core.make_depth_array_view(detail->image, this->vulkan_core.depth_attachment_format));
-            std::vector<vk_image_view> layers;
+            rhi::image_view_desc whole_array{};
+            whole_array.layer_count = 0; // all remaining layers
+            whole_array.mip_count = 0;
+            this->shadow_array_views.push_back(rhi::object_manager<rhi::image_view>{this->shadow_images.back()->make_view(whole_array)});
+            std::vector<rhi::object_manager<rhi::image_view>> layers;
             layers.reserve(this->shadow_cascades);
             for (uint32_t cascade = 0; cascade < this->shadow_cascades; ++cascade) {
-                layers.push_back(this->vulkan_core.make_depth_layer_view(detail->image, this->vulkan_core.depth_attachment_format, cascade));
+                rhi::image_view_desc one_layer{};
+                one_layer.base_layer = cascade;
+                one_layer.layer_count = 1;
+                layers.push_back(rhi::object_manager<rhi::image_view>{this->shadow_images.back()->make_view(one_layer)});
             }
             this->shadow_layer_views.push_back(std::move(layers));
         }
@@ -1100,17 +1121,15 @@ namespace deren::vulkan {
         // frame rewrites. Only the HEAP half is left: the two bindings are written into this slot's heap block
         // (and the shadow map into its grid slot) rather than into a descriptor set.
         for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
-            auto const* shadow_detail = this->vulkan_core.vma.get_image_detail(this->shadow_images[static_cast<std::size_t>(slot)].handle());
-            if (shadow_detail == nullptr) {
-                deren::utility::panic("failed to get shadow map image detail");
-            }
+            rhi::image& shadow_image = *this->shadow_images[static_cast<std::size_t>(slot)];
+            VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(shadow_image));
 
             // THE SHADOW MAP GOES ONTO THE GRID HERE, because an image binding cannot be written the way a buffer
             // binding is: its heap descriptor is a CREATE INFO, rebuilt from the same arguments
             // core::make_depth_array_view uses - this slot's image, the depth format, a 2D-array view and the DEPTH
             // aspect (a colour aspect here would be a validation error, not a wrong picture). Which slot it
             // occupies is the frame's, matching shadow_images[slot].
-            if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::shadow_map + static_cast<uint32_t>(slot), shadow_detail->image, this->vulkan_core.depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT)) {
+            if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::shadow_map + static_cast<uint32_t>(slot), shadow_native, static_cast<VkFormat>(this->escape().native_image_format(shadow_image)), VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT)) {
                 deren::utility::log("descriptor heap: the shadow map for frame slot {} did not reach grid slot {}", slot, core::heap_slots::shadow_map + static_cast<uint32_t>(slot));
             }
 
@@ -1147,73 +1166,68 @@ namespace deren::vulkan {
         if (info.env_size == 0) {
             return;
         }
-        auto const upload = [this](std::span<uint8_t const> const data, image_create_info const& create_info, image_type const type) -> vk_image {
-            vk_image image = this->vulkan_core.vma.create_image(data.data(), data.size_bytes(), create_info, type);
-            if (!image.valid()) {
-                deren::utility::panic("failed to create IBL image");
+        // THE UPLOAD LAMBDA goes through the contract's image face now (abi 7): the named formats and
+        // the cube_compatible flag carry what image_create_info + image_type carried, and the bytes
+        // stay part of the descriptor (the dedup only sees content handed to creation).
+        auto const upload = [this](std::span<uint8_t const> const data, uint32_t const width, uint32_t const height, uint32_t const mip_levels, rhi::image_format const format, bool const cube, char const* const what) -> rhi::object_manager<rhi::image> {
+            rhi::image_desc desc{};
+            desc.extent = rhi::image_extent{.width = width, .height = height, .depth = 1u};
+            desc.mip_levels = mip_levels;
+            desc.array_layers = cube ? 6u : 1u;
+            desc.format = format;
+            desc.flags = rhi::to_bits(rhi::image_flag::sampled) | (cube ? rhi::to_bits(rhi::image_flag::cube_compatible) : rhi::no_image_flags);
+            desc.initial_bytes = std::as_bytes(std::span(data));
+            desc.debug_name = what;
+            rhi::object_manager<rhi::image> image{this->rhi_face().create_image(desc)};
+            if (!static_cast<bool>(image)) {
+                deren::utility::panic(what);
             }
             return image;
         };
+        // a whole-image view through the contract, and the raw `VkImage` the heap's create-info
+        // descriptor still needs (transitional, until the heap write itself moves behind the contract)
+        auto const whole_view = [](rhi::image& image) -> rhi::object_manager<rhi::image_view> {
+            rhi::image_view_desc range{};
+            range.layer_count = 0;
+            range.mip_count = 0;
+            return rhi::object_manager<rhi::image_view>{image.make_view(range)};
+        };
+        auto const native_of = [this](rhi::image& image) -> VkImage {
+            return static_cast<VkImage>(this->escape().native_image(image));
+        };
 
         // prefiltered environment cubemap (mip chain)
-        deren::vulkan::image_create_info env_info = {};
-        env_info.width = info.env_size;
-        env_info.height = info.env_size;
-        env_info.mip_levels = info.env_mip_count;
-        env_info.array_layers = 6;
-        env_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        vk_image env_image = upload(info.prefiltered_env, env_info, deren::vulkan::image_type::texture_cubemap);
-        auto const* env_detail = this->vulkan_core.vma.get_image_detail(env_image.handle());
-        if (env_detail == nullptr) {
-            deren::utility::panic("failed to get environment image detail");
-        }
+        rhi::object_manager<rhi::image> env_image = upload(info.prefiltered_env, info.env_size, info.env_size, info.env_mip_count, rhi::image_format::r16g16b16a16_sfloat, true, "environment cubemap image");
         this->ibl_images.push_back(std::move(env_image));
-        this->ibl_views.push_back(this->vulkan_core.make_image_view(env_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE));
+        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
         // ... and the heap's copy of it, at its own grid slot (see docs/descriptor_heap_migration.md): written
         // HERE because this is the site that knows the format and the view type, which is what a heap image
         // descriptor is made of. An image whose BINDING is later repointed (the furnace mode) needs a rewrite
         // beside that change - the heap does not follow a view.
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::env_cube, env_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
+        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::env_cube, native_of(*this->ibl_images.back()), VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
             deren::utility::log("descriptor heap: the environment cube did not reach grid slot {}", core::heap_slots::env_cube);
         }
 
         // irradiance cubemap
-        deren::vulkan::image_create_info irr_info = {};
-        irr_info.width = info.irr_size;
-        irr_info.height = info.irr_size;
-        irr_info.mip_levels = 1;
-        irr_info.array_layers = 6;
-        irr_info.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-        vk_image irr_image = upload(info.irradiance, irr_info, deren::vulkan::image_type::texture_cubemap);
-        auto const* irr_detail = this->vulkan_core.vma.get_image_detail(irr_image.handle());
-        if (irr_detail == nullptr) {
-            deren::utility::panic("failed to get irradiance image detail");
-        }
+        rhi::object_manager<rhi::image> irr_image = upload(info.irradiance, info.irr_size, info.irr_size, 1u, rhi::image_format::r16g16b16a16_sfloat, true, "irradiance cubemap image");
         this->ibl_images.push_back(std::move(irr_image));
-        this->ibl_views.push_back(this->vulkan_core.make_image_view(irr_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE));
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::irradiance_cube, irr_detail->image, VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
+        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
+        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::irradiance_cube, native_of(*this->ibl_images.back()), VK_FORMAT_R16G16B16A16_SFLOAT, VK_IMAGE_VIEW_TYPE_CUBE)) {
             deren::utility::log("descriptor heap: the irradiance cube did not reach grid slot {}", core::heap_slots::irradiance_cube);
         }
 
         // BRDF integration LUT
-        deren::vulkan::image_create_info lut_info = {};
-        lut_info.width = info.lut_size;
-        lut_info.height = info.lut_size;
-        lut_info.mip_levels = 1;
-        lut_info.array_layers = 1;
-        lut_info.format = VK_FORMAT_R16G16_SFLOAT;
-        vk_image lut_image = upload(info.brdf_lut, lut_info, deren::vulkan::image_type::texture_2d);
-        auto const* lut_detail = this->vulkan_core.vma.get_image_detail(lut_image.handle());
-        if (lut_detail == nullptr) {
-            deren::utility::panic("failed to get BRDF LUT image detail");
-        }
+        rhi::object_manager<rhi::image> lut_image = upload(info.brdf_lut, info.lut_size, info.lut_size, 1u, rhi::image_format::r16g16_sfloat, false, "BRDF LUT image");
         this->ibl_images.push_back(std::move(lut_image));
-        this->ibl_views.push_back(this->vulkan_core.make_image_view(lut_detail->image, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D));
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::brdf_lut, lut_detail->image, VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D)) {
+        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
+        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::brdf_lut, native_of(*this->ibl_images.back()), VK_FORMAT_R16G16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D)) {
             deren::utility::log("descriptor heap: the BRDF LUT did not reach grid slot {}", core::heap_slots::brdf_lut);
         }
 
-        this->env_sampler = this->vulkan_core.make_sampler(VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE, static_cast<float>(info.env_mip_count - 1));
+        rhi::sampler_desc env_sampler_desc{};
+        env_sampler_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        env_sampler_desc.max_lod = static_cast<float>(info.env_mip_count - 1);
+        this->env_sampler = rhi::object_manager<rhi::sampler>{this->rhi_face().create_sampler(env_sampler_desc)};
         this->ibl_ready = true;
         // The three images above are already on the heap, written where their images are (see the
         // write_heap_grid_image calls): a heap image descriptor is a CREATE INFO, so there is no separate
@@ -1228,22 +1242,26 @@ namespace deren::vulkan {
             deren::utility::log("post LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
             return;
         }
-        deren::vulkan::image_create_info lut_info = {};
-        lut_info.width = width;
-        lut_info.height = height;
-        lut_info.mip_levels = 1;
-        lut_info.array_layers = 1;
-        lut_info.format = VK_FORMAT_R8G8B8A8_SRGB;
-        this->post_lut_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), lut_info, deren::vulkan::image_type::texture_2d);
-        if (!this->post_lut_image.valid()) {
+        rhi::image_desc lut_desc{};
+        lut_desc.extent = rhi::image_extent{.width = width, .height = height, .depth = 1u};
+        lut_desc.mip_levels = 1;
+        lut_desc.array_layers = 1;
+        lut_desc.format = rhi::image_format::rgba8_srgb;
+        lut_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        lut_desc.initial_bytes = std::as_bytes(std::span(pixels));
+        lut_desc.debug_name = "post LUT image";
+        this->post_lut_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(lut_desc)};
+        if (!static_cast<bool>(this->post_lut_image)) {
             deren::utility::panic("failed to create the post LUT image");
         }
-        auto const* const detail = this->vulkan_core.vma.get_image_detail(this->post_lut_image.handle());
-        if (detail == nullptr) {
-            deren::utility::panic("failed to get the post LUT image detail");
+        rhi::image_view_desc lut_range{};
+        lut_range.layer_count = 0;
+        lut_range.mip_count = 0;
+        this->post_lut_view = rhi::object_manager<rhi::image_view>{this->post_lut_image->make_view(lut_range)};
+        if (!static_cast<bool>(this->post_lut_view)) {
+            deren::utility::panic("failed to create the post LUT view");
         }
-        this->post_lut_view = this->vulkan_core.make_image_view(detail->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D);
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::post_lut, detail->image, VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D)) {
+        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::post_lut, static_cast<VkImage>(this->escape().native_image(*this->post_lut_image)), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D)) {
             deren::utility::log("descriptor heap: the post LUT did not reach grid slot {}", core::heap_slots::post_lut);
         }
         deren::utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::post_lut);
@@ -1271,25 +1289,29 @@ namespace deren::vulkan {
             deren::utility::log("goo FGD LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
             return;
         }
-        deren::vulkan::image_create_info fgd_info = {};
-        fgd_info.width = width;
-        fgd_info.height = height;
+        rhi::image_desc fgd_desc{};
+        fgd_desc.extent = rhi::image_extent{.width = width, .height = height, .depth = 1u};
         // ONE MIP, WHICH IS THE REFERENCE'S OWN ANSWER rather than a saving: Blender's Texture node has no `Mip`
         // input here (`image_user` states interpolation / extension / projection only), so it samples lod 0 - and a
         // generated chain read by a rough surface would give a different number from the reference's (spec §9-U6).
-        fgd_info.mip_levels = 1;
-        fgd_info.array_layers = 1;
-        fgd_info.format = VK_FORMAT_R8G8B8A8_UNORM;
-        this->goo_fgd_image = this->vulkan_core.vma.create_image(pixels.data(), pixels.size_bytes(), fgd_info, deren::vulkan::image_type::texture_2d);
-        if (!this->goo_fgd_image.valid()) {
+        fgd_desc.mip_levels = 1;
+        fgd_desc.array_layers = 1;
+        fgd_desc.format = rhi::image_format::rgba8_unorm;
+        fgd_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        fgd_desc.initial_bytes = std::as_bytes(std::span(pixels));
+        fgd_desc.debug_name = "goo FGD LUT image";
+        this->goo_fgd_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(fgd_desc)};
+        if (!static_cast<bool>(this->goo_fgd_image)) {
             deren::utility::panic("failed to create the goo FGD LUT image");
         }
-        auto const* const detail = this->vulkan_core.vma.get_image_detail(this->goo_fgd_image.handle());
-        if (detail == nullptr) {
-            deren::utility::panic("failed to get the goo FGD LUT image detail");
+        rhi::image_view_desc fgd_range{};
+        fgd_range.layer_count = 0;
+        fgd_range.mip_count = 0;
+        this->goo_fgd_view = rhi::object_manager<rhi::image_view>{this->goo_fgd_image->make_view(fgd_range)};
+        if (!static_cast<bool>(this->goo_fgd_view)) {
+            deren::utility::panic("failed to create the goo FGD LUT view");
         }
-        this->goo_fgd_view = this->vulkan_core.make_image_view(detail->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D);
-        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::goo_fgd_lut, detail->image, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D)) {
+        if (!write_heap_grid_image(this->vulkan_core, core::heap_slots::goo_fgd_lut, static_cast<VkImage>(this->escape().native_image(*this->goo_fgd_image)), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D)) {
             deren::utility::log("descriptor heap: the goo FGD LUT did not reach grid slot {}", core::heap_slots::goo_fgd_lut);
         }
         deren::utility::log("goo FGD LUT uploaded: {}x{}, {} bytes, R8G8B8A8_UNORM -> grid slot {}", width, height, pixels.size_bytes(), core::heap_slots::goo_fgd_lut);
@@ -1433,17 +1455,24 @@ namespace deren::vulkan {
                 texture_indices[i] = this->white_texture_index; // white fallback, like an invalid texture
                 continue;
             }
-            deren::vulkan::image_create_info image_info = {};
-            image_info.width = tex.width;
-            image_info.height = tex.height;
+            rhi::image_desc image_info{};
+            image_info.extent = rhi::image_extent{.width = tex.width, .height = tex.height, .depth = 1u};
             image_info.mip_levels = tex.mip_levels; // the caller uploads a full mip-major chain
             image_info.array_layers = 1;
-            image_info.format = slots[i].second;
-            init_utils::texture_2d material_texture = init_utils::create_texture_2d(this->vulkan_core, std::as_bytes(tex.data), image_info, "material texture");
-            this->owned_textures.push_back(std::move(material_texture.image));
-            this->owned_texture_views.push_back(std::move(material_texture.view));
+            image_info.format = contract_image_format(slots[i].second);
+            image_info.flags = rhi::to_bits(rhi::image_flag::sampled);
+            image_info.initial_bytes = std::as_bytes(tex.data);
+            image_info.debug_name = "material texture";
+            this->owned_textures.push_back(rhi::object_manager<rhi::image>{this->rhi_face().create_image(image_info)});
+            rhi::image_view_desc tex_range{};
+            tex_range.layer_count = 0;
+            tex_range.mip_count = 0;
+            this->owned_texture_views.push_back(rhi::object_manager<rhi::image_view>{this->owned_textures.back()->make_view(tex_range)});
+            if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
+                deren::utility::panic("failed to create material texture");
+            }
             uint32_t const index = static_cast<uint32_t>(this->texture_array_views.size());
-            this->texture_array_views.push_back(*this->owned_texture_views.back());
+            this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
             this->texture_slot_cache.emplace(key, index);
             texture_indices[i] = index;
 
@@ -1460,12 +1489,12 @@ namespace deren::vulkan {
             // Nothing READS the heap yet, so a failure here is a log line and not a wrong frame - but it is the
             // write path that has to work first.
             if (this->vulkan_core.descriptor_heaps.ready()) {
-                auto const* const texture_detail = this->vulkan_core.vma.get_image_detail(this->owned_textures.back().handle());
-                if (texture_detail != nullptr) {
+                VkImage const texture_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
+                {
                     VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
                                                              .pNext = nullptr,
                                                              .flags = 0,
-                                                             .image = texture_detail->image,
+                                                             .image = texture_native,
                                                              .viewType = VK_IMAGE_VIEW_TYPE_2D,
                                                              .format = slots[i].second,
                                                              .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
