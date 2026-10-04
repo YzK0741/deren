@@ -94,7 +94,12 @@ export namespace deren::promise::rhi {
     /// the case the number exists for: an engine compiled for 6 dispatches those slots differently.
     /// The `depth` format value is pinned at 0x7FFFFFFF so later named formats can append without
     /// moving it.
-    inline constexpr std::uint32_t abi_version = 7u;
+    /// 7 -> 8 in the pipeline face: `shader_desc` / `pipeline_desc` became defined types (the blend
+    /// vocabulary is the FOUR MODES the survey found behind the raw blend constants, the depth
+    /// compare the two the renderer uses), the factories gain real implementations, and
+    /// `vulkan_escape` grew `native_pipeline` / `native_shader_module`. Append-only; the number
+    /// exists because the vtables the engine dispatches through changed shape.
+    inline constexpr std::uint32_t abi_version = 8u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

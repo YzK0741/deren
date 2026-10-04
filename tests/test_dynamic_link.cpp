@@ -75,7 +75,7 @@ namespace {
         // the owned `image_view` interface and the image/sampler descriptors became defined types,
         // and `vulkan_escape` grew the image/sampler native-handle borrows.
         // plan §10.3 measured the mechanism; this line is the number itself.
-        CHECK(rhi::abi_version == 7u);
+        CHECK(rhi::abi_version == 8u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

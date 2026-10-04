@@ -350,6 +350,23 @@ namespace {
                 }
             }
 
+            // ---- THE PIPELINE FACE (abi 8): the refusal paths, on the real device ------------------
+            // A real SPIR-V module cannot ride in the spike, so the SUCCESS path is witnessed where
+            // the real shaders live - the render gate, once every pass pipeline goes through the
+            // factory. What the spike pins here is the refusal discipline: a stage-less/empty module
+            // and an unknown-format color attachment answer nullptr, never a half-built object.
+            mark("create_shader/create_pipeline: the refusal paths answer nullptr");
+            rhi::shader_desc empty_shader{};
+            empty_shader.stage = rhi::shader_stage::vertex;
+            empty_shader.debug_name = "spike empty shader";
+            CHECK(core->create_shader(empty_shader) == nullptr);
+            rhi::image_format const bad_formats[] = {rhi::image_format::unknown};
+            rhi::pipeline_desc bad_pipeline{};
+            bad_pipeline.color_formats = std::span<rhi::image_format const>(bad_formats);
+            bad_pipeline.vertex_code = std::span<std::byte const>();
+            bad_pipeline.debug_name = "spike unknown-format pipeline";
+            CHECK(core->create_pipeline(bad_pipeline) == nullptr);
+
             mark("about to leave the scope: two releases and the DLL's deleter (core teardown) run next");
         } // <- the managers release their buffers, then the DLL's deleter runs
         mark("core teardown returned");

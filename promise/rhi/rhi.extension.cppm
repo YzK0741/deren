@@ -69,6 +69,8 @@ export namespace deren::promise::rhi {
     struct image;
     struct image_view;
     struct sampler;
+    struct pipeline;
+    struct shader;
 
     // Descriptor shapes that are still S1 design surface (§5's capability table and
     // §6.4's usage/barrier decisions). A reference to an incomplete type is all a
@@ -297,6 +299,16 @@ export namespace deren::promise::rhi {
         /// the backend, and only the backend knows which). Same borrowed rule as the three above.
         /// TRANSITIONAL by the same measure the escape is: the raw heap path is Face D's to remove.
         [[nodiscard]] virtual std::uint32_t native_image_format(image const& resource) const noexcept = 0;
+
+        /// The native `VkPipeline` behind a contract `pipeline` - what a raw `vkCmdBindPipeline` and
+        /// the compute/ray-tracing dispatch paths consume. Same borrowed rule as the image handles.
+        /// APPENDED IN ABI 8 with the pipeline face.
+        [[nodiscard]] virtual void* native_pipeline(pipeline const& resource) const noexcept = 0;
+
+        /// The native `VkShaderModule` behind a contract `shader` - what a raw
+        /// `VkPipelineShaderStageCreateInfo` (the compute and ray-tracing pipelines the engine still
+        /// assembles) consumes. Same borrowed rule.
+        [[nodiscard]] virtual void* native_shader_module(shader const& resource) const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

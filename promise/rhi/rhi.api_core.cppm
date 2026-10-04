@@ -372,9 +372,63 @@ export namespace deren::promise::rhi {
         float max_lod = 0.0f; ///< the mip the sampler clamps at (the shadow comparators use small values)
     };
 
+    /// The shader stage a `shader_desc`'s code is compiled for. Values are the renderer's actual
+    /// stage vocabulary; appended, never moved.
+    enum class shader_stage : std::uint32_t {
+        vertex = 0,
+        mesh = 1, ///< the stage that REPLACES the vertex stage (docs/mesh_shaders.md)
+        fragment = 2,
+        compute = 3,
+    };
+
+    /// How a shader is created: its stage and its SPIR-V. Same append-only `struct_size` guard.
+    struct shader_desc {
+        std::uint32_t struct_size = sizeof(shader_desc); ///< size of this structure as the CALLER compiled it
+        shader_stage stage = shader_stage::vertex;
+        std::span<std::byte const> code;  ///< the SPIR-V
+        char const* debug_name = nullptr; ///< what the backend logs on refusal; not retained
+    };
+
+    /// THE FOUR BLEND RECIPES this renderer's pipelines actually use (the survey found exactly these
+    /// four behind the raw `VkPipelineColorBlendAttachmentState` constants): a caller names the MODE,
+    /// the backend spells the factors and ops. Appended, never moved.
+    enum class blend_mode : std::uint32_t {
+        opaque = 0,   ///< overwrite: the G-buffer's surface targets (alpha carries data there)
+        alpha = 1,    ///< classic src-alpha over
+        additive = 2, ///< accumulate: the HDR target's emissive accumulation
+        multiply = 3, ///< multiply: the toon chain's light modulation
+    };
+
+    /// The depth compare operator a pipeline's depth test uses. The renderer's vocabulary today:
+    /// the LESS_OR_EQUAL default and the character-forward pass's EQUAL overwrite.
+    enum class depth_compare : std::uint32_t {
+        less_or_equal = 0,
+        equal = 1,
+    };
+
+    /// How a graphics pipeline is created - `make_pipeline`'s parameters in the contract's vocabulary.
+    /// The COLOR and DEPTH formats are contract formats (a named value, or the `depth` ROLE for the
+    /// depth attachment; `unknown` as the depth format means the pipeline has NO depth attachment).
+    /// The blend modes are per color attachment in attachment order; EMPTY means every target is
+    /// overwritten (opaque), which is what a G-buffer surface target needs. Same append-only guard.
+    struct pipeline_desc {
+        std::uint32_t struct_size = sizeof(pipeline_desc); ///< size of this structure as the CALLER compiled it
+        std::span<image_format const> color_formats;       ///< attachment order; empty = depth-only
+        image_format depth_format = image_format::unknown; ///< `unknown` = no depth attachment
+        std::span<std::byte const> vertex_code;            ///< the FIRST stage's SPIR-V (vertex, or mesh)
+        std::span<std::byte const> fragment_code;          ///< the fragment stage's SPIR-V
+        shader_stage first_stage = shader_stage::vertex;   ///< `mesh` REPLACES the vertex stage
+        std::uint32_t sample_count = 1u;                   ///< the render instance's MSAA level (1, 2, 4...)
+        bool depth_test = true;                            ///< test + DYNAMIC write state (per-draw)
+        float depth_bias_constant_factor = 0.0f;
+        float depth_bias_slope_factor = 0.0f;
+        float depth_bias_clamp = 0.0f;
+        std::span<blend_mode const> blend_modes; ///< per color attachment; empty = all opaque
+        depth_compare compare = depth_compare::less_or_equal;
+        char const* debug_name = nullptr; ///< what the backend logs on refusal; not retained
+    };
+
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).
-    struct shader_desc;
-    struct pipeline_desc;
     struct swapchain_desc;
     struct query_desc;
 

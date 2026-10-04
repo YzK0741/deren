@@ -43,15 +43,19 @@ module;
 #include <bit>
 #include <cstddef>
 #include <cstdint>
+#include <expected>
 #include <format>
+#include <optional>
 #include <span>
 #include <string>
+#include <vector>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.core;
 
 import deren.promise.rhi;
 import deren.vulkan.constant_init;
+import deren.vulkan.core.pipeline;
 
 namespace deren::vulkan {
 
@@ -313,6 +317,84 @@ namespace deren::vulkan {
             }
             if (covered_by(declared, offsetof(rhi_view_desc, role), sizeof(rhi_view_desc::role))) {
                 options.role = desc.role;
+            }
+            return options;
+        }
+
+        /// the same ABI guard for `shader_desc`.
+        [[nodiscard]] deren::promise::rhi::shader_desc sanitize_shader_desc(deren::promise::rhi::shader_desc const& desc) {
+            using rhi_shader_desc = deren::promise::rhi::shader_desc;
+
+            uint32_t const declared = desc.struct_size;
+            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_shader_desc));
+            if (declared != known) {
+                deren::utility::log("core: the RHI shader_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
+                                    known, declared);
+            }
+
+            rhi_shader_desc options = {};
+            if (covered_by(declared, offsetof(rhi_shader_desc, stage), sizeof(rhi_shader_desc::stage))) {
+                options.stage = desc.stage;
+            }
+            if (covered_by(declared, offsetof(rhi_shader_desc, code), sizeof(rhi_shader_desc::code))) {
+                options.code = desc.code;
+            }
+            if (covered_by(declared, offsetof(rhi_shader_desc, debug_name), sizeof(rhi_shader_desc::debug_name))) {
+                options.debug_name = desc.debug_name;
+            }
+            return options;
+        }
+
+        /// the same ABI guard for `pipeline_desc`.
+        [[nodiscard]] deren::promise::rhi::pipeline_desc sanitize_pipeline_desc(deren::promise::rhi::pipeline_desc const& desc) {
+            using rhi_pipeline_desc = deren::promise::rhi::pipeline_desc;
+
+            uint32_t const declared = desc.struct_size;
+            uint32_t const known = static_cast<uint32_t>(sizeof(rhi_pipeline_desc));
+            if (declared != known) {
+                deren::utility::log("core: the RHI pipeline_desc is {} B here and {} B in the caller -> only the caller's declared prefix is read",
+                                    known, declared);
+            }
+
+            rhi_pipeline_desc options = {};
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, color_formats), sizeof(rhi_pipeline_desc::color_formats))) {
+                options.color_formats = desc.color_formats;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, depth_format), sizeof(rhi_pipeline_desc::depth_format))) {
+                options.depth_format = desc.depth_format;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, vertex_code), sizeof(rhi_pipeline_desc::vertex_code))) {
+                options.vertex_code = desc.vertex_code;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, fragment_code), sizeof(rhi_pipeline_desc::fragment_code))) {
+                options.fragment_code = desc.fragment_code;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, first_stage), sizeof(rhi_pipeline_desc::first_stage))) {
+                options.first_stage = desc.first_stage;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, sample_count), sizeof(rhi_pipeline_desc::sample_count))) {
+                options.sample_count = desc.sample_count;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, depth_test), sizeof(rhi_pipeline_desc::depth_test))) {
+                options.depth_test = desc.depth_test;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, depth_bias_constant_factor), sizeof(rhi_pipeline_desc::depth_bias_constant_factor))) {
+                options.depth_bias_constant_factor = desc.depth_bias_constant_factor;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, depth_bias_slope_factor), sizeof(rhi_pipeline_desc::depth_bias_slope_factor))) {
+                options.depth_bias_slope_factor = desc.depth_bias_slope_factor;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, depth_bias_clamp), sizeof(rhi_pipeline_desc::depth_bias_clamp))) {
+                options.depth_bias_clamp = desc.depth_bias_clamp;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, blend_modes), sizeof(rhi_pipeline_desc::blend_modes))) {
+                options.blend_modes = desc.blend_modes;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, compare), sizeof(rhi_pipeline_desc::compare))) {
+                options.compare = desc.compare;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, debug_name), sizeof(rhi_pipeline_desc::debug_name))) {
+                options.debug_name = desc.debug_name;
             }
             return options;
         }
@@ -731,12 +813,117 @@ namespace deren::vulkan {
         delete this;
     }
 
-    rhi::shader* core::create_shader(rhi::shader_desc const& /*desc*/) {
-        return nullptr;
+    void core::owned_shader::release() noexcept {
+        delete this;
     }
 
-    rhi::pipeline* core::create_pipeline(rhi::pipeline_desc const& /*desc*/) {
-        return nullptr;
+    void core::owned_pipeline::release() noexcept {
+        delete this;
+    }
+
+    rhi::shader* core::create_shader(rhi::shader_desc const& declared_desc) {
+        rhi::shader_desc const desc = sanitize_shader_desc(declared_desc);
+        char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed shader";
+
+        VkShaderStageFlagBits stage = VK_SHADER_STAGE_VERTEX_BIT;
+        switch (desc.stage) {
+        case rhi::shader_stage::vertex:
+            stage = VK_SHADER_STAGE_VERTEX_BIT;
+            break;
+        case rhi::shader_stage::mesh:
+            stage = VK_SHADER_STAGE_MESH_BIT_EXT;
+            break;
+        case rhi::shader_stage::fragment:
+            stage = VK_SHADER_STAGE_FRAGMENT_BIT;
+            break;
+        case rhi::shader_stage::compute:
+            stage = VK_SHADER_STAGE_COMPUTE_BIT;
+            break;
+        }
+        (void)stage; // the module itself is stage-less; the stage rides the pipeline's stage info
+
+        std::optional<vk_shader_module> module = ::deren::vulkan::make_shader_module(
+            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.code.data()), desc.code.size()),
+            this->logical_device);
+        if (!module.has_value()) {
+            deren::utility::log("rhi: create_shader {} refused: vkCreateShaderModule failed", what);
+            return nullptr;
+        }
+        auto* const answer = new owned_shader();
+        answer->owned.emplace(std::move(module.value()));
+        answer->native_handle = answer->owned->get();
+        return answer;
+    }
+
+    rhi::pipeline* core::create_pipeline(rhi::pipeline_desc const& declared_desc) {
+        rhi::pipeline_desc const desc = sanitize_pipeline_desc(declared_desc);
+        char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed pipeline";
+
+        // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
+        // Color formats one to one; the `depth` ROLE resolves to the device's own depth attachment
+        // format; `unknown` as the depth format means NO depth attachment (make_pipeline's
+        // VK_FORMAT_UNDEFINED spelling).
+        std::vector<VkFormat> color_formats(desc.color_formats.size());
+        for (std::size_t index = 0; index < desc.color_formats.size(); ++index) {
+            color_formats[index] = native_image_format(desc.color_formats[index], this->depth_attachment_format);
+            if (color_formats[index] == VK_FORMAT_UNDEFINED) {
+                deren::utility::log("rhi: create_pipeline {} refused: color attachment {} is image_format::unknown", what, index);
+                return nullptr;
+            }
+        }
+        VkFormat const depth_format = desc.depth_format == rhi::image_format::unknown
+                                          ? VK_FORMAT_UNDEFINED
+                                          : native_image_format(desc.depth_format, this->depth_attachment_format);
+
+        // The blend modes are the FOUR RECIPES the survey found; empty means every target is
+        // overwritten (opaque), which is the default make_pipeline itself spells.
+        std::vector<VkPipelineColorBlendAttachmentState> blends;
+        blends.reserve(desc.blend_modes.size());
+        for (rhi::blend_mode const mode : desc.blend_modes) {
+            switch (mode) {
+            case rhi::blend_mode::opaque:
+                blends.push_back(make_color_blend_attachment_opaque());
+                break;
+            case rhi::blend_mode::alpha:
+                blends.push_back(make_color_blend_attachment());
+                break;
+            case rhi::blend_mode::additive:
+                blends.push_back(make_color_blend_attachment_additive());
+                break;
+            case rhi::blend_mode::multiply:
+                blends.push_back(make_color_blend_attachment_multiply());
+                break;
+            }
+        }
+
+        VkSampleCountFlagBits const samples = static_cast<VkSampleCountFlagBits>(desc.sample_count);
+        VkCompareOp const compare = desc.compare == rhi::depth_compare::equal ? VK_COMPARE_OP_EQUAL : VK_COMPARE_OP_LESS_OR_EQUAL;
+        if (desc.first_stage == rhi::shader_stage::mesh) {
+            // the full overload takes the compare op; the simple one the mesh spelling routes through
+            // carries the same default. Routed here because the mesh stage REPLACES the vertex stage.
+        }
+        std::expected<vk_pipeline, std::string_view> pipeline = make_pipeline(
+            this->logical_device,
+            std::span<VkFormat const>(color_formats.data(), color_formats.size()),
+            depth_format,
+            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.vertex_code.data()), desc.vertex_code.size()),
+            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.fragment_code.data()), desc.fragment_code.size()),
+            samples,
+            desc.depth_test,
+            desc.depth_bias_constant_factor,
+            desc.depth_bias_slope_factor,
+            desc.depth_bias_clamp,
+            std::span<VkPipelineColorBlendAttachmentState const>(blends.data(), blends.size()),
+            desc.first_stage == rhi::shader_stage::mesh ? VK_SHADER_STAGE_MESH_BIT_EXT : VK_SHADER_STAGE_VERTEX_BIT,
+            compare);
+        if (!pipeline.has_value()) {
+            deren::utility::log("rhi: create_pipeline {} refused: {}", what, pipeline.error());
+            return nullptr;
+        }
+        auto* const answer = new owned_pipeline();
+        answer->owned.emplace(std::move(pipeline.value()));
+        answer->native_handle = answer->owned->get_pipeline();
+        return answer;
     }
 
     rhi::query* core::create_query(rhi::query_desc const& /*desc*/) {
@@ -1129,6 +1316,16 @@ namespace deren::vulkan {
     std::uint32_t core::frame_escape::native_image_format(rhi::image const& resource) const noexcept {
         auto const* const owned = static_cast<owned_image const*>(&resource);
         return static_cast<std::uint32_t>(owned->resolved_format);
+    }
+
+    void* core::frame_escape::native_pipeline(rhi::pipeline const& resource) const noexcept {
+        auto const* const owned = static_cast<owned_pipeline const*>(&resource);
+        return reinterpret_cast<void*>(owned->native_handle);
+    }
+
+    void* core::frame_escape::native_shader_module(rhi::shader const& resource) const noexcept {
+        auto const* const owned = static_cast<owned_shader const*>(&resource);
+        return reinterpret_cast<void*>(owned->native_handle);
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {

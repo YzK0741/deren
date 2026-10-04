@@ -402,6 +402,31 @@ namespace deren::vulkan {
             void release() noexcept override;
         };
 
+        /// AN OWNED SHADER: what `create_shader()` hands the caller (abi 8's pipeline face). The
+        /// engine's raw compute/ray-tracing pipeline assembly consumes the module through the escape.
+        struct owned_shader final : deren::promise::rhi::shader {
+            /// optional, not a member: the RAII types have no default state (a wrapper IS a live
+            /// handle), so the factory emplaces on success
+            std::optional<deren::vulkan::vk_shader_module> owned;
+            VkShaderModule native_handle = VK_NULL_HANDLE;
+
+            /// `delete this`, whose destructor resets the RAII owner
+            void release() noexcept override;
+        };
+
+        /// AN OWNED PIPELINE: what `create_pipeline()` hands the caller - the backend's
+        /// `make_pipeline` result (vertex input derived from the SPIR-V, the dynamic viewport/scissor
+        /// state, the heap-native layout-less creation) wrapped in the contract's ownership.
+        struct owned_pipeline final : deren::promise::rhi::pipeline {
+            /// same optional rule as owned_shader
+            std::optional<deren::vulkan::vk_pipeline> owned;
+            /// the `VkPipeline`, cached at creation for the escape's borrow
+            VkPipeline native_handle = VK_NULL_HANDLE;
+
+            /// `delete this`, whose destructor destroys the pipeline (RAII owner)
+            void release() noexcept override;
+        };
+
         /// tier-2 `device_address`: a buffer's device address.
         ///
         /// ANNOUNCED ONLY NOW, AND THE REASON IS THE ABILITY'S OWN RULE rather than a change of heart:
@@ -445,6 +470,8 @@ namespace deren::vulkan {
             [[nodiscard]] void* native_image_view(deren::promise::rhi::image_view const& resource) const noexcept override;
             [[nodiscard]] void* native_sampler(deren::promise::rhi::sampler const& resource) const noexcept override;
             [[nodiscard]] std::uint32_t native_image_format(deren::promise::rhi::image const& resource) const noexcept override;
+            [[nodiscard]] void* native_pipeline(deren::promise::rhi::pipeline const& resource) const noexcept override;
+            [[nodiscard]] void* native_shader_module(deren::promise::rhi::shader const& resource) const noexcept override;
         };
 
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------
