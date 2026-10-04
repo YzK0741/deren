@@ -40,8 +40,9 @@ namespace {
     constexpr std::string_view probe_file_name = VR_TEST_PROBE_BACKEND_FILE_NAME;
     constexpr std::string_view missing_file_name = "deren_probe_backend_that_does_not_exist.dll";
     constexpr std::string_view unload_probe_file_name = "deren_probe_backend_unload_probe.dll";
+    constexpr std::string_view detach_probe_file_name = "deren_probe_backend_detach_probe.dll";
 
-    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::error*);
+    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::create_info const*, rhi::error*);
     using destroy_core_fn = void (*)(rhi::api_core*);
 
     /** @brief a resolved C symbol: void const* to function pointer, constness dropped on purpose */
@@ -58,26 +59,55 @@ namespace {
      * every expectation below has to hold for both.
      */
     void check_core_contract(make_core_fn make_core, destroy_core_fn destroy_core, char const* which_half) {
-        // The ABI number is part of the contract, not an implementation detail: pin the value the
-        // plan measured (§10.3) so a silent renumbering is a test failure and not a mystery at a
-        // customer's machine.
-        CHECK(rhi::abi_version == 1u);
+        // The ABI number is part of the contract, not an implementation detail: pin the value so a
+        // silent renumbering is a test failure and not a mystery at a customer's machine. 1 -> 2 in the
+        // recording-surface batch: SIX new virtuals landed on EXISTING tier-1 types (a vtable shift).
+        // 2 -> 3 in the one-creation-structure batch: `deren_make_api_core()` grew the creation
+        // descriptor it always described itself as taking, and the backend's own twin of that
+        // structure is gone - no vtable moved, but the C entry's signature did.
+        // 3 -> 4 in the owned-handle batch: `release()` landed as a pure virtual on seven EXISTING
+        // tier-1 types, which is the vtable-shifting case the rule above names.
+        // 4 -> 5 in the addressable-buffer batch: `acceleration_structure_address` moved from the
+        // `device_address` ability to `ray_tracing`, so BOTH tier-2 abilities changed shape.
+        // 5 -> 6 when `vulkan_escape` gained `native_buffer` (a virtual appended to an existing
+        // ability).
+        // plan §10.3 measured the mechanism; this line is the number itself.
+        CHECK(rhi::abi_version == 6u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
+
+        // THE CREATION DESCRIPTOR IS THE CONTRACT'S ONE STRUCTURE, and this is the proof that it
+        // crosses: every field is filled with a value the defaults would not produce, and the probe
+        // echoes `window_width` back through `frame_begin()` (see probe_backend.cpp). `struct_size`
+        // stays at the type's own default - it is the ABI guard, not a knob.
+        rhi::create_info creation{};
+        creation.window_width = 3;
+        creation.window_height = 5;
+        creation.vsync = false;
+        creation.validation_layers = true;
+        creation.window_visible = false;
+        creation.window_title = "probe";
 
         // A mismatched ABI is refused before any object exists, and it is reported through the out
         // parameter - a null `api_core` plus a code, never a crash and never an exception.
         rhi::error mismatch_error = rhi::error::ok;
-        CHECK(make_core(rhi::abi_version + 1u, &mismatch_error) == nullptr);
+        CHECK(make_core(rhi::abi_version + 1u, &creation, &mismatch_error) == nullptr);
         CHECK_MSG(mismatch_error == rhi::error::abi_mismatch, which_half);
         // ... and a caller that passes no out parameter is still not crashed into (the backend has
         // to tolerate the null: the engine passes one, a probe or a script may not).
-        CHECK(make_core(rhi::abi_version + 1u, nullptr) == nullptr);
+        CHECK(make_core(rhi::abi_version + 1u, &creation, nullptr) == nullptr);
+
+        // NO DESCRIPTOR IS A CALLER BUG, not a request for the standard context: the answer is a null
+        // pointer and `invalid_argument`, and the contract spells "standard context" as `create_info{}`
+        // (backend_entry.hpp). A backend that defaulted here would hide the bug.
+        rhi::error missing_desc_error = rhi::error::ok;
+        CHECK(make_core(rhi::abi_version, nullptr, &missing_desc_error) == nullptr);
+        CHECK_MSG(missing_desc_error == rhi::error::invalid_argument, which_half);
 
         // The matching call hands out a live object and says so in the out parameter. The sentinel
         // is not `ok`, so a backend that never wrote it fails the check below.
         rhi::error make_error = rhi::error::abi_mismatch;
-        std::shared_ptr<rhi::api_core> core{make_core(rhi::abi_version, &make_error), destroy_core};
+        std::shared_ptr<rhi::api_core> core{make_core(rhi::abi_version, &creation, &make_error), destroy_core};
         CHECK_MSG(make_error == rhi::error::ok, which_half);
         CHECK(core != nullptr);
         if (core == nullptr) {
@@ -103,29 +133,31 @@ namespace {
                                 rhi::to_bits(rhi::extension_kind::descriptor_heap)),
                   which_half);
         CHECK((abilities & ~rhi::all_abilities()) == rhi::no_abilities);
-        CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));
-        CHECK(rhi::has_ability(abilities, rhi::extension_kind::descriptor_heap));
-        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::mesh_shader));
-        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::ray_tracing));
-        CHECK(!rhi::has_ability(abilities, rhi::extension_kind::host_image_copy));
 
-        rhi::extension* const address_ability = core->query_extension(rhi::extension_kind::device_address);
-        CHECK(address_ability != nullptr);
-        if (address_ability != nullptr) {
-            CHECK(address_ability->kind() == rhi::extension_kind::device_address);
+        // ---- G1: THE SAME INVARIANT WALKED OVER EVERY DEFINED BIT, instead of spelled out per kind -------
+        // `all_extension_kinds()` is the CONTRACT's own list, so a sixth ability cannot be forgotten here:
+        // for each kind, announced => `query_extension()` answers with an object whose `kind()` matches,
+        // and not announced => it answers null. "Reported but not retrievable" AND "retrievable but not
+        // reported" both fail, for the probe backend's two halves and - through this same function - for
+        // the real backend, whose answer today is the empty set (see core's startup self-check, gate G2).
+        for (rhi::extension_kind const kind : rhi::all_extension_kinds()) {
+            rhi::extension* const ability = core->query_extension(kind);
+            if (rhi::has_ability(abilities, kind)) {
+                CHECK_MSG(ability != nullptr, which_half);
+                if (ability != nullptr) {
+                    CHECK(ability->kind() == kind);
+                }
+            } else {
+                CHECK_MSG(ability == nullptr, which_half);
+            }
         }
-        rhi::extension* const heap_ability = core->query_extension(rhi::extension_kind::descriptor_heap);
-        CHECK(heap_ability != nullptr);
-        if (heap_ability != nullptr) {
-            CHECK(heap_ability->kind() == rhi::extension_kind::descriptor_heap);
-        }
-        // "Named failure, no silent downgrade" (plan §1.9, §3.6): an ability the backend did not
-        // announce answers null rather than a stub that quietly does nothing.
-        CHECK(core->query_extension(rhi::extension_kind::mesh_shader) == nullptr);
-        CHECK(core->query_extension(rhi::extension_kind::ray_tracing) == nullptr);
-        CHECK(core->query_extension(rhi::extension_kind::host_image_copy) == nullptr);
 
         // ---- tier-1: a factory, and a virtual call that comes back out of the backend ---------
+        // The one ability the probe actually implements, fetched by the kind it announces - the caller
+        // asked for this kind, so the downcast below is a static_cast and not a dynamic_cast (-fno-rtti).
+        // The traversal above already checked that an announced bit answers with a matching object.
+        rhi::extension* const address_ability = core->query_extension(rhi::extension_kind::device_address);
+
         // The descriptor is a POD that crosses the boundary by value; the answer is a polymorphic
         // handle the caller can only see through the base. The other factories take descriptors
         // that are still forward-declared, so they cannot even be called yet (S1 defines them) -
@@ -146,10 +178,46 @@ namespace {
             }
         }
 
+        // ---- tier-1: THE OWNED REFERENCE IS RELEASED THROUGH THE CONTRACT ---------------------
+        // `rhi::object_manager<T>` is the owner spelling added with `release()` (abi 3 -> 4): the
+        // destructor (or `reset()`) calls the handle's `release()`, which runs INSIDE the backend and
+        // drops ONE reference - it is deliberately not called `destroy()`, because a backend may serve
+        // the same resource to several callers and then the object outlives the call. The proof here is
+        // a round trip: the probe's `release()` zeroes the size its descriptor wrote into the buffer,
+        // so a release that never crossed cannot show up as `size() == 0`.
+        {
+            rhi::object_manager<rhi::buffer> owned{core->create_buffer(rhi::buffer_desc{.size = 128u})};
+            CHECK(static_cast<bool>(owned));
+            CHECK(owned->size() == 128u);
+
+            // move-only: the reference is transferred, and the source is left empty rather than
+            // aliasing the same object (which would release it twice)
+            rhi::object_manager<rhi::buffer> moved{std::move(owned)};
+            CHECK(!static_cast<bool>(owned));
+            CHECK(moved->size() == 128u);
+
+            // release-without-release hands the raw handle back; the caller takes over the call
+            rhi::buffer* const raw = moved.release();
+            CHECK(raw != nullptr);
+            CHECK(!static_cast<bool>(moved));
+            CHECK(raw->size() == 128u); // no reference dropped yet
+            raw->release();             // ... and now the caller drops it
+            CHECK(raw->size() == 0u);
+
+            // an empty manager is free: reset() twice is a no-op, and the object above is untouched
+            // (the probe's buffer is static, so this is about the manager, not about the object)
+            rhi::object_manager<rhi::buffer> empty{};
+            empty.reset();
+            empty.reset();
+            CHECK(!static_cast<bool>(empty));
+        }
+
         // ---- tier-1: the frame calls --------------------------------------------------------
         // No device means no command pool: a null command list is an answer, not a crash. The
         // frame counter starts at a non-zero value in the probe so that a result which was never
-        // written by the backend cannot pass for one that was.
+        // written by the backend cannot pass for one that was - and `image_index` is the probe's ECHO
+        // OF THE CREATION DESCRIPTOR (`creation.window_width` = 3), so these lines are also the proof
+        // that the structure handed to `deren_make_api_core()` reached the library and was read there.
         CHECK(core->begin_commands() == nullptr);
         rhi::submit_info const first = core->frame_begin();
         CHECK(first.frame_index == 7u);
@@ -161,11 +229,12 @@ namespace {
         core->wait_idle();
 
         // Destruction runs inside the backend, exactly once, and a deleter that only counts first
-        // still leaves the actual delete to `destroy_core` (the resolved symbol).
+        // still leaves the actual delete to `destroy_core` (the resolved symbol). The descriptor is
+        // passed again here and the out parameter is deliberately null: a backend has to tolerate both.
         int32_t destroy_calls = 0;
         {
             std::shared_ptr<rhi::api_core> scoped{
-                make_core(rhi::abi_version, nullptr),
+                make_core(rhi::abi_version, &creation, nullptr),
                 [&destroy_calls, destroy_core](rhi::api_core* raw) {
                     ++destroy_calls;
                     destroy_core(raw);
@@ -270,6 +339,41 @@ namespace {
 #endif
     }
 
+    void test_a_detached_library_is_not_unloaded(fs::path const& directory) {
+        // THE INVERSE OF THE UNLOAD PROOF, and the reason `detach()` exists (DYNAMIC_LINK_V2.md §13):
+        // a detached library keeps its handle, so its file stays mapped after this object is gone.
+        // MEASURED on the real backend - unloading it after a context had been built and torn down
+        // never returned - so "the product never unloads" has to be expressible, and this is what
+        // proves the expression works rather than assuming it.
+        fs::path const copy = fs::current_path() / std::string{detach_probe_file_name};
+        fs::copy_file(directory / std::string{probe_file_name}, copy, fs::copy_options::overwrite_existing);
+        {
+            auto loaded = deren::utility::dynamic_link::load(copy.filename().string());
+            CHECK(loaded.has_value());
+            if (!loaded.has_value()) {
+                return;
+            }
+            CHECK(loaded->symbol("deren_abi_version").has_value());
+
+            void* const detached = loaded->detach();
+            CHECK(detached != nullptr);
+            // THE OBJECT IS EMPTY AFTERWARDS: the handle left with the caller, and every remaining
+            // operation says so instead of using a handle it no longer owns.
+            CHECK(loaded->native_handle() == nullptr);
+            CHECK(!loaded->symbol("deren_abi_version").has_value());
+            // destructor runs here: it must NOT unload (the handle is gone; nothing left to close)
+        }
+#if defined(_WIN32)
+        std::error_code still_mapped{};
+        CHECK(!fs::remove(copy, still_mapped)); // sharing violation: detach did NOT unload it
+                                                // The file stays: it is still mapped by THIS test process, which is exactly the claim. The
+                                                // next run starts by overwriting it, and the mapping dies with the process.
+#else
+        std::error_code remove_error{};
+        static_cast<void>(fs::remove(copy, remove_error)); // POSIX unlinks a loaded .so happily
+#endif
+    }
+
     void test_the_static_half_behaves_the_same() {
         // No library is involved here: abi_export.hpp's static branch produces ordinary C symbols,
         // and the same contract is reached through the linker. `deren_make_api_core` and friends
@@ -293,6 +397,7 @@ int main(int argc, char** argv) {
     test_the_platform_suffix_is_completed(directory);
     test_loading_the_probe_dll_and_using_its_symbols(directory);
     test_the_library_is_unloaded_when_it_goes_out_of_scope(directory);
+    test_a_detached_library_is_not_unloaded(directory);
     test_the_static_half_behaves_the_same();
 
     return deren::vk_test::finish("test_dynamic_link");

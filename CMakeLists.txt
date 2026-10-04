@@ -984,12 +984,39 @@ if(VR_BUILD_TESTS)
     # `cmake --build --target test_dynamic_link` has to build the DLL it opens, or ctest would run a
     # test whose fixture is missing and report a loader error as a test failure.
     add_dependencies(test_dynamic_link probe_backend)
+
+    # ---- the boundary spike (DYNAMIC_LINK_V2.md §4 step 1b) -------------------------------------
+    # NOT in VR_TEST_TARGETS on purpose: it loads a DLL and (with --with-device) creates a real
+    # context, so it cannot belong to the headless ctest set - and tests/test_docs.cpp compares that
+    # list against the workflow, so putting it there would be a lie in CI. It is registered as a test
+    # only in the spike tree, where the option is on and CI is not the consumer.
+    if(DEREN_BACKEND_SPIKE)
+        add_executable(test_backend_boundary_spike tests/spike_backend_boundary.cpp)
+        target_compile_options(test_backend_boundary_spike PRIVATE ${COMPILE_OPTIONS})
+        # The ABSOLUTE path of the library under test: the spike's whole Q5 is that loading by
+        # absolute path uses LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS and
+        # therefore never searches %PATH%.
+        target_compile_definitions(test_backend_boundary_spike PRIVATE
+                VR_SPIKE_BACKEND_DLL="$<TARGET_FILE:deren_vulkan>")
+        target_link_libraries(test_backend_boundary_spike
+                promise
+                utility
+                vstd_lib
+        )
+        # The library the test opens has to exist first, or the run reports a loader error as a test
+        # failure (the same rule test_dynamic_link lives by).
+        add_dependencies(test_backend_boundary_spike deren_vulkan)
+        add_test(NAME test_backend_boundary_spike COMMAND $<TARGET_FILE:test_backend_boundary_spike>)
+        set_tests_properties(test_backend_boundary_spike PROPERTIES
+                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
+                TIMEOUT 300)
+    endif()
 endif()
 
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib deren vulkancorekit utility promise gltf_loader app_config chores ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib deren deren_vulkan vulkancorekit utility promise gltf_loader app_config chores ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
