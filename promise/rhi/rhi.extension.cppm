@@ -217,6 +217,37 @@ export namespace deren::promise::rhi {
                                                          image_copy_region const& region) noexcept = 0;
     };
 
+    /// ABI9: heap 查询只返回值，不暴露后端 heap_limits 类型或引用。
+    struct descriptor_heap_properties {
+        std::uint64_t resource_size = 0;
+        std::uint64_t max_resource_size = 0;
+        std::uint64_t max_sampler_size = 0;
+        std::uint64_t resource_alignment = 0;
+        std::uint64_t sampler_alignment = 0;
+        std::uint64_t resource_reserved = 0;
+        std::uint64_t sampler_reserved_with_embedded = 0;
+        std::uint32_t buffer_descriptor_size = 0;
+        std::uint32_t image_descriptor_size = 0;
+        std::uint32_t sampler_descriptor_size = 0;
+        std::uint32_t max_push_data = 0;
+        std::uint32_t max_embedded_samplers = 0;
+    };
+
+    /// 原生 Vulkan 描述符写入的值参数。image 借用，调用期间有效；不传 pNext 链。
+    struct vulkan_heap_image_desc {
+        std::uint32_t struct_size = sizeof(vulkan_heap_image_desc);
+        void* native_image = nullptr;
+        std::uint32_t view_flags = 0;
+        std::uint32_t view_type = 0;
+        std::uint32_t format = 0;
+        std::array<std::uint32_t, 4> components = {};
+        std::uint32_t aspect_mask = 0;
+        std::uint32_t base_mip = 0;
+        std::uint32_t mip_count = 1;
+        std::uint32_t base_layer = 0;
+        std::uint32_t layer_count = 1;
+    };
+
     /// tier-2 ability: the raw Vulkan handles a pass needs when the contract has no concept for what it
     /// does. ONLY a Vulkan backend can answer these, which is exactly why this is an ability and not
     /// tier-1; a non-Vulkan backend does not announce the bit, and G1/G2 then require `nullptr` from
@@ -235,22 +266,6 @@ export namespace deren::promise::rhi {
     /// Vulkan backend that did not announce this bit would make the engine fail at startup by name.
     /// Once the passes record through the contract, the escape shrinks to the few calls the contract has
     /// no concept for.
-    /// ABI9: heap 查询只返回值，不暴露后端 heap_limits 类型或引用。
-    struct descriptor_heap_properties {
-        std::uint64_t resource_size = 0;
-        std::uint64_t max_resource_size = 0;
-        std::uint64_t max_sampler_size = 0;
-        std::uint64_t resource_alignment = 0;
-        std::uint64_t sampler_alignment = 0;
-        std::uint64_t resource_reserved = 0;
-        std::uint64_t sampler_reserved_with_embedded = 0;
-        std::uint32_t buffer_descriptor_size = 0;
-        std::uint32_t image_descriptor_size = 0;
-        std::uint32_t sampler_descriptor_size = 0;
-        std::uint32_t max_push_data = 0;
-        std::uint32_t max_embedded_samplers = 0;
-    };
-
     struct vulkan_escape : extension {
         /// VkInstance / VkPhysicalDevice / VkDevice / VkQueue as their own types. All four are
         /// DISPATCHABLE handles (pointers), so `void*` carries them without naming a Vulkan type in the
@@ -329,6 +344,13 @@ export namespace deren::promise::rhi {
         /// 查询不会启动帧或录制命令；状态取自当前实际 heap，不以能力位代替 ready。
         [[nodiscard]] virtual bool heap_ready() const noexcept = 0;
         [[nodiscard]] virtual descriptor_heap_properties heap_properties() const noexcept = 0;
+
+        /// layout/type/swizzle 等整数保持 Vulkan 公开枚举值，只有本能力接收原生语义。
+        /// 返回后端真实写入结果；资源寿命继续由资源拥有者保证，写入不取得所有权。
+        [[nodiscard]] virtual bool write_heap_image(std::uint64_t offset, vulkan_heap_image_desc const& desc,
+                                                    std::uint32_t layout, std::uint32_t type) noexcept = 0;
+        [[nodiscard]] virtual bool write_heap_buffer(std::uint64_t offset, std::uint64_t address,
+                                                     std::uint64_t size, std::uint32_t type) noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

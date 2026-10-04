@@ -105,14 +105,12 @@
       "members": []
     }
   ],
-  "count": 32,
+  "count": 30,
   "cross_boundary_symbols": [
     "_ZGIW5derenW6vulkanW10init_utils",
     "_ZGIW5derenW6vulkanW4core",
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE",
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core15descriptor_heap11write_imageEyRK21VkImageViewCreateInfo13VkImageLayout16VkDescriptorType",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core15descriptor_heap12write_bufferEyyy16VkDescriptorType",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBits",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj",
@@ -140,14 +138,13 @@
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
   ],
-  "defined_in_backend": 1217,
+  "defined_in_backend": 1219,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap13resource_sizeEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap5readyEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap6limitsEv"
+    "_ZN5deren6vulkanW5derenW6vulkanW4core15descriptor_heap11write_imageEyRK21VkImageViewCreateInfo13VkImageLayout16VkDescriptorType",
+    "_ZN5deren6vulkanW5derenW6vulkanW4core15descriptor_heap12write_bufferEyyy16VkDescriptorType"
   ],
   "nm": "D:\\deren-workspace\\work\\toolchain\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
@@ -177,15 +174,6 @@
     ],
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv": [
       "runtime.constructor.cppm.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core15descriptor_heap11write_imageEyRK21VkImageViewCreateInfo13VkImageLayout16VkDescriptorType": [
-      "runtime.constructor.cppm.obj",
-      "runtime.frames.cppm.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core15descriptor_heap12write_bufferEyyy16VkDescriptorType": [
-      "runtime.cpp.obj",
-      "runtime.constructor.cppm.obj",
-      "runtime.frames.cppm.obj"
     ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv": [
       "runtime.frames.cppm.obj"
@@ -276,5 +264,5 @@
       "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 56
+  "usages": 51
 }

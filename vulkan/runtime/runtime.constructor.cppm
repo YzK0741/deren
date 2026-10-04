@@ -132,7 +132,39 @@ namespace deren::vulkan {
         return escape != nullptr && escape->heap_ready();
     }
 
-    rhi::api_core& runtime::rhi_face() noexcept {
+    bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize const offset, VkImageViewCreateInfo const& view,
+                                   VkImageLayout const layout, VkDescriptorType const type) noexcept {
+        // 不支持的扩展链要明确拒绝，不能转换时悄悄丢掉 pNext。
+        if (view.sType != VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO || view.pNext != nullptr) {
+            return false;
+        }
+        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        if (escape == nullptr) {
+            return false;
+        }
+        rhi::vulkan_heap_image_desc const desc{
+            .native_image = static_cast<void*>(view.image),
+            .view_flags = view.flags,
+            .view_type = static_cast<std::uint32_t>(view.viewType),
+            .format = static_cast<std::uint32_t>(view.format),
+            .components = {static_cast<std::uint32_t>(view.components.r), static_cast<std::uint32_t>(view.components.g),
+                           static_cast<std::uint32_t>(view.components.b), static_cast<std::uint32_t>(view.components.a)},
+            .aspect_mask = view.subresourceRange.aspectMask,
+            .base_mip = view.subresourceRange.baseMipLevel,
+            .mip_count = view.subresourceRange.levelCount,
+            .base_layer = view.subresourceRange.baseArrayLayer,
+            .layer_count = view.subresourceRange.layerCount,
+        };
+        return escape->write_heap_image(offset, desc, static_cast<std::uint32_t>(layout), static_cast<std::uint32_t>(type));
+    }
+
+    bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize const offset, VkDeviceAddress const address,
+                                    VkDeviceSize const size, VkDescriptorType const type) noexcept {
+        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        return escape != nullptr && escape->write_heap_buffer(offset, address, size, static_cast<std::uint32_t>(type));
+    }
+
+    rhi::api_core& runtime::rhi_face() const noexcept {
         // §18's rule in one line: the interface reference of the SAME object. Before the flip the
         // vtable points into this archive; after it, into the DLL - the call sites cannot tell.
         return this->vulkan_core;
@@ -335,7 +367,7 @@ namespace deren::vulkan {
                                                          .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
                                                          .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
                 VkDeviceSize const white_offset = static_cast<VkDeviceSize>(core::heap_slots::textures + this->white_texture_index) * core::heap_slot_stride;
-                if (!this->vulkan_core.descriptor_heaps.write_image(white_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
+                if (!contract_write_heap_image(this->rhi_face(), white_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
                     deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", core::heap_slots::textures + this->white_texture_index);
                 }
             }
@@ -1002,7 +1034,7 @@ namespace deren::vulkan {
                 return false;
             }
             VkImageViewCreateInfo const view_info = make_image_view_info(image, format, type, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-            return vk.descriptor_heaps.write_image(core::heap_slot_offset(slot), view_info, VK_IMAGE_LAYOUT_GENERAL);
+            return contract_write_heap_image(vk, core::heap_slot_offset(slot), view_info, VK_IMAGE_LAYOUT_GENERAL);
         }
 
         /**
@@ -1022,7 +1054,7 @@ namespace deren::vulkan {
             uint32_t written = 0;
             for (uint32_t slot = 0; slot < buffers.size(); ++slot) {
                 VkDeviceSize const offset = core::heap_slot_offset(slot_base + slot);
-                if (vk.descriptor_heaps.write_buffer(offset, buffer_address(vk, *buffers[slot]), size, type)) {
+                if (contract_write_heap_buffer(vk, offset, buffer_address(vk, *buffers[slot]), size, type)) {
                     ++written;
                 } else {
                     deren::utility::log("descriptor heap: the per-frame buffer for grid slot {} (frame slot {}) did not fit at offset {}", slot_base, slot, offset);
@@ -1505,7 +1537,7 @@ namespace deren::vulkan {
                                                              .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
                                                              .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
                     VkDeviceSize const heap_offset = core::heap_slot_offset(core::heap_slots::textures + index);
-                    if (this->vulkan_core.descriptor_heaps.write_image(heap_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
+                    if (contract_write_heap_image(this->rhi_face(), heap_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
                         ++heap_texture_descriptors;
                     } else {
                         deren::utility::log("descriptor heap: texture {} did not fit the resource heap at offset {}", index, heap_offset);

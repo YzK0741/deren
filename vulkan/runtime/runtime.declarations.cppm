@@ -164,6 +164,10 @@ namespace deren::vulkan {
     /// spelling. `unknown` for anything the contract does not name - create_image refuses those.
     // 独立定义在 constructor 分区，避免调用点优化成具体 core 的 query_extension 符号。
     [[nodiscard]] bool contract_heap_ready(rhi::api_core& face) noexcept;
+    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, VkImageViewCreateInfo const& view,
+                                                 VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
+    [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, VkDeviceAddress address,
+                                                  VkDeviceSize size, VkDescriptorType type) noexcept;
 
     [[nodiscard]] constexpr rhi::image_format contract_image_format(VkFormat const format) noexcept {
         switch (format) {
@@ -207,7 +211,7 @@ namespace deren::vulkan {
         /// frame calls go through THIS, never through the concrete class - a call through the
         /// interface emits no backend symbol, which is what makes the flip a load-line change
         /// instead of a rewrite).
-        [[nodiscard]] rhi::api_core& rhi_face() noexcept;
+        [[nodiscard]] rhi::api_core& rhi_face() const noexcept;
         /// the escape the transitional raw sites borrow through (`native_image` and friends, abi 7).
         [[nodiscard]] rhi::vulkan_escape& escape() noexcept;
         /// THE TOON FAMILY'S SHARED RECIPE (abi 8): one HDR colour target, the depth ROLE, the depth

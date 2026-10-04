@@ -474,6 +474,10 @@ namespace deren::vulkan {
             [[nodiscard]] void* native_shader_module(deren::promise::rhi::shader const& resource) const noexcept override;
             [[nodiscard]] bool heap_ready() const noexcept override;
             [[nodiscard]] deren::promise::rhi::descriptor_heap_properties heap_properties() const noexcept override;
+            [[nodiscard]] bool write_heap_image(std::uint64_t offset, deren::promise::rhi::vulkan_heap_image_desc const& desc,
+                                                std::uint32_t layout, std::uint32_t type) noexcept override;
+            [[nodiscard]] bool write_heap_buffer(std::uint64_t offset, std::uint64_t address,
+                                                 std::uint64_t size, std::uint32_t type) noexcept override;
         };
 
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------

@@ -55,7 +55,7 @@ namespace deren::vulkan {
             .accelerationStructure = tlas,
         };
         VkDeviceAddress const tlas_address = get_structure_address != nullptr ? get_structure_address(this->vulkan_core.logical_device, &tlas_address_info) : 0;
-        if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
+        if (!contract_write_heap_buffer(this->rhi_face(), core::heap_slot_offset(core::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
             deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", core::heap_slots::tlas + frame_slot);
         }
 

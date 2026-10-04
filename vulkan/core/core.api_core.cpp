@@ -468,6 +468,30 @@ namespace deren::vulkan {
         };
     }
 
+    bool core::frame_escape::write_heap_image(std::uint64_t const offset, rhi::vulkan_heap_image_desc const& desc,
+                                              std::uint32_t const layout, std::uint32_t const type) noexcept {
+        if (desc.struct_size < sizeof(rhi::vulkan_heap_image_desc) || desc.native_image == nullptr) {
+            return false;
+        }
+        VkImageViewCreateInfo const view{
+            .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = desc.view_flags,
+            .image = static_cast<VkImage>(desc.native_image),
+            .viewType = static_cast<VkImageViewType>(desc.view_type),
+            .format = static_cast<VkFormat>(desc.format),
+            .components = {static_cast<VkComponentSwizzle>(desc.components[0]), static_cast<VkComponentSwizzle>(desc.components[1]),
+                           static_cast<VkComponentSwizzle>(desc.components[2]), static_cast<VkComponentSwizzle>(desc.components[3])},
+            .subresourceRange = {desc.aspect_mask, desc.base_mip, desc.mip_count, desc.base_layer, desc.layer_count},
+        };
+        return this->owner->descriptor_heaps.write_image(offset, view, static_cast<VkImageLayout>(layout), static_cast<VkDescriptorType>(type));
+    }
+
+    bool core::frame_escape::write_heap_buffer(std::uint64_t const offset, std::uint64_t const address,
+                                               std::uint64_t const size, std::uint32_t const type) noexcept {
+        return this->owner->descriptor_heaps.write_buffer(offset, address, size, static_cast<VkDescriptorType>(type));
+    }
+
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
         // The invariant is two-way and is checked in two places: at startup on the REAL backend
         // (core.constructor.cppm, gate G2) and on the probe backend in tests/test_dynamic_link.cpp

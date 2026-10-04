@@ -124,7 +124,7 @@ namespace deren::vulkan {
     }
 
     bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, VkDeviceSize const size, VkDescriptorType const type) const {
-        return this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
+        return contract_write_heap_buffer(this->rhi_face(), core::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
     }
 
     frame_status runtime::pace_and_acquire() {
@@ -2565,7 +2565,7 @@ namespace deren::vulkan {
                 return;
             }
             VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-            [[maybe_unused]] bool const written = this->vulkan_core.descriptor_heaps.write_image(core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+            [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
         };
         std::size_t const heap_image = static_cast<std::size_t>(this->current_image_index);
         if (heap_image < this->vulkan_core.gbuffer_images[0].size()) {
@@ -2586,7 +2586,7 @@ namespace deren::vulkan {
                     return;
                 }
                 VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                [[maybe_unused]] bool const written = this->vulkan_core.descriptor_heaps.write_image(core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
             };
             if (heap_image < this->vulkan_core.taa_history_images.size()) {
                 write_sampled_target(core::heap_slots::taa_history + image_slot, this->vulkan_core.taa_history_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);

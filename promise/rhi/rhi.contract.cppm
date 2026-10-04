@@ -102,7 +102,9 @@ export namespace deren::promise::rhi {
     /// 8 -> 9: vulkan_escape appends heap_ready/heap_properties. The latter returns a
     /// value-only POD mirror, never the backend's heap_limits reference; the former
     /// reports actual heap readiness. Appending changes the vtable shape.
-    inline constexpr std::uint32_t abi_version = 9u;
+    /// 9 -> 10: vulkan_escape appends native image/buffer heap descriptor writes.
+    /// Native image view data is a value-only POD; pNext is deliberately unsupported.
+    inline constexpr std::uint32_t abi_version = 10u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
