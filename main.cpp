@@ -1,4 +1,5 @@
-#include <GLFW/glfw3.h> // the application's window: this file creates it and the backend only binds to it (see glfw_window_host)
+#define GLFW_INCLUDE_NONE // glfw3.h must not pull <GL/gl.h>: we link no OpenGL, and this states it instead of relying on the environment
+#include <GLFW/glfw3.h>   // the application's window: this file creates it and the backend only binds to it (see glfw_window_host)
 #include <charconv>
 #include <fstream>
 #include <glm/glm.hpp>
