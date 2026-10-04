@@ -40,7 +40,7 @@ namespace deren::vulkan {
         // two-slot array. The size is the one the structure was created with (published through
         // ray_tracing::structure_set): a heap range must carry a real size, a lesson this renderer already paid
         // for on the material table.
-        if (!this->vulkan_core.descriptor_heaps.ready() || this->vulkan_core.heap_grid_offset == VK_WHOLE_SIZE || tlas == VK_NULL_HANDLE) {
+        if (!contract_heap_ready(this->rhi_face()) || this->vulkan_core.heap_grid_offset == VK_WHOLE_SIZE || tlas == VK_NULL_HANDLE) {
             return;
         }
         // RESOLVED PER DEVICE, not linked: the loader exports the core entry points and not this

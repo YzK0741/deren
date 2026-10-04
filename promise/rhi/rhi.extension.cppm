@@ -235,6 +235,22 @@ export namespace deren::promise::rhi {
     /// Vulkan backend that did not announce this bit would make the engine fail at startup by name.
     /// Once the passes record through the contract, the escape shrinks to the few calls the contract has
     /// no concept for.
+    /// ABI9: heap 查询只返回值，不暴露后端 heap_limits 类型或引用。
+    struct descriptor_heap_properties {
+        std::uint64_t resource_size = 0;
+        std::uint64_t max_resource_size = 0;
+        std::uint64_t max_sampler_size = 0;
+        std::uint64_t resource_alignment = 0;
+        std::uint64_t sampler_alignment = 0;
+        std::uint64_t resource_reserved = 0;
+        std::uint64_t sampler_reserved_with_embedded = 0;
+        std::uint32_t buffer_descriptor_size = 0;
+        std::uint32_t image_descriptor_size = 0;
+        std::uint32_t sampler_descriptor_size = 0;
+        std::uint32_t max_push_data = 0;
+        std::uint32_t max_embedded_samplers = 0;
+    };
+
     struct vulkan_escape : extension {
         /// VkInstance / VkPhysicalDevice / VkDevice / VkQueue as their own types. All four are
         /// DISPATCHABLE handles (pointers), so `void*` carries them without naming a Vulkan type in the
@@ -309,6 +325,10 @@ export namespace deren::promise::rhi {
         /// `VkPipelineShaderStageCreateInfo` (the compute and ray-tracing pipelines the engine still
         /// assembles) consumes. Same borrowed rule.
         [[nodiscard]] virtual void* native_shader_module(shader const& resource) const noexcept = 0;
+
+        /// 查询不会启动帧或录制命令；状态取自当前实际 heap，不以能力位代替 ready。
+        [[nodiscard]] virtual bool heap_ready() const noexcept = 0;
+        [[nodiscard]] virtual descriptor_heap_properties heap_properties() const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

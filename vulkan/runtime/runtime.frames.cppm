@@ -416,7 +416,7 @@ namespace deren::vulkan {
         // PUSH HERE, and its absence is the design: the frame slot and the swapchain image travel INSIDE each
         // stage's own push block (see shaders/heap_slots.glsl), which is what replaced the mapping shim's pushed
         // index - the binding is per frame, the indices are per stage.
-        if (vk.descriptor_heaps.ready()) {
+        if (contract_heap_ready(vk)) {
             vk.descriptor_heaps.record_bind(*command_buffer);
         }
         // GPU pass timing: open this frame's timestamp range and take the first mark. Marks are
@@ -2003,7 +2003,7 @@ namespace deren::vulkan {
             .make_environment = &runtime::make_scene_environment,
             .run_tasks = &runtime::run_scene_tasks,
             .owner = this,
-            .fill_heap_bind = vk.descriptor_heaps.ready() ? &runtime::fill_heap_bind : nullptr,
+            .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_formats = this->scene_color_formats,
             .depth_format = vk.depth_attachment_format,
             .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -2166,7 +2166,7 @@ namespace deren::vulkan {
             .secondary = *secondaries[static_cast<std::size_t>(secondary_pass::transparent)],
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
-            .fill_heap_bind = vk.descriptor_heaps.ready() ? &runtime::fill_heap_bind : nullptr,
+            .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_format = deren::vulkan::hdr_format,
             .depth_format = vk.depth_attachment_format,
             .extent = vk.render_extent(),

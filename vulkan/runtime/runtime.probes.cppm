@@ -60,7 +60,7 @@ namespace deren::vulkan {
         // per-sampler constant because it keeps them as a list).
         uint32_t const sampler_slot = static_cast<uint32_t>(core::heap_sampler_base);
         std::span<uint8_t const> const spirv = this->registered_shader("heap_probe.comp.spv");
-        if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || spirv.empty()) {
+        if (!contract_heap_ready(vk) || vk.heap_grid_offset == VK_WHOLE_SIZE || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
         auto const built = pipelines::build_heap_probe(vk, vk.logical_device, spirv);
@@ -152,7 +152,7 @@ namespace deren::vulkan {
         core& vk = this->vulkan_core;
         std::span<uint8_t const> const vertex_code = this->registered_shader(mesh_shader ? "heap_probe.mesh.spv" : "heap_probe.vert.spv");
         std::span<uint8_t const> const fragment_code = this->registered_shader("heap_probe.frag.spv");
-        if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || vertex_code.empty() || fragment_code.empty()) {
+        if (!contract_heap_ready(vk) || vk.heap_grid_offset == VK_WHOLE_SIZE || vertex_code.empty() || fragment_code.empty()) {
             return;
         }
         constexpr VkFormat probe_format = VK_FORMAT_R8G8B8A8_UNORM;

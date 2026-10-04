@@ -105,7 +105,7 @@
       "members": []
     }
   ],
-  "count": 35,
+  "count": 32,
   "cross_boundary_symbols": [
     "_ZGIW5derenW6vulkanW10init_utils",
     "_ZGIW5derenW6vulkanW4core",
@@ -126,9 +126,6 @@
     "_ZNK5deren6vulkanW5derenW6vulkanW4core13vma_allocator14log_statisticsEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap10bind_infosER17VkBindHeapInfoEXTS6_",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap11record_bindEP17VkCommandBuffer_T",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap13resource_sizeEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap5readyEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap6limitsEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap9push_dataEP17VkCommandBuffer_TjNSt3__14spanIKSt4byteLy18446744073709551615EEE",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core12make_samplerE20VkSamplerAddressModef",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core13render_extentEv",
@@ -143,42 +140,14 @@
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
   ],
-  "defined_in_backend": 1215,
+  "defined_in_backend": 1217,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils17create_texture_2dERNS0_S3_W4core4coreENSt3__14spanIKSt4byteLy18446744073709551615EEERKNS0_S5_17image_create_infoENS8_17basic_string_viewIcNS8_11char_traitsIcEEEE",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core13vma_allocator12create_imageEPKhyRKNS0_S3_17image_create_infoENS0_S3_10image_typeE",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core13vma_allocator16get_image_detailEy",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core8vk_imageC1EOS4_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core8vk_imageD1Ev",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core8vk_imageaSEOS4_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerD1Ev",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_sampleraSEOS5_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles11vk_pipelineC1EOS5_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles11vk_pipelineC1EP12VkPipeline_TP10VkDevice_T",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles11vk_pipelineD1Ev",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles11vk_pipelineaSEOS5_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles13vk_image_viewC1EOS5_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles13vk_image_viewD1Ev",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles13vk_image_viewaSEOS5_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles16vk_shader_moduleD1Ev",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles18make_shader_moduleENSt3__14spanIKhLy18446744073709551615EEEP10VkDevice_T",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW8pipeline13make_pipelineEP10VkDevice_T8VkFormatS7_NSt3__14spanIKhLy18446744073709551615EEESB_21VkSampleCountFlagBitsbbfff21VkShaderStageFlagBits",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW8pipeline13make_pipelineEP10VkDevice_TNSt3__14spanIK8VkFormatLy18446744073709551615EEES9_NS8_IKhLy18446744073709551615EEESD_21VkSampleCountFlagBitsbfffNS8_IK35VkPipelineColorBlendAttachmentStateLy18446744073709551615EEE21VkShaderStageFlagBits11VkCompareOp",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core21make_depth_array_viewEP9VkImage_T8VkFormat",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core21make_depth_layer_viewEP9VkImage_T8VkFormatj",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core21make_gbuffer_pipelineENSt3__14spanIKhLy18446744073709551615EEES8_21VkShaderStageFlagBits",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core21make_outline_pipelineENSt3__14spanIKhLy18446744073709551615EEES8_21VkShaderStageFlagBits",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core21make_overlay_pipelineENSt3__14spanIKhLy18446744073709551615EEES8_21VkShaderStageFlagBits",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core31make_character_forward_pipelineENSt3__14spanIKhLy18446744073709551615EEES8_21VkShaderStageFlagBits",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core8vk_image5validEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core8vk_image6handleEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles11vk_pipeline12get_pipelineEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles11vk_pipeline14begin_pipelineEP17VkCommandBuffer_T",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles13vk_image_viewdeEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles16vk_shader_moduledeEv"
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap13resource_sizeEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap5readyEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap6limitsEv"
   ],
   "nm": "D:\\deren-workspace\\work\\toolchain\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
@@ -262,18 +231,6 @@
       "runtime.probes.cppm.obj",
       "runtime.frames.cppm.obj"
     ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap13resource_sizeEv": [
-      "runtime.constructor.cppm.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap5readyEv": [
-      "runtime.cpp.obj",
-      "runtime.constructor.cppm.obj",
-      "runtime.probes.cppm.obj",
-      "runtime.frames.cppm.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap6limitsEv": [
-      "runtime.constructor.cppm.obj"
-    ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap9push_dataEP17VkCommandBuffer_TjNSt3__14spanIKSt4byteLy18446744073709551615EEE": [
       "runtime.cpp.obj",
       "runtime.probes.cppm.obj",
@@ -319,5 +276,5 @@
       "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 62
+  "usages": 56
 }

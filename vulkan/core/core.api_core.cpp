@@ -446,6 +446,28 @@ namespace deren::vulkan {
         return rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address);
     }
 
+    bool core::frame_escape::heap_ready() const noexcept {
+        return this->owner->descriptor_heaps.ready();
+    }
+
+    rhi::descriptor_heap_properties core::frame_escape::heap_properties() const noexcept {
+        auto const& limits = this->owner->descriptor_heaps.limits();
+        return {
+            .resource_size = this->owner->descriptor_heaps.resource_size(),
+            .max_resource_size = limits.max_resource_size,
+            .max_sampler_size = limits.max_sampler_size,
+            .resource_alignment = limits.resource_alignment,
+            .sampler_alignment = limits.sampler_alignment,
+            .resource_reserved = limits.resource_reserved,
+            .sampler_reserved_with_embedded = limits.sampler_reserved_with_embedded,
+            .buffer_descriptor_size = limits.buffer_descriptor_size,
+            .image_descriptor_size = limits.image_descriptor_size,
+            .sampler_descriptor_size = limits.sampler_descriptor_size,
+            .max_push_data = limits.max_push_data,
+            .max_embedded_samplers = limits.max_embedded_samplers,
+        };
+    }
+
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
         // The invariant is two-way and is checked in two places: at startup on the REAL backend
         // (core.constructor.cppm, gate G2) and on the probe backend in tests/test_dynamic_link.cpp

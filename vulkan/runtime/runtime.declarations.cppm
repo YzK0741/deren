@@ -162,6 +162,9 @@ namespace deren::vulkan {
      */
     /// A Vulkan format the engine still holds (a slot table, a probe's choice) in the contract's
     /// spelling. `unknown` for anything the contract does not name - create_image refuses those.
+    // 独立定义在 constructor 分区，避免调用点优化成具体 core 的 query_extension 符号。
+    [[nodiscard]] bool contract_heap_ready(rhi::api_core& face) noexcept;
+
     [[nodiscard]] constexpr rhi::image_format contract_image_format(VkFormat const format) noexcept {
         switch (format) {
         case VK_FORMAT_R8G8B8A8_UNORM:

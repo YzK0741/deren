@@ -472,6 +472,8 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint32_t native_image_format(deren::promise::rhi::image const& resource) const noexcept override;
             [[nodiscard]] void* native_pipeline(deren::promise::rhi::pipeline const& resource) const noexcept override;
             [[nodiscard]] void* native_shader_module(deren::promise::rhi::shader const& resource) const noexcept override;
+            [[nodiscard]] bool heap_ready() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::descriptor_heap_properties heap_properties() const noexcept override;
         };
 
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------

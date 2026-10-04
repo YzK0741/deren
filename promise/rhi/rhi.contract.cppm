@@ -99,7 +99,10 @@ export namespace deren::promise::rhi {
     /// compare the two the renderer uses), the factories gain real implementations, and
     /// `vulkan_escape` grew `native_pipeline` / `native_shader_module`. Append-only; the number
     /// exists because the vtables the engine dispatches through changed shape.
-    inline constexpr std::uint32_t abi_version = 8u;
+    /// 8 -> 9: vulkan_escape appends heap_ready/heap_properties. The latter returns a
+    /// value-only POD mirror, never the backend's heap_limits reference; the former
+    /// reports actual heap readiness. Appending changes the vtable shape.
+    inline constexpr std::uint32_t abi_version = 9u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

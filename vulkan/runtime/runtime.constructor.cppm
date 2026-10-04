@@ -127,6 +127,11 @@ namespace deren::vulkan {
         : runtime(deren::promise::rhi::create_info{}) {
     }
 
+    bool contract_heap_ready(rhi::api_core& face) noexcept {
+        auto* const escape = static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        return escape != nullptr && escape->heap_ready();
+    }
+
     rhi::api_core& runtime::rhi_face() noexcept {
         // §18's rule in one line: the interface reference of the SAME object. Before the flip the
         // vtable points into this archive; after it, into the DLL - the call sites cannot tell.
@@ -318,7 +323,7 @@ namespace deren::vulkan {
         // 0x00000000", on the very slot this write fills, while the material table's white record read 0xffff.
         // @note core::heap_slot_offset() is defined below this constructor, so the arithmetic is spelled out: a slot
         //       number is already absolute and the stride is the one every heap array agrees on.
-        if (this->vulkan_core.descriptor_heaps.ready()) {
+        if (contract_heap_ready(this->rhi_face())) {
             VkImage const white_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
             {
                 VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -362,7 +367,7 @@ namespace deren::vulkan {
         // per-frame write. It goes at its OWN GRID SLOT (core::heap_slots::materials), which is the same number a
         // heap-native shader bakes as `heap_slots_materials` (shaders/heap_slots.glsl): the write and the read are
         // the same number by construction rather than by review.
-        if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+        if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
             VkDeviceAddress const address = this->buffer_address(*this->material_buffer);
             bool const written = this->write_heap_buffer(*this->material_buffer,
                                                          core::heap_slots::materials,
@@ -566,7 +571,7 @@ namespace deren::vulkan {
                           "toon colour table buffer",
                           this->toon_colour_buffer,
                           &this->toon_colour_mapped);
-            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+            if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkDeviceAddress const address = this->buffer_address(*this->toon_colour_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_colour_buffer,
                                                              core::heap_slots::toon_colours,
@@ -604,7 +609,7 @@ namespace deren::vulkan {
                       "toon lane table buffer",
                       this->toon_lane_buffer,
                       &this->toon_lane_mapped);
-        if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+        if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
             VkDeviceAddress const address = this->buffer_address(*this->toon_lane_buffer);
             bool const written = this->write_heap_buffer(*this->toon_lane_buffer,
                                                          core::heap_slots::toon_lanes,
@@ -630,7 +635,7 @@ namespace deren::vulkan {
                           "toon light rig buffer",
                           this->toon_rig_buffer,
                           &this->toon_rig_mapped);
-            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+            if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkDeviceAddress const address = this->buffer_address(*this->toon_rig_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_rig_buffer,
                                                              core::heap_slots::toon_rig,
@@ -659,7 +664,7 @@ namespace deren::vulkan {
                           "meshlet table buffer",
                           this->meshlet_buffer,
                           &this->meshlet_mapped);
-            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+            if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkDeviceAddress const address = this->buffer_address(*this->meshlet_buffer);
                 bool const written = this->write_heap_buffer(*this->meshlet_buffer,
                                                              core::heap_slots::meshlets,
@@ -708,7 +713,7 @@ namespace deren::vulkan {
                           "mesh culling counter buffer",
                           this->meshlet_stats_buffer,
                           &this->meshlet_stats_mapped);
-            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+            if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
                                                              core::heap_slots::meshlet_stats,
                                                              static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t),
@@ -732,7 +737,7 @@ namespace deren::vulkan {
                           "culled meshlet table buffer",
                           this->meshlet_culled_buffer,
                           &this->meshlet_culled_mapped);
-            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+            if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 bool const written = this->write_heap_buffer(*this->meshlet_culled_buffer,
                                                              core::heap_slots::meshlet_culled,
                                                              static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
@@ -993,7 +998,7 @@ namespace deren::vulkan {
         /// rather than a view, and the driver makes the view inside it. That is why this is called where the image
         /// and its view are created - only that site knows the format, the view type and the range.
         bool write_heap_grid_image(core& vk, uint32_t const slot, VkImage const image, VkFormat const format, VkImageViewType const type, VkImageAspectFlags const aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
-            if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || image == VK_NULL_HANDLE) {
+            if (!contract_heap_ready(vk) || vk.heap_grid_offset == VK_WHOLE_SIZE || image == VK_NULL_HANDLE) {
                 return false;
             }
             VkImageViewCreateInfo const view_info = make_image_view_info(image, format, type, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
@@ -1011,7 +1016,7 @@ namespace deren::vulkan {
          * failure rather than a quiet fall back to a descriptor set.
          */
         void write_heap_scene_buffer(core& vk, std::vector<rhi::object_manager<rhi::buffer>> const& buffers, uint32_t const slot_base, VkDeviceSize const size, VkDescriptorType const type) {
-            if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE) {
+            if (!contract_heap_ready(vk) || vk.heap_grid_offset == VK_WHOLE_SIZE) {
                 return;
             }
             uint32_t written = 0;
@@ -1092,7 +1097,7 @@ namespace deren::vulkan {
         // THE INSTANCE TRANSFORM TABLE (set 0 binding 6) is the odd one: a SINGLE buffer rather than one per frame
         // slot (see runtime.cppm's member), so it takes ONE grid slot instead of a two-slot array - which is what
         // heap_slots::instance_transforms reserved. Written from the same size the scene block gives it.
-        if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+        if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
             if (!this->write_heap_buffer(*this->instance_buffer, core::heap_slots::instance_transforms, static_cast<VkDeviceSize>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                 deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", core::heap_slots::instance_transforms);
             }
@@ -1140,7 +1145,7 @@ namespace deren::vulkan {
             // nothing else changes. What does NOT work this way is an IMAGE binding: a heap image descriptor
             // carries a VkImageViewCreateInfo while a VkDescriptorImageInfo carries a view, not the image and range
             // that create info is made of - which is why the shadow map above is written where its image is known.
-            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+            if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkDeviceSize const heap_offset = core::heap_slot_offset(core::heap_slots::scene_light + slot);
                 if (!this->write_heap_buffer(*this->light_buffers[static_cast<std::size_t>(slot)], core::heap_slots::scene_light + slot, sizeof(light_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                     deren::utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
@@ -1153,7 +1158,7 @@ namespace deren::vulkan {
             // than of the scene's lighting - see `core::heap_slots::scene_head`. Written here beside the light
             // because it is per-frame-slot for the same reason: on a model whose head turns it changes every
             // frame, so each slot needs its own copy.
-            if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+            if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 VkDeviceSize const head_offset = core::heap_slot_offset(core::heap_slots::scene_head + slot);
                 if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], core::heap_slots::scene_head + slot, sizeof(head_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
                     deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
@@ -1488,7 +1493,7 @@ namespace deren::vulkan {
             //
             // Nothing READS the heap yet, so a failure here is a log line and not a wrong frame - but it is the
             // write path that has to work first.
-            if (this->vulkan_core.descriptor_heaps.ready()) {
+            if (contract_heap_ready(this->rhi_face())) {
                 VkImage const texture_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
                 {
                     VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
@@ -1518,7 +1523,7 @@ namespace deren::vulkan {
         // ... and its GRAPHICS half, twice: once with the material table's REAL grid slot (which must come back
         // white, the default material's base colour) and once with a deliberately WRONG one (which must not). The
         // pair is the negative proof the mechanism needs - the same draw, the same shader, one different number.
-        if (this->vulkan_core.descriptor_heaps.ready() && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
+        if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
             this->run_heap_graphics_probe(static_cast<uint32_t>(core::heap_slots::materials));
             this->run_heap_graphics_probe(static_cast<uint32_t>(core::heap_slots::materials) + 1u);
             // ... AND THE MESH HALF OF THE SAME QUESTION (docs/mesh_shaders.md step 0): a MESH pipeline created
@@ -1535,8 +1540,8 @@ namespace deren::vulkan {
         if (heap_texture_descriptors > 0) {
             deren::utility::log("descriptor heap: {} texture descriptors written ({} B each, {} KiB resource heap)",
                                 heap_texture_descriptors,
-                                this->vulkan_core.descriptor_heaps.limits().image_descriptor_size,
-                                this->vulkan_core.descriptor_heaps.resource_size() / 1024);
+                                this->escape().heap_properties().image_descriptor_size,
+                                this->escape().heap_properties().resource_size / 1024);
         }
 
         // ---- 2. Append one material record: texture indices + presence flags; factors keep
