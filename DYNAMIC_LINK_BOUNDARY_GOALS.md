@@ -13,13 +13,13 @@
 | 批 | 内容 | 跳 abi？ | 见证 |
 |---|---|---|---|
 | **① 错误机制** | 追加 `out_of_date`/`surface_lost`/`timeout`/`out_of_device_memory`/`out_of_host_memory`/`initialization_failed`；`error_info` + `graphics_api` + `zone_of(error)`；utility 加 `ensure`/`verdict`/`enforce`；后端三个**按调用点**翻译器 | 否 | 表驱动 CPU 测试（`tests/test_error_mapping.cpp`）+ 布局 `static_assert` |
-| **② `frame_walker`** | 契约借用视图（`position`/`wait_and_acquire`/`walk_to_next`）+ `api_core::walk_frames()`；后端视图（**构造函数里务必设 owner**）；probe 实现；尖刺断言 | **是（12 → 13，一次做完）** | 尖刺断言 `position() == frame_begin().frame_index`；`MAX_FRAMES_IN_FLIGHT` 与 29 处 `current_frame` 读点消失 |
+| **② 帧面：`frame_walker` + `gpu_profiler`** | `frame_walker` 借用视图（`position`/`wait_and_acquire`/`walk_to_next`）+ `gpu_profiler`（`stage_count`/`get_stage_info`）+ `api_core::{walk_frames,profiler}()`；后端两个借用视图（**构造函数里务必设 owner**）；probe 两个实现；尖刺断言 | **是（12 → 13，一次做完）** | 尖刺断言 `position() == frame_begin().frame_index`、`get_stage_info(stage_count(),…) == invalid_argument`；`MAX_FRAMES_IN_FLIGHT` 与 29 处 `current_frame` 读点消失 |
 | **③ 27 个符号** | ① A(6)+B(4)+两处删除 → 15；② C(4)+删 `set_window_title` → 10；③ `core::core(create_info)` **最后一步**；④ 门改"白名单之外为零" | ③ 随 ② 批 | 边界降到该步目标值 + 14 场景哈希不变 |
 | **④ utility 拆分** | `shared_utility`（日志 sink/轮转/panic/分配器钩子）+ `static_utility`（BVH/data_block/…/**`dynamic_link`**）；**先两半都 STATIC**，翻转时 shared 转 SHARED | 否 | 后端 DLL 导入表出现 `shared_utility.dll`（而非自带 sink） |
 
 **仍待裁决的三件**
 
-1. `wait_and_acquire()` 融合后 **GPU 计时收集**放哪：walker 承担 / 引擎改成"采集成功后"收集（**行为变化**：被 `OUT_OF_DATE` 跳过的帧不再收集）/ 放调用之前（**不可能**，那时还没等）；
+1. ~~`wait_and_acquire()` 融合后 GPU 计时收集放哪~~ —— **已由 `gpu_profiler` 解决**：**收集归后端**（在 `wait_and_acquire()` 内、"取下一张图"之前 latch 该槽上一帧的计时，所以被 `OUT_OF_DATE` 跳过的帧照样收集），**读归引擎**（调用返回之后读 `profiler()`）；引擎不再需要在"等"与"采集"之间插一步，**行为零变化**；
 2. `frame_open_info` 的**错误通道**形状（今天 `frame_begin()` 把 `OUT_OF_DATE` 与设备丢**一起压成零值**）；
 3. `ring_depth()` 与 `walk_frames()` 的最终名字。
 
@@ -335,3 +335,27 @@ struct error_info {
 **未决（留给步 ④）**：目标名拼写（`shared_utility`/`static_utility` vs `utility_shared`/`utility_static`）、模块名（`deren.utility.shared`/`.static` 还是独立顶层模块）、以及 `shared_utility.dll` 的版本/兼容检查是否并入后端包（倾向：并入同一包与搜索路径，**导入表本身就把配对关系固定住**）。
 
 **与"最小修复"的关系**：在拆分落地之前，仍建议先做那条零成本修复——**轮转只由一方做一次**、后端日志走明确路由——因为两次轮转一旦翻转就是必现的日志损坏。
+
+---
+
+## §GPU profiler（定案，与 `frame_walker` 同批）
+
+```cpp
+struct gpu_profiler {                       // BORROWED VIEW（无 release()）
+    [[nodiscard]] virtual std::uint32_t stage_count() const noexcept = 0;   // 最近一个**已完成**帧的阶段数
+    [[nodiscard]] virtual error get_stage_info(std::uint32_t index,
+                                               std::string_view* name,
+                                               std::uint64_t* duration_ns) const noexcept = 0;
+};
+[[nodiscard]] virtual gpu_profiler* profiler() noexcept = 0;                // api_core 新增
+```
+
+**类型**：`pstring` → `std::string_view*`（视图已在契约里，自带长度，不靠 NUL）；`pduration` → `std::uint64_t` **纳秒**（后端实测 **1 ns/tick、64 valid bits** ⇒ 无损；显示层再转 ms）。
+
+**错误映射**（这就是"接入错误机制"）：`index >= stage_count()` → `invalid_argument`；该帧未完成 / 该阶段无 mark → `not_ready`；设备或配置无 GPU 计时 → `unsupported`（且 `stage_count()` 恒 0）；读回查询失败 → `device_lost`。
+
+**阶段名归谁**：后端只知道"第 N 个 mark"与 `VkPipelineStageFlagBits`（管线阶段，不是语义阶段）；语义名在引擎（`vulkan/profiling` 的 `cpu_phase`）。**定案：名字随 mark 进来**——`mark(command_list&, uint32_t mark_index, std::string_view stage_name, …)`，后端只存**指针**并在 `get_stage_info` 原样返回；规则与 `window_title` 同：**必须是静态文本**（引擎传字面量，比后端活得久）。**不**在契约里定义 `stage_id` 枚举把引擎的阶段划分固化进来。
+
+**它关闭的悬案**：`wait_and_acquire()` 融合"等 + 采集"后，今天夹在中间的 `collect_gpu_timings` 没位置。定案：**收集归后端**（`wait_and_acquire()` 内部、取图之前 latch 该槽上一帧的计时 —— 被 `OUT_OF_DATE` 跳过的帧照样收集），**读归引擎**（返回之后读 `profiler()`）。**行为零变化**，且引擎不再需要在"等"与"采集"之间插步骤。
+
+**落点**：后端视图委托既有 `gpu_timing_mark_capacity=16` / `mark_gpu_timing` / `read_gpu_timings(frame_index)` / `gpu_timing_available()`；名字存进视图的 16 项指针数组；probe 必须实现 `profiler()`；尖刺断言 `profiler() != nullptr`、`stage_count() <= 16`、有 mark 后 `get_stage_info(0,…)` 给出非空名字与正数纳秒、越界返回 `invalid_argument`、无计时设备返回 `unsupported`；引擎侧 `mark_gpu_timing`/`read_gpu_timings` 调用点改走契约。
