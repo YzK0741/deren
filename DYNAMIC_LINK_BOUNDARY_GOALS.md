@@ -283,3 +283,29 @@ struct error_info {
 **顺序**：① enum 值 + `error_info`/`graphics_api`/`zone_of` + `ensure`/`verdict`/`enforce` + 表驱动测试（新建 `tests/test_error_mapping.cpp`，纯 CPU 无 GPU）→ ② 后端三个翻译 helper + 两处丢失点修复（`wait_frame_slot` 回传结果、`frame_begin` 区分 `out_of_date`）→ ③ 与 `frame_walker` 同批改入口与 `wait_and_acquire()`。
 
 **见证**：表驱动测试全绿 + 布局 `static_assert` + 尖刺里 `error_info.code` 断言 + `ctest` 全绿 + 边界仍 27（本批不动符号）+ 14 场景哈希逐字节不变。
+
+---
+
+## §utility 拆成 `shared_utility` / `static_utility`（定案，步 ④ 的前置）
+
+**动机（实测，不是洁癖）**：`utility` 现在是 **STATIC**（`CMakeLists.txt:220`）且被两半都链；静态配置下链接器只保留一份，所以日志看起来是单实例。**翻转那天** `deren_vulkan` 变 SHARED ⇒ DLL 自带一份 utility ⇒ **两份日志器、两个 `ofstream` 指向同一个 `debug.log`、两次启动轮转**（`utility.cpp:155/179` 的 `rotate_previous_log()` 会**截断**另一份正在写的文件，而第一个句柄仍按自己的偏移继续写 ⇒ 交错/空洞/丢行，`debug.log.old` 收下两个"会话"）。而且**边界门对此完全盲**：它只量 `deren_vulkan ∩ vulkancorekit`，utility 是**第三个库**、不产生后端定义符号。
+
+**拆法**
+
+| | `shared_utility`（**进程一份**，翻转时 SHARED） | `static_utility`（每半一份，恒 STATIC） |
+|---|---|---|
+| 内容 | **日志 sink + 轮转 + 文件句柄**（`utility.cpp` 的落盘部分）、**panic 汇聚**、分配器钩子（`better_pmr` 的进程级部分）、线程数策略（若两半需一致） | BVH、data_block、frame_clock、frame_stats、thread_pool（每对象状态）、platform_*（无状态）、**`dynamic_link`**、所有模板 |
+| 接口形状 | **C 形状/POD 为主**：`void deren_log_text(std::string_view)`、`[[noreturn]] void deren_panic(...)`、钩子注册；**格式化留在调用方**（`log(fmt, args…)` 仍是 inline 模板，转发到导出的非模板核心）⇒ **sink 单实例，模板不必导出** | 同二进制，随便 |
+| 依赖方向 | **不依赖** `static_utility` | **可以**依赖 `shared_utility`（用它的 sink）；**反向禁止**；**契约 `rhi` 不依赖两者** |
+
+**为什么 `dynamic_link` 必须留 static 侧**：它是**加载后端的那把钥匙**。放进 `shared_utility` 就变成"exe 必须先加载 shared_utility 才能加载后端"的引导链；而它本身不需要进程级共享。
+
+**增量路径（每步保持树绿）**
+
+1. **现在**：只做**模块/目标拆分**，两个目标**都仍为 STATIC**（行为零变化：一份 sink，与今天相同）——可独立验证（`ctest` + 边界仍 27 + 14 场景哈希逐字节不变）；
+2. **翻转时**：`shared_utility` 转 SHARED，与 `deren_vulkan` 翻转**同批**；exe 与后端 DLL **都**静态导入它 ⇒ Windows **按名字只加载一次** ⇒ 单实例（这是机制，不是约定）；
+3. **门**：补一条**可检查**的——后端 DLL 的**导入表里出现 `shared_utility.dll`**（而不是自带一份 sink）。尖刺那套导入表检查（窄导出 / Q6 那次）已验证过，工具是现成的。
+
+**未决（留给步 ④）**：目标名拼写（`shared_utility`/`static_utility` vs `utility_shared`/`utility_static`）、模块名（`deren.utility.shared`/`.static` 还是独立顶层模块）、以及 `shared_utility.dll` 的版本/兼容检查是否并入后端包（倾向：并入同一包与搜索路径，**导入表本身就把配对关系固定住**）。
+
+**与"最小修复"的关系**：在拆分落地之前，仍建议先做那条零成本修复——**轮转只由一方做一次**、后端日志走明确路由——因为两次轮转一旦翻转就是必现的日志损坏。
