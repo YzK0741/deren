@@ -124,7 +124,7 @@ namespace deren::vulkan {
     }
 
     bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, VkDeviceSize const size, VkDescriptorType const type) const {
-        return this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
+        return contract_write_heap_buffer(this->rhi_face(), core::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
     }
 
     frame_status runtime::pace_and_acquire() {
@@ -416,8 +416,8 @@ namespace deren::vulkan {
         // PUSH HERE, and its absence is the design: the frame slot and the swapchain image travel INSIDE each
         // stage's own push block (see shaders/heap_slots.glsl), which is what replaced the mapping shim's pushed
         // index - the binding is per frame, the indices are per stage.
-        if (vk.descriptor_heaps.ready()) {
-            vk.descriptor_heaps.record_bind(*command_buffer);
+        if (contract_heap_ready(vk)) {
+            contract_record_heap_bind(vk, *command_buffer);
         }
         // GPU pass timing: open this frame's timestamp range and take the first mark. Marks are
         // written in gpu_mark_id order from here on (see gpu_mark); opening the range outside any
@@ -911,7 +911,7 @@ namespace deren::vulkan {
         // light matrices and the shadow map straight out of the heaps.
         VkBindHeapInfoEXT resource_bind = {};
         VkBindHeapInfoEXT sampler_bind = {};
-        vk.descriptor_heaps.bind_infos(resource_bind, sampler_bind);
+        contract_heap_bind_infos(self->rhi_face(), resource_bind, sampler_bind);
         VkCommandBufferInheritanceDescriptorHeapInfoEXT const heap_inheritance = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
             .pNext = &inheritance,
@@ -932,7 +932,7 @@ namespace deren::vulkan {
         // render_environment::push_block). This is ONE 4-byte slice of the shadow stage's block - the cascade
         // index's own offset - while the rest of the block is the material's, pushed per caster below. A
         // secondary records its own state (nothing is inherited from the primary), which is why it is set here.
-        [[maybe_unused]] bool const pushed = vk.descriptor_heaps.push_data(secondary, render_resource::shadow_io.push->offset, std::as_bytes(std::span(&index, 1)));
+        [[maybe_unused]] bool const pushed = contract_push_heap_data(self->rhi_face(), secondary, render_resource::shadow_io.push->offset, std::as_bytes(std::span(&index, 1)));
         self->record_shadow_content(secondary, pipeline, mesh_stage, meshlets);
         vkEndCommandBuffer(secondary);
         return true;
@@ -1236,7 +1236,35 @@ namespace deren::vulkan {
         if (!this->evaluate_mesh_shaders(nullptr)) {
             return std::unexpected(std::string("the device cannot run the mesh stage the G-buffer pass now requires"));
         }
-        auto mesh_result = this->vulkan_core.make_gbuffer_pipeline(mesh_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+        // 保留原来的五目标配方：四张数据图覆盖写入，HDR 目标累加自发光。
+        // 深度写入仍由绘制时的动态状态控制，mesh/meshlet 共用同一份创建配方。
+        auto const build_gbuffer = [this, fragment_shader_code](std::span<uint8_t const> const stage_code) {
+            std::array<rhi::image_format, gbuffer_pass_attachment_count> const formats = {
+                contract_image_format(gbuffer_formats[0]),
+                contract_image_format(gbuffer_formats[1]),
+                contract_image_format(gbuffer_formats[2]),
+                contract_image_format(gbuffer_velocity_format),
+                contract_image_format(hdr_format),
+            };
+            std::array<rhi::blend_mode, gbuffer_pass_attachment_count> const blends = {
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::opaque,
+                rhi::blend_mode::additive,
+            };
+            auto built = pipelines::make_graphics_pipeline(this->rhi_face(), formats, rhi::image_format::depth,
+                                                           stage_code, fragment_shader_code, 1u, true,
+                                                           0.0f, 0.0f, 0.0f, blends, rhi::shader_stage::mesh,
+                                                           rhi::depth_compare::less_or_equal, "G-buffer");
+            if (built) {
+                VkExtent2D const extent = this->vulkan_core.render_extent();
+                built->viewport = {0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
+                built->scissor = {{0, 0}, extent};
+            }
+            return built;
+        };
+        auto mesh_result = build_gbuffer(mesh_vertex_shader_code);
         if (!mesh_result) {
             return std::unexpected(std::string(mesh_result.error()));
         }
@@ -1246,7 +1274,7 @@ namespace deren::vulkan {
         //      out of the table and each meshlet culled against the camera before it emits anything. Preferred over
         //      the mesh form when it exists, and a refusal is again a log line rather than a failure.
         if (!meshlet_vertex_shader_code.empty()) {
-            auto meshlet_result = this->vulkan_core.make_gbuffer_pipeline(meshlet_vertex_shader_code, fragment_shader_code, VK_SHADER_STAGE_MESH_BIT_EXT);
+            auto meshlet_result = build_gbuffer(meshlet_vertex_shader_code);
             if (meshlet_result) {
                 this->gbuffer_pipeline_meshlet = std::move(meshlet_result).value();
                 deren::utility::log("SUCCESS: G-buffer MESHLET pipeline created (one workgroup per meshlet, camera-culled)");
@@ -1650,6 +1678,8 @@ namespace deren::vulkan {
         // remove - so there is one builder now, and everything that constructs a pass uses it.
         return pass::pass_context{
             .device = this->vulkan_core.logical_device,
+            .face = &this->rhi_face(),
+            .swap_chain_format = contract_image_format(this->vulkan_core.swap_chain_image_format),
             .samplers = this->shared_samplers(),
             .shader = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->registered_shader(name); },
             // The SBT numbers a tracing pass builds its table against, straight from the capability query (see
@@ -1973,7 +2003,7 @@ namespace deren::vulkan {
             .make_environment = &runtime::make_scene_environment,
             .run_tasks = &runtime::run_scene_tasks,
             .owner = this,
-            .fill_heap_bind = vk.descriptor_heaps.ready() ? &runtime::fill_heap_bind : nullptr,
+            .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_formats = this->scene_color_formats,
             .depth_format = vk.depth_attachment_format,
             .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -2136,7 +2166,7 @@ namespace deren::vulkan {
             .secondary = *secondaries[static_cast<std::size_t>(secondary_pass::transparent)],
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
-            .fill_heap_bind = vk.descriptor_heaps.ready() ? &runtime::fill_heap_bind : nullptr,
+            .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_format = deren::vulkan::hdr_format,
             .depth_format = vk.depth_attachment_format,
             .extent = vk.render_extent(),
@@ -2313,10 +2343,6 @@ namespace deren::vulkan {
             .cmd = command_buffer,
             .image_index = static_cast<uint32_t>(this->current_image_index),
             .device = this->vulkan_core.logical_device,
-            // abi 8: the CONTRACT face the passes' own create steps build through, and the swapchain
-            // format in the contract's spelling (declaration order follows pass_context's)
-            .face = &this->rhi_face(),
-            .swap_chain_format = contract_image_format(this->vulkan_core.swap_chain_image_format),
             .samplers = this->shared_samplers(),
             .table = &this->frame_resources,
             .frame = this->pass_frame(),
@@ -2450,7 +2476,7 @@ namespace deren::vulkan {
     }
 
     pass::owned_pipeline runtime::resolve_pipeline(std::string_view const name) const noexcept {
-        if (vk_pipeline const* const pipeline = this->get_pipeline(name); pipeline != nullptr) {
+        if (pipelines::pipeline_handle const* const pipeline = this->get_pipeline(name); pipeline != nullptr) {
             return pass::owned_pipeline{.pipeline = pipeline->get_pipeline()};
         }
         // ... AND THEN THE CHAIN'S OWN PASSES, because a chain's stages may SHARE one pipeline: the post chain's
@@ -2539,7 +2565,7 @@ namespace deren::vulkan {
                 return;
             }
             VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-            [[maybe_unused]] bool const written = this->vulkan_core.descriptor_heaps.write_image(core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+            [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
         };
         std::size_t const heap_image = static_cast<std::size_t>(this->current_image_index);
         if (heap_image < this->vulkan_core.gbuffer_images[0].size()) {
@@ -2560,7 +2586,7 @@ namespace deren::vulkan {
                     return;
                 }
                 VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                [[maybe_unused]] bool const written = this->vulkan_core.descriptor_heaps.write_image(core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
             };
             if (heap_image < this->vulkan_core.taa_history_images.size()) {
                 write_sampled_target(core::heap_slots::taa_history + image_slot, this->vulkan_core.taa_history_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);

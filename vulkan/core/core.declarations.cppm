@@ -31,7 +31,9 @@ module;
 #include <array>
 #include <cstddef>
 #include <memory>
+#include <mutex>
 #include <span>
+#include <unordered_set>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core:declarations;
@@ -363,6 +365,7 @@ namespace deren::vulkan {
             /// whether the descriptor declared `cube_compatible`: the only case a six-layer image
             /// views as a CUBE rather than a 2D array
             bool cube_compatible = false;
+            deren::promise::rhi::image_flags declared_flags = deren::promise::rhi::no_image_flags;
             /// the contract format the descriptor named (the `depth` role stays the role here; the
             /// concrete spelling lives in `resolved_format`)
             deren::promise::rhi::image_format declared_format = deren::promise::rhi::image_format::unknown;
@@ -439,7 +442,6 @@ namespace deren::vulkan {
         struct buffer_address_view final : deren::promise::rhi::device_address {
             core* owner = nullptr;
 
-            [[nodiscard]] deren::promise::rhi::extension_kind kind() const noexcept override;
             [[nodiscard]] std::uint64_t buffer_address(deren::promise::rhi::buffer const& resource, std::uint64_t offset) const noexcept override;
         };
 
@@ -453,7 +455,6 @@ namespace deren::vulkan {
         struct frame_escape final : deren::promise::rhi::vulkan_escape {
             core* owner = nullptr;
 
-            [[nodiscard]] deren::promise::rhi::extension_kind kind() const noexcept override;
             [[nodiscard]] void* native_instance() const noexcept override;
             [[nodiscard]] void* native_physical_device() const noexcept override;
             [[nodiscard]] void* native_device() const noexcept override;
@@ -472,6 +473,17 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint32_t native_image_format(deren::promise::rhi::image const& resource) const noexcept override;
             [[nodiscard]] void* native_pipeline(deren::promise::rhi::pipeline const& resource) const noexcept override;
             [[nodiscard]] void* native_shader_module(deren::promise::rhi::shader const& resource) const noexcept override;
+        };
+
+        struct frame_heap final : deren::promise::rhi::descriptor_heap {
+            core* owner = nullptr;
+            [[nodiscard]] bool ready() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::descriptor_heap_properties properties() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::heap_bindings bindings() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_image(deren::promise::rhi::heap_image_write_info const&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_buffer(deren::promise::rhi::heap_buffer_write_info const&) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error bind(deren::promise::rhi::heap_bind_info const&) const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error push_data(deren::promise::rhi::heap_push_info const&) const noexcept override;
         };
 
         // ---- WHAT THE RECORDING SURFACE OWNS --------------------------------------------------------
@@ -494,6 +506,9 @@ namespace deren::vulkan {
         frame_readback_slot readback_slot_view;
         /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
         frame_escape escape_view;
+        frame_heap heap_view;
+        std::mutex contract_images_mutex;
+        std::unordered_set<deren::promise::rhi::image const*> contract_images;
         /// the tier-2 address object `query_extension(device_address)` answers with
         buffer_address_view address_view;
         /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,

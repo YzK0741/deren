@@ -40,7 +40,7 @@ namespace deren::vulkan {
         // two-slot array. The size is the one the structure was created with (published through
         // ray_tracing::structure_set): a heap range must carry a real size, a lesson this renderer already paid
         // for on the material table.
-        if (!this->vulkan_core.descriptor_heaps.ready() || this->vulkan_core.heap_grid_offset == VK_WHOLE_SIZE || tlas == VK_NULL_HANDLE) {
+        if (!contract_heap_ready(this->rhi_face()) || this->vulkan_core.heap_grid_offset == VK_WHOLE_SIZE || tlas == VK_NULL_HANDLE) {
             return;
         }
         // RESOLVED PER DEVICE, not linked: the loader exports the core entry points and not this
@@ -55,7 +55,7 @@ namespace deren::vulkan {
             .accelerationStructure = tlas,
         };
         VkDeviceAddress const tlas_address = get_structure_address != nullptr ? get_structure_address(this->vulkan_core.logical_device, &tlas_address_info) : 0;
-        if (!this->vulkan_core.descriptor_heaps.write_buffer(core::heap_slot_offset(core::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
+        if (!contract_write_heap_buffer(this->rhi_face(), core::heap_slot_offset(core::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
             deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", core::heap_slots::tlas + frame_slot);
         }
 
@@ -473,7 +473,7 @@ namespace deren::vulkan {
         return {};
     }
 
-    std::expected<pipelines::pipeline_handle, std::string_view> runtime::build_toon_family_pipeline(
+    std::expected<pipelines::pipeline_handle, std::string> runtime::build_toon_family_pipeline(
         std::span<uint8_t const> const first_stage_code, std::span<uint8_t const> const fragment_code,
         rhi::blend_mode const mode, rhi::depth_compare const compare, char const* const what) {
         // ONE HDR colour target, the depth ROLE (the backend picks the device's format), the depth TEST
@@ -500,6 +500,7 @@ namespace deren::vulkan {
             built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
             built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
         }
+        // 工厂的错误文本属于 built；返回拥有文本的 string，避免 string_view 随局部对象失效。
         return built;
     }
 
@@ -1215,7 +1216,7 @@ namespace deren::vulkan {
         /// Push @p bytes and then @p lanes index lanes (see runtime::push_stage_block). The three endpoints differ
         /// only in that count, because a stage's shader declares exactly as many lanes as it reads: the post chain
         /// three (its source slot included), everything else two, the mask bake none.
-        bool push_with_lanes(core const& vk, uint32_t const frame_slot, uint32_t const image_index, VkCommandBuffer const command_buffer,
+        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, VkCommandBuffer const command_buffer,
                              std::span<std::byte const> const bytes, uint32_t const extra_lane, std::size_t const lanes) {
             constexpr std::size_t window = 256; // maxPushDataSize on this device (see heap_limits)
             std::array<std::byte, window> staging = {};
@@ -1227,7 +1228,7 @@ namespace deren::vulkan {
             std::memcpy(staging.data(), bytes.data(), bytes.size());
             std::array<uint32_t, 3> const indices = {frame_slot, image_index, extra_lane};
             std::memcpy(staging.data() + bytes.size(), indices.data(), lane_bytes);
-            return vk.descriptor_heaps.push_data(command_buffer, 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
+            return contract_push_heap_data(face, command_buffer, 0u, std::span<std::byte const>(staging.data(), bytes.size() + lane_bytes));
         }
     } // namespace
 
@@ -1248,17 +1249,17 @@ namespace deren::vulkan {
         uint32_t const source_slot = extra_lane == 0u
                                          ? core::heap_slots::post_color + self->current_image_index
                                          : core::heap_slots::bloom_l0 + (extra_lane - 1u) * core::heap_image_capacity + self->current_image_index;
-        return push_with_lanes(self->vulkan_core, static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, source_slot, 3u);
+        return push_with_lanes(self->rhi_face(), static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, source_slot, 3u);
     }
 
     bool runtime::push_index_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->vulkan_core, static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
+        return push_with_lanes(self->rhi_face(), static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
     }
 
     bool runtime::push_raw_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->vulkan_core, 0u, 0u, command_buffer, bytes, 0u, 0u);
+        return push_with_lanes(self->rhi_face(), 0u, 0u, command_buffer, bytes, 0u, 0u);
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -1281,7 +1282,7 @@ namespace deren::vulkan {
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
-        return self->vulkan_core.descriptor_heaps.push_data(command_buffer, offset, bytes);
+        return contract_push_heap_data(self->rhi_face(), command_buffer, offset, bytes);
     }
 
     bool runtime::draw_mesh_tasks(void* const owner, VkCommandBuffer const command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
@@ -1397,7 +1398,7 @@ namespace deren::vulkan {
     }
 
     void runtime::fill_heap_bind(void* const owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) {
-        static_cast<runtime*>(owner)->vulkan_core.descriptor_heaps.bind_infos(resource, sampler);
+        contract_heap_bind_infos(static_cast<runtime*>(owner)->rhi_face(), resource, sampler);
     }
 
     void runtime::structure_record_mask_bake(void* const owner, VkCommandBuffer const command_buffer, pass::mask_bake_request const& request) {
@@ -1627,7 +1628,7 @@ namespace deren::vulkan {
         }
     }
 
-    vk_pipeline const* runtime::get_pipeline(std::string_view const pipeline_name) const noexcept {
+    pipelines::pipeline_handle const* runtime::get_pipeline(std::string_view const pipeline_name) const noexcept {
         std::shared_lock const lock(this->access_mutex);
         // A GEOMETRY NAME LIVES IN THE MESH MAPS NOW (docs/mesh_shaders.md step 4), so the lookup asks all three: the
         // vertex registry is what is left of the non-geometry pipelines that still have one.

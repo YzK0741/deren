@@ -18,6 +18,7 @@
 // ============================================================================
 module;
 
+#include <cstddef>
 #include <cstdint>
 
 export module deren.promise.rhi:contract;
@@ -99,7 +100,16 @@ export namespace deren::promise::rhi {
     /// compare the two the renderer uses), the factories gain real implementations, and
     /// `vulkan_escape` grew `native_pipeline` / `native_shader_module`. Append-only; the number
     /// exists because the vtables the engine dispatches through changed shape.
-    inline constexpr std::uint32_t abi_version = 8u;
+    /// 8 -> 9: vulkan_escape appends heap_ready/heap_properties. The latter returns a
+    /// value-only POD mirror, never the backend's heap_limits reference; the former
+    /// reports actual heap readiness. Appending changes the vtable shape.
+    /// 9 -> 10: vulkan_escape appends native image/buffer heap descriptor writes.
+    /// Native image view data is a value-only POD; pNext is deliberately unsupported.
+    /// 10 -> 11: vulkan_escape appends native heap bind/push and binding snapshots.
+    /// Native primary/secondary command buffers are borrowed from this device's recording domain.
+    /// 11 -> 12: all RHI objects carry a sealed interface identity; heap services move
+    /// from Vulkan escape to descriptor_heap with tagged, size-checked request structures.
+    inline constexpr std::uint32_t abi_version = 12u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -110,12 +120,79 @@ export namespace deren::promise::rhi {
     /// use case measured in plan §10.3 reports, and it is kept here so that the
     /// refusal stays observable from the engine side.
     enum class error : std::uint32_t {
-        ok = 0,               ///< the call did what it was asked
-        abi_mismatch = 7,     ///< the caller's abi_version is not the backend's
-        unsupported = 8,      ///< the backend has no mechanism that can serve THIS resource/format
-        invalid_argument = 9, ///< the region does not fit the image, or the destination is too small
-        not_ready = 10,       ///< no frame is in flight, or the frame that drew it is not done
-        device_lost = 11,     ///< the device refused the submission/copy (VkResult failure)
+        ok = 0,                ///< the call did what it was asked
+        abi_mismatch = 7,      ///< the caller's abi_version is not the backend's
+        unsupported = 8,       ///< the backend has no mechanism that can serve THIS resource/format
+        invalid_argument = 9,  ///< the region does not fit the image, or the destination is too small
+        not_ready = 10,        ///< no frame is in flight, or the frame that drew it is not done
+        device_lost = 11,      ///< the device refused the submission/copy (VkResult failure)
+        operation_failed = 12, ///< underlying operation failed without a more precise error channel
     };
+
+    /// 接口身份由RHI定义，不能由后端重解释；数值只追加，不复用。
+    enum class interface_type : std::uint32_t {
+        unknown = 0,
+        api_core = 1,
+        buffer = 2,
+        image = 3,
+        image_view = 4,
+        sampler = 5,
+        shader = 6,
+        pipeline = 7,
+        swapchain = 8,
+        query = 9,
+        command_list = 10,
+        device_address = 0x100,
+        descriptor_heap = 0x101,
+        mesh_shader = 0x102,
+        ray_tracing = 0x103,
+        host_image_copy = 0x104,
+        vulkan_escape = 0x105,
+    };
+
+    /// 只用于接口识别/调试，不是设备归属、对象存活或具体实现布局的证明。
+    class object {
+    public:
+        [[nodiscard]] constexpr interface_type type() const noexcept {
+            return this->type_;
+        }
+
+    protected:
+        constexpr explicit object(interface_type const type) noexcept
+            : type_(type) {
+        }
+        ~object() = default; // 禁止经共同根delete；保持各接口既有的release/析构路径。
+
+    private:
+        interface_type const type_;
+    };
+
+    enum class structure_type : std::uint32_t {
+        unknown = 0,
+        heap_image_write = 1,
+        heap_buffer_write = 2,
+        heap_bind = 3,
+        heap_push = 4,
+        vulkan_heap_image = 0x10000,
+        vulkan_command_buffer = 0x10001,
+    };
+
+    /// next只借用到同步调用结束；当前只接受明确支持的一层后端参数，不静默丢链。
+    struct structure_header {
+        structure_type s_type = structure_type::unknown;
+        std::uint32_t struct_size = sizeof(structure_header);
+        structure_header const* next = nullptr;
+    };
+
+    [[nodiscard]] constexpr error validate_structure(structure_header const& header, structure_type const expected,
+                                                     std::size_t const required_size, bool const allow_next = false) noexcept {
+        if (header.struct_size < sizeof(structure_header) || header.struct_size < required_size || header.s_type != expected) {
+            return error::invalid_argument;
+        }
+        if (!allow_next && header.next != nullptr) {
+            return error::unsupported;
+        }
+        return error::ok;
+    }
 
 } // namespace deren::promise::rhi

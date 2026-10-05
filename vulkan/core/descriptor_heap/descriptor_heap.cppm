@@ -53,6 +53,7 @@ import deren.vstd;
 import :vma;         // the allocator the heaps are allocated from
 import :vma_handles; // vk_buffer, which is what a heap buffer is
 import deren.utility;
+import deren.promise.rhi;
 namespace deren::vulkan {
     /**
      * @ingroup vulkan_core_descriptor_heap
@@ -536,8 +537,8 @@ namespace deren::vulkan {
         if (!this->ready() || this->cmd_push_data == nullptr || command_buffer == VK_NULL_HANDLE || data.empty()) {
             return false;
         }
-        if (static_cast<VkDeviceSize>(offset) + data.size() > this->configured_limits.max_push_data) {
-            deren::utility::log("descriptor heap: a push of {} B at offset {} exceeds the {} B push-data window", data.size(), offset, this->configured_limits.max_push_data);
+        if (promise::rhi::validate_heap_push_range(offset, data.size(), this->configured_limits.max_push_data) != promise::rhi::error::ok) {
+            deren::utility::log("descriptor heap: a push of {} B at offset {} violates the 4-byte granularity or {} B push-data window", data.size(), offset, this->configured_limits.max_push_data);
             return false;
         }
         VkPushDataInfoEXT const info = {

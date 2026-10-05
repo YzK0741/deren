@@ -283,6 +283,7 @@ namespace deren::vulkan {
         this->frame_image_view.owner = this;
         this->readback_slot_view.owner = this;
         this->escape_view.owner = this;
+        this->heap_view.owner = this;
         this->address_view.owner = this;
         this->frame_command_buffers.reserve(static_cast<std::size_t>(MAX_FRAMES_IN_FLIGHT));
         for (int32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
@@ -311,7 +312,7 @@ namespace deren::vulkan {
         for (deren::promise::rhi::extension_kind const kind : deren::promise::rhi::all_extension_kinds()) {
             bool const announced = deren::promise::rhi::has_ability(this->abilities(), kind);
             deren::promise::rhi::extension* const ability = this->query_extension(kind);
-            bool const serves = ability != nullptr && ability->kind() == kind;
+            bool const serves = ability != nullptr && ability->kind() == kind && ability->type() == promise::rhi::extension_interface_type(kind);
             if (announced != serves) {
                 deren::utility::log("rhi: abilities() and query_extension() disagree about extension_kind {} (announced {}, answers {})",
                                     static_cast<std::uint32_t>(kind),

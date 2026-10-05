@@ -439,11 +439,219 @@ namespace deren::vulkan {
         // to `ray_tracing` (abi 5) precisely so this bit would stop being hostage to a resource no
         // backend could make - see rhi.extension.cppm's `device_address` note and the view's own.
         //
-        // STILL NOT REPORTED, and each for a stated reason: `host_image_copy` (no `image` can be
-        // produced until the image batch), `descriptor_heap` (the operations exist on this backend, but
-        // the ability's contract face - `push_data` against a `command_list` - is not wired yet),
-        // `mesh_shader` and `ray_tracing` (the passes record these through the escape today).
-        return rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address);
+        // descriptor_heap只在heap真正可用时广播；其余未实现的能力继续不广播。
+        // host_image_copy未接线；mesh_shader和ray_tracing仍由pass通过原生接口录制。
+        return rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
+               (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u);
+    }
+
+    bool core::frame_heap::ready() const noexcept {
+        return this->owner != nullptr && this->owner->descriptor_heaps.ready();
+    }
+
+    rhi::descriptor_heap_properties core::frame_heap::properties() const noexcept {
+        if (this->owner == nullptr)
+            return {};
+        auto const& limits = this->owner->descriptor_heaps.limits();
+        return {
+            .resource_size = this->owner->descriptor_heaps.resource_size(),
+            .max_resource_size = limits.max_resource_size,
+            .max_sampler_size = limits.max_sampler_size,
+            .resource_alignment = limits.resource_alignment,
+            .sampler_alignment = limits.sampler_alignment,
+            .resource_reserved = limits.resource_reserved,
+            .sampler_reserved_with_embedded = limits.sampler_reserved_with_embedded,
+            .buffer_descriptor_size = limits.buffer_descriptor_size,
+            .image_descriptor_size = limits.image_descriptor_size,
+            .sampler_descriptor_size = limits.sampler_descriptor_size,
+            .max_push_data = limits.max_push_data,
+            .max_embedded_samplers = limits.max_embedded_samplers,
+        };
+    }
+
+    namespace {
+        [[nodiscard]] constexpr VkDescriptorType heap_descriptor_type(rhi::descriptor_type const type) noexcept {
+            switch (type) {
+            case rhi::descriptor_type::sampled_image:
+                return VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            case rhi::descriptor_type::storage_image:
+                return VK_DESCRIPTOR_TYPE_STORAGE_IMAGE;
+            case rhi::descriptor_type::uniform_buffer:
+                return VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+            case rhi::descriptor_type::storage_buffer:
+                return VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+            case rhi::descriptor_type::acceleration_structure:
+                return VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR;
+            case rhi::descriptor_type::uniform_buffer_dynamic:
+            case rhi::descriptor_type::storage_buffer_dynamic:
+            case rhi::descriptor_type::combined_image_sampler:
+                return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+            }
+            return VK_DESCRIPTOR_TYPE_MAX_ENUM;
+        }
+
+        // VK_EXT_descriptor_heap禁止把组合采样器或动态buffer描述符直接写入资源heap。
+        static_assert(heap_descriptor_type(rhi::descriptor_type::combined_image_sampler) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
+        static_assert(heap_descriptor_type(rhi::descriptor_type::uniform_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
+        static_assert(heap_descriptor_type(rhi::descriptor_type::storage_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
+
+        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_list* const commands,
+                                                    rhi::structure_header const* const next, rhi::error& result) noexcept {
+            if (next != nullptr) {
+                if (next->s_type != rhi::structure_type::vulkan_command_buffer) {
+                    result = rhi::error::unsupported;
+                    return VK_NULL_HANDLE;
+                }
+                result = rhi::validate_structure(*next, rhi::structure_type::vulkan_command_buffer, sizeof(rhi::vulkan_command_buffer_info));
+                if (result != rhi::error::ok)
+                    return VK_NULL_HANDLE;
+                auto const& native = *reinterpret_cast<rhi::vulkan_command_buffer_info const*>(next);
+                if (commands != nullptr || native.context != static_cast<rhi::api_core const*>(&owner) || native.commands == nullptr) {
+                    result = rhi::error::invalid_argument;
+                    return VK_NULL_HANDLE;
+                }
+                // 原生命令缓冲的归属和录制状态仍是调用方前提；不强转frame_commands。
+                return static_cast<VkCommandBuffer>(native.commands);
+            }
+            if (commands != &owner.commands_view) {
+                result = rhi::error::invalid_argument;
+                return VK_NULL_HANDLE;
+            }
+            if (!owner.frame_in_flight) {
+                result = rhi::error::not_ready;
+                return VK_NULL_HANDLE;
+            }
+            return owner.frame_command_buffer();
+        }
+    } // namespace
+
+    rhi::error core::frame_heap::write_image(rhi::heap_image_write_info const& info) noexcept {
+        rhi::error const checked = rhi::validate_structure(info.header, rhi::structure_type::heap_image_write, sizeof(info), true);
+        if (checked != rhi::error::ok)
+            return checked;
+        if (!this->ready())
+            return rhi::error::not_ready;
+        VkDescriptorType const type = heap_descriptor_type(info.type);
+        if (type != VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE && type != VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)
+            return rhi::error::unsupported;
+        auto const capacity = this->owner->descriptor_heaps.resource_size();
+        auto const stride = this->owner->descriptor_heaps.descriptor_stride(type);
+        if (info.offset > capacity || stride > capacity - info.offset)
+            return rhi::error::invalid_argument;
+        VkImageViewCreateInfo view{};
+        VkImageLayout layout = VK_IMAGE_LAYOUT_GENERAL;
+        if (info.header.next != nullptr) {
+            if (info.header.next->s_type != rhi::structure_type::vulkan_heap_image)
+                return rhi::error::unsupported;
+            rhi::error const native_checked = rhi::validate_structure(*info.header.next, rhi::structure_type::vulkan_heap_image, sizeof(rhi::vulkan_heap_image_info));
+            if (native_checked != rhi::error::ok)
+                return native_checked;
+            auto const& native = *reinterpret_cast<rhi::vulkan_heap_image_info const*>(info.header.next);
+            auto const& desc = native.view;
+            if (info.resource != nullptr || info.view != nullptr || native.context != static_cast<rhi::api_core const*>(this->owner) ||
+                desc.struct_size < sizeof(desc) || desc.native_image == nullptr)
+                return rhi::error::invalid_argument;
+            view = {
+                .sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                .pNext = nullptr,
+                .flags = desc.view_flags,
+                .image = static_cast<VkImage>(desc.native_image),
+                .viewType = static_cast<VkImageViewType>(desc.view_type),
+                .format = static_cast<VkFormat>(desc.format),
+                .components = {static_cast<VkComponentSwizzle>(desc.components[0]), static_cast<VkComponentSwizzle>(desc.components[1]),
+                               static_cast<VkComponentSwizzle>(desc.components[2]), static_cast<VkComponentSwizzle>(desc.components[3])},
+                .subresourceRange = {desc.aspect_mask, desc.base_mip, desc.mip_count, desc.base_layer, desc.layer_count},
+            };
+            layout = static_cast<VkImageLayout>(native.layout);
+        } else {
+            if (info.resource == nullptr || info.view == nullptr || info.view->struct_size < sizeof(rhi::image_view_desc))
+                return rhi::error::invalid_argument;
+            // 类型标签相同不代表具体布局相同；先核实本core发出的活跃image，再访问owned_image。
+            {
+                std::lock_guard const lock(this->owner->contract_images_mutex);
+                if (!this->owner->contract_images.contains(info.resource))
+                    return rhi::error::invalid_argument;
+            }
+            auto const& image = *static_cast<owned_image const*>(info.resource);
+            auto const& range = *info.view;
+            if (range.base_layer >= image.array_layers || range.base_mip >= image.mip_levels)
+                return rhi::error::invalid_argument;
+            auto const layers = range.layer_count == 0 ? image.array_layers - range.base_layer : range.layer_count;
+            auto const mips = range.mip_count == 0 ? image.mip_levels - range.base_mip : range.mip_count;
+            if (layers > image.array_layers - range.base_layer || mips > image.mip_levels - range.base_mip)
+                return rhi::error::invalid_argument;
+            bool const sampled = type == VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+            if ((sampled && range.role != rhi::view_role::sampled) || (!sampled && range.role != rhi::view_role::storage) ||
+                !rhi::has_flag(image.declared_flags, sampled ? rhi::image_flag::sampled : rhi::image_flag::storage))
+                return rhi::error::unsupported;
+            bool const cube = image.cube_compatible && image.array_layers == 6 && range.base_layer == 0 && layers == 6;
+            view = make_image_view_info(image.native_handle, image.resolved_format,
+                                        cube ? VK_IMAGE_VIEW_TYPE_CUBE : layers == 1 ? VK_IMAGE_VIEW_TYPE_2D
+                                                                                     : VK_IMAGE_VIEW_TYPE_2D_ARRAY,
+                                        image.declared_format == rhi::image_format::depth ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT,
+                                        mips, layers);
+            view.subresourceRange.baseMipLevel = range.base_mip;
+            view.subresourceRange.baseArrayLayer = range.base_layer;
+        }
+        return this->owner->descriptor_heaps.write_image(info.offset, view, layout, type) ? rhi::error::ok : rhi::error::operation_failed;
+    }
+
+    rhi::error core::frame_heap::write_buffer(rhi::heap_buffer_write_info const& info) noexcept {
+        rhi::error const checked = rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info));
+        if (checked != rhi::error::ok)
+            return checked;
+        if (!this->ready())
+            return rhi::error::not_ready;
+        VkDescriptorType const type = heap_descriptor_type(info.type);
+        if (type != VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER && type != VK_DESCRIPTOR_TYPE_STORAGE_BUFFER &&
+            type != VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)
+            return rhi::error::unsupported;
+        auto const capacity = this->owner->descriptor_heaps.resource_size();
+        auto const stride = this->owner->descriptor_heaps.descriptor_stride(type);
+        if (info.address == 0 || info.size == 0 || info.size > UINT64_MAX - info.address ||
+            info.offset > capacity || stride > capacity - info.offset)
+            return rhi::error::invalid_argument;
+        return this->owner->descriptor_heaps.write_buffer(info.offset, info.address, info.size, type) ? rhi::error::ok : rhi::error::operation_failed;
+    }
+
+    rhi::error core::frame_heap::bind(rhi::heap_bind_info const& info) const noexcept {
+        rhi::error result = rhi::validate_structure(info.header, rhi::structure_type::heap_bind, sizeof(info), true);
+        if (result != rhi::error::ok)
+            return result;
+        if (!this->ready())
+            return rhi::error::not_ready;
+        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, info.header.next, result);
+        if (result != rhi::error::ok)
+            return result;
+        this->owner->descriptor_heaps.record_bind(commands);
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_heap::push_data(rhi::heap_push_info const& info) const noexcept {
+        rhi::error result = rhi::validate_structure(info.header, rhi::structure_type::heap_push, sizeof(info), true);
+        if (result != rhi::error::ok)
+            return result;
+        if (!this->ready())
+            return rhi::error::not_ready;
+        result = rhi::validate_heap_push_range(info.offset, info.data.size(), this->properties().max_push_data);
+        if (result != rhi::error::ok)
+            return result;
+        VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, info.header.next, result);
+        if (result != rhi::error::ok)
+            return result;
+        return this->owner->descriptor_heaps.push_data(commands, info.offset, info.data) ? rhi::error::ok : rhi::error::operation_failed;
+    }
+
+    rhi::heap_bindings core::frame_heap::bindings() const noexcept {
+        if (!this->ready()) {
+            return {};
+        }
+        VkBindHeapInfoEXT resource{}, sampler{};
+        this->owner->descriptor_heaps.bind_infos(resource, sampler);
+        return {
+            .resource = {resource.heapRange.address, resource.heapRange.size, resource.reservedRangeOffset, resource.reservedRangeSize},
+            .sampler = {sampler.heapRange.address, sampler.heapRange.size, sampler.reservedRangeOffset, sampler.reservedRangeSize},
+        };
     }
 
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
@@ -453,6 +661,9 @@ namespace deren::vulkan {
         // was asked for, and every kind it does not announce answers nullptr.
         if (kind == rhi::extension_kind::vulkan_escape) {
             return &this->escape_view;
+        }
+        if (kind == rhi::extension_kind::descriptor_heap && this->heap_view.ready()) {
+            return &this->heap_view;
         }
         if (kind == rhi::extension_kind::device_address) {
             return &this->address_view;
@@ -684,6 +895,11 @@ namespace deren::vulkan {
         answer->array_layers = create_info.array_layers;
         answer->cube_compatible = rhi::has_flag(desc.flags, rhi::image_flag::cube_compatible);
         answer->declared_format = desc.format;
+        answer->declared_flags = desc.flags;
+        {
+            std::lock_guard const lock(this->contract_images_mutex);
+            this->contract_images.insert(answer);
+        }
         deren::utility::log("rhi: create_image {} {}x{} layers {} mips {} -> handle {:#x}",
                             what, create_info.width, create_info.height, create_info.array_layers, create_info.mip_levels, owned.handle());
         return answer;
@@ -785,6 +1001,10 @@ namespace deren::vulkan {
     }
 
     void core::owned_image::release() noexcept {
+        {
+            std::lock_guard const lock(this->owner->contract_images_mutex);
+            this->owner->contract_images.erase(this);
+        }
         // `delete this`: the destructor resets the `vk_image` RAII owner, which is the allocator's
         // reference-count decrement (rhi.api_core.cppm's ownership note - release, not necessarily
         // destruction: a content-deduplicated image dies when its LAST reference goes).
@@ -1208,10 +1428,6 @@ namespace deren::vulkan {
 
     // ---- tier-2: device_address --------------------------------------------------------------------
 
-    rhi::extension_kind core::buffer_address_view::kind() const noexcept {
-        return rhi::extension_kind::device_address;
-    }
-
     std::uint64_t core::buffer_address_view::buffer_address(rhi::buffer const& resource, std::uint64_t const offset) const noexcept {
         // THE PRECONDITION IS THE CONTRACT'S OWN RULE, STATED RATHER THAN GUESSED AT: a caller may only
         // ask about a buffer THIS backend handed out (rhi.api_core.cppm says the same about every handle
@@ -1239,10 +1455,6 @@ namespace deren::vulkan {
     }
 
     // ---- tier-2: vulkan_escape ---------------------------------------------------------------------
-
-    rhi::extension_kind core::frame_escape::kind() const noexcept {
-        return rhi::extension_kind::vulkan_escape;
-    }
 
     void* core::frame_escape::native_instance() const noexcept {
         return reinterpret_cast<void*>(this->owner->instance);

@@ -60,7 +60,7 @@ namespace deren::vulkan {
         // per-sampler constant because it keeps them as a list).
         uint32_t const sampler_slot = static_cast<uint32_t>(core::heap_sampler_base);
         std::span<uint8_t const> const spirv = this->registered_shader("heap_probe.comp.spv");
-        if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || spirv.empty()) {
+        if (!contract_heap_ready(vk) || vk.heap_grid_offset == VK_WHOLE_SIZE || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
         auto const built = pipelines::build_heap_probe(vk, vk.logical_device, spirv);
@@ -94,7 +94,7 @@ namespace deren::vulkan {
         VkCommandBufferBeginInfo const begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = nullptr, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, .pInheritanceInfo = nullptr};
         vkBeginCommandBuffer(command_buffer, &begin);
         // The heaps first: they are command-buffer state, and this buffer holds nothing else.
-        vk.descriptor_heaps.record_bind(command_buffer);
+        contract_record_heap_bind(vk, command_buffer);
         vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, built->trace->get_pipeline());
         // The parameters, THROUGH PUSH DATA: there is no pipeline layout to push constants to, which is the flag's
         // requirement and the reason this function exists.
@@ -104,7 +104,7 @@ namespace deren::vulkan {
             texture_slot,
             sampler_slot, // the host's choice of sampler, not the shader's
         };
-        [[maybe_unused]] bool const pushed = vk.descriptor_heaps.push_data(command_buffer, 0u, std::as_bytes(std::span(push)));
+        [[maybe_unused]] bool const pushed = contract_push_heap_data(vk, command_buffer, 0u, std::as_bytes(std::span(push)));
         vkCmdDispatch(command_buffer, 1u, 1u, 1u);
         vkEndCommandBuffer(command_buffer);
 
@@ -152,7 +152,7 @@ namespace deren::vulkan {
         core& vk = this->vulkan_core;
         std::span<uint8_t const> const vertex_code = this->registered_shader(mesh_shader ? "heap_probe.mesh.spv" : "heap_probe.vert.spv");
         std::span<uint8_t const> const fragment_code = this->registered_shader("heap_probe.frag.spv");
-        if (!vk.descriptor_heaps.ready() || vk.heap_grid_offset == VK_WHOLE_SIZE || vertex_code.empty() || fragment_code.empty()) {
+        if (!contract_heap_ready(vk) || vk.heap_grid_offset == VK_WHOLE_SIZE || vertex_code.empty() || fragment_code.empty()) {
             return;
         }
         constexpr VkFormat probe_format = VK_FORMAT_R8G8B8A8_UNORM;
@@ -211,7 +211,7 @@ namespace deren::vulkan {
         vkAllocateCommandBuffers(vk.logical_device, &allocate, &command_buffer);
         VkCommandBufferBeginInfo const begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = nullptr, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, .pInheritanceInfo = nullptr};
         vkBeginCommandBuffer(command_buffer, &begin);
-        vk.descriptor_heaps.record_bind(command_buffer);
+        contract_record_heap_bind(vk, command_buffer);
 
         VkImageMemoryBarrier2 to_colour = {};
         to_colour.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -250,7 +250,7 @@ namespace deren::vulkan {
         // way a parameter reaches the fragment stage - and running the probe with a wrong value here is the
         // negative proof (see the caller).
         std::array<uint32_t, 4> const push = {material_slot, 0u, 0u, 0u};
-        [[maybe_unused]] bool const pushed = vk.descriptor_heaps.push_data(command_buffer, 0u, std::as_bytes(std::span(push)));
+        [[maybe_unused]] bool const pushed = contract_push_heap_data(vk, command_buffer, 0u, std::as_bytes(std::span(push)));
         vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, built->get_pipeline());
         if (mesh_shader) {
             // ONE workgroup, ONE triangle: the mesh entry emits three vertices and one index triple, and the

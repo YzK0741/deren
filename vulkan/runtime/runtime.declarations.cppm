@@ -162,6 +162,20 @@ namespace deren::vulkan {
      */
     /// A Vulkan format the engine still holds (a slot table, a probe's choice) in the contract's
     /// spelling. `unknown` for anything the contract does not name - create_image refuses those.
+    // 独立定义在 constructor 分区，避免调用点优化成具体 core 的 query_extension 符号。
+    [[nodiscard]] bool contract_heap_ready(rhi::api_core& face) noexcept;
+    [[nodiscard]] rhi::descriptor_heap_properties contract_heap_properties(rhi::api_core& face) noexcept;
+    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, rhi::image const& resource,
+                                                 rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept;
+    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, VkImageViewCreateInfo const& view,
+                                                 VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
+    [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, VkDeviceAddress address,
+                                                  VkDeviceSize size, VkDescriptorType type) noexcept;
+    void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer commands) noexcept;
+    void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept;
+    [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer commands, std::uint32_t offset,
+                                               std::span<std::byte const> data) noexcept;
+
     [[nodiscard]] constexpr rhi::image_format contract_image_format(VkFormat const format) noexcept {
         switch (format) {
         case VK_FORMAT_R8G8B8A8_UNORM:
@@ -204,13 +218,13 @@ namespace deren::vulkan {
         /// frame calls go through THIS, never through the concrete class - a call through the
         /// interface emits no backend symbol, which is what makes the flip a load-line change
         /// instead of a rewrite).
-        [[nodiscard]] rhi::api_core& rhi_face() noexcept;
+        [[nodiscard]] rhi::api_core& rhi_face() const noexcept;
         /// the escape the transitional raw sites borrow through (`native_image` and friends, abi 7).
         [[nodiscard]] rhi::vulkan_escape& escape() noexcept;
         /// THE TOON FAMILY'S SHARED RECIPE (abi 8): one HDR colour target, the depth ROLE, the depth
         /// TEST with per-draw write, the caller's blend mode and compare - formerly three near-equal
         /// core members (character-forward / overlay / outline), now one contract-face builder here.
-        [[nodiscard]] std::expected<pipelines::pipeline_handle, std::string_view> build_toon_family_pipeline(
+        [[nodiscard]] std::expected<pipelines::pipeline_handle, std::string> build_toon_family_pipeline(
             std::span<uint8_t const> first_stage_code, std::span<uint8_t const> fragment_code,
             rhi::blend_mode mode, rhi::depth_compare compare, char const* what);
 
@@ -3602,7 +3616,7 @@ namespace deren::vulkan {
          * @param pipeline_name the name passed to make_pipeline()
          * @return pointer to the cached pipeline, or nullptr if no pipeline with that name exists
          */
-        [[nodiscard]] vk_pipeline const* get_pipeline(std::string_view pipeline_name) const noexcept;
+        [[nodiscard]] pipelines::pipeline_handle const* get_pipeline(std::string_view pipeline_name) const noexcept;
 
         /**
          * @ingroup vulkan_runtime
