@@ -17,11 +17,11 @@
 | **③ 27 个符号** | ① A(6)+B(4)+两处删除 → 15；② C(4)+删 `set_window_title` → 10；③ `core::core(create_info)` **最后一步**；④ 门改"白名单之外为零" | ③ 随 ② 批 | 边界降到该步目标值 + 14 场景哈希不变 |
 | **④ utility 拆分** | `shared_utility`（日志 sink/轮转/panic/分配器钩子）+ `static_utility`（BVH/data_block/…/**`dynamic_link`**）；**先两半都 STATIC**，翻转时 shared 转 SHARED | 否 | 后端 DLL 导入表出现 `shared_utility.dll`（而非自带 sink） |
 
-**仍待裁决的三件**
+**仍待裁决（一件）**
 
 1. ~~`wait_and_acquire()` 融合后 GPU 计时收集放哪~~ —— **已由 `gpu_profiler` 解决**：**收集归后端**（在 `wait_and_acquire()` 内、"取下一张图"之前 latch 该槽上一帧的计时，所以被 `OUT_OF_DATE` 跳过的帧照样收集），**读归引擎**（调用返回之后读 `profiler()`）；引擎不再需要在"等"与"采集"之间插一步，**行为零变化**；
-2. `frame_open_info` 的**错误通道**形状（今天 `frame_begin()` 把 `OUT_OF_DATE` 与设备丢**一起压成零值**）；
-3. `ring_depth()` 与 `walk_frames()` 的最终名字。
+2. ~~`frame_open_info` 的错误通道形状~~ —— **已定案（选 A）**：见 §frame_open_info；
+1. `ring_depth()`（建议 `slot_count()`）与 `walk_frames()`（建议保留）的最终拼写。
 
 **治理**：集成点是本仓库主干；`codex/upstream-sync-2026-10-04`（= 我们主干快照）与 `codex/abi8-followup-2026-10-04`（**已合并**：ABI 9–12）是补丁来源；`codex/dynamic-link-v3` 是**旧现场归档**、不合并；每笔移植提交带 provenance。
 
@@ -359,3 +359,36 @@ struct gpu_profiler {                       // BORROWED VIEW（无 release()）
 **它关闭的悬案**：`wait_and_acquire()` 融合"等 + 采集"后，今天夹在中间的 `collect_gpu_timings` 没位置。定案：**收集归后端**（`wait_and_acquire()` 内部、取图之前 latch 该槽上一帧的计时 —— 被 `OUT_OF_DATE` 跳过的帧照样收集），**读归引擎**（返回之后读 `profiler()`）。**行为零变化**，且引擎不再需要在"等"与"采集"之间插步骤。
 
 **落点**：后端视图委托既有 `gpu_timing_mark_capacity=16` / `mark_gpu_timing` / `read_gpu_timings(frame_index)` / `gpu_timing_available()`；名字存进视图的 16 项指针数组；probe 必须实现 `profiler()`；尖刺断言 `profiler() != nullptr`、`stage_count() <= 16`、有 mark 后 `get_stage_info(0,…)` 给出非空名字与正数纳秒、越界返回 `invalid_argument`、无计时设备返回 `unsupported`；引擎侧 `mark_gpu_timing`/`read_gpu_timings` 调用点改走契约。
+---
+
+## §frame_open_info（定案，选 A）
+
+```cpp
+struct frame_open_info {
+    submit_info frame = {};   // 仅当 result.code == error::ok 时有效；否则零值，不得使用
+    error_info result = {};   // 决策层 + 诊断（where 由后端在失败点捕获）
+};
+[[nodiscard]] virtual frame_open_info wait_and_acquire() = 0;   // frame_walker 上
+```
+
+**为什么按值返回、而不是 `expected` 或出参**：契约里已有两条失败风格（工厂的裸指针 + `nullptr`；`command_list::use` 返回 `error`），再引入 `std::expected` 就是第三条，且要统一就得整片重写工厂。A 是**消除信息丢失的最小一步**，且不关门（将来统一时 `frame_open_info` → `expected<submit_info, error_info>` 是一次干净替换）。
+
+**三条必须写进注释的语义**
+
+1. `result.code == error::ok` ⇒ `frame` 是已开始的帧；否则 `frame` 为零值——**保留今天"零值 = 没起帧"的可读性，但现在知道为什么**；
+2. `result` 可能来自**两步中的任何一步**（等槽 / 采集），`where` + `message` 指出是哪一步——这就是把 `wait_frame_slot` 今天丢弃的 `vkWaitSemaphores` 结果补回来的地方；
+3. **按值返回的 POD 是冻结的：加字段 = 跳 `abi_version`。** 这与出参方向的 `error_info*` 不同（那里 `struct_size` 能保护追加）：**按值返回的 ABI 取决于结构大小**，旧引擎 + 新后端会直接错调约定。⇒ 一次设计到位。
+
+**用法**（与已定的 classifier 纪律对接；今天的两个 if 阶梯就是它的内容）：
+
+```cpp
+inline constexpr auto classify_acquire = [](frame_open_info const& open) -> verdict {
+    if (open.result.code == error::ok)                    return pass_success{};
+    if (open.result.code == error::out_of_date)           return pass_failure{open.result};  // → skipped + 重建
+    if (open.result.code == error::device_lost ||
+        open.result.code == error::out_of_host_memory)    return fatal{open.result};
+    return pass_failure{open.result};                                                       // → acquire_failed
+};
+```
+
+**通用规则（追加进错误机制那节）**：**按值返回的契约 POD（`submit_info`、`frame_open_info`、`error_info`）一律冻结——任何字段变化都跳 abi；只有"由调用方提供存储"的出参结构才靠 `struct_size` 支持追加。**
