@@ -40,7 +40,34 @@
 
 ---
 
-## A. 设备与帧生命周期（6 个）——目标：runtime 改走契约已有的帧动词
+## §解决方法总览（27 个符号 → 四种处置）
+
+> 依据：`promise/rhi/*.cppm` 的**全部虚函数面**（`api_core`：`abilities` / `query_extension` / `create_{swapchain,buffer,image,sampler,shader,pipeline,query}` / `begin_commands` / `frame_image` / `frame_readback_buffer` / `frame_begin` / `present` / `wait_idle`；`command_list`：`use` / `copy_image_to_buffer`；`swapchain`：**只有 `release()`**）。
+
+| 处置 | 数量 | 符号 | 解决方式 |
+|---|---|---|---|
+| **① 契约已有面，改调用点即可** | 5 | `acquire_next_image`（→ `frame_begin()` 已回填 `image_index`）、`present(uint)`（→ 无参 `present()`）、`make_sampler`（→ `create_sampler`）、`make_image_view`（→ `image::make_view`，ABI 7）、`make_shader_module`（→ `create_shader`） | 改 runtime/filters 的调用点；无契约改动 |
+| **② 需要新增契约面** | 9 | `submit(VkCommandBuffer,uint)`、`wait_frame_slot(uint)`、`recreate_swap_chain()`、`to_next_frame()`、`render_extent()`、timing 的 4 个 | 见下方"新面形状" |
+| **③ 直接删除** | 3 | `core::set_window_title`（连 `user_filter::set_window_title` 的转发一起）、`vma_allocator::log_statistics()` 的调用、`init_utils::default_task_pool_threads()` 的调用 | 删成员/删调用；线程数改由应用经 `create_info` 追加字段或 config 传入 |
+| **④ 白名单（不删，记入翻转门）** | 7+2 | `vk_command_buffer`（移动构造/析构/`operator*`）、`vk_sampler::operator*`、`make_command_buffer`、`make_secondary_command_buffer`、`create_recording_pool`、两条 module initializer | 门改成"白名单外为零"，白名单进配置、只减不增、逐条打印 |
+| **⑤ 最后一步** | 1 | `core::core(create_info const&)` | 见"顺序"第 ③ 步 |
+
+### 新面形状（② 的 9 个）
+
+| 面 | 建议形状 | 为什么是这个形状 |
+|---|---|---|
+| 提交 | `api_core::submit(command_list&)`（或 `submit_frame(uint frame_index)`） | 契约里 **没有 submit**：`command_list` 只有 `use`/`copy_image_to_buffer`，`api_core` 只有 `frame_begin`/`present`/`wait_idle`。提交是帧动词缺失的那一块 |
+| 帧槽等待 | `api_core::wait_frame(uint frame_index)` | 只有 `wait_idle()`（等全部）；逐槽等待是帧环的语义，且**必须回传 `error`**而不是吞掉 `VkResult` |
+| 交换链重建 | `swapchain::recreate(swapchain_desc const&)` | `swapchain` 现在只有 `release()`；重建是它的行为，不该回到 `api_core` 上 |
+| 渲染分辨率 | `swapchain::extent()`（POD `image_extent`）+ runtime 自己乘 `render_scale` | 上次说"已有"是错的（`:298` 的 `extent()` 属于 `image`） |
+| `to_next_frame` | 不新增：用 `frame_begin().frame_index` 表达环位 | 契约的 `submit_info` 已经带 `frame_index`/`image_index`，环推进是它的推论 |
+| timing（4 个） | `mark(command_list&, uint mark_index, image_use) ` / `read_results(uint frame_index)` / `available()` + 容量查询 | 裁决 1：新增 timing 面；`mark` 必须**不**拿裸 `VkCommandBuffer` |
+
+---
+
+## A. 设备与帧生命周期（6 个）——2 个已有面、**4 个要新增契约动词**（此前写成"全有现成面"是错的）
+
+
 
 | 符号 | 调用方 | 目标 | 手段 |
 |---|---|---|---|
@@ -69,7 +96,7 @@
 | `core::make_sampler(VkSamplerAddressMode, float) const` | filters.cpp | 走 `create_sampler` | **已有**（api_core :691） |
 | `core::make_image_view(VkImage, VkFormat, VkImageViewType) const` | filters.cpp | 走契约视图面 | **已有**（ABI 7 的 image 面） |
 | `core::make_shader_module(span<uchar>) const` | filters.cpp | 走 `create_shader` | **已有**（:692） |
-| `core::render_extent() const` | runtime.cpp, runtime.frames | 走 `swapchain::extent()` | **已有**（:298） |
+| `core::render_extent() const` | runtime.cpp, runtime.frames | 让契约知道渲染分辨率 | ⚠ **`swapchain` 面目前只有 `release()`，没有 `extent()`**；要么给 `swapchain` 加 `extent()`，要么 runtime 自己按 `swapchain_desc` + `create_info::render_scale` 维护并在重建时更新 |
 | `core::set_window_title(string_view) const` | filters.cpp | **删后端成员**（裁决 3）：标题归应用；`filters` 的调用一并删 | 删除 + 应用侧设置 |
 | ~~`core::make_command_buffer()`~~ | filters.cpp, readback.cpp | → **白名单**（§0.1） | 裁决 2 |
 | ~~`core::make_secondary_command_buffer()`~~ | runtime.constructor | → **白名单**（§0.1） | 裁决 2 |
