@@ -17,11 +17,11 @@
 | **③ 27 个符号** | ① A(6)+B(4)+两处删除 → 15；② C(4)+删 `set_window_title` → 10；③ `core::core(create_info)` **最后一步**；④ 门改"白名单之外为零" | ③ 随 ② 批 | 边界降到该步目标值 + 14 场景哈希不变 |
 | **④ utility 拆分** | `shared_utility`（日志 sink/轮转/panic/分配器钩子）+ `static_utility`（BVH/data_block/…/**`dynamic_link`**）；**先两半都 STATIC**，翻转时 shared 转 SHARED | 否 | 后端 DLL 导入表出现 `shared_utility.dll`（而非自带 sink） |
 
-**仍待裁决（一件）**
+**待裁决：无（本节全部已定案）**
 
 1. ~~`wait_and_acquire()` 融合后 GPU 计时收集放哪~~ —— **已由 `gpu_profiler` 解决**：**收集归后端**（在 `wait_and_acquire()` 内、"取下一张图"之前 latch 该槽上一帧的计时，所以被 `OUT_OF_DATE` 跳过的帧照样收集），**读归引擎**（调用返回之后读 `profiler()`）；引擎不再需要在"等"与"采集"之间插一步，**行为零变化**；
 2. ~~`frame_open_info` 的错误通道形状~~ —— **已定案（选 A）**：见 §frame_open_info；
-1. `ring_depth()`（建议 `slot_count()`）与 `walk_frames()`（建议保留）的最终拼写。
+1. ~~`ring_depth()` 与 `walk_frames()` 的最终拼写~~ —— **已定案**：`slot_count()` + `walk_frames()`（`walker()` 备选未采用）。
 
 **治理**：集成点是本仓库主干；`codex/upstream-sync-2026-10-04`（= 我们主干快照）与 `codex/abi8-followup-2026-10-04`（**已合并**：ABI 9–12）是补丁来源；`codex/dynamic-link-v3` 是**旧现场归档**、不合并；每笔移植提交带 provenance。
 
@@ -392,3 +392,33 @@ inline constexpr auto classify_acquire = [](frame_open_info const& open) -> verd
 ```
 
 **通用规则（追加进错误机制那节）**：**按值返回的契约 POD（`submit_info`、`frame_open_info`、`error_info`）一律冻结——任何字段变化都跳 abi；只有"由调用方提供存储"的出参结构才靠 `struct_size` 支持追加。**
+---
+
+## §命名定案（帧面 + 性能面，全部定案）
+
+```cpp
+api_core:
+    walk_frames() -> frame_walker*     // 借用视图；与 walk_to_next 同族；避开"类型与存取器同名"
+    profiler()    -> gpu_profiler*     // 借用视图
+
+frame_walker:                          // BORROWED VIEW（无 release()）
+    slot_count()                        // 环里有多少格（替 MAX_FRAMES_IN_FLIGHT 的 12+ 处）
+    position()                          // 本帧所在槽（替 29 处 vk.current_frame 读点）
+    wait_and_acquire() -> frame_open_info  // 等该槽 + latch 该槽计时 + 取下一张图
+    walk_to_next()                      // 收尾推进（present 之后）
+
+frame_open_info { submit_info frame; error_info result; }   // 按值返回，冻结
+
+gpu_profiler:                          // BORROWED VIEW
+    stage_count()
+    get_stage_info(index, std::string_view* name, std::uint64_t* duration_ns) -> error
+```
+
+**为什么是这几个名字**（一句话各一条）：
+- `position()` + `slot_count()` 成对——"第几格 / 共几格"，一眼可读；`frames_in_flight()` 会把**后端的运行期词汇**搬进契约，`capacity()` 会被误读成缓冲容量；
+- `wait_and_acquire()` 把"等"与"采"写在名字里（行为见 §附 与 §frame_open_info）；
+- `walk_to_next()` 只承诺"环往前走一格"，不承诺它管不了的"帧结束"语义（`end_frame()` 会暗示后者）；
+- `walk_frames()` / `profiler()` 与契约既有存取器同风格（"你拿到什么"：`begin_commands()`、`frame_image()`、`frame_readback_buffer()`）；
+- `stage_count()` / `get_stage_info()` 由用户定，落为定案。
+
+**至此目标文档内无待裁决项**，四批（① 错误机制 / ② 帧面 / ③ 27 个符号 / ④ utility 拆分）均可直接开工。
