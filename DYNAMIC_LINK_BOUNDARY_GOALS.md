@@ -156,18 +156,37 @@
 /// 帧环的游标，作为 BORROWED VIEW（像 command_list：没有 release()）
 struct frame_walker {
     virtual ~frame_walker() noexcept = default;
-    [[nodiscard]] virtual std::uint32_t ring_depth() const noexcept = 0; ///< 替 MAX_FRAMES_IN_FLIGHT
-    [[nodiscard]] virtual std::uint32_t slot() const noexcept = 0;       ///< 替 29 处字段读
-    [[nodiscard]] virtual submit_info begin_frame() = 0;                 ///< 等该槽 + 采集 + 报本帧身份
-    virtual void advance() noexcept = 0;                                 ///< 替 to_next_frame
+    [[nodiscard]] virtual std::uint32_t ring_depth() const noexcept = 0; ///< 替 MAX_FRAMES_IN_FLIGHT（名字待定）
+    [[nodiscard]] virtual std::uint32_t position() const noexcept = 0;   ///< 替 29 处字段读（定名，原 slot）
+    [[nodiscard]] virtual frame_open_info wait_and_acquire() = 0;        ///< 等该槽 + 采集 + 报身份（定名，原 begin_frame）
+    virtual void walk_to_next() noexcept = 0;                            ///< 替 to_next_frame（定名，原 advance）
 };
 
 // api_core 上新增一个虚函数：
 [[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
 ```
 
-**命名**：类型 `frame_walker` + 存取器 `walk_frames()`——刻意避免"类型与存取器同名"（`frame_loop()` 返回 `frame_loop*` 读起来最差）。
-**权威**：后端的 `current_frame` 是唯一权威；`begin_frame()` 返回的 `submit_info.frame_index` 与 `slot()` 必须一致，由尖刺断言。
+**命名已定（2026-10-05，用户）**：`position()` / `wait_and_acquire()` / `walk_to_next()`；`aquire` 按仓库既有拼写（`acquire_next_image`）归一为 `acquire`。仍待定：`ring_depth()` 的名字、存取器名（`walk_frames()` 与 `walk_to_next` 同族，暂定它）。
+
+**权威**：后端的 `current_frame` 是唯一权威；`position()` 与 `wait_and_acquire()` 报出的 `submit_info.frame_index` 必须一致，由尖刺断言。
+
+### 融合形状强制决定的三件事（`wait_and_acquire()` 把今天的两步合成一步）
+
+今天一帧开头的四步，顺序都是承重的（`runtime.frames.cppm:175-201`）：
+
+```cpp
+position = vk.current_frame;          // ① 读游标（不推进）
+vk.wait_frame_slot(position);         // ② 主机等该槽的 timeline（0 = 从未提交，直接返回）
+this->collect_gpu_timings(position);  // ③ 收集上一帧 GPU 计时 ← 夹在②与④之间
+VkResult r = vk.acquire_next_image(image_index);   // ④ 采集；OUT_OF_DATE 由引擎重建并 skip
+// 收尾（present 之后，:3297）：vk.to_next_frame();   // ⑤ walk_to_next()
+```
+
+| # | 必须决定 | 后果 |
+|---|---|---|
+| **1** | **③ 计时收集放哪** | (a) `wait_and_acquire()` 顺带收集/上报计时（把 profiling 关注点放进"环"的面）；(b) 引擎改成**采集成功后**再收集（**行为变化**：`OUT_OF_DATE` 那种被跳过的帧不再收集计时——今天是先收集后采集，所以照样收集）；(c) 引擎在调用**之前**收集——**不可能**，那时还没等，时间戳不可读 |
+| **2** | **返回与错误通道** | 今天 `frame_begin()` 把 `OUT_OF_DATE` 与其它失败**都压成零值 `submit_info`**，引擎因此分不清"窗口变了"与"设备丢了"。`frame_open_info` 需要带 `error`（至少区分 `out_of_date` / 其它），否则换面只是换个地方丢信息；同理 `wait_frame_slot` 今天 `void` 丢 `vkWaitSemaphores` 结果 |
+| **3** | `ring_depth()` 的名字 | 候选：`ring_depth()` / `slot_count()` / `frames_in_flight()`（后者最像 `MAX_FRAMES_IN_FLIGHT`，但带实现味） |
 
 ### 落点清单
 
