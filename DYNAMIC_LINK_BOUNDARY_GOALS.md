@@ -201,3 +201,85 @@ VkResult r = vk.acquire_next_image(image_index);   // ④ 采集；OUT_OF_DATE �
 **见证**：边界 **27 → 24**（三个符号消失），且 29+12 处不再命名后端类型；`ctest` 全绿、格式过、尖刺含新断言、**14 场景渲染哈希逐字节不变**。
 
 **顺序**：契约 + 后端 + probe + 尖刺 为一段（面立起来、可独立验证、引擎不动）→ 引擎的 29/12 处替换为第二段（机械替换，一次一个文件，逐段过门）。
+
+---
+
+## §错误机制（定案，2026-10-05）
+
+### 1. 分类：`enum class error` 追加，不新增类型
+
+保留 0–12。**`device_lost` 名字不改**——API 报出的事实是"设备不可用"，而"驱动挂了/TDR/设备被移除"是**诊断**，放 `error_info.message` 与 `native_code`：同一个码也可能来自驱动更新、热拔、超频崩溃、VM 迁移，而调用方的动作完全相同。追加：
+
+| 值 | 含义 | 调用方的动作（值存在的理由） |
+|---|---|---|
+| `out_of_date` = 13 | 交换链/目标过期 | **重建后重试**，本帧跳过（今天被压进 `operation_failed`） |
+| `surface_lost` = 14 | 窗口/表面没了 | 重建表面；窗口已关则退出循环 |
+| `timeout` = 15 | 等待/查询超时 | 可重试或降级（今天 `vkWaitSemaphores` 结果被丢） |
+| `out_of_device_memory` = 16 | 设备内存耗尽 | **可恢复**：释放资源后重试 |
+| `out_of_host_memory` = 17 | 主机内存耗尽 | 通常致命 |
+| `initialization_failed` = 18 | 创建失败且不属于上述任何一类 | 报告并退出（工厂 `nullptr` 的"为什么"） |
+
+**刻意不进枚举**：`suboptimal`（是状态不是错误，**按调用点翻**：acquire → `ok`，present → `out_of_date`）；extension/feature/format/layer_not_present → 已有 **`unsupported`**；too_many_objects / memory_map_failed / not_permitted / unknown / validation_failed → **`operation_failed`** + `native_code`；DX12 的 DEVICE_REMOVED / DEVICE_RESET → `device_lost`。
+
+### 2. 区域：`error_zone` 是**函数**，不是字段
+
+```cpp
+enum class error_zone : std::uint8_t { api = 0, resource = 1, argument = 2, internal = 3 };
+[[nodiscard]] constexpr auto zone_of(error code) noexcept -> error_zone;
+```
+
+契约内 zone **由 code 唯一决定**（`unsupported`→resource、`invalid_argument`→argument、`device_lost`/`timeout`/`out_of_*`→api、`abi_mismatch`/`operation_failed`/`initialization_failed`→internal），做成字段就多一个**能和 code 打脸**的真相源。**多来源的 zone 属于应用层**（graphics / asset / config / platform / internal），那里它才是独立信息，契约不背这个字段。
+
+### 3. 诊断值：`error_info`（冻结，不带 `struct_size`）
+
+```cpp
+enum class graphics_api : std::uint8_t { unknown = 0, vulkan = 1 };   // 追加式
+
+struct error_info {
+    error code = error::ok;                   // 决策层
+    graphics_api api = graphics_api::unknown; // 谁产生的
+    std::int32_t native_code = 0;             // 原始码；**有符号**（Vulkan 为负，-1000001004 塞无符号就是另一个数）
+    std::string_view message = {};            // 后端静态文本（跨边界不能带 std::string）
+    std::source_location where = {};          // **后端失败点**捕获（不是引擎调用点）
+};
+```
+
+三条必须写下的前提/依赖：
+1. `error` 保持 `: std::uint32_t`（与契约其余 6 个 enum 一致）；
+2. `std::source_location` 进契约的前提是 **两半同一工具链**——这条已被 `vstd`（libc++ std 模块的裁剪分支）与 BMI 隐含强制，现在写成显式条款，并用断言钉住（`static_assert(std::is_trivially_copyable_v<error_info>)` + clang64 上 `sizeof`/`offsetof`）；
+3. `file`/`function` 指向后端静态存储，安全性**依赖不变式 4（DLL 从不卸载，`detach()` 就是为它做的）**——写进字段注释。
+
+生产者 helper（后端内部；位置只能在失败点捕获，给虚函数加默认实参会捕到**引擎**的位置）：
+
+```cpp
+[[nodiscard]] constexpr error_info failed(error code, std::uint32_t native_code = 0,
+                                          std::string_view message = {},
+                                          std::source_location where = std::source_location::current()) noexcept;
+```
+
+### 4. 翻译在后端，**按调用点**（不是一个全局函数）
+
+三个私有 helper：`acquire_error(VkResult)` / `present_error(VkResult)` / `generic_error(VkResult)`。
+
+- acquire：`OUT_OF_DATE`→out_of_date；**`SUBOPTIMAL`→ok**；`TIMEOUT`→timeout；`SURFACE_LOST`/`NATIVE_WINDOW_IN_USE`→surface_lost；`DEVICE_LOST`→device_lost；`OUT_OF_DEVICE_MEMORY`/`OUT_OF_POOL_MEMORY`/`FRAGMENTED_POOL`→out_of_device_memory；`OUT_OF_HOST_MEMORY`/`MEMORY_MAP_FAILED`→out_of_host_memory；其余→operation_failed
+- present：同上，但 **`SUBOPTIMAL`→out_of_date**
+- generic（创建/查询/提交）：`INITIALIZATION_FAILED`/`INCOMPATIBLE_DRIVER`→initialization_failed，其余同上
+
+**不裁头文件、不建码表、不生成 .inc**：实测那 41 个 VkResult（23 个在扩展区间）里绝大多数永远到不了我们手上；只列"可能收到"的，其余归 `operation_failed` + `native_code`。
+
+### 5. 从 hopper 学两条 + 改一条规矩
+
+- **`ensure(cond, msg, loc)`** 进 `deren::utility`（`panic` 已在那儿，签名与 hopper 一致），**release 也生效**；
+- **`verdict` + `enforce(outcome, classify)` + `propagate`** 放 utility：三态 `pass_success` / `pass_failure{error_info}` / `fatal{error_info}`，**classifier 谎报即 panic**；deren 的 `frame_status`（proceed/skipped/closed/*_failed）**就是现成的 verdict 类型**，帧路径的手写 if 阶梯改成 `classify_acquire` / `classify_present`；
+- **改一条规矩**：**`fatal` 由引擎执行**——后端只上报（`device_lost` / `out_of_host_memory` 之类），不自己 `_Exit`；今天启动期后端直接 panic 的几处是**待迁移的例外**。
+
+### 6. abi 与顺序
+
+| 变化 | 是否跳 abi |
+|---|---|
+| 追加 enum 值（13–18）、`error_zone`/`zone_of`、`error_info`/`graphics_api`、`ensure`/`verdict`/`enforce` | **不跳** |
+| 入口 `error*` → `error_info*`、`api_core` 追加 `walk_frames()`、新类型 `frame_walker` | **跳（12 → 13，一次做完）** |
+
+**顺序**：① enum 值 + `error_info`/`graphics_api`/`zone_of` + `ensure`/`verdict`/`enforce` + 表驱动测试（新建 `tests/test_error_mapping.cpp`，纯 CPU 无 GPU）→ ② 后端三个翻译 helper + 两处丢失点修复（`wait_frame_slot` 回传结果、`frame_begin` 区分 `out_of_date`）→ ③ 与 `frame_walker` 同批改入口与 `wait_and_acquire()`。
+
+**见证**：表驱动测试全绿 + 布局 `static_assert` + 尖刺里 `error_info.code` 断言 + `ctest` 全绿 + 边界仍 27（本批不动符号）+ 14 场景哈希逐字节不变。
