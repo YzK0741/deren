@@ -133,3 +133,52 @@
 
 1. **白名单是否含 `initializer for module deren.vulkan.core`**：取决于 clang 是否会因 `import deren.vulkan.core:handles` 而强制主模块 initializer。**要实测**：把 `runtime` 对 `:handles` 的 import 换成只 import 分区的写法，看 initializer 符号是否仍在清单里。测出来再定，不猜。
 2. **`gpu_timing` 的容量与回读时机**（今天 16 个 mark、按帧回读）：新契约面落地时按实际需求定，不预先发明。
+
+---
+
+## §附 新目标：frame 环的面 `frame_walker`（虚基类，由 `api_core` 交出）
+
+**形状（已定）**：做成**契约的虚基类**，由后端 `api_core` 交出，且是**借用视图**——与 `command_list` 同形（契约 :235 的规则：借用视图**不带 `release()`**，`object_manager` 不得包装它）。
+
+**为什么这样比"引擎自己数游标"好**：游标仍然只有一个家——后端自己的 `current_frame`；引擎是**借视图**，不是持有第二个计数器。⇒ 没有两个真相源，也不需要"核对不一致"的机制（引擎侧方案才需要）。
+
+### 它替掉的三样东西（实测）
+
+| 被替掉的 | 处数 | 为什么重要 |
+|---|---|---|
+| `vk.current_frame`（字段读） | **29**（runtime.frames 19 / runtime.cpp 7 / filters.cpp 2 / filters.cppm 1） | **不产生符号**，但要求引擎知道具体 `core` 的类定义 ⇒ 翻转真障碍 |
+| `core::MAX_FRAMES_IN_FLIGHT`（常量） | **12+**（runtime.constructor 377/819/837/848/861/872/988–991/1052–1053…） | 同上，另一种具体类型接触 |
+| `to_next_frame` / `acquire_next_image` / `wait_frame_slot`（跨界符号） | 3 个 | 边界 27 → 24 |
+
+### 接口草案
+
+```cpp
+/// 帧环的游标，作为 BORROWED VIEW（像 command_list：没有 release()）
+struct frame_walker {
+    virtual ~frame_walker() noexcept = default;
+    [[nodiscard]] virtual std::uint32_t ring_depth() const noexcept = 0; ///< 替 MAX_FRAMES_IN_FLIGHT
+    [[nodiscard]] virtual std::uint32_t slot() const noexcept = 0;       ///< 替 29 处字段读
+    [[nodiscard]] virtual submit_info begin_frame() = 0;                 ///< 等该槽 + 采集 + 报本帧身份
+    virtual void advance() noexcept = 0;                                 ///< 替 to_next_frame
+};
+
+// api_core 上新增一个虚函数：
+[[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
+```
+
+**命名**：类型 `frame_walker` + 存取器 `walk_frames()`——刻意避免"类型与存取器同名"（`frame_loop()` 返回 `frame_loop*` 读起来最差）。
+**权威**：后端的 `current_frame` 是唯一权威；`begin_frame()` 返回的 `submit_info.frame_index` 与 `slot()` 必须一致，由尖刺断言。
+
+### 落点清单
+
+| 处 | 改动 |
+|---|---|
+| 契约 | 新类型 + `api_core` 追加一个虚函数 ⇒ **abi 12 → 13**（对已有 tier-1 类型追加虚函数＝形状变化），理由写进 `rhi.contract.cppm` |
+| 后端 | `core::frame_walker_view`（与 `frame_image_slot` / `readback_slot_view` 同形的借用视图，委托给既有的 `current_frame` / `wait_frame_slot` / `acquire_next_image` / `to_next_frame`）+ `core::walk_frames()`；**构造函数里务必设 `owner = this`**（`address_view` 忘设 owner 的教训）；既有方法保留，它们从"接口"变成"实现" |
+| probe | 必须实现新虚函数（它现在 20 个 `override`），并让测试的位遍历覆盖它 |
+| 尖刺 | 断言 `walk_frames() != nullptr`、`ring_depth() > 0`、`slot() == frame_begin().frame_index` |
+| 引擎 | ① 一次取面；② 29 处字段读 → `slot()`；③ 12+ 处常量 → `ring_depth()`；④ `wait_frame_slot` + `acquire_next_image` → `begin_frame()`；⑤ `to_next_frame()` → `advance()` |
+
+**见证**：边界 **27 → 24**（三个符号消失），且 29+12 处不再命名后端类型；`ctest` 全绿、格式过、尖刺含新断言、**14 场景渲染哈希逐字节不变**。
+
+**顺序**：契约 + 后端 + probe + 尖刺 为一段（面立起来、可独立验证、引擎不动）→ 引擎的 29/12 处替换为第二段（机械替换，一次一个文件，逐段过门）。
