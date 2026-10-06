@@ -50,31 +50,11 @@ namespace deren::vulkan {
         return this->vk_core->walk_frames()->position();
     }
 
-    vk_command_buffer user_filter::make_command_buffer() const {
-        return this->vk_core->make_command_buffer();
-    }
-
-    std::optional<vk_shader_module> user_filter::make_shader_module(std::span<uint8_t> const shader) const noexcept {
-        return this->vk_core->make_shader_module(shader);
-    }
-
-    vk_image_view user_filter::make_image_view(VkImage const image, VkFormat const format, VkImageViewType const type) const {
-        return this->vk_core->make_image_view(image, format, type);
-    }
-
-    vk_sampler user_filter::make_sampler(VkSamplerAddressMode const address_mode, float const max_lod) const {
-        return this->vk_core->make_sampler(address_mode, max_lod);
-    }
-
     // Deliberately non-const: returning a mutable vma_allocator from a const method would break the const
     // contract (a const runtime must not allocate). Some toolchains still suggest adding const here, hence the
     // suppression.
     vma_allocator& user_filter::get_vma() noexcept { // NOLINT
         return this->vk_core->vma;
-    }
-
-    bool user_filter::recreate_swap_chain() const {
-        return this->vk_core->recreate_swap_chain();
     }
 
     // =============================================================================================

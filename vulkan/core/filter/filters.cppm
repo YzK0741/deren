@@ -96,12 +96,6 @@ export namespace deren::vulkan {
         // ---- facade operations (forwarded from core so callers need no raw API) ----
         void wait_idle() const noexcept;
 
-        // ---- safe factory operations ----
-        [[nodiscard]] vk_command_buffer make_command_buffer() const;
-        [[nodiscard]] std::optional<vk_shader_module> make_shader_module(std::span<uint8_t> shader) const noexcept;
-        [[nodiscard]] vk_image_view make_image_view(VkImage image, VkFormat format, VkImageViewType type) const;
-        [[nodiscard]] vk_sampler make_sampler(VkSamplerAddressMode address_mode, float max_lod) const;
-
         /**
          * @ingroup vulkan_core_filters
          * @brief access the VMA allocator for GPU buffer / image allocation
@@ -110,11 +104,6 @@ export namespace deren::vulkan {
          *       non-const filter - a const runtime cannot allocate
          */
         [[nodiscard]] vma_allocator& get_vma() noexcept;
-
-        // ---- swapchain handling ----
-        /// @return true when a new generation was actually built; false when the recreate was deferred
-        ///         (0x0 window) and nothing died - see core::recreate_swap_chain's return value
-        [[nodiscard]] bool recreate_swap_chain() const;
     };
 
     /**
