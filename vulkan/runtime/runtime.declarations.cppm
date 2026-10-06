@@ -75,10 +75,12 @@ namespace rhi = deren::promise::rhi;
 /**
  * @file runtime.cppm
  * @defgroup vulkan_runtime Vulkan Runtime Facade
- * @brief runtime facade: a thin wrapper exposing all functionality of deren::vulkan::core
+ * @brief runtime facade: the renderer's own surface, and the device root it drives
  * @note
- *      - use operator-> to access the filtered core view (core_filter, e.g. runtime->get_device())
- *      - the inner core's lifetime is tied to the runtime
+ *      - use operator-> to access the application's filtered view of the device root; since S2's shared
+ *        filter batch that view forwards ONE call (wait_idle) - the ten accessors it used to carry had no
+ *        consumer (see filters.cppm's measured note)
+ *      - the device root's lifetime is tied to the runtime
  */
 namespace deren::vulkan {
     /**
@@ -155,7 +157,8 @@ namespace deren::vulkan {
      * @ingroup vulkan_runtime
      * @brief vulkan runtime facade class
      * @note
-     *      - use operator-> to access the filtered core view (core_filter, e.g. runtime->get_device())
+     *      - use operator-> to access the application's filtered view of the device root (see its own note
+     *        on why that view is one call wide now)
      *      - default construction performs the whole core initialization (window/instance/device/swap chain etc.)
      *        and registers the orbit camera mouse callbacks on the window
      */
@@ -2223,8 +2226,11 @@ namespace deren::vulkan {
          */
         void set_pass_chain(pass::pass_chain& chain, chain_wiring wiring) noexcept;
 
-        // A non-const runtime exposes a mutable filter (e.g. runtime->get_vma()); a const runtime
-        // gets a read-only filter, so mutating operations are impossible through const access.
+        // The application's filtered view of the device root (S2's shared filter batch): it forwards
+        // `wait_idle()` and nothing else, because the ten accessors it used to carry - the device, the
+        // window, the swapchain's extent and format, the current frame, the allocator - were measured to
+        // have ZERO callers across the repository (see filters.cppm's note). The const overload answers the
+        // same object: `user_filter` has no mutating member left to hide.
         user_filter* operator->() noexcept {
             return &this->filtered_core;
         }

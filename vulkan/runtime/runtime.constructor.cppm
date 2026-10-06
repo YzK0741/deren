@@ -283,8 +283,11 @@ namespace deren::vulkan {
     runtime::runtime(std::shared_ptr<core> shared_core)
         : core_owner{std::move(shared_core)}
         , vulkan_core{*this->core_owner}
-        , filtered_core{core_owner}
-        , pass_resources{core_owner} {
+        , filtered_core{core_owner} {
+        // `pass_resources` is NOT in this list any more (S2's shared filter batch): the pass filter holds no
+        // device root at all now, so it default-constructs its (empty) resource table. Naming it would be an
+        // initializer for a member the list cannot reach - see filters.cppm's measured note.
+
         // ---- THE FRAME'S RESOLUTION IS THE ENGINE'S OWN FROM HERE ON (abi 14) ---------------------
         // The core was just built from the creation descriptor, so its clamped render scale is the
         // authoritative one for this run and the engine copies it ONCE (the option is startup-only:

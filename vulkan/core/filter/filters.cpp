@@ -1,14 +1,12 @@
-// The two filtered views over a core: the application's (what `runtime::operator->` returns) and a pass's init
-// view. Both forward to the core they hold a share of; neither manages a frame, and the pass filter deliberately
-// offers no per-generation handle (see the header for the contract).
+// The two filtered views over a device root: the application's (what `runtime::operator->` returns) and a
+// pass's init view. The application's forwards one contract call; the pass's serves the owner's published
+// resources. Neither manages a frame, and the measured reason this file is now ten accessors smaller is in
+// the header.
 
 module;
 
-#include <GLFW/glfw3.h>
 #include <cstdint>
 #include <memory>
-#include <span>
-#include <string_view>
 #include <utility>
 #include <vulkan/vulkan.h>
 
@@ -20,68 +18,21 @@ namespace deren::vulkan {
     // the application's view
     // =============================================================================================
 
-    user_filter::user_filter(std::shared_ptr<core> owner) noexcept
+    user_filter::user_filter(std::shared_ptr<deren::promise::rhi::api_core> owner) noexcept
         : owner_share(std::move(owner))
-        , vk_core(this->owner_share.get()) {
-    }
-
-    VkDevice user_filter::get_device() const noexcept {
-        return this->vk_core->logical_device;
-    }
-
-    GLFWwindow* user_filter::get_window() const noexcept {
-        return this->vk_core->window;
+        , core_face(this->owner_share.get()) {
     }
 
     void user_filter::wait_idle() const noexcept {
-        this->vk_core->wait_idle();
-    }
-
-    VkExtent2D user_filter::get_swap_chain_extent() const noexcept {
-        return this->vk_core->swap_chain_extent;
-    }
-
-    VkFormat user_filter::get_swap_chain_image_format() const noexcept {
-        return this->vk_core->swap_chain_image_format;
-    }
-
-    uint32_t user_filter::get_current_frame() const noexcept {
-        // THE RING IS THE BACKEND'S (abi 13): the cursor through the face, not the field.
-        return this->vk_core->walk_frames()->position();
-    }
-
-    // Deliberately non-const: returning a mutable vma_allocator from a const method would break the const
-    // contract (a const runtime must not allocate). Some toolchains still suggest adding const here, hence the
-    // suppression.
-    vma_allocator& user_filter::get_vma() noexcept { // NOLINT
-        return this->vk_core->vma;
+        // A contract virtual: this call emits no backend symbol, whichever side of the boundary the object
+        // lives on - the property that makes the runtime's `operator->` usable before and after the flip.
+        this->core_face->wait_idle();
     }
 
     // =============================================================================================
-    // the pass's view: a device, the surface's format, the owner's pool, the allocator, and the
-    // resources the owner published - nothing that manages a frame, and no per-generation handle
+    // the pass's view: the resources the owner published - nothing that manages a frame, and no
+    // per-generation handle
     // =============================================================================================
-
-    pass_filter::pass_filter(std::shared_ptr<core> owner) noexcept
-        : owner_share(std::move(owner))
-        , vk_core(this->owner_share.get()) {
-    }
-
-    VkDevice pass_filter::device() const noexcept {
-        return this->vk_core->logical_device;
-    }
-
-    VkFormat pass_filter::swap_chain_image_format() const noexcept {
-        return this->vk_core->swap_chain_image_format;
-    }
-
-    VkExtent2D pass_filter::swap_chain_extent() const noexcept {
-        return this->vk_core->swap_chain_extent;
-    }
-
-    vma_allocator& pass_filter::vma() noexcept { // NOLINT: the same const contract as user_filter::get_vma
-        return this->vk_core->vma;
-    }
 
     void pass_filter::register_resource(render_resource::resource_id const id, uint32_t const element, resource_handles const handles) noexcept {
         // The key packs the declaration's identity: which resource, and which element of its family. A SECOND

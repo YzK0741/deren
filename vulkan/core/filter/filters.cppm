@@ -1,56 +1,59 @@
-// module version: 0.2.0  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.3.0  (independent of the app version in CMakeLists project(VERSION))
 
 /**
  * @file vulkan/core/filter/filters.cppm
- * @brief The filtered views over a `deren::vulkan::core`: one for the application (`user_filter`) and one for a pass's
+ * @brief The filtered views over a device root: one for the application (`user_filter`) and one for a pass's
  *        initialization (`pass_filter`).
  * @defgroup vulkan_core_filters Vulkan Core Filters
  *
- * WHY FILTERS AT ALL, and why two: `deren.vulkan.core` is the device root - it holds the instance, the device, the
- * swapchain, the allocator, every image and every descriptor pool. Handing that whole interface to a consumer
- * hands it the ability to do anything to the device, and the consumer then has no way to say what it actually
- * needs. A filter is a NAMED, narrow view of that root: the app gets one, a pass's init gets another, and each
- * can grow the operations its consumer is allowed to have. Both hold a `std::shared_ptr<core>`, so a filter can
- * outlive the object it was made from - which is what makes it usable as a member of something that shares a
- * device with a second owner.
+ * WHY FILTERS AT ALL, and why two: the device root holds the instance, the device, the swapchain, the
+ * allocator, every image and every descriptor pool. Handing that whole interface to a consumer hands it the
+ * ability to do anything to the device, and the consumer then has no way to say what it actually needs. A
+ * filter is a NAMED, narrow view of that root: the app gets one, a pass's init gets another, and each can
+ * grow the operations its consumer is allowed to have.
+ *
+ * THE ROOT IS THE CONTRACT'S `rhi::api_core` NOW (dynamic-backend migration, step 2 / S2's shared batch).
+ * This file used to hold `std::shared_ptr<core>` / `core*` and to reach the concrete class for the facts
+ * behind a handful of accessors (`logical_device`, `window`, `swap_chain_extent`,
+ * `swap_chain_image_format`, `vma`). MEASURED BEFORE CONVERTING, and the measurement is why this batch is
+ * mostly a DELETION: of the eleven accessors those facts answered, TEN had ZERO callers anywhere in the
+ * repository, and the eleventh is `user_filter::wait_idle()` - main.cpp's one call through `operator->`.
+ * In particular `get_vma()` and `vma()` had no caller at all: the allocator never escapes a filter, and a
+ * pass that allocates goes through `register_resource()`/`resource()`, the owner's published-resource
+ * channel, which touches no backend type. So the concrete class leaves WITHOUT a replacement contract
+ * virtual and WITHOUT an ABI bump - adding a `vma_allocator` face to the contract would have been adding an
+ * interface for a caller that does not exist.
  *
  * THE TWO FILTERS, and the line between them:
  *
- *  * `user_filter` - what the RUNTIME exposes to the application through its `operator->`. It forwards the
- *    things external code may safely touch (the window, the swapchain's extent and format, the current frame,
- *    a command buffer, a shader module, a sampler) and NOTHING that manages the frame (acquire/submit/present
- *    stay the runtime's). It was called `core_filter` and took a `core&`; the rename is what makes room for a
- *    family of filters rather than one.
+ *  * `user_filter` - what the RUNTIME exposes to the application through its `operator->`. It holds a
+ *    `std::shared_ptr<rhi::api_core>` (so it keeps the device alive while it exists) and forwards
+ *    `wait_idle()`, the one accessor a consumer actually calls. It used to forward the window, the
+ *    swapchain's extent and format, the current frame, the device and the allocator as well; every one of
+ *    those had zero callers.
  *
- *  * `pass_filter` - what a PASS's create step is given. It answers exactly the questions a pass cannot answer
- *    from its own declaration, and it is deliberately SMALLER than the runtime's own view: it hands out
- *    session-stable handles of resources the owner has registered (see `register_resource`) and the allocator a
- *    pass that must create its own buffers or images needs (the descriptor set it used to allocate from the
- *    core's pool is gone with the heap). It does NOT hand out per-generation views: those change with every
- *    swapchain, and a pass receives them per frame through `resolved_io` - the framework's own per-image channel
- *    (see `resolved_io::own_per_image`).
- *
- * WHAT NEITHER FILTER FORWARDS: frame management (acquire/present/submit) and the core's own initialization
- * internals. Those are the runtime's, and a consumer that needs one of them needs the runtime, not a filter.
+ *  * `pass_filter` - what a PASS's create step is given. It answers exactly the questions a pass cannot
+ *    answer from its own declaration: session-stable handles of the resources the owner registered. It
+ *    holds NO device root at all - its two live members touch nothing but its own table, which is what
+ *    makes it identical on both sides of the boundary.
  */
 
 module;
 
-#include <GLFW/glfw3.h>
 #include <cstdint>
 #include <memory>
-#include <span>
-#include <string_view>
 #include <utility>
 #include <vector>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.core.filters;
+// THIS FILE NO LONGER EXPORTS A BACKEND MODULE. It used to `export import deren.vulkan.core;`, which is
+// what made `deren.vulkan.core.filters` a re-porter of the whole concrete class (and why a consumer could
+// reach `core::MAX_FRAMES_IN_FLIGHT` through it transitively). The contract is imported PLAINLY below: the
+// two names a consumer needs are `rhi::max_frames_in_flight` (re-exported as this facade's own constant)
+// and `rhi::api_core` (a member type, not part of any consumer's spelling).
 export import deren.vstd;
-export import deren.vulkan.core;
-// The contract's own constants (③-D/E batch): `max_frames_in_flight` is the depth this facade used to
-// read out of the backend's class, and the ring depth is a contract fact now.
-import deren.promise.rhi;
+import deren.promise.rhi;                   // the contract's device root, and its ring depth
 export import deren.vulkan.render_resource; // resource_id: what a pass asks for, in the declaration's own vocabulary
 
 export namespace deren::vulkan {
@@ -71,52 +74,48 @@ export namespace deren::vulkan {
 
     /**
      * @ingroup vulkan_core_filters
-     * @brief filtered view over a core: what the APPLICATION may touch, exposed by `runtime::operator->`
+     * @brief the application's view of the device root, exposed by `runtime::operator->`
      * @note
-     *      - holds a `std::shared_ptr<core>`, so it keeps the device alive while it exists
-     *      - the runtime exposes it via `operator->`, so external code never sees the raw core
-     *      - frame management (acquire/submit/present) and the core's own initialization are deliberately not
-     *        forwarded: they belong to the runtime
+     *      - holds a `std::shared_ptr<rhi::api_core>`, so it keeps the device alive while it exists and it
+     *        is the SAME interface on both sides of the boundary (before the flip the vtable points into
+     *        the static archive, after it into the loaded library)
+     *      - the runtime exposes it via `operator->`, so external code never sees the raw device root
+     *      - frame management (acquire/submit/present) is deliberately not forwarded: it belongs to the
+     *        runtime
      */
     class user_filter {
         // called owner_share, not owner: the owner parameter of the constructor would hide a member of that name and
         // MSVC /W4 reports C4458, an error under /WX
-        /// the share that keeps the device alive, and the raw pointer every method forwards through
-        std::shared_ptr<core> owner_share;
-        core* vk_core = nullptr;
+        /// the share that keeps the device alive, and the interface pointer the one forwarded call goes through
+        std::shared_ptr<deren::promise::rhi::api_core> owner_share;
+        deren::promise::rhi::api_core* core_face = nullptr;
 
     public:
-        explicit user_filter(std::shared_ptr<core> owner) noexcept;
+        explicit user_filter(std::shared_ptr<deren::promise::rhi::api_core> owner) noexcept;
 
-        // ---- read-only access to objects external code may safely touch ----
-        [[nodiscard]] VkDevice get_device() const noexcept;
-        [[nodiscard]] GLFWwindow* get_window() const noexcept;
-        [[nodiscard]] VkExtent2D get_swap_chain_extent() const noexcept;
-        [[nodiscard]] VkFormat get_swap_chain_image_format() const noexcept;
-        [[nodiscard]] uint32_t get_current_frame() const noexcept;
+        /// the ring depth the engine sizes its per-slot arrays by. THIS STAYS, and it is why the contract
+        /// import above is not an `export import`: the value is re-exported as this facade's own constant,
+        /// so a consumer names `user_filter::max_frames_in_flight` and never a backend module.
         static constexpr int32_t max_frames_in_flight = static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight);
 
-        // ---- facade operations (forwarded from core so callers need no raw API) ----
+        /// the ONE forwarded operation a consumer calls (main.cpp at shutdown): a contract virtual, so this
+        /// emits no backend symbol on either side of the boundary.
         void wait_idle() const noexcept;
-
-        /**
-         * @ingroup vulkan_core_filters
-         * @brief access the VMA allocator for GPU buffer / image allocation
-         * @return reference to the core's vma_allocator (thread-safe for creation and lookup)
-         * @note non-const accessor: allocating GPU memory mutates the allocator, so this is only available on a
-         *       non-const filter - a const runtime cannot allocate
-         */
-        [[nodiscard]] vma_allocator& get_vma() noexcept;
     };
 
     /**
      * @ingroup vulkan_core_filters
-     * @brief filtered view over a core, for a PASS's create step: the resources it declared, and nothing else
+     * @brief the view a PASS's create step is handed: the resources the owner published, and nothing else
      *
-     * WHAT IT IS FOR, in one sentence: a pass must be able to build what it owns (its pipeline) and to NAME the
-     * resources its own declaration lists, without being handed the device root - which is what the runtime did
-     * on its behalf before this filter existed (see
-     * `runtime::create_mask_bake` and `runtime::create_compute_skin`, whose bespoke input structs this replaces).
+     * WHAT IT IS FOR, in one sentence: a pass must be able to NAME the session-stable resources its own
+     * declaration lists, without being handed the device root - which is what the runtime did on its behalf
+     * before this filter existed (see `runtime::create_mask_bake` and `runtime::create_compute_skin`, whose
+     * bespoke input structs this replaces).
+     *
+     * IT HOLDS NO DEVICE ROOT, and that is a measured fact rather than a design preference (S2's shared
+     * batch): its two live members - `register_resource` (called by the runtime) and `resource` (called by
+     * the pass framework) - touch nothing but the table below. It used to hoist `shared_ptr<core>` for a
+     * device, a surface format, a surface extent and an allocator, none of which had a caller.
      *
      * THE LIFETIME CONTRACT, and it is the reason this class is small: what `resource()` answers at CREATE time
      * is a SESSION-STABLE handle. The runtime's own material table and its bindless texture array are created
@@ -127,11 +126,6 @@ export namespace deren::vulkan {
      * one out at create time would be the per-image-lifetime trap this branch has already paid for twice.
      */
     class pass_filter {
-        // called owner_share, not owner: the owner parameter of the constructor would hide a member of that name and
-        // MSVC /W4 reports C4458, an error under /WX
-        /// the share that keeps the device alive, and the raw pointer every method forwards through
-        std::shared_ptr<core> owner_share;
-        core* vk_core = nullptr;
         /**
          * What the OWNER (the runtime) has published for its passes to name.
          *
@@ -143,27 +137,8 @@ export namespace deren::vulkan {
         std::vector<std::pair<uint32_t, resource_handles>> registered;
 
     public:
-        explicit pass_filter(std::shared_ptr<core> owner) noexcept;
-
-        /// @brief the device a pass builds its own objects on
-        [[nodiscard]] VkDevice device() const noexcept;
-        /// @brief the surface's format: what a pipeline that renders into the swapchain must be created with
-        [[nodiscard]] VkFormat swap_chain_image_format() const noexcept;
-        /// @brief the surface's current extent (a pass that bakes it into an object recreates it in
-        ///        `on_swapchain_recreated`, which is what that hook is for)
-        [[nodiscard]] VkExtent2D swap_chain_extent() const noexcept;
-
-        /**
-         * @brief the allocator, for a pass that must create its own buffer or image
-         *
-         * The door rather than a wrapper per resource kind: a pass that creates GPU memory says so by asking
-         * for the allocator, and the handles it gets back are RAII (`vk_buffer` / `vk_image` from
-         * `deren.vulkan.core:vma_handles`), so a pass's own resources are released by its own destructor in the order
-         * it wrote them. What the allocator does NOT do for a pass is decide the lifetime RULES: a per-generation
-         * resource still has to be rebuilt in `on_swapchain_recreated`, and a descriptor family built over one
-         * still has to retire its pool rather than destroy it (see `deren.vulkan.bindings`).
-         */
-        [[nodiscard]] vma_allocator& vma() noexcept;
+        /// an empty table: the runtime publishes what it has through `register_resource`
+        pass_filter() noexcept = default;
 
         /// @brief publish one of the owner's resources, by the DECLARATION's identity (resource + element)
         void register_resource(render_resource::resource_id id, uint32_t element, resource_handles handles) noexcept;
