@@ -380,6 +380,12 @@ target_sources(vulkan_constant_init
         FILE_SET CXX_MODULES
         FILES
         vulkan/constant_init/constant_init.cppm
+        # The renderer's slot grid (③-D/E batch, ruling D): the engine names it in ~95 places and must
+        # not do so through the backend's class any more. Both halves compile it HERE, so the grid
+        # cannot drift, and `core::heap_slots` / the `core::heap_slot_*` constants become aliases into
+        # it - with the backend's frozen numbers `static_assert`ed against the module (see
+        # core.declarations.cppm), which is the drift guard ruling D asked for.
+        vulkan/render_layout/render_layout.cppm
 )
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
 

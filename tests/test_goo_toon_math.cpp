@@ -2761,7 +2761,7 @@ int32_t main() {
             // and requires the names and numbers to match), so what is asserted here is the THIRD half that test
             // cannot see: that the host actually WRITES the slot, and that the write's format is `UNORM`.
             CHECK_MSG(character_forward.find("heap_slots_goo_fgd_lut") != std::string::npos, "the shader names the FGD LUT's heap slot");
-            std::string const core = slurp("vulkan/core/core.declarations.cppm");
+            std::string const core = slurp("vulkan/render_layout/render_layout.cppm");
             CHECK_MSG(core.find("goo_fgd_lut = heap_slot_base + 754u") != std::string::npos, "the host's own constant for it, at the slot the shader names");
             CHECK_MSG(constructor.find("runtime::set_goo_fgd_lut(") != std::string::npos, "the uploader the host writes it with");
             CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != std::string::npos,
@@ -4152,7 +4152,7 @@ int32_t main() {
                       "ONE sheet slot and the second sheet is the host's choice of NAME for that slot; a 17th entry "
                       "would move `toon_slot::count` and with it the whole lane block - `toon_lane_blocks` 3 -> 4, "
                       "one more `uint4` per lane in the same heap slot that already holds them "
-                      "(`vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) plus a FOURTH accessor "
+                      "(`vulkan/render_layout/render_layout.cppm`'s `heap_slots::toon_lanes`) plus a FOURTH accessor "
                       "beside `shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`. It is "
                       "not a fourth descriptor set, and it is not the proposal "
                       "(spec §9.4: the rejected route `Rb`, still unselected)");

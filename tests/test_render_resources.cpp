@@ -660,7 +660,7 @@ int32_t main() {
         std::map<std::string, uint64_t> host_scalars;
         std::map<std::string, uint64_t> host_slots; // the members of core::heap_slots
         bool in_slots = false;
-        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/vulkan/core/core.declarations.cppm")) {
+        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/vulkan/render_layout/render_layout.cppm")) {
             if (line.find("struct heap_slots {") != std::string::npos) {
                 in_slots = true;
                 continue;
@@ -669,7 +669,11 @@ int32_t main() {
                 in_slots = false;
                 continue;
             }
-            if (line.find("static constexpr") == std::string::npos) {
+            // The grid's namespace-scope scalars are `inline constexpr` - a module cannot export an entity
+            // with internal linkage, and namespace-scope `static constexpr` has exactly that linkage -
+            // while the struct's members stay `static constexpr` (implicitly inline). Both spellings are
+            // the grid's own declarations, so both are read.
+            if (line.find("static constexpr") == std::string::npos && line.find("inline constexpr") == std::string::npos) {
                 continue;
             }
             std::size_t const eq = line.find('=');
