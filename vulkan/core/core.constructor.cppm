@@ -987,72 +987,14 @@ namespace deren::vulkan {
         // and a bloom level is `render >> (level + 1)` - so they follow the scale instead of contradicting
         // it.
         VkExtent2D const render = this->render_extent();
-        // One HDR scene target per swapchain image: the lighting stage (or the TAA resolve, when TAA
-        // is on) writes it and the post-process pass samples it. TRANSFER_SRC as well, because the TAA
-        // resolve copies the frame it wrote here into the history image (vkCmdCopyImage requires the
-        // source to carry the usage flag).
-        hdr_images.resize(swap_chain_image_views.size());
-        hdr_image_memories.resize(swap_chain_image_views.size());
-        hdr_image_views.resize(swap_chain_image_views.size());
-
-        for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-            create_target_image(
-                render.width,
-                render.height,
-                hdr_format,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                hdr_images[i],
-                hdr_image_memories[i]);
-
-            hdr_image_views[i] = create_image_view(
-                hdr_images[i],
-                hdr_format,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                logical_device);
-            // the heap's copy: this target is RENDERED into (an attachment is not a descriptor) and SAMPLED by the
-            // post chain, so one sampled descriptor is what the grid needs - unlike the images a compute pass
-            // writes, which need a storage descriptor beside it.
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_view = make_image_view_info(hdr_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::post_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the post HDR target for image {} did not reach grid slot {}", i, heap_slots::post_color + static_cast<uint32_t>(i));
-                }
-            }
-        }
-
-        // Display-referred (LDR) targets, one per swapchain image, same size and lifetime as the
-        // HDR ones: the post composite renders into them when FXAA is enabled and the FXAA pass
-        // samples them. Format is hdr_format (R16F) on purpose - the values are display range but
-        // stored gamma-encoded so FXAA can threshold them without a per-tap decode.
-        ldr_images.resize(swap_chain_image_views.size());
-        ldr_image_memories.resize(swap_chain_image_views.size());
-        ldr_image_views.resize(swap_chain_image_views.size());
-        for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-            create_target_image(
-                render.width,
-                render.height,
-                hdr_format,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                ldr_images[i],
-                ldr_image_memories[i]);
-
-            ldr_image_views[i] = create_image_view(
-                ldr_images[i],
-                hdr_format,
-                VK_IMAGE_ASPECT_COLOR_BIT,
-                logical_device);
-            // the heap's copy, at the array named for its reader: this is the display-referred target FXAA samples
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_view = make_image_view_info(ldr_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::display_color + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the display target for image {} did not reach grid slot {}", i, heap_slots::display_color + static_cast<uint32_t>(i));
-                }
-            }
-        }
+        // ---- THE HDR SCENE TARGET AND THE DISPLAY-REFERRED TARGET ARE THE ENGINE'S NOW (③-D/E A1.3) ----
+        // One HDR target and one LDR (FXAA-input) target per swapchain image used to be created right here,
+        // with their two heap descriptors (`post_color` sampled, `display_color` sampled). Both are created
+        // through the contract by `runtime::create_render_chain_targets()` instead: same render extent, same
+        // `hdr_format` and same usage flags - COLOR_ATTACHMENT | SAMPLED for the display target, plus
+        // TRANSFER_SRC for the HDR one, because the TAA resolve copies the frame it wrote there into the
+        // history image (vkCmdCopyImage needs the source to carry the usage flag) and the screenshot path
+        // reads it back. The members stay declared (empty from here on) until the closing slice A1.7.
 
         // ---- G-buffer targets (see gbuffer_formats) + the pass's own 1x depth image ----
         // One set per swapchain image, single-sampled: a G-buffer cannot be multisampled without
@@ -1337,32 +1279,8 @@ namespace deren::vulkan {
         this->resolve_cleanup_registered = true;
 
         register_cleanup([this] {
-            for (auto const& view : hdr_image_views) {
-                vkDestroyImageView(logical_device, view, nullptr);
-            }
-            for (auto const& memory : hdr_image_memories) {
-                vkFreeMemory(logical_device, memory, nullptr);
-            }
-            for (auto const& image : hdr_images) {
-                vkDestroyImage(logical_device, image, nullptr);
-            }
-            hdr_image_views.clear();
-            hdr_image_memories.clear();
-            hdr_images.clear();
-            // the LDR (FXAA input) targets share this lifetime: they are (re)created with the
-            // swapchain in exactly the same way, so they belong to the same cleanup registration
-            for (auto const& view : ldr_image_views) {
-                vkDestroyImageView(logical_device, view, nullptr);
-            }
-            for (auto const& memory : ldr_image_memories) {
-                vkFreeMemory(logical_device, memory, nullptr);
-            }
-            for (auto const& image : ldr_images) {
-                vkDestroyImage(logical_device, image, nullptr);
-            }
-            ldr_image_views.clear();
-            ldr_image_memories.clear();
-            ldr_images.clear();
+            // (the HDR and LDR/display targets are NOT destroyed here any more: the engine owns both from
+            // A1.3 on - `runtime::create_render_chain_targets()` releases the old generation first)
             // the G-buffer targets + the pass's own depth image share this lifetime too
             for (auto const& target_views : gbuffer_image_views) {
                 for (auto const& view : target_views) {

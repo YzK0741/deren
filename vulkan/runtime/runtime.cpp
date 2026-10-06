@@ -110,10 +110,14 @@ namespace deren::vulkan {
 
         // No G-buffer pipeline: no scene can be drawn. Open an empty instance anyway, so every frame
         // still has a matching vkCmdEndRendering and the post chain samples a defined target.
+        // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3): the view comes through the contract's escape.
         VkClearValue clear_color = {};
         clear_color.color = {{this->background_color.r, this->background_color.g, this->background_color.b, 1.0f}};
+        VkImageView const hdr_view = image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
+                                         ? static_cast<VkImageView>(this->escape().native_image_view(*this->hdr_image_views[image_index]))
+                                         : VK_NULL_HANDLE;
         VkRenderingAttachmentInfo const color_attachment = make_color_attachment_info(
-            vk.hdr_image_views[image_index],
+            hdr_view,
             clear_color,
             VK_RESOLVE_MODE_NONE,
             VK_NULL_HANDLE);

@@ -1470,13 +1470,26 @@ namespace deren::vulkan {
     }
 
     VkImage runtime::scene_target_image(uint32_t const image_index) const noexcept {
+        // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3) - the raw handle comes through the contract's
+        // escape - while `scene_color` is still the backend's until A1.4. WHICH ONE the scene side writes is
+        // unchanged: the TAA input when the resolve runs, the HDR target otherwise.
         core const& vk = this->vulkan_core;
-        return this->taa_active() ? vk.scene_color_images[image_index] : vk.hdr_images[image_index];
+        if (this->taa_active()) {
+            return vk.scene_color_images[image_index];
+        }
+        return image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_images[image_index])
+                   ? static_cast<VkImage>(this->escape().native_image(*this->hdr_images[image_index]))
+                   : VK_NULL_HANDLE;
     }
 
     VkImageView runtime::scene_target_view(uint32_t const image_index) const noexcept {
         core const& vk = this->vulkan_core;
-        return this->taa_active() ? vk.scene_color_image_views[image_index] : vk.hdr_image_views[image_index];
+        if (this->taa_active()) {
+            return vk.scene_color_image_views[image_index];
+        }
+        return image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
+                   ? static_cast<VkImageView>(this->escape().native_image_view(*this->hdr_image_views[image_index]))
+                   : VK_NULL_HANDLE;
     }
 
     bool runtime::set_taa_enabled(bool const enabled) noexcept {
@@ -1936,12 +1949,18 @@ namespace deren::vulkan {
 
         // ---- the render-target chain: the families the backend owns, and the engine's own ones ----
         family(render_resource::resource_id::swapchain_image, 0, vk.swap_chain_image_views, vk.swap_chain_images);
-        family(render_resource::resource_id::hdr, 0, vk.hdr_image_views, vk.hdr_images);
-        family(render_resource::resource_id::ldr, 0, vk.ldr_image_views, vk.ldr_images);
+        // THE HDR AND DISPLAY (LDR) TARGETS ARE THE ENGINE'S OWN (③-D/E A1.3) and, like the TAA history pair
+        // above, published instance by instance BECAUSE THEY HAVE NO FAMILY-SPAN CONSUMER: neither is ever an
+        // `own` per-image binding (the scene/debug passes name `hdr` as a render TARGET, the FXAA/upscale
+        // passes name `ldr` as a BARRIER image), and `views_of` - the only reader of a family span - is
+        // consulted by `resolve_declaration` for own per-swapchain-image bindings alone. `find()` is what
+        // every one of those sites uses, and it answers exactly what the family form answered.
+        owned_family(render_resource::resource_id::hdr, 0, this->hdr_images, this->hdr_image_views);
+        owned_family(render_resource::resource_id::ldr, 0, this->ldr_images, this->ldr_image_views);
         family(render_resource::resource_id::gbuffer_depth, 0, vk.gbuffer_depth_image_views, vk.gbuffer_depth_images);
         family(render_resource::resource_id::velocity, 0, vk.velocity_image_views, vk.velocity_images);
         // THE TAA HISTORY PAIR IS THE ENGINE'S OWN (③-D/E A1.1), and the rest of this chain follows it group
-        // by group - which is why this one call has a different shape from the five above.
+        // by group - which is why these calls have a different shape from the backend-owned ones.
         owned_family(render_resource::resource_id::taa_history, 0, this->taa_history_images, this->taa_history_image_views);
         family(render_resource::resource_id::ml_trace, 0, vk.ml_image_views, vk.ml_images);
         family(render_resource::resource_id::ml_resolve, 0, vk.ml_resolve_image_views, vk.ml_resolve_images);
@@ -1956,7 +1975,10 @@ namespace deren::vulkan {
         // while the resolve runs and the HDR target otherwise (see scene_target_view), so WHAT THE ID MEANS is
         // decided here, once per frame, in the same place that answers it for the resolvers - which is also why
         // the table is refreshed per frame rather than per generation.
-        std::size_t const scene_images = std::min({vk.scene_color_image_views.size(), vk.scene_color_images.size(), vk.hdr_image_views.size(), vk.hdr_images.size()});
+        // THE COUNT IS NOW THE GENERATION'S OWN: `hdr` is an engine-held fixed-size array (③-D/E A1.3), so its
+        // length says nothing about how many images exist - the swapchain's own count does, and `scene_color`
+        // is still the backend's vector it was always compared against.
+        std::size_t const scene_images = std::min({vk.scene_color_image_views.size(), vk.scene_color_images.size(), vk.swap_chain_images.size()});
         for (std::size_t i = 0; i < scene_images; ++i) {
             single(render_resource::resource_id::scene_color, 0, static_cast<uint32_t>(i),
                    pass::resolved_binding{.view = this->scene_target_view(static_cast<uint32_t>(i)), .buffer = VK_NULL_HANDLE, .image = this->scene_target_image(static_cast<uint32_t>(i))});
@@ -2710,6 +2732,12 @@ namespace deren::vulkan {
             VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
             [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
         };
+        // THE SAME, FOR A TARGET THE ENGINE HOLDS (③-D/E A1): the raw handle comes through the contract's
+        // escape, and an empty manager (a device that refused the creation) writes nothing - `find`-style
+        // emptiness, not a null VkImage that would slip past the check above.
+        auto const native_target = [this](auto const& owned) -> VkImage {
+            return static_cast<bool>(owned) ? static_cast<VkImage>(this->escape().native_image(*owned)) : VK_NULL_HANDLE;
+        };
         std::size_t const heap_image = static_cast<std::size_t>(this->current_image_index);
         if (heap_image < this->vulkan_core.gbuffer_images[0].size()) {
             uint32_t const image_slot = static_cast<uint32_t>(heap_image);
@@ -2719,8 +2747,8 @@ namespace deren::vulkan {
             write_sampled_target(core::heap_slots::gbuffer_depth + image_slot, this->vulkan_core.gbuffer_depth_images[heap_image], this->vulkan_core.depth_attachment_format, VK_IMAGE_ASPECT_DEPTH_BIT);
             write_sampled_target(core::heap_slots::gbuffer_velocity + image_slot, this->vulkan_core.velocity_images[heap_image], deren::vulkan::gbuffer_velocity_format, VK_IMAGE_ASPECT_COLOR_BIT);
             write_sampled_target(core::heap_slots::taa_current + image_slot, this->vulkan_core.scene_color_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(core::heap_slots::post_color + image_slot, this->vulkan_core.hdr_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(core::heap_slots::display_color + image_slot, this->vulkan_core.ldr_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            write_sampled_target(core::heap_slots::post_color + image_slot, native_target(this->hdr_images[heap_image]), deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            write_sampled_target(core::heap_slots::display_color + image_slot, native_target(this->ldr_images[heap_image]), deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
             // ... and the same for every OTHER per-image target a shader samples or writes: the temporal
             // history, the megalights chain (sampled AND its storage twin), and the four bloom levels, which
             // the grid packs `heap_image_capacity` apart.
@@ -3051,7 +3079,7 @@ namespace deren::vulkan {
             // The HDR target becomes a colour attachment BEFORE the stage: the G-buffer pass wrote its own targets,
             // so this image was never an attachment this frame, and the pass's instance CLEARs it.
             std::array<VkImageMemoryBarrier2, 1> hdr_barrier = {deren::vulkan::color_attachment_transition};
-            hdr_barrier[0].image = vk.hdr_images[this->current_image_index];
+            hdr_barrier[0].image = static_cast<VkImage>(this->escape().native_image(*this->hdr_images[this->current_image_index]));
             VkDependencyInfo const hdr_dependency = make_image_dependency_info(1, hdr_barrier.data());
             vkCmdPipelineBarrier2(command_buffer, &hdr_dependency);
             // THIS STAGE'S FRAME-ORDER DUTY, the same shape as the lighting stage's above and for the same reason:
@@ -3163,18 +3191,21 @@ namespace deren::vulkan {
         // (the post chain samples that image), and the log line says so once per frame. (The log line's wording is
         // historical: the missing thing used to be a descriptor set, and the frame's answer to a missing one was
         // this same clear.)
-        core const& vk = this->vulkan_core;
+        // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3) now, so the guard is the CONTRACT's bound plus the
+        // manager's validity rather than a backend vector's length, and both handles come through the
+        // contract's escape.
         uint32_t const index = this->current_image_index;
-        if (index >= vk.hdr_images.size()) {
+        if (index >= rhi::max_swapchain_images || !static_cast<bool>(this->hdr_images[index])) {
             return;
         }
         deren::utility::log("runtime: gbuffer debug pass has no descriptor set - showing a cleared frame");
         std::array<VkImageMemoryBarrier2, 1> clear_barrier = {deren::vulkan::color_attachment_transition};
-        clear_barrier[0].image = vk.hdr_images[index];
+        clear_barrier[0].image = static_cast<VkImage>(this->escape().native_image(*this->hdr_images[index]));
         VkDependencyInfo const clear_dependency = make_image_dependency_info(1, clear_barrier.data());
         vkCmdPipelineBarrier2(command_buffer, &clear_dependency);
         VkClearValue clear = {};
-        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(vk.hdr_image_views[index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(
+            static_cast<VkImageView>(this->escape().native_image_view(*this->hdr_image_views[index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
         VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->render_extent()}, true, &attachment, nullptr);
         vkCmdBeginRendering(command_buffer, &rendering_info);
         vkCmdEndRendering(command_buffer);
@@ -3192,7 +3223,7 @@ namespace deren::vulkan {
         std::size_t const index = this->current_image_index;
 
         // HDR scene target -> fragment-shader read (the prefilter and the composite both read it)
-        this->barrier_image_to_sampling(command_buffer, vk.hdr_images[index]);
+        this->barrier_image_to_sampling(command_buffer, static_cast<VkImage>(this->escape().native_image(*this->hdr_images[index])));
 
         // The composite's GI upsample also samples the G-buffer depth and normal, and the stage that
         // normally publishes those two is the deferred lighting stage (or the debug view) - both part

@@ -198,6 +198,14 @@ export namespace deren::promise::rhi {
     /// already crossed the boundary changed. A backend built against the older enum refuses the value
     /// (its `native_image_format` switch has no case) instead of misreading it - the documented answer
     /// to a descriptor a backend cannot honour.
+    ///
+    /// AND THE CONVENTION THAT APPEND ESTABLISHED, for the next value someone adds here: an append to an
+    /// enum whose range ENDS in a role/sentinel enumerator (this one's `depth = 0x7FFFFFFF`) takes an
+    /// explicit value in the HIGH BITS at the END of the list, never a slot beside the named values. The
+    /// marker makes "this one is new" self-evident, and - the part that actually matters - NO EXISTING
+    /// ENUMERATOR'S NUMBER MOVES, which is the entire content of "values are only ever APPENDED". Where an
+    /// enum's values are contiguous there is nothing to mark (see `error`: its six general values continue
+    /// the run at 13-18); the rule is about the numbers, not about the syntax.
     enum class image_format : std::uint32_t { unknown = 0,
                                               rgba8_unorm,
                                               rgba8_srgb,

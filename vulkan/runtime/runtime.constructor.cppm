@@ -1142,9 +1142,13 @@ namespace deren::vulkan {
     void runtime::create_render_chain_targets() {
         // RELEASE BEFORE RE-CREATE, on BOTH paths: the previous generation's views and images go first, so
         // a view never outlives the image it was made over (the borrowed-image view lifetime rule, abi 16).
-        // On generation 0 both arrays are empty and this is a no-op.
+        // On generation 0 every array is empty and this is a no-op.
         this->taa_history_image_views = {};
         this->taa_history_images = {};
+        this->hdr_image_views = {};
+        this->hdr_images = {};
+        this->ldr_image_views = {};
+        this->ldr_images = {};
 
         VkExtent2D const render = this->render_extent();
         std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
@@ -1161,10 +1165,35 @@ namespace deren::vulkan {
         // A device without the descriptor-heap extension leaves the heap unused; every other creation-time
         // heap write in this file accepts that state rather than failing, and this one matches them.
         bool const heap_ready = contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE;
+        // ONE PER-IMAGE TARGET, THE WHOLE TRIPLE IN ONE PLACE: the image, the `sampled` view the resource
+        // table and the frame's attachment sites name, and the SAMPLED heap descriptor at the ABSOLUTE slot
+        // its reader bakes. The groups below differ only in the descriptor they hand in, so this is what
+        // keeps them from becoming copies that drift. `heap_slot` already includes the grid's base - the
+        // `reserve()` offsets are the backend's bookkeeping and nothing here repeats them.
+        auto const create_sampled_target = [this, heap_ready](rhi::image_desc const& desc, uint32_t const heap_slot,
+                                                              rhi::object_manager<rhi::image>& image, rhi::object_manager<rhi::image_view>& view,
+                                                              char const* const what) {
+            image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(desc)};
+            if (!static_cast<bool>(image)) {
+                deren::utility::panic(std::source_location::current(), "failed to create {}", what);
+            }
+            rhi::image_view_desc range{};
+            range.role = rhi::view_role::sampled;
+            view = rhi::object_manager<rhi::image_view>{image->make_view(range)};
+            if (!static_cast<bool>(view)) {
+                deren::utility::panic(std::source_location::current(), "failed to create the view for {}", what);
+            }
+            if (heap_ready && !contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(heap_slot), *image,
+                                                         rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
+                deren::utility::log("descriptor heap: {} did not reach grid slot {}", what, heap_slot);
+            }
+        };
+
+        // ---- THE TAA HISTORY (③-D/E A1.1) --------------------------------------------------------------
+        // hdr_format, TRANSFER_DST | SAMPLED (the runtime copies the resolved frame into it, the next
+        // frame's resolve reads it), one mip, one layer - `create_image` derives the allocator's type and
+        // memory from the flags, exactly as the backend's `create_target_image` used to.
         for (std::size_t i = 0; i < image_count; ++i) {
-            // THE SAME DESCRIPTOR THE BACKEND'S LOOP USED: hdr_format, TRANSFER_DST | SAMPLED (the runtime
-            // copies the resolved frame into it, the next frame's resolve reads it), one mip, one layer,
-            // device-local - `create_image` derives the allocator's type and memory from the flags.
             rhi::image_desc history_desc{};
             history_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             history_desc.mip_levels = 1;
@@ -1172,29 +1201,39 @@ namespace deren::vulkan {
             history_desc.format = contract_image_format(hdr_format);
             history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
             history_desc.debug_name = "TAA history image";
-            this->taa_history_images[i] = rhi::object_manager<rhi::image>{this->rhi_face().create_image(history_desc)};
-            if (!static_cast<bool>(this->taa_history_images[i])) {
-                deren::utility::panic("failed to create the TAA history image");
-            }
-            // The view TAA's history input is read through, and the one the resource table publishes: the
-            // `sampled` role is what the heap's SAMPLED_IMAGE descriptor below requires.
-            rhi::image_view_desc history_range{};
-            history_range.role = rhi::view_role::sampled;
-            this->taa_history_image_views[i] = rhi::object_manager<rhi::image_view>{this->taa_history_images[i]->make_view(history_range)};
-            if (!static_cast<bool>(this->taa_history_image_views[i])) {
-                deren::utility::panic("failed to create the TAA history view");
-            }
-            // THE HEAP'S COPY, at the array TAA's history input is named for. The slot number is ABSOLUTE
-            // (`heap_slots::taa_history` already includes the grid's base), so this is the multiply the
-            // backend's write was - the `reserve()` offsets are the backend's bookkeeping, already folded
-            // into the base, and nothing here repeats them.
-            if (heap_ready) {
-                VkDeviceSize const offset = deren::vulkan::render_layout::heap_slot_offset(core::heap_slots::taa_history + static_cast<uint32_t>(i));
-                if (!contract_write_heap_image(this->rhi_face(), offset, *this->taa_history_images[i], rhi::image_view_desc{.layer_count = 0, .mip_count = 0},
-                                               rhi::descriptor_type::sampled_image)) {
-                    deren::utility::log("descriptor heap: the TAA history for image {} did not reach grid slot {}", i, core::heap_slots::taa_history + static_cast<uint32_t>(i));
-                }
-            }
+            create_sampled_target(history_desc, core::heap_slots::taa_history + static_cast<uint32_t>(i),
+                                  this->taa_history_images[i], this->taa_history_image_views[i], "the TAA history target");
+        }
+
+        // ---- THE HDR SCENE TARGET AND THE DISPLAY-REFERRED TARGET (③-D/E A1.3) -------------------------
+        // One of each per swapchain image, both at the frame's render extent and in `hdr_format`. The usage
+        // flags are the backend's: COLOR_ATTACHMENT | SAMPLED for both, plus TRANSFER_SRC on the HDR target -
+        // the TAA resolve copies the frame it wrote there into the history image, the screenshot read-back
+        // copies out of it, and vkCmdCopyImage requires the flag on the image copied FROM.
+        for (std::size_t i = 0; i < image_count; ++i) {
+            rhi::image_desc hdr_desc{};
+            hdr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            hdr_desc.mip_levels = 1;
+            hdr_desc.array_layers = 1;
+            hdr_desc.format = contract_image_format(hdr_format);
+            hdr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled) |
+                             rhi::to_bits(rhi::image_flag::transfer_source);
+            hdr_desc.debug_name = "HDR scene target";
+            create_sampled_target(hdr_desc, core::heap_slots::post_color + static_cast<uint32_t>(i),
+                                  this->hdr_images[i], this->hdr_image_views[i], "the HDR scene target");
+
+            // ... and the display-referred target FXAA samples: the same size and lifetime, display-range
+            // values in the same hdr_format so FXAA can threshold them without a per-tap decode, and no
+            // TRANSFER_SRC (nothing copies out of it).
+            rhi::image_desc ldr_desc{};
+            ldr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            ldr_desc.mip_levels = 1;
+            ldr_desc.array_layers = 1;
+            ldr_desc.format = contract_image_format(hdr_format);
+            ldr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            ldr_desc.debug_name = "display-referred target";
+            create_sampled_target(ldr_desc, core::heap_slots::display_color + static_cast<uint32_t>(i),
+                                  this->ldr_images[i], this->ldr_image_views[i], "the display target");
         }
 
         // ---- THE RAY-TRACED VISIBILITY, ONE PER FRAME SLOT (③-D/E A1.2) --------------------------------

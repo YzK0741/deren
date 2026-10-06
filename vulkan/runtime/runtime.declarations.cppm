@@ -1071,6 +1071,16 @@ namespace deren::vulkan {
         // own panic), and the engine never indexes past the bound.
         std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> taa_history_images = {};
         std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> taa_history_image_views = {};
+        // THE SCENE'S TWO FULL-RESOLUTION TARGETS, one per swapchain image (③-D/E A1.3): the HDR target the
+        // lighting stage (or the TAA resolve) writes and the whole post chain samples, and the display-referred
+        // (FXAA input) target the composite writes and FXAA samples. Both at the frame's render extent in
+        // `hdr_format`; the HDR one carries TRANSFER_SRC as well, because the TAA resolve copies the frame it
+        // wrote there into the history image and the screenshot read-back copies out of it (vkCmdCopyImage
+        // needs the flag on the image copied FROM).
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> hdr_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> hdr_image_views = {};
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> ldr_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> ldr_image_views = {};
         // THE ONE PER-FRAME-SLOT GROUP (③-D/E A1.2): the ray-traced sun visibility, one image per FRAME SLOT
         // - the rays are traced once per frame, not once per swapchain image (that reasoning moves here with
         // the creation). At the frame's render extent, R16F (one visibility factor per pixel), STORAGE for

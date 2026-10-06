@@ -309,33 +309,9 @@ namespace deren::vulkan {
         // 1. Wait for the device to be idle
         vkDeviceWaitIdle(logical_device);
 
-        // 2. Destroy the scene targets (the G-buffer/velocity/HDR/LDR/bloom set is rebuilt below)
-        for (auto const& view : hdr_image_views) {
-            vkDestroyImageView(logical_device, view, nullptr);
-        }
-        hdr_image_views.clear();
-        for (auto const& image : hdr_images) {
-            vkDestroyImage(logical_device, image, nullptr);
-        }
-        hdr_images.clear();
-        for (auto const& memory : hdr_image_memories) {
-            vkFreeMemory(logical_device, memory, nullptr);
-        }
-        hdr_image_memories.clear();
-
-        // 2c. Destroy the display-referred (FXAA input) targets
-        for (auto const& view : ldr_image_views) {
-            vkDestroyImageView(logical_device, view, nullptr);
-        }
-        ldr_image_views.clear();
-        for (auto const& image : ldr_images) {
-            vkDestroyImage(logical_device, image, nullptr);
-        }
-        ldr_images.clear();
-        for (auto const& memory : ldr_image_memories) {
-            vkFreeMemory(logical_device, memory, nullptr);
-        }
-        ldr_image_memories.clear();
+        // 2. THE HDR AND LDR/DISPLAY TARGETS ARE THE ENGINE'S FROM A1.3 ON, so this function no longer
+        //    destroys them: `runtime::create_render_chain_targets()` releases the old generation and creates
+        //    the new one right after this rebuild answered `ok` (see on_swapchain_recreated).
 
         // 2d-2. Destroy the G-buffer targets + the G-buffer pass's own depth image
         for (auto const& target_views : gbuffer_image_views) {

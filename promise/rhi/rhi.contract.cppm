@@ -159,6 +159,9 @@ export namespace deren::promise::rhi {
     /// `image_format` note in rhi.api_core.cppm), and it is why this is not a bump: nothing already
     /// crossing the boundary changed shape, size or spelling. An older backend handed the new value
     /// refuses it (its format switch has no case) rather than misreading it.
+    /// (The append's own convention - explicit HIGH-BIT value at the end of the list when the range ends
+    /// in a role/sentinel enumerator, and no existing number ever moves - is written down beside
+    /// `image_format` in rhi.api_core.cppm, where the next value will be added.)
     inline constexpr std::uint32_t abi_version = 16u;
 
     /// Why a promise entry point could not do what it was asked.
