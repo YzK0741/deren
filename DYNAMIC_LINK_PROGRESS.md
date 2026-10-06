@@ -8,7 +8,7 @@
 
 ## 0 一句话位置
 
-四批里**批①②已落地**，**批③-C 也已落地并过全门**（`f1882bc` 见下节，abi 14，边界 **17 → 10**，已推送到 `origin/master`）。**10 = 白名单 9 + ③-D 构造 1**；§6.1 第 1 项**已由实测回答**：`initializer for module deren.vulkan.core` 仍被 **9 个**引擎成员强制引用，所以下限是 **10** 而不是 9。当前树全绿：构建 0 / `ctest` **18/18** / 格式 0 / 边界 **10** / 尖刺 **70 checks / 0 failed / 自行退出**。下一步是 **③-D 构造入口**。
+批①②③（含录制面 A 批）全部落地并过全门；**abi 15**。`bec8bd4`（命令缓冲自持池）把边界 10 → 9，`d97b754`（拥有型 `rhi::command_buffer`）把它推到 **4**。当前读数：**4 symbols / 15 站点 / 0 owning-STL**；`ctest` **18/18**；尖刺 **90 checks / 0 failed / 自行退出**；**14 场景哈希逐字节不变**（录制面被重排而无一移动，并有校验层见证 VUID=0）。剩余 4 = 两条 module initializer + **③-D 构造 1** + `vk_sampler::operator*`；打完 ③-D 与 ③-E 的 vestigial import 收窄后为 **2**，**地板是 `deren.vulkan.core` 的 initializer**（实测：被 9 个引擎成员强制）。下一步：**③-D 构造入口 → ③-E 门重定义（白名单外为零）→ 批④ utility 拆分 → 翻转**。
 
 ---
 
