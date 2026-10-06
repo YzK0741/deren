@@ -711,6 +711,11 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Rel
 # better_pmr (utility.better_pmr) routes std::pmr allocations through the vendored mimalloc
 # (third_party/mimalloc), so the executable no longer needs MSYS2's libmimalloc.dll.
 target_link_libraries(utility
+        # The verdict family (pass_failure / fatal) carries the contract's error_info as a value, so
+        # the contract's module is a dependency of THIS target. The direction stays one-way: the
+        # contract imports nothing back (promise/rhi/*.cppm), and nothing in utility crosses a
+        # process boundary carrying one - these are same-binary types.
+        promise
         vstd_lib
         xxhash
         mimalloc_vendored

@@ -53,6 +53,15 @@ void deren::utility::enable_stack_destruct::do_cleanup() noexcept {
     }
 }
 
+void deren::utility::ensure(bool const condition, std::string_view const description,
+                            std::source_location source_location) noexcept {
+    // The one-line shape is the point: an ensure call reads as the invariant it guards, and the
+    // panic machinery (message, location, log flush) is panic's, not duplicated here.
+    if (!condition) {
+        panic(description, source_location);
+    }
+}
+
 [[noreturn]] void deren::utility::panic(std::string_view msg, std::source_location source_location) noexcept {
     error("program panic!");
 
