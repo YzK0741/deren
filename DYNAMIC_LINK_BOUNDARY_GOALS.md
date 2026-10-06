@@ -321,6 +321,14 @@ struct error_info {
 - **`verdict` + `enforce(outcome, classify)` + `propagate`** 放 utility：三态 `pass_success` / `pass_failure{error_info}` / `fatal{error_info}`，**classifier 谎报即 panic**；deren 的 `frame_status`（proceed/skipped/closed/*_failed）**就是现成的 verdict 类型**，帧路径的手写 if 阶梯改成 `classify_acquire` / `classify_present`；
 - **改一条规矩**：**`fatal` 由引擎执行**——后端只上报（`device_lost` / `out_of_host_memory` 之类），不自己 `_Exit`；今天启动期后端直接 panic 的几处是**待迁移的例外**。
 
+**§5b 待迁移例外清单：启动期后端直接 panic 的几处**（翻转期随"后端只上报、引擎执行 fatal"一起处理；**每条都记在这里，不单独做 plumbing**）
+
+| # | 位置 | 为什么现在 panic | 迁移后的形状 |
+|---|---|---|---|
+| 1 | `core::init_swap_chain()`：`"Swap chain not adequately supported"`（formats/present_modes 为空） | 该函数是 `noexcept`，同文件同类创建失败本来就 panic | 经 `initialization_failed` + `message` 上报到 `deren_make_api_core()` 的出参 |
+| 2 | `core::init_swap_chain()`：驱动报的 swapchain 图像数 **> `rhi::max_swapchain_images`**（③-D/E A1 的守卫） | 同上；而且这是"后端承诺被驱动打破"的情形，必须大声 | 同 #1（并保留两个数字与两条出路：提高契约上界，或走 abi-17 `swapchain::image_count()`） |
+| 3 | `core::core()`：其余启动期 `panic(...)`（命令缓冲/池/清理注册等处的创建失败） | 同上：构造期没有可返回的错误通道 | 同 #1 |
+
 ### 6. abi 与顺序
 
 | 变化 | 是否跳 abi |
