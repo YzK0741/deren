@@ -1118,13 +1118,17 @@ namespace deren::vulkan {
     void runtime::reset_image_generation_state() {
         // The G-buffer depth layout flags are one per swapchain image, and a freshly created depth image
         // is in UNDEFINED (which is what a clear flag says); see ensure_gbuffer_depth_sampled.
-        this->gbuffer_depth_written.assign(this->vulkan_core.gbuffer_depth_images.size(), false);
+        // THE GENERATION'S COUNT COMES FROM THE SWAPCHAIN (③-D/E A1.4): the per-image groups are engine-held
+        // fixed-size arrays now, so their `size()` is the contract's bound rather than the number of images
+        // this generation actually has - `swap_chain_images` is the one that still answers that.
+        std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
+        this->gbuffer_depth_written.assign(image_count, false);
         // The motion-vector images died with the generation as well: clear the layout flag so the first
         // frame of the new generation takes the attachment -> sampled transition (see
         // ensure_velocity_sampled).
-        this->velocity_written.assign(this->vulkan_core.velocity_images.size(), false);
-        this->rt_binding_written.assign(this->vulkan_core.velocity_images.size(), VK_NULL_HANDLE);
-        this->gbuffer_targets_written.assign(this->vulkan_core.gbuffer_images[0].size(), false);
+        this->velocity_written.assign(image_count, false);
+        this->rt_binding_written.assign(image_count, VK_NULL_HANDLE);
+        this->gbuffer_targets_written.assign(image_count, false);
         // a generation has nothing to blend with, and it is reset HERE rather than only on the off -> on
         // vector reads as "no history" for every frame, which silently turns the temporal resolve into a
         // pass-through of the raw trace).
@@ -1149,6 +1153,18 @@ namespace deren::vulkan {
         this->hdr_images = {};
         this->ldr_image_views = {};
         this->ldr_images = {};
+        for (auto& target_views : this->gbuffer_image_views) {
+            target_views = {};
+        }
+        for (auto& target_images : this->gbuffer_images) {
+            target_images = {};
+        }
+        this->velocity_image_views = {};
+        this->velocity_images = {};
+        this->scene_color_image_views = {};
+        this->scene_color_images = {};
+        this->gbuffer_depth_image_views = {};
+        this->gbuffer_depth_images = {};
 
         VkExtent2D const render = this->render_extent();
         std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
@@ -1234,6 +1250,63 @@ namespace deren::vulkan {
             ldr_desc.debug_name = "display-referred target";
             create_sampled_target(ldr_desc, core::heap_slots::display_color + static_cast<uint32_t>(i),
                                   this->ldr_images[i], this->ldr_image_views[i], "the display target");
+        }
+
+        // ---- THE G-BUFFER CLUSTER (③-D/E A1.4) ---------------------------------------------------------
+        // The three stored surface targets, the motion-vector target, the TAA working image and the G-buffer
+        // pass's own depth image - all at the frame's render extent, one set per swapchain image, single
+        // sampled (a G-buffer cannot be multisampled without per-sample shading). The heap array each one
+        // takes is named for what READS it: the three surface targets for the lighting/debug stages, the
+        // motion vectors and the depth for TAA and the lighting stage, and the scene colour for TAA's
+        // `current_color` input - which is what `taa_current` is named after every time.
+        for (std::size_t i = 0; i < image_count; ++i) {
+            for (std::size_t target = 0; target < this->gbuffer_images.size(); ++target) {
+                rhi::image_desc target_desc{};
+                target_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+                target_desc.mip_levels = 1;
+                target_desc.array_layers = 1;
+                target_desc.format = contract_image_format(gbuffer_formats[target]);
+                target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+                target_desc.debug_name = "G-buffer target";
+                uint32_t const target_slot = target == 0u ? core::heap_slots::gbuffer_albedo : (target == 1u ? core::heap_slots::gbuffer_normal : core::heap_slots::gbuffer_material);
+                create_sampled_target(target_desc, target_slot + static_cast<uint32_t>(i),
+                                      this->gbuffer_images[target][i], this->gbuffer_image_views[target][i], "the G-buffer target");
+            }
+
+            // Motion vectors: the fourth G-buffer target, written by the G-buffer pass and read by TAA.
+            rhi::image_desc velocity_desc{};
+            velocity_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            velocity_desc.mip_levels = 1;
+            velocity_desc.array_layers = 1;
+            velocity_desc.format = contract_image_format(gbuffer_velocity_format);
+            velocity_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            velocity_desc.debug_name = "motion-vector target";
+            create_sampled_target(velocity_desc, core::heap_slots::gbuffer_velocity + static_cast<uint32_t>(i),
+                                  this->velocity_images[i], this->velocity_image_views[i], "the motion-vector target");
+
+            // ... and TAA's `current_color` input: what the scene side writes when the resolve runs.
+            rhi::image_desc scene_desc{};
+            scene_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            scene_desc.mip_levels = 1;
+            scene_desc.array_layers = 1;
+            scene_desc.format = contract_image_format(hdr_format);
+            scene_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            scene_desc.debug_name = "scene-colour target";
+            create_sampled_target(scene_desc, core::heap_slots::taa_current + static_cast<uint32_t>(i),
+                                  this->scene_color_images[i], this->scene_color_image_views[i], "the scene-colour target");
+
+            // THE DEPTH, through the contract's ROLE: the caller says "a depth attachment" and the backend
+            // resolves the device's own depth format - which is why the heap write's aspect is DEPTH (the
+            // role decides it) and why the engine never names a depth format of its own.
+            rhi::image_desc depth_desc{};
+            depth_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            depth_desc.mip_levels = 1;
+            depth_desc.array_layers = 1;
+            depth_desc.format = rhi::image_format::depth;
+            depth_desc.flags = rhi::to_bits(rhi::image_flag::depth_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            depth_desc.debug_name = "G-buffer depth target";
+            create_sampled_target(depth_desc, core::heap_slots::gbuffer_depth + static_cast<uint32_t>(i),
+                                  this->gbuffer_depth_images[i], this->gbuffer_depth_image_views[i], "the G-buffer depth target");
         }
 
         // ---- THE RAY-TRACED VISIBILITY, ONE PER FRAME SLOT (③-D/E A1.2) --------------------------------

@@ -86,10 +86,14 @@ namespace deren::vulkan {
         if (this->gbuffer_pass_active()) {
             std::array<VkRenderingAttachmentInfo, deren::vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
             VkClearValue clear = {}; // the surface + motion targets clear to zero: no geometry, no motion
+            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every view below comes through the
+            // contract's escape, and the depth is the engine's `depth`-ROLE image.
             for (uint32_t target = 0; target < deren::vulkan::gbuffer_target_count; ++target) {
-                gbuffer_attachments[target] = make_color_attachment_info(vk.gbuffer_image_views[target][image_index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+                gbuffer_attachments[target] = make_color_attachment_info(
+                    static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_image_views[target][image_index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
             }
-            gbuffer_attachments[deren::vulkan::gbuffer_target_count] = make_color_attachment_info(vk.velocity_image_views[image_index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+            gbuffer_attachments[deren::vulkan::gbuffer_target_count] = make_color_attachment_info(
+                static_cast<VkImageView>(this->escape().native_image_view(*this->velocity_image_views[image_index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
             // the last attachment is the scene color, CLEARed to zero: it accumulates only the
             // emissive here. The lighting stage then adds the lighting (and the sky, for pixels no
             // geometry wrote) on top, so a lit pixel is emissive + lighting and a background pixel is
@@ -102,7 +106,8 @@ namespace deren::vulkan {
             // pass, the TAA resolve and the debug view all read this image later in the same
             // submission (the G-buffer depth heap slot, which all four of them read). STORE_OP_DONT_CARE would
             // leave the contents undefined, which is exactly what those four read.
-            VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(vk.gbuffer_depth_image_views[image_index], VK_ATTACHMENT_STORE_OP_STORE);
+            VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(
+                static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_depth_image_views[image_index])), VK_ATTACHMENT_STORE_OP_STORE);
             VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, this->render_extent()}, gbuffer_attachments.data(), static_cast<uint32_t>(gbuffer_attachments.size()), &depth_attachment);
             vkCmdBeginRendering(command_buffer, &rendering_info);
             return;

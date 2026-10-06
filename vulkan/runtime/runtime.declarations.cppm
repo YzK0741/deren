@@ -1081,6 +1081,20 @@ namespace deren::vulkan {
         std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> hdr_image_views = {};
         std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> ldr_images = {};
         std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> ldr_image_views = {};
+        // THE G-BUFFER CLUSTER, one set per swapchain image (③-D/E A1.4): the three stored surface targets (in
+        // `gbuffer_formats` order, single-sampled because a G-buffer cannot be multisampled without per-sample
+        // shading - that trade is what makes TAA the anti-aliasing), the motion-vector target, the TAA working
+        // image (the scene colour the resolve reads) and the G-buffer pass's own depth image. The depth is
+        // created through the contract's `depth` ROLE: which concrete depth format a device serves is the
+        // backend's capability question, and the backend resolves the role to the format it always used.
+        std::array<std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images>, deren::vulkan::gbuffer_target_count> gbuffer_images = {};
+        std::array<std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images>, deren::vulkan::gbuffer_target_count> gbuffer_image_views = {};
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> velocity_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> velocity_image_views = {};
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> scene_color_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> scene_color_image_views = {};
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> gbuffer_depth_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> gbuffer_depth_image_views = {};
         // THE ONE PER-FRAME-SLOT GROUP (③-D/E A1.2): the ray-traced sun visibility, one image per FRAME SLOT
         // - the rays are traced once per frame, not once per swapchain image (that reasoning moves here with
         // the creation). At the frame's render extent, R16F (one visibility factor per pixel), STORAGE for

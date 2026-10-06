@@ -996,85 +996,16 @@ namespace deren::vulkan {
         // history image (vkCmdCopyImage needs the source to carry the usage flag) and the screenshot path
         // reads it back. The members stay declared (empty from here on) until the closing slice A1.7.
 
-        // ---- G-buffer targets (see gbuffer_formats) + the pass's own 1x depth image ----
-        // One set per swapchain image, single-sampled: a G-buffer cannot be multisampled without
-        // per-sample shading, which is the trade that makes TAA the engine's anti-aliasing.
-        // COLOR_ATTACHMENT | SAMPLED because the pass writes them as attachments and the
-        // lighting/transparent/TAA/debug passes sample them.
-        for (uint32_t target = 0; target < gbuffer_target_count; ++target) {
-            std::vector<VkImage>& target_images = gbuffer_images[target];
-            std::vector<VkDeviceMemory>& target_memories = gbuffer_image_memories[target];
-            std::vector<VkImageView>& target_views = gbuffer_image_views[target];
-            target_images.resize(swap_chain_image_views.size());
-            target_memories.resize(swap_chain_image_views.size());
-            target_views.resize(swap_chain_image_views.size());
-
-            for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-                create_target_image(
-                    render.width,
-                    render.height,
-                    gbuffer_formats[target],
-                    VK_IMAGE_TILING_OPTIMAL,
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    target_images[i],
-                    target_memories[i]);
-
-                target_views[i] = create_image_view(
-                    target_images[i],
-                    gbuffer_formats[target],
-                    VK_IMAGE_ASPECT_COLOR_BIT,
-                    logical_device);
-
-                // ... AND THE HEAP'S COPY OF THE SAME IMAGE, at the grid array a heap-native shader will name: the
-                // descriptor is a view CREATE INFO rather than a view, so it is built from the same image, format
-                // and aspect the line above used, and nothing has to be kept around for it. The three surface
-                // targets are the first three entries of gbuffer_formats (see make_gbuffer_pipeline's format list:
-                // albedo, normal, material), which is what the grid's three arrays are named after.
-                if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                    uint32_t const heap_slot = target == 0u ? heap_slots::gbuffer_albedo : (target == 1u ? heap_slots::gbuffer_normal : heap_slots::gbuffer_material);
-                    VkImageViewCreateInfo const heap_view = make_image_view_info(target_images[i], gbuffer_formats[target], VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slot + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                        deren::utility::log("descriptor heap: the gbuffer target {} for image {} did not reach grid slot {}", target, i, heap_slot + static_cast<uint32_t>(i));
-                    }
-                }
-            }
-        }
-
-        // Motion vectors + the TAA working image (the scene color the resolve reads): same extent and
-        // lifetime as the G-buffer targets, single-sampled, written as attachments and sampled
-        // afterwards.
-        // The parameter is `slot_base` and NOT `heap_slot_base`: it would hide `core::heap_slots::heap_slot_base`
-        // and MSVC /W4 reports C4458 (an error under /WX). The member keeps its name because the shaders'
-        // own constant is called that - see the note on it in core.declarations.cppm.
-        auto const create_sampled_target = [this, render](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views, VkFormat const format, uint32_t const slot_base) {
-            images.resize(swap_chain_image_views.size());
-            memories.resize(swap_chain_image_views.size());
-            views.resize(swap_chain_image_views.size());
-            for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-                create_target_image(
-                    render.width,
-                    render.height,
-                    format,
-                    VK_IMAGE_TILING_OPTIMAL,
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    images[i],
-                    memories[i]);
-                views[i] = create_image_view(images[i], format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
-                // the heap's copy, from the same format and aspect (see the G-buffer block above)
-                if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                    VkImageViewCreateInfo const heap_view = make_image_view_info(images[i], format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(slot_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                        deren::utility::log("descriptor heap: the sampled target for image {} did not reach grid slot {}", i, slot_base + static_cast<uint32_t>(i));
-                    }
-                }
-            }
-        };
-        // The slot each one takes is the grid array named for what READS it: the motion vectors, and the scene
-        // colour - which is TAA's `current_color` input, i.e. exactly what heap_slots::taa_current is named after.
-        create_sampled_target(velocity_images, velocity_image_memories, velocity_image_views, gbuffer_velocity_format, heap_slots::gbuffer_velocity);
-        create_sampled_target(scene_color_images, scene_color_image_memories, scene_color_image_views, hdr_format, heap_slots::taa_current);
+        // ---- THE G-BUFFER CLUSTER IS THE ENGINE'S NOW (③-D/E A1.4) -------------------------------------
+        // The three stored surface targets (gbuffer_formats, COLOR_ATTACHMENT | SAMPLED, at the heap arrays
+        // `gbuffer_albedo` / `gbuffer_normal` / `gbuffer_material`), the motion-vector target
+        // (`gbuffer_velocity_format`, at `gbuffer_velocity`) and the TAA working image (the scene colour the
+        // resolve reads, `hdr_format`, at `taa_current` - exactly what that slot is named after) used to be
+        // created right here, and the G-buffer pass's own single-sampled depth image further down.
+        // `runtime::create_render_chain_targets()` creates all of them through the contract instead: same
+        // render extent, same formats, same two usage flags per group, and the depth through the contract's
+        // `depth` ROLE (which resolves to the same device format this backend would have chosen). The members
+        // stay declared (empty from here on) until the closing slice A1.7.
 
         // ---- THE TAA HISTORY IMAGES ARE THE ENGINE'S NOW (③-D/E A1.1) --------------------------------
         // The resolved-history pair (one image + one view per swapchain image, hdr_format, TRANSFER_DST |
@@ -1199,34 +1130,8 @@ namespace deren::vulkan {
         // same extent, same format, same two flags - and writes both descriptors. The members stay declared
         // (empty from here on) until the closing slice of A1 deletes them.
 
-        gbuffer_depth_images.resize(swap_chain_image_views.size());
-        gbuffer_depth_image_memories.resize(swap_chain_image_views.size());
-        gbuffer_depth_image_views.resize(swap_chain_image_views.size());
-        for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-            create_target_image(
-                render.width,
-                render.height,
-                depth_attachment_format,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                gbuffer_depth_images[i],
-                gbuffer_depth_image_memories[i]);
-
-            // the DEPTH aspect (a color view of a depth image is invalid) - same raw-view
-            // convention as the other per-image targets, whose destruction is registered below
-            gbuffer_depth_image_views[i] = create_image_view(gbuffer_depth_images[i], depth_attachment_format, VK_IMAGE_ASPECT_DEPTH_BIT, logical_device);
-            // ... and the heap's copy, with the DEPTH aspect and the depth format the view above used: the heap
-            // descriptor is a create info, and a colour aspect on a depth image is a validation error rather than a
-            // wrong picture (the shadow map paid for that one already). The deferred, post and TAA stages all sample
-            // this image, which is why the grid array is named for the surface rather than for one reader.
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_depth_view = make_image_view_info(gbuffer_depth_images[i], depth_attachment_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_DEPTH_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::gbuffer_depth + static_cast<uint32_t>(i)) * heap_slot_stride, heap_depth_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the gbuffer depth for image {} did not reach grid slot {}", i, heap_slots::gbuffer_depth + static_cast<uint32_t>(i));
-                }
-            }
-        }
+        // (the G-buffer pass's own depth image is the engine's too from A1.4 - see the cluster note above:
+        // `depth` ROLE, DEPTH_STENCIL_ATTACHMENT | SAMPLED, at the heap array `gbuffer_depth`)
 
         // bloom targets: the 4-level chain (halved per level, min 1x1), same lifetime as the HDR
         // targets; each level gets one target per swapchain image
@@ -1279,41 +1184,10 @@ namespace deren::vulkan {
         this->resolve_cleanup_registered = true;
 
         register_cleanup([this] {
-            // (the HDR and LDR/display targets are NOT destroyed here any more: the engine owns both from
-            // A1.3 on - `runtime::create_render_chain_targets()` releases the old generation first)
-            // the G-buffer targets + the pass's own depth image share this lifetime too
-            for (auto const& target_views : gbuffer_image_views) {
-                for (auto const& view : target_views) {
-                    vkDestroyImageView(logical_device, view, nullptr);
-                }
-            }
-            for (auto const& target_memories : gbuffer_image_memories) {
-                for (auto const& memory : target_memories) {
-                    vkFreeMemory(logical_device, memory, nullptr);
-                }
-            }
-            for (auto const& target_images : gbuffer_images) {
-                for (auto const& image : target_images) {
-                    vkDestroyImage(logical_device, image, nullptr);
-                }
-            }
-            gbuffer_image_views = {};
-            gbuffer_image_memories = {};
-            gbuffer_images = {};
-            for (auto const& view : gbuffer_depth_image_views) {
-                vkDestroyImageView(logical_device, view, nullptr);
-            }
-            gbuffer_depth_image_views.clear();
-            for (auto const& memory : gbuffer_depth_image_memories) {
-                vkFreeMemory(logical_device, memory, nullptr);
-            }
-            gbuffer_depth_image_memories.clear();
-            for (auto const& image : gbuffer_depth_images) {
-                vkDestroyImage(logical_device, image, nullptr);
-            }
-            gbuffer_depth_images.clear();
-            // motion vectors + the TAA working images share the same lifetime (see
-            // create_render_targets)
+            // (the HDR/LDR/display targets, the G-buffer cluster - three surface targets + depth - and the
+            // motion-vector / scene-colour pair are NOT destroyed here any more: the engine owns all of them
+            // from A1.3/A1.4 on, and `runtime::create_render_chain_targets()` releases the old generation first)
+            // the megalights and furnace images share this lifetime with the ones above
             auto const destroy_images = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
                 for (auto const& view : views) {
                     vkDestroyImageView(logical_device, view, nullptr);
@@ -1328,8 +1202,6 @@ namespace deren::vulkan {
                 memories.clear();
                 images.clear();
             };
-            destroy_images(velocity_images, velocity_image_memories, velocity_image_views);
-            destroy_images(scene_color_images, scene_color_image_memories, scene_color_image_views);
             // (the TAA history pair is NOT destroyed here any more: the engine owns it - see
             // runtime::create_render_chain_targets, which releases the old generation before creating the new)
             destroy_images(ml_images, ml_image_memories, ml_image_views);

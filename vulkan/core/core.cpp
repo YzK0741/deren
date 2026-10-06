@@ -309,43 +309,13 @@ namespace deren::vulkan {
         // 1. Wait for the device to be idle
         vkDeviceWaitIdle(logical_device);
 
-        // 2. THE HDR AND LDR/DISPLAY TARGETS ARE THE ENGINE'S FROM A1.3 ON, so this function no longer
-        //    destroys them: `runtime::create_render_chain_targets()` releases the old generation and creates
-        //    the new one right after this rebuild answered `ok` (see on_swapchain_recreated).
+        // 2. THE HDR AND LDR/DISPLAY TARGETS ARE THE ENGINE'S FROM A1.3 ON, AND THE G-BUFFER CLUSTER - the
+        //    three stored surface targets, the G-buffer pass's own depth image, the motion-vector target and
+        //    the scene-colour TAA working image - FROM A1.4 ON, so this function no longer destroys any of
+        //    them: `runtime::create_render_chain_targets()` releases the old generation and creates the new one
+        //    right after this rebuild answered `ok` (see on_swapchain_recreated).
 
-        // 2d-2. Destroy the G-buffer targets + the G-buffer pass's own depth image
-        for (auto const& target_views : gbuffer_image_views) {
-            for (auto const& view : target_views) {
-                vkDestroyImageView(logical_device, view, nullptr);
-            }
-        }
-        gbuffer_image_views = {};
-        for (auto const& target_images : gbuffer_images) {
-            for (auto const& image : target_images) {
-                vkDestroyImage(logical_device, image, nullptr);
-            }
-        }
-        gbuffer_images = {};
-        for (auto const& target_memories : gbuffer_image_memories) {
-            for (auto const& memory : target_memories) {
-                vkFreeMemory(logical_device, memory, nullptr);
-            }
-        }
-        gbuffer_image_memories = {};
-        for (auto const& view : gbuffer_depth_image_views) {
-            vkDestroyImageView(logical_device, view, nullptr);
-        }
-        gbuffer_depth_image_views.clear();
-        for (auto const& image : gbuffer_depth_images) {
-            vkDestroyImage(logical_device, image, nullptr);
-        }
-        gbuffer_depth_images.clear();
-        for (auto const& memory : gbuffer_depth_image_memories) {
-            vkFreeMemory(logical_device, memory, nullptr);
-        }
-        gbuffer_depth_image_memories.clear();
-
-        // 2d-3. Destroy the motion-vector / TAA working images (same lifetime as the G-buffer)
+        // 2d-3. Destroy the megalights / furnace images (same lifetime as the G-buffer)
         auto const destroy_target_set = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
             for (auto const& view : views) {
                 vkDestroyImageView(logical_device, view, nullptr);
@@ -360,8 +330,8 @@ namespace deren::vulkan {
             }
             memories.clear();
         };
-        destroy_target_set(velocity_images, velocity_image_memories, velocity_image_views);
-        destroy_target_set(scene_color_images, scene_color_image_memories, scene_color_image_views);
+        // (the motion-vector and scene-colour targets belong to the ENGINE now - ③-D/E A1.4: the same
+        // `create_render_chain_targets()` call that rebuilds the G-buffer cluster releases and recreates them)
         // (the TAA history pair belongs to the ENGINE now - ③-D/E A1.1: `create_render_chain_targets()`
         // releases the old generation on its own, right after this rebuild answered `ok`)
         destroy_target_set(ml_images, ml_image_memories, ml_image_views);
