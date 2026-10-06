@@ -8,11 +8,34 @@
 
 ## 0 一句话位置
 
-批①②③（含录制面 A 批）全部落地并过全门；**abi 16**。边界一路收窄：`bec8bd4` 10 → 9，`d97b754`（拥有型 `rhi::command_buffer`）→ **4**，**③-E** → **3**，③-D/E 的第一步（`constant_init` 共享 target）→ 3（import 38 → 12），1b（`acceleration_structure`/`ray_tracing` 脱离 `core`）→ 3（import 12 → 10），**C 批（abi 16，引擎自持采样器）→ 2**。当前读数：**2 symbols / 8 站点 / 0 owning-STL**、白名单 **2 条 0 stale**；`ctest` **18/18** + 边界回归 **35/35**；尖刺 **96 checks / 0 failed / 自行退出**；**14 场景哈希逐字节不变**（并有校验层见证 VUID=0）。剩余 2 = `deren.vulkan.core` 的 initializer（**被 10 个文件的 import 强制**）+ `core::core(create_info const&)`，**两条正是动态链接版 runtime 要一起消失的**。
+批①②③（含录制面 A 批）全部落地并过全门；**abi 16**。边界一路收窄：`bec8bd4` 10 → 9，`d97b754`（拥有型 `rhi::command_buffer`）→ **4**，**③-E** → **3**，③-D/E 的第一步（`constant_init` 共享 target）→ 3（import 38 → 12），1b（`acceleration_structure`/`ray_tracing` 脱离 `core`）→ 3（import 12 → 10），**C 批（abi 16，引擎自持采样器）→ 2**，**A1.0 → 2（import 10 → 8）**。当前读数：**2 symbols / 6 站点 / 0 owning-STL**、白名单 **2 条 0 stale**；`ctest` **18/18** + 边界回归 **35/35**；尖刺 **96 checks / 0 failed / 自行退出**；**14 场景哈希逐字节不变**（并有校验层见证 VUID=0）。剩余 2 = `deren.vulkan.core` 的 initializer（**被 8 个文件的 import 强制**）+ `core::core(create_info const&)`，**两条正是动态链接版 runtime 要一起消失的**。
 
-**现在的主仪表是 import 图**（`--require-zero` 每次打印，唯一来源）：**38 → 12 → 10 点 / 10 文件**（`core` 7 + `core.pipeline` 3，测试 1 文件）。**目标 0，只有读到 0 且 14 哈希不变才允许删旧 runtime。**
+**现在的主仪表是 import 图**（`--require-zero` 每次打印，唯一来源）：**38 → 12 → 10 → 8 点 / 8 文件**（`core` 5 + `core.pipeline` 3，测试 1 文件不计入门）。**目标 0，只有读到 0 且 14 哈希不变才允许删旧 runtime。** 这 8 点里哪些是空 import、哪些是真依赖，已逐点量过并列在 `docs/dynamic_runtime.md` §3。
 
-**路线（用户裁决，取代"扩 escape/最小 ③-D"）：以现在的 runtime 为蓝本写动态链接版，成功后删掉前者。** 新 runtime 从第一天就经 `deren_make_api_core()` 构造、持 `shared_ptr<rhi::api_core>`、永不命名 `core`；渲染链资源改由引擎经契约 `create_image()`/`make_view()` 创建并持有（**A1 已批准**，后端交出所有权），裸句柄走**已有** escape 访问器。顺序：**③-E（已完成）→ 第 1 步 E/D/1b（已完成）→ 第 4 项 A1/B/C（C 已完成，A1/B 待做）→ 第 2 步写 `vulkan/runtime_dyn/` → 第 3 步原子删除旧 runtime**。
+**路线（用户裁决，取代"扩 escape/最小 ③-D"）：以现在的 runtime 为蓝本写动态链接版，成功后删掉前者。** 新 runtime 从第一天就经 `deren_make_api_core()` 构造、持 `shared_ptr<rhi::api_core>`、永不命名 `core`；渲染链资源改由引擎经契约 `create_image()`/`make_view()` 创建并持有（**A1 已完成**），裸句柄走**已有** escape 访问器。顺序：**③-E（已完成）→ 第 1 步 E/D/1b（已完成）→ 第 4 项 A1/B/C（C 已完成，**A1 已完成：七片**）→ 第 2 步写 `runtime/` 的动态链接版（设计见 `docs/dynamic_runtime.md`）→ 第 3 步原子删除旧 runtime**。
+
+---
+
+## 0.1 A1（渲染链所有权）已完成：七片，每片一笔
+
+| # | 提交 | 内容 | 六项读数 |
+|---|---|---|---|
+| A1.1 | `9e7eb3b` | `taa_history` 对（引擎建/持/放，写堆） | 全绿 |
+| A1.2 | `874675d` | `rt_shadow`（逐帧槽；契约追加 `image_format::r16_sfloat`） | 全绿 |
+| A1.3 | `48338fc` | `hdr` + `ldr`（hdr 带 TRANSFER_SRC） | 全绿 |
+| A1.4 | `a933d2c` | G-buffer 簇（三张 + velocity + scene_color + depth，走契约 `depth` 角色） | 全绿 |
+| A1.5 | `8405a74` | ml 三张 + bloom 四级；`bloom_level_count` 移入共享模块 | 全绿 |
+| A1.6 | `8159284` | furnace cube（`cube_compatible`，CUBE 视图由后端从形状推导） | 全绿 |
+| A1.7 | `ae66fbd` | 收尾删除（成员/cleanup/`create_render_targets`/三个裸分配器）；派生 extent 的公式合并为一份 | 全绿 |
+
+每片的六项读数相同：构建 0 / `ctest` 18/18 / `clang-format-check` 0 / 边界 **2**（0 stale、0 untracked）/ import **8 点 8 文件（不动，正如裁定：A1 买的是所有权不是数字）**/ 尖刺 96 checks 0 failed 自行退出 / **14 场景哈希逐字节不变** / 校验层 VUID 0。引擎的十四个目标现在全部由 `runtime::create_render_chain_targets()` 经契约创建、持有，并在每一代重建前释放。
+
+**A1.7 的派生 extent 合并（取创建出的图像，见 `docs/dynamic_runtime.md` §1 的同一基准说明）之证据基础，照实写明：**
+
+> bloom 半边与 megalights 链**今天无法被任何 capture 见证**——bloom 只能从 GUI 到达（`runtime.set_bloom` 由 GUI 绑定调用，无 config key），megalights 链则不可复现（实测见 `docs/megalights.md`：`[lighting] demo_lights` 打开时同一二进制三次运行三个帧哈希，`megalights` 开/关都一样）。因此这项改动建立在**结构性论证**（创建与查询同一个基准、同一个来源）+ **14 哈希不变**之上，而不是建立在一次测量之上。
+
+**顺带两条 measured 覆盖缺口（都不属于 A1 的行为改动）**：`bloom` 无 capture 可达；`demo_lights` 的路径不可复现且 validation-dirty（10× `VUID-vkCmdDispatch-None-11376`，`megalights = false` 也一样）。详见 `docs/megalights.md` 的「Known limits, measured 2026-10-06」。
+
 
 ---
 

@@ -1081,7 +1081,8 @@ INPUT                  = ./shaders \
 				./docs/migration_tradeoffs.md \
 				./docs/compiler_tolerance.md \
 				./docs/unified_image_layouts.md \
-				./docs/host_image_copy.md
+				./docs/host_image_copy.md \
+				./docs/dynamic_runtime.md
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses

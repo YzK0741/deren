@@ -37,6 +37,15 @@
 #     chain on the first asset (the byte-identity criterion). Run `-Full` after a driver update or before
 #     re-baselining, so no reference goes stale unwatched: -Update only re-baselines the scenarios it ran.
 #
+#  3b. WHAT NO SCENARIO CAN REACH, so nobody reads a green round as covering it (measured 2026-10-06):
+#     `bloom` has NO config key - `runtime.set_bloom` is called from the GUI binding, so only a human at a
+#     GUI can turn it on; and `[lighting] demo_lights` (which is the only way the megalights chain gets
+#     sampled lights to contribute) is NOT capture-reproducible: one binary, one config, three runs, three
+#     frame hashes - with `megalights` on AND off - and that path is validation-dirty (10x
+#     VUID-vkCmdDispatch-None-11376 for a 4-light scene). Both facts, with the exact config, are in
+#     docs/megalights.md's "Known limits, measured 2026-10-06". CONSEQUENCE: a change confined to bloom or
+#     to the megalights chain is witnessed by the OTHER fourteen hashes being unchanged, never by a capture.
+#
 #  4. WHICH BUILD IT RUNS: the Release build, and only the Release build. Pointed at a Debug or an
 #     ASan+UBSan build, two runs of one binary DIFFER - measured on TWO scenarios, `sponza` and
 #     `deferred_ssao_off` - so the flakiness is a property of those builds and not of any pass. The

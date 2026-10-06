@@ -380,4 +380,41 @@ until that path is fixed - and it also puts the demo lights' reach in question, 
 this interior view is only ~0.03 of mean brightness. Stage 3 should start by fixing that and by giving the
 scenario a light that actually covers the view.
 
+## Known limits, measured 2026-10-06 (the A1.7 batch) - and why this chain is not a gate
+
+While verifying A1.7's extent change (the derived targets now answer their own created extent), an A/B on this
+chain was attempted and **failed to be a measurement**: a capture of it is not reproducible, and the reason is
+NOT this chain. The exact configuration, so it can be re-run:
+
+    model = <DamagedHelmet.gltf>; grid_side = 0; [render] window 1080x960, vsync false, max_fps 240,
+    shadow true, validation_layers true, megalights = <on|off>; [gui] show = false;
+    [lighting] env_size 256, env_mip_count 5, irr_size 32, lut_size 256, demo_lights = 4
+    launch: deren.exe --config <that toml> --capture-frames 40 --capture-camera=35,20,7,0,-1.6,0
+
+Three runs of **one binary**, same config, same commit (`ae66fbd`):
+
+| config | the three frame hashes | `[ERROR]` lines | VUID |
+|---|---|---|---|
+| `megalights = true` | `1B1D877CD37AF542` / `73B2EE650E17338D` / `96A5B94DFFE70DA4` | 10 | `VUID-vkCmdDispatch-None-11376` x10 |
+| `megalights = false` | `064F015388801F53` / `7DFACB0B67E1C190` / `F602216365F41D78` | 10 | same x10 |
+
+Two conclusions, both measured rather than inferred:
+
+1. **The non-reproducibility belongs to `demo_lights`, not to this chain**: with the chain OFF the frame still
+   differs on every run. No capture can therefore gate anything on a scene with demo lights in it, and this
+   chain cannot be exercised reproducibly at all, because the way it contributes anything is through sampled
+   punctual lights.
+2. **The validation dirt is the same source**: 10x `VUID-vkCmdDispatch-None-11376` (a compute dispatch whose
+   shader statically uses a push constant with no preceding `vkCmdPushDataEXT`) appear with `megalights = false`
+   too - the same class as the 151 the paragraph above records for a different light count. A gate scenario also
+   requires a validation-clean run, so this alone would keep the chain out until the demo-lights dispatch is
+   fixed.
+
+**Consequence for the gate's coverage, stated where the next reader will look**: `bloom` and this chain are two
+of the renderer's features that NO scenario can reach (bloom is GUI-only - `runtime.set_bloom` is called from
+the GUI binding and there is no config key; this chain is unreachable reproducibly as above). A change confined
+to them is verified by the 14 unchanged hashes plus its own argument, never by a capture - which is exactly the
+situation A1.7's extent merge was in, and it is recorded there rather than papered over.
+
+
 
