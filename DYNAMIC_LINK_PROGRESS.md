@@ -309,6 +309,29 @@ dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**�
 - `vk_image` / `vk_image_view` / `vk_sampler` / `vk_command_buffer` 四个类型**仍然存在**，但全部留在 `deren_vulkan` 内部（A 类），**引擎不构造、不命名、不跨界**。
 - 由此顺带纠正一条**已过期的白名单理由**（只改文字，不改符号）：动态白名单里 `_ZGIW5derenW6vulkanW4core` 原写"引擎仍 import 3 个文件（含 filters）"——filters 批之后实测是 **2 个文件**（`readback.cppm` + legacy 的 `runtime.declarations.cppm`），已改。
 
+---
+
+## 12 S2 的第一次尝试：**量到第二块承重墙，已整体回滚**（2026-10-06）
+
+**结论先写**：S2（`:declarations` + `:constructor`）**不可能独立落地**。它拖着 `runtime.cpp`，而 `runtime.cpp` 又拖着 **`:frames` + `:probes`**——所以 S2/S3 **本来就是同一笔**，设计与任务切分把它当成两笔是错的。尝试已经**整体回滚**，树回到 `89ef962` 的全绿状态（读数见文末）。
+
+**做完的部分（回滚前实测，可复用）**：
+1. `runtime.declarations.cppm`（4200 行）**只剩 9 处非注释 `core`**，全部改完：去掉 `export import deren.vulkan.core;`、`core_owner` → `std::shared_ptr<rhi::api_core>`、`vulkan_core` → `rhi::api_core&`、`runtime(std::shared_ptr<core>)` → `runtime(std::shared_ptr<rhi::api_core>)`、文件尾三个自由函数首参 → `rhi::api_core&`；新增 `create_options` / `window` / `render_scale` / `swap_chain_image_format` / `ray_query_available` / `mesh_shader_available` / `rt` 三个派生成员；`gbuffer_pass_attachment_count` 从 `render_layout::gbuffer_target_count + 2` 本地导出（不命名后端）；`gpu_timing_mark_capacity` 那条 `static_assert` 用本地常量 + 注释（**唯一一处数值重复，已写明**）。
+2. `runtime.constructor.cppm`（2400 行）：`std::make_shared<core>` → `make_contract_core()`（`deren_make_api_core` + `deren_destroy_api_core` deleter，与 S1 脚手架同形）；`render_scale` 取 `create_options`（并**照实记录**：契约不暴露后端钳过的值，动态侧自己按文档化的 0.1..1.0 钳，越界时静默 vs legacy 打日志——全在区间内时两者逐值相同）；`window` 取 `create_info.native_window`；53 处 `vulkan_core` 改成契约调用/escape；`core::heap_slot*` → `render_layout::heap_slot*` 共 **88 处**机械改名。
+3. `runtime.cpp`（2016 行）：全部改完并可编译（这是**关键发现**：它的未定义符号证明 constructor 依赖它）。
+
+**关键发现（为什么 S2 吞掉 S3）**：`runtime.cpp` 定义的 85 个方法里，构造函数直接调用的有 `refresh_frame_extents()` / `frame_ring()` / `buffer_address()` / `buffer_of()` / `write_heap_buffer()` / `create_buffer(s)`（自由函数）/ `run_heap_probe` / `run_heap_graphics_probe` / `default_task_pool_width()`。构造必须链接它们 ⇒ **`runtime.cpp` 必须进动态树**；而 `runtime.cpp` 里未定义符号的清单又包含 `gbuffer_pass_active` / `scene_target_view` 等 **frames 分区**的方法 ⇒ **frames 也必须进**；frames 又要 probes 的 `draw_mesh_tasks` / `readback` 的 `frame_readback_buffer` 使用者。**一环扣一环，没有"只加两个分区"的中间态。**
+
+**清账读数（供下一笔准备）**：带 `:declarations` + `:constructor` + `runtime.cpp` + `:frames` + `:probes` + `:readback` 一起编译后，剩下的错误是 **24 + 若干**（`-ferror-limit` 截断），全部是同类机械替换：
+- frames：`ray_query_available`/`mesh_shader_available`（成员，已加）、`depth_attachment_format`/`ray_tracing_pipeline_properties`（成员，已加）、`gbuffer_target_count`/`gbuffer_formats`/`gbuffer_velocity_format`/`hdr_format` → `render_layout::`（14+ 处）、`device_properties`/`descriptor_heap_limits` → `runtime_detail::physical_properties_of` / `heap_max_push_data`、`vk` 局部绑定缺 3 处、`swap_chain_images`/`swap_chain_image_views` 家族发布 1 处、`present_barrier.image` 1 处。
+- probes：`logical_device`/`graphics_queue_handle`/`graphics_queue_family_index`/`heap_grid_offset` 全部 → `runtime_detail::` 共享 helper（18 处）；`host_image_copy` 那处要从裸 `vkCopyImageToMemoryEXT` 改成**契约虚函数** `copy_image_to_memory(image, span, region)`（ABI 形状变了：`image_copy_region` 的字段名是 `extent/mip_level/base_array_layer/...`，不是 native 字段）。
+- **一处必须裁定**：`graphics_queue_family_index` 我用**运行时反查**（`vkGetDeviceQueue` 逐 family 借 family 0 的队列，只有正确 family 才返回同一个 handle，Vulkan 自己的规则、只读、零 ABI）——但探针每帧/每次创建 `VkCommandPool` 也要用它。**要么继续用同一个反查 helper（零 abi）**，要么按原裁定在 abi 17 引进 `graphics_queue_family_index()`；我在尝试里用的是反查，未提交，等你再确认。
+
+**树状态（回滚后实测，`89ef962`）**：legacy 构建 0 / dynamic 构建 0；`ctest` 18/18 **两棵树**；脚手架 `test_runtime_dyn.exe --with-device` **7 checks / 0 failed / 自退出**；边界 legacy **2**、dynamic **3**（均 0 stale）。**没有半移植状态留在树上。**
+
+**下一笔的建议切分（若采纳）**：S2+S3 **合并成一笔"runtime 的六个分区一次进树"**，按上面那份错误清单逐条清；中间态不发布。这比"两笔各自可编译"更诚实——因为中间态**在数学上不存在**。
+
+
 
 
 
