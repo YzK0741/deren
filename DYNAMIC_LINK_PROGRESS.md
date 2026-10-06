@@ -269,6 +269,47 @@ dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**�
 
 **其余全部已被现成契约面覆盖，不需要新增**（逐条已核）：`logical_device`/`instance`/`physical_device`/`graphics_queue_handle` → `escape()` 的 `native_device`/`native_instance`/`native_physical_device`/`native_queue`；`swap_chain_images` → `frame_image()` + `escape().native_image()`；`swap_chain_image_format` / `depth_attachment_format` → `escape().native_image_format(*image)`；`depth_images` / `depth_image_views` / `swap_chain_image_views` → 引擎自建的 `rhi::image` / `image_view` 容器（A1 已把所有权拿过来）；`device_properties` → `escape().native_physical_device()` 上取（或已有查询）；`descriptor_heap_limits.max_push_data` → `descriptor_heap::properties().max_push_data`；`ray_tracing_pipeline_properties` → 契约已有对应查询/扩展；`heap_grid_offset` 的"堆可用"哨兵 → `descriptor_heap::ready()` + `contract_heap_ready()`；`mesh_shader_available` → `abilities()` 的 `mesh_shader` 位；`copy_image_to_memory` → **契约虚函数** `host_image_copy::copy_image_to_memory()`；`frame_readback_buffer()` → **契约虚函数**；`render_extent` → 引擎自维护（`frame_swapchain()->extent()` × `render_scale`）。
 
+### 11.4 `shared_ptr<core>` / `core&` / `core*` **逐类型**普查（2026-10-06，动 S2 之前量）
+
+问题（用户）：**「以前 `vk_image` 等几个类型都需要 core 的 `shared_ptr`，现在怎么办？」** 方法同 filters 那次：全仓 `*.{cppm,cpp,hpp,h}` 穷举三种拼写（`shared_ptr<core>`、`core&`、`core*`，各自含全限定写法），再按 **CMake 的 `target_sources`** 判定文件属于 `deren_vulkan`（后端）还是 `vulkancorekit`（引擎）。
+
+#### A 类：后端内部的持有者——**保持不动**（DLL 自己拥有自己的 core）
+
+| 类型（后端） | 文件:行 | 证据（都在 `deren_vulkan` 的 target_sources 里，且引擎无构造点） |
+|---|---|---|
+| `core` 自身 + 其 12 个嵌套视图（`command_buffer_view`/`swapchain_view`/`frame_image_slot`/`readback_slot_view`/`commands_view`/`frame_walker_view`/`gpu_profiler_view`/`descriptor_heap` 的 family 视图…） | `vulkan/core/core.declarations.cppm:277,309,333,356,380,393,411,477,570,583,606`（`core* owner`） | 全部在 `vulkan/core/`，属 `deren_vulkan`；引擎侧没有一处构造它们 |
+| 后端句柄 `vk_buffer` / `vk_image` / `vk_image_view` / `vk_sampler` / `vk_command_buffer` / `vk_shader_module` / `vk_pipeline` | `vulkan/core/handles/handles.cppm`、`vulkan/core/vma/handles/vma_handles.cppm`、`vulkan/core/vma/vma.cppm`、`vulkan/core/descriptor_heap/descriptor_heap.cppm` | 同上；`vma_allocator::create_*` 的内部注册表 + 引用计数，**引擎从不构造** |
+| 拥有型包装 `command_buffer_view::vk_command_buffer buffer` / `vk_buffer readback_slot_buffer` / 六个 `vk_sampler` / `vk_image_view make_image_view(...)` 等 | `vulkan/core/core.declarations.cppm:311,444,478,540,552,658,892-897,1121-1188` | 全在后端；`core.api_core.cpp` 里 `delete this` 时由这些 RAII 成员释放 |
+| `init_utils` 的 `core&` free 函数（`create_host_buffer` / `create_host_buffers` / `create_texture_2d`） | `vulkan/core/init_utils/init_utils.cppm:82,109,142`、`vulkan/init_utils/init_utils.cppm`、两份 `.cpp:21,41,64` | **两者都属 `deren_vulkan`**（CMakeLists 435/436/457/458），唯一调用者是 `vulkan/core/core.cpp:18`、`vulkan/core/core.constructor.cppm:44`（`import :init_utils;`）；**引擎侧零调用者**（全仓 `init_utils::` 只有注释命中）⇒ 后端内部，不动 |
+| `acceleration_structure` / `ray_tracing` 的 `rhi::api_core* contract` | `acceleration_structure.cppm:210,360`、`ray_tracing.cppm:249` | **已经是契约指针**（这正是"引擎侧持有者"该有的形状），不动 |
+
+#### B 类：引擎侧的持有者——**改成 `shared_ptr<rhi::api_core>` / `rhi::api_core&`**（与 filters 批同形）
+
+| 类型（引擎） | 文件:行 | 谁在调 | 改成什么 |
+|---|---|---|---|
+| `runtime::core_owner` | `vulkan/runtime/runtime.declarations.cppm:219` | `runtime` 自己的每个成员/方法 | `std::shared_ptr<rhi::api_core>`（S2 落地） |
+| `runtime::vulkan_core` | 同文件 `:221` | 四个实现分区的 `vulkan_core.X`（实测 ~40 处真实调用点） | `rhi::api_core&` |
+| `runtime::runtime(std::shared_ptr<core>)` | 同文件 `:2293`、`runtime.constructor.cppm:283` | **全仓零调用者**（只有 `main.cpp` 的 `create_info` 构造走 `:278` 那条） | 换成 `explicit runtime(std::shared_ptr<rhi::api_core>)`（顺便保住"共享设备"这个能力），或删——S2 定 |
+| free helpers `create_buffer` / `create_buffers` / `buffer_address` | `runtime.declarations.cppm:4164,4172,4180` | `runtime.frames.cppm:72,90,101` 的定义 + 构造/帧路径调用 | 首个参数 `rhi::api_core&`（body 本来就是 `rhi::api_core` 调用，零行为变化） |
+| `readback` 的 `core* gpu` + `readback(core&)` | `vulkan/readback/readback.cppm:60,78`、`readback.cpp:23,28,37,48,57,83,117` | **全仓零实例化**（`deren.vulkan.runtime` 在 S2 批次 2 已不再 import 它；`readback x` 无命中） | `std::shared_ptr<rhi::api_core>` + `rhi::api_core&`，取原生句柄走 `escape()`（与设计 §3 第 8 条一致） |
+
+**便利性（为什么 legacy 调用点通常不用改）**：`shared_ptr<core>` **可以隐式转** `shared_ptr<rhi::api_core>`（`core` 实现 `api_core`），`core&` 也可以隐式转 `rhi::api_core&`——filters 批已经靠这一条做到了"只改定义、不改调用者"，`:283` 的 `filtered_core{core_owner}` 一行未动就是实证。
+
+#### C 类：需要"比 core 活得更久"的类型——**本轮零命中**
+
+量到的所有句柄类型都落在 A 类（后端内部注册表 + 引用计数）或契约句柄上，**没有**任何引擎类型需要"活过 core"：`rhi::object_manager<rhi::image|image_view|sampler|command_buffer>` 的 `release()` 就是后端注册表的引用计数，`vma_allocator` 的注册表在 DLL 内。**所以没有需要新契约面的地方，也没有提前停下的理由。**
+
+#### 顺带确认（用户问的"那几个类型现在归谁"）：**引擎已不再持有任何 `vk_*` 包装类型**
+
+- 两棵树的跨界符号集里**一个 `vk_*` 都没有**：
+  - legacy 基线 2 条 = `_ZGIW5derenW6vulkanW4core` + `core::core(create_info const&)`；
+  - dynamic 基线 3 条 = 同一个 initializer + `deren_make_api_core` / `deren_destroy_api_core`；
+  - **`vk_sampler::operator*()`** 记在 legacy 白名单的 `departures` 里（C 批离场），**动态白名单 `departures` 为空**——它在动态树从来没出现过。
+- 引擎侧现在只持有**契约句柄**：`rhi::object_manager<rhi::image>` / `<rhi::image_view>` / `<rhi::sampler>` / `<rhi::command_buffer>`（`runtime.declarations.cppm:278-320,1075-1130,1183-1185,1278,1443,1450` 等），原生句柄一律经 `vulkan_escape::native_image` / `native_image_view` / `native_sampler`（连 `tests/spike_backend_boundary.cpp:374/435/444` 也是这么读的）。
+- `vk_image` / `vk_image_view` / `vk_sampler` / `vk_command_buffer` 四个类型**仍然存在**，但全部留在 `deren_vulkan` 内部（A 类），**引擎不构造、不命名、不跨界**。
+- 由此顺带纠正一条**已过期的白名单理由**（只改文字，不改符号）：动态白名单里 `_ZGIW5derenW6vulkanW4core` 原写"引擎仍 import 3 个文件（含 filters）"——filters 批之后实测是 **2 个文件**（`readback.cppm` + legacy 的 `runtime.declarations.cppm`），已改。
+
+
 
 
 

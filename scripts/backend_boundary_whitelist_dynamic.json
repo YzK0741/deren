@@ -30,7 +30,7 @@
     },
     {
       "symbol": "_ZGIW5derenW6vulkanW4core",
-      "reason": "initializer for module deren.vulkan.core. The dynamic engine still imports a deren_vulkan module in 3 files (the import instrument prints them: vulkan/core/filter/filters.cppm, vulkan/readback/readback.cppm and the legacy runtime's declarations - the last one is not compiled in this tree), and importing a backend module forces its initializer. LEAVES WITH: the two engine facades that still take core& (filters, readback) plus the legacy runtime's own import - i.e. when the import check reads 0."
+      "reason": "initializer for module deren.vulkan.core. The dynamic engine still imports a deren_vulkan module in 2 files (the import instrument prints them: vulkan/readback/readback.cppm and the legacy runtime's declarations - the last one is not compiled in this tree). It used to be 3: vulkan/core/filter/filters.cppm stopped importing the backend in S2's shared filter batch, which is also why this entry's reason was corrected rather than left stale. LEAVES WITH: the two engine facades that still take core& (readback, and the legacy runtime's own import) - i.e. when the import check reads 0."
     }
   ]
 }
