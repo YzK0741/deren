@@ -32,6 +32,7 @@ import deren.vulkan.scene_tree; // scene storage + GPU primitives (was vulkan.mo
 // the backend-creation contract (create_info): what this app hands the runtime below
 import deren.promise.rhi;
 import deren.vulkan.runtime;
+import deren.vulkan.backend_loader;    // load_api_core(): the app owns the acquisition (batch ⑥)
 import deren.vulkan.render_start_demo; // the example's pass wiring: this app's chain, from outside the renderer
 
 // Route std::pmr allocations through mimalloc (deren.utility:better_pmr) before main(): this
@@ -503,13 +504,16 @@ int main(int argc, char** argv) {
     glfw_window_host const window{settings.render.window_width, settings.render.window_height,
                                   settings.render.window_title.c_str(), capture.frames == 0};
 
-    // 5. Construct deren::vulkan::runtime from the startup render settings (window size / title /
-    //    vsync; the defaults in render_settings mirror the historic hardcoded values).
+    // 5. THE APPLICATION ACQUIRES THE DEVICE ROOT, THEN BUILDS THE RENDERER FROM IT (batch ⑥). Three
+    //    steps, in this order, and the split is the point: the loader is the app's decision (which
+    //    backend, from where, with which search rules, and what a failure means for startup) and the
+    //    runtime is the renderer, which loads nothing and refuses an empty root loudly.
     //    THE TYPE IS THE RHI CONTRACT'S, and it is the ONLY creation structure there is: the program
-    //    fills `deren::promise::rhi::create_info` (promise/rhi/rhi.core_desc.cppm) and hands it to the
-    //    runtime, whose constructor passes it straight to the core and - once the flip lands - is the
-    //    same structure `deren_make_api_core()` receives. There is no backend-side twin to translate
-    //    into, so a new field is added in exactly one place.
+    //    fills `deren::promise::rhi::create_info` (promise/rhi/rhi.core_desc.cppm), hands it to
+    //    `deren::vulkan::load_api_core()` - which loads deren_vulkan.dll by absolute path and passes
+    //    this structure, unchanged except for the window handle it translates for the wire - and then
+    //    hands BOTH the root and the same structure to the runtime. There is no backend-side twin to
+    //    translate into, so a new field is added in exactly one place.
     deren::promise::rhi::create_info core_options = {};
     core_options.window_width = settings.render.window_width;
     core_options.window_height = settings.render.window_height;
@@ -541,7 +545,25 @@ int main(int argc, char** argv) {
     //      handed over - reads it; the visibility this run actually gets is the `GLFW_VISIBLE` hint on the
     //      window created above.
     core_options.native_window = window.window;
-    deren::vulkan::runtime runtime{core_options};
+    // ---- STEP ONE: LOAD THE BACKEND AND ASK IT FOR A DEVICE ROOT. `load_api_core` opens
+    //      `deren_vulkan.dll` beside this executable (absolute path, so the narrow LOAD_LIBRARY_SEARCH_*
+    //      rules apply and %PATH% is never consulted), resolves its ONE export, keeps the image mapped
+    //      for the life of the process, and performs the creation-side handshake with
+    //      `rhi::abi_version`. Every failure is a NAMED diagnosis on the log before it returns, so the
+    //      empty answer below is the app's decision to make rather than a mystery.
+    std::shared_ptr<deren::promise::rhi::api_core> core = deren::vulkan::load_api_core(core_options);
+    if (core == nullptr) {
+        // THE APPLICATION DECIDES WHAT A FAILED ACQUISITION MEANS, and without a backend there is no
+        // renderer to build: report the same way the rest of the startup path does and exit non-zero
+        // (the loader has already named the reason - the log is the diagnosis).
+        deren::utility::error("startup: no device root was acquired, so there is no renderer to run "
+                              "(see the backend_loader diagnosis above)");
+        return 1;
+    }
+    // ---- STEP TWO: THE RENDERER, FROM THE ROOT AND THE SAME OPTIONS. It loads nothing; it checks
+    //      that the object attests `rhi::abi_version` (its own `api_version()`) and refuses an empty
+    //      root, both as panics - the consumption-side half of the same handshake.
+    deren::vulkan::runtime runtime{std::move(core), core_options};
     runtime.background_color = glm::vec3(settings.render.clear_color[0], settings.render.clear_color[1], settings.render.clear_color[2]);
     // shadow is applied after enable_shadows() below (it needs the shadow maps to exist)
     // per-pass GPU timings (timestamp queries): on by default, reported in the log + overlay

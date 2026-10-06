@@ -961,6 +961,37 @@ target_link_libraries(shared_utility
         mimalloc_vendored
 )
 
+# ============================================================================================
+# backend_loader - WHERE THE BACKEND IS LOADED AND THE DEVICE ROOT IS ACQUIRED (batch ⑥).
+#
+# WHY A TARGET OF ITS OWN: the runtime used to do this (it loaded deren_vulkan.dll, resolved the one
+# export and called it before its own construction), so the APPLICATION could not answer which
+# backend, from where, with which search rules, or what a failure means - and the renderer owned a
+# policy that is not its job. The module now sits between them:
+#
+#     auto core = deren::vulkan::load_api_core(core_options);   // main.cpp (the app decides)
+#     deren::vulkan::runtime runtime{core, core_options};       // the renderer (given a root)
+#
+# NOT IN static_utility, deliberately: that half is the pure-CPU toolkit with no loading semantics,
+# and deren.utility.dynamic_link (which it owns) is the MECHANISM - open a named image, resolve a
+# named symbol - not a policy about backends. This target is the policy: the file name, the search
+# rules, the creation-side handshake, the named diagnosis. It links BOTH the toolkit and glfw, because
+# it is also the module that crosses the image boundary and therefore translates the caller's window
+# handle into the native one the DLL can understand (see the module's banner).
+# ============================================================================================
+add_library(backend_loader STATIC)
+target_sources(backend_loader
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        runtime/backend_loader.cppm
+)
+target_link_libraries(backend_loader
+        promise          # the contract: create_info / api_core / abi_version
+        static_utility   # deren.utility (executable_directory / the diagnosis channel) + dynamic_link
+        glfw             # glfwGetWin32Window: the ONE field translated for the wire
+)
+
 # The file dialog (utility/platform_dialog.cpp, for the config's `model = "ask"`) is GetOpenFileNameW,
 # which lives in the common dialog library. Windows-only, like the backend itself.
 if(WIN32)
@@ -1001,6 +1032,7 @@ target_link_libraries(chores
 )
 
 target_link_libraries(${PROJECT_NAME}
+        backend_loader   # main.cpp calls load_api_core(): the app owns the acquisition (batch ⑥)
         static_utility
         vulkancorekit
         chores
@@ -1106,7 +1138,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping)
+    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
@@ -1267,6 +1299,18 @@ if(VR_BUILD_TESTS)
             probe_backend_static
             vstd_lib
     )
+    # THE INJECTION TEST (batch ⑥): the engine builds a renderer from a PROBE root, with no loader, no
+    # DLL and no device - which is the layering's own evidence - and covers the consumption-side
+    # handshake by running the panic case in a CHILD process of itself (CreateProcessW, so the exit
+    # status is not translated by a shell). It links the SAME probe TU the C entry lives in, so the knob
+    # (`probe_make_core` with a chosen `api_version()`) cannot drift from the entry's own behaviour.
+    target_link_libraries(test_runtime_injection
+            promise
+            vulkancorekit
+            static_utility
+            probe_backend_static
+            vstd_lib
+    )
     # The file NAME, not a path: the test composes the path from its own location (see above), so the
     # name stays correct whichever prefix/suffix the platform's shared-library convention uses.
     target_compile_definitions(test_dynamic_link PRIVATE
@@ -1325,6 +1369,7 @@ endif()
 add_executable(test_runtime_dyn tests/test_runtime_dyn.cpp)
 target_compile_options(test_runtime_dyn PRIVATE ${COMPILE_OPTIONS})
 target_link_libraries(test_runtime_dyn
+        backend_loader   # the scaffold calls load_api_core() explicitly (batch ⑥)
         vulkancorekit
         promise
         static_utility
@@ -1337,7 +1382,7 @@ add_dependencies(test_runtime_dyn deren_vulkan)
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit shared_utility static_utility promise gltf_loader app_config ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit shared_utility static_utility backend_loader promise gltf_loader app_config ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
@@ -1472,7 +1517,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility promise app_config deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit gltf_loader ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit gltf_loader ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

@@ -798,6 +798,12 @@ namespace deren::vulkan {
         //
         // `wait_idle()` below is the non-const OVERLOAD of the const facade call above - the contract's
         // virtual is not const, and both spellings answer `vkDeviceWaitIdle`.
+        //
+        // THE CONTRACT'S THIRD HANDSHAKE (abi 19): this object's own `api_version()`, answered with the
+        // number THIS image compiled. The engine checks it before it uses the object - the consumption side
+        // of the same fact the entry's first argument guards on the creation side - and it is a contract
+        // virtual, so it emits no symbol of its own and the boundary's measured count stays at zero.
+        [[nodiscard]] std::uint32_t api_version() const noexcept override;
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
         [[nodiscard]] deren::promise::rhi::swapchain* create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;

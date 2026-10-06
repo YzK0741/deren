@@ -214,7 +214,16 @@ namespace {
         // keep "one C++ runtime" out of the boundary's premises; that premise is now measured and
         // machine-checked (`cxx deren.exe imports libc++.dll`, which covers the DLL too). A C-entry
         // signature change is what the number protects, exactly as it did for 2 -> 3.
-        CHECK(rhi::abi_version == 18u);
+        // ABI19 is the CONSUMER-SIDE HANDSHAKE batch: `api_core` APPENDED `api_version() const noexcept`
+        // - the object's own attestation of the number both halves compile - which the engine asks in the
+        // runtime's constructor (a mismatch is a panic naming both numbers). An appended virtual on an
+        // existing tier-1 interface is the vtable case the number exists for, EVEN THOUGH it produces no
+        // backend symbol (the engine dispatches it through its own vtable copy: the boundary's measured
+        // count and the import meter stay at ZERO). The same batch moved the loading and the acquisition
+        // of the device root out of the runtime into deren.vulkan.backend_loader, called by main.cpp -
+        // which is why this test's subject (the loader) is now something the app uses rather than
+        // something the runtime hides.
+        CHECK(rhi::abi_version == 19u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -276,7 +285,13 @@ namespace {
         // a bit set (not an ordered enum), no bit outside the known set, and every announced
         // ability reachable through `query_extension()` with the kind it claims.
         rhi::ability_bits const abilities = core->abilities();
-        CHECK_MSG(abilities == rhi::to_bits(rhi::extension_kind::device_address),
+        // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE’s runtime
+        // asks it for the presentation image’s format before any frame exists (and derives the queue
+        // family from its handles) - so a root the ENGINE can be injected with has to serve it. The probe
+        // broadcasts both bits and answers both kinds with a matching object; the invariant walk below is
+        // what keeps that honest.
+        CHECK_MSG(abilities == (rhi::to_bits(rhi::extension_kind::device_address) |
+                                rhi::to_bits(rhi::extension_kind::vulkan_escape)),
                   which_half);
         CHECK((abilities & ~rhi::all_abilities()) == rhi::no_abilities);
 

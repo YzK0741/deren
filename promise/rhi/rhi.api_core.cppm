@@ -1131,6 +1131,28 @@ export namespace deren::promise::rhi {
         /// it (the API's own pool/allocator) stays the backend's, so nothing but the handle crosses
         /// this boundary.
         [[nodiscard]] virtual command_buffer* create_command_buffer(command_buffer_desc const& desc) = 0;
+
+        /// THE OBJECT'S OWN ABI NUMBER, ASKED OF THE OBJECT (abi 19).
+        ///
+        /// THE THIRD, INDEPENDENT CHECK OF THE SAME FACT, and each one guards a different side of the
+        /// boundary: `rhi::abi_version` is what BOTH halves compile from this module; the entry's first
+        /// argument (`deren_make_api_core(abi_version, ...)`) is the CREATION side checking the caller
+        /// (a mismatched caller is refused before an object exists); and this virtual is the CONSUMPTION
+        /// side checking the OBJECT it was handed - the case the argument cannot cover, because a host
+        /// may be given an `api_core` it did not create (a probe, a wrapper, a backend loaded by
+        /// something else, an object that crossed an older loader).
+        ///
+        /// THE ENGINE ASKS IT FIRST, IN THE RUNTIME'S CONSTRUCTOR, and a mismatch is a PANIC rather than
+        /// a refusal: a different number means the two halves disagree about this vtable and the layout
+        /// of everything the contract passes by value, so continuing is undefined behaviour, not a
+        /// degraded mode. FATAL IS THE ENGINE'S TO EXECUTE (the rule the startup path already follows):
+        /// the backend reports, the engine decides.
+        ///
+        /// IT IS A CONTRACT VIRTUAL, SO IT COSTS NO BACKEND SYMBOL: the engine dispatches it through its
+        /// own copy of this vtable, which is why the boundary's measured symbol count and the import
+        /// meter are unaffected by it (the flip's whole premise). What it DOES cost is a vtable slot on
+        /// an existing tier-1 interface - an APPEND, hence abi 19.
+        [[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;
     };
 
     /// 在已完成ABI握手的有效对象上检查扩展身份；不能验证悬空指针或不可信后端。

@@ -448,6 +448,14 @@ namespace deren::vulkan {
 
     } // namespace
 
+    std::uint32_t core::api_version() const noexcept {
+        // THE OBJECT'S OWN ATTESTATION (abi 19): the number BOTH halves compiled from the contract
+        // module. The engine asks it before it uses this object, which covers the case the entry's
+        // argument cannot - an `api_core` the engine did not create. Here it is trivially the constant
+        // this image compiled, and the returned type is the contract's own `std::uint32_t`.
+        return rhi::abi_version;
+    }
+
     rhi::ability_bits core::abilities() const noexcept {
         // ---- TWO BITS NOW, AND EACH IS A PROMISE ABOUT SERVICE (batch-1 spec §4.1) -----------------
         //

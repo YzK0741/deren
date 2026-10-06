@@ -157,6 +157,14 @@ namespace deren::vulkan {
          * 0 would create the probes' command pools on the wrong family.
          */
         [[nodiscard]] std::uint32_t graphics_queue_family_of(rhi::api_core& face) noexcept;
+
+        /// THE CONSUMPTION-SIDE HANDSHAKE, as a NAMED function (batch ⑥, abi 19): compare the object's own
+        /// `api_version()` against the number THIS image compiled, and PANIC naming both numbers when they
+        /// disagree. `runtime`'s constructor calls it as its first act (through `require_core`), and it is
+        /// exported so the engine-side injection test can drive BOTH outcomes: the agreeing one in-process,
+        /// and the refusal in a child process (a panic cannot be observed from inside the process it kills).
+        /// @param core the root to check; never null (the caller checks that first, also fatally)
+        export void verify_contract_version(rhi::api_core const& core) noexcept;
         [[nodiscard]] VkPhysicalDeviceProperties physical_properties_of(rhi::api_core& face) noexcept;
         [[nodiscard]] std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept;
         [[nodiscard]] VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_of(rhi::api_core& face) noexcept;
@@ -2484,35 +2492,34 @@ namespace deren::vulkan {
          *       readback staging buffer) are still created and destroyed by this runtime, in that order - the
          *       shared root only changes WHO owns the device, not who owns those
          */
-        explicit runtime(std::shared_ptr<rhi::api_core> shared_core);
+        explicit runtime(std::shared_ptr<rhi::api_core> core, deren::promise::rhi::create_info const& options = {});
 
         /**
          * @ingroup vulkan_runtime
-         * @brief construct the runtime: performs the full core initialization (window / instance /
-         *        device / swapchain / resources) from @p options, and registers the orbit camera
-         *        mouse callbacks on the window
-         * @param options the contract's creation structure, `deren::promise::rhi::create_info`
-         *        (promise/rhi/rhi.core_desc.cppm): title, size, render scale, vsync, validation layers,
-         *        window visibility, and the optional native_window the CALLER owns
+         * @brief build the renderer FROM a device root the caller acquired (batch ⑥, abi 19)
+         * @param core the device root, from `deren.vulkan::load_api_core()` (deren.vulkan.backend_loader)
+         * @param options the contract's creation structure, `deren::promise::rhi::create_info`: the run-time
+         *        `native_window`, `render_scale`, `vsync` (see `deren.vulkan.backend_loader`'s banner for which
+         *        field it translates for the wire)
          *
-         * THE CONTRACT'S STRUCTURE IS THE ONLY ONE it takes: it goes straight to the C entry
-         * `deren_make_api_core(rhi::abi_version, &options, &error)` (promise/rhi/backend_entry.hpp),
-         * which is the ONE way a device root is made - there is no backend constructor this half could
-         * name, and no second spelling of the creation parameters. `options` is KEPT in `create_options`,
-         * because two of its fields are the engine's own rendering decisions (the window and the render
-         * scale) rather than the backend's facts.
+         * THIS CONSTRUCTOR LOADS NOTHING. Getting the root is the APPLICATION's decision - which backend,
+         * from where, with which search rules, and what to do when it is not there - and the renderer is
+         * handed the result together with the SAME `create_info` that produced it (one descriptor, no
+         * second options structure).
+         *
+         * IT REFUSES AN EMPTY ROOT AND A DISAGREEING CONTRACT LOUDLY, as the first thing it does
+         * (require_core in runtime.constructor.cppm): `vulkan_core` is a reference because everything here
+         * is written against a device that exists, and the object's own `api_core::api_version()` is
+         * checked against `rhi::abi_version` before any member is built from it. Both are PANICS with the
+         * numbers in the message: there is no recoverable path from either (a different version means the
+         * two halves disagree about the vtable and about every by-value structure the contract carries).
          *
          * `options.native_window` non-null means the CALLER owns that window: the backend binds to it and
-         * neither creates nor destroys it, while this runtime still registers its orbit-camera callbacks
-         * on it (see the constructor above). A null `native_window` keeps today's behaviour: the backend
-         * creates the window from the fields.
-         * THE FIELD IS A `GLFWwindow*` FOR THIS HALF AND AN `HWND` ON THE WIRE (SHARED flip): this runtime
-         * converts it in `make_contract_core` before the contract structure reaches the backend, because the
-         * backend is a DLL with its own GLFW image and cannot use a window made by this image's copy - while
-         * the callbacks above run on THIS side and need exactly that pointer (see that function's note).
-         * @note it creates its OWN core (see the constructor above for the sharing variant)
+         * neither creates nor destroys it, while this runtime registers its orbit-camera callbacks on it.
+         * THE FIELD IS A `GLFWwindow*` FOR THIS HALF AND THE NATIVE HANDLE ON THE WIRE (SHARED flip):
+         * `deren.vulkan.backend_loader` converts it, because the backend is a DLL with its own GLFW image -
+         * while the callbacks run in THIS image's GLFW and need exactly that pointer.
          */
-        explicit runtime(deren::promise::rhi::create_info const& options);
 
         /**
          * THE ONE CONSTRUCTION THAT DOES THE WORK (③-D/E step 2): the engine's own creation options and
@@ -2530,13 +2537,6 @@ namespace deren::vulkan {
          * one would be a contract addition for a number the caller already holds).
          */
         runtime(deren::promise::rhi::create_info const& options, std::shared_ptr<rhi::api_core> shared_core, float clamped_render_scale);
-
-        /**
-         * @ingroup vulkan_runtime
-         * @brief construct the runtime with default core options (1080x960 window,
-         *        mailbox present mode)
-         */
-        runtime();
 
         /**
          * @ingroup vulkan_runtime

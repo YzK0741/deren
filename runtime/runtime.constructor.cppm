@@ -30,7 +30,7 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>      // std::shared_ptr: the device root this half builds and owns
 #include <span>        // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
-#include <string>      // the DLL path handed to the loader (dynamic_link::load takes a std::string)
+#include <string>      // the panic messages below build their text through std::format
 #include <string_view> // the enabled-extension lookup in runtime_detail (see device_extension_enabled)
 #include <thread>      // std::this_thread::yield in the frame limiter
 #include <vulkan/vulkan.h>
@@ -45,18 +45,10 @@ import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.utility.dynamic_link; // the loader: the backend is a DLL resolved BY NAME since the flip
 import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
 import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
-
-// THE ONE C ENTRY POINT (abi 18), included AFTER the contract import because its declaration names the
-// contract's types (the header says so itself): the type of the symbol this partition RESOLVES AT RUN
-// TIME. It is NOT linked - `target_link_libraries(vulkancorekit PUBLIC deren_vulkan)` is gone with the
-// flip - so the include is here for `deren_make_api_core_fn` and the declaration's agreement with it,
-// and the entry's address comes from `deren_vulkan.dll` (see backend_entry_address below).
-#include "../promise/rhi/backend_entry.hpp"
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
@@ -133,10 +125,6 @@ namespace deren::vulkan {
             return; // empty batch, or the pool is shut down (never in the running demo)
         }
         this->task_pool.wait_until_priority_done(pool_priority);
-    }
-
-    runtime::runtime()
-        : runtime(deren::promise::rhi::create_info{}) {
     }
 
     bool contract_heap_ready(rhi::api_core& face) noexcept {
@@ -394,109 +382,61 @@ namespace deren::vulkan {
 
     namespace {
         /**
-         * @brief THE BACKEND'S ONE ENTRY, RESOLVED BY NAME OUT OF `deren_vulkan.dll` (the SHARED flip).
+         * @brief THE DEVICE ROOT, CHECKED, OR A PANIC - construction's FIRST act (abi 19, batch ⑥).
          *
-         * THIS IS THE LOADER STEP, AND IT REPLACES A LINK-TIME REFERENCE - which is the whole difference
-         * between "the interface half is done" and "the program uses a dynamic backend". Until this
-         * batch `vulkancorekit` linked `deren_vulkan`, so the backend was an ordinary library bound at
-         * process start; now the executable does not link it at all, `deren_vulkan.dll` is loaded here,
-         * and the ONE export it carries (`deren_make_api_core`, abi 18) is resolved out of it by name.
+         * THE ENGINE NO LONGER ACQUIRES ANYTHING (that is `deren.vulkan.backend_loader`, called by the
+         * application), so this is what replaces the two functions that used to live here: a root is HANDED
+         * OVER, and this half checks the two things it can still be wrong about.
          *
-         * THE PATH IS THE EXECUTABLE'S OWN DIRECTORY, PASSED ABSOLUTE, and that is the Q5 lesson measured
-         * during the spike: an absolute path makes the loader use
-         * `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`, so the DLL's own
-         * directory and the system directories are searched and %PATH% never is (a bare name would take
-         * the classic search order instead, which is how a planted DLL gets in).
+         * TWO REFUSALS, BOTH FATAL, AND THE ENGINE IS THE ONE THAT EXECUTES THEM (the startup rule this path
+         * already follows - the backend reports, the engine decides):
          *
-         * THE HANDLE IS DETACHED AND NEVER UNLOADED, for a MEASURED reason rather than tidiness:
-         * `FreeLibrary` after a context had been built and torn down never returned (recorded in
-         * DYNAMIC_LINK_V2.md §13). The process ends with the image mapped, which costs nothing it does
-         * not already use - the backend's code has to stay valid for as long as its object does.
+         *   1. AN EMPTY `shared_ptr`. `vulkan_core` is a REFERENCE, not a maybe-root, because everything below
+         *      is written against a device that EXISTS; "no root" cannot be represented here and must not be
+         *      papered over with a null dereference somewhere in the frame loop. The loader has already
+         *      reported WHY (its own named diagnosis), so this panic is the consumption side saying "and the
+         *      renderer will not start without one".
+         *   2. `api_core::api_version()` DISAGREEING WITH `rhi::abi_version` - the CONSUMPTION-side handshake,
+         *      and it covers what the entry's first argument cannot: an object this image did not create (a
+         *      probe, a wrapper, a backend some other loader produced). A different number means the two halves
+         *      disagree about this vtable and about the layout of every structure the contract passes by
+         *      value, so continuing is undefined behaviour rather than a degraded mode. THE PANIC NAMES BOTH
+         *      NUMBERS: which side is stale is the first thing a reader needs.
          *
-         * RESOLVED ONCE PER PROCESS (`static`, function-local), so the load is not repeated per runtime
-         * and cannot be re-entered from a second thread halfway through.
+         * IT RUNS IN THE MEMBER-INITIALISER LIST, before the constructor body and before any member that is
+         * built FROM the root (`vulkan_core` itself, the pass filter, every resource): a check that ran later
+         * would already have used it.
          */
-        [[nodiscard]] deren_make_api_core_fn backend_entry_address() {
-            static deren_make_api_core_fn const resolved = []() -> deren_make_api_core_fn {
-                std::filesystem::path const dll = deren::utility::executable_directory() / "deren_vulkan.dll";
-                auto loaded = deren::utility::dynamic_link::load(dll.string());
-                if (!loaded.has_value()) {
-                    deren::utility::panic(std::source_location::current(),
-                                          "runtime: the backend library could not be loaded from '{}' (code {}): {}",
-                                          dll.string(),
-                                          loaded.error().code,
-                                          loaded.error().message);
-                }
-                auto const symbol = loaded->symbol("deren_make_api_core");
-                if (!symbol.has_value()) {
-                    deren::utility::panic(std::source_location::current(),
-                                          "runtime: '{}' does not export deren_make_api_core - this is not a deren "
-                                          "backend (code {}): {}",
-                                          dll.string(),
-                                          symbol.error().code,
-                                          symbol.error().message);
-                }
-                // THE ADDRESS IS VALID FOR THE LIFE OF THE PROCESS because the handle is detached here and
-                // never handed back (see the note above): unloading is what would invalidate it.
-                static_cast<void>(loaded->detach());
-                return reinterpret_cast<deren_make_api_core_fn>(const_cast<void*>(*symbol));
-            }();
-            return resolved;
-        }
-
-        /**
-         * @brief THE ONE DEVICE-ROOT FACTORY OF THIS HALF (③-D/E step 2): the contract's creation
-         *        structure to the C entry, and the answer wrapped in the `shared_ptr` that owns it.
-         *
-         * THE ENTRY IS RESOLVED BY NAME (the flip): `backend_entry_address()` above loads
-         * `deren_vulkan.dll` beside this executable, takes the one export out of it and detaches the
-         * handle, so this call is a call through a pointer THIS image obtained at run time - nothing in
-         * this file is bound to the backend by the linker.
-         *
-         * THE ABI HANDSHAKE IS THE CALL'S FIRST ARGUMENT, and it is the constant BOTH sides compiled
-         * from the contract module: a mismatch is refused by the backend (`error::abi_mismatch`) rather
-         * than survived - the one failure mode a by-name load makes possible.
-         *
-         * A REFUSAL PANICS HERE AND NOW, and that is deliberate rather than convenient: the rest of this
-         * runtime is written against a device that exists (the legacy class had a `core` reference, not a
-         * maybe-core), so the ONE place "the backend said no" can be turned into that premise is this
-         * function. `status` carries the backend's own diagnosis - the decision code, the API, the native
-         * code, the backend's static text and the failure's source location (abi 13) - so the panic names
-         * the real reason rather than a null pointer.
-         */
-        [[nodiscard]] std::shared_ptr<rhi::api_core> make_contract_core(rhi::create_info const& options) {
-            rhi::error_info status{};
-            // THE WINDOW CROSSES AS A NATIVE HANDLE, NOT AS A `GLFWwindow*` (SHARED flip), and this is the
-            // one place the conversion belongs. The backend is a DLL with ITS OWN GLFW image, and GLFW's
-            // state is per-image: a pointer made by THIS executable's copy means nothing on the other side,
-            // so `glfwCreateWindowSurface` on it failed (MEASURED: all fourteen render scenarios panicking
-            // in core::init_surface, exit 0xC0000409). The engine knows both worlds - its own GLFWwindow and
-            // the HWND behind it - so the contract's opaque `void*` carries the HWND (the contract's own
-            // note states that for this backend), and the backend creates the surface from it with
-            // vkCreateWin32SurfaceKHR. THE RUNTIME'S OWN COPY of the structure keeps the GLFWwindow*: the
-            // callbacks installed further down this constructor run in THIS image's GLFW and need it.
-            rhi::create_info backend_options = options;
-#if defined(_WIN32)
-            backend_options.native_window = options.native_window != nullptr
-                                                ? static_cast<void*>(glfwGetWin32Window(static_cast<GLFWwindow*>(options.native_window)))
-                                                : nullptr;
-#endif
-            // THE ENTRY OWNS THE OBJECT FROM THE MOMENT IT ANSWERS (abi 18): the `shared_ptr` it returns
-            // carries the backend's own deleter in its control block, so there is no raw pointer here
-            // and no deleter name to resolve - the last reference this runtime holds is the whole
-            // lifetime story.
-            std::shared_ptr<rhi::api_core> core = backend_entry_address()(rhi::abi_version, &backend_options, &status);
-            if (!core) {
+        [[nodiscard]] rhi::api_core& require_core(std::shared_ptr<rhi::api_core> const& core) {
+            if (core == nullptr) {
                 deren::utility::panic(std::source_location::current(),
-                                      "runtime: deren_make_api_core refused the creation (abi {}, error code {}, native {}): {}",
-                                      rhi::abi_version,
-                                      static_cast<std::uint32_t>(status.code),
-                                      status.native_code,
-                                      status.message);
+                                      "runtime: no device root was handed over (an empty shared_ptr<api_core>) - the "
+                                      "loader (deren.vulkan.backend_loader::load_api_core) reports why it failed");
             }
-            return core;
+            runtime_detail::verify_contract_version(*core);
+            return *core;
         }
     } // namespace
+
+    void runtime_detail::verify_contract_version(rhi::api_core const& core) noexcept {
+        // THE CONSUMPTION-SIDE HANDSHAKE (abi 19): the object's OWN number against the one this image
+        // compiled. It covers what the entry's first argument cannot - an `api_core` this image did not
+        // create (a probe, a wrapper, a backend some other loader produced) - and a mismatch is FATAL
+        // rather than recoverable: the two halves then disagree about this vtable and about the layout of
+        // every structure the contract passes by value, so no call on the object is safe. BOTH NUMBERS
+        // ARE IN THE MESSAGE, because which side is stale is the first thing a reader needs.
+        //
+        // IT IS A NAMED function rather than a few lines inside `require_core` so the engine-side
+        // injection test can drive the AGREEING outcome in-process and the REFUSAL in a child process
+        // (a panic cannot be observed from inside the process it kills).
+        std::uint32_t const reported = core.api_version();
+        if (reported != rhi::abi_version) {
+            deren::utility::panic(std::source_location::current(),
+                                  "runtime: the device root reports abi {} but this executable compiled abi {} - the two "
+                                  "halves disagree about the contract, so no call on it can be made safely",
+                                  reported, rhi::abi_version);
+        }
+    }
 
     rhi::api_core& runtime::rhi_face() const noexcept {
         // §18's rule in one line: the interface reference of the SAME object. Before the flip the
@@ -510,15 +450,20 @@ namespace deren::vulkan {
         return *rhi::query_extension<rhi::vulkan_escape>(this->rhi_face());
     }
 
-    // THE ONE CREATION CONSTRUCTOR, AND THE LINE THE WHOLE FLIP IS FOR: the contract's structure goes to
-    // the C entry `deren_make_api_core()`, and the object comes back as an `api_core*` this side never
-    // deletes. With the backend still STATIC in this tree that symbol is resolved by the LINKER, exactly
-    // as the legacy runtime's `std::make_shared<core>` was; the loader (`deren.utility.dynamic_link`,
-    // resolving the same three names by hand from a library) joins at the flip, and no call site of this
-    // file changes when it does.
-    runtime::runtime(deren::promise::rhi::create_info const& options)
+    // THE ONE CONSTRUCTION ENTRY (batch ⑥): the APPLICATION acquires the device root
+    // (`deren.vulkan.backend_loader::load_api_core`, called by main.cpp and by the scaffold test) and
+    // hands it over together with the SAME `create_info` that produced it - one descriptor, no second
+    // options structure, no hidden acquisition. This half loads nothing and resolves nothing: it checks
+    // the root it was given (`require_core` above, the first thing the delegating constructor reaches)
+    // and builds the renderer from it.
+    //
+    // AN EMPTY ROOT IS REFUSED LOUDLY rather than tolerated, which is the invariant the reference member
+    // `vulkan_core` has always implied: the engine's startup path decides what a failed acquisition means
+    // (main.cpp reports and exits), and this constructor is where "there is no root" stops being
+    // representable.
+    runtime::runtime(std::shared_ptr<rhi::api_core> core, deren::promise::rhi::create_info const& options)
         : runtime(options,
-                  make_contract_core(options),
+                  std::move(core),
                   // THE CLAMP IS APPLIED HERE, BY THE ONE OWNER OF THE RULE: the backend clamps the same
                   // value for the swapchain it sizes, and the engine must size the targets IT creates by
                   // the same number - `render_layout::clamp_render_scale` is that one spelling (see its
@@ -526,16 +471,9 @@ namespace deren::vulkan {
                   deren::vulkan::render_layout::clamp_render_scale(options.render_scale)) {
     }
 
-    runtime::runtime(std::shared_ptr<rhi::api_core> shared_core)
-        : runtime(deren::promise::rhi::create_info{}, std::move(shared_core),
-                  deren::vulkan::render_layout::clamp_render_scale(deren::promise::rhi::create_info{}.render_scale)) {
-        // The caller's own root is taken as it is; the standard creation options describe the frame the
-        // engine will size. Nothing creates a second device.
-    }
-
     runtime::runtime(deren::promise::rhi::create_info const& options, std::shared_ptr<rhi::api_core> shared_core, float const clamped_render_scale)
         : core_owner{std::move(shared_core)}
-        , vulkan_core{*this->core_owner}
+        , vulkan_core{require_core(this->core_owner)}
         , create_options{options}
         , render_scale{clamped_render_scale}
         , filtered_core{core_owner} {

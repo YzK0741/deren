@@ -192,7 +192,18 @@ export namespace deren::promise::rhi {
     /// what the abi number protects, so this is a bump even though no vtable moved.
     /// `-Wreturn-type-c-linkage` is silenced at the declaration and at the definition, because the C
     /// linkage is there for the NAME - an undecorated symbol a host resolves as a string.
-    inline constexpr std::uint32_t abi_version = 18u;
+    /// 18 -> 19 in the CONSUMER-SIDE HANDSHAKE batch: `api_core` APPENDED `api_version() const noexcept`
+    /// (rhi.api_core.cppm), the object's own attestation of the number both halves compile - asked by the
+    /// engine in the runtime's constructor, where a mismatch is a PANIC (a different number means the two
+    /// halves disagree about this vtable and about every structure the contract passes by value, so
+    /// continuing is undefined behaviour rather than a degraded mode). An appended virtual on an existing
+    /// tier-1 interface is exactly the case the number exists for, EVEN THOUGH IT PRODUCES NO BACKEND
+    /// SYMBOL: the engine dispatches it through its own vtable copy, so the boundary's measured count and
+    /// the import meter stay at ZERO - what changes is the interface SHAPE, and that is what this number
+    /// protects. The same batch moves the loading and the acquisition of the device root out of the
+    /// runtime into `deren.vulkan.backend_loader`, called by `main.cpp` (`runtime` now takes the
+    /// `shared_ptr` and refuses an empty one), which is a construction-path change in the same breath.
+    inline constexpr std::uint32_t abi_version = 19u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

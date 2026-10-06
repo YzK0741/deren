@@ -178,6 +178,72 @@ namespace {
         static constexpr std::uint64_t address_base = 0x1000ull;
     };
 
+    /// THE PROBE'S ESCAPE (abi 19's injection test needs it): the engine's runtime asks the escape
+    /// for facts it cannot get anywhere else - the presentation image's FORMAT before a frame is
+    /// acquired (`native_swapchain_image_format`), the enabled device extensions (the backend's own
+    /// gate for ray query / mesh shaders), and the raw handles the frame path borrows.
+    ///
+    /// THE HANDLES ARE NULL AND THAT IS THE HONEST ANSWER: a probe has no instance, device or queue,
+    /// and every consumer of them in the engine guards the null (see `ray_query_available_of` in
+    /// runtime.constructor.cppm, which answers `false` rather than dereferencing). The EXTENSION LIST
+    /// is empty for the same reason, so both device-capability derivations answer "not available" -
+    /// which is what a device-less probe can honestly claim. Broadcasting `vulkan_escape` alongside
+    /// `device_address` is what makes the probe usable as an injected root at all.
+    struct probe_escape final : rhi::vulkan_escape {
+        [[nodiscard]] void* native_instance() const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_physical_device() const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_device() const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_queue() const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_command_buffer(rhi::command_list&) const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] std::span<char const* const> enabled_instance_extensions() const noexcept override {
+            return {};
+        }
+        [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override {
+            return {};
+        }
+        [[nodiscard]] void* native_buffer(rhi::buffer const&) const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_image(rhi::image const&) const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_image_view(rhi::image_view const&) const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_sampler(rhi::sampler const&) const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] std::uint32_t native_image_format(rhi::image const&) const noexcept override {
+            return static_cast<std::uint32_t>(probe_image_format);
+        }
+        [[nodiscard]] void* native_pipeline(rhi::pipeline const&) const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* native_shader_module(rhi::shader const&) const noexcept override {
+            return nullptr;
+        }
+        /// THE ONE NON-NULL ANSWER, and the reason the engine's runtime can ask this at all before a
+        /// frame exists (abi 17): the presentation image's format is a session-stable fact, and the
+        /// probe has to name SOMETHING for it. `VK_FORMAT_B8G8R8A8_UNORM` = 44 is the value a Vulkan
+        /// backend would report for the common swapchain; the number is not a promise about pixels.
+        [[nodiscard]] std::uint32_t native_swapchain_image_format() const noexcept override {
+            return static_cast<std::uint32_t>(probe_image_format);
+        }
+
+        /// B8G8R8A8_UNORM, as the contract's `std::uint32_t` spelling of a VkFormat.
+        static constexpr int probe_image_format = 44;
+    };
+
     /// The probe's frame ring: two virtual slots, one cursor, and an open that echoes the creation
     /// descriptor - the frame face's shape (abi 13), witnessed without a device. The ring is the ONE
     /// cursor: `frame_begin()` reports the slot `position()` names, so the "two sources of truth"
@@ -312,14 +378,29 @@ namespace {
     /// The probe's api_core. `final` so that a missing override is a compile error
     /// rather than an inherited pure virtual in an abstract class nobody notices.
     struct impl final : rhi::api_core {
+        /// THE CONTRACT'S THIRD HANDSHAKE (abi 19), with a knob: the engine checks this against its
+        /// own `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
+        /// a deliberately stale one - to prove the check is the thing that fires. `make_core` below
+        /// (the test-only factory) is what sets it; the C entry always leaves the default.
+        [[nodiscard]] std::uint32_t api_version() const noexcept override {
+            return this->reported_api_version;
+        }
+
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
-            return rhi::to_bits(rhi::extension_kind::device_address);
+            // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE's runtime
+            // asks it for the presentation format before any frame exists (`escape()` dereferences what
+            // `query_extension<vulkan_escape>()` answers, so an injected root has to serve it - see
+            // `probe_escape`). Both bits are announced, and both answer with an object whose kind matches,
+            // which is the contract's two-way invariant (the walk in test_dynamic_link checks it).
+            return rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::vulkan_escape);
         }
 
         [[nodiscard]] rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
             switch (kind) {
             case rhi::extension_kind::device_address:
                 return &this->address;
+            case rhi::extension_kind::vulkan_escape:
+                return &this->escape;
             default:
                 return nullptr; // not announced, so not available (§3.6)
             }
@@ -468,7 +549,10 @@ namespace {
         /// the creation descriptor's `window_width`, carried in by deren_make_api_core and echoed out
         /// of frame_begin() and the walker's open; 0 would be an impl nobody filled, which the test's
         /// non-zero fill catches
+        probe_escape escape;
         std::uint32_t creation_window_width = 0;
+        /// what `api_version()` answers: the contract's number unless a test asked for another
+        std::uint32_t reported_api_version = rhi::abi_version;
         /// the creation descriptor's `window_height`, echoed by the swapchain view's `extent()` (the
         /// creation descriptor is the only "window size" a probe has)
         std::uint32_t creation_window_height = 0;
@@ -621,5 +705,23 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
     auto created = std::make_shared<impl>();
     created->creation_window_width = static_cast<std::uint32_t>(desc->window_width);
     created->creation_window_height = static_cast<std::uint32_t>(desc->window_height);
+    created->reported_api_version = rhi::abi_version; // the C entry never lies about the contract
     return created;
 }
+
+// ---- THE PROBE AS AN ENGINE-SIDE INJECTION SOURCE (batch ⑥) ----------------------------------
+// The runtime's constructor takes a device root, so a test can hand it one and prove the layering
+// without a DLL, a loader or a GPU. `reported_api_version` is the knob that makes the CONSUMPTION
+// handshake testable: a probe reporting `rhi::abi_version + 1` must make the runtime refuse the
+// object. Declared in tests/probe_backend.hpp so the test links the same TU the C entry lives in
+// instead of re-compiling the probe (two copies of it would drift).
+namespace deren::vk_test {
+    std::shared_ptr<deren::promise::rhi::api_core> probe_make_core(deren::promise::rhi::create_info const& desc,
+                                                                   std::uint32_t const reported_api_version) {
+        auto created = std::make_shared<impl>();
+        created->creation_window_width = static_cast<std::uint32_t>(desc.window_width);
+        created->creation_window_height = static_cast<std::uint32_t>(desc.window_height);
+        created->reported_api_version = reported_api_version;
+        return created;
+    }
+} // namespace deren::vk_test
