@@ -207,3 +207,21 @@ python scripts/check_backend_boundary.py --config dynamic   # 默认 build-relea
 
 dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**：S4 的 file-list swap 让 dynamic 树重新构建 app/chores（`VR_RUNTIME_SERVES_THE_APP` 塌缩），那一栏随之变成「有」。在此之前，dynamic 树的可用读数就是上面那张表——**符号 3 / import 3**。
 
+---
+
+## 11 S2 的前置：一个在 S1 之前看不见的**硬依赖边**（2026-10-06，实测）
+
+**结论先写**：S2（`:declarations` + `:constructor` 进 `runtime/`）**不能只动 `runtime/`**——它压着一条此前没有被点名的依赖：**共享的 `vulkan/core/filter/filters.cppm`**（`vulkancorekit` 拥有，两棵树都编译）。
+
+**怎么测出来的**：把六个 legacy 分区整份拷进 `runtime/`、只做机械替换后逐点清账：
+
+1. `runtime.declarations.cppm`（4175 行）里**非注释**提到 `core` 的只有 **9 行**，其中真正的类型/接口面只有 **5 处**：`export import deren.vulkan.core;`、`std::shared_ptr<core> core_owner`、`core& vulkan_core`、`runtime(std::shared_ptr<core>)`、以及文件末尾三个自由函数（`create_buffer` / `create_buffers` / `buffer_address`，参数是 `core&`）。这个文件基本是**能整体复用的**。
+2. `core::heap_slots` / `heap_slot_offset` / `heap_slot_stride` / `heap_image_capacity` / `heap_sampler_base` **根本不归后端**：`core` 只是把它们从 **`deren.vulkan.render_layout`**（同属 `vulkan_constant_init`，两棵树共享）别名过来的（`core.declarations.cppm` 的 `static_assert` 就是漂移守卫）。动态侧把 `core::heap_slot*` 换成 `render_layout::heap_slot*` 即可——这是一次**纯机械替换**（六个文件共 ~126 处），不需要任何契约新增。
+3. `runtime.constructor.cppm` 里 `vulkan_core.X` 的真实调用点总共 ~23 处，绝大多数已有契约等价物（`create_buffer` / `create_buffers` / `create_command_buffer` / `wait_idle`）；`render_scale` 直接取 `create_info::render_scale`（**契约里就有**，`rhi.core_desc.cppm`）；`window` 取 `options.native_window`（`main.cpp:543` 本来就传了）；`heap_grid_offset != VK_WHOLE_SIZE` 这个"堆可用"哨兵由 `descriptor_heap::ready()` + `contract_heap_ready()` 承担。
+4. **挡路的那条边**：`runtime.declarations.cppm` 的成员 `user_filter filtered_core;` / `pass_filter pass_resources;` 来自 `deren.vulkan.core.filters`，而 `filters.cppm:85/86/133/134` **今天就持有 `std::shared_ptr<core> owner_share; core* vk_core;`**，`user_filter` 还要 `get_window()` / `get_swap_chain_extent()` / `get_vma()`，`pass_filter` 要 `vma()`。动态 runtime 没有 `core` 可传——**不先把这两个 facade 改成 `std::shared_ptr<rhi::api_core>` + `escape()`，动态 runtime 连类体都放不下**。这正是设计 §3 表格第 7 项（filters 是"真依赖"），此前被排在 S2 之后；实测证明它是 S2 的**同一批次内的先决条件**，不是后续项。
+5. **它一旦要改，就不能只改自己**：`filters.cppm` 属于 `vulkancorekit`、两棵树共享，legacy 树也要跟着改（legacy 侧刚好把 `core&` 传进去即可，因为它实现 `api_core`）。用户要"legacy 树全程全绿"，所以这一笔必须**一个提交内同时**改 `filters.cppm` + 两个 runtime 的调用点。这是 S2 从"一个分区的移植"变成"跨共享模块的一笔"的原因。
+6. **仍然算不出结论的一处（留档，不猜）**：`graphics_queue_family_index` 在契约里**既不在 `create_info` 也不在 `vulkan_escape`**（`native_queue()` 只给队列句柄）——它只出现在 `runtime.probes.cppm:86/204`（S3 的器械），所以**不挡 S2**；到 S3 时要么加一行 escape 访问器（**会跳 abi，必须先说明理由**），要么从 `native_queue()` 反查（用只读探针借队列做 `vkGetPhysicalDeviceQueueFamilyProperties`，零契约改动但有实现风险）。
+
+**当前状态**：树是**干净的**、两棵树全绿（legacy `ctest` 18/18；dynamic `ctest` 18/18 + `test_runtime_dyn.exe --with-device` 7 checks / 0 failed / 自退出）。S2 的拷贝试验**已全部回滚**，没有半移植状态留在树上。
+
+
