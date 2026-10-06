@@ -4,7 +4,7 @@
 `deren_vulkan.dll` (with `shared_utility.dll` beside it) is loaded BY NAME out of the executable's own
 directory, its ONE export (`deren_make_api_core`) is resolved at run time, the handle is detached and
 never unloaded, and the executable does not link the backend at all - so the boundary's measured symbol
-count is ZERO. DYNAMIC_LINK_PROGRESS.md §18 carries the readings and the two hazards the flip exposed
+count is ZERO. DYNAMIC_LINK_PROGRESS.md section 18 carries the readings and the two hazards the flip exposed
 (a backend module a DLL cannot serve, and the backend's own GLFW image). What follows was written while
 the work was in flight:
 
