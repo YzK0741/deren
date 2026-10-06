@@ -423,6 +423,69 @@ function Invoke-Scenario {
 $onlyNames = @()
 if ($Only) { $onlyNames = @($Only -split '[,;\s]+' | Where-Object { $_ }) }
 $pass = 0; $fail = 0; $missing = 0; $flaky = 0; $skipped = 0
+# ---- THE LOCAL ASSET PRECONDITION (G1): a missing asset tree is a NAMED FAILURE, not a hash -----------
+#
+# WHY THIS IS A PRECONDITION AND NOT A LINE IN THE REPORT, measured 2026-10-06 on the tree this script
+# was run in: the four `laevatain_*` scenarios render locally authored glbs/sidecars from `chars\` beside
+# the build tree, and the rewritten toon chain looks up its pre-integrated FGD LUT under
+# `deren-ab\gooblender\images\` - both GITIGNORED, so a fresh or second build tree does not have them.
+# What that produced was NOT an error: with `chars\` missing, four scenarios aborted ("failed to load
+# model" -> panic -> exit 0xC0000409), and with `chars\` present but `deren-ab\` missing, exactly the two
+# sidecar arms rendered WITHOUT the FGD LUT and reported a CHANGED HASH - which is byte-for-byte the same
+# REPORT as a rendering regression, and 2 of 14 is small enough to be read as noise. A report line would
+# be read after the verdict; the verdict would already be wrong. So the gate refuses to start.
+#
+# THE REQUIREMENTS ARE DECLARED PER SCENARIO, not derived from `model`/`extra`, and the fallback arm is
+# why: `laevatain_no_sidecar` runs the rewritten chain on `laevatain.glb`, whose `.toon.tsv` is
+# DELIBERATELY ABSENT (that absence IS the control). "Every goo_toon scenario needs its sidecar" would
+# demand a file the scenario exists to not have.
+$assetRequirements = @(
+    @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_old_chain");
+       path      = Join-Path $charDir "laevatain_goo.glb";
+       why       = "the goo character those three scenarios render" },
+    @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_old_chain");
+       path      = Join-Path $charDir "laevatain_goo.glb.toon.tsv";
+       why       = "its per-material sidecar rows (the sidecar arm; the FALLBACK arm is a different scenario with none)" },
+    @{ scenarios = @("laevatain_no_sidecar");
+       path      = Join-Path $charDir "laevatain.glb";
+       why       = "the same character WITHOUT a sidecar (the fallback control)" },
+    @{ scenarios = @("laevatain_goo_toon", "laevatain_goo_toon_body", "laevatain_no_sidecar", "laevatain_old_chain");
+       path      = Join-Path $BuildDir "deren-ab\gooblender\images\PreIntegratedFGD_GGXDisneyDiffuse.png";
+       why       = "the goo FGD LUT the rewritten chain samples - without it those scenarios render a DIFFERENT picture and report a changed hash" }
+)
+$selectedNames = @($scenarios | Where-Object {
+    if ($onlyNames.Count -gt 0) { $onlyNames -contains $_.name } else { $Full -or $_.tier -eq "core" }
+} | ForEach-Object { $_.name })
+$missingAssets = @()
+foreach ($requirement in $assetRequirements) {
+    if (@($requirement.scenarios | Where-Object { $selectedNames -contains $_ }).Count -eq 0) { continue }
+    if (-not (Test-Path -LiteralPath $requirement.path)) {
+        $missingAssets += @{ path = $requirement.path; why = $requirement.why }
+    }
+}
+if ($missingAssets.Count -gt 0) {
+    # WHICH TREE, named: the two roots the requirements live under, so the fix is one sentence.
+    $missingTrees = @($missingAssets | ForEach-Object {
+        if ($_.path.StartsWith($charDir, [System.StringComparison]::OrdinalIgnoreCase)) { "chars\" }
+        else { "deren-ab\" }
+    } | Sort-Object -Unique)
+    Write-Host ""
+    Write-Host "REFUSING TO RUN: $($missingAssets.Count) local asset(s) this selection needs are missing." -ForegroundColor Red
+    Write-Host "missing tree(s): $($missingTrees -join ', ')  (both are GITIGNORED local data, not repository content)" -ForegroundColor Red
+    foreach ($asset in $missingAssets) {
+        Write-Host "  MISSING  $($asset.path)" -ForegroundColor Red
+        Write-Host "           needed by: $($asset.why)"
+    }
+    Write-Host @"
+WHY THIS IS FATAL RATHER THAN A NOTE: without these files the scenarios that use them do not fail - they
+render a DIFFERENT picture (or abort), and the summary then says CHANGED for two of fourteen scenarios,
+which is exactly how a rendering regression reads. Fix it by putting the trees beside this build
+directory (`chars\` and `deren-ab\`, copied from the directory the migration's gates were baselined in),
+then run again.
+"@
+    exit 1
+}
+
 foreach ($s in $scenarios) {
     if ($onlyNames.Count -gt 0) {
         if ($onlyNames -notcontains $s.name) { $skipped++; continue }

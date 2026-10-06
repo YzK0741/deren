@@ -525,7 +525,6 @@ uploaded`），补上 `deren-ab\` 之后 14/14 逐字节相同。**结论**：�
 
 ### 16.4 紧随其后的两笔（门自身的两处缺口）
 
-* **G1**：`check_render.ps1` 把两棵本地资产树（`chars\`、`deren-ab\`）当**先决条件**，缺哪棵就**指名**并
-  响亮退出——因为"缺资产"会以**哈希变化**的形式出现（§15.4 实测），那是最坏的一类静默假阴性。
+* **G1 已落地**：`check_render.ps1` 在开跑前检查本次选择真正需要的那几个本地文件（**按场景声明**，不是从 `model`/`extra` 推导——`laevatain_no_sidecar` 的 `.toon.tsv` 是**故意不存在**的，那一份缺失就是它的对照），缺哪个就打印 **缺失文件 + 需要的场景 + 缺的是哪一棵树（`chars\` / `deren-ab\`）** 并 `exit 1`，**一个场景都不渲染**。实测两条路径：藏起 `deren-ab\...\PreIntegratedFGD_GGXDisneyDiffuse.png` → `REFUSING TO RUN ... missing tree(s): deren-ab\` 并 exit 1；放回去 → 正常跑出 `CF5A34D8DF6B6FFC`。为什么不能只在报告里标注：缺资产**不报错**，它渲染出**另一张图**，汇总里就是 14 里的 2 个 CHANGED——与一次渲染回归**逐字相同**，报告写在判据之后，判据已经错了。
 * **G2**：`scripts/compare_render_hashes.py` 从 build 目录里的临时产物**提升为标准门**，并接到
   `check_render.ps1 -Compare …` 上：两棵树都在时比对两棵树，只剩一棵时比对冻结清单。
