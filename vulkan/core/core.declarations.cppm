@@ -600,6 +600,29 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint32_t native_image_format(deren::promise::rhi::image const& resource) const noexcept override;
             [[nodiscard]] void* native_pipeline(deren::promise::rhi::pipeline const& resource) const noexcept override;
             [[nodiscard]] void* native_shader_module(deren::promise::rhi::shader const& resource) const noexcept override;
+            /// abi 17 (③-D/E step 2): the swapchain's format as a session-stable fact, asked of the
+            /// CONTEXT because the engine builds its presentation-drawing pipelines before any frame
+            /// exists (see the contract's own note on this accessor). `VK_FORMAT_UNDEFINED` when this
+            /// core has no swapchain format yet.
+            [[nodiscard]] std::uint32_t native_swapchain_image_format() const noexcept override;
+        };
+
+        /// tier-2 `host_image_copy`: the implementation-side copy out of an image into the app's own
+        /// memory (`VK_EXT_host_image_copy`), announced ONLY when the device actually has it
+        /// (`host_image_copy_available`, which requires the extension, its feature AND GENERAL among the
+        /// copy source layouts) - a set bit is a promise about service, and this view serves it on the
+        /// images `create_image()` handed out.
+        ///
+        /// WIRED UP BY THE CONTRACT-ONLY RUNTIME (③-D/E step 2): the two heap probes used to call the
+        /// device entry point directly off `core::copy_image_to_memory`; they now go through this, so no
+        /// engine file names a Vulkan entry point the backend resolved. It is the FIRST consumer of an
+        /// ability that had been declared in the contract since abi 1 and served by nobody.
+        struct frame_host_copy final : deren::promise::rhi::host_image_copy {
+            core* owner = nullptr;
+
+            [[nodiscard]] deren::promise::rhi::error copy_image_to_memory(deren::promise::rhi::image const& source,
+                                                                          std::span<std::byte> destination,
+                                                                          deren::promise::rhi::image_copy_region const& region) noexcept override;
         };
 
         struct frame_heap final : deren::promise::rhi::descriptor_heap {
@@ -653,6 +676,9 @@ namespace deren::vulkan {
         std::unordered_set<deren::promise::rhi::command_buffer const*> contract_command_buffers;
         /// the tier-2 address object `query_extension(device_address)` answers with
         buffer_address_view address_view;
+        /// the tier-2 host-copy object `query_extension(host_image_copy)` answers with (③-D/E step 2) -
+        /// the first thing that serves that ability, which the contract had announced from the start
+        frame_host_copy host_copy_view;
         /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,
         /// host-coherent and TRANSFER_DST, grown on demand (see frame_readback_buffer())
         vk_buffer readback_slot_buffer;

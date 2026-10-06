@@ -2,39 +2,46 @@ module;
 
 #include <array>
 #include <cstring>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
+#include <utility>
 #include <vector>
 #include <vulkan/vulkan.h>
 
 module deren.vulkan.readback;
 
+import deren.promise.rhi; // the contract this file's helpers name (imports are NOT transitive)
 import deren.utility;
 
 namespace deren::vulkan {
     namespace {
-        /// The contract's view of the device. EVERY factory and ability call in this file goes through
-        /// one of these two helpers, and that is a measured rule rather than style: `core` implements
-        /// `api_core`, so a call written on the CONCRETE `core&` compiles to a direct call and emits an
-        /// undefined reference to `core::create_buffer` / `core::query_extension` in the engine half -
-        /// i.e. it JOINS the backend-boundary worklist this migration is measured by. Through the
-        /// contract's interface the call is virtual and emits no symbol at all.
-        deren::promise::rhi::api_core& contract_of(core& gpu) {
-            return static_cast<deren::promise::rhi::api_core&>(gpu);
+        /// The escape, obtained from the contract once and then used through ITS pointer. Every native
+        /// handle in this file comes from here (③-D/E step 2): the class drives `rhi::api_core` now, so
+        /// the VkDevice, the queue, a VkBuffer and a VkCommandBuffer are all borrowed through the
+        /// contract's own raw-handle path rather than read off a backend class member.
+        deren::promise::rhi::vulkan_escape* escape_of(deren::promise::rhi::api_core& gpu) {
+            return static_cast<deren::promise::rhi::vulkan_escape*>(gpu.query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
         }
 
-        /// The escape, obtained from the contract once and then used through ITS pointer.
-        deren::promise::rhi::vulkan_escape* escape_of(core& gpu) {
-            return static_cast<deren::promise::rhi::vulkan_escape*>(
-                contract_of(gpu).query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
+        /// The VkDevice the contract's root drives; null when the backend announced no escape (it does,
+        /// and the startup gate refuses a backend that does not).
+        VkDevice native_device_of(deren::promise::rhi::api_core& gpu) {
+            auto* const escape = escape_of(gpu);
+            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkDevice>(escape->native_device());
+        }
+
+        /// The queue the backend submits on - what this class's one-shot copies go to.
+        VkQueue native_queue_of(deren::promise::rhi::api_core& gpu) {
+            auto* const escape = escape_of(gpu);
+            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkQueue>(escape->native_queue());
         }
 
         /// The VkBuffer a contract buffer carries, through the escape - the contract's own rule for a
         /// native handle, and the reason the allocator's detail map is consulted nowhere in this class.
-        /// Null when the backend announced no escape (it does, and the startup gate refuses a backend
-        /// that does not) or when the buffer carries no handle at all.
-        VkBuffer native_buffer_of(core& gpu, deren::promise::rhi::buffer const& buffer) {
+        /// Null when the backend announced no escape or when the buffer carries no handle at all.
+        VkBuffer native_buffer_of(deren::promise::rhi::api_core& gpu, deren::promise::rhi::buffer const& buffer) {
             auto* const escape = escape_of(gpu);
             if (escape == nullptr) {
                 return VK_NULL_HANDLE;
@@ -45,7 +52,7 @@ namespace deren::vulkan {
         /// The VkCommandBuffer a contract COMMAND LIST names, through the same escape (abi 15). A list
         /// of a buffer the caller created is resolvable outside a frame - that is exactly what the
         /// read-back's one-shot buffer needs, because its read runs after the frame has landed.
-        VkCommandBuffer native_command_buffer_of(core& gpu, deren::promise::rhi::command_list& list) {
+        VkCommandBuffer native_command_buffer_of(deren::promise::rhi::api_core& gpu, deren::promise::rhi::command_list& list) {
             auto* const escape = escape_of(gpu);
             if (escape == nullptr) {
                 return VK_NULL_HANDLE;
@@ -54,8 +61,8 @@ namespace deren::vulkan {
         }
     } // namespace
 
-    readback::readback(core& device)
-        : gpu(&device) {
+    readback::readback(std::shared_ptr<deren::promise::rhi::api_core> device)
+        : gpu(std::move(device)) {
     }
 
     readback::~readback() {
@@ -63,7 +70,7 @@ namespace deren::vulkan {
         // first: wait() is what guarantees the GPU is done before the allocation goes away.
         this->wait();
         if (this->fence != VK_NULL_HANDLE && this->gpu != nullptr) {
-            vkDestroyFence(this->gpu->logical_device, this->fence, nullptr);
+            vkDestroyFence(native_device_of(*this->gpu), this->fence, nullptr);
             this->fence = VK_NULL_HANDLE;
         }
         // `staging` is a contract owner now: it drops this class's reference on destruction, and the
@@ -74,13 +81,14 @@ namespace deren::vulkan {
         if (!this->fence_pending || this->fence == VK_NULL_HANDLE || this->gpu == nullptr) {
             return;
         }
-        vkWaitForFences(this->gpu->logical_device, 1, &this->fence, VK_TRUE, UINT64_MAX);
-        vkResetFences(this->gpu->logical_device, 1, &this->fence);
+        VkDevice const device = native_device_of(*this->gpu);
+        vkWaitForFences(device, 1, &this->fence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device, 1, &this->fence);
         this->fence_pending = false;
     }
 
     std::optional<readback::staged_target> readback::stage_for_copy(VkDeviceSize const size) {
-        core& vk = *this->gpu;
+        deren::promise::rhi::api_core& vk = *this->gpu;
         if (size == 0) {
             return std::nullopt;
         }
@@ -95,7 +103,7 @@ namespace deren::vulkan {
         // writing into (release is not destruction, but the reference is what keeps it alive).
         this->wait();
         this->staging = deren::promise::rhi::object_manager<deren::promise::rhi::buffer>{
-            contract_of(vk).create_buffer(deren::promise::rhi::buffer_desc{.size = size, .usage = deren::promise::rhi::buffer_usage::readback_coherent})};
+            vk.create_buffer(deren::promise::rhi::buffer_desc{.size = size, .usage = deren::promise::rhi::buffer_usage::readback_coherent})};
         this->staging_size = 0;
         if (!this->staging) {
             deren::utility::log("readback: staging buffer creation failed ({} bytes)", size);
@@ -114,14 +122,14 @@ namespace deren::vulkan {
     }
 
     std::expected<std::vector<uint8_t>, std::string> readback::read(VkBuffer const source, VkDeviceSize const size, VkDeviceSize const offset) {
-        core& vk = *this->gpu;
+        deren::promise::rhi::api_core& vk = *this->gpu;
         this->last_read_size = 0;
         if (source == VK_NULL_HANDLE || size == 0) {
             return std::unexpected(std::string("readback: nothing to read (null buffer or zero size)"));
         }
         if (this->fence == VK_NULL_HANDLE) {
             VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
-            if (vkCreateFence(vk.logical_device, &fence_info, nullptr, &this->fence) != VK_SUCCESS) {
+            if (vkCreateFence(native_device_of(vk), &fence_info, nullptr, &this->fence) != VK_SUCCESS) {
                 return std::unexpected(std::string("readback: fence creation failed"));
             }
         }
@@ -136,7 +144,7 @@ namespace deren::vulkan {
         // nothing accumulates across calls. (The fence wait below is what makes that destruction legal:
         // a pool must not go away while its buffer is pending.)
         deren::promise::rhi::object_manager<deren::promise::rhi::command_buffer> commands{
-            contract_of(vk).create_command_buffer({.kind = deren::promise::rhi::command_buffer_kind::primary})};
+            vk.create_command_buffer({.kind = deren::promise::rhi::command_buffer_kind::primary})};
         if (!commands) {
             return std::unexpected(std::string("readback: create_command_buffer refused"));
         }
@@ -197,13 +205,14 @@ namespace deren::vulkan {
                                           .pCommandBuffers = &command_buffer,
                                           .signalSemaphoreCount = 0,
                                           .pSignalSemaphores = nullptr};
-        if (vkQueueSubmit(vk.graphics_queue_handle, 1, &submit_info, this->fence) != VK_SUCCESS) {
+        if (vkQueueSubmit(native_queue_of(vk), 1, &submit_info, this->fence) != VK_SUCCESS) {
             return std::unexpected(std::string("readback: vkQueueSubmit failed"));
         }
         this->fence_pending = true;
 
-        vkWaitForFences(vk.logical_device, 1, &this->fence, VK_TRUE, UINT64_MAX);
-        vkResetFences(vk.logical_device, 1, &this->fence);
+        VkDevice const device = native_device_of(vk);
+        vkWaitForFences(device, 1, &this->fence, VK_TRUE, UINT64_MAX);
+        vkResetFences(device, 1, &this->fence);
         this->fence_pending = false;
 
         // NO INVALIDATE HERE, and it is a deliberate removal rather than an omission. The dropped call

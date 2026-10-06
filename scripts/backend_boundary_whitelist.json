@@ -21,7 +21,7 @@
   "entries": [
     {
       "symbol": "_ZGIW5derenW6vulkanW4core",
-      "reason": "initializer for module deren.vulkan.core. The engine still imports a deren_vulkan module in 3 files (the same instrument prints them: filters, readback and the legacy runtime's declarations), and importing a backend module forces its initializer. LEAVES WITH: the dynamic-link runtime plus the two engine facades that still take core& - i.e. when the import check reads 0."
+      "reason": "initializer for module deren.vulkan.core. The engine imports a deren_vulkan module in ONE file now (the import instrument prints it: the legacy runtime's own declarations), and importing a backend module forces its initializer. It used to be three: vulkan/core/filter/filters.cppm stopped in the shared filter batch, and vulkan/readback/readback.cppm stopped in step 2's merged slice (it takes rhi::api_core& now). LEAVES WITH: the dynamic-link runtime, whose own declarations are the last importer - i.e. when the import check reads 0."
     },
     {
       "symbol": "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",

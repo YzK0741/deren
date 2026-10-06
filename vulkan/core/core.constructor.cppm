@@ -149,7 +149,12 @@ namespace deren::vulkan {
         // value a caller writes by omission, a value above 1.0 would ask the render chain for MORE pixels
         // than are presented (a supersample this renderer's resolve does not implement), and a zero or
         // negative scale is an invalid extent rather than a small frame.
-        this->render_scale = std::clamp(this->create_options.render_scale, 0.1f, 1.0f);
+        // THE CLAMP IS NOT SPELLED HERE (③-D/E step 2's merged slice): `render_layout::clamp_render_scale`
+        // is the ONE owner of the rule, because the ENGINE clamps the same value for its own render-chain
+        // targets and two spellings of "clamped" would size two halves of one frame differently. The log
+        // line below stays here: reporting the clamp is the backend's, and the engine has nothing to say
+        // at the same point.
+        this->render_scale = deren::vulkan::render_layout::clamp_render_scale(this->create_options.render_scale);
         if (this->render_scale != this->create_options.render_scale) {
             deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", this->create_options.render_scale, this->render_scale);
         }
@@ -295,6 +300,7 @@ namespace deren::vulkan {
         this->escape_view.owner = this;
         this->heap_view.owner = this;
         this->address_view.owner = this;
+        this->host_copy_view.owner = this;
         this->frame_command_buffers.reserve(static_cast<std::size_t>(MAX_FRAMES_IN_FLIGHT));
         for (int32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
             // EACH ONE BRINGS ITS OWN POOL: make_command_buffer() creates a pool per buffer (see

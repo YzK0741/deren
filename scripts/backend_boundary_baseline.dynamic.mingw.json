@@ -8,11 +8,9 @@
   "backend_archive": "libderen_vulkan.a",
   "backend_imports": {
     "engine_application": [
-      "vulkan/core/filter/filters.cppm:50: import deren.vulkan.core",
-      "vulkan/readback/readback.cppm:26: import deren.vulkan.core",
       "vulkan/runtime/runtime.declarations.cppm:62: import deren.vulkan.core"
     ],
-    "sources_scanned": 135,
+    "sources_scanned": 139,
     "tests_informational": [
       "tests/test_error_mapping.cpp:23: import deren.vulkan.core"
     ]
@@ -79,8 +77,12 @@
         "render_environment.cppm.obj",
         "render_resource.cppm.obj",
         "runtime.constructor.cppm.obj",
+        "runtime.cpp.obj",
         "runtime.cppm.obj",
         "runtime.declarations.cppm.obj",
+        "runtime.frames.cppm.obj",
+        "runtime.probes.cppm.obj",
+        "runtime.readback.cppm.obj",
         "scene.cpp.obj",
         "scene.cppm.obj",
         "scene_tree.cpp.obj",
@@ -101,31 +103,24 @@
       ]
     }
   ],
-  "count": 3,
+  "count": 2,
   "cross_boundary_symbols": [
-    "_ZGIW5derenW6vulkanW4core",
     "deren_destroy_api_core",
     "deren_make_api_core"
   ],
-  "defined_in_backend": 1235,
-  "joiners": [
-    "_ZGIW5derenW6vulkanW4core",
-    "deren_destroy_api_core",
-    "deren_make_api_core"
-  ],
+  "defined_in_backend": 1239,
+  "joiners": [],
   "kit_archive": "libvulkancorekit.a",
-  "kit_members": 71,
-  "leavers": [],
+  "kit_members": 75,
+  "leavers": [
+    "_ZGIW5derenW6vulkanW4core"
+  ],
   "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
   "owning_stl_symbols": [],
   "reverse_boundary_symbols": [],
   "stale_consumers": [],
   "symbol_sources": {
-    "_ZGIW5derenW6vulkanW4core": [
-      "filters.cppm.obj",
-      "readback.cppm.obj"
-    ],
     "deren_destroy_api_core": [
       "runtime.constructor.cppm.obj"
     ],
@@ -133,11 +128,14 @@
       "runtime.constructor.cppm.obj"
     ]
   },
-  "usages": 4,
+  "usages": 2,
   "whitelist": {
-    "count": 0,
-    "hits": [],
-    "path": null,
+    "count": 2,
+    "hits": [
+      "deren_destroy_api_core",
+      "deren_make_api_core"
+    ],
+    "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\scripts\\backend_boundary_whitelist_dynamic.json",
     "stale": [],
     "untracked_by_the_ratchet": []
   }

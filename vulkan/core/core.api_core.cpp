@@ -462,10 +462,17 @@ namespace deren::vulkan {
         // to `ray_tracing` (abi 5) precisely so this bit would stop being hostage to a resource no
         // backend could make - see rhi.extension.cppm's `device_address` note and the view's own.
         //
-        // descriptor_heap只在heap真正可用时广播；其余未实现的能力继续不广播。
-        // host_image_copy未接线；mesh_shader和ray_tracing仍由pass通过原生接口录制。
+        // descriptor_heap只在heap真正可用时广播；mesh_shader和ray_tracing仍由pass通过原生接口录制。
+        //
+        // host_image_copy IS SERVED NOW (③-D/E step 2), so it is announced exactly when the device lets
+        // the view do what it promises: the extension, its `hostImageCopy` feature, and GENERAL among the
+        // layouts a host copy may READ FROM (all three are `host_image_copy_available`, verified at
+        // construction). Until this batch nobody served the ability and the bit was therefore not set -
+        // and the engine's heap probes called the device entry point off `core` instead; that is the
+        // consumer this bit was waiting for.
         return rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
-               (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u);
+               (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
+               (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u);
     }
 
     bool core::frame_heap::ready() const noexcept {
@@ -690,6 +697,9 @@ namespace deren::vulkan {
         }
         if (kind == rhi::extension_kind::device_address) {
             return &this->address_view;
+        }
+        if (kind == rhi::extension_kind::host_image_copy && this->host_image_copy_available) {
+            return &this->host_copy_view;
         }
         return nullptr;
     }
@@ -1773,6 +1783,14 @@ namespace deren::vulkan {
         // the caller's - only images this backend's create_image handed out reach here, and a released
         // one must not. The VkImage was copied into the owned object at creation, so no detail lookup
         // runs per call.
+        //
+        // THE FRAME IMAGE IS THE ONE EXCEPTION AND IT IS HANDLED BY IDENTITY (③-D/E step 2): the
+        // borrowed presentation image is not an `owned_image`, so reinterpreting it as one would read a
+        // wrong field - the same pointer-identity test `frame_commands::use` and `fill_heap_bindings`
+        // already use for this object. It answers the image the last acquire returned.
+        if (static_cast<void const*>(&resource) == static_cast<void const*>(&this->owner->frame_image_view)) {
+            return reinterpret_cast<void*>(this->owner->frame_image_view.handle());
+        }
         auto const* const owned = static_cast<owned_image const*>(&resource);
         return reinterpret_cast<void*>(owned->native_handle);
     }
@@ -1788,8 +1806,26 @@ namespace deren::vulkan {
     }
 
     std::uint32_t core::frame_escape::native_image_format(rhi::image const& resource) const noexcept {
+        // THE FRAME IMAGE IS THE ONE BORROWED IMAGE, and it is not an `owned_image` (it is the swapchain's
+        // presentation image, which the core owns; abi 16's borrowed view). Asking for its format must
+        // answer the SWAPCHAIN's format rather than reinterpret the borrowed object as an owned one - the
+        // same pointer-identity test `fill_heap_bindings` and `frame_commands::use` already use for this
+        // object. `owned_image::resolved_format` and the swapchain's format are the same value for it by
+        // construction (the backend created the images from that format).
+        if (static_cast<void const*>(&resource) == static_cast<void const*>(&this->owner->frame_image_view)) {
+            return static_cast<std::uint32_t>(this->owner->swap_chain_image_format);
+        }
         auto const* const owned = static_cast<owned_image const*>(&resource);
         return static_cast<std::uint32_t>(owned->resolved_format);
+    }
+
+    std::uint32_t core::frame_escape::native_swapchain_image_format() const noexcept {
+        // abi 17 (③-D/E step 2): the SESSION-STABLE surface format, answerable before any frame exists -
+        // which is the whole reason it is on the escape rather than on `native_image_format`, whose only
+        // swapchain-image operand (`frame_image()`) is nullptr until an acquire. UNDEFINED before the
+        // swapchain is built; the engine's debug overlay and its presentation-drawing pipelines are
+        // created after construction, so they see the real value.
+        return static_cast<std::uint32_t>(this->owner->swap_chain_image_format);
     }
 
     void* core::frame_escape::native_pipeline(rhi::pipeline const& resource) const noexcept {
@@ -1800,6 +1836,67 @@ namespace deren::vulkan {
     void* core::frame_escape::native_shader_module(rhi::shader const& resource) const noexcept {
         auto const* const owned = static_cast<owned_shader const*>(&resource);
         return reinterpret_cast<void*>(owned->native_handle);
+    }
+
+    // ---- tier-2 host_image_copy (③-D/E step 2) ------------------------------------------------------
+    rhi::error core::frame_host_copy::copy_image_to_memory(rhi::image const& source, std::span<std::byte> destination,
+                                                           rhi::image_copy_region const& region) noexcept {
+        core* const self = this->owner;
+        if (self == nullptr || !self->host_image_copy_available) {
+            // The ability is announced ONLY when this holds, so a caller that checked `abilities()` never
+            // sees this; one that did not gets the contract's named refusal rather than a call through a
+            // null function pointer.
+            return rhi::error::unsupported;
+        }
+        // ONLY AN IMAGE THIS BACKEND CREATED, which is the contract's precondition for every borrowed
+        // native handle. The frame image (a BORROWED view) is deliberately NOT served here: a host copy
+        // out of the presentation image is not what this ability is for today, and reinterpreting the
+        // borrowed object as an owned one is the bug the escape's pointer-identity tests exist to avoid.
+        if (static_cast<void const*>(&source) == static_cast<void const*>(&self->frame_image_view)) {
+            return rhi::error::invalid_argument;
+        }
+        auto const* const owned = static_cast<owned_image const*>(&source);
+        if (owned->native_handle == VK_NULL_HANDLE) {
+            return rhi::error::invalid_argument;
+        }
+        // THE REGION IS THE CALLER'S, TIGHTLY PACKED: the contract's `image_copy_region` says WHERE in
+        // the image (texels, subresource, offsets) and this maps it onto the API's own structure with the
+        // row/image strides left zero - which is the API's own spelling of "the region is tightly
+        // packed", i.e. exactly extent.width texels per row and extent.height rows deep. The aspect is
+        // COLOUR: the contract's region carries no aspect, and the image this renderer copies out of (a
+        // probe's colour target) is a colour attachment.
+        VkImageToMemoryCopy memory_copy = {};
+        memory_copy.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT;
+        memory_copy.pNext = nullptr;
+        memory_copy.pHostPointer = destination.data();
+        memory_copy.memoryRowLength = 0;
+        memory_copy.memoryImageHeight = 0;
+        // THE CONVERSIONS ARE EXPLICIT because the API's own structure is less wide here than the
+        // contract's region: `mipLevel` and the offsets are `int32_t` in Vulkan and `uint32_t` in the
+        // region. A braced initializer would refuse the narrowing outright (-Wc++11-narrowing), which is
+        // the compiler asking for the cast - and a region whose values do not fit is a caller bug the
+        // backend cannot repair.
+        memory_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+        memory_copy.imageSubresource.mipLevel = static_cast<std::int32_t>(region.mip_level);
+        memory_copy.imageSubresource.baseArrayLayer = region.base_array_layer;
+        memory_copy.imageSubresource.layerCount = region.array_layer_count;
+        memory_copy.imageOffset = {static_cast<std::int32_t>(region.offset_x),
+                                   static_cast<std::int32_t>(region.offset_y),
+                                   static_cast<std::int32_t>(region.offset_z)};
+        memory_copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
+        VkCopyImageToMemoryInfo copy_info = {};
+        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT;
+        copy_info.pNext = nullptr;
+        copy_info.flags = 0;
+        copy_info.srcImage = owned->native_handle;
+        // GENERAL, AND THAT IS THIS RENDERER'S OWN CONVENTION rather than a choice made here: every image
+        // it creates is kept in GENERAL (the heap-native shaders index the grid directly), and the
+        // device's host-copy source layouts list GENERAL among what it can read from - which is exactly
+        // what `host_image_copy_available` verifies at startup.
+        copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+        copy_info.regionCount = 1;
+        copy_info.pRegions = &memory_copy;
+        return generic_error(self->copy_image_to_memory(self->logical_device, &copy_info));
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {

@@ -321,4 +321,36 @@ export namespace deren::vulkan::render_layout {
         static constexpr uint32_t bloom_l3 = heap_slot_base + 671u;
         static constexpr uint32_t display_color = heap_slot_base + 695u;
     };
+
+    // ================================================================================================
+    // THE RENDER SCALE'S ONE CLAMP (③-D/E step 2's merged slice, ruling: ONE owner of the rule)
+    // ================================================================================================
+    /**
+     * @brief THE ONE CLAMP OF `create_info::render_scale`, and the reason it is a function in a module
+     *        BOTH HALVES compile rather than a `std::clamp` copied into each of them.
+     *
+     * THE CONTRACT SAYS THE BACKEND CLAMPS (rhi.core_desc.cppm's `render_scale` note): a value outside
+     * the supported range is neither an error nor a request, and the backend's answer is what a frame
+     * uses. That answer has TWO consumers - the backend, which sizes the swapchain's render extent by it
+     * in `core::render_extent()`, and the ENGINE, which sizes its own render-chain targets by the scale
+     * it keeps. If the two spellings of "clamped" ever differed, the engine would create its targets at
+     * one resolution while the backend sized the frame's at another, and nothing would say so: a wrong
+     * picture, not an error. So the rule lives HERE, once, and both halves call it - exactly the same
+     * argument the slot grid's constants above make for themselves.
+     *
+     * THE BODY IS `std::clamp(requested, 0.1f, 1.0f)` SPELLED OUT, because this module includes only
+     * `<array>`, `<cstdint>` and `vulkan/vulkan.h` (a module both halves compile may not drag in more).
+     * `std::clamp`'s own definition is `v < lo ? lo : (hi < v ? hi : v)`, so this is the same expression
+     * for every value including a NaN, not a second policy.
+     *
+     * @param requested the scale the program asked for
+     * @return the scale in [0.1, 1.0] the frame is actually rendered and sized with
+     */
+    [[nodiscard]] constexpr float clamp_render_scale(float const requested) noexcept {
+        return requested < 0.1f ? 0.1f : (requested > 1.0f ? 1.0f : requested);
+    }
+
+    static_assert(clamp_render_scale(0.05f) == 0.1f, "the lower bound moved");
+    static_assert(clamp_render_scale(1.5f) == 1.0f, "the upper bound moved");
+    static_assert(clamp_render_scale(0.75f) == 0.75f, "an in-range value must pass through unchanged");
 } // namespace deren::vulkan::render_layout

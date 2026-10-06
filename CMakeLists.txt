@@ -505,8 +505,13 @@ if(VR_RUNTIME STREQUAL "dynamic")
         runtime/runtime.cppm
         runtime/runtime.declarations.cppm
         runtime/runtime.constructor.cppm
+        runtime/runtime.frames.cppm
+        runtime/runtime.probes.cppm
+        runtime/runtime.readback.cppm
     )
-    set(VR_RUNTIME_PRIVATE_SOURCES)
+    set(VR_RUNTIME_PRIVATE_SOURCES
+        runtime/runtime.cpp
+    )
     set(VR_RUNTIME_SERVES_THE_APP OFF)
 else()
     set(VR_RUNTIME_MODULES

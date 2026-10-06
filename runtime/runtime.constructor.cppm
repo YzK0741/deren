@@ -1,72 +1,2593 @@
 // ============================================================================
-// module: deren.vulkan.runtime:constructor  - construction and teardown (step 2, S1)
+// module: deren.vulkan.runtime:constructor  - construction, initialisation and resource creation
 //
-// THE ONE CONSTRUCTION, AND THE LINE THE WHOLE FLIP IS FOR: the contract's creation structure goes to the C
-// entry `deren_make_api_core()`, and the object comes back as an `api_core*` this side never deletes. With
-// the backend still STATIC in this tree that symbol is resolved by the LINKER, exactly as the legacy
-// runtime's `std::make_shared<core>` was; the loader (`deren.utility.dynamic_link`, resolving the same three
-// names by hand from a library) joins at the flip, and no call site of this file changes when it does.
+// The two contiguous runs of runtime.cpp that BUILD a runtime rather than drive one: the constructors
+// and the whole init/ensure run (init_scene_resources through ensure_scene_heap_slots), then
+// write_light_and_shadow_bindings, set_ibl and register_material. What stayed behind runs per frame or
+// is a diagnostic (the two heap probes, which get their own partition).
+//
+// THE GLFW CALLBACKS CAME WITH THE CONSTRUCTOR because the constructor is what registers them; the
+// window lookup they use is the same three-line helper runtime.cpp keeps. The heap-write helpers that
+// sit inside the init run (heap_slot_offset, write_heap_grid_image, write_heap_scene_buffer) came too,
+// and runtime.cpp keeps a copy of the ones its own frame path still calls. Duplication of small
+// file-local helpers across two anonymous namespaces is legal but it IS duplication: the follow-up is to
+// publish the heap three from deren.vulkan.core:descriptor_heap, where heap plumbing belongs.
+//
+// Imports are NOT transitive: this partition imports what the moved code calls, and repeats the pmr
+// keep-alive that must run before any pmr container in this TU.
 // ============================================================================
 module;
 
-#include <cstdint>
-#include <memory> // std::shared_ptr
+#include <GLFW/glfw3.h>
+#include <algorithm> // std::min in the resource publication
+#include <bit>       // std::bit_cast for the caster world-matrix hash
+#include <chrono>
+#include <cstring> // std::memcpy, for composing a pass's push block
+#include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
+#include <memory>      // std::shared_ptr: the device root this half builds and owns
+#include <span>        // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
+#include <string_view> // the enabled-extension lookup in runtime_detail (see device_extension_enabled)
+#include <thread>      // std::this_thread::yield in the frame limiter
+#include <vulkan/vulkan.h>
 
 module deren.vulkan.runtime:constructor;
 
 import :declarations;
-import deren.promise.rhi;
-import deren.utility;
+import deren.vulkan.profiling;
+import deren.vulkan.pipelines;
+import deren.vulkan.bindings;
+import deren.vulkan.render_resource;
+import deren.vulkan.render_resource.shared;
 
-// THE THREE C ENTRY POINTS, included AFTER the contract import because their declarations name the
-// contract's types (the header says so itself). They are ordinary `extern "C"` symbols with C language
-// linkage, so a declaration in a module purview is attached to the GLOBAL module - the backend's definition
-// and this declaration are the same entity, which is what the linker sees.
+import deren.utility;
+import deren.vulkan.constant_init;
+import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
+import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
+
+// THE THREE C ENTRY POINTS (③-D/E step 2), included AFTER the contract import because their declarations
+// name the contract's types (the header says so itself). They are ordinary `extern "C"` symbols with C
+// language linkage, so a declaration in a module purview is attached to the GLOBAL module - the backend's
+// definition and this declaration are the same entity, which is what the linker sees. `deren_make_api_core`
+// is this partition's ONE device-root factory and `deren_destroy_api_core` is the deleter the shared_ptr
+// holds (plan §4.1 item 3: the object lives in the backend's image, so the destruction has to run THERE -
+// `delete` would free memory this image never allocated).
 #include "../promise/rhi/backend_entry.hpp"
 
+// Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
+// init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
+// main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
+// only forces the (dynamic) initialization before any pmr container in this TU is constructed.
+[[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
+
+namespace {
+    deren::vulkan::runtime* runtime_from_window(GLFWwindow* window) {
+        return static_cast<deren::vulkan::runtime*>(glfwGetWindowUserPointer(window));
+    }
+
+    void mouse_button_callback(GLFWwindow* window, int32_t const button, int32_t const action, [[maybe_unused]] int32_t const mods) {
+        auto* runtime = runtime_from_window(window);
+        if (button != GLFW_MOUSE_BUTTON_LEFT) {
+            return;
+        }
+        // the overlay owns the mouse while the cursor is over a panel / a widget is being
+        // dragged: starting an orbit there would fight the ui (see gui_content::wants_mouse)
+        if (runtime->debug_gui_wants_mouse()) {
+            return;
+        }
+        if (action == GLFW_PRESS) {
+            runtime->camera.dragging = true;
+            glfwGetCursorPos(window, &runtime->camera.last_x, &runtime->camera.last_y);
+        } else if (action == GLFW_RELEASE) {
+            runtime->camera.dragging = false;
+        }
+    }
+
+    void cursor_pos_callback(GLFWwindow* window, double const x, double const y) {
+        auto& camera = runtime_from_window(window)->camera;
+        if (!camera.dragging) {
+            return;
+        }
+        if (runtime_from_window(window)->debug_gui_wants_mouse()) {
+            // the drag left the scene and landed on the overlay: keep the camera still but keep
+            // tracking the cursor so leaving the panel does not jump the view
+            glfwGetCursorPos(window, &camera.last_x, &camera.last_y);
+            return;
+        }
+        constexpr float sensitivity = 0.005f;
+        float const dx = static_cast<float>(x - camera.last_x);
+        float const dy = static_cast<float>(y - camera.last_y);
+        camera.last_x = x;
+        camera.last_y = y;
+        camera.yaw += dx * sensitivity; // drag direction matches the primitive rotation
+        camera.pitch -= dy * sensitivity;
+        camera.pitch = std::clamp(camera.pitch, -1.5f, 1.5f); // avoid flipping
+    }
+
+    void scroll_callback(GLFWwindow* window, [[maybe_unused]] double const xoffset, double const yoffset) {
+        if (runtime_from_window(window)->debug_gui_wants_mouse()) {
+            return; // scrolling inside an overlay panel must not zoom the camera
+        }
+        auto& camera = runtime_from_window(window)->camera;
+        // zoom: wheel up pulls in, wheel down pulls out. The upper bound is generous (scene
+        // sizes vary from the tiny default model to e.g. the Fox rig, whose framing distance
+        // is ~240). The projection far plane always covers the scene (see make_orbit_camera_ubo),
+        // so zooming in never clips the far side.
+        camera.distance *= std::pow(0.9f, static_cast<float>(yoffset));
+        camera.distance = std::clamp(camera.distance, 0.5f, 5000.0f);
+    }
+} // namespace
+
 namespace deren::vulkan {
+    // Run a batch of tasks on the shared pool and wait for exactly this stage's group: the
+    // frame phases are synchronous (the paced slot is read right after animation sampling),
+    // so run_tasks blocks until every task in the batch finished. The enum tier is mapped
+    // onto the pool's integer priority (see task_priority in runtime.cppm).
+    void runtime::run_tasks(std::span<std::function<void()>> const tasks, task_priority const priority) {
+        int32_t const pool_priority = static_cast<int32_t>(priority);
+        if (tasks.empty() || !this->task_pool.post_batch(tasks, pool_priority)) {
+            return; // empty batch, or the pool is shut down (never in the running demo)
+        }
+        this->task_pool.wait_until_priority_done(pool_priority);
+    }
 
     runtime::runtime()
-        : runtime(rhi::create_info{}) {
-        // The empty creation is the contract's own "standard context" - the same spelling the legacy runtime
-        // hands to the backend constructor.
+        : runtime(deren::promise::rhi::create_info{}) {
     }
 
-    runtime::runtime(rhi::create_info const& options)
-        : core_owner{} {
-        // THE ABI HANDSHAKE IS THE CALL'S FIRST ARGUMENT, and it is the constant BOTH sides compiled from
-        // the contract module: a mismatch is refused by the backend (`error::abi_mismatch`) rather than
-        // survived - the one failure mode a by-name load makes possible.
-        rhi::error_info status{};
-        rhi::api_core* const raw = deren_make_api_core(rhi::abi_version, &options, &status);
-        if (raw == nullptr) {
-            // THE REFUSAL IS THE BACKEND'S DIAGNOSIS, not a bare null: `status` carries the decision code,
-            // the API, the native code, the backend's own text and the failure's source location (abi 13).
-            // This is the one place the engine turns "the factory refused" into the startup panic the rest
-            // of the runtime is written against, so nothing downstream has to hold a maybe-device.
-            deren::utility::panic(std::source_location::current(),
-                                  "runtime: deren_make_api_core refused the creation (abi {}, error code {}, native {}): {}",
-                                  rhi::abi_version,
-                                  static_cast<std::uint32_t>(status.code),
-                                  status.native_code,
-                                  status.message);
+    bool contract_heap_ready(rhi::api_core& face) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        return heap != nullptr && heap->ready();
+    }
+
+    rhi::descriptor_heap_properties contract_heap_properties(rhi::api_core& face) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        return heap != nullptr ? heap->properties() : rhi::descriptor_heap_properties{};
+    }
+
+    namespace {
+        [[nodiscard]] constexpr rhi::descriptor_type contract_descriptor_type(VkDescriptorType const type) noexcept {
+            switch (type) {
+            case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
+                return rhi::descriptor_type::sampled_image;
+            case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
+                return rhi::descriptor_type::storage_image;
+            case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
+                return rhi::descriptor_type::combined_image_sampler;
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
+                return rhi::descriptor_type::uniform_buffer;
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
+                return rhi::descriptor_type::storage_buffer;
+            case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
+                return rhi::descriptor_type::acceleration_structure;
+            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
+                return rhi::descriptor_type::uniform_buffer_dynamic;
+            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
+                return rhi::descriptor_type::storage_buffer_dynamic;
+            default:
+                return static_cast<rhi::descriptor_type>(UINT32_MAX);
+            }
         }
-        this->core_owner = std::shared_ptr<rhi::api_core>{raw, &deren_destroy_api_core};
+    } // namespace
+
+    bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize const offset, rhi::image const& resource,
+                                   rhi::image_view_desc const& view, rhi::descriptor_type const type) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        rhi::heap_image_write_info info{};
+        info.offset = offset;
+        info.resource = &resource;
+        info.view = &view;
+        info.type = type;
+        return heap != nullptr && heap->write_image(info) == rhi::error::ok;
     }
 
-    runtime::~runtime() = default;
+    bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize const offset, VkImageViewCreateInfo const& view,
+                                   VkImageLayout const layout, VkDescriptorType const type) noexcept {
+        // 不支持的扩展链要明确拒绝，不能转换时悄悄丢掉 pNext。
+        if (view.sType != VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO || view.pNext != nullptr) {
+            return false;
+        }
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        if (heap == nullptr || view.sType != VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO || view.pNext != nullptr) {
+            return false;
+        }
+        rhi::vulkan_heap_image_desc const desc{
+            .native_image = static_cast<void*>(view.image),
+            .view_flags = view.flags,
+            .view_type = static_cast<std::uint32_t>(view.viewType),
+            .format = static_cast<std::uint32_t>(view.format),
+            .components = {static_cast<std::uint32_t>(view.components.r), static_cast<std::uint32_t>(view.components.g),
+                           static_cast<std::uint32_t>(view.components.b), static_cast<std::uint32_t>(view.components.a)},
+            .aspect_mask = view.subresourceRange.aspectMask,
+            .base_mip = view.subresourceRange.baseMipLevel,
+            .mip_count = view.subresourceRange.levelCount,
+            .base_layer = view.subresourceRange.baseArrayLayer,
+            .layer_count = view.subresourceRange.layerCount,
+        };
+        rhi::vulkan_heap_image_info native{};
+        native.view = desc;
+        native.layout = static_cast<std::uint32_t>(layout);
+        native.context = &face;
+        rhi::heap_image_write_info info{};
+        info.header.next = &native.header;
+        info.offset = offset;
+        info.type = contract_descriptor_type(type);
+        return heap->write_image(info) == rhi::error::ok;
+    }
+
+    bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize const offset, VkDeviceAddress const address,
+                                    VkDeviceSize const size, VkDescriptorType const type) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        rhi::heap_buffer_write_info info{};
+        info.offset = offset;
+        info.address = address;
+        info.size = size;
+        info.type = contract_descriptor_type(type);
+        return heap != nullptr && heap->write_buffer(info) == rhi::error::ok;
+    }
+
+    void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer const commands) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        if (heap != nullptr) {
+            rhi::vulkan_command_buffer_info native{};
+            native.commands = static_cast<void*>(commands);
+            native.context = &face;
+            rhi::heap_bind_info info{};
+            info.header.next = &native.header;
+            [[maybe_unused]] rhi::error const result = heap->bind(info);
+        }
+    }
+
+    void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        rhi::heap_bindings const bindings = heap != nullptr ? heap->bindings() : rhi::heap_bindings{};
+        // 二级命令缓冲的继承信息仍在原来的录制点构造，逐字段保留两个 heap 的范围。
+        resource = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
+                    .pNext = nullptr,
+                    .heapRange = {bindings.resource.address, bindings.resource.size},
+                    .reservedRangeOffset = bindings.resource.reserved_offset,
+                    .reservedRangeSize = bindings.resource.reserved_size};
+        sampler = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
+                   .pNext = nullptr,
+                   .heapRange = {bindings.sampler.address, bindings.sampler.size},
+                   .reservedRangeOffset = bindings.sampler.reserved_offset,
+                   .reservedRangeSize = bindings.sampler.reserved_size};
+    }
+
+    bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer const commands, std::uint32_t const offset,
+                                 std::span<std::byte const> const data) noexcept {
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        if (heap == nullptr)
+            return false;
+        rhi::vulkan_command_buffer_info native{};
+        native.commands = static_cast<void*>(commands);
+        native.context = &face;
+        rhi::heap_push_info info{};
+        info.header.next = &native.header;
+        info.offset = offset;
+        info.data = data;
+        return heap->push_data(info) == rhi::error::ok;
+    }
+
+    // ---- runtime_detail: THE ONE DERIVATION OF EVERY BACKEND FACT THE ENGINE READS (③-D/E step 2) ----
+    //
+    // DEFINED HERE, in a partition, rather than in the declarations interface, and that is the same
+    // measured rule the `contract_*` helpers above state: a definition in `:declarations` would let a
+    // call site inline the concrete backend's `query_extension` and emit a backend symbol into this half
+    // - which is what the boundary meter counts. The declaration is in `:declarations` so every partition
+    // can call them; the definitions are here, in the one partition every runtime already links.
+    namespace runtime_detail {
+        namespace {
+            /// the escape, or null when the backend announced none (the startup gate refuses that)
+            [[nodiscard]] rhi::vulkan_escape* escape_of(rhi::api_core& face) noexcept {
+                return rhi::query_extension<rhi::vulkan_escape>(face);
+            }
+
+            /// whether `name` is one of the device extensions this context ENABLED
+            [[nodiscard]] bool device_extension_enabled(rhi::vulkan_escape& escape, char const* const name) noexcept {
+                for (char const* const enabled : escape.enabled_device_extensions()) {
+                    if (enabled != nullptr && std::string_view(enabled) == std::string_view(name)) {
+                        return true;
+                    }
+                }
+                return false;
+            }
+        } // namespace
+
+        VkDevice native_device_of(rhi::api_core& face) noexcept {
+            rhi::vulkan_escape* const escape = escape_of(face);
+            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkDevice>(escape->native_device());
+        }
+
+        VkInstance native_instance_of(rhi::api_core& face) noexcept {
+            rhi::vulkan_escape* const escape = escape_of(face);
+            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkInstance>(escape->native_instance());
+        }
+
+        VkPhysicalDevice native_physical_device_of(rhi::api_core& face) noexcept {
+            rhi::vulkan_escape* const escape = escape_of(face);
+            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkPhysicalDevice>(escape->native_physical_device());
+        }
+
+        VkQueue native_queue_of(rhi::api_core& face) noexcept {
+            rhi::vulkan_escape* const escape = escape_of(face);
+            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkQueue>(escape->native_queue());
+        }
+
+        VkPhysicalDeviceProperties physical_properties_of(rhi::api_core& face) noexcept {
+            // THE DEVICE'S OWN LIMITS, re-queried rather than cached: `vkGetPhysicalDeviceProperties` is a
+            // pure query, and the two call sites (the push-constant limit) are startup/rare. Answering a
+            // zeroed structure when the escape is missing keeps the callers' own guard rails meaningful -
+            // a zero limit is visibly not a device.
+            VkPhysicalDeviceProperties properties = {};
+            VkPhysicalDevice const physical = native_physical_device_of(face);
+            if (physical != VK_NULL_HANDLE) {
+                vkGetPhysicalDeviceProperties(physical, &properties);
+            }
+            return properties;
+        }
+
+        std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept {
+            // THE HEAP'S PUSH BUDGET, from the ability's own value-only POD - never from the backend's
+            // `heap_limits` type (abi 9's rule: the contract answers values, not references).
+            return contract_heap_properties(face).max_push_data;
+        }
+
+        VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_of(rhi::api_core& face) noexcept {
+            // THE SHADER-BINDING-TABLE NUMBERS: the alignment facts a pass cannot query itself (it has no
+            // physical device), read off the same chain `VkPhysicalDeviceProperties2` carries. Zeroed on a
+            // device without the extension - which the pass reads as "build no table".
+            VkPhysicalDeviceRayTracingPipelinePropertiesKHR properties = {};
+            properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
+            VkPhysicalDeviceProperties2 query = {};
+            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
+            query.pNext = &properties;
+            VkPhysicalDevice const physical = native_physical_device_of(face);
+            if (physical != VK_NULL_HANDLE) {
+                vkGetPhysicalDeviceProperties2(physical, &query);
+            }
+            return properties;
+        }
+
+        bool ray_query_available_of(rhi::api_core& face) noexcept {
+            // TWO FACTS, BOTH THE BACKEND'S OWN GATE: the extension has to be ENABLED (the escape answers
+            // the enabled list) and the device has to support the feature - which is the pair the backend
+            // enables it under, so this answers exactly what its own `ray_query_available` flag answers.
+            rhi::vulkan_escape* const escape = escape_of(face);
+            if (escape == nullptr || !device_extension_enabled(*escape, VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
+                return false;
+            }
+            VkPhysicalDeviceRayQueryFeaturesKHR features = {};
+            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
+            VkPhysicalDeviceFeatures2 query = {};
+            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            query.pNext = &features;
+            VkPhysicalDevice const physical = native_physical_device_of(face);
+            if (physical != VK_NULL_HANDLE) {
+                vkGetPhysicalDeviceFeatures2(physical, &query);
+            }
+            return features.rayQuery == VK_TRUE;
+        }
+
+        bool mesh_shader_available_of(rhi::api_core& face) noexcept {
+            // the same pair for the mesh stage (see ray_query_available_of)
+            rhi::vulkan_escape* const escape = escape_of(face);
+            if (escape == nullptr || !device_extension_enabled(*escape, VK_EXT_MESH_SHADER_EXTENSION_NAME)) {
+                return false;
+            }
+            VkPhysicalDeviceMeshShaderFeaturesEXT features = {};
+            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
+            VkPhysicalDeviceFeatures2 query = {};
+            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            query.pNext = &features;
+            VkPhysicalDevice const physical = native_physical_device_of(face);
+            if (physical != VK_NULL_HANDLE) {
+                vkGetPhysicalDeviceFeatures2(physical, &query);
+            }
+            return features.meshShader == VK_TRUE;
+        }
+    } // namespace runtime_detail
+
+    namespace {
+        /**
+         * @brief THE ONE DEVICE-ROOT FACTORY OF THIS HALF (③-D/E step 2): the contract's creation
+         *        structure to the C entry, and the answer wrapped in the `shared_ptr` that owns it.
+         *
+         * THE ABI HANDSHAKE IS THE CALL'S FIRST ARGUMENT, and it is the constant BOTH sides compiled
+         * from the contract module: a mismatch is refused by the backend (`error::abi_mismatch`) rather
+         * than survived - the one failure mode a by-name load makes possible.
+         *
+         * A REFUSAL PANICS HERE AND NOW, and that is deliberate rather than convenient: the rest of this
+         * runtime is written against a device that exists (the legacy class had a `core` reference, not a
+         * maybe-core), so the ONE place "the backend said no" can be turned into that premise is this
+         * function. `status` carries the backend's own diagnosis - the decision code, the API, the native
+         * code, the backend's static text and the failure's source location (abi 13) - so the panic names
+         * the real reason rather than a null pointer.
+         */
+        [[nodiscard]] std::shared_ptr<rhi::api_core> make_contract_core(rhi::create_info const& options) {
+            rhi::error_info status{};
+            rhi::api_core* const raw = deren_make_api_core(rhi::abi_version, &options, &status);
+            if (raw == nullptr) {
+                deren::utility::panic(std::source_location::current(),
+                                      "runtime: deren_make_api_core refused the creation (abi {}, error code {}, native {}): {}",
+                                      rhi::abi_version,
+                                      static_cast<std::uint32_t>(status.code),
+                                      status.native_code,
+                                      status.message);
+            }
+            // THE DELETER IS THE BACKEND'S OWN SYMBOL, from the same entry header the factory came from:
+            // the object lives in the backend's image, so `deren_destroy_api_core` - never `delete` - is
+            // what gives it back (plan §4.1 item 3).
+            return std::shared_ptr<rhi::api_core>{raw, &deren_destroy_api_core};
+        }
+    } // namespace
 
     rhi::api_core& runtime::rhi_face() const noexcept {
-        // §18's rule in one line: the interface reference of the SAME object. Before the flip the vtable
-        // points into this archive; after it, into the loaded library - the call sites cannot tell.
-        return *this->core_owner;
+        // §18's rule in one line: the interface reference of the SAME object. Before the flip the
+        // vtable points into this archive; after it, into the DLL - the call sites cannot tell.
+        return this->vulkan_core;
     }
 
     rhi::vulkan_escape& runtime::escape() const noexcept {
-        // `query_extension` is a CONTRACT virtual: this call emits no backend symbol no matter which side of
-        // the boundary the object lives on. The escape is announced by `abilities()`, and the backend's own
-        // test binary asserts that announcement (tests/spike_backend_boundary.cpp), so the dereference here
-        // is the same promise the legacy runtime's accessor makes.
+        // query_extension is a CONTRACT virtual: this call emits no backend symbol no matter which
+        // side of the boundary the object lives on.
         return *rhi::query_extension<rhi::vulkan_escape>(this->rhi_face());
     }
+
+    // THE ONE CREATION CONSTRUCTOR, AND THE LINE THE WHOLE FLIP IS FOR: the contract's structure goes to
+    // the C entry `deren_make_api_core()`, and the object comes back as an `api_core*` this side never
+    // deletes. With the backend still STATIC in this tree that symbol is resolved by the LINKER, exactly
+    // as the legacy runtime's `std::make_shared<core>` was; the loader (`deren.utility.dynamic_link`,
+    // resolving the same three names by hand from a library) joins at the flip, and no call site of this
+    // file changes when it does.
+    runtime::runtime(deren::promise::rhi::create_info const& options)
+        : runtime(options,
+                  make_contract_core(options),
+                  // THE CLAMP IS APPLIED HERE, BY THE ONE OWNER OF THE RULE: the backend clamps the same
+                  // value for the swapchain it sizes, and the engine must size the targets IT creates by
+                  // the same number - `render_layout::clamp_render_scale` is that one spelling (see its
+                  // note), and this is the engine's call to it.
+                  deren::vulkan::render_layout::clamp_render_scale(options.render_scale)) {
+    }
+
+    runtime::runtime(std::shared_ptr<rhi::api_core> shared_core)
+        : runtime(deren::promise::rhi::create_info{}, std::move(shared_core),
+                  deren::vulkan::render_layout::clamp_render_scale(deren::promise::rhi::create_info{}.render_scale)) {
+        // The caller's own root is taken as it is; the standard creation options describe the frame the
+        // engine will size. Nothing creates a second device.
+    }
+
+    runtime::runtime(deren::promise::rhi::create_info const& options, std::shared_ptr<rhi::api_core> shared_core, float const clamped_render_scale)
+        : core_owner{std::move(shared_core)}
+        , vulkan_core{*this->core_owner}
+        , create_options{options}
+        , render_scale{clamped_render_scale}
+        , filtered_core{core_owner} {
+        // `pass_resources` is NOT in this list any more (S2's shared filter batch): the pass filter holds no
+        // device root at all now, so it default-constructs its (empty) resource table. Naming it would be an
+        // initializer for a member the list cannot reach - see filters.cppm's measured note.
+
+        // ---- THE SESSION-STABLE FORMATS AND DEVICE CAPABILITIES, ASKED ONCE (③-D/E step 2) ----------
+        // THE SURFACE FORMAT: abi 17's accessor is the only answer that exists BEFORE a frame is acquired,
+        // and the pipelines that render into the presentation image are created up front (see the
+        // contract's own note on the accessor). Asked here, in the constructor, and read from this member
+        // by `make_pipeline` and `make_pass_context`.
+        this->swap_chain_image_format = static_cast<VkFormat>(this->escape().native_swapchain_image_format());
+        // THE DEVICE'S CAPABILITIES: a device fact does not change while the device lives, so the five
+        // legacy `core::ray_query_available` / `core::mesh_shader_available` reads become one query each.
+        // The two derivations are the ENGINE's, from facts the escape exposes (the enabled device
+        // extensions and the physical device's own feature chain), and they answer exactly what the
+        // backend's own flags answer - the backend enables a feature iff the device supports it and the
+        // extension is present, which is what these check.
+        this->ray_query_available = runtime_detail::ray_query_available_of(this->rhi_face());
+        this->mesh_shader_available = runtime_detail::mesh_shader_available_of(this->rhi_face());
+        // ... AND THE GRAPHICS QUEUE'S FAMILY, derived ONCE (see runtime_detail::graphics_queue_family_of):
+        // the probes allocate their own command pools outside the frame ring, and a pool's family index
+        // must be the one the backend's queue belongs to. A failure inside the derivation PANICS there.
+        this->graphics_queue_family_index = runtime_detail::graphics_queue_family_of(this->rhi_face());
+        // ... AND THE TWO MESH-DISPATCH ENTRY POINTS, resolved once the repository's documented way
+        // (`vkGetDeviceProcAddr` on the native device; the loader's import library does not export them).
+        // Null on a device without VK_EXT_mesh_shader, which is exactly what the mesh path is gated on -
+        // the callers answer "cannot record" rather than drawing nothing silently (see draw_mesh_tasks).
+        {
+            VkDevice const device = runtime_detail::native_device_of(this->rhi_face());
+            if (device != VK_NULL_HANDLE) {
+                this->mesh_dispatch = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT"));
+                this->mesh_dispatch_indirect = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
+            }
+        }
+
+        // ---- THE FRAME'S RESOLUTION IS THE ENGINE'S OWN FROM HERE ON (abi 14) ---------------------
+        // The scale both halves use was clamped ONCE above (the option is startup-only: `render_scale` is
+        // read when the render targets are created, so the two numbers cannot drift). The swapchain the
+        // backend created is the generation every extent below is relative to, and it is read through the
+        // CONTRACT (`frame_swapchain()->extent()`) rather than out of a context field - which is what
+        // lets the backend's own `render_extent()` leave the engine's boundary worklist. Every later
+        // generation arrives through the very same function (see on_swapchain_recreated).
+        this->refresh_frame_extents();
+
+        // ---- THE RING DEPTH IS PINNED, AND A MISMATCH PANICS (③-D/E batch) ------------------------
+        // The engine sizes per-slot C++ with the CONTRACT's compile-time depth
+        // (`rhi::max_frames_in_flight`: `shadow_rendered_version` / `shadow_rendered_models` are arrays
+        // of it), while the RUNTIME truth is the backend's ring - `frame_walker::slot_count()`, the one
+        // authority. A backend built from a different revision compiled against its own copy of the
+        // contract, so the backend's own static_assert cannot see this pairing; this is where the two
+        // numbers meet, and a mismatch must PANIC here rather than write past the end of a per-slot
+        // array on the first frame. Checked once, at construction, before anything uses the arrays.
+        if (this->frame_ring().slot_count() != rhi::max_frames_in_flight) {
+            deren::utility::panic(std::source_location::current(),
+                                  "runtime: the backend's frame ring is {} slots but rhi::max_frames_in_flight promises {} - "
+                                  "the engine's per-slot arrays are sized by the contract's number",
+                                  this->frame_ring().slot_count(),
+                                  rhi::max_frames_in_flight);
+        }
+
+        // ---- THE ONE PLACE GLFW CALLBACKS ARE INSTALLED, and it stays here now that the WINDOW belongs to
+        //      the APPLICATION: the callbacks dereference THIS runtime through the window's user pointer, so
+        //      they can only be installed once both exist - which is exactly this constructor, running after
+        //      the caller created the window and handed it over. The application installs no GLFW callback
+        //      and must not touch the user pointer (it is this object's slot). The debug overlay's ImGui
+        //      backend chains onto whatever is installed here (ImGui_ImplGlfw_InitForVulkan with
+        //      install_callbacks = true, later), so the ORDER - orbit camera first, ImGui after - must not
+        //      move.
+        //
+        // ONLY WHEN THE CALLER HANDED ONE OVER, and that is the contract's own shape rather than a
+        // shortcut (③-D/E step 2): `create_info::native_window` IS the window this half can name - the
+        // legacy runtime read the BACKEND's `core::window`, which is either that same borrowed pointer or
+        // a window the backend created because the caller passed none, and the contract deliberately
+        // exposes neither (a window system is a backend detail; the field is an opaque `void*` the CALLER
+        // fills). A runtime built without a caller window therefore installs no orbit-camera callbacks -
+        // there is no slot it could borrow - and the shipped application always hands its window over
+        // (main.cpp), so the interactive path is unchanged.
+        if (this->create_options.native_window != nullptr) {
+            auto* const window = static_cast<GLFWwindow*>(this->create_options.native_window);
+            glfwSetWindowUserPointer(window, this);
+            glfwSetMouseButtonCallback(window, mouse_button_callback);
+            glfwSetCursorPosCallback(window, cursor_pos_callback);
+            glfwSetScrollCallback(window, scroll_callback);
+        }
+
+        // The recording resources - one primary command buffer per frame slot, plus the secondary
+        // buffers (and the per-consumer pools that must own them) the parallel recording stages hand
+        // out - are built by init_recording_resources(): they depend on nothing else in this
+        // constructor but the two capacities, and nothing else here reads them.
+        this->init_recording_resources();
+
+        // Shared scene resources: camera UBO buffers, white fallback texture, texture sampler
+        this->init_scene_resources();
+        // The six samplers the declaration layer hands out by hint (③-D/E item C): created here, before any
+        // pass resolves a binding, because `shared_samplers()` is what a declaration asks for a sampler with.
+        this->init_shared_samplers();
+        // THE RENDER CHAIN'S PER-IMAGE TARGETS THE ENGINE OWNS (③-D/E A1): generation 0, created through
+        // the contract right here - the backend no longer creates the TAA history pair, and this is where
+        // the engine takes it over. Every later generation arrives through the same function from
+        // `on_swapchain_recreated`. It runs BEFORE anything publishes these images (the frame's resource
+        // table names them per frame) and AFTER `refresh_frame_extents()` above, which is where the render
+        // extent it sizes them by comes from.
+        this->create_render_chain_targets();
+        // ... AND THE DEPTH FORMAT, WHICH ONLY THE BACKEND CAN RESOLVE (③-D/E step 2): the engine created
+        // its G-buffer depth through the contract's `depth` ROLE, so the concrete VkFormat is the device's
+        // answer rather than a constant - and this is the ONE query that turns it back into the spelling a
+        // depth-attachment pipeline needs. Read from the image the engine ITSELF created, so it needs no
+        // backend member and no pre-frame accessor: the role was resolved when the image was made, and
+        // every image in this family has the same format. (The legacy runtime read the backend's
+        // `core::depth_attachment_format`, which is the same value.)
+        this->depth_attachment_format = static_cast<VkFormat>(this->escape().native_image_format(*this->gbuffer_depth_images[0]));
+        // Every per-image flag that describes this generation starts where the generation's images do.
+        // The core has already built the groups it still owns (its constructor ran
+        // create_render_targets), so the flags can be sized HERE, before any frame records; every
+        // later generation gets the very same reset from on_swapchain_recreated - one function, so the
+        // two lists cannot drift (which they already had).
+        this->reset_image_generation_state();
+        // (The furnace cube is a new image too - its level is part of the generation reset above.)
+        // NOTE: the shadow resources (map layers + light UBO buffers) are created LAZILY, by
+        // ensure_shadow_resources() from ensure_scene_heap_slots(). The shadow map is a layered 2D array
+        // whose layer count is [render] shadow_cascades, and the app config that carries it is applied
+        // after this constructor returns - creating them here would freeze the count at its default.
+        // Everything between here and the first scene set works with them empty (the light-buffer
+        // writes are guarded, and nothing samples the shadow map before a scene set exists).
+    }
+
+    // The destructor body runs before member destruction, so vulkan_core (and the VkDevice it
+    // holds) is still alive here: destroying cached pipelines in this order is guaranteed safe,
+    // independent of future member reordering. Members then destruct in reverse declaration
+    // order with pipelines already empty. The SCENE TREE is caller-owned (set_scene): the caller
+    // destroys it before this runtime goes away (its leaves release GPU buffers through the vma
+    // allocator while it is still alive), so no tree teardown happens here.
+    runtime::~runtime() {
+        // (no vma statistics log here: the accounting moved to the backend's own lifecycle point -
+        // the allocator's teardown logs what the session held, which is where that decision belongs)
+        // Wait for the GPU to finish BEFORE releasing anything below: the last submitted frame
+        // may still be executing and destroying in-use resources would violate VUIDs (~core()
+        // also waits, but that runs after this body — too late for the VMA frees here).
+        this->vulkan_core.wait_idle();
+
+        this->pipelines.clear();
+        // THE SESSION'S CULLING TOTALS, printed HERE rather than per frame: the counters are cumulative, and this is
+        // the one point where the GPU has finished (wait_idle above) and the numbers are final - so a run of any
+        // length reports exactly what the meshlet path did, without a read-back inside the frame loop.
+        this->log_meshlet_stats();
+
+        // post-process objects: the FXAA pipeline and the two samplers are RAII members, and the post chain's
+        // two pipelines belong to the post composite PASS (vulkan.pass.post::release_owned), the same rule
+        // every extracted pass follows.
+        //
+        // NO SET LAYOUT, PIPELINE LAYOUT OR DESCRIPTOR POOL IS TORN DOWN HERE ANY MORE, and that is the whole
+        // point of the deletion this destructor records: every stage is heap-native, so there is nothing of that
+        // kind left in this class to destroy - no scene set layout (it was `core`'s), no post or G-buffer set
+        // layout (this class created them for the families it wrote), no pool and no per-image family. What
+        // remains of each extracted pass's GPU material is the PASS's, released by its own destructor.
+
+        // Shared scene resources: views/samplers/buffers/images are RAII and free
+        // themselves as this runtime's members destruct (after this body; vulkan_core, which
+        // owns the vma allocator, is declared first and destructs last, so every vk_buffer /
+        // vk_image still has a live allocator when it releases).
+
+        // Shut the debug overlay down explicitly while the VkDevice is still alive (its ImGui
+        // Vulkan backend owns device resources); member destruction would also run it before
+        // vulkan_core, but doing it here keeps the order obvious.
+        this->debug_overlay.shutdown();
+    }
+
+    // THE SESSION'S MESH CULLING TOTALS (docs/mesh_shaders.md step 3, "what the culling buys"). Read from the
+    // mapped counter buffer after `wait_idle`: the sums are per session, and the two DERIVED numbers are the point
+    // of the line - the share of workgroups the frustum test rejected, and what that share means for a compute pass
+    // (a rejected meshlet costs a workgroup launch today, and would cost nothing at all if the culling happened
+    // before the dispatch).
+    void runtime::log_meshlet_stats() const {
+        if (this->meshlet_stats_mapped == nullptr) {
+            return;
+        }
+        auto const* const counters = static_cast<uint32_t const*>(this->meshlet_stats_mapped);
+        uint64_t total[8] = {};
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
+            for (uint32_t counter = 0; counter < 8u; ++counter) {
+                total[counter] += counters[static_cast<std::size_t>(slot) * 8u + counter];
+            }
+        }
+        uint64_t const workgroups = total[0];
+        uint64_t const culled = total[1];
+        uint64_t const emitted = total[2];
+        uint64_t const triangles = total[3];
+        uint64_t const mesh_workgroups = total[4];
+        if (workgroups == 0u && mesh_workgroups == 0u) {
+            return; // no mesh stage ran: a vertex-path session says nothing rather than reporting zeroes
+        }
+        deren::utility::log("mesh culling: {} meshlet workgroups, {} emitted their triangles, {} were culled ({}% of the workgroups emitted nothing), {} triangles from meshlets",
+                            workgroups,
+                            emitted,
+                            culled,
+                            workgroups == 0u ? 0u : (culled * 100u) / workgroups,
+                            triangles);
+        deren::utility::log("mesh culling: {} workgroups of the NON-meshlet mesh path ran too, so this session's geometry cost {} workgroup launches either way - a compute pass that culled first would record {} fewer",
+                            mesh_workgroups,
+                            workgroups + mesh_workgroups,
+                            culled);
+    }
+
+    void runtime::init_scene_resources() {
+        // Camera UBO: one buffer per frame slot, mapped for direct writes; all models reference
+        // these buffers through the shared scene block, so one memcpy per frame replaces the old
+        // per-primitive per-frame UBO updates
+        //
+        // THE BUFFER IS USABLE AS A STORAGE BUFFER TOO, because the heap descriptor written for it is a
+        // VK_DESCRIPTOR_TYPE_STORAGE_BUFFER (see write_heap_scene_buffer's note below): a descriptor's type has
+        // to be backed by the matching USAGE bit on the buffer, and the validation layer says so out loud -
+        // "vkWriteResourceDescriptorsEXT(): ... has no buffer(s) associated that are valid" - while the render
+        // itself still produced the right picture, which is exactly the kind of finding this project treats as
+        // a failure. UNIFORM_BUFFER stays set: the buffer's allocation policy (host-visible, coherent) is what
+        // the buffer_type names, and both bits are legal together.
+        camera_ubo initial = {};
+        create_buffers(this->vulkan_core,
+                       this->camera_buffers,
+                       rhi::buffer_usage::uniform_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage), // heap-bound: see the scene-set block
+                       std::as_bytes(std::span(&initial, 1)),
+                       "camera ubo buffer",
+                       &this->camera_mapped);
+
+        // 1x1 white fallback texture, always the first entry of the scene texture array; missing
+        // material textures point at it
+        constexpr std::array<uint8_t, 4> white_pixels = {255, 255, 255, 255};
+        rhi::image_desc white_desc{};
+        white_desc.extent = rhi::image_extent{.width = 1u, .height = 1u, .depth = 1u};
+        white_desc.format = rhi::image_format::rgba8_unorm;
+        white_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        white_desc.initial_bytes = std::as_bytes(std::span(white_pixels));
+        white_desc.debug_name = "white fallback texture";
+        this->owned_textures.push_back(rhi::object_manager<rhi::image>{this->rhi_face().create_image(white_desc)});
+        rhi::image_view_desc white_view_range{};
+        white_view_range.layer_count = 0; // all remaining layers
+        white_view_range.mip_count = 0;   // all remaining mips
+        this->owned_texture_views.push_back(rhi::object_manager<rhi::image_view>{this->owned_textures.back()->make_view(white_view_range)});
+        if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
+            deren::utility::panic("failed to create the white fallback texture");
+        }
+        this->white_texture_index = static_cast<uint32_t>(this->texture_array_views.size());
+        this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
+
+        // THE WHITE ELEMENT NEEDS ITS OWN HEAP DESCRIPTOR HERE, and its absence was a class of black frames.
+        // Every texture that reaches the bindless array through register_material has its heap slot written
+        // there, but this one is created above that loop and never passes through it - so slot
+        // heap_slots::textures + 0 stayed EMPTY and sampled as zero. A material slot with no texture arrives
+        // here (Sponza's stone carries no occlusion map), so its ao read 0 - and shading.glsl multiplies BOTH
+        // the diffuse ambient and the specular IBL by s.ao, which left those surfaces lit by the sun alone:
+        // a black interior, while the metal test assets (whose materials do carry an occlusion map, and whose
+        // diffuse term is multiplied away by (1 - metallic) anyway) looked untouched. The startup probe had
+        // it in the log the whole time: "the heap-native probe sampled grid slot 16384 ... read back
+        // 0x00000000", on the very slot this write fills, while the material table's white record read 0xffff.
+        // @note deren::vulkan::render_layout::heap_slot_offset() is defined below this constructor, so the arithmetic is spelled out: a slot
+        //       number is already absolute and the stride is the one every heap array agrees on.
+        if (contract_heap_ready(this->rhi_face())) {
+            VkImage const white_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
+            {
+                VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                                                         .pNext = nullptr,
+                                                         .flags = 0,
+                                                         .image = white_native,
+                                                         .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                                                         .format = VK_FORMAT_R8G8B8A8_UNORM,
+                                                         .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+                                                         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
+                VkDeviceSize const white_offset = static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index) * deren::vulkan::render_layout::heap_slot_stride;
+                if (!contract_write_heap_image(this->rhi_face(), white_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
+                    deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index);
+                }
+            }
+        }
+
+        // (The sampler the array entries are read through is NOT created here: the maxLod-12 REPEAT
+        // sampler the comment that used to sit here described moved into the core, next to the other six
+        // - see core::create_samplers / shared_samplers.) The white element above is the one entry this
+        // function has to place, because every later texture index is assigned around it.
+
+        // GPU material table: fixed capacity, host-visible (direct mapping); records are appended
+        // at registration and read-only for the GPU (set 0 binding 5)
+        std::vector<uint8_t> const zeroed_materials(static_cast<size_t>(deren::vulkan::material_capacity) * sizeof(material_record), 0);
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::storage_coherent,
+                      // it goes on the descriptor heap, and a heap descriptor for a buffer is an
+                      // ADDRESS RANGE - so this buffer needs a device address
+                      rhi::to_bits(rhi::buffer_flag::device_address),
+                      std::as_bytes(std::span(zeroed_materials)),
+                      "material table buffer",
+                      this->material_buffer,
+                      &this->material_mapped);
+
+        // ---- THE MATERIAL TABLE'S HEAP DESCRIPTOR, written ONCE here ----
+        //
+        // A storage buffer descriptor is just an address range, so this is the simplest descriptor in the
+        // renderer: no image view to create, no sampler, no embedded sampler. The buffer has a FIXED capacity and
+        // is created above, so its address is stable and one write covers it - which is why this is not a
+        // per-frame write. It goes at its OWN GRID SLOT (deren::vulkan::render_layout::heap_slots::materials), which is the same number a
+        // heap-native shader bakes as `heap_slots_materials` (shaders/heap_slots.glsl): the write and the read are
+        // the same number by construction rather than by review.
+        if (contract_heap_ready(this->rhi_face())) {
+            VkDeviceAddress const address = this->buffer_address(*this->material_buffer);
+            bool const written = this->write_heap_buffer(*this->material_buffer,
+                                                         deren::vulkan::render_layout::heap_slots::materials,
+                                                         static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * sizeof(material_record),
+                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            deren::utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
+                                written ? "written" : "NOT written",
+                                address,
+                                deren::vulkan::material_capacity,
+                                static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::materials) * deren::vulkan::render_layout::heap_slot_stride);
+        }
+
+        // ---- THE MATERIAL COLOURS: ONE `vec4` PER LANE PER MATERIAL, WHITE to begin with ----
+        //
+        // THE NEUTRAL IS THE INITIAL CONTENT and not a placeholder (see `toon_colour_lane`): every lane multiplies
+        // or tints something, so a material whose sidecar states no colour must leave that thing alone - and
+        // `register_material` overwrites the lanes it was given, per material, at the index the shader addresses.
+        // THREE LANES ARE NOT WHITE, and all three are stated below: the outline lane's width (0, not 1) and the
+        // TWO scalar lanes' sentinel (-1, not 1) - the specular strength and the parallax depth.
+        //
+        // A BUFFER OF FLOATS, so the fill below writes 1.0f as a FLOAT - not 0xFF, which is one in a UNORM texture
+        // and 0.0 in this. That distinction is the whole reason a colour lane could not reuse the texture lanes.
+        {
+            std::vector<glm::vec4> neutral_colours(static_cast<size_t>(deren::vulkan::material_capacity) * static_cast<size_t>(deren::vulkan::toon_colour_lane::count), glm::vec4(1.0f));
+            // ... EXCEPT THE OUTLINE LANE'S WIDTH, WHICH IS 0.0 AND NOT 1.0 (`toon_inputs::colours` states the
+            // whole argument): three of that lane's four floats are the `_OutlineTintColor` tint, whose neutral is
+            // white, and the fourth is `_OutlineWidth`, whose neutral is ZERO - a width of 1.0 would draw a hull
+            // around every material that states no outline, i.e. the entire character. The layout is
+            // MATERIAL-major (`material_index * toon_colour_lane::count + lane`, see `register_material`), so the
+            // lane to reach is every `count`-th element.
+            for (size_t material = 0; material < static_cast<size_t>(deren::vulkan::material_capacity); ++material) {
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::outline_edge)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 0.0f);
+                // ... AND THE TWO SCALAR LANES' SENTINEL IS `-1.0` RATHER THAN 1.0, for the same kind of reason:
+                // neither `.x` is a tint but a STRENGTH (`_Specular`) or a DEPTH (`_ParallaxScale`), whose "no
+                // statement" cannot be a number in the value's own range (see `toon_colour_lane::specular_strength`
+                // and `toon_colour_lane::parallax_scale`). A table left at 1.0 would shade every material that
+                // states no `_Specular` with a full-strength highlight, and would push every material that states
+                // no `_ParallaxScale` to a parallax offset thirty-three times the one the stage's own constant
+                // gives - which is the same failure from the other side.
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::specular_strength)] =
+                    glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::parallax_scale)] =
+                    glm::vec4(-1.0f, 0.0f, 0.0f, 0.0f);
+                // ... AND THE GOO IRIS BRIGHTNESS LANE'S TWO COMPONENTS ARE BOTH SENTINELS, because both are
+                // BRIGHTNESSES (`Eyes brightness` / `Eyes HightLight brightness`): `0.0` is a value the reference
+                // really uses - it is what the group's own interface defaults the two sockets to - so it cannot
+                // mean "absent", and anything else in range would be a brightness this port made up. The stage
+                // tests each component separately and answers with that interface default (see
+                // `toon_colour_lane::goo_eye_brightness`).
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_eye_brightness)] =
+                    glm::vec4(-1.0f, -1.0f, 0.0f, 0.0f);
+                // ... AND THE TWO REWRITTEN CHAIN'S RIM LANES, whose neutrals are the REFERENCE'S OWN interface
+                // defaults rather than one convention (see `toon_colour_lane::goo_rim_colour` /
+                // `goo_rim_scalars`): the tint's neutral is the `Rim_Color` sub-group's own `[1,1,1,1]`, and the
+                // four scalars are ALL sentinels because every one of them is a value the reference really uses
+                // at zero - `Rim_ColorStrength = 0.0` is how its author switches a rim off
+                // (`M_actor_laevat_cloth_03`), and `Use Rimlimitation?` is a BOOLEAN whose default is 0.0. The
+                // stage resolves each of the four separately to that socket's group default (see the shader).
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rim_colour)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rim_scalars)] =
+                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);
+                // ... AND THE SCREEN-SPACE RIM'S TWO WIDTHS ARE BOTH SENTINELS TOO, because a width has no no-op
+                // number either: `0.0` is a width the reference's author really states (it collapses the offset
+                // sample onto the pixel and the depth difference is then exactly 0 - a rim that is off ON PURPOSE,
+                // material by material), so it cannot mean "absent". The stage answers each component with the
+                // `DepthRim` group's OWN interface default, `0.5` (see `toon_colour_lane::goo_rim_widths`, and
+                // `gooblender/nodes.json`'s `meta.node_groups[DepthRim].interface[]`).
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rim_widths)] =
+                    glm::vec4(-1.0f, -1.0f, -1.0f, -1.0f);
+                // ... AND STEP 4'S SIX LANES, whose NEUTRALS ARE TWO DIFFERENT SHAPES FOR THE SAME REASON THE RIM
+                // LANES ABOVE ALREADY GAVE: two of them ARE the reference's own interface defaults
+                // (`BaseColor` = white, `directOcclusionColor` = black) and the other four are sentinels. THEIR
+                // SENTINEL IS `-1000` AND NOT `-1`, because two of the eight per-material numbers behind them are
+                // AUTHORED NEGATIVES - `CastShadow_center` is `-0.1` on both body materials and
+                // `GlobalShadowBrightnessAdjustment` is `-1.8` on the cloth - and a `-1` neutral would make the
+                // stage read those authored values as "not stated" (see `goo_lane_absent` in the shader).
+                // The stage resolves each sentineled component to its group's default - see
+                // `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion` and `shaders/goo_toon.slang`.
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_base_colour)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_direct_occlusion)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                for (uint32_t lane : {static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_diffuse_a),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_diffuse_b),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_fresnel_inside),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_fresnel_outside)}) {
+                    neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + lane] =
+                        glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
+                }
+                // ... AND STEP 5'S THREE LANES, whose neutrals are the reference's own `interface[]` defaults and
+                // NOT the `-1000` sentinel the four above use, because none of these three numbers is ever negative
+                // in the reference's asset: `specularFGD Strength` is `0.8` or `1.0`, `dirLight_lightColor` is
+                // `(1, 0.958..., 0.958...)` and `AmbientLightColorTint` is white or `(1.512...)`. So the CHEAPER
+                // `< 0` contract is enough here - and the reason step 4's four needed `-1000` is exactly that two
+                // of THEIR eight numbers are authored negatives (`CastShadow_center` = `-0.1`,
+                // `GlobalShadowBrightnessAdjustment` = `-1.8`). The scalar lane keeps its sentinel in `.x` only
+                // (the stage resolves it to the reference's `1.0`); the two colour lanes are their own fallback.
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_specular_fgd)] =
+                    glm::vec4(-1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_light_color)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_ambient_tint)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_specular_color)] =
+                    glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
+                // ... AND STEP 7'S FOUR, WHOSE NEUTRALS ARE THREE DIFFERENT SHAPES AGAIN, each one the socket's own
+                // `interface[]` default rather than a convention:
+                //
+                //   * THE TWO SCALAR LANES are `-1000` sentinels, like step 4's four and for the same reason: the
+                //     chin pair, `sphereNormal_Strength` and the two brightnesses are all positive on every
+                //     material this container is given, but `SmoothnessMax` is a value whose ZERO is meaningful
+                //     (perfectly rough) - so a neutral of `0` would read "the material states no smoothness" as "the
+                //     material is rough", and the stage would then have to invent one. `-1000` is outside every one
+                //     of their domains, so a stated value - any sign - passes and only the lane itself fails.
+                //   * `nose_shadow_Color` AND `Front R Color` ARE BLACK, because that is what the FACE container's
+                //     own interface says (`::- ... :: 组输入.nose_shadow_Color = [0.0, 0.0, 0.0, 1.0]`,
+                //     `Front R Color = [0.0, 0.0, 0.0, 1.0]`) and because WHITE WOULD BE A STATEMENT: the nose
+                //     shadow is a MIX's A side (white = no shadow at all, the strongest possible statement) and
+                //     `Front R`'s colour multiplies a term that is otherwise the albedo itself. A material that
+                //     states neither row therefore gets the reference's own defaults, which is what a material
+                //     calling the group without stating them gets in Goo.
+                for (uint32_t lane : {static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_face_scalars_a),
+                                      static_cast<uint32_t>(deren::vulkan::toon_colour_lane::goo_face_scalars_b)}) {
+                    neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + lane] =
+                        glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
+                }
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_face_nose_shadow)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_face_front_r)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+                // STEP 8'S ONE LANE IS A `-1000` SENTINEL AND NOT THE REFERENCE'S GROUP DEFAULT `1.0`, because the
+                // lane does not carry a tint or a factor that has a neutral - it carries the SWITCH that decides
+                // whether the Goo chain's normal decode runs at all. A material with no row therefore keeps the
+                // normal the chain had before this step, which is what `laevatain_no_sidecar` and the old chain's
+                // frames are pinned on; `NormalStrength = 0` is a value the reference states on some materials, so
+                // `0` could not be the "not stated" answer (see `goo_normal_strength`).
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_normal_strength)] =
+                    glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f);
+                // STEP 10'S ONE IS `(0, 0, 0, 0)`, AND HERE - UNLIKE EVERY OTHER LANE ABOVE - THE NEUTRAL IS
+                // DOING TWO JOBS AT ONCE. It IS the reference's own group default, so a material that states no
+                // `_GooAnisoGate` row gets the answer the graph gives a caller that states nothing
+                // (`ng[2].interface[3]` `Use anisotropy?` = `0.0`, `interface[45]` `Anisotropic mask` = `0.0`,
+                // `interface[4]` `Use Toonaniso?` = `0.0`); AND it is the OVERRIDE that keeps that true, because
+                // this table starts EVERY lane at `glm::vec4(1.0f)` (the constructor's first line), so an
+                // unoverridden lane 25 would hand every such material `Use anisotropy? = 1.0` - the arm the
+                // reference does not take - instead of the `0.0` it does. `.z` is recorded and unused, `.w`
+                // reserved; keep the spelling of this initialiser and the two hosts' tables in step, because
+                // `tests/test_goo_toon_math.cpp` pins all three.
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_aniso_gate)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                // STEP 12'S ONE IS `(0, 0, 0, 0)` TOO, AND THE TWO JOBS IT DOES ARE STEP 10'S OWN: it IS the
+                // reference's group default (`ng[2].interface[20]` `Aniso_SmoothnessMaxT` = `0.0`,
+                // `interface[21]` `Aniso_SmoothnessMaxB` = `0.0`, so a material with no `_GooAnisoRough` row gets
+                // `rT = rB = 1` - the anisotropic lobe at full roughness, which is what the graph answers a
+                // caller that states nothing); AND it is the override that keeps that true, because this table
+                // starts EVERY lane at `glm::vec4(1.0f)`, so an unoverridden lane 26 would hand every rowless
+                // material `rT = (1 - 1)^2 = 0` - a mirror - instead of the `0.0` the graph means. `.z` / `.w`
+                // are reserved. Keep the spelling of this initialiser and the two hosts' tables in step, because
+                // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_aniso_rough`.
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_aniso_rough)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                // STEP 13'S TWO ARE `(0, 0, 0, 0)` AS WELL, and unlike the two above them the value is not the
+                // reference's group default but the BRANCH'S OWN SWITCH: `_GooRSScalars.x` is `Use RS_Eff?`, so a
+                // material whose sidecar states no `_GooRSScalars` row has to read `Use = 0` and the stage's gate
+                // then leaves its colour untouched. Lane 28's `.w` is the mask's `SmoothStep.max`, where zero
+                // means "unstated" rather than a zero-width window - the stage maps it to `1.0` so that this
+                // neutral cannot divide by zero (see `toon_colour_lane::goo_rs_tint`, spec U7). Keep the spelling
+                // of this initialiser and the two hosts' tables in step, because `tests/test_goo_toon_math.cpp`
+                // pins all three.
+                //
+                // THEY ARE DEFENSIVE RATHER THAN LOAD-BEARING, AND THE COMMENT USED TO SAY OTHERWISE ELSEWHERE:
+                // these are the BUFFER'S INITIAL CONTENT. `register_material` writes every one of the
+                // `toon_colour_lane::count` lanes of every material it registers from `info.toon.colours` (the
+                // loop that ends this table's use of `neutral_colours` - see the `colours[lane] =
+                // info.toon.colours[lane]` loop in that function), and the host's `toon_colour_neutral` in
+                // `main.cpp` is what answers a row that is absent. So this entry is not what makes the twenty
+                // `Use RS_Eff? = 0` materials unchanged; it is the honest statement of the neutral plus a guard
+                // against a future consumer that reads the buffer before any material is registered.
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rs_scalars)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rs_tint)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+                // STEP 15'S ONE IS `(0, 0, 0, 0)` FOR BOTH OF STEP 13'S REASONS, and both apply here verbatim: all
+                // four `armA` sockets default to `0.0` in the reference's `interface[]` (so a material stating no
+                // `_GooRSArm0` row reads what the graph gives a caller that states nothing), AND the value is the
+                // arm's own off switch, because `.y` is `RS Strength` and `s023 = s036 * RS Strength` zeroes the
+                // arm. It is ALSO the override that keeps the first statement true: this table starts every lane at
+                // `glm::vec4(1.0f)`, so an unoverridden lane 29 would hand every rowless material `RS Strength = 1`
+                // with `Layer weight Value = 1` - a `u` of `0.5` on sheet 0 for every material in the scene. Keep
+                // the spelling of this initialiser and the two hosts' tables in step, because
+                // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_rs_arm0`.
+                neutral_colours[material * static_cast<size_t>(deren::vulkan::toon_colour_lane::count) + static_cast<size_t>(deren::vulkan::toon_colour_lane::goo_rs_arm0)] =
+                    glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
+            }
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(neutral_colours)),
+                          "toon colour table buffer",
+                          this->toon_colour_buffer,
+                          &this->toon_colour_mapped);
+            if (contract_heap_ready(this->rhi_face())) {
+                VkDeviceAddress const address = this->buffer_address(*this->toon_colour_buffer);
+                bool const written = this->write_heap_buffer(*this->toon_colour_buffer,
+                                                             deren::vulkan::render_layout::heap_slots::toon_colours,
+                                                             std::as_bytes(std::span(neutral_colours)).size(),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                deren::utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count),
+                                    deren::vulkan::material_capacity,
+                                    static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::toon_colours) * deren::vulkan::render_layout::heap_slot_stride);
+            }
+        }
+
+        // ---- THE TOON LANES BESIDE THE RECORD: ONE `uvec4` PER MATERIAL, and a buffer of its own because the
+        //      material record cannot hold them - see deren::vulkan::render_layout::heap_slots::toon_lanes for the measurement that
+        //      settled that (the record is INLINE in the per-draw push block, and adding a word to it crashed the
+        //      renderer).
+        //
+        //      x IS THE FACE SDF LANE (`_SDFLightmap`) and y IS THE METALLIC/GLOSS LANE (`_MetallicGlossMap`); z
+        //      and w are reserved for the lanes the rest of the character work adds, which is why the block is a
+        //      `uvec4` rather than the single uint the SDF lane needed on its own - one descriptor, four lanes.
+        //
+        //      IT IS MATERIAL-INDEXED, not lane-indexed like the record's `toon_indices`: the shader reaches it
+        //      with the material index it already has, so nothing new has to be threaded through the push path.
+        //      Zero means "do not read", which is the contract the record's four lanes use too.
+        //
+        //      WRITTEN ONCE, here, like the material table beside it: the values are fixed at import and never
+        //      rewritten, which is why it is one descriptor and not a per-frame pair.
+        std::vector<uint8_t> const zeroed_toon_lanes(static_cast<size_t>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4), 0);
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::storage_coherent,
+                      rhi::to_bits(rhi::buffer_flag::device_address),
+                      std::as_bytes(std::span(zeroed_toon_lanes)),
+                      "toon lane table buffer",
+                      this->toon_lane_buffer,
+                      &this->toon_lane_mapped);
+        if (contract_heap_ready(this->rhi_face())) {
+            VkDeviceAddress const address = this->buffer_address(*this->toon_lane_buffer);
+            bool const written = this->write_heap_buffer(*this->toon_lane_buffer,
+                                                         deren::vulkan::render_layout::heap_slots::toon_lanes,
+                                                         static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
+                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+            deren::utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
+                                written ? "written" : "NOT written",
+                                address,
+                                deren::vulkan::material_capacity,
+                                static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::toon_lanes) * deren::vulkan::render_layout::heap_slot_stride);
+        }
+
+        // ---- THE TOON LIGHT RIG: ONE BLOCK FOR THE RUN, and it is not a per-frame pair for the reason the two
+        //      tables above are not: nothing rewrites it while a frame is in flight (see
+        //      deren::vulkan::render_layout::heap_slots::toon_rig). The application fills it from its config through
+        //      `runtime::set_toon_rig`, and the zeros it is created with are replaced before the first frame.
+        {
+            std::vector<uint8_t> const zeroed_toon_rig(sizeof(deren::vulkan::toon_rig), 0);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_toon_rig)),
+                          "toon light rig buffer",
+                          this->toon_rig_buffer,
+                          &this->toon_rig_mapped);
+            if (contract_heap_ready(this->rhi_face())) {
+                VkDeviceAddress const address = this->buffer_address(*this->toon_rig_buffer);
+                bool const written = this->write_heap_buffer(*this->toon_rig_buffer,
+                                                             deren::vulkan::render_layout::heap_slots::toon_rig,
+                                                             static_cast<VkDeviceSize>(sizeof(deren::vulkan::toon_rig)),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                deren::utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    sizeof(deren::vulkan::toon_rig),
+                                    static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::toon_rig) * deren::vulkan::render_layout::heap_slot_stride);
+            }
+        }
+
+        // ---- THE MESHLET TABLE (docs/mesh_shaders.md step 3): one `deren::vulkan::meshlet` record per meshlet - 48 bytes,
+        //      the layout `static_assert`s in vulkan/meshlet/meshlet.cppm pin field by field, because a 28-byte
+        //      host record against the shader's std430 stride WEDGED the GPU before it was found - appended by the
+        //      primitive upload while the scene imports and read by a task stage through the heap. Created here,
+        //      with the material table's shape and for its reasons: fixed capacity, host-visible (direct mapping),
+        //      and a device address because a heap descriptor for a buffer IS an address range.
+        {
+            std::vector<uint8_t> const zeroed_meshlets(static_cast<size_t>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet), 0);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_meshlets)),
+                          "meshlet table buffer",
+                          this->meshlet_buffer,
+                          &this->meshlet_mapped);
+            if (contract_heap_ready(this->rhi_face())) {
+                VkDeviceAddress const address = this->buffer_address(*this->meshlet_buffer);
+                bool const written = this->write_heap_buffer(*this->meshlet_buffer,
+                                                             deren::vulkan::render_layout::heap_slots::meshlets,
+                                                             static_cast<VkDeviceSize>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                deren::utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
+                                    written ? "written" : "NOT written",
+                                    address,
+                                    deren::vulkan::meshlet_capacity,
+                                    sizeof(deren::vulkan::meshlet),
+                                    static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::meshlets) * deren::vulkan::render_layout::heap_slot_stride);
+            }
+        }
+
+        // ---- THE INDIRECT MESH COMMANDS (docs/mesh_shaders.md step 3, second mechanism): one
+        //      VkDrawMeshTasksIndirectCommandEXT per (frame in flight, primitive), written by whichever thread
+        //      records that primitive's meshlet dispatch and read by the GPU. THE SLOT IS THE PRIMITIVE'S OWN
+        //      `meshlet_base`, which is what removes the cursor the first attempt used - and with it the flakiness
+        //      that cursor caused (see the member's note in runtime.declarations.cppm). Not on the heap: it is
+        //      command data, not a resource any shader reads.
+        {
+            constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
+            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(this->frame_ring().slot_count()) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::indirect),
+                          std::as_bytes(std::span(zeroed_commands)),
+                          "mesh indirect command table",
+                          this->mesh_indirect_buffer,
+                          &this->mesh_indirect_mapped);
+            // the raw handle the command takes: `vk_buffer::handle()` was the allocator's id rather than a
+            // `VkBuffer`, and a null here is what silently sent every dispatch down the DIRECT path in the
+            // first version of this seam. It comes from the escape now, off the handle this class owns.
+            this->mesh_indirect_table = this->buffer_of(*this->mesh_indirect_buffer);
+        }
+
+        // ---- THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one lane of eight
+        //      uints per frame in flight, on the heap because a mesh stage has no other way to reach memory, and
+        //      host-visible because the host reads it back once, at shutdown. Zeroed here; the entries only add.
+        {
+            std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t), 0);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_stats)),
+                          "mesh culling counter buffer",
+                          this->meshlet_stats_buffer,
+                          &this->meshlet_stats_mapped);
+            if (contract_heap_ready(this->rhi_face())) {
+                bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
+                                                             deren::vulkan::render_layout::heap_slots::meshlet_stats,
+                                                             static_cast<VkDeviceSize>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                if (!written) {
+                    deren::utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");
+                }
+            }
+        }
+
+        // ---- THE HOST-CULLED MESHLET TABLE (docs/mesh_shaders.md step 3, the culling's cheapest stage): one lane of
+        //      `meshlet_capacity` records per frame in flight, host-visible because the HOST writes it while it
+        //      records and the heap-bound because the mesh entry reads it. Per frame rather than one slot, unlike the
+        //      table it shadows: this one is rewritten from the camera every frame.
+        {
+            std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(this->frame_ring().slot_count()) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet), 0);
+            create_buffer(this->vulkan_core,
+                          rhi::buffer_usage::storage_coherent,
+                          rhi::to_bits(rhi::buffer_flag::device_address),
+                          std::as_bytes(std::span(zeroed_culled)),
+                          "culled meshlet table buffer",
+                          this->meshlet_culled_buffer,
+                          &this->meshlet_culled_mapped);
+            if (contract_heap_ready(this->rhi_face())) {
+                bool const written = this->write_heap_buffer(*this->meshlet_culled_buffer,
+                                                             deren::vulkan::render_layout::heap_slots::meshlet_culled,
+                                                             static_cast<VkDeviceSize>(this->frame_ring().slot_count()) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
+                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                if (!written) {
+                    deren::utility::log("descriptor heap: the culled meshlet table was NOT written - the draws stay unculled");
+                }
+            }
+        }
+
+        // Per-instance transform buffer (set 0 binding 6): one mat4 per instance, host-visible;
+        // filled by set_instanced_draw() for instanced stress draws (see pbr.vert)
+        std::vector<uint8_t> const zeroed_instances(static_cast<size_t>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), 0);
+        create_buffer(this->vulkan_core,
+                      rhi::buffer_usage::storage_coherent,
+                      rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                      std::as_bytes(std::span(zeroed_instances)),
+                      "instance transform buffer",
+                      this->instance_buffer,
+                      &this->instance_mapped);
+
+        // Per-motion-slot previous world matrices (set 0 binding 13): ONE buffer per frame slot, like
+        // the skin and morph buffers below, so a frame in flight never shares the buffer the next
+        // frame rewrites. Zero-filled: a leaf's first frame reports "no motion", which is right -
+        // nothing was there to move from. motion_previous is the CPU-side copy of what is currently
+        // in it, advanced by advance_motion_transforms().
+        std::vector<uint8_t> const zeroed_motion(static_cast<size_t>(deren::vulkan::scene_motion_capacity) * sizeof(glm::mat4), 0);
+        create_buffers(this->vulkan_core,
+                       this->motion_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       // THE HEAP'S REQUIREMENT: a descriptor written as a device ADDRESS range
+                       // needs the buffer to be addressable (VUID-VkBufferDeviceAddressInfo-
+                       // buffer-02601 says so, and validation did, the moment this write went in).
+                       rhi::to_bits(rhi::buffer_flag::device_address),
+                       std::as_bytes(std::span(zeroed_motion)),
+                       "motion transform buffer",
+                       &this->motion_mapped);
+        this->motion_previous.assign(deren::vulkan::scene_motion_capacity, glm::mat4(1.0f));
+
+        // Per-joint skin matrices (set 0 binding 9): one buffer PER FRAME SLOT (scene_skin_capacity
+        // mat4s each, host-visible) so an in-flight frame never shares the buffer the next frame
+        // rewrites. Zero-filled initially (the identity block is written by the setup upload).
+        std::vector<uint8_t> const zeroed_skins(static_cast<size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
+        create_buffers(this->vulkan_core,
+                       this->skin_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                       std::as_bytes(std::span(zeroed_skins)),
+                       "skin matrix buffer",
+                       &this->skin_mapped);
+
+        // The SAME joint blocks as of ONE FRAME AGO (heap: skin_matrices_previous), one buffer per frame
+        // slot: a DEFORMING vertex's motion vector is the difference between the two frames' skinning, so
+        // these are as load-bearing as the current ones, and a frame in flight must not share the buffer the
+        // next frame rewrites. Zero-filled on the GPU like its sibling; skin_previous is the CPU-side copy
+        // ("the matrices one frame ago") that advance_motion_deformations() publishes from, initialised to
+        // IDENTITY exactly as motion_previous is - an unskinned or not-yet-animated vertex then reports no
+        // deformation, and the one frame that could read it is a frame TAA gives no history to.
+        std::vector<uint8_t> const zeroed_previous_skins(static_cast<size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), 0);
+        create_buffers(this->vulkan_core,
+                       this->skin_buffers_previous,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                       std::as_bytes(std::span(zeroed_previous_skins)),
+                       "previous skin matrix buffer",
+                       &this->skin_previous_mapped);
+        this->skin_previous.assign(deren::vulkan::scene_skin_capacity, glm::mat4(1.0f));
+
+        // Morph data (set 0 binding 10): one buffer PER FRAME SLOT (scene_morph_capacity floats
+        // each, host-visible); the caller bakes per-primitive morph blocks (deltas + weights)
+        // into every slot's buffer at setup, then rewrites only the active slot's weights per frame.
+        // Zero-filled from one shared host vector (each create_buffer copies its own GPU buffer).
+        std::vector<uint8_t> const zeroed_morphs(static_cast<size_t>(deren::vulkan::scene_morph_capacity) * sizeof(float), 0);
+        create_buffers(this->vulkan_core,
+                       this->morph_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // the heap writes this one's address
+                       std::as_bytes(std::span(zeroed_morphs)),
+                       "morph data buffer",
+                       &this->morph_mapped);
+
+        // Reserve table index 0 as the DEFAULT material (white textures + identity factors):
+        // registrations that overflow the table degrade to it (see register_material). Done
+        // FIRST so it always lands at index 0 - the raw zeroed record at 0 would render black
+        // (all factors zero), not white. Safe here: the texture it uploads is registered on the
+        // heap as it arrives, exactly as a later material's is.
+        {
+            primitive_create_info const default_material = {};
+            material_id const default_index = this->register_material(default_material);
+            if (default_index.value != 0) {
+                deren::utility::panic("default material must occupy table index 0");
+            }
+        }
+    }
+
+    // The recording resources: one primary command buffer per frame slot, plus the secondary buffers
+    // of the two parallel recording stages and the pools that have to own them. They are pre-allocated
+    // so the GPU can read a secondary while this slot's primary executes, and reused every frame, so
+    // they must exist before the first recorded frame - but nothing else in the constructor depends on
+    // them, and they depend on nothing else but the two capacities below (hence a function of their
+    // own). This is also where the command pools would move to the core (the "command pools and
+    // secondaries" item of the trim list): the SHAPE is policy and stays
+    // here, the objects are device resources.
+    void runtime::init_shared_samplers() {
+        // ---- THE SIX SAMPLERS THE RENDERER DECLARES BY HINT (③-D/E item C, abi 16) --------------------
+        // Each description below is the VALUE-FOR-VALUE equivalent of the sampler `core::create_samplers()`
+        // used to build and lend out (its own comments are quoted where the choice needs a reason), and that
+        // equality is what keeps the captures byte-identical: `create_sampler()` rides the same
+        // `make_texture_sampler_info()` the backend's six rode, and overrides exactly these fields.
+        //
+        // THE ORDER IS THE SAMPLER GRID'S ORDER and it is not decoration: `render_resource::shared::sampler_set`
+        // is filled from these six, and shaders/heap_slots.glsl names the heap grid's sampler slots in the
+        // order `shared_sampler_infos` writes them. `test_render_resources` holds that order against the
+        // shader's names; the two sets are separate objects but the same six descriptions.
+        auto const make = [this](rhi::sampler_desc const& desc) {
+            return rhi::object_manager<rhi::sampler>{this->rhi_face().create_sampler(desc)};
+        };
+
+        // The bindless texture array: REPEAT, all its mip levels (12 is the capacity's own limit).
+        rhi::sampler_desc texture_desc = {};
+        texture_desc.address_mode = rhi::sampler_address_mode::repeat;
+        texture_desc.max_lod = 12.0f;
+        this->texture_sampler = make(texture_desc);
+
+        // The G-buffer's stored surface: NEAREST, clamp. An interpolated normal or a filterable material id
+        // is a different surface, not a smoother one.
+        rhi::sampler_desc gbuffer_desc = {};
+        gbuffer_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        gbuffer_desc.max_lod = 0.0f;
+        gbuffer_desc.mag_filter = rhi::sampler_filter::nearest;
+        gbuffer_desc.min_filter = rhi::sampler_filter::nearest;
+        this->gbuffer_sampler = make(gbuffer_desc);
+
+        // The TAA resolve upsamples the scene colour but must NOT average neighbouring history texels:
+        // linear magnification, nearest minification.
+        rhi::sampler_desc taa_desc = gbuffer_desc;
+        taa_desc.mag_filter = rhi::sampler_filter::linear;
+        this->taa_sampler = make(taa_desc);
+
+        // The post chain and the FXAA filter: LINEAR, clamp, one mip.
+        rhi::sampler_desc post_desc = {};
+        post_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        post_desc.max_lod = 1.0f;
+        this->post_sampler = make(post_desc);
+
+        // The composite's GI upsample taps depth and normals AT CENTRES: an averaged depth invents a surface
+        // between two samples, which is exactly what an edge-aware test must not see.
+        this->post_nearest_sampler = make(gbuffer_desc);
+
+        // The cascaded shadow map: a depth comparison with LINEAR filtering, which is the hardware PCF the
+        // shader's `sampler2DShadow` tap expects (compareOp matches pbr.frag's "not deeper than stored depth").
+        rhi::sampler_desc shadow_desc = {};
+        shadow_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        shadow_desc.max_lod = 0.0f;
+        shadow_desc.mipmap_mode = rhi::sampler_mipmap_mode::nearest;
+        shadow_desc.compare_enable = true;
+        shadow_desc.compare_op = rhi::sampler_compare_op::less_or_equal;
+        this->shadow_sampler = make(shadow_desc);
+    }
+
+    void runtime::init_recording_resources() {
+        // THE FRAME'S PRIMARY COMMAND BUFFERS STAY THE BACKEND'S (abi 15): core allocates one per frame
+        // slot in its own constructor, `begin_commands()` hands out that slot's borrowed recording view,
+        // and this runtime asks for the raw handle it begins, ends and submits through the contract's
+        // native-handle path (see frame_primary_handle()). Nothing of that is held here any more - the
+        // span that used to alias the core's container is gone with the type it named.
+        //
+        // One secondary command buffer per frame slot (stage 2/3 of parallel recording),
+        // pre-allocated with the primaries so the GPU can read them while this slot's primary
+        // executes. Stage 3 additionally gives the main pass one parallel segment per task-pool worker.
+        // EVERY ONE OF THEM IS A CONTRACT-OWNED `command_buffer` (abi 15) THAT OWNS ITS OWN COMMAND POOL
+        // (handles/handles.cppm): a VkCommandPool is not thread safe, so the workers must never begin
+        // buffers of a shared pool concurrently - the backend keeps the pool behind the handle, and the
+        // engine's owner here is `rhi::object_manager`.
+        this->secondary_command_buffers.reserve(this->frame_ring().slot_count());
+        this->main_segments.reserve(this->frame_ring().slot_count());
+        uint32_t const record_workers = static_cast<uint32_t>(std::max(1, this->task_pool_threads()));
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
+            // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
+            // and the main-pass segments own their buffers elsewhere, because they record concurrently.
+            std::array<rhi::object_manager<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
+                rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})}, // transparent
+            };
+            this->secondary_command_buffers.push_back(std::move(pair));
+
+            // Shadow cascades record on the task pool, so each cascade gets its OWN buffer - and its
+            // own pool with it (M9).
+            std::vector<rhi::object_manager<rhi::command_buffer>> cascade_recording;
+            cascade_recording.reserve(deren::vulkan::max_shadow_cascades);
+            for (uint32_t cascade = 0; cascade < deren::vulkan::max_shadow_cascades; ++cascade) {
+                cascade_recording.push_back(rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})});
+            }
+            this->shadow_recording.push_back(std::move(cascade_recording));
+            std::vector<rhi::object_manager<rhi::command_buffer>> segments;
+            segments.reserve(record_workers);
+            for (uint32_t s = 0; s < record_workers; ++s) {
+                segments.push_back(rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})}); // one per worker
+            }
+            this->main_segments.push_back(std::move(segments));
+        }
+    }
+
+    // The per-image state a swapchain GENERATION starts from. A freshly created target image is in
+    // UNDEFINED, holds nothing, and no pass has written it: that is equally true of generation 0 (this
+    // constructor, after the core built the generation's targets) and of every later generation
+    // (on_swapchain_recreated), so both call THIS and the two can no longer drift.
+    //
+    // NOT here, deliberately: the TAA history matrices (image_view_proj). They may only be written from
+    // a real camera snapshot (current_ubo), which does not exist yet in the constructor - they stay with
+    // the two call sites that have one (on_swapchain_recreated, and set_taa's off -> on edge).
+    void runtime::reset_image_generation_state() {
+        // The G-buffer depth layout flags are one per swapchain image, and a freshly created depth image
+        // is in UNDEFINED (which is what a clear flag says); see ensure_gbuffer_depth_sampled.
+        // THE GENERATION'S COUNT COMES FROM THE SWAPCHAIN (③-D/E A1.4): the per-image groups are engine-held
+        // fixed-size arrays now, so their `size()` is the contract's bound rather than the number of images
+        // this generation actually has - `swap_chain_images` is the one that still answers that.
+        std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
+        this->gbuffer_depth_written.assign(image_count, false);
+        // The motion-vector images died with the generation as well: clear the layout flag so the first
+        // frame of the new generation takes the attachment -> sampled transition (see
+        // ensure_velocity_sampled).
+        this->velocity_written.assign(image_count, false);
+        this->rt_binding_written.assign(image_count, VK_NULL_HANDLE);
+        this->gbuffer_targets_written.assign(image_count, false);
+        // a generation has nothing to blend with, and it is reset HERE rather than only on the off -> on
+        // vector reads as "no history" for every frame, which silently turns the temporal resolve into a
+        // pass-through of the raw trace).
+        // ... and its FRAME COUNT restarts with it: the cold-start widening is measured in frames since the
+        // accumulation restarted, and a new generation IS that restart (see frame_facts::gi_cold_start).
+        // ... and the furnace cube is a new image too, so its level has to be written again.
+        this->furnace_cube_ready = false;
+    }
+
+    // ---- THE ENGINE'S OWN RENDER-CHAIN TARGETS (③-D/E A1) ----------------------------------------------
+    //
+    // The creation run the member notes in :declarations describe. ONE function because two paths need it
+    // (the constructor for generation 0, `on_swapchain_recreated` for every later one), and two copies of a
+    // creation loop is how two generations drift - the same argument `reset_image_generation_state` makes.
+    void runtime::create_render_chain_targets() {
+        // RELEASE BEFORE RE-CREATE, on BOTH paths: the previous generation's views and images go first, so
+        // a view never outlives the image it was made over (the borrowed-image view lifetime rule, abi 16).
+        // On generation 0 every array is empty and this is a no-op.
+        this->taa_history_image_views = {};
+        this->taa_history_images = {};
+        this->hdr_image_views = {};
+        this->hdr_images = {};
+        this->ldr_image_views = {};
+        this->ldr_images = {};
+        for (auto& target_views : this->gbuffer_image_views) {
+            target_views = {};
+        }
+        for (auto& target_images : this->gbuffer_images) {
+            target_images = {};
+        }
+        this->velocity_image_views = {};
+        this->velocity_images = {};
+        this->scene_color_image_views = {};
+        this->scene_color_images = {};
+        this->gbuffer_depth_image_views = {};
+        this->gbuffer_depth_images = {};
+        this->ml_image_views = {};
+        this->ml_images = {};
+        this->ml_resolve_image_views = {};
+        this->ml_resolve_images = {};
+        this->ml_history_image_views = {};
+        this->ml_history_images = {};
+        for (auto& level_views : this->bloom_image_views) {
+            level_views = {};
+        }
+        for (auto& level_images : this->bloom_images) {
+            level_images = {};
+        }
+        this->furnace_cube_view = {};
+        this->furnace_cube_image = {};
+
+        VkExtent2D const render = this->render_extent();
+        std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
+        // THE CONTRACT'S BOUND IS THE ARRAY SIZE, so the backend keeps the promise (it refuses a driver
+        // that reports more) and this is the engine's side of it: a count past `rhi::max_swapchain_images`
+        // is a broken invariant, and clamping would leave holes in a generation's target set.
+        if (image_count == 0 || image_count > rhi::max_swapchain_images) {
+            deren::utility::panic(std::source_location::current(),
+                                  "runtime: the swapchain holds {} images but rhi::max_swapchain_images promises at most {} - "
+                                  "the engine's per-image arrays are sized by the contract's bound",
+                                  image_count,
+                                  rhi::max_swapchain_images);
+        }
+        // A device without the descriptor-heap extension leaves the heap unused; every other creation-time
+        // heap write in this file accepts that state rather than failing, and this one matches them.
+        bool const heap_ready = contract_heap_ready(this->rhi_face());
+        // ONE PER-IMAGE TARGET, THE WHOLE TRIPLE IN ONE PLACE: the image, the `sampled` view the resource
+        // table and the frame's attachment sites name, and the SAMPLED heap descriptor at the ABSOLUTE slot
+        // its reader bakes. The groups below differ only in the descriptor they hand in, so this is what
+        // keeps them from becoming copies that drift. `heap_slot` already includes the grid's base - the
+        // `reserve()` offsets are the backend's bookkeeping and nothing here repeats them.
+        auto const create_sampled_target = [this, heap_ready](rhi::image_desc const& desc, uint32_t const heap_slot,
+                                                              rhi::object_manager<rhi::image>& image, rhi::object_manager<rhi::image_view>& view,
+                                                              char const* const what) {
+            image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(desc)};
+            if (!static_cast<bool>(image)) {
+                deren::utility::panic(std::source_location::current(), "failed to create {}", what);
+            }
+            rhi::image_view_desc range{};
+            range.role = rhi::view_role::sampled;
+            view = rhi::object_manager<rhi::image_view>{image->make_view(range)};
+            if (!static_cast<bool>(view)) {
+                deren::utility::panic(std::source_location::current(), "failed to create the view for {}", what);
+            }
+            if (heap_ready && !contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(heap_slot), *image,
+                                                         rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
+                deren::utility::log("descriptor heap: {} did not reach grid slot {}", what, heap_slot);
+            }
+        };
+        // THE SAME IMAGE AS A STORAGE DESCRIPTOR, for the images a compute pass WRITES: SAMPLED_IMAGE and
+        // STORAGE_IMAGE are different descriptor kinds and one heap descriptor is never both, so an image that
+        // a compute pass writes AND a later stage samples needs one of each. The ROLE in the range is what
+        // picks the kind - the backend refuses a storage descriptor over a sampled-role range and vice versa.
+        auto const create_storage_descriptor = [this, heap_ready](rhi::image const& image, uint32_t const heap_slot, char const* const what) {
+            rhi::image_view_desc range{};
+            range.role = rhi::view_role::storage;
+            if (heap_ready && !contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(heap_slot), image, range,
+                                                         rhi::descriptor_type::storage_image)) {
+                deren::utility::log("descriptor heap: {} did not reach grid slot {}", what, heap_slot);
+            }
+        };
+
+        // ---- THE TAA HISTORY (③-D/E A1.1) --------------------------------------------------------------
+        // deren::vulkan::render_layout::hdr_format, TRANSFER_DST | SAMPLED (the runtime copies the resolved frame into it, the next
+        // frame's resolve reads it), one mip, one layer - `create_image` derives the allocator's type and
+        // memory from the flags, exactly as the backend's `create_target_image` used to.
+        for (std::size_t i = 0; i < image_count; ++i) {
+            rhi::image_desc history_desc{};
+            history_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            history_desc.mip_levels = 1;
+            history_desc.array_layers = 1;
+            history_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
+            history_desc.debug_name = "TAA history image";
+            create_sampled_target(history_desc, deren::vulkan::render_layout::heap_slots::taa_history + static_cast<uint32_t>(i),
+                                  this->taa_history_images[i], this->taa_history_image_views[i], "the TAA history target");
+        }
+
+        // ---- THE HDR SCENE TARGET AND THE DISPLAY-REFERRED TARGET (③-D/E A1.3) -------------------------
+        // One of each per swapchain image, both at the frame's render extent and in `deren::vulkan::render_layout::hdr_format`. The usage
+        // flags are the backend's: COLOR_ATTACHMENT | SAMPLED for both, plus TRANSFER_SRC on the HDR target -
+        // the TAA resolve copies the frame it wrote there into the history image, the screenshot read-back
+        // copies out of it, and vkCmdCopyImage requires the flag on the image copied FROM.
+        for (std::size_t i = 0; i < image_count; ++i) {
+            rhi::image_desc hdr_desc{};
+            hdr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            hdr_desc.mip_levels = 1;
+            hdr_desc.array_layers = 1;
+            hdr_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            hdr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled) |
+                             rhi::to_bits(rhi::image_flag::transfer_source);
+            hdr_desc.debug_name = "HDR scene target";
+            create_sampled_target(hdr_desc, deren::vulkan::render_layout::heap_slots::post_color + static_cast<uint32_t>(i),
+                                  this->hdr_images[i], this->hdr_image_views[i], "the HDR scene target");
+
+            // ... and the display-referred target FXAA samples: the same size and lifetime, display-range
+            // values in the same deren::vulkan::render_layout::hdr_format so FXAA can threshold them without a per-tap decode, and no
+            // TRANSFER_SRC (nothing copies out of it).
+            rhi::image_desc ldr_desc{};
+            ldr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            ldr_desc.mip_levels = 1;
+            ldr_desc.array_layers = 1;
+            ldr_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            ldr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            ldr_desc.debug_name = "display-referred target";
+            create_sampled_target(ldr_desc, deren::vulkan::render_layout::heap_slots::display_color + static_cast<uint32_t>(i),
+                                  this->ldr_images[i], this->ldr_image_views[i], "the display target");
+        }
+
+        // ---- THE G-BUFFER CLUSTER (③-D/E A1.4) ---------------------------------------------------------
+        // The three stored surface targets, the motion-vector target, the TAA working image and the G-buffer
+        // pass's own depth image - all at the frame's render extent, one set per swapchain image, single
+        // sampled (a G-buffer cannot be multisampled without per-sample shading). The heap array each one
+        // takes is named for what READS it: the three surface targets for the lighting/debug stages, the
+        // motion vectors and the depth for TAA and the lighting stage, and the scene colour for TAA's
+        // `current_color` input - which is what `taa_current` is named after every time.
+        for (std::size_t i = 0; i < image_count; ++i) {
+            for (std::size_t target = 0; target < this->gbuffer_images.size(); ++target) {
+                rhi::image_desc target_desc{};
+                target_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+                target_desc.mip_levels = 1;
+                target_desc.array_layers = 1;
+                target_desc.format = contract_image_format(deren::vulkan::render_layout::gbuffer_formats[target]);
+                target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+                target_desc.debug_name = "G-buffer target";
+                uint32_t const target_slot = target == 0u ? deren::vulkan::render_layout::heap_slots::gbuffer_albedo : (target == 1u ? deren::vulkan::render_layout::heap_slots::gbuffer_normal : deren::vulkan::render_layout::heap_slots::gbuffer_material);
+                create_sampled_target(target_desc, target_slot + static_cast<uint32_t>(i),
+                                      this->gbuffer_images[target][i], this->gbuffer_image_views[target][i], "the G-buffer target");
+            }
+
+            // Motion vectors: the fourth G-buffer target, written by the G-buffer pass and read by TAA.
+            rhi::image_desc velocity_desc{};
+            velocity_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            velocity_desc.mip_levels = 1;
+            velocity_desc.array_layers = 1;
+            velocity_desc.format = contract_image_format(deren::vulkan::render_layout::gbuffer_velocity_format);
+            velocity_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            velocity_desc.debug_name = "motion-vector target";
+            create_sampled_target(velocity_desc, deren::vulkan::render_layout::heap_slots::gbuffer_velocity + static_cast<uint32_t>(i),
+                                  this->velocity_images[i], this->velocity_image_views[i], "the motion-vector target");
+
+            // ... and TAA's `current_color` input: what the scene side writes when the resolve runs.
+            rhi::image_desc scene_desc{};
+            scene_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            scene_desc.mip_levels = 1;
+            scene_desc.array_layers = 1;
+            scene_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            scene_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            scene_desc.debug_name = "scene-colour target";
+            create_sampled_target(scene_desc, deren::vulkan::render_layout::heap_slots::taa_current + static_cast<uint32_t>(i),
+                                  this->scene_color_images[i], this->scene_color_image_views[i], "the scene-colour target");
+
+            // THE DEPTH, through the contract's ROLE: the caller says "a depth attachment" and the backend
+            // resolves the device's own depth format - which is why the heap write's aspect is DEPTH (the
+            // role decides it) and why the engine never names a depth format of its own.
+            rhi::image_desc depth_desc{};
+            depth_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            depth_desc.mip_levels = 1;
+            depth_desc.array_layers = 1;
+            depth_desc.format = rhi::image_format::depth;
+            depth_desc.flags = rhi::to_bits(rhi::image_flag::depth_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+            depth_desc.debug_name = "G-buffer depth target";
+            create_sampled_target(depth_desc, deren::vulkan::render_layout::heap_slots::gbuffer_depth + static_cast<uint32_t>(i),
+                                  this->gbuffer_depth_images[i], this->gbuffer_depth_image_views[i], "the G-buffer depth target");
+        }
+
+        // ---- THE HALF-RESOLUTION CHAIN (③-D/E A1.5) ----------------------------------------------------
+        // The stochastic punctual lighting trio and the four bloom levels. THEIR EXTENTS ARE DERIVED, not the
+        // frame's - the three share `max(1, render/2)`, and bloom level L is `max(1, render >> (L + 1))`, which
+        // is the same formula `resolve_resource_extent` answers a pass with over the same base, so a pass and the
+        // image it writes cannot disagree at any render scale. The flags are the backend's, and the two images a
+        // compute pass WRITES get both descriptors: sampled for their readers, storage for the writer.
+        uint32_t const half_width = std::max(1u, render.width / 2u);
+        uint32_t const half_height = std::max(1u, render.height / 2u);
+        for (std::size_t i = 0; i < image_count; ++i) {
+            uint32_t const image_slot = static_cast<uint32_t>(i);
+            // The raw estimate: STORAGE for the trace compute pass, SAMPLED for the lighting stage that adds it.
+            rhi::image_desc trace_desc{};
+            trace_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
+            trace_desc.mip_levels = 1;
+            trace_desc.array_layers = 1;
+            trace_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            trace_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
+            trace_desc.debug_name = "megalights trace image";
+            create_sampled_target(trace_desc, deren::vulkan::render_layout::heap_slots::ml_trace + image_slot,
+                                  this->ml_images[i], this->ml_image_views[i], "the megalights trace target");
+            create_storage_descriptor(*this->ml_images[i], deren::vulkan::render_layout::heap_slots::ml_trace_storage + image_slot, "the megalights trace STORAGE descriptor");
+
+            // The temporal accumulation: the same pair PLUS TRANSFER_SRC, because it is what the next frame's
+            // history is copied FROM.
+            rhi::image_desc resolve_desc{};
+            resolve_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
+            resolve_desc.mip_levels = 1;
+            resolve_desc.array_layers = 1;
+            resolve_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            resolve_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_source);
+            resolve_desc.debug_name = "megalights resolve image";
+            create_sampled_target(resolve_desc, deren::vulkan::render_layout::heap_slots::ml_resolved + image_slot,
+                                  this->ml_resolve_images[i], this->ml_resolve_image_views[i], "the megalights resolve target");
+            create_storage_descriptor(*this->ml_resolve_images[i], deren::vulkan::render_layout::heap_slots::ml_resolved_storage + image_slot, "the megalights resolve STORAGE descriptor");
+
+            // ... and the history beside the chain's, written only by that copy and read as the resolve's input
+            // - one sampled descriptor, because a copy is not a descriptor write.
+            rhi::image_desc history_desc{};
+            history_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
+            history_desc.mip_levels = 1;
+            history_desc.array_layers = 1;
+            history_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
+            history_desc.debug_name = "megalights history image";
+            create_sampled_target(history_desc, deren::vulkan::render_layout::heap_slots::ml_history + image_slot,
+                                  this->ml_history_images[i], this->ml_history_image_views[i], "the megalights history target");
+        }
+
+        // The bloom chain: four levels, halved per level with a 1x1 floor, one target per level per image, and
+        // the grid packs the levels `heap_image_capacity` apart - the same stride the shaders bake as
+        // `bloom_l0 + level * heap_image_capacity`.
+        for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
+            uint32_t const level_width = std::max(1u, render.width >> (level + 1u));
+            uint32_t const level_height = std::max(1u, render.height >> (level + 1u));
+            for (std::size_t i = 0; i < image_count; ++i) {
+                rhi::image_desc level_desc{};
+                level_desc.extent = rhi::image_extent{.width = level_width, .height = level_height, .depth = 1u};
+                level_desc.mip_levels = 1;
+                level_desc.array_layers = 1;
+                level_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+                level_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+                level_desc.debug_name = "bloom level target";
+                create_sampled_target(level_desc, deren::vulkan::render_layout::heap_slots::bloom_l0 + level * deren::vulkan::render_layout::heap_image_capacity + static_cast<uint32_t>(i),
+                                      this->bloom_images[level][i], this->bloom_image_views[level][i], "the bloom level target");
+            }
+        }
+
+        // ---- THE FURNACE MODE'S CONSTANT ENVIRONMENT (③-D/E A1.6) --------------------------------------
+        // ONE 1x1x6 cube, device-wide: TRANSFER_DST because a clear is what gives it contents, SAMPLED because
+        // the IBL bindings point at it, and `cube_compatible` with six layers - which is ALL the contract has
+        // to say for the backend to derive a CUBE view from the range (the derivation lives in the heap path,
+        // so this group needs no new vocabulary). No heap descriptor: what the furnace mode (and the empty-IBL
+        // placeholder) needs is the resource table's view.
+        rhi::image_desc furnace_desc{};
+        furnace_desc.extent = rhi::image_extent{.width = 1u, .height = 1u, .depth = 1u};
+        furnace_desc.mip_levels = 1;
+        furnace_desc.array_layers = 6;
+        furnace_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+        furnace_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination) | rhi::to_bits(rhi::image_flag::cube_compatible);
+        furnace_desc.debug_name = "furnace environment cube";
+        this->furnace_cube_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(furnace_desc)};
+        if (!static_cast<bool>(this->furnace_cube_image)) {
+            deren::utility::panic("failed to create the furnace environment cube");
+        }
+        rhi::image_view_desc furnace_range{};
+        furnace_range.mip_count = 0;   // all remaining mips (one)
+        furnace_range.layer_count = 0; // all remaining layers - the SIX faces a CUBE view needs
+        furnace_range.role = rhi::view_role::sampled;
+        this->furnace_cube_view = rhi::object_manager<rhi::image_view>{this->furnace_cube_image->make_view(furnace_range)};
+        if (!static_cast<bool>(this->furnace_cube_view)) {
+            deren::utility::panic("failed to create the furnace environment cube view");
+        }
+
+        // ---- THE RAY-TRACED VISIBILITY, ONE PER FRAME SLOT (③-D/E A1.2) --------------------------------
+        // The ONE group whose count is the RING's rather than the swapchain's - the rays are traced once per
+        // frame, not once per image - and it is rebuilt per generation all the same, because a resize moves
+        // the render extent it is created at. The same numbers the backend's loop used: R16F (the pass writes
+        // a single visibility factor per pixel - `image_format::r16_sfloat`, appended to the contract for
+        // exactly this image), STORAGE for the compute pass that writes it and SAMPLED for the lighting
+        // stage that multiplies the sun term by it.
+        this->rt_shadow_image_views = {};
+        this->rt_shadow_images = {};
+        for (uint32_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
+            rhi::image_desc visibility_desc{};
+            visibility_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            visibility_desc.mip_levels = 1;
+            visibility_desc.array_layers = 1;
+            visibility_desc.format = rhi::image_format::r16_sfloat;
+            visibility_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
+            visibility_desc.debug_name = "ray-traced visibility image";
+            // TWO HEAP DESCRIPTORS FOR THE ONE IMAGE, which is not redundancy: SAMPLED_IMAGE and STORAGE_IMAGE
+            // are different descriptor kinds and one heap descriptor is never both, while this image is WRITTEN
+            // by the visibility compute pass and SAMPLED by the lighting stage. Both sit at the ABSOLUTE slots
+            // the shaders bake. (A1.5 moved this group onto the same two helpers the rest of the chain uses -
+            // the group's numbers, its per-frame-slot count and its two descriptors are unchanged.)
+            create_sampled_target(visibility_desc, deren::vulkan::render_layout::heap_slots::rt_visibility + slot,
+                                  this->rt_shadow_images[slot], this->rt_shadow_image_views[slot], "the ray-traced visibility target");
+            create_storage_descriptor(*this->rt_shadow_images[slot], deren::vulkan::render_layout::heap_slots::rt_visibility_storage + slot, "the rt visibility STORAGE descriptor");
+        }
+    }
+
+    void runtime::ensure_shadow_resources() {
+        if (!this->shadow_images.empty() && this->shadow_allocated_layers == this->shadow_cascades) {
+            return; // already created for this cascade count
+        }
+        // Shadow map: one layered depth image per frame slot (see the member docs), with one layer
+        // per cascade. Depth-only images carry no uploaded content (vma::create_image with data ==
+        // nullptr skips the digest / upload path), so each frame can render the scene's depth from
+        // the light's view into every layer.
+        this->shadow_cascades = std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades);
+        this->shadow_images.reserve(this->frame_ring().slot_count());
+        this->shadow_array_views.reserve(this->frame_ring().slot_count());
+        this->shadow_layer_views.reserve(this->frame_ring().slot_count());
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
+            rhi::image_desc shadow_desc{};
+            shadow_desc.extent = rhi::image_extent{.width = this->shadow_map_size, .height = this->shadow_map_size, .depth = 1u};
+            shadow_desc.mip_levels = 1;
+            // One layer per ACTIVE cascade, NOT max_shadow_cascades: the spare layers the old code
+            // always allocated were 2048x2048x4 B each per frame slot (33.5 MB with the default three
+            // cascades) that nothing ever fitted, rendered or sampled. Growing the count rebuilds
+            // these images (see set_shadow_cascades) and SHRINKING keeps the layers already owned,
+            // which is why shadow_allocated_layers - not shadow_cascades - is the image's real layer
+            // count and the value every subresource range over the whole array has to use.
+            shadow_desc.array_layers = this->shadow_cascades;
+            // THE `depth` ROLE (§17): which concrete depth format the device serves is the backend's
+            // capability question; the runtime names the ROLE and the flags it needs.
+            shadow_desc.format = rhi::image_format::depth;
+            shadow_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::depth_attachment);
+            shadow_desc.debug_name = "shadow map image";
+            rhi::object_manager<rhi::image> shadow_image{this->rhi_face().create_image(shadow_desc)};
+            if (!static_cast<bool>(shadow_image)) {
+                deren::utility::panic("failed to create shadow map image");
+            }
+            this->shadow_images.push_back(std::move(shadow_image));
+            rhi::image_view_desc whole_array{};
+            whole_array.layer_count = 0; // all remaining layers
+            whole_array.mip_count = 0;
+            this->shadow_array_views.push_back(rhi::object_manager<rhi::image_view>{this->shadow_images.back()->make_view(whole_array)});
+            std::vector<rhi::object_manager<rhi::image_view>> layers;
+            layers.reserve(this->shadow_cascades);
+            for (uint32_t cascade = 0; cascade < this->shadow_cascades; ++cascade) {
+                rhi::image_view_desc one_layer{};
+                one_layer.base_layer = cascade;
+                one_layer.layer_count = 1;
+                layers.push_back(rhi::object_manager<rhi::image_view>{this->shadow_images.back()->make_view(one_layer)});
+            }
+            this->shadow_layer_views.push_back(std::move(layers));
+        }
+        this->shadow_allocated_layers = this->shadow_cascades;
+
+        // Light UBO (scene block slot 7): one buffer PER FRAME SLOT (host-visible, mapped), so
+        // a frame being rendered never shares the buffer the next frame rewrites. CPU-side
+        // content lives in light_state; the frame loop memcpys it into the paced slot's buffer
+        // (pace_and_acquire) - see the member docs for the concurrency rationale.
+        light_ubo initial = {};
+        create_buffers(this->vulkan_core,
+                       this->light_buffers,
+                       rhi::buffer_usage::uniform_coherent,
+                       // it goes on the descriptor heap (a heap descriptor for a buffer is its
+                       // device address), so the address has to exist - validation states it as
+                       // VUID-VkBufferDeviceAddressInfo-buffer-02601 the moment it is queried -
+                       // and it is written as a STORAGE descriptor, so the buffer needs the
+                       // matching usage bit (see the camera UBO above and the note on
+                       // write_heap_scene_buffer)
+                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage),
+                       std::as_bytes(std::span(&initial, 1)),
+                       "light ubo buffer",
+                       &this->light_mapped);
+
+        // THE HEAD FRAME (scene block slot 749): the same per-frame-slot arrangement as the light UBO above, and
+        // `head_state` starts at the reference's fallback frame - see that member for why it is not zeros.
+        head_ubo initial_head = {};
+        create_buffers(this->vulkan_core,
+                       this->head_buffers,
+                       rhi::buffer_usage::uniform_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::storage),
+                       std::as_bytes(std::span(&initial_head, 1)),
+                       "head frame buffer",
+                       &this->head_mapped);
+    }
+
+    namespace {
+
+        /// THE HEAP'S COPY OF ONE IMAGE, built from the SAME arguments `core::make_image_view` uses (see
+        /// deren::vulkan::make_image_view_info in deren.vulkan.constant_init): a heap image descriptor carries a CREATE INFO
+        /// rather than a view, and the driver makes the view inside it. That is why this is called where the image
+        /// and its view are created - only that site knows the format, the view type and the range.
+        bool write_heap_grid_image(rhi::api_core& vk, uint32_t const slot, VkImage const image, VkFormat const format, VkImageViewType const type, VkImageAspectFlags const aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
+            if (!contract_heap_ready(vk) || image == VK_NULL_HANDLE) {
+                return false;
+            }
+            VkImageViewCreateInfo const view_info = make_image_view_info(image, format, type, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
+            return contract_write_heap_image(vk, deren::vulkan::render_layout::heap_slot_offset(slot), view_info, VK_IMAGE_LAYOUT_GENERAL);
+        }
+
+        /**
+         * @brief write ONE per-slot binding of the scene block into the GRID - one slot per frame in flight
+         *
+         * THE HEAP'S BUFFER PATTERN, in one place: a heap descriptor for a buffer IS its address range, and a
+         * per-slot binding's entry must name THAT slot's buffer - so this walks the per-slot vector, takes each
+         * buffer's device address and writes it at `deren::vulkan::render_layout::heap_slot_offset(slot_base + slot)`: one GRID slot per frame in
+         * flight, which is exactly where the shaders read it (`heap_slots_scene_camera + heap_frame_slot` and its
+         * neighbours). The heap is the only path now, so "the heap is not in use" is a startup
+         * failure rather than a quiet fall back to a descriptor set.
+         */
+        void write_heap_scene_buffer(rhi::api_core& vk, std::vector<rhi::object_manager<rhi::buffer>> const& buffers, uint32_t const slot_base, VkDeviceSize const size, VkDescriptorType const type) {
+            if (!contract_heap_ready(vk)) {
+                return;
+            }
+            uint32_t written = 0;
+            for (uint32_t slot = 0; slot < buffers.size(); ++slot) {
+                VkDeviceSize const offset = deren::vulkan::render_layout::heap_slot_offset(slot_base + slot);
+                if (contract_write_heap_buffer(vk, offset, buffer_address(vk, *buffers[slot]), size, type)) {
+                    ++written;
+                } else {
+                    deren::utility::log("descriptor heap: the per-frame buffer for grid slot {} (frame slot {}) did not fit at offset {}", slot_base, slot, offset);
+                }
+            }
+            // SUCCESS IS LOGGED TOO, and that is not noise: a heap write has no picture to show for itself until
+            // the shaders read the heap, so "no failure line" and "the buffers were empty, so nothing was written"
+            // look exactly alike. This line is what tells them apart (it is the same reason the texture array and
+            // the material table each log their count).
+            deren::utility::log("descriptor heap: {} per-frame descriptor(s) written for grid slots {}..{}", written, slot_base, slot_base + (buffers.empty() ? 0u : static_cast<uint32_t>(buffers.size()) - 1u));
+        }
+    } // namespace
+
+    void runtime::ensure_cluster_buffers() {
+        if (!this->cluster_count_buffers.empty()) {
+            return;
+        }
+        // Clustered light culling (M5), scene set bindings 11/12: one count per cluster and one
+        // fixed-capacity index row per cluster, per frame slot (the compute pass writes them, the
+        // fragment stage reads them, so a slot in flight must not be overwritten).
+        //
+        // Allocated for the MAXIMUM grid (max_cluster_count) once: the active grid is capped to it
+        // every frame, so a resize only changes the grid dims in the light UBO - no reallocation, no
+        // in-flight buffer to retire. Both are host-visible + coherent: the counts are zeroed by the
+        // host each frame (that IS the pass's clear, see pace_and_acquire), and the indices only need
+        // to live on the GPU between the dispatch and the shading.
+        std::vector<uint8_t> const zero_counts(static_cast<std::size_t>(deren::vulkan::max_cluster_count) * sizeof(uint32_t), 0);
+        std::vector<uint8_t> const zero_indices(static_cast<std::size_t>(deren::vulkan::max_cluster_count) * deren::vulkan::cluster_light_capacity * sizeof(uint32_t), 0);
+        create_buffers(this->vulkan_core,
+                       this->cluster_count_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // heap-bound
+                       std::as_bytes(std::span(zero_counts)),
+                       "cluster count buffer",
+                       &this->cluster_count_mapped);
+        // The index rows are host-visible for the same reason, but nothing on the CPU ever writes
+        // through the mapping: the dispatch fills them, so the mapped list stays a nullptr.
+        create_buffers(this->vulkan_core,
+                       this->cluster_index_buffers,
+                       rhi::buffer_usage::storage_coherent,
+                       rhi::to_bits(rhi::buffer_flag::device_address), // heap-bound
+                       std::as_bytes(std::span(zero_indices)),
+                       "cluster index buffer");
+
+        // The clustered-light pass's TWO buffers, into the heap's per-slot blocks (bindings 11 and 12): this stage
+        // is the first whose WHOLE set-0 interface is buffers (camera 0, light 7, counts 11, indices 12), which is
+        // what makes it the one to migrate first - no image descriptors, no embedded samplers, nothing but address
+        // ranges - and therefore the one that can be verified byte for byte before the image side is attempted.
+        // The sizes are the buffers' REAL sizes, not VK_WHOLE_SIZE: a heap buffer descriptor is an
+        // address RANGE, and validation states the rule as VUID-VkDeviceAddressRangeKHR-address-11365 - address plus
+        // size must stay inside the buffer, which VK_WHOLE_SIZE cannot satisfy.
+        write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, deren::vulkan::render_layout::heap_slots::cluster_counts, static_cast<VkDeviceSize>(deren::vulkan::max_cluster_count) * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->cluster_index_buffers, deren::vulkan::render_layout::heap_slots::cluster_indices, static_cast<VkDeviceSize>(deren::vulkan::max_cluster_count) * deren::vulkan::cluster_light_capacity * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // A STORAGE DESCRIPTOR, NOT A UNIFORM ONE, and the shaders declare it as a `buffer` block: the storage
+        // class a shader reads a heap descriptor through must match the descriptor's type, and a mismatch reads
+        // as zeros with NO validation finding. Slang's `DescriptorHandle<ConstantBuffer<T>>` always fetches
+        // through a StorageBuffer-class pointer, so a VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER here made the Slang
+        // G-buffer read a zero camera matrix (velocity NaN, motion channel black) while glslc's Uniform read of
+        // the same slot worked. See docs/slang_migration.md, "the storage class that has to match".
+        write_heap_scene_buffer(this->vulkan_core, this->camera_buffers, deren::vulkan::render_layout::heap_slots::scene_camera, sizeof(camera_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // ... and the rest of the per-frame arrays, from the same place and with the SAME sizes the scene block
+        // writes them with (see ensure_scene_heap_slots's write_buffer_binding calls): motion (binding 13), skin (9) and
+        // morph (10), each a two-slot array whose slot is the frame's. Bound here rather than in the per-slot loop
+        // because a heap descriptor is an ADDRESS: the buffers are allocated once, so their addresses do not
+        // change per frame, and only the CONTENTS are rewritten (see the per-frame slot rule in runtime.cppm).
+        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, deren::vulkan::render_layout::heap_slots::previous_transforms, static_cast<VkDeviceSize>(deren::vulkan::scene_motion_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, deren::vulkan::render_layout::heap_slots::skin_matrices, static_cast<VkDeviceSize>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // ... and the previous-frame twin of the skin block, whose CONTENTS advance_motion_deformations()
+        // rewrites per frame slot - so it is registered here, from the same size, for the same reason.
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, deren::vulkan::render_layout::heap_slots::skin_matrices_previous, static_cast<VkDeviceSize>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, deren::vulkan::render_layout::heap_slots::morph_data, static_cast<VkDeviceSize>(deren::vulkan::scene_morph_capacity) * sizeof(float), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        // THE INSTANCE TRANSFORM TABLE (set 0 binding 6) is the odd one: a SINGLE buffer rather than one per frame
+        // slot (see runtime.cppm's member), so it takes ONE grid slot instead of a two-slot array - which is what
+        // heap_slots::instance_transforms reserved. Written from the same size the scene block gives it.
+        if (contract_heap_ready(this->rhi_face())) {
+            if (!this->write_heap_buffer(*this->instance_buffer, deren::vulkan::render_layout::heap_slots::instance_transforms, static_cast<VkDeviceSize>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::instance_transforms);
+            }
+        }
+    }
+
+    void runtime::ensure_scene_heap_slots() {
+        if (!this->cluster_count_buffers.empty()) {
+            return; // the scene's heap slots are already written (the first primitive asked for them)
+        }
+        // THERE IS NO SCENE SET TO ENSURE ANY MORE - what this function still does is what the heap needs: the
+        // shadow map and the clustered-light buffers must exist before the heap slots that name them are written,
+        // and their creation is deferred to here so the app config that sets the cascade count has already run
+        // (see the constructor note).
+        this->ensure_shadow_resources();
+        this->ensure_cluster_buffers();
+        // binding 7 (light UBO, per-slot) is bound into each slot's heap block here, together with the shadow map's
+        // grid slot.
+        this->write_light_and_shadow_bindings();
+    }
+
+    void runtime::write_light_and_shadow_bindings() {
+        // binding 7 (light UBO) + binding 8 (shadow map): BOTH point at THIS slot's own
+        // resources (per-slot light buffers like the camera UBO, per-slot shadow images), so no
+        // per-frame re-pointing is needed and an in-flight frame never shares a buffer the next
+        // frame rewrites. Only the HEAP half is left: the two bindings are written into this slot's heap block
+        // (and the shadow map into its grid slot) rather than into a descriptor set.
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
+            rhi::image& shadow_image = *this->shadow_images[static_cast<std::size_t>(slot)];
+            VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(shadow_image));
+
+            // THE SHADOW MAP GOES ONTO THE GRID HERE, because an image binding cannot be written the way a buffer
+            // binding is: its heap descriptor is a CREATE INFO, rebuilt from the same arguments
+            // core::make_depth_array_view uses - this slot's image, the depth format, a 2D-array view and the DEPTH
+            // aspect (a colour aspect here would be a validation error, not a wrong picture). Which slot it
+            // occupies is the frame's, matching shadow_images[slot].
+            if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot), shadow_native, static_cast<VkFormat>(this->escape().native_image_format(shadow_image)), VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT)) {
+                deren::utility::log("descriptor heap: the shadow map for frame slot {} did not reach grid slot {}", slot, deren::vulkan::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot));
+            }
+
+            // ---- AND THE LIGHT UBO, INTO THE HEAP'S BLOCK FOR THIS SLOT ----
+            //
+            // A heap descriptor for a buffer IS an address range: take the buffer's device address, write it at
+            // the binding's offset inside this slot's block (core reserved the block and computed the offsets), and
+            // nothing else changes. What does NOT work this way is an IMAGE binding: a heap image descriptor
+            // carries a VkImageViewCreateInfo while a VkDescriptorImageInfo carries a view, not the image and range
+            // that create info is made of - which is why the shadow map above is written where its image is known.
+            if (contract_heap_ready(this->rhi_face())) {
+                VkDeviceSize const heap_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::scene_light + slot);
+                if (!this->write_heap_buffer(*this->light_buffers[static_cast<std::size_t>(slot)], deren::vulkan::render_layout::heap_slots::scene_light + slot, sizeof(light_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                    deren::utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
+                }
+            }
+
+            // ---- AND THE HEAD FRAME, into its own block for this slot ----
+            //
+            // Its own block rather than a field of the light's, because it is a property of the CHARACTER rather
+            // than of the scene's lighting - see `deren::vulkan::render_layout::heap_slots::scene_head`. Written here beside the light
+            // because it is per-frame-slot for the same reason: on a model whose head turns it changes every
+            // frame, so each slot needs its own copy.
+            if (contract_heap_ready(this->rhi_face())) {
+                VkDeviceSize const head_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::scene_head + slot);
+                if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], deren::vulkan::render_layout::heap_slots::scene_head + slot, sizeof(head_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                    deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
+                }
+            }
+        }
+    }
+
+    void runtime::set_ibl(ibl_input const& info) {
+        if (info.env_size == 0) {
+            return;
+        }
+        // THE UPLOAD LAMBDA goes through the contract's image face now (abi 7): the named formats and
+        // the cube_compatible flag carry what image_create_info + image_type carried, and the bytes
+        // stay part of the descriptor (the dedup only sees content handed to creation).
+        auto const upload = [this](std::span<uint8_t const> const data, uint32_t const width, uint32_t const height, uint32_t const mip_levels, rhi::image_format const format, bool const cube, char const* const what) -> rhi::object_manager<rhi::image> {
+            rhi::image_desc desc{};
+            desc.extent = rhi::image_extent{.width = width, .height = height, .depth = 1u};
+            desc.mip_levels = mip_levels;
+            desc.array_layers = cube ? 6u : 1u;
+            desc.format = format;
+            desc.flags = rhi::to_bits(rhi::image_flag::sampled) | (cube ? rhi::to_bits(rhi::image_flag::cube_compatible) : rhi::no_image_flags);
+            desc.initial_bytes = std::as_bytes(std::span(data));
+            desc.debug_name = what;
+            rhi::object_manager<rhi::image> image{this->rhi_face().create_image(desc)};
+            if (!static_cast<bool>(image)) {
+                deren::utility::panic(what);
+            }
+            return image;
+        };
+        // a whole-image view through the contract, and the raw `VkImage` the heap's create-info
+        // descriptor still needs (transitional, until the heap write itself moves behind the contract)
+        auto const whole_view = [](rhi::image& image) -> rhi::object_manager<rhi::image_view> {
+            rhi::image_view_desc range{};
+            range.layer_count = 0;
+            range.mip_count = 0;
+            return rhi::object_manager<rhi::image_view>{image.make_view(range)};
+        };
+
+        // prefiltered environment cubemap (mip chain)
+        rhi::object_manager<rhi::image> env_image = upload(info.prefiltered_env, info.env_size, info.env_size, info.env_mip_count, rhi::image_format::r16g16b16a16_sfloat, true, "environment cubemap image");
+        this->ibl_images.push_back(std::move(env_image));
+        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
+        // ... and the heap's copy of it, at its own grid slot (see docs/descriptor_heap_migration.md): written
+        // HERE because this is the site that knows the format and the view type, which is what a heap image
+        // descriptor is made of. An image whose BINDING is later repointed (the furnace mode) needs a rewrite
+        // beside that change - the heap does not follow a view.
+        if (!contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::env_cube), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
+            deren::utility::log("descriptor heap: the environment cube did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::env_cube);
+        }
+
+        // irradiance cubemap
+        rhi::object_manager<rhi::image> irr_image = upload(info.irradiance, info.irr_size, info.irr_size, 1u, rhi::image_format::r16g16b16a16_sfloat, true, "irradiance cubemap image");
+        this->ibl_images.push_back(std::move(irr_image));
+        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
+        if (!contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::irradiance_cube), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
+            deren::utility::log("descriptor heap: the irradiance cube did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::irradiance_cube);
+        }
+
+        // BRDF integration LUT
+        rhi::object_manager<rhi::image> lut_image = upload(info.brdf_lut, info.lut_size, info.lut_size, 1u, rhi::image_format::r16g16_sfloat, false, "BRDF LUT image");
+        this->ibl_images.push_back(std::move(lut_image));
+        this->ibl_views.push_back(whole_view(*this->ibl_images.back()));
+        if (!contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::brdf_lut), *this->ibl_images.back(), rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
+            deren::utility::log("descriptor heap: the BRDF LUT did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::brdf_lut);
+        }
+
+        rhi::sampler_desc env_sampler_desc{};
+        env_sampler_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        env_sampler_desc.max_lod = static_cast<float>(info.env_mip_count - 1);
+        this->env_sampler = rhi::object_manager<rhi::sampler>{this->rhi_face().create_sampler(env_sampler_desc)};
+        this->ibl_ready = true;
+        // The three images above are already on the heap, written where their images are (see the
+        // write_heap_grid_image calls): a heap image descriptor is a CREATE INFO, so there is no separate
+        // "point the binding at it" step and nothing to rewrite here.
+    }
+
+    // THE ARTICLE'S POST LUT (`ZmdLutPost.shader`'s `_LutTex`), uploaded exactly as the BRDF LUT above is - the same
+    // `create_image(data, ...)` -> `make_image_view` -> `write_heap_grid_image` triple, because a baked cube and a
+    // generated one differ only in who filled the bytes.
+    void runtime::set_post_lut(std::span<uint8_t const> const pixels, uint32_t const width, uint32_t const height) {
+        if (pixels.empty() || width == 0u || height == 0u) {
+            deren::utility::log("post LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
+            return;
+        }
+        rhi::image_desc lut_desc{};
+        lut_desc.extent = rhi::image_extent{.width = width, .height = height, .depth = 1u};
+        lut_desc.mip_levels = 1;
+        lut_desc.array_layers = 1;
+        lut_desc.format = rhi::image_format::rgba8_srgb;
+        lut_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        lut_desc.initial_bytes = std::as_bytes(std::span(pixels));
+        lut_desc.debug_name = "post LUT image";
+        this->post_lut_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(lut_desc)};
+        if (!static_cast<bool>(this->post_lut_image)) {
+            deren::utility::panic("failed to create the post LUT image");
+        }
+        rhi::image_view_desc lut_range{};
+        lut_range.layer_count = 0;
+        lut_range.mip_count = 0;
+        this->post_lut_view = rhi::object_manager<rhi::image_view>{this->post_lut_image->make_view(lut_range)};
+        if (!static_cast<bool>(this->post_lut_view)) {
+            deren::utility::panic("failed to create the post LUT view");
+        }
+        if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::post_lut, static_cast<VkImage>(this->escape().native_image(*this->post_lut_image)), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D)) {
+            deren::utility::log("descriptor heap: the post LUT did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::post_lut);
+        }
+        deren::utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), deren::vulkan::render_layout::heap_slots::post_lut);
+    }
+
+    // THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT: the same `create_image` -> `make_image_view` ->
+    // `write_heap_grid_image` triple as the two LUTs above, from the reference's own PNG bytes. WHAT DIFFERS FROM
+    // BOTH OF THEM IS ONE FIELD, AND IT IS THE WHOLE POINT OF THIS FUNCTION:
+    //
+    //     `VK_FORMAT_R8G8B8A8_UNORM`, NOT `_SRGB`.
+    //
+    // The reference's image data-block is `colorspace = 'Non-Color'` - the ONLY such image in this project, every
+    // `_RD` / `_D` map being `'sRGB'` - so Blender's texture node hands the graph the texel's raw bytes and the
+    // screenshot's three FGD outputs are reads of those bytes. An sRGB upload would linearize each channel once and
+    // every one of `specularFGD` / `reflectivity` / `diffuseFGD` would be wrong in the same direction (spec §3.1
+    // item 1: the texel at `(0,32)` has `R = 47/255 = 0.184314`, which sRGB-decodes to `0.028`). It is also why
+    // `tests/test_goo_toon_math.cpp` pins this format string and asserts the file's own SHA-256.
+    //
+    // IT IS A GLOBAL IMAGE AND NOT A LANE (step-5 spec §3.4): the Goo `GetPreIntegratedFGDGGXAndDisneyDiffuse`
+    // group has ONE `ShaderNodeTexImage`, its `users == 3` containers share that data-block, and its coordinate is
+    // computed from `sqrt(NoV)` / `perceptualRoughness` / `fresnel0` rather than from a material's UV or a material
+    // map - so a lane per material would be eleven sidecar rows pointing at one file for no information at all.
+    void runtime::set_goo_fgd_lut(std::span<uint8_t const> const pixels, uint32_t const width, uint32_t const height) {
+        if (pixels.empty() || width == 0u || height == 0u) {
+            deren::utility::log("goo FGD LUT: nothing to upload ({} bytes, {}x{})", pixels.size_bytes(), width, height);
+            return;
+        }
+        rhi::image_desc fgd_desc{};
+        fgd_desc.extent = rhi::image_extent{.width = width, .height = height, .depth = 1u};
+        // ONE MIP, WHICH IS THE REFERENCE'S OWN ANSWER rather than a saving: Blender's Texture node has no `Mip`
+        // input here (`image_user` states interpolation / extension / projection only), so it samples lod 0 - and a
+        // generated chain read by a rough surface would give a different number from the reference's (spec §9-U6).
+        fgd_desc.mip_levels = 1;
+        fgd_desc.array_layers = 1;
+        fgd_desc.format = rhi::image_format::rgba8_unorm;
+        fgd_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        fgd_desc.initial_bytes = std::as_bytes(std::span(pixels));
+        fgd_desc.debug_name = "goo FGD LUT image";
+        this->goo_fgd_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(fgd_desc)};
+        if (!static_cast<bool>(this->goo_fgd_image)) {
+            deren::utility::panic("failed to create the goo FGD LUT image");
+        }
+        rhi::image_view_desc fgd_range{};
+        fgd_range.layer_count = 0;
+        fgd_range.mip_count = 0;
+        this->goo_fgd_view = rhi::object_manager<rhi::image_view>{this->goo_fgd_image->make_view(fgd_range)};
+        if (!static_cast<bool>(this->goo_fgd_view)) {
+            deren::utility::panic("failed to create the goo FGD LUT view");
+        }
+        if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::goo_fgd_lut, static_cast<VkImage>(this->escape().native_image(*this->goo_fgd_image)), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D)) {
+            deren::utility::log("descriptor heap: the goo FGD LUT did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::goo_fgd_lut);
+        }
+        deren::utility::log("goo FGD LUT uploaded: {}x{}, {} bytes, R8G8B8A8_UNORM -> grid slot {}", width, height, pixels.size_bytes(), deren::vulkan::render_layout::heap_slots::goo_fgd_lut);
+    }
+
+    material_id runtime::register_material(primitive_create_info const& info) {
+        // ---- 1. Resolve the 5 texture slots against the shared array: identical texture bytes
+        //         upload once, keyed by a CONTENT hash of the decoded bytes (xxh3 digest +
+        //         format/dimensions - the loader hands every material its own copy of a shared
+        //         glTF image, so a raw data pointer is NOT a stable identity; the digest lookup
+        //         below is what actually dedups); missing slots point at the white fallback
+        //         (element 0).
+        std::array<std::pair<texture_input const*, VkFormat>, 5 + static_cast<std::size_t>(toon_slot::count)> const slots = {
+            std::pair{&info.albedo, VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.metallic_roughness, VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.normal, VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.occlusion, VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.emissive, VK_FORMAT_R8G8B8A8_SRGB}, // glTF emissive textures are sRGB
+            // ---- THE TOON SLOTS, in `toon_slot` order ----
+            // THE FOUR COLOUR LANES ARE sRGB. They are colour data the reference decodes before using (its ramp
+            // lookup is followed by `srgbToLinear(rd.rgb)`), so uploading them as linear would double-decode
+            // them. The specular ramp is in there for the same reason: it is a COLOUR ramp rather than a scalar
+            // curve.
+            //
+            // THE SDF IS NOT, AND THAT IS NOT AN OVERSIGHT: the reference declares its SDF sampler with LINEAR
+            // filtering and CLAMP addressing and NO sRGB read flag, because the lightmap holds a DISTANCE FIELD
+            // - a number per texel, not a colour - and decoding it as sRGB would bend the very quantity the
+            // sigmoid thresholds. So this is the one toon lane uploaded UNORM.
+            //
+            // AND THIS ARRAY IS WHY THE ENUM AND THE INITIALISERS MUST AGREE: its size is `5 + toon_slot::count`,
+            // so adding a lane to the enum without adding it here makes the last element value-initialised -
+            // `{nullptr, VK_FORMAT_UNDEFINED}` - and the loop below dereferences `slots[i].first`. Measured: the
+            // renderer died with an access violation inside `register_material` and the log stopped one stage
+            // earlier, which is what sent the search to the descriptor writes instead of here.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::diffuse_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::shadow_lut)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::specular_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::matcap)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_lightmap)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE METALLIC/GLOSS LANE IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are
+            // metallic, reflectivity, occlusion and smoothness - NUMBERS, not colour - so an sRGB decode would
+            // bend every one of them, and roughness read out of a decoded smoothness would be wrong everywhere on
+            // the surface rather than at one band edge.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::metallic_gloss)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE FACE MASK IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are REGION
+            // WEIGHTS and a normal term - numbers, not colour - so an sRGB decode would bend every one of them.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE EMOTION ATLAS IS COLOUR - it is a painting of eyebrows and a mouth that REPLACES the albedo where
+            // its alpha says so - so it takes the sRGB treatment the ramps do, not the mask's.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::emotion)], VK_FORMAT_R8G8B8A8_SRGB},
+            // THE SPLIT NORMAL IS UNORM: its two packed tangent-space normals are DATA (`* 2 - 1` on the way in),
+            // so an sRGB decode would bend both of them.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], VK_FORMAT_R8G8B8A8_UNORM},
+            // THE GOO IRIS BALL IS COLOUR, so it takes the ramps' treatment rather than the masks': the reference
+            // samples it and adds it to the albedo (`shaders/goo_toon.slang`), i.e. it is light, not a number.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], VK_FORMAT_R8G8B8A8_SRGB},
+            // THE GOO BASE RAMP IS COLOUR, so it takes the treatment the reference gives it rather than the
+            // masks': `images[...].colorspace = 'sRGB'` on all seven `_RD` images means Blender LINEARIZES each
+            // texel before its node graph sees it (spec §5.3), so uploading this lane as `_SRGB` is what makes the
+            // sampler do the same thing - and a lane uploaded UNORM would hand the shader a texel 2.2 gamma too
+            // bright, which on a mid-grey ramp entry is the difference between a shadow and a highlight. ITS
+            // ALPHA IS UNAFFECTED BY EITHER (Blender's colour management does not touch it), which is why the same
+            // upload serves `RampAlpha` and the spec's §8-A6 asset-bound assertion.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_base_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
+            // ---- STEP 7'S THREE FACE LANES, AND THE FORMAT OF EACH ONE IS A STATEMENT ABOUT ITS CHANNELS ----
+            //
+            // THE FACE'S SDF IS UNORM, for the article's `sdf_lightmap` above and NOT for the `_RD` ramps': the
+            // reference reads it as `(R + G) / 2` and feeds that NUMBER to a `SigmoidSharp` whose `center` is
+            // `0.10000000894069672` - a threshold on a distance field, not a colour - so an sRGB decode would bend
+            // the very quantity the sigmoid thresholds, by 2.2 gamma, in the region where its slope is steepest.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_sdf)], VK_FORMAT_R8G8B8A8_UNORM},
+            // `cm_M` IS UNORM TOO, and it is the same kind of statement: its three channels are a LAYER SELECTOR
+            // (`G`, compared against 0 and 1 exactly - `混合.002`'s factor), a WEIGHT (`R`, raised to `Front R Pow`
+            // and smoothstepped) and a GATE (`A`, a multiply). None of them is light, so none of them may be
+            // gamma-decoded; a `_SRGB` upload would turn a mask's "1.0" into "1.0" but its 0.2 into 0.033.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_cm)], VK_FORMAT_R8G8B8A8_UNORM},
+            // `CsutmMask` IS UNORM FOR THE SAME REASON ONE STEP FURTHER: the only channel the Face container reads
+            // is `G`, and it is read through a `GREATER_THAN(·, 0.5)` - a comparison whose whole answer is the
+            // comparison, so the upload's transfer function decides which side of 0.5 a texel lands on.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_csumt)], VK_FORMAT_R8G8B8A8_UNORM},
+            // `_M` IS UNORM AS WELL, and for the same statement once more: the `RS EFF` mask of mechanism table #14
+            // is a MASK (`_M（非色彩）` in the reference's own node name), read through a luminance dot and then a
+            // smoothstep, and its image's colorspace is Non-Color. A `_SRGB` upload would gamma-decode the very
+            // quantity the smoothstep thresholds. See `toon_slot::goo_rs_mask`.
+            //
+            // THIS ENTRY IS NOT OPTIONAL AND NOT A TIDINESS: the array's size is `5 + toon_slot::count`, so adding
+            // the enum lane above without this line value-initialises the LAST element to `{nullptr,
+            // VK_FORMAT_UNDEFINED}` and the loop below dereferences `slots[i].first`. Measured: the renderer died
+            // with an access violation inside `register_material` (see the block comment above this array).
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            // ---- STEP 15'S ONE, AND IT IS THE LANE THAT SPENDS THE TABLE'S LAST SLOT ----
+            //
+            // THE SHEET IS SRGB, AND THE STATEMENT IS THE OPPOSITE OF THE MASK LINE ABOVE RATHER THAN A COPY OF
+            // IT: an `_RS` sheet is COLOUR - the reference multiplies it into `RS ColorTint` and then into the
+            // shaded colour - so it takes the ramps' treatment, and uploading it UNORM would hand the shader a
+            // texel 2.2 gamma off in the very product this branch exists to make. The decode belongs to the
+            // SAMPLER: the shader must not decode it a second time (see `toon_slot::goo_rs_sheet`).
+            //
+            // AND THIS LINE IS NOT OPTIONAL FOR THE REASON THE COMMENT ABOVE GIVES, WHICH IS NOW A MEASURED ONE: the
+            // array's size is `5 + toon_slot::count`, and leaving this entry out value-initialises the last element
+            // to `{nullptr, VK_FORMAT_UNDEFINED}` - which the loop below dereferences. Step 15 raises `count` from 15
+            // to 16, so omitting this line is the same access violation inside `register_material` the RS mask's own
+            // note records.
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], VK_FORMAT_R8G8B8A8_SRGB},
+        };
+
+        std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
+        uint32_t heap_texture_descriptors = 0; // how many went into the descriptor heap (see the log below)
+        for (std::size_t i = 0; i < slots.size(); ++i) {
+            texture_input const& tex = *slots[i].first;
+            if (!tex.valid || tex.data.empty()) {
+                texture_indices[i] = this->white_texture_index; // white fallback
+                continue;
+            }
+            // Content-addressed dedup: the loader hands every material its OWN byte copy of a
+            // shared glTF image, so identical pixels arrive under different pointers. Hash the
+            // decoded bytes (xxh3-128, the same digest vma uses for GPU-image dedup) and key the
+            // slot cache on (digest, format, dimensions): N materials over one image upload
+            // once and share the array element. The image itself is also vma-deduped below.
+            deren::utility::xxh3_digest const digest = deren::utility::xxh3_128bits(std::span<uint8_t const>(tex.data.data(), tex.data.size_bytes()));
+            // key on the digest data_block itself (not a raw byte array): data_block carries the
+            // equality/ordering the std::map key needs
+            auto const key = std::tuple<deren::utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>{
+                digest, slots[i].second, tex.width, tex.height, tex.mip_levels};
+            auto const cached = this->texture_slot_cache.find(key);
+            if (cached != this->texture_slot_cache.end()) {
+                texture_indices[i] = cached->second; // shared texture: reuse its slot
+                continue;
+            }
+            if (this->texture_array_views.size() >= runtime_detail::scene_texture_capacity) {
+                // Array full (pathological scene with > scene_texture_capacity distinct images):
+                // degrade this texture slot to the white element instead of crashing - the
+                // material still renders untextured. Same policy as the material-table overflow
+                // below (one-time log, then keep going); content dedup means real scenes rarely
+                // get close to the cap.
+                if (!this->texture_overflow_logged) {
+                    this->texture_overflow_logged = true;
+                    deren::utility::log("scene texture array capacity ({}) exceeded - extra textures render as white (element {})",
+                                        runtime_detail::scene_texture_capacity, this->white_texture_index);
+                }
+                texture_indices[i] = this->white_texture_index; // white fallback, like an invalid texture
+                continue;
+            }
+            rhi::image_desc image_info{};
+            image_info.extent = rhi::image_extent{.width = tex.width, .height = tex.height, .depth = 1u};
+            image_info.mip_levels = tex.mip_levels; // the caller uploads a full mip-major chain
+            image_info.array_layers = 1;
+            image_info.format = contract_image_format(slots[i].second);
+            image_info.flags = rhi::to_bits(rhi::image_flag::sampled);
+            image_info.initial_bytes = std::as_bytes(tex.data);
+            image_info.debug_name = "material texture";
+            this->owned_textures.push_back(rhi::object_manager<rhi::image>{this->rhi_face().create_image(image_info)});
+            rhi::image_view_desc tex_range{};
+            tex_range.layer_count = 0;
+            tex_range.mip_count = 0;
+            this->owned_texture_views.push_back(rhi::object_manager<rhi::image_view>{this->owned_textures.back()->make_view(tex_range)});
+            if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
+                deren::utility::panic("failed to create material texture");
+            }
+            uint32_t const index = static_cast<uint32_t>(this->texture_array_views.size());
+            this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
+            this->texture_slot_cache.emplace(key, index);
+            texture_indices[i] = index;
+
+            // A texture is registered ONCE, at scene load, and never rewritten - which is why the texture array is
+            // the first binding this renderer puts on the heap: there is no per-frame rewrite and therefore no
+            // frame-in-flight hazard to design around. The array starts at its own grid slot
+            // (deren::vulkan::render_layout::heap_slots::textures) and advances one SLOT per texture, i.e. 64 B - NOT the device's
+            // imageDescriptorSize: the grid's single stride is what lets a shader index it with
+            // `descriptor_stride = 64` (see docs/descriptor_heap_migration.md). The descriptor is a VIEW TO CREATE
+            // rather than the view above: VkImageDescriptorInfoEXT carries a VkImageViewCreateInfo and the driver
+            // makes the view itself. The values below are the ones core::make_image_view uses, on purpose - a view
+            // that differs in mip range would sample a different image than the descriptor-set path.
+            //
+            // Nothing READS the heap yet, so a failure here is a log line and not a wrong frame - but it is the
+            // write path that has to work first.
+            if (contract_heap_ready(this->rhi_face())) {
+                VkImage const texture_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
+                {
+                    VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
+                                                             .pNext = nullptr,
+                                                             .flags = 0,
+                                                             .image = texture_native,
+                                                             .viewType = VK_IMAGE_VIEW_TYPE_2D,
+                                                             .format = slots[i].second,
+                                                             .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
+                                                             .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
+                    VkDeviceSize const heap_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::textures + index);
+                    if (contract_write_heap_image(this->rhi_face(), heap_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
+                        ++heap_texture_descriptors;
+                    } else {
+                        deren::utility::log("descriptor heap: texture {} did not fit the resource heap at offset {}", index, heap_offset);
+                    }
+                }
+            }
+        }
+
+        // THE HEAP-NATIVE PROBE, ONCE, now that the bindless array is actually in the heap: it is the first thing
+        // in this renderer to read the heap instead of a descriptor set, and its answer goes to the log (see
+        // run_heap_probe). Texture slot 0 is the white placeholder, which is registered first and always exists.
+        if (heap_texture_descriptors != 0u) {
+            this->run_heap_probe(static_cast<uint32_t>(deren::vulkan::render_layout::heap_slots::textures));
+        }
+        // ... and its GRAPHICS half, twice: once with the material table's REAL grid slot (which must come back
+        // white, the default material's base colour) and once with a deliberately WRONG one (which must not). The
+        // pair is the negative proof the mechanism needs - the same draw, the same shader, one different number.
+        if (contract_heap_ready(this->rhi_face())) {
+            this->run_heap_graphics_probe(static_cast<uint32_t>(deren::vulkan::render_layout::heap_slots::materials));
+            this->run_heap_graphics_probe(static_cast<uint32_t>(deren::vulkan::render_layout::heap_slots::materials) + 1u);
+            // ... AND THE MESH HALF OF THE SAME QUESTION (docs/mesh_shaders.md step 0): a MESH pipeline created
+            // with the heap flag and no layout, dispatched with vkCmdDrawMeshTasksEXT, must read the same slot
+            // and come back the same white value. That is the mechanism a mesh-shader geometry path would stand
+            // on, and the log line is the proof - the same comparison the other two lines make.
+            this->run_heap_graphics_probe(static_cast<uint32_t>(deren::vulkan::render_layout::heap_slots::materials), true);
+        }
+
+        // SAY WHAT WENT INTO THE HEAP, because the success path of a heap write is silent by nature (it returns
+        // true and writes memory) and "no failure line" is not evidence that anything happened. This is the line a
+        // reader checks to know the texture array really is on the heap; the mapping that points a shader stage at
+        // it is the step after this one.
+        if (heap_texture_descriptors > 0) {
+            deren::utility::log("descriptor heap: {} texture descriptors written ({} B each, {} KiB resource heap)",
+                                heap_texture_descriptors,
+                                contract_heap_properties(this->rhi_face()).image_descriptor_size,
+                                contract_heap_properties(this->rhi_face()).resource_size / 1024);
+        }
+
+        // ---- 2. Append one material record: texture indices + presence flags; factors keep
+        //         their identity defaults (extend primitive_create_info to pass custom factors) ----
+        material_record record = {};
+        record.tex_indices = glm::uvec4(texture_indices[0], texture_indices[1], texture_indices[2], texture_indices[3]);
+        record.emissive_index = texture_indices[4];
+        // ---- THE TOON SLOTS, from the same upload loop and therefore through the same content-addressed dedup:
+        //      a ramp shared by six materials of one character is uploaded ONCE. The FLAGS come from the sidecar
+        //      rather than from the indices, because a lane can hold a real texture whose `_Use` flag is off -
+        //      and a shader must not read it (see material_record::toon_flags).
+        constexpr std::size_t toon_base = 5;
+        record.toon_indices = glm::uvec4(texture_indices[toon_base + 0], texture_indices[toon_base + 1], texture_indices[toon_base + 2], texture_indices[toon_base + 3]);
+        record.base_color_factor = info.factors.base_color_factor;
+        record.emissive_factor = info.factors.emissive_factor;
+        record.metallic_factor = info.factors.metallic_factor;
+        record.roughness_factor = info.factors.roughness_factor;
+        record.normal_scale = info.factors.normal_scale;
+        record.alpha_cutoff = info.factors.alpha_cutoff;
+        record.occlusion_strength = info.factors.occlusion_strength;
+        // The toon family the loader classified this material's name into (0 == none). It rides the record's
+        // fourth uint lane, which the std430 layout had already reserved as padding - see material_record.
+        record.toon_family = info.toon_family;
+        record.flags = 0;
+        if (info.normal.valid) {
+            record.flags |= 1u;
+        }
+        if (info.occlusion.valid) {
+            record.flags |= 2u;
+        }
+        if (info.emissive.valid) {
+            record.flags |= 4u;
+        }
+        if (info.double_sided) {
+            record.flags |= 8u; // bit3: back faces are rendered, fragment shader flips normals
+        }
+        if (info.factors.alpha_mask) {
+            record.flags |= 16u; // bit4: alphaMode MASK - fragment shader discards below alpha_cutoff
+        }
+        if (info.factors.alpha_blend) {
+            record.flags |= 32u; // bit5: alphaMode BLEND - alpha-blended / transparent material
+        }
+        // ---- THE OVERLAY CHANNEL, on the record's two free bits ----
+        //
+        // THE FRAGMENT STAGE HAS TO BRANCH ON THIS, and that is the only reason it is in the record as well as
+        // on the primitive: the article's two masks compute DIFFERENT multipliers from the same inputs -
+        // `MyZmdEyeDarkShader` multiplies by `mask * _Alpha` while `MyZmdHairShadowShader` multiplies by the
+        // scalar `_DayStrength` and never reads its mask - so one overlay pipeline draws both only because the
+        // record tells it which. The primitive's copy is what the HOST reads to build the frame's leaf lists
+        // (`primitive::overlay_kind`); this one is what the SHADER reads. It is the same deliberate
+        // two-copies-of-one-import-fact arrangement `alpha_blend`/bit5 above already has, and it is two bits
+        // rather than a lane because the record is at its 80-byte `static_assert` and `flags` had room.
+        //
+        // THE NUMBERS ARE `deren::gltf::overlay_kind`'S (1 = eye_dark, 2 = hair_shadow) and they are spelled as
+        // literals here for the same reason every other flavour of this value is a number on this side of the
+        // boundary: `deren.vulkan.runtime` does not import the loader's types - the classification is done where the
+        // NAME exists and travels onwards as a value (see `toon_family` above, which does exactly this).
+        // tests/test_gltf_loader.cpp asserts the enum's numbering so this pair cannot drift silently.
+        if (info.overlay_kind == 1u) {
+            record.flags |= 64u; // bit6: the EYE-DARK overlay (mask-driven)
+        } else if (info.overlay_kind == 2u) {
+            record.flags |= 128u; // bit7: the HAIR-SHADOW overlay (day-strength-driven)
+        }
+        // ---- THE AUTHOR'S TOON TRANSPARENT VARIANT (`_TRANSPARENT_ON`), ON ITS OWN BIT ----
+        //
+        // SEPARATE FROM bit5 (`alphaMode BLEND`) ON PURPOSE, and the two are not redundant: bit5 is glTF's
+        // statement about coverage and is what the FRAGMENT stage writes a real `out_alpha` for; this one is the
+        // sidecar's `_SrcBlend 5 / _DstBlend 10` pair, which the runtime evaluates at import (see
+        // `toon_lookup::scalar`) because the blend state itself is per-PASS here. A material with this bit gets
+        // the alpha-blended pipeline; every other material keeps the overwrite, and the two are the same
+        // arithmetic at alpha 1.
+        if (info.toon.alpha_blend) {
+            record.flags |= 256u; // bit8: `_TRANSPARENT_ON` - the toon stage's own transparent variant
+        }
+
+        // ---- 3. Content-address the record, then append (or degrade on overflow) ----
+        // Identical materials (same texture slots, factors and flags) share ONE table entry:
+        // registration happens per primitive, so a scene with N primitives over M shared glTF
+        // materials would otherwise append N records and burn the table needlessly. The key is
+        // the byte-exact 80-byte record carried in a data_block - no hash collisions, because
+        // the unordered lookup hashes the block only for bucketing while equality stays
+        // byte-exact.
+        // ---- THE LANES BESIDE THE RECORD ARE PART OF THE DEDUP KEY, and that is a fix rather than tidiness ----
+        //
+        // The record does NOT carry these lanes (see deren::vulkan::render_layout::heap_slots::toon_lanes), so two primitives whose
+        // records are byte-identical but whose materials differ in their SDF or metallic/gloss map would COLLIDE
+        // on the key below: the second would take the early return, never write its lanes, and that material would
+        // silently lose the feature - with the frame showing nothing but a slightly wrong face. MEASURED BEFORE
+        // THIS LINE EXISTED: an instrumented probe showed the SDF texture arriving at this function VALID
+        // (1024x1024, 4 MB) and every material's written lane was nevertheless 0, which is exactly the signature
+        // of the material that owns the map losing the race to one that does not.
+        glm::uvec4 const toon_lanes_extra(texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::sdf_lightmap)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::metallic_gloss)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::sdf_mask)],
+                                          texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::emotion)]);
+        // THE SECOND BLOCK, whose remaining lane (`w`) is reserved: it exists because a fifth lane does not fit a
+        // `uvec4`, and it is zeroed rather than left out so that a shader reading a lane nobody set reads "do not
+        // read" - the same contract the first block's lanes follow.
+        //
+        // EACH COMPONENT IS NAMED BY THE LANE IT CARRIES RATHER THAN BY ITS POSITION, which is a correction the
+        // rewritten chain's iris forced. This initialiser was `(split_normal, 0, 0, 0u)` under a comment saying the
+        // rest were reserved, and a lane written NOWHERE is not a reserved lane: it is a lane that reads "do not
+        // read" for every material that states it. MEASURED: with `goo_matcap05` at lane 9 the rewrite's iris
+        // produced a frame BYTE-IDENTICAL to the one with no matcap lane at all (`CB321ADE1673AC9C` both ways)
+        // while the sidecar reported `_GooMatcap05 -> texture #27 | ON` - the host never wrote the lane and the
+        // shader read 0 (see `deren-ab/goo_step1_result.md`). `test_goo_toon_math` now names this line among the
+        // lane's sync points, so the next lane cannot be added to the enum and forgotten here.
+        glm::uvec4 const toon_lanes_extra2(texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::split_normal)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_matcap05)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_base_ramp)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_face_sdf)]);
+        // THE THIRD BLOCK, WHICH STEP 7 ADDED AND WHICH IS WHY `toon_lane_blocks` IS 3: the FACE container's three
+        // masks are lanes 11..13, and lane 11 was the last free component of the block above. `w` is reserved and
+        // zeroed, the same contract every other block follows ("a lane nobody set reads DO NOT READ").
+        //
+        // STEP 13'S `goo_rs_mask` TAKES `.z`, AND THE LANE WAS DEAD UNTIL IT DID. `toon_slot::goo_rs_mask` was
+        // added to the enum, given a format in `register_material` and named in the application's vocabulary, and
+        // the sidecar resolved the image -- and the frame did not move by one pixel, because THIS is where a slot
+        // becomes a number the shader can see and this line still packed `0u`. The shader tests `block3.z != 0u`
+        // before it samples (slot 0 is the white fallback, so zero means "do not read"), so the mask branch was
+        // skipped for every material and `rs_eff` was zero. That is EXACTLY the failure this block's comment above
+        // records for the matcap lane at step 1 ("the host never wrote the lane and the shader read 0"), and it is
+        // the second time the enum-to-lane-table join has been the last edit missing rather than the first: an
+        // enum value, a format table entry and a vocabulary row are all compile-visible, and a component of a
+        // `glm::uvec4` is not.
+        //
+        // `test_goo_toon_math` pins this line by name, next to the matcap one that was pinned after step 1, so a
+        // further lane cannot be added to the enum and forgotten here either.
+        glm::uvec4 const toon_lanes_extra3(texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_face_cm)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_face_csumt)],
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_rs_mask)],
+                                           // STEP 15'S SHEET IS THIS BLOCK'S `.w`, and it is written HERE rather than
+                                           // left at the `0u` it used to be for the reason the block comment below
+                                           // gives at length: `0` is the shader's "do not read", so a slot packed as
+                                           // `0u` reads as a material that states no sheet. The mask one component to
+                                           // the left was left at `0u` for a whole step with the enum, the format row
+                                           // and the vocabulary row all present, and the frame did not move.
+                                           texture_indices[toon_base + static_cast<std::size_t>(deren::vulkan::toon_slot::goo_rs_sheet)]);
+        // ---- AND THE COLOUR LANES, THE SAME FIX ONE TABLE FURTHER ALONG ----
+        //
+        // They are written BELOW, after the early return, which is the whole reason they have to be in the key:
+        // the early return is "this material's row is already in the tables", and without these bytes that claim
+        // was false for the six `vec4`s - the second of two record-identical materials read the FIRST one's
+        // colours. MEASURED, not argued (see `remaining_port_spec.md`'s "材质去重键补上 colour lanes" section): a copy of
+        // `M_actor_chen_hair_01` stating `_Specular = 0.0`, attached to a mesh whose node comes earlier in the
+        // scene, took the earlier index; the hair itself then took this early return and rendered BYTE-FOR-BYTE
+        // like an asset whose hair states 0.0 - its own 1.0 discarded.
+        //
+        // `info.toon.colours` IS the array the table is filled from, lane for lane and in the same order, so
+        // keying exactly these bytes dedups precisely the materials whose six rows would come out identical -
+        // a pair stating the same values still shares one entry (the control arm of that probe: 0 px).
+        deren::utility::data_block<sizeof(deren::vulkan::material_record) + deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4)> material_key = {};
+        std::memcpy(material_key.data.data(), &record, sizeof(record));
+        std::memcpy(material_key.data.data() + sizeof(record), &toon_lanes_extra, sizeof(toon_lanes_extra));
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra), &toon_lanes_extra2, sizeof(toon_lanes_extra2));
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2), &toon_lanes_extra3, sizeof(toon_lanes_extra3));
+        std::memcpy(material_key.data.data() + sizeof(record) + sizeof(toon_lanes_extra) + sizeof(toon_lanes_extra2) + sizeof(toon_lanes_extra3),
+                    info.toon.colours.data(),
+                    static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4));
+        if (auto const cached = this->material_slot_cache.find(material_key); cached != this->material_slot_cache.end()) {
+            return cached->second; // already registered: share the existing record
+        }
+        if (this->material_count >= deren::vulkan::material_capacity) {
+            // Table full (pathological - 16384 unique materials): degrade to the reserved
+            // default material (index 0, white + identity factors, registered at setup) instead
+            // of crashing; the mesh still draws. Logged once, not per registration.
+            if (!this->material_overflow_logged) {
+                this->material_overflow_logged = true;
+                deren::utility::log("material table capacity ({}) exceeded - extra materials render with the default (index 0)", deren::vulkan::material_capacity);
+            }
+            return {};
+        }
+        uint32_t const material_index = this->material_count++;
+        std::memcpy(static_cast<uint8_t*>(this->material_mapped) + static_cast<size_t>(material_index) * sizeof(material_record), &record, sizeof(record));
+        // THE LANES BESIDE THE RECORD, written here rather than into it, and this is the one place that knows both
+        // the material's index and its lanes (see deren::vulkan::render_layout::heap_slots::toon_lanes for why the record cannot carry
+        // them). They are MATERIAL-indexed, so the shader reaches them with the index it already uses for the
+        // record.
+        //
+        // IT SITS AFTER THE DEDUP'S EARLY RETURN, deliberately and safely: that return is for a record ALREADY in
+        // the table, whose lanes were written when it was appended. A lane of 0 - no map, or the artist's
+        // `_UseSDFLightmap` / `_UseMetallicGlossMap` off, which collapse to the same value here exactly as they do
+        // for the record's four - is the "do not read" the shader tests.
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::vulkan::toon_lane_blocks] = toon_lanes_extra;
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::vulkan::toon_lane_blocks + 1u] = toon_lanes_extra2;
+        // ... AND THE THIRD BLOCK, for the reason the second one's own note gives: a lane the host never writes
+        // reads "do not read" for every material that states it, which on the FACE would silently drop its SDF, its
+        // `cm_M` and its brightness switch at once while the log still reported all three as ON (lane 11 is
+        // `goo_face_sdf`, i.e. the component that closed the second block - see `toon_slot`).
+        static_cast<glm::uvec4*>(this->toon_lane_mapped)[static_cast<std::size_t>(material_index) * deren::vulkan::toon_lane_blocks + 2u] = toon_lanes_extra3;
+        // AND THE MATERIAL'S COLOURS, at the same index and in the same once-written spirit: the shader addresses
+        // them with `material_index * toon_colour_lane::count + lane`, so the two sides' stride has to agree - see
+        // `character_toon_colour_lanes` in the stage and the drift check in the sidecar test.
+        //
+        // AND THEY *ARE* PART OF THE DEDUP KEY ABOVE, which is a fix and not tidiness: they are written at this
+        // index, once, and this paragraph used to say the opposite - that the key was the record plus the two
+        // `uvec4` blocks alone, so two materials whose records AND texture lanes were byte-identical shared ONE
+        // index here and therefore ONE set of colours, whichever registered first. That was latent on this
+        // repository's assets (chen registers all seven of its materials separately - see the `toon: material N`
+        // lines - because their records differ), but it governed all three per-material things that live ONLY in
+        // these lanes: `toon_colour_lane::specular_strength`, `toon_colour_lane::parallax_scale`, and the outline
+        // width in `toon_colour_lane::outline_edge`'s `.w` (which nothing else carries either). Fixed by keying
+        // the six lanes' bytes beside the two blocks - see the `material_key` construction above and the note on
+        // `material_slot_cache` in `runtime.declarations.cppm`.
+        if (this->toon_colour_mapped != nullptr) {
+            glm::vec4* const colours = static_cast<glm::vec4*>(this->toon_colour_mapped) + static_cast<std::size_t>(material_index) * static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count);
+            for (uint32_t lane = 0; lane < static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count); ++lane) {
+                colours[lane] = info.toon.colours[lane];
+            }
+        }
+        // LOGGED WHILE THESE LANES ARE BEING WIRED, and the reason is that a lane which silently stays zero is
+        // this table's only failure mode and it is invisible in the frame: the shader's test is `lane != 0`, so a
+        // table that was never filled renders exactly like a model with no SDF and no metallic/gloss map at all -
+        // the feature does not happen and nothing says why. THE SECOND BLOCK'S THREE NAMED LANES ARE PRINTED TOO,
+        // for the same reason one table along: `_GooMatcap05` and `_GooBaseRamp` are lanes the REWRITTEN chain
+        // gates on, and a zero here is the difference between "the asset states no ramp" and "the host resolved one
+        // and never wrote it" - which is exactly the failure step 1 recorded (the iris rendered a black ball while
+        // the sidecar line said `ON`).
+        deren::utility::log("toon: material {} (family {}) -> lanes: sdf {}, metallic/gloss {}, face mask {}, split normal {}, goo matcap {}, goo base ramp {} of {} texture(s)",
+                            material_index,
+                            record.toon_family,
+                            toon_lanes_extra.x,
+                            toon_lanes_extra.y,
+                            toon_lanes_extra.z,
+                            toon_lanes_extra2.x,
+                            toon_lanes_extra2.y,
+                            toon_lanes_extra2.z,
+                            this->texture_array_views.size());
+        // ... AND THE SPECULAR STRENGTH, WHICH IS THE ONE LANE WHOSE "NOTHING STATED" IS A SENTINEL RATHER THAN
+        // THE TABLE'S NEUTRAL (`-1`, see `toon_colour_lane::specular_strength`), so a log line is the only place
+        // the difference between "the asset said 0.0" and "no source spoke" is visible at all: both reach the
+        // shader as a number, and one of them means the family table answers. Printed for every registered
+        // material, because the value is per material and the interesting case is the one that DISAGREES with its
+        // family - which is exactly the case a family table cannot show.
+        deren::utility::log("toon: material {} -> specular strength {:.4f}{}",
+                            material_index,
+                            static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x),
+                            info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::specular_strength)].x < 0.0f ? "  <- no source stated `_Specular`: the family table's number stands" : "");
+        // ... AND THE PARALLAX DEPTH BESIDE IT, for the same reason one lane up and with one difference that makes
+        // the line more useful rather than less: the stage's fallback for it is not a family number but its own
+        // constant (`character_eye_parallax_depth`, 0.03), so `-1` here reads as "this material keeps the offset
+        // the port had before the lane existed". That is the whole expected output for chen: a value on the three
+        // materials whose `extras` state the row (0.03 iris / 0.5 brow / 0.5 cloth_01) and the sentinel on the rest.
+        deren::utility::log("toon: material {} -> parallax depth {:.4f}{}",
+                            material_index,
+                            static_cast<double>(info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x),
+                            info.toon.colours[static_cast<std::size_t>(deren::vulkan::toon_colour_lane::parallax_scale)].x < 0.0f ? "  <- no source stated `_ParallaxScale`: the stage's own constant stands" : "");
+        // ---- AND THE EMISSIVE LANE, WHICH THE TOON STAGE ADDS AND THEREFORE HAS TO BE ABLE TO TRUST ----
+        //
+        // `s.emissive` is `emissive_factor * the texture at emissive_index`, and index 0 is the WHITE FALLBACK
+        // rather than "no emission" - so a material whose emissive map did not reach the record does not lose a
+        // term, it gains `factor * 1`, i.e. the emission its artist stated applied at FULL STRENGTH over the
+        // whole surface. That is the opposite of a missing feature and it is invisible in the log without this
+        // line: measured on `chars\chen_full2.glb`, where the cloth's near-black emissive map (mean 0.3/255)
+        // resolved in one file and not in the other, the difference is 30% of the frame.
+        deren::utility::log("toon: material {} -> emissive: index {} factor ({:.3f}, {:.3f}, {:.3f}){}",
+                            material_index,
+                            record.emissive_index,
+                            static_cast<double>(record.emissive_factor.x),
+                            static_cast<double>(record.emissive_factor.y),
+                            static_cast<double>(record.emissive_factor.z),
+                            record.emissive_index == 0u && (record.emissive_factor.x != 0.0f || record.emissive_factor.y != 0.0f || record.emissive_factor.z != 0.0f)
+                                ? "  <- FACTOR AGAINST THE WHITE FALLBACK: this material states emission but has no emissive map in the record"
+                                : "");
+        this->material_slot_cache.emplace(material_key, material_id{material_index});
+        // THE TOON FAMILY, LOGGED WHEN IT IS NOT `none`, and this is the one place it can be logged once per
+        // MATERIAL rather than once per primitive (the dedup above returns early for a shared record). A
+        // classification is a DECISION about a string, and a wrong one is invisible in the frame: a face
+        // material shaded with hair's ramp still looks like a toon character, just not like the reference's.
+        // Printing the assignment at import is what makes a mis-classification a line to read instead of a
+        // look to argue about. Silent for `none`, which is every non-character model and would be log spam.
+        if (record.toon_family != 0u) {
+            deren::utility::log("toon: material {} -> family {} (1=base 2=skin 3=face 4=hair 5=eye 6=cloth)", material_index, record.toon_family);
+        }
+        return material_id{material_index};
+    }
+
 } // namespace deren::vulkan

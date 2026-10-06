@@ -162,7 +162,22 @@ export namespace deren::promise::rhi {
     /// (The append's own convention - explicit HIGH-BIT value at the end of the list when the range ends
     /// in a role/sentinel enumerator, and no existing number ever moves - is written down beside
     /// `image_format` in rhi.api_core.cppm, where the next value will be added.)
-    inline constexpr std::uint32_t abi_version = 16u;
+    /// 16 -> 17 in the contract-only runtime's merged slice (③-D/E step 2, S2+S3 - the SECOND thing the
+    /// abi-17 number was held for, and the reason it is spelled here): `vulkan_escape` APPENDED
+    /// `native_swapchain_image_format()` - a virtual on an existing tier-2 interface, which is the case
+    /// the number exists for. WHY IT IS NEEDED, MEASURED: the engine builds the pipelines that render
+    /// INTO the presentation image (the post chain, FXAA, the upscale resolve) and the debug overlay
+    /// BEFORE the first frame is acquired (`main.cpp` calls `runtime.create_passes()` after the runtime
+    /// is constructed and before the frame loop), and the surface's format is a session-stable fact
+    /// those builders must be created with. The contract's only format query,
+    /// `vulkan_escape::native_image_format(image const&)`, needs an IMAGE - and the only swapchain image
+    /// the engine can name is `api_core::frame_image()`, which the contract deliberately answers with
+    /// nullptr until an acquire has happened. So the fact had no pre-acquire answer at all, and this is
+    /// the one escape accessor the slice adds: the swapchain image's format as the backend resolved it,
+    /// asked of the context rather than of an image. (The withdrawn entry at this number was
+    /// `graphics_queue_family_index()`; that one was replaced by a read-only runtime derivation and is
+    /// NOT coming back - see DYNAMIC_LINK_PROGRESS.md §14.)
+    inline constexpr std::uint32_t abi_version = 17u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

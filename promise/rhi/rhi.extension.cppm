@@ -514,6 +514,20 @@ export namespace deren::promise::rhi {
         /// `VkPipelineShaderStageCreateInfo` (the compute and ray-tracing pipelines the engine still
         /// assembles) consumes. Same borrowed rule.
         [[nodiscard]] virtual void* native_shader_module(shader const& resource) const noexcept = 0;
+
+        /// The swapchain image's format AS THE BACKEND RESOLVED IT, as the integer `VkFormat` spells it.
+        ///
+        /// WHY IT IS ON THE CONTEXT RATHER THAN ASKED OF AN IMAGE: this is a SESSION-STABLE fact (the
+        /// surface's format does not change for a given surface), and the engine needs it BEFORE any
+        /// frame exists - the pipelines that render INTO the presentation image are created up front.
+        /// `native_image_format(image const&)` cannot answer then: the only swapchain image a caller can
+        /// name is `api_core::frame_image()`, and that is deliberately nullptr until an acquire has
+        /// happened. VkFormat::VK_FORMAT_UNDEFINED when the backend has no swapchain (nothing has been
+        /// presented into yet, or the context was created without one).
+        ///
+        /// APPENDED IN ABI 17 with the contract-only runtime's merged slice (③-D/E step 2): a virtual on
+        /// an existing tier-2 interface, which is the case the abi number exists for.
+        [[nodiscard]] virtual std::uint32_t native_swapchain_image_format() const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

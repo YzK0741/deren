@@ -10,20 +10,27 @@
 // wait) and could not be reused - dumping a material table, a cluster light list or
 // an SSBO needed for a test all had to re-implement it.
 //
-// Depends only on deren.vulkan.core (device, queue, command buffer, VMA).
+// Depends only on the CONTRACT (③-D/E step 2's merged slice): the device root this class drives is
+// `rhi::api_core` now, obtained from its caller, and every native handle it needs (the VkDevice, the
+// queue, a VkBuffer, a VkCommandBuffer) comes through `query_extension<vulkan_escape>()`. It used to
+// import `deren.vulkan.core` - one of the two engine-side importers of a backend module the flip has to
+// remove, and the reason the import meter still reads 2 - and nothing in what it does needed the
+// concrete class: every call in the implementation already went through the contract's interface.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
 // ============================================================================
 module;
 
+#include <memory> // std::shared_ptr: the device root this class drives
+#include <optional>
+#include <span>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.readback;
 
 import deren.promise.rhi; // the contract's staging-buffer handle + object_manager
 export import deren.vstd;
-export import deren.vulkan.core;
 
 /**
  * @file vulkan/readback/readback.cppm
@@ -54,10 +61,17 @@ namespace deren::vulkan {
     export class readback {
         // non-const: the copies go through the contract's factory and the queue, and neither
         // `create_buffer()` nor the submit path is a const operation
-        /// Deliberately NOT called `vk`: stage_for_copy() and read() bind a local `core& vk`, and that
-        /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
+        /// Deliberately NOT called `vk`: stage_for_copy() and read() bind a local `rhi::api_core& vk`, and
+        /// that local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
         /// (clang does not warn: -Wshadow is not enabled there).
-        core* gpu = nullptr;
+        ///
+        /// THE DEVICE ROOT IS THE CONTRACT'S, AND THE CLASS SHARES IT (③-D/E step 2): a `shared_ptr` for
+        /// the reason the runtime's own device root is one - the object lives in the backend's image and
+        /// the destruction has to run there, through the contract's virtual `release()`/deleter path,
+        /// while this class may be moved around a caller's scope. A raw `core*` would also have made
+        /// "who outlives whom" an unwritten rule. The contract's face is the interface pointer inside
+        /// that shared root; every native handle comes from the escape.
+        std::shared_ptr<deren::promise::rhi::api_core> gpu = {};
         /// host-visible + coherent + TRANSFER_DST, grown on demand (see stage_for_copy). The contract's
         /// owner keeps the allocation alive for as long as this member lives, and the native handle and
         /// the mapping are asked OF THE HANDLE where they are needed (`vulkan_escape::native_buffer()` /
@@ -75,7 +89,9 @@ namespace deren::vulkan {
         void wait();
 
     public:
-        explicit readback(core& device);
+        /// the ONE construction: the caller's device root, shared - the runtime hands it `core_owner`,
+        /// which keeps the device alive for as long as this class lives (see the member's note).
+        explicit readback(std::shared_ptr<deren::promise::rhi::api_core> device);
         readback(readback const&) = delete;
         readback& operator=(readback const&) = delete;
         readback(readback&&) = delete;

@@ -196,7 +196,16 @@ namespace {
         // value-for-value equal to the samplers the backend used to create for it. A descriptor that
         // travels by `const&` into `create_sampler()` is part of the ABI even though no vtable moved -
         // `struct_size` is the first member that makes the bump checkable rather than assumed.
-        CHECK(rhi::abi_version == 16u);
+        // ABI17 is the contract-only runtime's merged slice (③-D/E step 2): `vulkan_escape` APPENDED
+        // `native_swapchain_image_format()` - a virtual on an existing tier-2 interface. The engine
+        // builds the pipelines that render into the presentation image (the post chain, FXAA, the
+        // upscale resolve) and the debug overlay BEFORE the first frame is acquired, and the contract's
+        // only format query (`native_image_format(image const&)`) needs an image - the only swapchain
+        // image a caller can name is `frame_image()`, which is nullptr until an acquire. So the surface
+        // format had no pre-acquire answer, and this accessor is the one thing the slice adds to the
+        // contract. (The number was previously reserved for `graphics_queue_family_index()`; that entry
+        // was withdrawn when the queue family became a read-only runtime derivation.)
+        CHECK(rhi::abi_version == 17u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
