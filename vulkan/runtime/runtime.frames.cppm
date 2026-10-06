@@ -1976,16 +1976,20 @@ namespace deren::vulkan {
         // THE TAA HISTORY PAIR IS THE ENGINE'S OWN (③-D/E A1.1), and the rest of this chain follows it group
         // by group - which is why these calls have a different shape from the backend-owned ones.
         owned_family(render_resource::resource_id::taa_history, 0, this->taa_history_images, this->taa_history_image_views);
-        family(render_resource::resource_id::ml_trace, 0, vk.ml_image_views, vk.ml_images);
-        family(render_resource::resource_id::ml_resolve, 0, vk.ml_resolve_image_views, vk.ml_resolve_images);
-        family(render_resource::resource_id::ml_history, 0, vk.ml_history_image_views, vk.ml_history_images);
+        // THE STOCHASTIC-CHAIN TRIO AND THE FOUR BLOOM LEVELS ARE THE ENGINE'S OWN (③-D/E A1.5), published the
+        // same way and for the same reason as the groups above: NO FAMILY-SPAN READER. None of the seven is an
+        // `own` per-image binding, so `resolve_declaration` never even fills `own_per_image` for them - each pass
+        // names the image it reads through `find`.
+        owned_family(render_resource::resource_id::ml_trace, 0, this->ml_images, this->ml_image_views);
+        owned_family(render_resource::resource_id::ml_resolve, 0, this->ml_resolve_images, this->ml_resolve_image_views);
+        owned_family(render_resource::resource_id::ml_history, 0, this->ml_history_images, this->ml_history_image_views);
         // The three stored surface targets are a RUN of targets (`count = 3`), never an `own` binding: no
         // `own_per_image` is filled for them, so the instance-by-instance form is exact here too.
         for (std::size_t target = 0; target < this->gbuffer_images.size(); ++target) {
             owned_family(render_resource::resource_id::gbuffer_targets, static_cast<uint32_t>(target), this->gbuffer_images[target], this->gbuffer_image_views[target]);
         }
-        for (std::size_t level = 0; level < vk.bloom_image_views.size() && level < vk.bloom_images.size(); ++level) {
-            family(render_resource::resource_id::bloom, static_cast<uint32_t>(level), vk.bloom_image_views[level], vk.bloom_images[level]);
+        for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
+            owned_family(render_resource::resource_id::bloom, level, this->bloom_images[level], this->bloom_image_views[level]);
         }
         // `scene_color` is an ALIAS rather than a family of its own: the scene-side passes write the TAA input
         // while the resolve runs and the HDR target otherwise (see scene_target_view), so WHAT THE ID MEANS is
@@ -2684,8 +2688,10 @@ namespace deren::vulkan {
             .image_index = this->current_image_index,
             .slot = this->frame_ring().position(),
             // the generation's image count, which is what a pass that owns a per-image family sizes it from -
-            // and NOT the same number as the image index above
-            .image_count = static_cast<uint32_t>(vk.ml_images.size()),
+            // and NOT the same number as the image index above. It reads the SWAPCHAIN's own count: every
+            // per-image group is an engine-held fixed-size array now (③-D/E A1.4/A1.5), so their lengths say
+            // the contract's bound rather than how many images this generation has.
+            .image_count = static_cast<uint32_t>(vk.swap_chain_images.size()),
             // THE FRAME'S EXTENT IS THE RENDER EXTENT - this one line is where "the frame's resolution" is
             // defined for every pass (`pass::resolve_extent` reads it for the `full` and `half` rules). It
             // equals the swapchain extent at the default render scale, and below it every `full` pass follows
@@ -2788,21 +2794,17 @@ namespace deren::vulkan {
                                      deren::vulkan::hdr_format,
                                      VK_IMAGE_ASPECT_COLOR_BIT);
             }
-            if (heap_image < this->vulkan_core.ml_images.size()) {
-                write_sampled_target(core::heap_slots::ml_trace + image_slot, this->vulkan_core.ml_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-                write_storage_target(core::heap_slots::ml_trace_storage + image_slot, this->vulkan_core.ml_images[heap_image], deren::vulkan::hdr_format);
-            }
-            if (heap_image < this->vulkan_core.ml_resolve_images.size()) {
-                write_sampled_target(core::heap_slots::ml_resolved + image_slot, this->vulkan_core.ml_resolve_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-                write_storage_target(core::heap_slots::ml_resolved_storage + image_slot, this->vulkan_core.ml_resolve_images[heap_image], deren::vulkan::hdr_format);
-            }
-            if (heap_image < this->vulkan_core.ml_history_images.size()) {
-                write_sampled_target(core::heap_slots::ml_history + image_slot, this->vulkan_core.ml_history_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            }
-            for (uint32_t level = 0; level < this->vulkan_core.bloom_images.size(); ++level) {
-                if (heap_image < this->vulkan_core.bloom_images[level].size()) {
-                    write_sampled_target(core::heap_slots::bloom_l0 + level * core::heap_image_capacity + image_slot, this->vulkan_core.bloom_images[level][heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-                }
+            // THE HALF-RESOLUTION CHAIN IS THE ENGINE'S OWN TOO (③-D/E A1.5): the same escape, and the same
+            // "an empty manager writes nothing" shape - the fixed-size arrays make a length guard meaningless,
+            // and `native_target` answers VK_NULL_HANDLE for a slot the creation refused.
+            write_sampled_target(core::heap_slots::ml_trace + image_slot, native_target(this->ml_images[heap_image]), deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            write_storage_target(core::heap_slots::ml_trace_storage + image_slot, native_target(this->ml_images[heap_image]), deren::vulkan::hdr_format);
+            write_sampled_target(core::heap_slots::ml_resolved + image_slot, native_target(this->ml_resolve_images[heap_image]), deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            write_storage_target(core::heap_slots::ml_resolved_storage + image_slot, native_target(this->ml_resolve_images[heap_image]), deren::vulkan::hdr_format);
+            write_sampled_target(core::heap_slots::ml_history + image_slot, native_target(this->ml_history_images[heap_image]), deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
+                write_sampled_target(core::heap_slots::bloom_l0 + level * core::heap_image_capacity + image_slot,
+                                     native_target(this->bloom_images[level][heap_image]), deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
             }
         }
 
@@ -2917,7 +2919,8 @@ namespace deren::vulkan {
         // three functions away - the coupling this extraction removed.
         // GPU timing: the geometry instance ended where the scene pass closed it (the surface write).
         this->gpu_mark(gpu_mark_id::scene_end);
-        core const& vk = this->vulkan_core;
+        // (no `core&` alias here any more: the last backend-owned read in this function was the stochastic
+        // chain's off-path barrier, and that image is the engine's own from ③-D/E A1.5 on)
 
         // Deferred mode: the surface is in the G-buffer and the sky + emissive are in the scene color
         // target; this stage shades every pixel from the G-buffer and adds the result on top, and the
@@ -2981,7 +2984,8 @@ namespace deren::vulkan {
 
                 this->collect_stage("megalights");
             }
-            if (!this->megalights_resolved && static_cast<std::size_t>(this->current_image_index) < vk.ml_images.size() && vk.ml_images[this->current_image_index] != VK_NULL_HANDLE) {
+            if (!this->megalights_resolved && static_cast<std::size_t>(this->current_image_index) < rhi::max_swapchain_images &&
+                static_cast<bool>(this->ml_images[this->current_image_index]) && static_cast<bool>(this->ml_resolve_images[this->current_image_index])) {
                 // Nothing wrote the stochastic lighting image this frame, but the lighting stage's descriptor set
                 // still declares it as a shader input (binding 17) and its shader uses that binding - under a flag,
                 // but Vulkan requires a statically-used binding's descriptor to be in the layout the write declared
@@ -2991,7 +2995,7 @@ namespace deren::vulkan {
                 // rather than claiming a layout - so the transition is valid whether the image is untouched or
                 // already readable. The same answer the GI image's and the shadow map's spare layers' off paths give.
                 VkImageMemoryBarrier2 to_sampling = deren::vulkan::undefined_to_sampling_transition;
-                to_sampling.image = vk.ml_resolve_images[this->current_image_index];
+                to_sampling.image = static_cast<VkImage>(this->escape().native_image(*this->ml_resolve_images[this->current_image_index]));
                 VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
                 vkCmdPipelineBarrier2(command_buffer, &sampling_dependency);
             }
@@ -3230,7 +3234,8 @@ namespace deren::vulkan {
         vkCmdEndRendering(command_buffer);
     }
     bool runtime::record_post_process(VkCommandBuffer const command_buffer) {
-        core const& vk = this->vulkan_core;
+        // (no `core&` alias here any more: the last backend-owned read in this function was the bloom chain's
+        // off path, and those images are the engine's own from ③-D/E A1.5 on)
 
         // ---- the scene side: close the geometry instance, then the stages that consume the G-buffer
         this->record_scene_tail(command_buffer);
@@ -3299,9 +3304,11 @@ namespace deren::vulkan {
             // nothing wrote), and this is the same answer the shadow map's spare layers and the GI image's off path
             // give. It hangs on "the stage recorded nothing" rather than on the knob, so a frame whose levels had no
             // descriptor set takes it too.
-            for (uint32_t level = 0; level < deren::vulkan::core::bloom_level_count; ++level) {
+            // the level count comes from the shared module now (③-D/E A1.5): the engine sizes its own bloom
+            // arrays by it, so the backend's alias is no longer the only spelling of it
+            for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
                 std::array<VkImageMemoryBarrier2, 1> barriers = {deren::vulkan::undefined_to_sampling_transition};
-                barriers[0].image = vk.bloom_images[level][index];
+                barriers[0].image = static_cast<VkImage>(this->escape().native_image(*this->bloom_images[level][index]));
                 VkDependencyInfo const dependency_info = make_image_dependency_info(1, barriers.data());
                 vkCmdPipelineBarrier2(command_buffer, &dependency_info);
             }

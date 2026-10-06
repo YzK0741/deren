@@ -309,13 +309,14 @@ namespace deren::vulkan {
         // 1. Wait for the device to be idle
         vkDeviceWaitIdle(logical_device);
 
-        // 2. THE HDR AND LDR/DISPLAY TARGETS ARE THE ENGINE'S FROM A1.3 ON, AND THE G-BUFFER CLUSTER - the
-        //    three stored surface targets, the G-buffer pass's own depth image, the motion-vector target and
-        //    the scene-colour TAA working image - FROM A1.4 ON, so this function no longer destroys any of
-        //    them: `runtime::create_render_chain_targets()` releases the old generation and creates the new one
-        //    right after this rebuild answered `ok` (see on_swapchain_recreated).
+        // 2. THE HDR AND LDR/DISPLAY TARGETS ARE THE ENGINE'S FROM A1.3 ON, THE G-BUFFER CLUSTER - the three
+        //    stored surface targets, the G-buffer pass's own depth image, the motion-vector target and the
+        //    scene-colour TAA working image - FROM A1.4 ON, AND THE STOCHASTIC-CHAIN TRIO PLUS THE FOUR BLOOM
+        //    LEVELS FROM A1.5 ON, so this function no longer destroys any of them:
+        //    `runtime::create_render_chain_targets()` releases the old generation and creates the new one right
+        //    after this rebuild answered `ok` (see on_swapchain_recreated).
 
-        // 2d-3. Destroy the megalights / furnace images (same lifetime as the G-buffer)
+        // 2d-3. Destroy the furnace image (same lifetime as the G-buffer)
         auto const destroy_target_set = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
             for (auto const& view : views) {
                 vkDestroyImageView(logical_device, view, nullptr);
@@ -330,36 +331,10 @@ namespace deren::vulkan {
             }
             memories.clear();
         };
-        // (the motion-vector and scene-colour targets belong to the ENGINE now - ③-D/E A1.4: the same
-        // `create_render_chain_targets()` call that rebuilds the G-buffer cluster releases and recreates them)
-        // (the TAA history pair belongs to the ENGINE now - ③-D/E A1.1: `create_render_chain_targets()`
-        // releases the old generation on its own, right after this rebuild answered `ok`)
-        destroy_target_set(ml_images, ml_image_memories, ml_image_views);
-        destroy_target_set(ml_resolve_images, ml_resolve_image_memories, ml_resolve_image_views);
-        destroy_target_set(ml_history_images, ml_history_image_memories, ml_history_image_views);
+        // (the motion-vector and scene-colour targets belong to the ENGINE now - ③-D/E A1.4; the TAA history
+        // pair from A1.1, the ray-traced visibility pair from A1.2, and the stochastic-chain trio from A1.5 -
+        // all released and recreated by the same `create_render_chain_targets()` call)
         destroy_target_set(furnace_cube_images, furnace_cube_memories, furnace_cube_views);
-        // (the ray-traced visibility pair is the engine's too, from A1.2 - released and recreated by
-        // `create_render_chain_targets()`, which `on_swapchain_recreated()` calls)
-
-        // 2d. Destroy the bloom targets (all levels)
-        for (auto const& level_views : bloom_image_views) {
-            for (auto const& view : level_views) {
-                vkDestroyImageView(logical_device, view, nullptr);
-            }
-        }
-        bloom_image_views = {};
-        for (auto const& level_images : bloom_images) {
-            for (auto const& image : level_images) {
-                vkDestroyImage(logical_device, image, nullptr);
-            }
-        }
-        bloom_images = {};
-        for (auto const& level_memories : bloom_image_memories) {
-            for (auto const& memory : level_memories) {
-                vkFreeMemory(logical_device, memory, nullptr);
-            }
-        }
-        bloom_image_memories = {};
 
         // 3. Destroy depth resources
         for (auto const& view : depth_image_views) {

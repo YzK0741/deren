@@ -1095,6 +1095,21 @@ namespace deren::vulkan {
         std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> scene_color_image_views = {};
         std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> gbuffer_depth_images = {};
         std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> gbuffer_depth_image_views = {};
+        // THE HALF-RESOLUTION CHAIN, one set per swapchain image (③-D/E A1.5): the stochastic punctual
+        // lighting trio - the raw estimate (STORAGE for the compute pass that writes it, SAMPLED for the
+        // lighting stage that adds it) and the temporal accumulation (the same pair PLUS TRANSFER_SRC, because
+        // the next frame's history is copied FROM it) and that history (TRANSFER_DST | SAMPLED, written only by
+        // that copy) - all at `max(1, render/2)`; and the four-level bloom chain, each level at
+        // `max(1, render >> (level + 1))`, the levels packed in the grid `heap_image_capacity` apart. The level
+        // count comes from the shared module now, for the reason `hdr_format` lives there (A1.0/A1.5).
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> ml_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> ml_image_views = {};
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> ml_resolve_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> ml_resolve_image_views = {};
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> ml_history_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> ml_history_image_views = {};
+        std::array<std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images>, deren::vulkan::render_layout::bloom_level_count> bloom_images = {};
+        std::array<std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images>, deren::vulkan::render_layout::bloom_level_count> bloom_image_views = {};
         // THE ONE PER-FRAME-SLOT GROUP (③-D/E A1.2): the ray-traced sun visibility, one image per FRAME SLOT
         // - the rays are traced once per frame, not once per swapchain image (that reasoning moves here with
         // the creation). At the frame's render extent, R16F (one visibility factor per pixel), STORAGE for

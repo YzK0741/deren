@@ -860,7 +860,10 @@ namespace deren::vulkan {
         // bloom targets: a 4-level chain (1/2, 1/4, 1/8, 1/16 of the swapchain extent, min 1x1),
         // one chain per swapchain image; the post pass prefilters into level 0, downsamples
         // through the levels and composites a weighted sum of all of them
-        static constexpr uint32_t bloom_level_count = 4;
+        // The COUNT MOVED TO THE SHARED MODULE in A1.5 (the engine sizes its own per-level arrays by it now);
+        // the alias plus the assert below are this backend's half of the drift guard A1.0 established.
+        static constexpr uint32_t bloom_level_count = deren::vulkan::render_layout::bloom_level_count;
+        static_assert(bloom_level_count == 4u, "the bloom chain's level count moved");
         std::array<std::vector<VkImage>, bloom_level_count> bloom_images = {};
         std::array<std::vector<VkDeviceMemory>, bloom_level_count> bloom_image_memories = {};
         std::array<std::vector<VkImageView>, bloom_level_count> bloom_image_views = {};

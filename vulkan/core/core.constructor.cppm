@@ -977,16 +977,13 @@ namespace deren::vulkan {
     }
 
     void core::create_render_targets() {
-        // EVERY TARGET BELOW IS CREATED AT THE RENDER EXTENT, not at the output's. With a render scale
-        // below 1.0 the scene chain is deliberately smaller than the swapchain - that is the whole point of
-        // `render_scale` - and the frame's last writer resolves it up to the output extent. The swapchain
-        // images themselves are created in `init_swap_chain` and are untouched by this, which is what keeps
-        // the presented size and the shaded size two different numbers. At the default scale the two
-        // extents are equal by construction (`render_extent`), so this creates exactly what it always did.
-        // The derived sizes below stay DERIVED - the half-size stochastic targets halve the render extent
-        // and a bloom level is `render >> (level + 1)` - so they follow the scale instead of contradicting
-        // it.
-        VkExtent2D const render = this->render_extent();
+        // WHAT IS LEFT HERE AFTER A1.5 IS THE FURNACE CUBE AND NOTHING ELSE, which is why the render-extent
+        // local that used to head this function is gone: every group it was computed for - the HDR/LDR pair,
+        // the G-buffer cluster, the stochastic-chain trio and the four bloom levels - is created by the ENGINE
+        // now, at the frame's render extent (or at a size derived from it), through the contract. The furnace
+        // cube is 1x1 and A1.6 hands it over too, at which point this function has nothing left to create.
+        // The frame's resolution itself is unchanged: `render_extent()` still answers it, and the ENGINE reads
+        // it through the same contract-side rule it always did.
         // ---- THE HDR SCENE TARGET AND THE DISPLAY-REFERRED TARGET ARE THE ENGINE'S NOW (③-D/E A1.3) ----
         // One HDR target and one LDR (FXAA-input) target per swapchain image used to be created right here,
         // with their two heap descriptors (`post_color` sampled, `display_color` sampled). Both are created
@@ -1016,95 +1013,15 @@ namespace deren::vulkan {
         // here on) until the closing slice of A1 deletes them; the creation order of the remaining groups is
         // unchanged, and the `reserve()` offsets the grid needed were applied before any of this ran.
 
-        // The stochastic punctual lighting chain's images are HALF resolution, one per swapchain image: the
-        // trace, the history and the resolve all share these two extents.
-        uint32_t const half_width = std::max(1u, render.width / 2u);
-        uint32_t const half_height = std::max(1u, render.height / 2u);
-
-        // The stochastic punctual lighting chain's raw estimate: the same allocation as the GI trace's
-        // (half resolution, STORAGE for its writer and SAMPLED for the lighting stage that adds it), and
-        // deliberately its own image rather than a reuse of the GI's - the two are different quantities
-        // produced by different passes, and the GI's is written later in the frame than this one.
-        ml_images.resize(swap_chain_image_views.size());
-        ml_image_memories.resize(swap_chain_image_views.size());
-        ml_image_views.resize(swap_chain_image_views.size());
-        for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-            create_target_image(
-                half_width,
-                half_height,
-                hdr_format,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                ml_images[i],
-                ml_image_memories[i]);
-
-            ml_image_views[i] = create_image_view(ml_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
-            // TWO descriptors for this image, because its compute pass WRITES it and the lighting stage SAMPLES it
-            // (no single heap descriptor is both): sampled at the array the readers name, storage at its own slot.
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_view = make_image_view_info(ml_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_trace + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the megalights trace for image {} did not reach grid slot {}", i, heap_slots::ml_trace + static_cast<uint32_t>(i));
-                }
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_trace_storage + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
-                    deren::utility::log("descriptor heap: the megalights trace STORAGE descriptor for image {} did not reach grid slot {}", i, heap_slots::ml_trace_storage + static_cast<uint32_t>(i));
-                }
-            }
-        }
-
-        // The stochastic chain's temporal resolve (docs/megalights.md): the accumulation - STORAGE for the
-        // compute pass that writes it, SAMPLED for the lighting stage that adds it, TRANSFER_SRC because it is
-        // what the next frame's history is copied FROM - and the history beside the chain's, written only by
-        // that copy (TRANSFER_DST | SAMPLED and nothing else).
-        ml_resolve_images.resize(swap_chain_image_views.size());
-        ml_resolve_image_memories.resize(swap_chain_image_views.size());
-        ml_resolve_image_views.resize(swap_chain_image_views.size());
-        ml_history_images.resize(swap_chain_image_views.size());
-        ml_history_image_memories.resize(swap_chain_image_views.size());
-        ml_history_image_views.resize(swap_chain_image_views.size());
-        for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-            create_target_image(
-                half_width,
-                half_height,
-                hdr_format,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                ml_resolve_images[i],
-                ml_resolve_image_memories[i]);
-            ml_resolve_image_views[i] = create_image_view(ml_resolve_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
-            // ... and the resolve's pair, the same way the trace's is written above: sampled for the lighting stage
-            // that adds it, storage for the compute pass that accumulates into it.
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_view = make_image_view_info(ml_resolve_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_resolved + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the megalights resolve for image {} did not reach grid slot {}", i, heap_slots::ml_resolved + static_cast<uint32_t>(i));
-                }
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_resolved_storage + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
-                    deren::utility::log("descriptor heap: the megalights resolve STORAGE descriptor for image {} did not reach grid slot {}", i, heap_slots::ml_resolved_storage + static_cast<uint32_t>(i));
-                }
-            }
-
-            create_target_image(
-                half_width,
-                half_height,
-                hdr_format,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                ml_history_images[i],
-                ml_history_image_memories[i]);
-            ml_history_image_views[i] = create_image_view(ml_history_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
-            // the heap's copy: the history is written by a TRANSFER and read as the temporal resolve's input, so
-            // one sampled descriptor is all it needs (the copy is not a descriptor write)
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_view = make_image_view_info(ml_history_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::ml_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the megalights history for image {} did not reach grid slot {}", i, heap_slots::ml_history + static_cast<uint32_t>(i));
-                }
-            }
-        }
+        // ---- THE STOCHASTIC PUNCTUAL LIGHTING CHAIN IS THE ENGINE'S NOW (③-D/E A1.5) ------------------
+        // The half-resolution trio - the raw estimate (`ml_trace`), the temporal accumulation
+        // (`ml_resolved`, STORAGE + SAMPLED + TRANSFER_SRC because the next frame's history is copied FROM
+        // it) and that history (`ml_history`, written only by that copy) - plus the four-level bloom chain
+        // used to be created right here, with their heap descriptors. `runtime::create_render_chain_targets()`
+        // creates them through the contract instead: same half extent for the three (`max(1, render/2)`), the
+        // same hdr_format, the same flags per group, and for the two images a compute pass writes BOTH the
+        // SAMPLED and the STORAGE descriptor (one heap descriptor is never both). The members stay declared
+        // (empty from here on) until the closing slice A1.7.
 
         // The GI denoiser's resolve target, its history and the spatial filter's output were created here: three
 
@@ -1133,46 +1050,9 @@ namespace deren::vulkan {
         // (the G-buffer pass's own depth image is the engine's too from A1.4 - see the cluster note above:
         // `depth` ROLE, DEPTH_STENCIL_ATTACHMENT | SAMPLED, at the heap array `gbuffer_depth`)
 
-        // bloom targets: the 4-level chain (halved per level, min 1x1), same lifetime as the HDR
-        // targets; each level gets one target per swapchain image
-        for (uint32_t level = 0; level < bloom_level_count; ++level) {
-            std::vector<VkImage>& level_images = bloom_images[level];
-            std::vector<VkDeviceMemory>& level_memories = bloom_image_memories[level];
-            std::vector<VkImageView>& level_views = bloom_image_views[level];
-            uint32_t const level_width = std::max(1u, render.width >> (level + 1u));
-            uint32_t const level_height = std::max(1u, render.height >> (level + 1u));
-
-            level_images.resize(swap_chain_image_views.size());
-            level_memories.resize(swap_chain_image_views.size());
-            level_views.resize(swap_chain_image_views.size());
-            for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-                create_target_image(
-                    level_width,
-                    level_height,
-                    hdr_format,
-                    VK_IMAGE_TILING_OPTIMAL,
-                    VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                    VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                    level_images[i],
-                    level_memories[i]);
-
-                level_views[i] = create_image_view(
-                    level_images[i],
-                    hdr_format,
-                    VK_IMAGE_ASPECT_COLOR_BIT,
-                    logical_device);
-                // the heap's copy: a bloom level is RENDERED into and SAMPLED by the next level and the composite,
-                // so one sampled descriptor per level per image - and the grid packs the levels `heap_image_capacity`
-                // apart, which is the same stride this loop's level index multiplies (see core.cppm's heap_slots).
-                if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                    uint32_t const level_base = heap_slots::bloom_l0 + level * heap_image_capacity;
-                    VkImageViewCreateInfo const heap_view = make_image_view_info(level_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                    if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(level_base + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                        deren::utility::log("descriptor heap: bloom level {} for image {} did not reach grid slot {}", level, i, level_base + static_cast<uint32_t>(i));
-                    }
-                }
-            }
-        }
+        // (the four bloom levels are the engine's too from A1.5 - see the stochastic-chain note above: one
+        // target per level per swapchain image, `max(1, render >> (level + 1))`, COLOR_ATTACHMENT | SAMPLED,
+        // at `bloom_l0 + level * heap_image_capacity`)
 
         // The teardown is registered ONCE, not once per swapchain generation: this function reruns on
         // every recreate_swap_chain(), and register_cleanup() *pushes* (LIFO), so registering
@@ -1184,10 +1064,11 @@ namespace deren::vulkan {
         this->resolve_cleanup_registered = true;
 
         register_cleanup([this] {
-            // (the HDR/LDR/display targets, the G-buffer cluster - three surface targets + depth - and the
-            // motion-vector / scene-colour pair are NOT destroyed here any more: the engine owns all of them
-            // from A1.3/A1.4 on, and `runtime::create_render_chain_targets()` releases the old generation first)
-            // the megalights and furnace images share this lifetime with the ones above
+            // (the HDR/LDR/display targets, the G-buffer cluster - three surface targets + depth - the
+            // motion-vector / scene-colour pair, the stochastic-chain trio and the four bloom levels are NOT
+            // destroyed here any more: the engine owns all of them from A1.3/A1.4/A1.5 on, and
+            // `runtime::create_render_chain_targets()` releases the old generation first)
+            // the furnace image shares this lifetime with the ones above
             auto const destroy_images = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
                 for (auto const& view : views) {
                     vkDestroyImageView(logical_device, view, nullptr);
@@ -1202,31 +1083,7 @@ namespace deren::vulkan {
                 memories.clear();
                 images.clear();
             };
-            // (the TAA history pair is NOT destroyed here any more: the engine owns it - see
-            // runtime::create_render_chain_targets, which releases the old generation before creating the new)
-            destroy_images(ml_images, ml_image_memories, ml_image_views);
-            destroy_images(ml_resolve_images, ml_resolve_image_memories, ml_resolve_image_views);
-            destroy_images(ml_history_images, ml_history_image_memories, ml_history_image_views);
             destroy_images(furnace_cube_images, furnace_cube_memories, furnace_cube_views);
-            // (the ray-traced visibility pair is the ENGINE's too, from A1.2 on - same function, same release)
-            for (auto const& level_views : bloom_image_views) {
-                for (auto const& view : level_views) {
-                    vkDestroyImageView(logical_device, view, nullptr);
-                }
-            }
-            for (auto const& level_memories : bloom_image_memories) {
-                for (auto const& memory : level_memories) {
-                    vkFreeMemory(logical_device, memory, nullptr);
-                }
-            }
-            for (auto const& level_images : bloom_images) {
-                for (auto const& image : level_images) {
-                    vkDestroyImage(logical_device, image, nullptr);
-                }
-            }
-            bloom_image_views = {};
-            bloom_image_memories = {};
-            bloom_images = {};
         });
     }
 

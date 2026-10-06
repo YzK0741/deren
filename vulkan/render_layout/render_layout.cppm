@@ -72,6 +72,19 @@ export namespace deren::vulkan::render_layout {
     inline constexpr VkFormat gbuffer_velocity_format = VK_FORMAT_R16G16_SFLOAT;
 
     /**
+     * @brief how many levels the bloom chain has (③-D/E item A1.5): each level is
+     *        `max(1, render >> (level + 1))`, rendered into and sampled by the next one, and the grid packs
+     *        them `heap_image_capacity` apart.
+     *
+     * @note IT LIVES HERE FOR THE SAME REASON `hdr_format` DOES (A1.0): the ENGINE now creates and holds the
+     *       bloom targets, so it has to size its own per-level arrays by this number without importing the
+     *       backend - and a value compiled once and linked by both halves is the only arrangement that
+     *       cannot drift. `core` keeps an alias plus a `static_assert`, so the backend's own bloom arrays
+     *       and this number cannot disagree either.
+     */
+    inline constexpr uint32_t bloom_level_count = 4;
+
+    /**
      * @brief THE SLOT GRID: where every descriptor this renderer uses lives, in SLOTS of @ref heap_slot_stride
      *        bytes, and why an index is a slot number rather than a byte offset
      *

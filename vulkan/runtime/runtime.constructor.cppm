@@ -1165,6 +1165,18 @@ namespace deren::vulkan {
         this->scene_color_images = {};
         this->gbuffer_depth_image_views = {};
         this->gbuffer_depth_images = {};
+        this->ml_image_views = {};
+        this->ml_images = {};
+        this->ml_resolve_image_views = {};
+        this->ml_resolve_images = {};
+        this->ml_history_image_views = {};
+        this->ml_history_images = {};
+        for (auto& level_views : this->bloom_image_views) {
+            level_views = {};
+        }
+        for (auto& level_images : this->bloom_images) {
+            level_images = {};
+        }
 
         VkExtent2D const render = this->render_extent();
         std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
@@ -1201,6 +1213,18 @@ namespace deren::vulkan {
             }
             if (heap_ready && !contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(heap_slot), *image,
                                                          rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image)) {
+                deren::utility::log("descriptor heap: {} did not reach grid slot {}", what, heap_slot);
+            }
+        };
+        // THE SAME IMAGE AS A STORAGE DESCRIPTOR, for the images a compute pass WRITES: SAMPLED_IMAGE and
+        // STORAGE_IMAGE are different descriptor kinds and one heap descriptor is never both, so an image that
+        // a compute pass writes AND a later stage samples needs one of each. The ROLE in the range is what
+        // picks the kind - the backend refuses a storage descriptor over a sampled-role range and vice versa.
+        auto const create_storage_descriptor = [this, heap_ready](rhi::image const& image, uint32_t const heap_slot, char const* const what) {
+            rhi::image_view_desc range{};
+            range.role = rhi::view_role::storage;
+            if (heap_ready && !contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(heap_slot), image, range,
+                                                         rhi::descriptor_type::storage_image)) {
                 deren::utility::log("descriptor heap: {} did not reach grid slot {}", what, heap_slot);
             }
         };
@@ -1309,6 +1333,73 @@ namespace deren::vulkan {
                                   this->gbuffer_depth_images[i], this->gbuffer_depth_image_views[i], "the G-buffer depth target");
         }
 
+        // ---- THE HALF-RESOLUTION CHAIN (③-D/E A1.5) ----------------------------------------------------
+        // The stochastic punctual lighting trio and the four bloom levels. THEIR EXTENTS ARE DERIVED, not the
+        // frame's - the three share `max(1, render/2)`, and bloom level L is `max(1, render >> (L + 1))`, which
+        // is the same formula `resolve_resource_extent` answers a pass with over the same base, so a pass and the
+        // image it writes cannot disagree at any render scale. The flags are the backend's, and the two images a
+        // compute pass WRITES get both descriptors: sampled for their readers, storage for the writer.
+        uint32_t const half_width = std::max(1u, render.width / 2u);
+        uint32_t const half_height = std::max(1u, render.height / 2u);
+        for (std::size_t i = 0; i < image_count; ++i) {
+            uint32_t const image_slot = static_cast<uint32_t>(i);
+            // The raw estimate: STORAGE for the trace compute pass, SAMPLED for the lighting stage that adds it.
+            rhi::image_desc trace_desc{};
+            trace_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
+            trace_desc.mip_levels = 1;
+            trace_desc.array_layers = 1;
+            trace_desc.format = contract_image_format(hdr_format);
+            trace_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
+            trace_desc.debug_name = "megalights trace image";
+            create_sampled_target(trace_desc, core::heap_slots::ml_trace + image_slot,
+                                  this->ml_images[i], this->ml_image_views[i], "the megalights trace target");
+            create_storage_descriptor(*this->ml_images[i], core::heap_slots::ml_trace_storage + image_slot, "the megalights trace STORAGE descriptor");
+
+            // The temporal accumulation: the same pair PLUS TRANSFER_SRC, because it is what the next frame's
+            // history is copied FROM.
+            rhi::image_desc resolve_desc{};
+            resolve_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
+            resolve_desc.mip_levels = 1;
+            resolve_desc.array_layers = 1;
+            resolve_desc.format = contract_image_format(hdr_format);
+            resolve_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_source);
+            resolve_desc.debug_name = "megalights resolve image";
+            create_sampled_target(resolve_desc, core::heap_slots::ml_resolved + image_slot,
+                                  this->ml_resolve_images[i], this->ml_resolve_image_views[i], "the megalights resolve target");
+            create_storage_descriptor(*this->ml_resolve_images[i], core::heap_slots::ml_resolved_storage + image_slot, "the megalights resolve STORAGE descriptor");
+
+            // ... and the history beside the chain's, written only by that copy and read as the resolve's input
+            // - one sampled descriptor, because a copy is not a descriptor write.
+            rhi::image_desc history_desc{};
+            history_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
+            history_desc.mip_levels = 1;
+            history_desc.array_layers = 1;
+            history_desc.format = contract_image_format(hdr_format);
+            history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
+            history_desc.debug_name = "megalights history image";
+            create_sampled_target(history_desc, core::heap_slots::ml_history + image_slot,
+                                  this->ml_history_images[i], this->ml_history_image_views[i], "the megalights history target");
+        }
+
+        // The bloom chain: four levels, halved per level with a 1x1 floor, one target per level per image, and
+        // the grid packs the levels `heap_image_capacity` apart - the same stride the shaders bake as
+        // `bloom_l0 + level * heap_image_capacity`.
+        for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
+            uint32_t const level_width = std::max(1u, render.width >> (level + 1u));
+            uint32_t const level_height = std::max(1u, render.height >> (level + 1u));
+            for (std::size_t i = 0; i < image_count; ++i) {
+                rhi::image_desc level_desc{};
+                level_desc.extent = rhi::image_extent{.width = level_width, .height = level_height, .depth = 1u};
+                level_desc.mip_levels = 1;
+                level_desc.array_layers = 1;
+                level_desc.format = contract_image_format(hdr_format);
+                level_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
+                level_desc.debug_name = "bloom level target";
+                create_sampled_target(level_desc, core::heap_slots::bloom_l0 + level * core::heap_image_capacity + static_cast<uint32_t>(i),
+                                      this->bloom_images[level][i], this->bloom_image_views[level][i], "the bloom level target");
+            }
+        }
+
         // ---- THE RAY-TRACED VISIBILITY, ONE PER FRAME SLOT (③-D/E A1.2) --------------------------------
         // The ONE group whose count is the RING's rather than the swapchain's - the rays are traced once per
         // frame, not once per image - and it is rebuilt per generation all the same, because a resize moves
@@ -1326,35 +1417,14 @@ namespace deren::vulkan {
             visibility_desc.format = rhi::image_format::r16_sfloat;
             visibility_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
             visibility_desc.debug_name = "ray-traced visibility image";
-            this->rt_shadow_images[slot] = rhi::object_manager<rhi::image>{this->rhi_face().create_image(visibility_desc)};
-            if (!static_cast<bool>(this->rt_shadow_images[slot])) {
-                deren::utility::panic("failed to create the ray-traced visibility image");
-            }
-            rhi::image_view_desc visibility_range{};
-            visibility_range.role = rhi::view_role::sampled;
-            this->rt_shadow_image_views[slot] = rhi::object_manager<rhi::image_view>{this->rt_shadow_images[slot]->make_view(visibility_range)};
-            if (!static_cast<bool>(this->rt_shadow_image_views[slot])) {
-                deren::utility::panic("failed to create the ray-traced visibility view");
-            }
-            // TWO HEAP DESCRIPTORS FOR THE ONE IMAGE, which is not redundancy: SAMPLED_IMAGE and
-            // STORAGE_IMAGE are different descriptor kinds and one heap descriptor is never both, while this
-            // image is WRITTEN by the visibility compute pass and SAMPLED by the lighting stage. Each write
-            // states the role its descriptor needs - the backend REFUSES a storage descriptor over a
-            // sampled-role range and vice versa - and both sit at the ABSOLUTE slots the shaders bake.
-            if (heap_ready) {
-                rhi::image_view_desc sampled_range{};
-                sampled_range.role = rhi::view_role::sampled;
-                rhi::image_view_desc storage_range{};
-                storage_range.role = rhi::view_role::storage;
-                if (!contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(core::heap_slots::rt_visibility + slot),
-                                               *this->rt_shadow_images[slot], sampled_range, rhi::descriptor_type::sampled_image)) {
-                    deren::utility::log("descriptor heap: the rt visibility SAMPLED descriptor did not reach grid slot {}", core::heap_slots::rt_visibility + slot);
-                }
-                if (!contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(core::heap_slots::rt_visibility_storage + slot),
-                                               *this->rt_shadow_images[slot], storage_range, rhi::descriptor_type::storage_image)) {
-                    deren::utility::log("descriptor heap: the rt visibility STORAGE descriptor did not reach grid slot {}", core::heap_slots::rt_visibility_storage + slot);
-                }
-            }
+            // TWO HEAP DESCRIPTORS FOR THE ONE IMAGE, which is not redundancy: SAMPLED_IMAGE and STORAGE_IMAGE
+            // are different descriptor kinds and one heap descriptor is never both, while this image is WRITTEN
+            // by the visibility compute pass and SAMPLED by the lighting stage. Both sit at the ABSOLUTE slots
+            // the shaders bake. (A1.5 moved this group onto the same two helpers the rest of the chain uses -
+            // the group's numbers, its per-frame-slot count and its two descriptors are unchanged.)
+            create_sampled_target(visibility_desc, core::heap_slots::rt_visibility + slot,
+                                  this->rt_shadow_images[slot], this->rt_shadow_image_views[slot], "the ray-traced visibility target");
+            create_storage_descriptor(*this->rt_shadow_images[slot], core::heap_slots::rt_visibility_storage + slot, "the rt visibility STORAGE descriptor");
         }
     }
 
