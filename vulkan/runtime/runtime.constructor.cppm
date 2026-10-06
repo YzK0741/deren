@@ -374,7 +374,7 @@ namespace deren::vulkan {
         }
         auto const* const counters = static_cast<uint32_t const*>(this->meshlet_stats_mapped);
         uint64_t total[8] = {};
-        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             for (uint32_t counter = 0; counter < 8u; ++counter) {
                 total[counter] += counters[static_cast<std::size_t>(slot) * 8u + counter];
             }
@@ -816,7 +816,7 @@ namespace deren::vulkan {
         //      command data, not a resource any shader reads.
         {
             constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
-            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
+            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(this->frame_ring().slot_count()) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
             create_buffer(this->vulkan_core,
                           rhi::buffer_usage::storage_coherent,
                           rhi::to_bits(rhi::buffer_flag::indirect),
@@ -834,7 +834,7 @@ namespace deren::vulkan {
         //      uints per frame in flight, on the heap because a mesh stage has no other way to reach memory, and
         //      host-visible because the host reads it back once, at shutdown. Zeroed here; the entries only add.
         {
-            std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t), 0);
+            std::vector<uint8_t> const zeroed_stats(static_cast<size_t>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t), 0);
             create_buffer(this->vulkan_core,
                           rhi::buffer_usage::storage_coherent,
                           rhi::to_bits(rhi::buffer_flag::device_address),
@@ -845,7 +845,7 @@ namespace deren::vulkan {
             if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
                                                              core::heap_slots::meshlet_stats,
-                                                             static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * 8u * sizeof(uint32_t),
+                                                             static_cast<VkDeviceSize>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t),
                                                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                 if (!written) {
                     deren::utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");
@@ -858,7 +858,7 @@ namespace deren::vulkan {
         //      records and the heap-bound because the mesh entry reads it. Per frame rather than one slot, unlike the
         //      table it shadows: this one is rewritten from the camera every frame.
         {
-            std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet), 0);
+            std::vector<uint8_t> const zeroed_culled(static_cast<size_t>(this->frame_ring().slot_count()) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet), 0);
             create_buffer(this->vulkan_core,
                           rhi::buffer_usage::storage_coherent,
                           rhi::to_bits(rhi::buffer_flag::device_address),
@@ -869,7 +869,7 @@ namespace deren::vulkan {
             if (contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE) {
                 bool const written = this->write_heap_buffer(*this->meshlet_culled_buffer,
                                                              core::heap_slots::meshlet_culled,
-                                                             static_cast<VkDeviceSize>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
+                                                             static_cast<VkDeviceSize>(this->frame_ring().slot_count()) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
                                                              VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
                 if (!written) {
                     deren::utility::log("descriptor heap: the culled meshlet table was NOT written - the draws stay unculled");
@@ -985,10 +985,10 @@ namespace deren::vulkan {
         // a VkCommandPool is not thread safe, so the workers must never begin buffers of a
         // shared pool concurrently - every worker owns its own pool + its buffer (recorded in
         // parallel; see sub_render_task).
-        this->secondary_command_buffers.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        this->main_segments.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        this->secondary_command_buffers.reserve(this->frame_ring().slot_count());
+        this->main_segments.reserve(this->frame_ring().slot_count());
         uint32_t const record_workers = static_cast<uint32_t>(std::max(1, this->task_pool_threads()));
-        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
             std::array<vk_command_buffer, static_cast<std::size_t>(secondary_pass::count)> pair = {
@@ -1049,10 +1049,10 @@ namespace deren::vulkan {
         // nullptr skips the digest / upload path), so each frame can render the scene's depth from
         // the light's view into every layer.
         this->shadow_cascades = std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades);
-        this->shadow_images.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        this->shadow_array_views.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        this->shadow_layer_views.reserve(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
-        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        this->shadow_images.reserve(this->frame_ring().slot_count());
+        this->shadow_array_views.reserve(this->frame_ring().slot_count());
+        this->shadow_layer_views.reserve(this->frame_ring().slot_count());
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             rhi::image_desc shadow_desc{};
             shadow_desc.extent = rhi::image_extent{.width = this->shadow_map_size, .height = this->shadow_map_size, .depth = 1u};
             shadow_desc.mip_levels = 1;
@@ -1254,7 +1254,7 @@ namespace deren::vulkan {
         // per-frame re-pointing is needed and an in-flight frame never shares a buffer the next
         // frame rewrites. Only the HEAP half is left: the two bindings are written into this slot's heap block
         // (and the shadow map into its grid slot) rather than into a descriptor set.
-        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             rhi::image& shadow_image = *this->shadow_images[static_cast<std::size_t>(slot)];
             VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(shadow_image));
 

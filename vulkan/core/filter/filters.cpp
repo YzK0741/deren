@@ -50,7 +50,8 @@ namespace deren::vulkan {
     }
 
     uint32_t user_filter::get_current_frame() const noexcept {
-        return static_cast<uint32_t>(this->vk_core->current_frame);
+        // THE RING IS THE BACKEND'S (abi 13): the cursor through the face, not the field.
+        return this->vk_core->walk_frames()->position();
     }
 
     vk_command_buffer user_filter::make_command_buffer() const {

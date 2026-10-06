@@ -266,7 +266,7 @@ namespace deren::vulkan {
         if (!this->gpu_timings_enabled) {
             return;
         }
-        uint32_t const slot = static_cast<uint32_t>(this->vulkan_core.current_frame);
+        uint32_t const slot = this->frame_ring().position();
         // The mark's identity is positional - the interval it closes is the one opened by the mark
         // before it - so every label in gpu_timing_labels is only correct while the calls happen in
         // gpu_mark_id order. The core hands out the next index, which makes the violation visible
@@ -277,22 +277,43 @@ namespace deren::vulkan {
                                 this->vulkan_core.gpu_timing_marks[slot]);
             return;
         }
-        this->vulkan_core.mark_gpu_timing(command_buffer, slot, stage);
+        // THE MARK CARRIES ITS STAGE'S NAME, as static text from this engine's own label table (the
+        // `window_title` rule): stage i is the interval mark i OPENS (mark i -> mark i + 1), which is
+        // exactly the row gpu_timing_labels[i] names - the contract's profiler face reports the frame
+        // self-described, and the engine's stage vocabulary never entered the contract. The frame's
+        // last mark (frame_end) opens no stage and carries an empty name.
+        uint32_t const mark_index = static_cast<uint32_t>(mark);
+        this->vulkan_core.mark_gpu_timing(command_buffer, slot, stage,
+                                          mark_index < gpu_timing_labels.size() ? gpu_timing_labels[mark_index].name : std::string_view{});
     }
 
-    void runtime::collect_gpu_timings(uint32_t const slot) {
-        gpu_timing_result const result = this->vulkan_core.read_gpu_timings(slot);
-        if (result.mark_count < 2) {
+    void runtime::collect_gpu_timings() {
+        // 读归引擎: the backend LATCHED this slot's completed frame inside wait_and_acquire() (the
+        // position that made the old read_gpu_timings call correct); the contract's profiler face
+        // reports the latched frame. Durations come back in NANOSECONDS - the display layer converts.
+        rhi::gpu_profiler& profiler = *this->rhi_face().profiler();
+        std::uint32_t const stages = profiler.stage_count();
+        if (stages < 2) {
             return; // nothing measured in that submission (the first frames, or a failed recording)
         }
-        // result.milliseconds[i] is the interval between mark i and mark i + 1, which is the pass
-        // gpu_timing_labels[i] names: the marks are written in gpu_mark_id order on every frame, and
-        // a pass that did not record left two adjacent marks behind, so its interval reads ~0.
-        uint32_t const intervals = std::min(result.mark_count - 1, static_cast<uint32_t>(gpu_timing_labels.size()));
+        // Stage i is the interval between mark i and mark i + 1, which is the pass gpu_timing_labels[i]
+        // names: the marks are written in gpu_mark_id order on every frame, and a pass that did not
+        // record left two adjacent marks behind, so its interval reads ~0. The frame's LAST mark opens
+        // no stage (get_stage_info answers not_ready for it), hence the - 1.
+        uint32_t const intervals = std::min(stages - 1, static_cast<uint32_t>(gpu_timing_labels.size()));
+        std::uint32_t measured = 0;
         for (uint32_t interval = 0; interval < intervals; ++interval) {
-            this->gpu_timing_sum[interval] += result.milliseconds[interval];
+            std::uint64_t duration_ns = 0;
+            if (profiler.get_stage_info(interval, nullptr, &duration_ns) != rhi::error::ok) {
+                break; // a read-back failure answers device_lost: report what measured, nothing fake
+            }
+            this->gpu_timing_sum[interval] += static_cast<double>(duration_ns) * 1.0e-6; // ns -> ms
+            ++measured;
         }
-        this->gpu_timing_marks_measured = intervals;
+        this->gpu_timing_marks_measured = measured;
+        if (measured == 0) {
+            return; // the same no-data early return the raw VkResult path had: no window accounting
+        }
         if (++this->gpu_timing_window_frames < GPU_TIMING_WINDOW) {
             return;
         }
@@ -353,7 +374,7 @@ namespace deren::vulkan {
         info.graphics_queue = vk.graphics_queue_handle;
         info.color_format = vk.swap_chain_image_format;
         info.depth_format = VK_FORMAT_UNDEFINED; // the post/gui pass has no depth attachment
-        info.frames_in_flight = static_cast<uint32_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        info.frames_in_flight = this->frame_ring().slot_count();
         return this->debug_overlay.init(info);
     }
 
@@ -725,7 +746,6 @@ namespace deren::vulkan {
         // EVERY FIELD IS THE RENDERER'S OWN (see the struct's docs): its pipelines, its frame's content, the device,
         // the knobs that its own policy also reads. What a PASS answers about itself is deliberately absent - the
         // owner of the passes asks them.
-        core const& vk = this->vulkan_core;
         return feature_facts{
             .gbuffer_pass = this->gbuffer_pass_active(),
             .deferred_lit = this->deferred_lit_active(),
@@ -754,7 +774,7 @@ namespace deren::vulkan {
             // would drop it. See `character_forward_pass::record`, which makes the same test from its side.
             .character_forward_pending = this->character_forward_on && (!this->frame_visible.empty() || !this->frame_overlay.empty()),
             .gbuffer_pipeline = this->gbuffer_pipeline_mesh.has_value() || this->gbuffer_pipeline_meshlet.has_value(),
-            .structures_ready = this->structures.ready() && this->structures.handle(static_cast<uint32_t>(vk.current_frame)) != VK_NULL_HANDLE,
+            .structures_ready = this->structures.ready() && this->structures.handle(this->frame_ring().position()) != VK_NULL_HANDLE,
             .furnace = this->furnace,
             .punctual_lights = this->light_state.light_count.x,
         };
@@ -1249,12 +1269,12 @@ namespace deren::vulkan {
         uint32_t const source_slot = extra_lane == 0u
                                          ? core::heap_slots::post_color + self->current_image_index
                                          : core::heap_slots::bloom_l0 + (extra_lane - 1u) * core::heap_image_capacity + self->current_image_index;
-        return push_with_lanes(self->rhi_face(), static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, source_slot, 3u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, source_slot, 3u);
     }
 
     bool runtime::push_index_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), static_cast<uint32_t>(self->vulkan_core.current_frame), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
     }
 
     bool runtime::push_raw_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes) {
@@ -1350,9 +1370,9 @@ namespace deren::vulkan {
         // IF THE COUNTS EVER BECOME PER-FRAME (an animated instance count, say), this slot is the wrong key: it
         // needs one command per (frame, draw) instead of per primitive, which is exactly what the COMPUTE culling
         // pass this seam exists for will write.
-        commands[static_cast<std::size_t>(vk.current_frame) * runtime::mesh_command_capacity + command_slot] =
+        commands[static_cast<std::size_t>(self->frame_ring().position()) * runtime::mesh_command_capacity + command_slot] =
             VkDrawMeshTasksIndirectCommandEXT{.groupCountX = groups_x, .groupCountY = groups_y, .groupCountZ = groups_z};
-        VkDeviceSize const offset = static_cast<VkDeviceSize>(vk.current_frame * runtime::mesh_command_capacity + command_slot) * sizeof(VkDrawMeshTasksIndirectCommandEXT);
+        VkDeviceSize const offset = static_cast<VkDeviceSize>(self->frame_ring().position() * runtime::mesh_command_capacity + command_slot) * sizeof(VkDrawMeshTasksIndirectCommandEXT);
         vk.mesh_dispatch_indirect(command_buffer, self->mesh_indirect_table, offset, 1u, sizeof(VkDrawMeshTasksIndirectCommandEXT));
         self->mesh_indirect_dispatches.fetch_add(1u, std::memory_order_relaxed);
         if (!self->mesh_indirect_route_logged) {
@@ -1393,7 +1413,7 @@ namespace deren::vulkan {
             return false;
         }
         auto* const table = static_cast<uint8_t*>(self->meshlet_culled_mapped);
-        std::memcpy(table + (static_cast<std::size_t>(self->vulkan_core.current_frame) * deren::vulkan::meshlet_capacity + base) * sizeof(deren::vulkan::meshlet), records.data(), records.size_bytes());
+        std::memcpy(table + (static_cast<std::size_t>(self->frame_ring().position()) * deren::vulkan::meshlet_capacity + base) * sizeof(deren::vulkan::meshlet), records.data(), records.size_bytes());
         return true;
     }
 
@@ -1836,7 +1856,7 @@ namespace deren::vulkan {
         uint32_t const motion_base = this->motion_cursor;
         uint32_t const motion_count = std::min<uint32_t>(count, deren::vulkan::scene_motion_capacity - this->motion_cursor);
         this->motion_cursor += motion_count;
-        for (int32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             auto* const published = static_cast<glm::mat4*>(this->motion_mapped[static_cast<std::size_t>(slot)]);
             if (published != nullptr && motion_count > 0) {
                 std::memcpy(published + motion_base, transforms.data(), static_cast<std::size_t>(motion_count) * sizeof(glm::mat4));

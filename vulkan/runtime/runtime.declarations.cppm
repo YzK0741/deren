@@ -487,7 +487,13 @@ namespace deren::vulkan {
         // A scope timer rather than manual marks: every phase function has early returns
         // (skipped/minimized/closed) that must still be measured, and an RAII object cannot miss one.
         deren::vulkan::profiling::cpu_phases cpu_timings;
-        void collect_gpu_timings(uint32_t slot);
+        void collect_gpu_timings();
+
+        /// THE FRAME RING'S FACE (abi 13): the borrowed view `rhi_face().walk_frames()` answers - the
+        /// same object on every call, the backend's own cursor behind it. This is how the engine stops
+        /// keeping a second copy of the slot index: every read that named `vk.current_frame` or
+        /// `core::MAX_FRAMES_IN_FLIGHT` goes through `position()` / `slot_count()` here.
+        [[nodiscard]] rhi::frame_walker& frame_ring() const noexcept;
 
         // ---- G-buffer / deferred path ----
         // M1: the opaque pass writes the G-buffer (three surface targets + the HDR target it adds

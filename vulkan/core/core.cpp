@@ -206,7 +206,7 @@ namespace deren::vulkan {
         return result;
     }
 
-    VkResult core::present(uint32_t const image_index) const {
+    deren::promise::rhi::error core::present(uint32_t const image_index) const {
         // Wait this image's binary present-ready semaphore (signaled by submit() above);
         // vkQueuePresentKHR requires binary wait semaphores (VUID-vkQueuePresentKHR-pWaitSemaphores-03267).
         VkPresentInfoKHR present_info = {};
@@ -216,7 +216,10 @@ namespace deren::vulkan {
         present_info.swapchainCount = 1;
         present_info.pSwapchains = &this->swap_chain;
         present_info.pImageIndices = &image_index;
-        return vkQueuePresentKHR(this->present_queue_handle, &present_info);
+        // THE TRANSLATION IS THE BACKEND'S, at the present call site: the engine never sees a VkResult
+        // (and the engine referencing a translator would JOIN the boundary worklist - the direction
+        // the flip measures against).
+        return present_error(vkQueuePresentKHR(this->present_queue_handle, &present_info));
     }
 
     bool core::recreate_swap_chain() {

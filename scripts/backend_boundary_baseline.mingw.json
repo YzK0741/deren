@@ -1,18 +1,18 @@
 {
   "application_evidence": {
     "chores_archives": [
-      "D:\\deren-workspace\\work\\build-upstream-abi8\\libchores.a"
+      "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-clang64\\libchores.a"
     ],
     "complete": true,
     "explicit_app_objects": [],
     "main_objects": [
-      "D:\\deren-workspace\\work\\build-upstream-abi8\\CMakeFiles\\deren.dir\\main.cpp.obj"
+      "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-clang64\\CMakeFiles\\deren.dir\\main.cpp.obj"
     ]
   },
   "backend_archive": "libderen_vulkan.a",
   "consumers": [
     {
-      "file": "D:\\deren-workspace\\work\\build-upstream-abi8\\libvulkancorekit.a",
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-clang64\\libvulkancorekit.a",
       "members": [
         "acceleration_structure.cpp.obj",
         "acceleration_structure.cppm.obj",
@@ -94,28 +94,25 @@
       ]
     },
     {
-      "file": "D:\\deren-workspace\\work\\build-upstream-abi8\\libchores.a",
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-clang64\\libchores.a",
       "members": [
         "chores.cpp.obj",
         "chores.cppm.obj"
       ]
     },
     {
-      "file": "D:\\deren-workspace\\work\\build-upstream-abi8\\CMakeFiles\\deren.dir\\main.cpp.obj",
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-clang64\\CMakeFiles\\deren.dir\\main.cpp.obj",
       "members": []
     }
   ],
-  "count": 27,
+  "count": 23,
   "cross_boundary_symbols": [
     "_ZGIW5derenW6vulkanW10init_utils",
     "_ZGIW5derenW6vulkanW4core",
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE",
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core16read_gpu_timingsEj",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core18acquire_next_imageERj",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core19recreate_swap_chainEv",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core6submitEP17VkCommandBuffer_Tj",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
@@ -125,7 +122,6 @@
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core12make_samplerE20VkSamplerAddressModef",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core13render_extentEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15make_image_viewEP9VkImage_T8VkFormat15VkImageViewType",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15wait_frame_slotEj",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core16set_window_titleENSt3__117basic_string_viewIcNS5_11char_traitsIcEEEE",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core18make_shader_moduleENSt3__14spanIhLy18446744073709551615EEE",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv",
@@ -135,16 +131,17 @@
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
   ],
-  "defined_in_backend": 1227,
+  "defined_in_backend": 1247,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap10bind_infosER17VkBindHeapInfoEXTS6_",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap11record_bindEP17VkCommandBuffer_T",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core15descriptor_heap9push_dataEP17VkCommandBuffer_TjNSt3__14spanIKSt4byteLy18446744073709551615EEE"
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv",
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core16read_gpu_timingsEj",
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core18acquire_next_imageERj",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15wait_frame_slotEj"
   ],
-  "nm": "D:\\deren-workspace\\work\\toolchain\\clang64\\bin\\llvm-nm.EXE",
+  "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
   "owning_stl_symbols": [],
   "reverse_boundary_symbols": [],
@@ -173,19 +170,10 @@
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv": [
       "runtime.constructor.cppm.obj"
     ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv": [
-      "runtime.frames.cppm.obj"
-    ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE": [
       "runtime.cpp.obj"
     ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj": [
-      "runtime.frames.cppm.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core16read_gpu_timingsEj": [
-      "runtime.cpp.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core18acquire_next_imageERj": [
       "runtime.frames.cppm.obj"
     ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core19recreate_swap_chainEv": [
@@ -219,9 +207,6 @@
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15make_image_viewEP9VkImage_T8VkFormat15VkImageViewType": [
       "filters.cpp.obj"
     ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15wait_frame_slotEj": [
-      "runtime.frames.cppm.obj"
-    ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core16set_window_titleENSt3__117basic_string_viewIcNS5_11char_traitsIcEEEE": [
       "filters.cpp.obj"
     ],
@@ -249,5 +234,5 @@
       "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 44
+  "usages": 40
 }

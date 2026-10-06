@@ -1467,9 +1467,12 @@ namespace deren::vulkan {
          * @brief present the rendered swapchain image, waiting on that image's binary present-ready
          *        semaphore (signaled by submit())
          * @param image_index the swapchain image index to present
-         * @return the result of vkQueuePresentKHR
+         * @return the PRESENT call site's translation (present_error): SUBOPTIMAL is out_of_date
+         *         here - the frame showed, but the surface is one resize from gone - and the caller
+         *         rebuilds. The raw VkResult never leaves the backend: the engine classifies on the
+         *         contract's error vocabulary, not on Vulkan's.
          */
-        VkResult present(uint32_t image_index) const;
+        [[nodiscard]] deren::promise::rhi::error present(uint32_t image_index) const;
 
         /**
          * @ingroup vulkan_core

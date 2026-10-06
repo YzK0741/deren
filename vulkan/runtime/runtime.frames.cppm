@@ -90,7 +90,7 @@ namespace deren::vulkan {
     }
 
     void create_buffers(core& device, std::vector<rhi::object_manager<rhi::buffer>>& outputs, rhi::buffer_usage const usage, rhi::buffer_flags const flags, std::span<std::byte const> const initial_bytes, std::string_view const what, std::vector<void*>* const mapped) {
-        for (int32_t slot = 0; slot < core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+        for (int32_t slot = 0; slot < static_cast<int32_t>(device.walk_frames()->slot_count()); ++slot) {
             outputs.emplace_back();
             void* slot_mapped = nullptr;
             create_buffer(device, usage, flags, initial_bytes, what, outputs.back(), mapped != nullptr ? &slot_mapped : nullptr);
@@ -125,6 +125,33 @@ namespace deren::vulkan {
 
     bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, VkDeviceSize const size, VkDescriptorType const type) const {
         return contract_write_heap_buffer(this->rhi_face(), core::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
+    }
+
+    rhi::frame_walker& runtime::frame_ring() const noexcept {
+        // THE FACE, PER CALL SITE: walk_frames() answers this core's own borrowed view (the same
+        // object every call) - a virtual call through `rhi::api_core&`, so no backend symbol joins
+        // the boundary worklist for it (the same rule create_buffer's contract-interface note states).
+        return *this->rhi_face().walk_frames();
+    }
+
+    // THE FRAME OPEN'S CLASSIFIER (the error mechanism's verdict family): the one place that knows
+    // what an open failure MEANS for the frame loop. Success stays success; the two usually-fatal
+    // codes (a lost device, a dead host heap) become `fatal` - EXECUTED BY THE ENGINE, here in
+    // pace_and_acquire, because the backend only reports; everything else rides as `pass_failure`
+    // and the dispatch below decides skipped-vs-failed. A classifier that contradicts its outcome is
+    // a panic (the lying-classifier rule) - which is why this routes through a verdict instead of a
+    // bare if-chain on the code.
+    [[nodiscard]] inline deren::utility::verdict classify_acquire(deren::promise::rhi::frame_open_info const& open) noexcept {
+        using deren::utility::fatal;
+        using deren::utility::pass_failure;
+        using deren::utility::pass_success;
+        if (open.result.code == rhi::error::ok) {
+            return pass_success{};
+        }
+        if (open.result.code == rhi::error::device_lost || open.result.code == rhi::error::out_of_host_memory) {
+            return fatal{open.result};
+        }
+        return pass_failure{open.result}; // out_of_date -> skipped + rebuild; the rest -> acquire_failed
     }
 
     frame_status runtime::pace_and_acquire() {
@@ -168,15 +195,48 @@ namespace deren::vulkan {
             }
         }
 
-        // Pace the frame slot: wait until the previous submission on this slot has completed
-        //    (host-side timeline wait on the slot's last signaled value). This guards both the
-        //    command buffer and the acquire semaphore — acquiring first could reuse a binary
-        //    acquire semaphore with pending operations (VUID-vkAcquireNextImageKHR-semaphore-01779)
-        uint32_t const frame_slot = static_cast<uint32_t>(vk.current_frame);
-        vk.wait_frame_slot(frame_slot);
-        // The slot's previous submission is complete, so its timestamps are readable: collect them
-        // here, where the wait already guarantees it, and before the slot is recorded again.
-        this->collect_gpu_timings(frame_slot);
+        // THE FRAME OPENS THROUGH THE CONTRACT (abi 13): the walker fuses today's prologue - wait this
+        // slot's timeline, latch the slot's previous frame's GPU timings, acquire the next image - and
+        // reports the DECISION, not a bare VkResult. The wait-then-acquire order (which guards both the
+        // command buffer and the acquire semaphore: acquiring first could reuse a binary acquire
+        // semaphore with pending operations, VUID-vkAcquireNextImageKHR-semaphore-01779) is the
+        // backend's now, and so is the cursor: `open.frame.frame_index` is the one truth.
+        rhi::frame_walker& frames = *this->rhi_face().walk_frames();
+        rhi::frame_open_info const open = frames.wait_and_acquire();
+        // 读归引擎: the LATCH (inside wait_and_acquire) collected the slot's completed frame - the
+        // backend's job; this aggregation is the engine's. It runs on EVERY path below, the skipped
+        // ones included, exactly as the pre-acquire position did.
+        this->collect_gpu_timings();
+        // THE CLASSIFIER IS THE ERROR MECHANISM WORKING (the verdict family, the error-mechanism
+        // batch): `fatal` is EXECUTED BY THE ENGINE - the backend only reported (device_lost,
+        // out_of_host_memory) - so a lost device ends the loop here instead of spinning acquire
+        // failures; out_of_date rebuilds and skips; everything else is the acquire_failed the caller
+        // already handles. This replaces the hand-written VkResult if-ladder.
+        deren::utility::verdict const decided = classify_acquire(open);
+        if (auto const* const fatal_case = std::get_if<deren::utility::fatal>(&decided)) {
+            deren::utility::panic(std::format("frame open is fatal ({}): {}", std::to_underlying(fatal_case->reason.code),
+                                              fatal_case->reason.message.empty() ? std::string_view{"no message"} : fatal_case->reason.message),
+                                  fatal_case->reason.where);
+        }
+        if (auto const* const failure = std::get_if<deren::utility::pass_failure>(&decided)) {
+            if (failure->failure.code == rhi::error::out_of_date) {
+                // e.g. the window was resized: rebuild the swapchain and let the caller retry on the
+                // next iteration - the same skip the zero-extent guard above returns.
+                deren::utility::log("swapchain out of date, recreating");
+                if (vk.recreate_swap_chain()) {
+                    this->on_swapchain_recreated();
+                }
+                return frame_status::skipped;
+            }
+            return frame_status::acquire_failed;
+        }
+        // WHAT STAYS ENGINE-SIDE IS THE POLICY (the classifier routes, the actions stay here):
+        // rebuilding the swapchain means recompiling the renderer's targets, which is this object's
+        // business and not the backend's.
+        // THE SLOT THE FRAME RECORDS INTO, from the open's own report - the engine's local name for
+        // the cursor the backend answered (every use below reads this one, not a second counter).
+        uint32_t const frame_slot = open.frame.frame_index;
+        this->current_image_index = open.frame.image_index;
         // ONE LINE, ONCE, SAYING HOW THE MESHLET DISPATCHES REACHED THE GPU (docs/mesh_shaders.md step 3): a frame
         // has been recorded by now, so the two counters answer the question the frame itself cannot - "is the
         // indirect seam the one in use, or did something fall back to the direct call". That is the exact hole a
@@ -190,24 +250,6 @@ namespace deren::vulkan {
                 logged_mesh_indirect = true;
                 deren::utility::log("mesh indirect: {} meshlet dispatch(es) went through the INDIRECT entry point, {} through the direct call", indirect_dispatches, direct_fallbacks);
             }
-        }
-
-        // Acquire the next swapchain image; on out-of-date (e.g. the window was resized)
-        //    rebuild the swapchain and let the caller retry on the next iteration.
-        // THE ACQUIRE ITSELF IS THE CORE'S (receiver of this step): the device and the swapchain are
-        //    its objects, and the contract's frame_begin() goes through the same primitive. What stays
-        //    here is the POLICY for the result, because rebuilding a swapchain means recompiling the
-        //    renderer's targets, which is this object's business and not the backend's.
-        VkResult const acquire_result = vk.acquire_next_image(this->current_image_index);
-        if (acquire_result == VK_ERROR_OUT_OF_DATE_KHR) {
-            deren::utility::log("swapchain out of date, recreating");
-            if (vk.recreate_swap_chain()) {
-                this->on_swapchain_recreated();
-            }
-            return frame_status::skipped;
-        }
-        if (acquire_result != VK_SUCCESS && acquire_result != VK_SUBOPTIMAL_KHR) {
-            return frame_status::acquire_failed;
         }
 
         // Write this frame's camera UBO into the paced slot's per-slot buffer. The heap's
@@ -337,7 +379,7 @@ namespace deren::vulkan {
         if (this->bound_scene == nullptr || this->motion_mapped.empty()) {
             return;
         }
-        uint32_t const slot = static_cast<uint32_t>(this->vulkan_core.current_frame);
+        uint32_t const slot = this->frame_ring().position();
         if (slot >= this->motion_mapped.size()) {
             return; // no buffer for this slot: nothing to publish, and the shader reads slot 0's set
         }
@@ -363,7 +405,7 @@ namespace deren::vulkan {
         if (this->skin_previous_mapped.empty() || this->skin_mapped.empty()) {
             return;
         }
-        uint32_t const slot = static_cast<uint32_t>(this->vulkan_core.current_frame);
+        uint32_t const slot = this->frame_ring().position();
         if (slot >= this->skin_previous_mapped.size() || slot >= this->skin_mapped.size()) {
             return; // no buffer for this slot: nothing to publish, and the shader reads slot 0's set
         }
@@ -393,7 +435,7 @@ namespace deren::vulkan {
         // "what exists right now" has an answer (see pass::resource_table and runtime::publish_frame_resources).
         this->publish_frame_resources();
         // Record the frame into this slot's command buffer (inline recording: no inheritance)
-        vk_command_buffer& command_buffer = this->command_buffers[static_cast<uint32_t>(vk.current_frame)];
+        vk_command_buffer& command_buffer = this->command_buffers[this->frame_ring().position()];
         VkCommandBufferBeginInfo const begin_info = {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .pNext = nullptr,
@@ -423,7 +465,7 @@ namespace deren::vulkan {
         // written in gpu_mark_id order from here on (see gpu_mark); opening the range outside any
         // rendering instance is required, and this is the first point of the frame where the
         // command buffer exists.
-        vk.begin_gpu_timing(*command_buffer, static_cast<uint32_t>(vk.current_frame));
+        vk.begin_gpu_timing(*command_buffer, this->frame_ring().position());
         this->gpu_mark(*command_buffer, gpu_mark_id::frame_begin, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
 
         // The constant 1x1x6 environment cube, written here and ONCE per target generation: this is the
@@ -724,9 +766,8 @@ namespace deren::vulkan {
 
     void runtime::record_main_drawcalls() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::scene};
-        core& vk = this->vulkan_core;
-        vk_command_buffer& command_buffer = this->command_buffers[static_cast<uint32_t>(vk.current_frame)];
-        uint32_t const frame_slot = static_cast<uint32_t>(vk.current_frame);
+        vk_command_buffer& command_buffer = this->command_buffers[this->frame_ring().position()];
+        uint32_t const frame_slot = this->frame_ring().position();
 
         // ---- Clustered light culling (M5): one compute dispatch before anything renders. It sorts
         //      the punctual lights into the frame's cluster grid, and the shading stages (forward
@@ -758,7 +799,7 @@ namespace deren::vulkan {
         if (this->rt_structures_wanted()) {
             ray_tracing::build_inputs const inputs = this->make_structure_inputs();
             // structures_frame_slot, not frame_slot: the outer frame_slot is in scope; MSVC /W4 C4456, an error under /WX.
-            uint32_t const structures_frame_slot = static_cast<uint32_t>(this->vulkan_core.current_frame);
+            uint32_t const structures_frame_slot = this->frame_ring().position();
             if (auto const built = this->structures.build(*command_buffer, inputs); !built) {
                 deren::utility::log("ray-traced shadows disabled: {}", built.error().message);
             }
@@ -1117,11 +1158,10 @@ namespace deren::vulkan {
     // the depth-only rendering instance around it. Recorded inline today; stage 2 records the
     // same content into a per-slot secondary command buffer for parallel pass recording.
     void runtime::record_shadow_content(VkCommandBuffer const command_buffer, VkPipeline const pipeline, bool const mesh_stage, bool const meshlets) const {
-        core const& vk = this->vulkan_core;
         // NO SET IS BOUND (see the heap bind in begin_recording): the light matrices, the camera and the shadow map
         // are heap slots, and the shadow stage's push block carries the two indices that pick this frame's
         // generation. A secondary records its own state, and the heap bind is made on the buffer it records into.
-        [[maybe_unused]] uint32_t const frame_slot = static_cast<uint32_t>(vk.current_frame);
+        [[maybe_unused]] uint32_t const frame_slot = this->frame_ring().position();
         // depth bias is dynamic state on the shadow pipeline: record the live-tunable values
         // (gui-adjustable) before the depth-only draw
         vkCmdSetDepthBias(command_buffer, this->shadow_depth_bias_constant, this->shadow_depth_bias_clamp, this->shadow_depth_bias_slope);
@@ -1738,7 +1778,7 @@ namespace deren::vulkan {
                     resource_handles const handles = self->pass_resources.resource(id, element);
                     return pass::resolved_binding{.view = handles.view, .buffer = handles.buffer, .image = handles.image};
                 },
-            .frames_in_flight = deren::vulkan::core::MAX_FRAMES_IN_FLIGHT,
+            .frames_in_flight = this->frame_ring().slot_count(),
             .owner = this,
         };
     }
@@ -1859,7 +1899,7 @@ namespace deren::vulkan {
         }
         // The per-slot buffers, each into its own instance: a frame in flight reads its own copy, which is the
         // whole reason those resources exist per slot (see the member docs).
-        uint32_t const slots = static_cast<uint32_t>(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        uint32_t const slots = this->frame_ring().slot_count();
         for (uint32_t slot = 0; slot < slots; ++slot) {
             if (slot < this->camera_buffers.size()) {
                 buffer(render_resource::resource_id::camera_ubo, slot, this->camera_buffers[slot]);
@@ -1986,7 +2026,7 @@ namespace deren::vulkan {
     /// answer (see scene_frame). Built here rather than stored, because every field is this frame's.
     pass::scene_frame runtime::make_scene_frame() noexcept {
         core const& vk = this->vulkan_core;
-        uint32_t const frame_slot = static_cast<uint32_t>(vk.current_frame);
+        uint32_t const frame_slot = this->frame_ring().position();
         // the pass's view of the per-slot secondary buffers (members, so the span it holds outlives the stage)
         auto const& segments = this->main_segments[static_cast<std::size_t>(frame_slot)];
         this->scene_segment_view.clear();
@@ -2160,7 +2200,7 @@ namespace deren::vulkan {
 
     pass::transparent_frame runtime::make_transparent_frame() noexcept {
         core const& vk = this->vulkan_core;
-        auto const& secondaries = this->secondary_command_buffers[static_cast<std::size_t>(vk.current_frame)];
+        auto const& secondaries = this->secondary_command_buffers[static_cast<std::size_t>(this->frame_ring().position())];
         return pass::transparent_frame{
             .leaves = this->frame_transparent,
             .secondary = *secondaries[static_cast<std::size_t>(secondary_pass::transparent)],
@@ -2300,7 +2340,7 @@ namespace deren::vulkan {
         // The per-cascade secondaries live in per-slot pairs (a command pool is not thread safe), so they are NOT
         // contiguous: they are gathered into the scratch array the returned span points at, and that array is a
         // member because a span over a local would dangle the moment this function returned.
-        uint32_t const slot = static_cast<uint32_t>(this->vulkan_core.current_frame);
+        uint32_t const slot = this->frame_ring().position();
         uint32_t const cascades = std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades);
         for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
             this->shadow_secondaries_scratch[cascade] = *this->shadow_recording[slot][cascade].second;
@@ -2490,7 +2530,7 @@ namespace deren::vulkan {
         return pass::resolve_context{
             .resources = &this->frame_resources,
             .frame = this->pass_frame(),
-            .cmd = *this->command_buffers[static_cast<uint32_t>(this->vulkan_core.current_frame)],
+            .cmd = *this->command_buffers[this->frame_ring().position()],
             .extent_of = [](void* owner, render_resource::resource_id const id, uint32_t const element) { return static_cast<runtime*>(owner)->resolve_resource_extent(id, element); },
             .pipeline = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->resolve_pipeline(name); },
             .owner = this,
@@ -2501,7 +2541,7 @@ namespace deren::vulkan {
         core const& vk = this->vulkan_core;
         return pass::frame_identity{
             .image_index = this->current_image_index,
-            .slot = static_cast<uint32_t>(vk.current_frame),
+            .slot = this->frame_ring().position(),
             // the generation's image count, which is what a pass that owns a per-image family sizes it from -
             // and NOT the same number as the image index above
             .image_count = static_cast<uint32_t>(vk.ml_images.size()),
@@ -2741,15 +2781,15 @@ namespace deren::vulkan {
             // `record_stage` (the stages carry no marks), so the command stream is unchanged.
             this->prepare_stage(rt_shadow_stage, command_buffer);
             pass::run_report const rt_shadow_report = pass::record_stage(rt_shadow_stage, this->make_pass_host());
-            if (rt_shadow_report.recorded == 0 && static_cast<std::size_t>(vk.current_frame) < vk.rt_shadow_images.size() &&
-                vk.rt_shadow_images[vk.current_frame] != VK_NULL_HANDLE) {
+            if (rt_shadow_report.recorded == 0 && this->frame_ring().position() < vk.rt_shadow_images.size() &&
+                vk.rt_shadow_images[this->frame_ring().position()] != VK_NULL_HANDLE) {
                 // The pass did not run, but the lighting stage's descriptor still declares the image as
                 // a shader input: its shader samples the binding only under a flag, and Vulkan requires
                 // a statically-used binding's image to be in the layout the descriptor declares whether
                 // or not the value is used. UNDEFINED as the old layout asserts nothing - the same
                 // answer the GI image's off path gives.
                 VkImageMemoryBarrier2 to_sampling = deren::vulkan::undefined_to_sampling_transition;
-                to_sampling.image = vk.rt_shadow_images[vk.current_frame];
+                to_sampling.image = vk.rt_shadow_images[this->frame_ring().position()];
                 VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
                 vkCmdPipelineBarrier2(command_buffer, &sampling_dependency);
             }
@@ -3154,7 +3194,7 @@ namespace deren::vulkan {
     frame_status runtime::end_recording() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::post};
         core& vk = this->vulkan_core;
-        vk_command_buffer& command_buffer = this->command_buffers[static_cast<uint32_t>(vk.current_frame)];
+        vk_command_buffer& command_buffer = this->command_buffers[this->frame_ring().position()];
 
         // close the scene rendering instance and run the post-process pass (exposure/tonemap).
         // The return value says whether a fullscreen pass actually wrote the swapchain image: only
@@ -3274,7 +3314,7 @@ namespace deren::vulkan {
         }
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::submit};
         core& vk = this->vulkan_core;
-        vk_command_buffer& command_buffer = this->command_buffers[static_cast<uint32_t>(vk.current_frame)];
+        vk_command_buffer& command_buffer = this->command_buffers[this->frame_ring().position()];
 
         // Submit + present; recreate the swapchain when presentation reports out of date
         auto const submit_started = std::chrono::steady_clock::now(); // sub-phase marks: what of submit is the
@@ -3284,17 +3324,23 @@ namespace deren::vulkan {
         }
         this->cpu_timings.add(deren::vulkan::profiling::cpu_phase::submit_queue, std::chrono::steady_clock::now() - submit_started);
         auto const present_started = std::chrono::steady_clock::now();
-        VkResult const present_result = vk.present(this->current_image_index);
+        // THE PRESENT LADDER GOES THROUGH THE ERROR MECHANISM: present_error is the PRESENT call
+        // site's translation - SUBOPTIMAL is out_of_date HERE (the frame showed, but the surface is
+        // one resize from gone), the reading the acquire site must NOT inherit.
+        // present() ANSWERS THE CONTRACT'S VOCABULARY now (the translation is the backend's, at the
+        // present call site): the engine reads the code, it never touches a VkResult.
+        rhi::error const presented = vk.present(this->current_image_index);
         this->cpu_timings.add(deren::vulkan::profiling::cpu_phase::present, std::chrono::steady_clock::now() - present_started);
-        if (present_result == VK_ERROR_OUT_OF_DATE_KHR || present_result == VK_SUBOPTIMAL_KHR) {
+        if (presented == rhi::error::out_of_date) {
             deren::utility::log("present out of date, recreating swapchain");
             if (vk.recreate_swap_chain()) {
                 this->on_swapchain_recreated();
             }
-        } else if (present_result != VK_SUCCESS) {
+        } else if (presented != rhi::error::ok) {
             return frame_status::present_failed;
         }
-        vk.to_next_frame();
+        // THE RING ADVANCES THROUGH THE FACE (today's to_next_frame, walked, not poked).
+        this->frame_ring().walk_to_next();
         return frame_status::proceed;
     }
 
