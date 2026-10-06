@@ -353,6 +353,36 @@ option(DEREN_BACKEND_SPIKE
         "build deren_vulkan as a SHARED library plus the boundary spike test (S2 spike; the engine targets will not link)"
         OFF)
 
+# ============================================================================================
+# deren.vulkan.constant_init - THE VULKAN CONSTEXPR BUILDERS, COMPILED FOR BOTH HALVES.
+#
+# WHY IT IS NOT IN deren_vulkan ANY MORE (③-E's import instrument, measured): the module depends on
+# NOTHING but the Vulkan headers (its own header says so), yet the engine imports it in 26 sites across
+# 23 files. While the file sits in deren_vulkan, every one of those imports is an import of a BACKEND
+# module - which the flip's import gate refuses and which a SHARED backend cannot serve at all, because
+# the BMI would have to come from the DLL. Moving the file to a target of its own makes the module
+# neutral (both halves compile it into their own image through this target) and takes those 33 import
+# points off the meter.
+#
+# WHY A TARGET AND NOT "LIST THE SAME .cppm IN BOTH TARGETS": two BMIs of the same module name would
+# both be visible to one TU (vulkancorekit links deren_vulkan PUBLIC, so it inherits deren_vulkan's file
+# set), and a translation unit cannot import the same module from two definitions. The proven shape in
+# this repository is one owning target linked by both - `promise` does exactly that for the contract.
+#
+# FLAGS: the shared COMPILE_OPTIONS set (the foreach below), and deliberately NOT deren_vulkan's
+# `-fno-sanitize=all`: that suppression exists because an INSTRUMENTED DLL cannot carry a second ASan
+# runtime, and this target is never the DLL's code path (the sanitizer job builds no DEREN_BACKEND_SPIKE
+# tree; `promise`, which both halves also share, is not suppressed either).
+# ============================================================================================
+add_library(vulkan_constant_init STATIC)
+target_sources(vulkan_constant_init
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        vulkan/constant_init/constant_init.cppm
+)
+target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
+
 if(DEREN_BACKEND_SPIKE)
     add_library(deren_vulkan SHARED)
 else()
@@ -400,7 +430,9 @@ target_sources(deren_vulkan
         vulkan/init_utils/init_utils.cppm
         vulkan/core/pipeline/pipeline.cppm
         vulkan/core/pipeline/spirv_parser.cppm
-        vulkan/constant_init/constant_init.cppm
+        # (vulkan/constant_init/constant_init.cppm MOVED OUT: it is `vulkan_constant_init` now - the
+        #  engine imports it in 26 places and a backend module cannot serve the flip - see that
+        #  target's comment above deren_vulkan)
     PRIVATE
         vulkan/core/core.cpp
         # The error mechanism's VkResult -> contract-error translation tables (per call-site family,
@@ -425,6 +457,9 @@ target_link_libraries(deren_vulkan
         # The backend implements the contract, so the contract's module is a dependency of THIS target
         # and of nothing else in the backend's direction (promise/rhi/*.cppm imports nothing back).
         promise
+        # The Vulkan constexpr builders both halves compile (see the target's comment above): the
+        # backend keeps using them unchanged, they simply stop being a backend-owned module.
+        vulkan_constant_init
         Vulkan::Vulkan
         glfw
         utility
@@ -684,6 +719,10 @@ target_link_libraries(vulkancorekit
         ${CMAKE_DL_LIBS}
         vstd_lib
         imgui
+        # The constexpr builders the engine imports directly (26 sites): the module is
+        # neutral (compiled once for both halves), which is what takes those imports off the flip
+        # gate's meter - see the target's comment above deren_vulkan.
+        vulkan_constant_init
 )
 
 # Vendored VMA (third_party/vma/vk_mem_alloc.h): vma.cppm includes <vma/vk_mem_alloc.h>,
@@ -1068,7 +1107,7 @@ endif()
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib deren deren_vulkan vulkancorekit utility promise gltf_loader app_config chores ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib deren deren_vulkan vulkan_constant_init vulkancorekit utility promise gltf_loader app_config chores ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
@@ -1202,7 +1241,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt utility promise app_config deren_vulkan vulkancorekit gltf_loader deren)
+    foreach(_tgt utility promise app_config deren_vulkan vulkan_constant_init vulkancorekit gltf_loader deren)
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

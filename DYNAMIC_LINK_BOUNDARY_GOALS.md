@@ -73,12 +73,17 @@
 （BMI 必须来自 DLL）。所以 `--require-zero` 同时扫描 引擎/应用 源文件，对任何
 `import <一个 deren_vulkan 拥有的模块>` 报 FAIL。模块归属取自 CMake 的
 `target_sources(deren_vulkan ...)`，**不看名字前缀**：`vulkan/core/filter/filters.cppm` 声明
-`deren.vulkan.core.filters` 却属于**引擎**（vulkancorekit），而 `vulkan/constant_init/constant_init.cppm`
-属于**后端**。测试源单独统计（它们本来就链后端），不进门。
+`deren.vulkan.core.filters` 却属于**引擎**（vulkancorekit）。
 
-**实测（2026-10-06）**：引擎/应用 **38 个 import 点 / 33 个文件**（扫描 129 个源文件，后端 5 个模块）
-——`deren.vulkan.constant_init` **33**、`deren.vulkan.core` **12**、`deren.vulkan.core.pipeline` **3**；
-测试 1 个文件（`test_error_mapping`）。**这就是动态链接版 runtime 的目标读数：0。**
+**实测（2026-10-06，③-E 落地时）**：引擎/应用 **38 个 import 点 / 33 个文件**（扫描 129 个源文件，
+后端 5 个模块），拆解 `deren.vulkan.constant_init` **26**、`deren.vulkan.core` **9**、
+`deren.vulkan.core.pipeline` **3**（**勘误**：③-E 提交正文里的 33/12/3 是报告前缀重复计数造成的；
+总数 38 无误，拆解应为 26/9/3）；测试 1 个文件（`test_error_mapping`）。**目标读数：0。**
+
+**第一步落地之后（`constant_init` 独立成 target）**：**12 个 import 点 / 12 个文件**，后端模块降到 **4** 个
+（`core` **9** + `core.pipeline` **3**），测试仍 1 个文件。`constant_init` 装的是纯 Vulkan constexpr 构造器，
+归 `vulkan_constant_init` 这个**两半共享**的 STATIC target（与 `promise` 同形：一个 BMI，不会漂移），
+所以它不再是"后端模块"，引擎对它的 import 也不再是越界依赖。**剩下的 12 点才是新 runtime 要清的东西。**
 
 ---
 
