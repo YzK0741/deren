@@ -843,6 +843,20 @@ namespace deren::vulkan {
         }
 
         vkGetSwapchainImagesKHR(logical_device, this->swap_chain, &image_count, nullptr);
+        // THE PROMISE `rhi::max_swapchain_images` MAKES IS KEPT HERE, LOUDLY (③-D/E item A1): a driver that
+        // reports more images than the contract promises would make every caller's per-image array too
+        // small, and the engine sizes those as plain C++ arrays. So this REFUSES - it does not clamp and it
+        // does not resize past the constant. The named message carries both numbers and the reason, because
+        // the fix is a contract decision (the abi-17 `swapchain::image_count()` route), not a retry.
+        if (image_count > deren::promise::rhi::max_swapchain_images) {
+            deren::utility::panic(std::source_location::current(),
+                                  "swapchain: the driver reports {} images but rhi::max_swapchain_images promises at most {} - "
+                                  "the engine's per-image arrays are sized by the contract's number, so this backend cannot serve "
+                                  "that swapchain (clamping is not an option: the images exist). Change the contract's bound "
+                                  "(and every array sized by it) or take the abi-17 swapchain::image_count() route",
+                                  image_count,
+                                  deren::promise::rhi::max_swapchain_images);
+        }
         this->swap_chain_images.resize(image_count);
         vkGetSwapchainImagesKHR(logical_device, this->swap_chain, &image_count, this->swap_chain_images.data());
 

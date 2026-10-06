@@ -1106,6 +1106,14 @@ namespace deren::vulkan {
         /// compiled against its own copy of the contract.
         static_assert(MAX_FRAMES_IN_FLIGHT == static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight),
                       "the backend's frame ring must be the depth rhi::max_frames_in_flight promises");
+        /// THE PER-IMAGE ARRAY BOUND, PINNED FROM THE BACKEND'S SIDE (③-D/E item A1): this backend requests
+        /// at most 4 swapchain images (3-4 in practice), and `rhi::max_swapchain_images` is the number the
+        /// ENGINE sizes its per-image arrays by. `init_swap_chain()`'s refusal is the runtime half of the same
+        /// promise; this is the compile-time half - a constant that grew past what this backend accounts for
+        /// stops the build instead of quietly oversizing every caller's arrays.
+        static constexpr uint32_t max_swapchain_images_requested = 4;
+        static_assert(deren::promise::rhi::max_swapchain_images <= max_swapchain_images_requested,
+                      "rhi::max_swapchain_images must not promise more images than this backend accounts for");
 
         // ---- GPU pass timing (VK_QUERY_TYPE_TIMESTAMP) ----
         // A timestamp pool with one contiguous range of gpu_timing_mark_capacity queries per frame

@@ -895,6 +895,22 @@ export namespace deren::promise::rhi {
     /// backend whose ring is a different size must fail loudly, never overrun a per-slot array).
     inline constexpr std::uint32_t max_frames_in_flight = 2u;
 
+    /// THE PER-IMAGE ARRAY BOUND A BACKEND PROMISES (③-D/E item A1): the swapchain hands out no more than
+    /// this many images, so a caller may size its per-image arrays (targets, views, per-image flags) as a
+    /// C++ array of this many slots.
+    ///
+    /// DATA, NOT A VTABLE - the `max_frames_in_flight` rule, for the same reason: an integer whose only job
+    /// is to size an array must not renumber `abi_version`. The alternative was a `swapchain::image_count()`
+    /// virtual (abi 17), which buys a runtime number the caller would then have to allocate around.
+    ///
+    /// IT IS A PROMISE THE BACKEND KEEPS, NOT A GUESS ABOUT THE DRIVER: a driver that reports MORE images
+    /// than this makes the backend REFUSE THE CREATION LOUDLY - never clamp, never resize past the
+    /// constant, because the caller's arrays are already sized by it. The backend `static_assert`s this
+    /// against its own frozen bound, and the ENGINE asserts an index before it uses one (a panic, never a
+    /// silent out-of-range read). A backend that cannot keep this promise is what the abi-17
+    /// `swapchain::image_count()` route is for.
+    inline constexpr std::uint32_t max_swapchain_images = 4u;
+
     /// The frame ring's cursor, as a BORROWED VIEW - the `command_list` shape, not the owned-handle
     /// one: no `release()`, so `object_manager` cannot wrap it (the type system refuses), and the
     /// `api_core` hands out the same object every call.

@@ -3364,6 +3364,19 @@ namespace deren::vulkan {
         // that old layout would be a lie (validation: "oldLayout is not matching with the current
         // layout"): transition from UNDEFINED instead - the frame has no content to preserve anyway.
         VkImageMemoryBarrier2 present_barrier = post_wrote_swapchain ? present_transition : deren::vulkan::undefined_to_present_transition;
+        // THE PER-IMAGE INDEX IS CHECKED BEFORE IT IS USED (③-D/E item A1: the contract's
+        // `rhi::max_swapchain_images` promise). Every per-image array in this renderer is sized by that
+        // constant, and the engine only ever indexes with the index the ACQUIRE answered - so an index at or
+        // past the bound is a broken invariant, and it is a PANIC carrying both numbers rather than a silent
+        // out-of-range read, a clamp or a wrap.
+        if (this->current_image_index >= rhi::max_swapchain_images) {
+            deren::utility::panic(std::source_location::current(),
+                                  "runtime: the acquired image index {} is at or past rhi::max_swapchain_images ({}) - "
+                                  "the per-image arrays are sized by the contract's bound, so this is a broken invariant "
+                                  "rather than something to clamp",
+                                  this->current_image_index,
+                                  rhi::max_swapchain_images);
+        }
         present_barrier.image = vk.swap_chain_images[this->current_image_index];
 
         VkDependencyInfo const dependency_info = make_image_dependency_info(1, &present_barrier);
