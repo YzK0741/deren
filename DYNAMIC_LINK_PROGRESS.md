@@ -224,4 +224,51 @@ dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**�
 
 **当前状态**：树是**干净的**、两棵树全绿（legacy `ctest` 18/18；dynamic `ctest` 18/18 + `test_runtime_dyn.exe --with-device` 7 checks / 0 failed / 自退出）。S2 的拷贝试验**已全部回滚**，没有半移植状态留在树上。
 
+### 11.1 filter 访问器逐条普查（2026-10-06，写代码之前量的）
+
+方法：全仓 `*.{cpp,cppm,hpp,h}`（含 third_party，命中即为命中）穷举每个访问器名，并覆盖三种到达方式（`runtime->X`、`->X`、`.X`）以及 `pass_resources.` / `filtered_core` 直连；`main.cpp` / `chores.cpp` 单独查（它们分别按指针与引用持 runtime）。
+
+| 访问器 | 活着的调用者 | 裁定 |
+|---|---|---|
+| `user_filter::wait_idle()` | **1：`main.cpp:2861` `runtime->wait_idle();`**（经 `operator->`） | **活**，唯一一个；改接 `rhi::api_core::wait_idle()`（契约现成虚函数，零新增面） |
+| `user_filter::get_device()` | 0（只有 `runtime.declarations.cppm:80/158` 两句注释拿它当例子） | 死代码 → 删 |
+| `user_filter::get_window()` | 0 | 死代码 → 删（GLFW 只由 runtime 构造函数用 `create_info.native_window`，`main.cpp:543` 本来就传） |
+| `user_filter::get_swap_chain_extent()` | 0 | 死代码 → 删（后继事实是 `frame_swapchain()->extent()`，但没有消费者） |
+| `user_filter::get_swap_chain_image_format()` | 0 | 死代码 → 删 |
+| `user_filter::get_current_frame()` | 0 | 死代码 → 删 |
+| `user_filter::get_vma()` | 0（只有 `runtime.declarations.cppm:2226` 注释点名） | 死代码 → 删 |
+| `pass_filter::device()` | 0 | 死代码 → 删 |
+| `pass_filter::swap_chain_image_format()` | 0 | 死代码 → 删 |
+| `pass_filter::swap_chain_extent()` | 0 | 死代码 → 删 |
+| `pass_filter::vma()` | 0 | 死代码 → 删 |
+| `pass_filter::register_resource()` | **`runtime.frames.cppm:1883/1886/1889`** | **活**，且完全不碰 `core` |
+| `pass_filter::resource()` | **`runtime.frames.cppm:1868`** | **活**，且完全不碰 `core` |
+
+**最关键的一条**：`get_vma()` / `vma()` **零调用者**——`vma_allocator*` 只是被存着回答一个没人问的问题。所以它既不是"契约缺面"也不是"要进 escape"：pass 自己分配资源那件事**已经走 S3 的资源模型**（`register_resource`/`resource`，`runtime.frames.cppm` 就是这么用的）。**两个都删，不动 abi。**
+
+**`graphics_queue_family_index`（量的结果，不是猜的）**：两处（`runtime.probes.cppm:86/204`）用途相同——`VkCommandPoolCreateInfo.queueFamilyIndex`，给两段堆探针创建一次性 `VkCommandPool`，record + `vkQueueSubmit` + 等 fence，跑在帧环之外。**不是诊断打印**，所以"去掉这个数据"的代价是**把两段探针重建到契约命令缓冲上**（改变探针测的东西，且属 S3 风险）。裁定：加进 `vulkan_escape`，**abi 16 → 17**，理由「探针必须按原始设备事实分配/提交；escape 正是为表达不了的原生事实准备的；`native_queue()` 只给句柄，反查队列族是探针不该背的风险」——**随 S3（`:probes`）落地**。
+
+### 11.2 共享 filters 批**已落地**：`0abb40a`（2026-10-06）
+
+`vulkan/core/filter/filters.cppm` + `filters.cpp` + legacy `runtime.constructor.cppm`（少一行初始化）+ `runtime.declarations.cppm`（三处注释与 `operator->` 说明），**一批、两棵树同笔**。
+
+- 十个死访问器**删除**（逐条见 §11.1）；`user_filter::wait_idle()` 改接契约虚函数；`pass_filter` **不再持任何设备根**（两个活成员只碰自己的表），改为 `pass_filter() = default`，legacy 的 `pass_resources{core_owner}` 初始化随之删掉。
+- `export import deren.vulkan.core;` → `import deren.promise.rhi;`，**并做了消费者核查**：唯一靠传递性拿到的公开名字是环形深度，它作为 `user_filter::max_frames_in_flight` 继续存在；`controller.cppm` 早已直接用 `deren::promise::rhi::max_frames_in_flight`（其注释写明原因）。**以构建为证**（两棵树），且 import 门下降。
+- 读数：构建 legacy 0 / dynamic 0；`ctest` 18/18 两棵树；`clang-format-check` 0；边界 **legacy 2（2 hit/0 stale）/ dynamic 3（3 hit/0 stale）不动**；import **3 站点/3 文件 → 2 站点/2 文件**；尖刺 96 checks 0 failed 自退出；scaffold `test_runtime_dyn` 7 checks 0 failed 自退出；**渲染 14 哈希逐字节不变 + 校验层零 VUID/ERROR/WARNING**（本批有 C++ 改动、`wait_idle()` 是活路径，故按裁定必须跑）。
+- 一处已记录的复现坑：两棵树**连着**构建时偶发 `unable to open output file '...pcm'`（`ERROR_USER_MAPPED_FILE`）——**重试即过**，两次都是瞬态，不是代码问题（属于 `DYNAMIC_LINK_IMPLEMENTATION.md` §2 "共享构建树竞争"那一类）。
+
+### 11.3 escape 访问器一次清点（S2/S3 共用，**只跳一次号**）
+
+裁定：S2/S3 期间**所有新增 escape 访问器并进一次 abi 16 → 17**。逐点清账后的结论是——**只剩 3 个，全部有零替代方案的证据**：
+
+| 需要的新 escape 访问器 | 谁要 | 为什么没有替代 |
+|---|---|---|
+| `graphics_queue_family_index()` | `runtime.probes.cppm:86/204`（两段堆探针建一次性 `VkCommandPool`） | 契约里既没有（`native_queue()` 只给句柄），反查队列族是探针不该背的风险 |
+| `native_mesh_dispatch()`（`PFN_vkCmdDrawMeshTasksEXT`） | `runtime.cpp:1375/1382`（`draw_mesh_tasks`，参数是**裸 `VkCommandBuffer`**） | 契约的 `mesh_shader::dispatch_mesh` 收的是 `command_list&`，拿不到裸命令缓冲；另加一层"借帧的 list 去录一段独立工作"比一个函数指针复杂且改变探针/路径语义 |
+| `native_mesh_dispatch_indirect()`（`PFN_vkCmdDrawMeshTasksIndirectEXT`） | `runtime.cpp:1394+`（同一原因） | 同上；且契约只声明了**直接**形式（`dispatch_mesh`），间接形式本来就缺 |
+
+**其余全部已被现成契约面覆盖，不需要新增**（逐条已核）：`logical_device`/`instance`/`physical_device`/`graphics_queue_handle` → `escape()` 的 `native_device`/`native_instance`/`native_physical_device`/`native_queue`；`swap_chain_images` → `frame_image()` + `escape().native_image()`；`swap_chain_image_format` / `depth_attachment_format` → `escape().native_image_format(*image)`；`depth_images` / `depth_image_views` / `swap_chain_image_views` → 引擎自建的 `rhi::image` / `image_view` 容器（A1 已把所有权拿过来）；`device_properties` → `escape().native_physical_device()` 上取（或已有查询）；`descriptor_heap_limits.max_push_data` → `descriptor_heap::properties().max_push_data`；`ray_tracing_pipeline_properties` → 契约已有对应查询/扩展；`heap_grid_offset` 的"堆可用"哨兵 → `descriptor_heap::ready()` + `contract_heap_ready()`；`mesh_shader_available` → `abilities()` 的 `mesh_shader` 位；`copy_image_to_memory` → **契约虚函数** `host_image_copy::copy_image_to_memory()`；`frame_readback_buffer()` → **契约虚函数**；`render_extent` → 引擎自维护（`frame_swapchain()->extent()` × `render_scale`）。
+
+
+
 
