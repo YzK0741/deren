@@ -659,6 +659,7 @@ int32_t main() {
 
         std::map<std::string, uint64_t> host_scalars;
         std::map<std::string, uint64_t> host_slots; // the members of core::heap_slots
+        std::size_t parsed_declarations = 0;        // the tooth on the braced-initializer skip (see below)
         bool in_slots = false;
         for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/vulkan/render_layout/render_layout.cppm")) {
             if (line.find("struct heap_slots {") != std::string::npos) {
@@ -689,11 +690,18 @@ int32_t main() {
             std::optional<std::string> const rhs = rhs_after_eq(line, eq);
             // A BRACED INITIALIZER IS NOT A SCALAR, and since A1.0 this file carries more than the grid:
             // `deren.vulkan.render_layout` also declares the render chain's formats (`gbuffer_formats` is
-            // an `std::array`). The grid comparison and the scalar one below can only use a scalar, and a
-            // declaration neither of them can read is not a failure of the file - so it is skipped rather
-            // than reported. (`rhs_after_eq` answers nothing at all for a brace, which is why the check is
-            // on the LINE here instead of on its result. The scalar comparison only looks at `heap_*`
-            // names anyway, so an added non-grid constant was never going to join it.)
+            // an `std::array`).
+            //
+            // THE BOUNDARY OF THIS SKIP, stated so it cannot be widened by accident: it applies ONLY to an
+            // AGGREGATE initializer (`= { ... }`), which neither comparison below can read. A SCALAR
+            // `constexpr` (integer, enum, float) whose value this reader cannot parse is still a FAILURE -
+            // `CHECK_MSG(rhs.has_value())` below is that tooth - because an unreadable scalar is the parser
+            // losing its grip, not the file gaining a declaration.
+            //
+            // AND THE TOOTH IS COUNTED: `parsed_declarations` has a floor asserted after this loop, so a
+            // skip branch that started eating real declarations would fail the test instead of quietly
+            // comparing less. (The floor is deliberately below the grid's current size: it catches a
+            // BRANCH that swallows the file, not a slot that legitimately moves out.)
             {
                 std::string const after_eq = line.substr(eq + 1u);
                 std::size_t const first = after_eq.find_first_not_of(' ');
@@ -706,12 +714,20 @@ int32_t main() {
                 continue;
             }
             std::optional<uint64_t> const value = value_of(*rhs, host_scalars);
+            if (value.has_value()) {
+                ++parsed_declarations;
+            }
             if (in_slots && value.has_value()) {
                 host_slots[name] = *value;
             } else if (!in_slots && value.has_value() && name.rfind("heap_", 0) == 0) {
                 host_scalars[name] = *value;
             }
         }
+        // 40-odd slot members plus the seven `heap_*` scalars today; a floor of 30 cannot be reached by a
+        // reader that skips real declarations, and it is low enough not to break when a slot legitimately
+        // moves out of the grid.
+        CHECK_MSG(parsed_declarations >= 30u, "the grid reader stopped reading the grid");
+        CHECK_MSG(host_scalars.size() >= 6u, "the grid reader stopped reading the grid's scalar constants");
 
         // The six SAMPLER slots are named individually in the header, while the host keeps them as an ordered list
         // (core::shared_sampler_infos, written from core::create_samplers). So they are checked against the sampler
