@@ -140,6 +140,8 @@
 
 ## 8 最终收尾：runtime 移出 `vulkan/`（用户要求，2026-10-06）
 
+**状态（2026-10-06，S1 已落地 `61d6055`）**：「runtime 移出 `vulkan/`」这一条**在 S1 就已经满足**——新的契约-only runtime 从第一行代码起就住在根目录 `runtime/`（`runtime.cppm` + `:declarations` + `:constructor`，模块名与分区名沿用 `deren.vulkan.runtime`，所以 `main.cpp`/pass/测试的 import 行零改动）。第 ③ 步（S5）因此只剩「翻默认 + 删旧 `vulkan/runtime/`」，不再有搬迁动作；S5 的提交正文会显式点名用户这条要求已满足。
+
 **时机**：第 ③ 步原子批次（新 runtime 通过、旧 `vulkan/runtime/` 删除）之后，单独一笔。
 
 **为什么**：引擎的运行时住在后端目录 `vulkan/` 里，是这次拆分留下的结构债——目录位置本身在暗示"runtime 属于后端"。
@@ -151,3 +153,14 @@
 - 连带改动（各写进提交正文）：CMake `target_sources`/file set 路径；**边界基线 JSON 的路径**（文本级替换，别重排 500 行 JSON）；**import 门与三个按路径解析源码的测试**；三份文档里的路径引用。
 
 **见证**：构建 / `ctest` / 格式 / 边界 **3** / 尖刺 / **14 场景哈希逐字节不变** / 校验层 VUID=0，且 **import 读数不得倒退**（10 → 0 的进度在这一笔下保持）。
+
+---
+
+## 9 候选与开放项（记录在案，故意未做——不许悄悄消失）
+
+1. **`primitive::destroy()` 钩子**（import 预备提交 `9d83371` 的收成）：`vulkan/primitive/primitive.cppm` 的纯虚钩子，**当前没有任何调用者**，三个实现的函数体只是 `reset()` 两个契约句柄（析构函数本来就会做），参数 `vma_allocator&` 已按裁定删除（那是该模块 import `deren.vulkan.core` 的唯一理由）。**裁定：钩子留着**（删钩子是另一件事），本项即为它的在案记录。
+2. **前向路径深度**（A1 的下一组）：`depth_images` / `depth_image_views` / `depth_attachment_format` 三项仍归后端所有——它们被 `begin_rendering` 的前向路径读取，A1 有意保留并点名，**不是遗漏**。等前向路径的读取面收窄后再动。
+3. **`bloom` 的 config key**（覆盖缺口）：`runtime.set_bloom` 目前只能从 GUI 到达，所以 bloom 半边无法被任何 capture 见证（`docs/megalights.md` 的「Known limits」有实测）。给 bloom 一个 config key 就能补上这半边门——**独立可选提交**，用户要求才做。
+4. **引擎侧其他文件是否也搬出 `vulkan/`**（`vulkan/pass/`、`vulkan/readback/`、`vulkan/core/filter/` 等）：**翻转之后再议**（用户原话：「先做完再考虑」）。注意 `vulkan/core/filter/` 与 `vulkan/readback/` 正是 import 门剩下的两个真依赖，它们的最终归属和 `core&` 参数一起在步 2/3 收尾。
+5. **动态树的边界门模型**（S1 新发现）：动态树里 `deren_make_api_core`/`deren_destroy_api_core` 成为**新**的引擎→后端引用（这正是设计中的边界，写在 `promise/rhi/backend_entry.hpp`），而 `core::core(create_info const&)` 变**stale**。棘轮规则「没被追踪过的符号不能进白名单」⇒ 动态树需要**自己的一份 baseline + whitelist**（`--baseline`/`--whitelist` 已存在），不能与 legacy 共用一套。**S4 时落地，属用户仪器，故此处只记录不擅自改。**
+
