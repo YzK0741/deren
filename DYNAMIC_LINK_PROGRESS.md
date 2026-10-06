@@ -32,9 +32,11 @@
 
 | 处置 | 数量 | 符号 |
 |---|---|---|
-| **白名单**（裁决 2，有意例外） | **9** | 两条 module initializer（`deren.vulkan.core` 的那条待 §6.1 实测是否随 `:handles` 强制）、`init_utils::create_recording_pool`、`vk_command_buffer` 移动构造/析构/`operator*`、`make_command_buffer`、`make_secondary_command_buffer`、`vk_sampler::operator*` |
+| **白名单**（裁决 2，有意例外） | **9** | 两条 module initializer（`deren.vulkan.core` 那条**已实测确认被强制**：9 个引擎成员引用它）、`init_utils::create_recording_pool`、`vk_command_buffer` 移动构造/析构/`operator*`、`make_command_buffer`、`make_secondary_command_buffer`、`vk_sampler::operator*` |
 | **批③-C 在途**（契约面已在树上） | **7** | `mark_gpu_timing`（原始形）、`begin_gpu_timing`（原始形）、`recreate_swap_chain`、`submit_frame`（已由 `submit` 改名，引擎调用点未切）、`present(uint)`、`render_extent`、`gpu_timing_available` |
 | **批③-D**（最后一步） | **1** | `core::core(create_info const&)` —— 经 `deren_make_api_core()` + `shared_ptr`（deleter = `deren_destroy_api_core`） |
+
+**白名单 3–9 属于 S3/批④ 的录制面迁移**（每线程录制池、`vk_command_buffer` 三件、两个 `make_*command_buffer`、`vk_sampler::operator*`），**不是翻转的门槛**；23 个引用点里 0 个 owning-STL。
 
 ---
 
@@ -92,7 +94,7 @@
 ## 6 剩余路线（批③-C 之后的）
 
 1. **③-D 构造入口**（前提：C 类 7 个已清）：`core_owner` 静态类型改 `shared_ptr<rhi::api_core>`，经 `deren_make_api_core()` 构造。引擎侧已有 `rhi_face()`，加载器与 `detach()` 均已就绪。
-2. **③-E 门重定义**：`--require-zero` → **白名单之外为零**；白名单进门配置、**只减不增**、逐条打印命中。§6.1 的两个实测（`:handles` import 是否强制 initializer；白名单精确条数以 `--list` 为准）**仍未做**。
+2. **③-E 门重定义**：`--require-zero` → **白名单之外为零**；白名单进门配置、**只减不增**、逐条打印命中。§6.1 第 1 项**已实测回答**（`deren.vulkan.core` 的 initializer 被强制，9 个引擎成员引用它 ⇒ 下限 **10** 而非 9）；第 2 项以 `--list` 为准（当前 **10 = 白名单 9 + ③-D 1**）。
 3. **批④ utility 拆分**：`shared_utility`（sink/轮转/panic 汇聚/分配器钩子，C 形状导出）+ `static_utility`（含 `dynamic_link`）；先全 STATIC 行为零变化，翻转时同批转 SHARED；门补"后端 DLL 导入表出现 `shared_utility.dll`"。**零成本前置修复**（轮转只做一次）建议提前。
 4. **步 ④ 翻转本身**。
 
