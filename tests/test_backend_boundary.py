@@ -72,6 +72,12 @@ class BoundaryTests(unittest.TestCase):
                                "--baseline", str(self.baseline), "--whitelist", str(self.whitelist),
                                "--repo-root", str(self.root), *args], capture_output=True, text=True)
 
+    def run_with_config_default(self, *args):
+        """Run WITHOUT the explicit pair/build-dir, so `--config`'s own defaults are what is exercised.
+        The archives are placed in a directory named after neither real build tree, so the path the gate
+        prints is the only thing under test here."""
+        return subprocess.run([sys.executable, str(SCRIPT), *args], capture_output=True, text=True)
+
     def make_application(self):
         return self.make_archive("application.a", "int app_entry(void) { return 0; }")
 
@@ -321,6 +327,62 @@ class BoundaryTests(unittest.TestCase):
         subprocess.run([self.archiver, "rcs", str(self.root / "libderen_vulkan.a"), *objects], check=True)
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    # ---- TWO CONFIGURATIONS, TWO PAIRS (`--config`, step 2 of the flip) -------------------------------
+    #
+    # The crash this guards against: the `--build-dir` default was `None` and reached `flavor_of()`'s
+    # `os.path.join` before anything resolved it (TypeError in ntpath.join), so `--config` did not run at
+    # all. `--config` now (1) resolves the default build dir FIRST, (2) picks the configuration's own
+    # baseline+whitelist pair, and (3) PRINTS which configuration and which tree it measured, `--quiet`
+    # included - a blind quiet run once read as a dynamic-tree measurement while measuring the legacy pair.
+    def run_config_only(self, *args):
+        return subprocess.run([sys.executable, str(SCRIPT), "--build-dir", str(self.root),
+                               "--repo-root", str(self.root), *args], capture_output=True, text=True)
+
+    def test_config_legacy_picks_the_legacy_pair(self):
+        result = self.run_config_only("--config", "legacy")
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("config   legacy", result.stdout)
+        self.assertIn("backend_boundary_baseline.mingw.json", result.stdout)  # or .msvc on an MSVC tree
+        self.assertIn("backend_boundary_whitelist.json", result.stdout)
+        self.assertNotIn("backend_boundary_whitelist_dynamic.json", result.stdout)
+        self.assertIn(str(self.root), result.stdout)
+
+    def test_config_dynamic_picks_the_dynamic_pair(self):
+        result = self.run_config_only("--config", "dynamic")
+        self.assertNotIn("Traceback", result.stderr)
+        self.assertIn("config   dynamic", result.stdout)
+        self.assertIn("backend_boundary_baseline.dynamic.", result.stdout)
+        self.assertIn("backend_boundary_whitelist_dynamic.json", result.stdout)
+        self.assertIn(str(self.root), result.stdout)
+
+    def test_config_identification_survives_quiet(self):
+        result = self.run_config_only("--config", "dynamic", "--quiet")
+        self.assertIn("config   dynamic", result.stdout)
+
+    def test_unknown_config_is_refused(self):
+        result = self.run_config_only("--config", "sideways")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("sideways", result.stderr)
+
+    def test_each_configuration_carries_its_own_baseline_and_whitelist_in_the_repo(self):
+        # The pair files are what make a reading unambiguous: one per configuration, both present, and the
+        # dynamic pair is a different file from the legacy pair (never one shared pair).
+        repository = Path(__file__).resolve().parents[1]
+        scripts = repository / "scripts"
+        self.assertTrue((scripts / "backend_boundary_whitelist.json").is_file())
+        dynamic_whitelist = scripts / "backend_boundary_whitelist_dynamic.json"
+        self.assertTrue(dynamic_whitelist.is_file())
+        self.assertNotEqual((scripts / "backend_boundary_whitelist.json").resolve(), dynamic_whitelist.resolve())
+        payload = json.loads(dynamic_whitelist.read_text(encoding="utf-8"))
+        self.assertEqual(payload["count"], len(payload["entries"]))
+        symbols = {entry["symbol"] for entry in payload["entries"]}
+        # THE DESIGNED BOUNDARY: the C entry, from promise/rhi/backend_entry.hpp - what the design predicts,
+        # not a regression. (Their absence would mean the dynamic pair was built without them.)
+        self.assertIn("deren_make_api_core", symbols)
+        self.assertIn("deren_destroy_api_core", symbols)
+        for entry in payload["entries"]:
+            self.assertTrue(entry["reason"].strip())
 
 
 if __name__ == "__main__":

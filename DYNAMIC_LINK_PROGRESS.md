@@ -162,5 +162,48 @@
 2. **前向路径深度**（A1 的下一组）：`depth_images` / `depth_image_views` / `depth_attachment_format` 三项仍归后端所有——它们被 `begin_rendering` 的前向路径读取，A1 有意保留并点名，**不是遗漏**。等前向路径的读取面收窄后再动。
 3. **`bloom` 的 config key**（覆盖缺口）：`runtime.set_bloom` 目前只能从 GUI 到达，所以 bloom 半边无法被任何 capture 见证（`docs/megalights.md` 的「Known limits」有实测）。给 bloom 一个 config key 就能补上这半边门——**独立可选提交**，用户要求才做。
 4. **引擎侧其他文件是否也搬出 `vulkan/`**（`vulkan/pass/`、`vulkan/readback/`、`vulkan/core/filter/` 等）：**翻转之后再议**（用户原话：「先做完再考虑」）。注意 `vulkan/core/filter/` 与 `vulkan/readback/` 正是 import 门剩下的两个真依赖，它们的最终归属和 `core&` 参数一起在步 2/3 收尾。
-5. **动态树的边界门模型**（S1 新发现）：动态树里 `deren_make_api_core`/`deren_destroy_api_core` 成为**新**的引擎→后端引用（这正是设计中的边界，写在 `promise/rhi/backend_entry.hpp`），而 `core::core(create_info const&)` 变**stale**。棘轮规则「没被追踪过的符号不能进白名单」⇒ 动态树需要**自己的一份 baseline + whitelist**（`--baseline`/`--whitelist` 已存在），不能与 legacy 共用一套。**S4 时落地，属用户仪器，故此处只记录不擅自改。**
+5. **动态树的边界门模型**（S1 新发现，**已落地**，见 §10）：动态树里 `deren_make_api_core`/`deren_destroy_api_core` 成为**新**的引擎→后端引用（这正是设计中的边界，写在 `promise/rhi/backend_entry.hpp`），而 `core::core(create_info const&)` 变 **stale**——那是翻转的目标，不是失败。棘轮规则「没被追踪过的符号不能进白名单」⇒ 动态树有**自己的一份 baseline + whitelist**，现在由 `--config legacy|dynamic` 成对选取。
+
+---
+
+## 10 每配置门（S1 之后新增，用户仪器）
+
+**为什么**：两棵树跨边界的**形状不同**——legacy 引擎引用**具体类**（`core::core(create_info const&)`），dynamic 引擎引用 **C 入口**（`deren_make_api_core` / `deren_destroy_api_core`）。共用一套 baseline + whitelist 会让每棵树把对方的符号报成 stale：噪音，不是边界。
+
+**跑法**（每次运行**先**打印它在量哪个配置、哪棵树——这一行**不受 `--quiet` 影响**，防止读错）：
+
+```powershell
+python scripts/check_backend_boundary.py --config legacy    # 默认 build-release-clang64 + legacy 那一对
+python scripts/check_backend_boundary.py --config dynamic   # 默认 build-release-dyn-clang64 + dynamic 那一对
+```
+
+| 配置 | 默认树 | baseline | whitelist |
+|---|---|---|---|
+| legacy | `build-release-clang64` | `backend_boundary_baseline.mingw.json` | `backend_boundary_whitelist.json` |
+| dynamic | `build-release-dyn-clang64` | `backend_boundary_baseline.dynamic.mingw.json` | `backend_boundary_whitelist_dynamic.json` |
+
+**实测（2026-10-06，S1 树状态；数字以门自己的打印为唯一来源）**
+
+| 项 | legacy | dynamic |
+|---|---|---|
+| 符号 | **2**（baseline 2） | **3**（baseline 3，一次性按动态树实测 `--initialize` 建立） |
+| 引用站点 | 4 | 4 |
+| owning-STL | 0 | 0 |
+| whitelist | 2 hit / 0 stale / 0 untracked | 3 hit / 0 stale / 0 untracked |
+| import | **3 站点 / 3 文件** | **3 站点 / 3 文件** |
+
+- legacy 的 2 = `_ZGIW5derenW6vulkanW4core` + `core::core(create_info const&)`，**原样不动**（2 symbols / 2 hit / 0 stale）。
+- dynamic 的 3 = 同样那两条 + **`deren_make_api_core` / `deren_destroy_api_core`**；`core::core(create_info const&)` 在动态树里**不出现**——它随旧 runtime 一起消失了，**这正是翻转的目标，不是失败**（它只在 legacy 的那一对里）。
+- 两棵树的 **whitelist 都只减不增**，逐条带理由；两个符号加进动态白名单的理由是「**这是设计好的边界**，声明在 `promise/rhi/backend_entry.hpp`」——**没有 `--warn` 通过**。
+- 动态 baseline 的建立是一**次性、有记录**的动作：`--config dynamic --initialize`（3 symbols / 4 sites / 0 owning STL / kit 71 members / backend 1235 defined），提交正文写明理由。
+- **世界在 S5 之后重新变单数**：S5 删掉旧 `vulkan/runtime/` 时，legacy 那一对（baseline + whitelist）随它一起删，只剩动态一套。
+
+两棵树 `--require-zero` 当前都**红**，符号侧**都**已经没有白名单之外的东西（legacy 2 hit、dynamic 3 hit，均 0 stale / 0 untracked）；红的是另外两条，照实分开写：
+
+| 失败项 | legacy | dynamic |
+|---|---|---|
+| import 站点 | `3 站点 / 3 文件`（filters、readback、旧 runtime 的 declarations） | `3 站点 / 3 文件`（同一张清单——旧 runtime 的 declarations 在本树不编译，但 filters 与 readback 仍在） |
+| 应用证据（main/chores） | 有（`main.cpp.obj` + `libchores.a`） | **没有**：S1-S3 期间 dynamic 树按设计不构建 app/chores（`VR_RUNTIME_SERVES_THE_APP=OFF`），所以翻转门报 "needs main/chores evidence" |
+
+dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**：S4 的 file-list swap 让 dynamic 树重新构建 app/chores（`VR_RUNTIME_SERVES_THE_APP` 塌缩），那一栏随之变成「有」。在此之前，dynamic 树的可用读数就是上面那张表——**符号 3 / import 3**。
 

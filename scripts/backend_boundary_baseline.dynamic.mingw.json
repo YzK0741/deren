@@ -1,0 +1,144 @@
+{
+  "application_evidence": {
+    "chores_archives": [],
+    "complete": false,
+    "explicit_app_objects": [],
+    "main_objects": []
+  },
+  "backend_archive": "libderen_vulkan.a",
+  "backend_imports": {
+    "engine_application": [
+      "vulkan/core/filter/filters.cppm:50: import deren.vulkan.core",
+      "vulkan/readback/readback.cppm:26: import deren.vulkan.core",
+      "vulkan/runtime/runtime.declarations.cppm:62: import deren.vulkan.core"
+    ],
+    "sources_scanned": 135,
+    "tests_informational": [
+      "tests/test_error_mapping.cpp:23: import deren.vulkan.core"
+    ]
+  },
+  "backend_modules": [
+    "deren.vulkan.core",
+    "deren.vulkan.core.handles",
+    "deren.vulkan.core.pipeline",
+    "deren.vulkan.init_utils"
+  ],
+  "consumers": [
+    {
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libvulkancorekit.a",
+      "members": [
+        "acceleration_structure.cpp.obj",
+        "acceleration_structure.cppm.obj",
+        "bindings.cppm.obj",
+        "chain.cppm.obj",
+        "character_forward.cpp.obj",
+        "character_forward.cppm.obj",
+        "cluster.cpp.obj",
+        "cluster.cppm.obj",
+        "compute_skin.cpp.obj",
+        "compute_skin.cppm.obj",
+        "controller.cpp.obj",
+        "controller.cppm.obj",
+        "deferred.cpp.obj",
+        "deferred.cppm.obj",
+        "filters.cpp.obj",
+        "filters.cppm.obj",
+        "frame_constants.cppm.obj",
+        "fxaa.cpp.obj",
+        "fxaa.cppm.obj",
+        "geometry_buffer_debug.cpp.obj",
+        "geometry_buffer_debug.cppm.obj",
+        "goo_rim.cpp.obj",
+        "goo_rim.cppm.obj",
+        "graphical_user_interface.cpp.obj",
+        "graphical_user_interface.cppm.obj",
+        "mask_bake.cpp.obj",
+        "mask_bake.cppm.obj",
+        "math.cpp.obj",
+        "math.cppm.obj",
+        "megalights_temporal.cpp.obj",
+        "megalights_temporal.cppm.obj",
+        "megalights_trace.cpp.obj",
+        "megalights_trace.cppm.obj",
+        "meshlet.cppm.obj",
+        "mmd_motion.cpp.obj",
+        "mmd_motion.cppm.obj",
+        "pass.cppm.obj",
+        "pipelines.cppm.obj",
+        "post.cpp.obj",
+        "post.cppm.obj",
+        "primitive.cpp.obj",
+        "primitive.cppm.obj",
+        "profiling.cppm.obj",
+        "ray_traced_shadow.cpp.obj",
+        "ray_traced_shadow.cppm.obj",
+        "ray_tracing.cpp.obj",
+        "ray_tracing.cppm.obj",
+        "readback.cpp.obj",
+        "readback.cppm.obj",
+        "render_environment.cppm.obj",
+        "render_resource.cppm.obj",
+        "runtime.constructor.cppm.obj",
+        "runtime.cppm.obj",
+        "runtime.declarations.cppm.obj",
+        "scene.cpp.obj",
+        "scene.cppm.obj",
+        "scene_tree.cpp.obj",
+        "scene_tree.cppm.obj",
+        "shadow.cpp.obj",
+        "shadow.cppm.obj",
+        "shadow_fit.cpp.obj",
+        "shadow_fit.cppm.obj",
+        "shared.cppm.obj",
+        "taa.cpp.obj",
+        "taa.cppm.obj",
+        "toon_screen_rim.cpp.obj",
+        "toon_screen_rim.cppm.obj",
+        "transparent.cpp.obj",
+        "transparent.cppm.obj",
+        "upscale.cpp.obj",
+        "upscale.cppm.obj"
+      ]
+    }
+  ],
+  "count": 3,
+  "cross_boundary_symbols": [
+    "_ZGIW5derenW6vulkanW4core",
+    "deren_destroy_api_core",
+    "deren_make_api_core"
+  ],
+  "defined_in_backend": 1235,
+  "joiners": [
+    "_ZGIW5derenW6vulkanW4core",
+    "deren_destroy_api_core",
+    "deren_make_api_core"
+  ],
+  "kit_archive": "libvulkancorekit.a",
+  "kit_members": 71,
+  "leavers": [],
+  "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
+  "owning_stl_count": 0,
+  "owning_stl_symbols": [],
+  "reverse_boundary_symbols": [],
+  "stale_consumers": [],
+  "symbol_sources": {
+    "_ZGIW5derenW6vulkanW4core": [
+      "filters.cppm.obj",
+      "readback.cppm.obj"
+    ],
+    "deren_destroy_api_core": [
+      "runtime.constructor.cppm.obj"
+    ],
+    "deren_make_api_core": [
+      "runtime.constructor.cppm.obj"
+    ]
+  },
+  "usages": 4,
+  "whitelist": {
+    "count": 0,
+    "hits": [],
+    "path": null,
+    "stale": [],
+    "untracked_by_the_ratchet": []
+  }
+}

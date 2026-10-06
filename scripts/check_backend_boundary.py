@@ -63,12 +63,34 @@ BASELINES ARE PER TOOLCHAIN (the symbol sets are not comparable across them):
     A tree with no baseline fails; `--initialize` explicitly records the first one.
     `--update` can only reduce an existing set. Neither mutation obeys `--warn`.
 
+TWO CONFIGURATIONS, TWO PAIRS (`--config`, step 2 of the flip)
+    Step 2 builds a SECOND runtime (`runtime/`, contract-only) in its own tree, and the two trees cross
+    the boundary in DIFFERENT SHAPES: the legacy engine still references the CONCRETE CLASS
+    (`core::core(create_info const&)`), while the dynamic engine references the C ENTRY
+    (`deren_make_api_core` / `deren_destroy_api_core`, the interface the flip is built on). Sharing one
+    pair of files would make each tree report the other's symbols as STALE - noise, not a boundary - so
+    each configuration carries its OWN baseline and whitelist, both shrink-only, each with its reasons:
+
+        --config legacy   (default)  backend_boundary_baseline.<flavor>.json
+                                     backend_boundary_whitelist.json
+        --config dynamic             backend_boundary_baseline.dynamic.<flavor>.json
+                                     backend_boundary_whitelist_dynamic.json
+
+    `--config` also picks the default `--build-dir` (build-release-clang64 / build-release-dyn-clang64),
+    and WHICH SET IS BEING MEASURED IS PRINTED ON EVERY RUN, `--quiet` INCLUDED: a blind quiet run once
+    read as a dynamic-tree measurement while it was measuring the legacy pair again, so the
+    identification is deliberately not part of the quiet-able report.
+
+    THE DYNAMIC PAIR IS THE ONE THAT HAS TO REACH ZERO. After step 3 deletes the legacy runtime, the
+    legacy pair is deleted with it and the world is single again (one baseline, one whitelist).
+
 USAGE
     python scripts/check_backend_boundary.py                       # gate against the baseline
     python scripts/check_backend_boundary.py --update              # ratchet down to today
     python scripts/check_backend_boundary.py --list                # the worklist, demangled, + the imports
     python scripts/check_backend_boundary.py --warn                # ordinary checks report failures; mutations/flip stay strict
     python scripts/check_backend_boundary.py --require-zero        # the flip gate: whitelist-aware + import graph
+    python scripts/check_backend_boundary.py --config dynamic      # the contract-only runtime's pair + tree
     python scripts/check_backend_boundary.py --build-dir DIR
     python scripts/check_backend_boundary.py --whitelist PATH      # alternate whitelist (tests)
     python scripts/check_backend_boundary.py --repo-root DIR       # alternate tree for the import scan (tests)
@@ -168,15 +190,41 @@ def resolve_archive(build_dir: str, target: str) -> str:
     )
 
 
-def flavor_of(build_dir: str) -> str:
+def platform_flavor() -> str:
+    """The toolchain key when there is no build tree to inspect (the `--config` default path)."""
+    return "mingw" if sys.platform.startswith("win") else "posix"
+
+
+def flavor_of(build_dir: str | None) -> str:
     """Which baseline this tree's symbol sets are comparable with.
 
     The mangled names, and therefore the counts, differ per toolchain and per standard
     library, so the baseline is keyed rather than shared.
     """
+    if build_dir is None:
+        return platform_flavor()
     if any(os.path.isfile(os.path.join(build_dir, name)) for name in ARCHIVE_NAMES[BACKEND_TARGET][1:]):
         return "msvc"
-    return "mingw" if sys.platform.startswith("win") else "posix"
+    return platform_flavor()
+
+
+# WHICH RUNTIME CONFIGURATION A RUN MEASURES (`--config`). Two trees, two boundary SHAPES, two pairs of
+# files - see the module docstring's "TWO CONFIGURATIONS, TWO PAIRS" for why sharing one pair would be
+# noise. `{flavor}` is filled by `flavor_of(build_dir)` (the toolchain key of the symbol sets).
+CONFIGURATIONS = {
+    "legacy": {
+        "description": "the legacy runtime: the boundary is the CONCRETE CLASS (core::core)",
+        "baseline": "backend_boundary_baseline.{flavor}.json",
+        "whitelist": "backend_boundary_whitelist.json",
+        "build_dir": "build-release-clang64",
+    },
+    "dynamic": {
+        "description": "the contract-only runtime: the boundary is the C ENTRY (deren_make_api_core)",
+        "baseline": "backend_boundary_baseline.dynamic.{flavor}.json",
+        "whitelist": "backend_boundary_whitelist_dynamic.json",
+        "build_dir": "build-release-dyn-clang64",
+    },
+}
 
 
 MEMBER_RE = re.compile(r"^(?P<member>[^:\[\]]+\.(?:obj|o)):\s*$")
@@ -363,8 +411,12 @@ def main() -> int:
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--build-dir", default=os.path.join(repo_root, "build-release-clang64"),
-                        help="the build tree holding both archives")
+    parser.add_argument("--config", choices=sorted(CONFIGURATIONS), default="legacy",
+                        help="WHICH runtime configuration this measures: it picks the baseline+whitelist PAIR and "
+                             "the default build dir (legacy -> build-release-clang64, dynamic -> "
+                             "build-release-dyn-clang64). Printed on every run, --quiet included.")
+    parser.add_argument("--build-dir", default=None,
+                        help="the build tree holding both archives (default: per --config)")
     parser.add_argument("--baseline", default=None,
                         help="baseline json (default: per-toolchain, see the module docstring)")
     parser.add_argument("--update", action="store_true", help="shrink the baseline to today's symbol set")
@@ -389,12 +441,30 @@ def main() -> int:
                              "scanned for engine/application imports of them (default: the repository root)")
     args = parser.parse_args()
 
+    # ---- WHICH CONFIGURATION IS BEING MEASURED, PRINTED BEFORE ANYTHING ELSE ---------------------
+    # A blind `--quiet` run once read as a dynamic-tree measurement while it was measuring the legacy
+    # pair again. The identification is therefore deliberately NOT part of the quiet-able report.
+    configuration = CONFIGURATIONS[args.config]
+    print(f"config   {args.config}: {configuration['description']}")
+
+    # `--config` picks the default build tree; it must be resolved BEFORE anything joins paths with it
+    # (the crash this fixes: the `None` default reached ntpath.join in flavor_of()). The default is made
+    # ABSOLUTE against the repository root, as it was before `--config` existed, so the tool still works
+    # from any working directory.
+    if args.build_dir is None:
+        args.build_dir = configuration["build_dir"]
+        if not os.path.isabs(args.build_dir):
+            args.build_dir = os.path.join(repo_root, args.build_dir)
+    flavor = flavor_of(args.build_dir)
     if args.baseline is None:
-        args.baseline = os.path.join(scripts_dir, f"backend_boundary_baseline.{flavor_of(args.build_dir)}.json")
+        args.baseline = os.path.join(scripts_dir, configuration["baseline"].format(flavor=flavor))
     if args.whitelist is None:
-        args.whitelist = os.path.join(scripts_dir, "backend_boundary_whitelist.json")
+        args.whitelist = os.path.join(scripts_dir, configuration["whitelist"])
     if args.repo_root is None:
         args.repo_root = repo_root
+    print(f"tree     {args.build_dir}  (flavor {flavor})")
+    print(f"baseline {args.baseline}")
+    print(f"whitelist {args.whitelist}")
 
     nm = find_tool(NM_CANDIDATES)
     if not nm:
