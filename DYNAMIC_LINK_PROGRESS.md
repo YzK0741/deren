@@ -331,6 +331,27 @@ dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**�
 
 **下一笔的建议切分（若采纳）**：S2+S3 **合并成一笔"runtime 的六个分区一次进树"**，按上面那份错误清单逐条清；中间态不发布。这比"两笔各自可编译"更诚实——因为中间态**在数学上不存在**。
 
+---
+
+## 13 翻转后的批：`shared_utility::shared_object` 收拾设备根的生命周期（用户新决定，2026-10-06，**记档，现在不做**）
+
+**决定**：在 **`shared_utility`**（批④那个每进程一份的库）里补一个 **`shared_object`**，让引擎侧取设备根的那条路（`get_api_core`）**直接拿到 `shared_object`**，取代今天"裸 `shared_ptr<rhi::api_core>` + 自定义 deleter + 永不卸载"三条规矩各自为政的写法。**`shared_object` 会成为引擎侧唯一构造设备根的方式。**
+
+**为什么**：
+1. 今天的形状是 `shared_ptr<rhi::api_core>` + `deren_destroy_api_core` 作 deleter：**控制块在一侧分配、在另一侧销毁**——跨 DLL 边界最脆的形状之一。同工具链能工作，但"能工作"正是这一路在消灭的那类依赖。
+2. 改成**不透明句柄 + 显式 retain/release**，**引用计数住在后端对象里**（权威在该侧），引擎只拿句柄 ⇒ **没有跨边界控制块**。
+3. 而"进程一份的引用计数/注册表"**正是 `shared_utility` 该管的那类状态**——与日志 sink、轮转、panic 汇聚、分配器钩子同性质，不是新概念。
+4. 顺带把**不变式 4（DLL 永不卸载）**从"三条散落的约定"变成**一条显式的进程级 pin**：进程持一个引用到底，其余正常计数。**`dynamic_link` 留在 exe 侧不变**（它是加载的钥匙，进 `shared_utility` 会形成"先加载 shared_utility 才能加载后端"的引导链）。
+
+**两条不能破的约束**（写下来，否则这个想法会撞坏已定的裁决）：
+1. **契约不依赖 `shared_utility`**（已定：`rhi` 既不依赖 shared 也不依赖 static）。所以**不让 `deren_make_api_core` 返回 `shared_object*`**——那会让契约 ABI 带上一个来自 `shared_utility` 的类型。正确形状：**契约仍只谈 `rhi::api_core*`**；后端新增两个 C 入口 **`deren_retain_api_core` / `deren_release_api_core`**（引用计数在后端对象里）；`shared_utility::shared_object` 是**引擎侧的 RAII 句柄**（进程一份的注册表 + 计数），`get_api_core` 返回它。**契约的返回类型原则不变：按值返回的 POD 冻结、新增函数＝跳号。**
+2. **abi 16 → 17 已预定给 `graphics_queue_family_index()`（随 S3）** ⇒ `shared_object` 方案**另计一次跳号（18）**，**与批④ `shared_utility` 拆分同批**，不塞进 S2/S3，也不为省号提前。
+
+**批④ 原内容不变**（日志 sink / 轮转 / panic 汇聚 / 分配器钩子 + C 形状导出 + 两目标先都 STATIC、翻转时同批转 SHARED）；**`shared_object` 是加在它里面的第二样东西**。
+
+**终局形状（做 S5/翻转时就知道它要来接谁）**：`deren_make_api_core` 仍是契约的 C 入口（返回 `rhi::api_core*`）；后端对象自己带引用计数，两个 retain/release 入口是它的门；`shared_utility::shared_object` 是引擎侧那个**唯一**的设备根持有者，`get_api_core` 交出的就是它；`dynamic_link` 仍在 exe 侧加载后端并按名字取那三个入口（make + retain + release）。
+
+
 
 
 
