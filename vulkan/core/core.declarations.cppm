@@ -1569,4 +1569,53 @@ namespace deren::vulkan {
         void create_sync_objects();
         void create_timestamp_query_pool() noexcept;
     };
+
+    // ---------------------------------------------------------------------------
+    // The error mechanism's backend half (the error-mechanism batch, DYNAMIC_LINK
+    // handoff §4.3/§4.5): the producer and the per-call-site translators. These are
+    // The backend's own vocabulary - nothing here is on the C ABI; the contract
+    // carries the types, this namespace produces and fills them. The declarations
+    // are exported so the tables' unit test (tests/test_error_mapping.cpp) feeds
+    // the REAL translators; the engine never calls them - its error channel lands
+    // with the frame face.
+    // ---------------------------------------------------------------------------
+
+    /**
+     * @brief build the contract's diagnostic for one failure, at the point that FAILED
+     * @param code the decision the caller acts on
+     * @param native_code the raw VkResult, SIGNED (Vulkan's codes are negative)
+     * @param message the backend's static text (a literal; it outlives the call because the
+     *        backend is never unloaded - invariant 4)
+     * @param where just use the default argument: it captures THIS call site, which is the
+     *        backend's failure point - the reason this helper exists instead of callers filling
+     *        error_info{} themselves, and the reason a contract virtual must never take a default
+     *        `where` (a default argument evaluates at the CALL site, which would name the engine)
+     * @return the filled error_info (trivially copyable; api is this backend's graphics_api::vulkan)
+     */
+    export [[nodiscard]] constexpr deren::promise::rhi::error_info failed(deren::promise::rhi::error const code,
+                                                                          std::int32_t const native_code = 0,
+                                                                          std::string_view const message = {},
+                                                                          std::source_location const where = std::source_location::current()) noexcept {
+        return {.code = code, .api = deren::promise::rhi::graphics_api::vulkan, .native_code = native_code, .message = message, .where = where};
+    }
+
+    /// Translate a raw VkResult at the ACQUIRE call site (vkAcquireNextImageKHR). SUBOPTIMAL is a
+    /// state here, not a failure: the acquired image renders fine, so it translates to ok - the
+    /// same VkResult translates to out_of_date at the PRESENT site, which is exactly why the
+    /// translation is per call site rather than one global function.
+    export [[nodiscard]] deren::promise::rhi::error acquire_error(VkResult result) noexcept;
+
+    /// Translate a raw VkResult at the PRESENT call site (vkQueuePresentKHR). SUBOPTIMAL means the
+    /// presentation still showed but the surface is one resize from gone: out_of_date, so the
+    /// caller rebuilds - acquire must NOT inherit this reading, and present must NOT inherit
+    /// acquire's.
+    export [[nodiscard]] deren::promise::rhi::error present_error(VkResult result) noexcept;
+
+    /// Translate a raw VkResult everywhere else (creation, queries, submission): this site has no
+    /// swapchain-shaped knowledge, so neither SUBOPTIMAL (a state the acquire/present sites each
+    /// read their own way) nor OUT_OF_DATE is reinterpreted here - both fall through with everything
+    /// else the tables do not name, keeping the raw value for the caller. INITIALIZATION_FAILED and
+    /// INCOMPATIBLE_DRIVER are creation-shaped failures, hence initialization_failed; the
+    /// *_NOT_PRESENT family and FORMAT_NOT_SUPPORTED are the unsupported mechanism's own codes.
+    export [[nodiscard]] deren::promise::rhi::error generic_error(VkResult result) noexcept;
 } // namespace deren::vulkan

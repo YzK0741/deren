@@ -403,6 +403,10 @@ target_sources(deren_vulkan
         vulkan/constant_init/constant_init.cppm
     PRIVATE
         vulkan/core/core.cpp
+        # The error mechanism's VkResult -> contract-error translation tables (per call-site family,
+        # not one global map: SUBOPTIMAL is ok at acquire and out_of_date at present). Declared in
+        # core.declarations.cppm; the tables' unit test is tests/test_error_mapping.cpp.
+        vulkan/core/core.error.cpp
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
         vulkan/core/core.api_core.cpp
@@ -854,7 +858,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout)
+    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
@@ -1022,6 +1026,16 @@ if(VR_BUILD_TESTS)
     # `cmake --build --target test_dynamic_link` has to build the DLL it opens, or ctest would run a
     # test whose fixture is missing and report a loader error as a test failure.
     add_dependencies(test_dynamic_link probe_backend)
+
+    # The error mechanism's translation tables (vulkan/core/core.error.cpp), fed every plausible
+    # VkResult and asserted per call-site family. Pure CPU: the backend archive is linked for the
+    # translators' definitions only - the test creates no device, no window, no instance - and the
+    # contract module supplies the unified values (rhi::error / error_info / zone_of).
+    target_link_libraries(test_error_mapping
+            promise
+            deren_vulkan
+            vstd_lib
+    )
 
     # ---- the boundary spike (DYNAMIC_LINK_V2.md §4 step 1b) -------------------------------------
     # NOT in VR_TEST_TARGETS on purpose: it loads a DLL and (with --with-device) creates a real
