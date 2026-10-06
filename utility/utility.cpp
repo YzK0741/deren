@@ -3,6 +3,11 @@ module;
 #include <cstdint>
 #include <cstdio> // deren::utility::print(stderr, ...) below needs the stderr macro (not exportable via modules)
 #include <cstring>
+// DO NOT DELETE THIS LINE (clang 22.1.8): the aligned `operator new` declarations must be VISIBLE in
+// this TU. Without <new> the frontend dies with `clang frontend command failed due to signal` while
+// instantiating the `std::format` / `std::string` constructors in write_png below - the same measured
+// crash class that toon_screen_rim.cpp and upscale.cpp carry this include for (see their comments).
+#include <new>
 // The three platform entry points are declared in a HEADER rather than here: a global module fragment
 // may only carry preprocessing directives, and MSVC enforces that (C5202 at /W4, fatal under /WX -
 // clang accepts a declaration in this position, which is why it lived here until MSVC was built).
@@ -62,22 +67,8 @@ void deren::utility::ensure(bool const condition, std::string_view const descrip
     }
 }
 
-[[noreturn]] void deren::utility::panic(std::string_view msg, std::source_location source_location) noexcept {
-    error("program panic!");
-
-    if (!msg.empty()) {
-        error("error info: {}", msg);
-    }
-
-    error("occurred at function [{}] line {}", source_location.function_name(), source_location.line());
-    error("time point: {:%Y-%m-%d %H:%M:%S}", std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
-
-    // Release writes logs through the async log thread; flush before terminating,
-    // otherwise the panic messages above may be lost (std::terminate skips static destructors).
-    wait_log_all();
-
-    std::terminate();
-}
+// deren::utility::panic() is not defined here any more: it is deren.utility.shared's, together with
+// the sink it flushes (batch ④'s split - the process has ONE panic and ONE log file).
 
 double deren::utility::timestamp_delta_milliseconds(uint64_t const begin_ticks, uint64_t const end_ticks, uint32_t const valid_bits, float const nanoseconds_per_tick) noexcept {
     if (valid_bits == 0 || nanoseconds_per_tick <= 0.0f) {
@@ -131,176 +122,21 @@ std::optional<std::string> deren::utility::read_binary_to_string(std::filesystem
     return data;
 }
 
-// ---- Async logging (Meyer singleton, internal implementation) ----
-
-namespace {
-    // Startup rotation for the Release log file: move the previous session's debug.log content
-    // aside to debug.log.old (with a session-end timestamp when the content carries none), then
-    // truncate debug.log so the new session starts fresh. Only called in Release builds (NDEBUG).
-    [[maybe_unused]] void rotate_previous_log() {
-        // Text mode on both sides: the read translates CRLF to LF, the text-mode write
-        // translates LF back to CRLF, so line endings stay consistent with debug.log
-        std::ifstream current_log("debug.log");
-        if (!current_log) {
-            return; // no previous log yet
-        }
-        current_log.seekg(0, std::ios::end);
-        if (current_log.tellg() <= 0) {
-            return; // empty, nothing to rotate
-        }
-        current_log.seekg(0, std::ios::beg);
-
-        std::string const content((std::istreambuf_iterator<char>(current_log)), std::istreambuf_iterator<char>());
-        current_log.close();
-
-        // Cap debug.log.old: once it exceeds the cap, start it fresh (truncate) instead of
-        // appending forever, so the archive stays bounded across many sessions.
-        constexpr uintmax_t old_log_cap = 8ull * 1024ull * 1024ull; // 8 MiB
-        std::ios::openmode const old_mode = [&] {
-            std::error_code ec;
-            uintmax_t const size = std::filesystem::file_size("debug.log.old", ec);
-            return (!ec && size >= old_log_cap) ? (std::ios::out | std::ios::trunc) : (std::ios::out | std::ios::app);
-        }();
-        std::ofstream old_log("debug.log.old", old_mode);
-        if (!old_log) {
-            return;
-        }
-
-        // Timestamp the rotated block so sessions are distinguishable in debug.log.old
-        if (!content.contains("===== session")) {
-            old_log << std::format("===== session ended at {:%Y-%m-%d %H:%M:%S} =====\n",
-                                   std::chrono::floor<std::chrono::seconds>(std::chrono::system_clock::now()));
-        }
-
-        // Normalize to one blank line after every log line, matching the worker's debug.log
-        // format (idempotent: already double-spaced content stays unchanged)
-        std::istringstream lines(content);
-        std::string line;
-        while (std::getline(lines, line)) {
-            if (!line.empty()) {
-                old_log << line << '\n'
-                        << '\n';
-            }
-        }
-        old_log.close();
-
-        // Start the new session with an empty debug.log
-        std::ofstream fresh_log("debug.log", std::ios::out | std::ios::trunc);
-        fresh_log.close();
-    }
-} // namespace
-
-deren::utility::log_sink& deren::utility::log_sink::instance() noexcept {
-    static log_sink instance;
-    return instance;
-}
-
-deren::utility::log_sink::log_sink() {
-#ifdef NDEBUG
-    // Release builds: rotate the previous session's log aside, then append the new session
-    rotate_previous_log();
-    this->file.open("debug.log", std::ios::out | std::ios::app);
-#endif
-    this->worker = std::thread([this] { this->worker_loop(); });
-}
-
-deren::utility::log_sink::~log_sink() {
-    {
-        // Stop accepting BEFORE waking the worker: a message enqueued after the worker has drained
-        // and exited would leave `pending` above zero forever, and wait_all() (called by panic())
-        // would then block the shutdown it is supposed to complete.
-        std::lock_guard lock(this->queue_mutex);
-        this->accepting = false;
-    }
-    this->running = false;
-    this->queue_cv.notify_all();
-    if (this->worker.joinable()) {
-        this->worker.join(); // wait for the worker to drain the queue before exiting
-    }
-#ifdef NDEBUG
-    if (this->file.is_open()) {
-        this->file.close();
-    }
-#endif
-}
-
-void deren::utility::log_sink::worker_loop() noexcept {
-    while (true) {
-        std::string message;
-        {
-            std::unique_lock lock(this->queue_mutex);
-            // Keep waiting for messages; drain the queue before exiting
-            this->queue_cv.wait(lock, [this] { return !this->running || !this->messages.empty(); });
-            if (this->messages.empty()) {
-                if (!this->running) {
-                    break;
-                }
-                continue;
-            }
-            message = std::move(this->messages.front());
-            this->messages.pop();
-        }
-        // Write outside the lock to avoid blocking producers (a blank line follows every
-        // message for readability; messages carry no \n)
-#ifdef NDEBUG
-        if (this->file.is_open()) {
-            this->file << message << '\n'
-                       << '\n'
-                       << std::flush;
-        } else {
-            deren::utility::println("{}", message); // fall back to the terminal if the file cannot be opened
-        }
-#else
-        deren::utility::println("{}", message);
-#endif
-        // Decrement pending only after the write finishes so wait_log_all also covers the message being written
-        {
-            std::lock_guard lock(this->queue_mutex);
-            --this->pending;
-            if (this->pending == 0) {
-                this->drained_cv.notify_all();
-            }
-        }
-    }
-}
+// ---- Async logging: MOVED TO deren.utility.shared (batch ④) ----
+//
+// The sink, its worker thread, its file handle and the startup rotation are the process-wide state
+// this toolkit keeps, so they live in deren.utility.shared now - one of them per process, which is
+// what makes the later SHARED `deren_vulkan` safe (a DLL carrying its own copy would truncate the
+// file the executable's copy is writing). The templates that FORMAT a line (`log(fmt, args...)`,
+// `error(fmt, args...)`, `panic(location, fmt, args...)`) stay in utility.cppm above, because
+// formatting belongs in the caller's instantiation; they hand their text over as a std::string_view.
+// The rotation is claimed once per process by utility/shared/log_rotation_claim.cpp.
 
 std::FILE* deren::utility::standard_output() noexcept {
     // The macro lives HERE and not in the interface: `stdout` expands to a call into the C library's FILE table
     // rather than naming an object, so it cannot cross a module boundary - see the declaration's note for the
     // measured reason the interface does not just include <cstdio> and use the macro directly.
     return stdout;
-}
-
-void deren::utility::log_sink::write(std::string message) {
-    {
-        std::lock_guard lock(this->queue_mutex);
-        if (!this->accepting) {
-            // The sink is shutting down and its worker will not drain anything else: drop the
-            // message instead of queueing it for nobody. Late writes are the normal case, not an
-            // error - static destructors ordered after this singleton still call log()/error().
-            return;
-        }
-        ++this->pending;
-        this->messages.push(std::move(message));
-    }
-    this->queue_cv.notify_one();
-}
-
-void deren::utility::log_sink::wait_all() {
-    std::unique_lock lock(this->queue_mutex);
-    // Return as soon as the sink stopped accepting: any message still counted in `pending` at that
-    // point belongs to a worker that is on its way out, and waiting for it would hang forever.
-    this->drained_cv.wait(lock, [this] { return this->pending == 0 || !this->accepting; });
-}
-
-void deren::utility::error_message(std::string message) {
-#ifdef NDEBUG
-    // Release: hand to the log thread (writes to debug.log)
-    log_sink::instance().write("[ERROR] " + std::move(message));
-#else
-    // Debug: print directly to stderr in red, no queueing (error is usually followed by terminate)
-    deren::utility::print(stderr, "\x1b[31m[ERROR] {}\x1b[0m\n", message);
-#endif
 }
 
 uint64_t deren::utility::xxh3_64bits(std::span<uint8_t const> const data_view) {
@@ -454,7 +290,18 @@ std::expected<void, std::string> deren::utility::write_png(std::filesystem::path
         return std::unexpected(std::format("write_png: cannot open '{}'", path.string()));
     }
     auto const failed = [&path](std::expected<void, std::string> const& result) -> std::expected<void, std::string> {
-        return std::unexpected(std::format("write_png: {} ('{}')", result.error(), path.string()));
+        // NO std::format HERE, AND THAT IS A MEASURED COMPILER WORKAROUND RATHER THAN A STYLE CHOICE.
+        // clang 22.1.8's FRONTEND DIES on this exact call: `clang frontend command failed due to
+        // signal`, SIGSEGV in `Sema::SubstStmt` while instantiating
+        // `std::basic_format_string<char, std::string const&, std::string>::basic_format_string<char[21]>`
+        // and its `__handles_` variable - i.e. a 21-element literal (this string, NUL included, is 20
+        // characters) with two `std::string` arguments, in THIS translation unit (reproduced with the
+        // preprocessed source clang saves; `-fsyntax-only` crashes the same way, so it is Sema, not
+        // codegen). `#include <new>` is already at the top of this file for the older crash class and
+        // does NOT help this one. Concatenation writes the same text and keeps the format machinery out
+        // of this TU; the format-string spelling above (`cannot open '{}'`, one argument) is fine and
+        // stays, which is what makes this a workaround for one shape rather than a blanket ban.
+        return std::unexpected("write_png: " + result.error() + " ('" + path.string() + "')");
     };
 
     constexpr std::array<uint8_t, 8> signature = {0x89u, 'P', 'N', 'G', 0x0Du, 0x0Au, 0x1Au, 0x0Au};

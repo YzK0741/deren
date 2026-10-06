@@ -228,6 +228,107 @@ CONFIGURATIONS = {
 MEMBER_RE = re.compile(r"^(?P<member>[^:\[\]]+\.(?:obj|o)):\s*$")
 
 
+# ---- (b) THE C++ RUNTIME PREMISE OF BATCH ④ (the utility split) -------------------------------
+# The split's relaxed export rules (STL across the seam, a `log(fmt, args...)` template in a module
+# interface) rest on ONE measured fact: the executable imports libc++.dll and uses the UCRT heap, so
+# both images share one C++ runtime and one heap. THAT FACT IS A BUILD CONFIGURATION, NOT A LAW - the
+# tree's older shape linked `-static`, which pins libc++ INTO the image and gives it a private runtime
+# and a private heap; under that configuration an allocation on one side of the seam and a free on the
+# other is undefined. So it is checked on the artifacts here, rather than assumed.
+CPP_RUNTIME_DLL = "libc++.dll"
+# Every image that must import it, WHEN IT EXISTS. `deren_vulkan.dll` is the backend's SHARED spelling
+# (abi 18): the rule is symmetric, so the day that DLL is built this check covers it with no edit.
+CPP_RUNTIME_IMAGES = ("deren.exe", "deren_vulkan.dll")
+
+
+def image_dll_imports(image: str) -> list[str] | None:
+    """The DLL names an image imports, or None when no objdump could be run."""
+    for tool in ("llvm-objdump", "objdump"):
+        path = shutil.which(tool)
+        if path is None:
+            continue
+        proc = subprocess.run([path, "-p", image], capture_output=True, text=True)
+        if proc.returncode != 0:
+            continue
+        names = re.findall(r"DLL Name:\s*(\S+)", proc.stdout)
+        if names:
+            return names
+    return None
+
+
+def check_cpp_runtime(build_dir: str) -> dict:
+    """Which built images import the DYNAMIC C++ runtime, and which do not.
+
+    A STATIC libc++ leaves NO trace of itself in an import table - that ABSENCE is the failure mode
+    this looks for, which is why the question is "is the dynamic runtime imported", never "was a
+    static runtime symbol found". The synthetic trees the unit tests build have no image at all; there
+    the check reports an empty `images` map and the flip gate's application-evidence rule is what
+    demands a real one.
+    """
+    images: dict[str, dict] = {}
+    for name in CPP_RUNTIME_IMAGES:
+        path = os.path.join(build_dir, name)
+        if not os.path.isfile(path):
+            continue
+        imports = image_dll_imports(path)
+        images[name] = {"imports": imports, "dynamic_cxx_runtime": bool(imports and CPP_RUNTIME_DLL in imports)}
+    return {"ok": all(entry["dynamic_cxx_runtime"] for entry in images.values()),
+            "dll": CPP_RUNTIME_DLL, "images": images}
+
+
+# ---- (a) ONE COPY OF THE PROCESS-WIDE HALF, ON THE ARTIFACTS --------------------------------
+# The utility split's subject is STATE: the log sink must exist once per process. In this batch both
+# halves are STATIC, so "once" is a property of the LINK - and the link is decided by what the archives
+# carry. Two questions, both answerable from the archives alone:
+#   1. DOES A SECOND COPY OF THE SHARED TUs EXIST? `libshared_utility.a` owns them; if the engine or
+#      the backend archive also carried `shared_utility.cpp.obj` (or better_pmr / log_rotation_claim),
+#      then two copies of the sink are in the tree, whatever the link does with them.
+#   2. DOES THE OTHER HALF GO TO IT? The engine and backend archives must REFERENCE symbols this one
+#      archive DEFINES (their `log` / `panic` / `init_pmr` call sites). A half that references none is
+#      either not using the toolkit or carrying its own copy - and question 1 tells the two apart.
+# This is the batch's own witness (a): the engine archive and the backend archive reference the SAME
+# shared utility rather than each having one, checked by member names + undefined/defined symbol sets
+# (`nm --defined-only` / `--undefined-only` over the four archives), not by reading the link line.
+UTILITY_SHARED_ARCHIVE = "libshared_utility.a"
+# Every other archive that links the toolkit; the two halves plus the engine library.
+UTILITY_SHARED_CONSUMERS = ("libstatic_utility.a", "libvulkancorekit.a", "libderen_vulkan.a")
+# The TUs that belong to the process-wide half. If one of these member names shows up in another
+# archive, that archive built its own copy of the shared code (the exact thing the split prevents).
+UTILITY_SHARED_MEMBERS = ("shared_utility.cpp.obj", "shared_utility.cppm.obj", "better_pmr.cpp.obj",
+                          "log_rotation_claim.cpp.obj")
+
+
+def check_shared_utility(build_dir: str, nm: str) -> dict:
+    """(a) One copy of the process-wide half, and both halves referencing it - from the archives."""
+    shared_path = os.path.join(build_dir, UTILITY_SHARED_ARCHIVE)
+    if not os.path.isfile(shared_path):
+        # no shared archive in this tree (a synthetic tree, or a build that never linked the toolkit):
+        # nothing to judge, and the flip gate's application evidence is what demands a real one.
+        return {"ok": True, "archive": UTILITY_SHARED_ARCHIVE, "defined_symbols": 0, "copies": [],
+                "referenced_by": {}, "shared_members": []}
+    shared_defined, shared_members = read_symbols(shared_path, nm, defined=True)
+    result: dict = {
+        "ok": True,
+        "archive": UTILITY_SHARED_ARCHIVE,
+        "defined_symbols": len(shared_defined),
+        "shared_members": sorted(m for m in shared_members if m in UTILITY_SHARED_MEMBERS),
+        "copies": [],
+        "referenced_by": {},
+    }
+    for name in UTILITY_SHARED_CONSUMERS:
+        path = os.path.join(build_dir, name)
+        if not os.path.isfile(path):
+            continue
+        _, members = read_symbols(path, nm, defined=True)
+        duplicates = sorted(member for member in UTILITY_SHARED_MEMBERS if member in members)
+        if duplicates:
+            result["copies"].append({"archive": name, "members": duplicates})
+        consumer_undefined, _ = read_symbols(path, nm, defined=False)
+        result["referenced_by"][name] = len(set(consumer_undefined) & set(shared_defined))
+    result["ok"] = (not result["copies"]) and all(count > 0 for count in result["referenced_by"].values())
+    return result
+
+
 def read_symbols(archive: str, nm: str, *, defined: bool) -> tuple[dict[str, list[str]], set[str]]:
     """Return ({symbol: [members]}, {members}) for one archive.
 
@@ -583,6 +684,8 @@ def main() -> int:
     report["backend_modules"] = sorted(backend_modules)
     report["backend_imports"] = {"engine_application": imports["engine"], "tests_informational": imports["tests"],
                                  "sources_scanned": imports["scanned"]}
+    report["cpp_runtime"] = check_cpp_runtime(args.build_dir)
+    report["shared_utility"] = check_shared_utility(args.build_dir, nm)
 
     if args.report:
         if os.path.normcase(os.path.realpath(args.report)) == os.path.normcase(os.path.realpath(args.baseline)):
@@ -627,6 +730,36 @@ def main() -> int:
         if not application_evidence:
             print("FAIL: the flip gate needs main/chores evidence (or explicit --app-object for another layout)")
             failed = True
+        # ---- (b) THE C++ RUNTIME PREMISE -------------------------------------------------------
+        # The utility split's STL-across-the-seam ruling is only sound while one libc++ (and one heap)
+        # is shared by every image. A STATIC libc++ makes the DLL carry a private runtime and heap, and
+        # then an allocation on one side and a free on the other is undefined - so a tree that linked
+        # it statically must not read as green. The check reads whichever images exist; the
+        # application-evidence rule above is what refuses a tree that has none.
+        cpp_runtime = report["cpp_runtime"]
+        for image_name, entry in cpp_runtime["images"].items():
+            if not entry["dynamic_cxx_runtime"]:
+                print(f"FAIL: {image_name} does not import {cpp_runtime['dll']} - it was linked against a "
+                      f"STATIC C++ runtime, so it holds a private runtime and a private heap. The utility "
+                      f"split's STL-across-the-seam ruling (batch ④) depends on ONE shared runtime; "
+                      f"relinking with the default dynamic runtime is what fixes this.")
+                failed = True
+        # ---- (a) ONE COPY OF THE PROCESS-WIDE HALF -----------------------------------------------
+        # The split exists because the log sink must exist once per process. Both halves are STATIC in
+        # this batch, so the archive layering is the evidence: the shared TUs live in exactly one
+        # archive, and the engine and the backend reference what it defines.
+        shared_utility = report["shared_utility"]
+        if shared_utility["copies"]:
+            print(f"FAIL: {len(shared_utility['copies'])} archive(s) carry their OWN copy of the "
+                  f"process-wide utility TUs - the log sink would exist twice in one process")
+            for copy in shared_utility["copies"]:
+                print(f"    COPY     {copy['archive']}: {', '.join(copy['members'])}")
+            failed = True
+        for archive_name, references in shared_utility["referenced_by"].items():
+            if references == 0:
+                print(f"FAIL: {archive_name} references NONE of {UTILITY_SHARED_ARCHIVE}'s defined symbols - "
+                      f"it either does not use the shared toolkit or carries its own copy of it")
+                failed = True
         if imports["engine"]:
             engine_files = sorted({record.split(":", 1)[0] for record in imports["engine"]})
             print(f"FAIL: {len(imports['engine'])} import site(s) in {len(engine_files)} engine/application file(s) "
@@ -650,6 +783,24 @@ def main() -> int:
         print(f"engine   {os.path.basename(kit_archive):<24} "
               f"{len(kit_members)} members; {len(cross)} unique backend symbols across {len(consumers)} consumer(s)")
         print(f"usage    {usages} reference sites; {len(owning)} symbol(s) carry owning STL")
+        # (b) the C++ runtime premise: printed every run, because it is what makes the utility
+        # split's relaxed export rules sound (see the helper's note).
+        cpp_runtime = report["cpp_runtime"]
+        if cpp_runtime["images"]:
+            for image_name, entry in cpp_runtime["images"].items():
+                state = f"imports {cpp_runtime['dll']}" if entry["dynamic_cxx_runtime"] else f"MISSING {cpp_runtime['dll']} (STATIC C++ runtime)"
+                print(f"cxx      {image_name:<24} {state}")
+        else:
+            print(f"cxx      no deren.exe/deren_vulkan.dll in this tree - nothing to read (see the flip gate's "
+                  f"application evidence)")
+        # (a) one copy of the process-wide half, from the archives
+        shared_utility = report["shared_utility"]
+        if shared_utility["defined_symbols"]:
+            references = ", ".join(f"{name}={count}" for name, count in shared_utility["referenced_by"].items())
+            print(f"shared   {shared_utility['archive']:<24} {shared_utility['defined_symbols']} defined symbols; "
+                  f"references to them: {references}; own copies elsewhere: {len(shared_utility['copies'])}")
+        else:
+            print(f"shared   no {shared_utility['archive']} in this tree - nothing to read")
         print()
 
         by_category: dict[str, int] = defaultdict(int)

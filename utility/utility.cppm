@@ -1,10 +1,29 @@
 // ============================================================================
 // module: utility
-// module version: 0.8.0a  (independent of the app version in CMakeLists project(VERSION))
+// module version: 0.9.0a  (independent of the app version in CMakeLists project(VERSION))
 //
 // Pure-CPU toolkit: data_block, BVH, thread_pool, frame_clock / frame_stats,
-// better_pmr (mimalloc routing), content hashing. Standalone - no Vulkan or app
-// dependency, link it into any host.
+// content hashing, the platform entry points, and the loader. Standalone - no Vulkan
+// or app dependency, link it into any host.
+//
+// THE STATIC (PER-HALF) HALF OF THE SPLIT (batch ④). This module owns everything that is
+// per-object or pure, plus deren.utility.dynamic_link; the PROCESS-WIDE state (the log sink, its
+// rotation and file handle, panic convergence, the allocator hook) lives in deren.utility.shared,
+// which this module RE-EXPORTS. TWO THINGS WORTH KNOWING WHILE READING IT:
+//   - THE SPLIT IS ABOUT STATE, NOT MEMORY. Its one reason is that the log sink must exist once per
+//     process: two copies mean two `ofstream`s on one debug.log and two startup rotations, and
+//     `rotate_previous_log()` truncates the file the other copy is still writing. STL and the heap
+//     are NOT the reason and are not restricted here - the user's batch-④ ruling allows std::string /
+//     std::vector / std::function / std::pmr and format templates across the seam, on the measured
+//     basis that the executable imports libc++.dll and uses the UCRT heap (one runtime, one heap; see
+//     the C++-runtime check in scripts/check_backend_boundary.py).
+//   - `log` / `error` / `panic` stay HERE as inline templates: the formatting happens in the
+//     caller's instantiation and the result is handed over as a std::string_view to the shared sink,
+//     so no template needs exporting. `panic` itself, `log_text` / `error_text` / `wait_log_all` and
+//     `init_pmr` come from deren.utility.shared - one per process, which is the whole point.
+// 0.8.0a -> 0.9.0a because `:better_pmr` moved to the shared module (a partition name is interface:
+// `import deren.utility:better_pmr;` no longer names it) and the sink/panic moved out; every
+// consumer of `import deren.utility;` is unchanged, because the shared module is re-exported below.
 //
 // evolve: bump MAJOR on breaking interface changes, MINOR on additive features,
 //         PATCH on internal fixes - independently of the rest of the project.
@@ -16,13 +35,16 @@ module;
 export module deren.utility;
 export import deren.vstd;
 import deren.promise.rhi;
-// Forward-export every utility submodule so consumers only need `import utility;`
+// The process-wide half (sink + rotation + panic + allocator hook) is re-exported, so a consumer
+// that imports this module names them exactly as before the split and does not have to know where
+// the seam is. The direction is one-way: deren.utility.shared never imports this module.
+export import deren.utility.shared;
+// Forward-export every per-half submodule so consumers only need `import utility;`
 // (frame_clock / frame_stats are the frame-loop time + fps helpers; data_block /
-// bvh / better_pmr / thread_pool cover the rest). Submodules stay individually
-// importable for callers that want only one of them.
+// bvh / thread_pool cover the rest). Submodules stay individually importable for
+// callers that want only one of them.
 export import :data_block;
 export import :bvh;
-export import :better_pmr;
 export import :frame_clock;
 export import :frame_stats;
 export import :thread_pool;
@@ -113,14 +135,10 @@ namespace deren::utility {
         void do_cleanup() noexcept;
     };
 
-    /**
-     * @ingroup utility
-     * @brief use when program cause a terminating error
-     * @param msg error message
-     * @param source_location just use the default argument it will get call position info for better error print
-     * @note thread safe
-     */
-    export [[noreturn]] void panic(std::string_view msg = "", std::source_location source_location = std::source_location::current()) noexcept;
+    // [[noreturn]] void panic(std::string_view, std::source_location) is NOT declared here: it is
+    // deren.utility.shared's, the process's one panic (re-exported above), because the report has to
+    // go through the one sink. The template below stays here so the FORMATTING is the caller's - the
+    // formatted text crosses as a view.
 
     /**
      * @ingroup utility
@@ -625,43 +643,10 @@ namespace deren::utility {
      */
     export std::optional<std::string> read_binary_to_string(std::filesystem::path const& path);
 
-    /**
-     * @ingroup utility
-     * @brief asynchronous logging sink (Meyer's singleton), internal implementation
-     * @note
-     *      - messages are pushed to a thread-safe queue; a background thread keeps popping
-     *        them and writes each one: to the terminal in Debug builds (NDEBUG unset),
-     *        to a debug.log file in Release builds (NDEBUG set)
-     *      - not exported; use the deren::utility::log() function template instead
-     */
-    class log_sink { // NOLINT
-        std::mutex queue_mutex = {};
-        std::condition_variable queue_cv = {};
-        std::condition_variable drained_cv = {}; // notifies when the queue has been drained
-        std::queue<std::string> messages = {};
-        std::size_t pending = 0; // messages pending write (queued + currently being written)
-        std::thread worker = {};
-        std::atomic<bool> running = true;
-        // Whether write() still enqueues. Cleared by the destructor BEFORE it signals the worker to
-        // drain and exit, and read under queue_mutex - so a write that arrives during (or after)
-        // teardown is dropped rather than queued for a worker that is already gone. That matters
-        // because wait_all() would then block forever on a pending count nothing will ever decrement,
-        // and panic() calls wait_all() - i.e. the one path that must not hang is the one that would.
-        bool accepting = true;
-        std::ofstream file = {}; // Release builds write to debug.log
-
-        log_sink();
-        ~log_sink();
-        void worker_loop() noexcept;
-
-    public:
-        log_sink(log_sink const&) = delete;
-        log_sink& operator=(log_sink const&) = delete;
-
-        static log_sink& instance() noexcept;
-        void write(std::string message);
-        void wait_all();
-    };
+    // class log_sink is NOT declared here any more: the sink (queue, worker thread, file handle) is
+    // deren.utility.shared's, so that ONE of it exists per process - the whole point of the split.
+    // The templates below are this module's, and they reach it through the exported non-template
+    // `log_text` / `error_text` cores.
 
     /**
      * @ingroup utility
@@ -670,10 +655,15 @@ namespace deren::utility {
      * @param fmt the format string (compile-time checked)
      * @param args arguments to format
      * @note output goes to the terminal in Debug builds, to a debug.log file in Release builds
+     * @note THE FORMATTING HAPPENS HERE, IN THE CALLER'S INSTANTIATION: the formatted line is a
+     *       temporary std::string on this side and crosses to the sink as a std::string_view, which
+     *       the sink copies. A design choice rather than a restriction (STL is allowed across the
+     *       seam - see the header): it keeps the template in the caller's instantiation and needs no
+     *       exported symbol.
      */
     export template <typename... Args>
     void log(std::format_string<Args...> fmt, Args&&... args) {
-        log_sink::instance().write(std::format(fmt, std::forward<Args>(args)...));
+        log_text(std::format(fmt, std::forward<Args>(args)...));
     }
 
     /**
@@ -685,12 +675,8 @@ namespace deren::utility {
      *      - for format-string usage prefer the template overload
      */
     export void log(std::string_view message) {
-        log_sink::instance().write(std::string(message));
+        log_text(message);
     }
-
-    // Internal: error message output — Debug writes directly to stderr in red (bypassing the log queue;
-    //       error is usually followed by terminate), Release hands it to the log thread for debug.log
-    void error_message(std::string message);
 
     /**
      * @ingroup utility
@@ -699,10 +685,11 @@ namespace deren::utility {
      * @tparam Args argument types
      * @param fmt the format string (compile-time checked)
      * @param args arguments to format
+     * @note the formatting and its lifetime rule are `log`'s above; `error_text` is the shared core
      */
     export template <typename... Args>
     void error(std::format_string<Args...> fmt, Args&&... args) {
-        error_message(std::format(fmt, std::forward<Args>(args)...));
+        error_text(std::format(fmt, std::forward<Args>(args)...));
     }
 
     /**
@@ -712,17 +699,11 @@ namespace deren::utility {
      * @param message the message (string literal, const char*, std::string or std::string_view)
      */
     export void error(std::string_view message) {
-        error_message(std::string(message));
+        error_text(message);
     }
 
-    /**
-     * @ingroup utility
-     * @brief block until all log messages queued so far have been written by the log thread
-     * @note useful before shutdown or before reading output that must be complete
-     */
-    export void wait_log_all() {
-        log_sink::instance().wait_all();
-    }
+    // wait_log_all() is NOT declared here: it is deren.utility.shared's (re-exported above), since
+    // what it waits on is the one process-wide queue.
 
     /**
      * @defgroup hash Content Hashing

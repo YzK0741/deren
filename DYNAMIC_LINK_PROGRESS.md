@@ -527,3 +527,101 @@ uploaded`），补上 `deren-ab\` 之后 14/14 逐字节相同。**结论**：�
 
 * **G1 已落地**：`check_render.ps1` 在开跑前检查本次选择真正需要的那几个本地文件（**按场景声明**，不是从 `model`/`extra` 推导——`laevatain_no_sidecar` 的 `.toon.tsv` 是**故意不存在**的，那一份缺失就是它的对照），缺哪个就打印 **缺失文件 + 需要的场景 + 缺的是哪一棵树（`chars\` / `deren-ab\`）** 并 `exit 1`，**一个场景都不渲染**。实测两条路径：藏起 `deren-ab\...\PreIntegratedFGD_GGXDisneyDiffuse.png` → `REFUSING TO RUN ... missing tree(s): deren-ab\` 并 exit 1；放回去 → 正常跑出 `CF5A34D8DF6B6FFC`。为什么不能只在报告里标注：缺资产**不报错**，它渲染出**另一张图**，汇总里就是 14 里的 2 个 CHANGED——与一次渲染回归**逐字相同**，报告写在判据之后，判据已经错了。
 * **G2 已落地**：`scripts/compare_render_hashes.py` 成为**仓库里的标准门**（不再是 build 目录里的产物），两种模式：`--against <另一棵树那一轮的输出>`（双树期）与 `--frozen`（只剩一棵时对冻结十四；不带参数即此模式）。`check_render.ps1` 现在**每一轮都把实际哈希写成** `render-check/render_hashes.txt`，并新增 `-Compare frozen|<文件>`：给出 `-Compare` 时，比对脚本的判定**取代**脚本自己那套旧参考集判定，**并成为 exit code**；`--expect` 传本轮**应当**渲染的场景数，少一个就不算过（与 `-Only` 空选择必须报错同一条纪律）。标准门命令与读数：`pwsh -File scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare frozen` → **exit 0**，`against the frozen fourteen: matched 14, mismatched 0`，同时汇总里仍是 `changed: 12`（旧参考集，按设计如此）。
+
+## 17 批④：`utility` 拆成 `shared_utility`（进程级）与 `static_utility`（每半一份）（2026-10-06）
+
+**结论先写**：拆分落地，**无 abi 变化、无行为变化**——`deren.exe` 的 14 个场景哈希对冻结清单仍是
+**matched 14 / mismatched 0**，边界 2/0 stale、**import 0**、`--require-zero` **exit 0**。
+接手点是你提交的 WIP 快照 `2377abc`（两个目标 + 新 sink 模块已经写好、树编不过）；本笔把它修到全门。
+
+### 17.1 拦住整条链的那个"编译器崩"，以及修法
+
+**症状**：`FAILED: CMakeFiles/static_utility.dir/utility/utility.cpp.obj`，`clang frontend command
+failed due to signal`（不是普通 error）。`#include <new>`（你在交接里点的第一次尝试）**已经在文件里**了，
+对这一类无效——崩溃点不是对齐 `operator new`。
+
+**实测定位**（clang 22.1.8，日志里的栈 + clang 自己落盘的预处理源码）：
+
+* 帧 `1. utility/utility.cpp:293:97: current parser token ')'`／`2. ...:258 parsing function body
+  'deren::utility::write_png'` —— 就是 `write_png` 里那个错误消息 lambda；
+* `6. .../__format/format_functions.h:371: instantiating function definition
+  'std::basic_format_string<char, const std::string&, std::string>::basic_format_string<char[21]>'`、
+  `7. ...:389 instantiating variable definition '...::__handles_'`；
+* 崩溃在 `Sema::SubstStmt`（`-fsyntax-only` 一样崩，所以是 Sema 不是 codegen）。
+
+即：**一个字面量 21 元素（20 字符 + NUL）、两个 `std::string` 实参的 `std::format` 调用**，在**这个 TU**
+里让 22.1.8 的前端段错误。修法是**把这个形状从该 TU 里拿掉**（`utility.cpp:292-294`）：
+
+```cpp
+return std::unexpected("write_png: " + result.error() + " ('" + path.string() + "')");
+```
+
+同一函数里的 `std::format("write_png: cannot open '{}'", path.string())`（单实参）**留着**——它不崩，
+这正说明这是一次针对**一个形状**的规避而不是全面禁用（注释写在事故点，含 `-fsyntax-only` 这一条证据）。
+
+### 17.2 用户刚定的三条放松：落实位置
+
+1. **接口是 C++、不做 C shim**——本来就是（`deren.utility.shared` 直接导出 C++），现在**写成设计声明**
+   （`CMakeLists.txt` 与 `utility/shared/shared_utility.cppm` 的头部：三条放松逐条列出，并说明"后来者别把它
+   '修'成 C shim"）。
+2. **允许 STL**（`std::string`/`std::vector`/`std::function`/`std::span`/`std::pmr`，`log(fmt,args…)` 可以是
+   接口里的模板）——旧的"**NO OWNING OBJECT CROSSES BY VALUE** / 两半不能共用一个 allocator"那段论证**整段删掉**，
+   换成实测依据：`deren.exe` 导入 `libc++.dll` 且用 UCRT 堆 ⇒ 一个 C++ 运行时 + 一个堆，跨 DLL 分配安全。
+   仍然按 view 传的地方（`log_text(std::string_view)`）**改写成设计选择**而不是禁令（sink 在自己这一侧拷贝、
+   格式化留在调用者模板里，所以不需要导出模板符号）。
+3. **拆分的真正理由是"模块内状态各一份"，不是堆也不是 STL**——`CMakeLists.txt` / `shared_utility.cppm` /
+   `utility.cppm` / `shared_utility.cpp` 四处都改成这条：两份 sink = 两个 `ofstream` 写同一个 `debug.log` +
+   两次启动轮转，而 `rotate_previous_log()` **TRUNCATE** 另一份还开着的文件；`log_rotation_claim.*`（按进程 id
+   命名的 OS 对象）作为"每个进程只轮转一次"的守卫**保留**。`shared_object`（堆/分配器那件事）明确写成
+   **abi 18 的工作**，与本批无关。
+
+### 17.3 本批自己的两条见证（都要机器可查，已进 `scripts/check_backend_boundary.py`）
+
+**(a) 引擎归档与后端归档引用的是同一份共享工具，不是各一份。** 查法：对四个归档跑
+`nm --defined-only` / `--undefined-only`（脚本里的 `read_symbols`），两个问题：
+①**有没有第二份拷贝**——`shared_utility.cpp.obj` / `shared_utility.cppm.obj` / `better_pmr.cpp.obj` /
+`log_rotation_claim.cpp.obj` 这四个成员名，除了 `libshared_utility.a` 之外**任何一个归档里出现就是 FAIL**；
+②**另一半是不是真在用这一份**——引擎/后端归档的未定义符号必须与该归档的定义集**有非空交集**（它们调用的
+`log`/`panic`/`init_pmr`）。
+读数（本笔，`check_backend_boundary.py` 每轮都打印）：
+
+```
+shared   libshared_utility.a      209 defined symbols;
+         references to them: libstatic_utility.a=3, libvulkancorekit.a=3, libderen_vulkan.a=3;
+         own copies elsewhere: 0
+```
+
+**(b) `deren.exe` 导入 `libc++.dll`，且没有目标链入静态 libc++。** 查法：`llvm-objdump -p <image>` 读导入表
+（静态 libc++ 的特征是导入表里**没有** `libc++.dll`，所以问句是"动态运行时在不在"，而不是"有没有静态符号"）。
+镜像清单 `CPP_RUNTIME_IMAGES = (deren.exe, deren_vulkan.dll)`——**后端 DLL（abi 18）一建出来就自动纳入同一条
+规则**。读数：
+
+```
+cxx      deren.exe                imports libc++.dll
+```
+
+两条都在 `--require-zero` 里**会判 FAIL**（不是只打印），脚本的合成树没有 exe/共享归档时按"无可读"跳过，
+所以 `tests/test_backend_boundary.py` 的 40 个用例行为不变（18/18 的计数也不变）。
+
+### 17.4 门读数（本笔实交，唯一存活的树 `build-release-dyn-clang64`）
+
+| 项 | 读数 |
+|---|---|
+| 构建 | exit 0 |
+| `ctest` | **18/18** |
+| `clang-format-check` | 0 |
+| `check_backend_boundary.py --require-zero` | **exit 0**；边界 **2 symbols / 2 hit / 0 stale**；**import 0 站点 / 0 文件**；外加 17.3 的 (a)(b) 两条 |
+| 尖刺 `--with-device` | 96 checks / 0 failed / 自退出 |
+| scaffold `test_runtime_dyn --with-device` | 7 checks / 0 failed / 自退出 |
+| 渲染 `check_render.ps1 -Full -Compare frozen` | **exit 0**，`matched 14 / mismatched 0`（VUID 扫描同前，零命中） |
+| abi | **不变**（本批没有 contract 改动） |
+
+### 17.5 本批没做 / 没能验证的
+
+* **abi 18 那一批**（单导出 `deren_make_api_core` 返回 `std::shared_ptr`、删 `deren_destroy_api_core` /
+  `deren_abi_version`、白名单 2 → 1）按你的指示**不在本批**。
+* `shared_utility` 仍是 **STATIC**：本批只落地拆分并证明"零行为变化"，它与 `deren_vulkan` 一起变 SHARED 是
+  下一批（两个一起翻会让拆分本身不可验证）。
+* **(b) 只有门在跑，没有单元测试**：造一个"不导入 `libc++.dll` 的 PE"超出这个测试夹具的范围，所以它的守卫
+  是**每轮门运行**而不是 `tests/` 里的用例——这一点照实写在这里。
+* `deren_vulkan.dll` 目前**不存在**（后端还是 STATIC），所以 (b) 的镜像清单里现在只有 `deren.exe` 一项被读到。

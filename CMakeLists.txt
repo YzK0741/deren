@@ -217,16 +217,107 @@ else()
     )
 endif()
 
-add_library(utility STATIC)
+# =============================================================================================
+# THE UTILITY TOOLKIT IS TWO TARGETS (batch ④, the dynamic-backend flip's prerequisite).
+#
+# WHY TWO, and it is a measured hazard rather than tidiness: the toolkit is STATIC and BOTH halves
+# of the RHI boundary link it, so one process holds one copy of everything - the log sink included.
+# THE FLIP BREAKS THAT: `deren_vulkan` becomes SHARED, the DLL carries its own copy of every
+# library it links, and the process then holds TWO sinks - two `ofstream`s on the same debug.log,
+# two startup rotations, and `rotate_previous_log()` TRUNCATES the file the other copy still has
+# open and appends to (interleaved lines, holes, two sessions in one debug.log.old). The boundary
+# gate is blind to it by construction: it measures deren_vulkan ∩ vulkancorekit, and this is a
+# third library that defines no backend symbol.
+#
+# THE SEAM IS STATE, NOT DIRECTORY:
+#   shared_utility  - the PROCESS-WIDE state: the log sink (queue, worker thread, file handle), the
+#                     startup rotation, panic convergence, and the allocator hook (`:better_pmr`
+#                     sets the process's default std::pmr resource).
+#   static_utility  - everything per-object or pure, plus the loader: data_block, BVH, frame_clock,
+#                     frame_stats, thread_pool, the platform_* TUs, deren.utility.dynamic_link, and
+#                     the printing / byte-writer TEMPLATES (`log` / `error` / `panic` format in the
+#                     caller's instantiation and hand the result over as a std::string_view).
+#
+# BOTH ARE STATIC IN THIS BATCH, on purpose: the split lands and is verified first with ZERO
+# behaviour change (one sink today, exactly as before), and `shared_utility` becomes SHARED in the
+# same batch as `deren_vulkan`. Flipping the two together would make the split itself unverifiable.
+#
+# ONE TARGET PER MODULE NAME, EVEN THOUGH BOTH HALVES COMPILE EACH MODULE: `shared_utility` owns
+# `deren.utility.shared` (with its `:better_pmr` partition); `static_utility` owns `deren.utility`
+# (with `:data_block` / `:bvh` / `:frame_clock` / `:frame_stats` / `:thread_pool`) and
+# `deren.utility.dynamic_link`. Listing one .cppm in two targets would produce two BMIs of one
+# module name, which a single translation unit cannot arbitrate - the same ruling that moved
+# deren.vulkan.constant_init into a target of its own (see that target's comment above).
+#
+# `deren.utility` RE-EXPORTS `deren.utility.shared`, so the 52 existing `import deren.utility;`
+# sites keep working unchanged: a call site does not know which half a name came from.
+#
+# DEPENDENCY DIRECTION: static_utility MAY depend on shared_utility (it formats text and calls the
+# sink); the reverse is FORBIDDEN - the shared module writes its own stdout/stderr fallback instead
+# of calling this module's `println`. The contract `rhi` depends on NEITHER, and `shared_utility`
+# does not import it at all (the verdict/result templates that carry rhi::error_info are static).
+#
+# `dynamic_link` STAYS ON THE STATIC SIDE FOR A LOAD-BEARING REASON: it is the key that loads the
+# backend, so putting it in the process-wide library would build a bootstrap chain ("the executable
+# must load shared_utility before it can load the backend") - and it needs no shared state.
+#
+# THE EXPORT SURFACE IS C++, AND THIS BATCH USES THE RELAXED RULES THE USER SET (batch ④). The three
+# of them, written here because a later reader will otherwise "fix" this split back into a C shim:
+#   1. NO C SHIM. `deren.utility.shared` exports C++ directly (std::string_view, std::span,
+#      std::source_location, std::format_string) - an opaque C ABI for a library both halves are built
+#      from, by one toolchain, in one commit, buys nothing here.
+#   2. STL IS ALLOWED: std::string / std::vector / std::function / std::span / std::pmr may cross, and
+#      `log(fmt, args...)` may be a template in a module interface. THE MEASURED BASIS, not a hope:
+#      the executable imports libc++.dll and uses the UCRT heap, so both images share ONE C++ runtime
+#      and ONE heap - which is what makes an allocation on one side and a free on the other safe in
+#      this configuration. That premise is now MACHINE-CHECKED rather than assumed: see the
+#      C++-runtime check in scripts/check_backend_boundary.py (dll imports enumerated, no static
+#      libc++ in any image).
+#   3. THE REASON THE SPLIT EXISTS IS STATE, NOT MEMORY. One log sink per process: two copies mean two
+#      `ofstream`s on one debug.log and two startup rotations, and `rotate_previous_log()` TRUNCATES
+#      the file the other copy still has open (interleaved lines, holes, two sessions in one
+#      debug.log.old). The heap/STL question is NOT the reason for this split and is deliberately not
+#      argued here - that is the `shared_object` line of work (abi 18).
+# WHERE THIS BATCH STILL PASSES A VIEW (`log_text(std::string_view)`), the reason is a design choice
+# rather than a prohibition: the sink copies what it queues on its own side, and the formatting stays
+# in the caller's template instantiation, so no template has to be an exported symbol. Nothing in the
+# rules above requires that - it is simply the shape the sink's door settled on.
+# THE PROCESS-WIDE GUARD IS THE ROTATION CLAIM (utility/shared/log_rotation_claim.cpp): an OS-named
+# object keyed by the process id, so even if a second copy of the sink ever appears in one process the
+# second one does NOT rotate the file the first one is writing.
+# =============================================================================================
+add_library(shared_utility STATIC)
 
-target_sources(utility
+target_sources(shared_utility
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        # The sink, the rotation, panic convergence, the allocator hook. Its tools go into
+        # `deren.utility` below, which re-exports this module.
+        utility/shared/shared_utility.cppm
+        PRIVATE
+        utility/shared/shared_utility.cpp
+        # The allocator hook's definitions. IT IS NOT A PARTITION, AND THAT IS MEASURED: a partition
+        # of a module that is itself re-exported (`deren.utility` re-exports `deren.utility.shared`)
+        # makes clang 22.1.8 crash while semantically analysing a consumer's std::format call
+        # (utility.cpp's write_png, reproduced with -fsyntax-only; the crash disappears when the
+        # partition re-export becomes a plain import). So the hook is declared in the primary
+        # interface and defined here - no partition, nothing lost.
+        utility/shared/better_pmr.cpp
+        # The once-per-process rotation claim, a plain (non-module) TU for the platform_* reason:
+        # <windows.h> does not belong in a module's global module fragment.
+        utility/shared/log_rotation_claim.cpp
+)
+
+add_library(static_utility STATIC)
+
+target_sources(static_utility
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
         utility/utility.cppm
         utility/data_block.cppm
         utility/BVH/bvh.cppm
-        utility/better_pmr/better_pmr.cppm
         utility/frame_clock/frame_clock.cppm
         utility/frame_stats/frame_stats.cppm
         utility/thread_pool/thread_pool.cppm
@@ -236,6 +327,9 @@ target_sources(utility
         # in, and the boundary rule is that ONE module owns the platform load path. It declares the
         # platform entry points itself (no <windows.h>, no <dlfcn.h> in a module's global fragment),
         # which is what keeps its importers platform-agnostic.
+        # IT STAYS HERE, NOT IN shared_utility: it is the key that loads the backend, so putting it
+        # behind the process-wide library would make "load shared_utility" a prerequisite of "load
+        # the backend" - a bootstrap chain with nothing to gain.
         utility/dynamic_link.cppm
         PRIVATE
         utility/utility.cpp
@@ -327,7 +421,7 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 #
 # WHY A TARGET AND NOT A DIRECTORY MOVE: every consumer of the backend keeps using vulkancorekit
 # unchanged (the BMI comes across through `target_link_libraries(vulkancorekit PUBLIC deren_vulkan)`,
-# the shape utility / vstd_lib already have). Products are expected to be byte-identical: same TUs,
+# the shape static_utility / vstd_lib already have). Products are expected to be byte-identical: same TUs,
 # same flags, same executable - S1-A is the one step of S1 that is constructive.
 #
 # STATIC ON PURPOSE, AND SHARED ONLY AT S2: the plan's order is S1-C first (this backend implements
@@ -468,7 +562,7 @@ target_link_libraries(deren_vulkan
         vulkan_constant_init
         Vulkan::Vulkan
         glfw
-        utility
+        static_utility
         glm::glm
         ${CMAKE_DL_LIBS}
         vstd_lib
@@ -690,7 +784,8 @@ target_link_libraries(imgui
 # xxHash (vendored under third_party/xxhash, see the LICENSE there): non-cryptographic
 # content hashing (XXH3_128bits) used by deren::utility::xxh3_128bits for image/texture dedup.
 # Compiled as its own plain-C target, mirroring the imgui policy above (vendored
-# code does not follow the project's -Werror set). The utility module links it.
+# code does not follow the project's -Werror set). static_utility links it (the hash functions are
+# pure and per-half - they are not process-wide state).
 add_library(xxhash STATIC
         third_party/xxhash/xxhash.c
 )
@@ -701,8 +796,10 @@ target_include_directories(xxhash
 )
 
 # mimalloc (vendored under third_party/mimalloc, v3.4.4, MIT — see the LICENSE there):
-# allocator backing utility.better_pmr, which routes every std::pmr allocation through it
-# (utility.cppm -> utility.better_pmr -> mi_aligned_alloc / mi_free_aligned). Compiled as
+# allocator backing deren.utility.shared:better_pmr, which routes every std::pmr allocation through
+# it (shared_utility.cppm -> :better_pmr -> mi_aligned_alloc / mi_free_aligned). It moved to
+# shared_utility with the allocator hook, because setting the process's default std::pmr resource is
+# process-wide state. Compiled as
 # its own plain-C static target from the upstream mi_sources set, mirroring the imgui /
 # xxhash policy (vendored code does not follow the project's -Werror set; headers are
 # SYSTEM so the -Werror consumers that include <mimalloc.h> do not see upstream warnings).
@@ -744,7 +841,7 @@ target_link_libraries(gltf_loader
         fastgltf_vendored
         stb_vendored
         vstd_lib
-        utility
+        static_utility
 )
 
 # gltf_loader is deliberately absent here: the engine core is loader-agnostic (see the
@@ -754,7 +851,7 @@ target_link_libraries(vulkancorekit
         PUBLIC
         Vulkan::Vulkan
         glfw
-        utility
+        static_utility
         glm::glm
         ${CMAKE_DL_LIBS}
         vstd_lib
@@ -789,13 +886,12 @@ add_executable(deren main.cpp)
 # still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
 set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Release>:ON>)
 
-# utility.cpp implements the xxHash-based hash functions (deren::utility::xxh3_128bits) on top of
-# the vendored xxhash library, so the dependency is declared here, on the library that
-# actually uses the XXH3_128bits symbol. It propagates to consumers (vulkancorekit / gltf_loader
-# / deren) at link time, so the executable does not need to link xxhash itself.
-# better_pmr (utility.better_pmr) routes std::pmr allocations through the vendored mimalloc
-# (third_party/mimalloc), so the executable no longer needs MSYS2's libmimalloc.dll.
-target_link_libraries(utility
+# static_utility: the per-half toolkit. utility.cpp implements the xxHash-based hash functions
+# (deren::utility::xxh3_128bits) on top of the vendored xxhash library, so the dependency is
+# declared here, on the library that actually uses the XXH3_128bits symbol. It propagates to
+# consumers (vulkancorekit / gltf_loader / deren) at link time, so the executable does not need to
+# link xxhash itself. The platform_* TUs live here too - they are per-half by nature (no state).
+target_link_libraries(static_utility
         # The verdict family (pass_failure / fatal) carries the contract's error_info as a value, so
         # the contract's module is a dependency of THIS target. The direction stays one-way: the
         # contract imports nothing back (promise/rhi/*.cppm), and nothing in utility crosses a
@@ -803,16 +899,28 @@ target_link_libraries(utility
         promise
         vstd_lib
         xxhash
+        # PUBLIC because this module re-exports deren.utility.shared: every consumer that imports
+        # `deren.utility` needs that module's BMI (and, at the flip, its import library) as well.
+        shared_utility
+)
+
+# shared_utility: the process-wide half. better_pmr routes std::pmr allocations through the
+# vendored mimalloc (third_party/mimalloc), so the dependency moved here with the allocator hook -
+# the executable no longer needs MSYS2's libmimalloc.dll. vstd_lib is all it needs besides: the
+# module imports NEITHER the contract nor static_utility.
+target_link_libraries(shared_utility
+        vstd_lib
         mimalloc_vendored
 )
+
 # The file dialog (utility/platform_dialog.cpp, for the config's `model = "ask"`) is GetOpenFileNameW,
 # which lives in the common dialog library. Windows-only, like the backend itself.
 if(WIN32)
-    target_link_libraries(utility comdlg32)
+    target_link_libraries(static_utility comdlg32)
 endif()
 
 target_link_libraries(app_config
-        utility
+        static_utility
         vstd_lib
 )
 
@@ -840,12 +948,12 @@ target_sources(chores
 target_link_libraries(chores
         app_config
         vulkancorekit
-        utility
+        static_utility
         vstd_lib
 )
 
 target_link_libraries(${PROJECT_NAME}
-        utility
+        static_utility
         vulkancorekit
         chores
         gltf_loader
@@ -1009,7 +1117,7 @@ if(VR_BUILD_TESTS)
             vstd_lib
     )
     target_link_libraries(test_utility
-            utility
+            static_utility
             glm::glm
             vstd_lib
     )
@@ -1099,7 +1207,7 @@ if(VR_BUILD_TESTS)
 
     target_link_libraries(test_dynamic_link
             promise
-            utility
+            static_utility
             probe_backend_static
             vstd_lib
     )
@@ -1136,7 +1244,7 @@ if(VR_BUILD_TESTS)
                 VR_SPIKE_BACKEND_DLL="$<TARGET_FILE:deren_vulkan>")
         target_link_libraries(test_backend_boundary_spike
                 promise
-                utility
+                static_utility
                 vstd_lib
         )
         # The library the test opens has to exist first, or the run reports a loader error as a test
@@ -1163,14 +1271,14 @@ target_compile_options(test_runtime_dyn PRIVATE ${COMPILE_OPTIONS})
 target_link_libraries(test_runtime_dyn
         vulkancorekit
         promise
-        utility
+        static_utility
         vstd_lib
 )
 
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkancorekit utility promise gltf_loader app_config ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkancorekit shared_utility static_utility promise gltf_loader app_config ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
@@ -1305,7 +1413,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt utility promise app_config deren_vulkan vulkan_constant_init vulkancorekit gltf_loader ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility promise app_config deren_vulkan vulkan_constant_init vulkancorekit gltf_loader ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -1322,8 +1430,10 @@ endif()
 # The platform halves of utility live in plain (non-module) TUs so that <windows.h> stays out of a
 # module's global module fragment - including it there made libc++'s operator new ambiguous in every
 # TU that imported `deren.utility`. One file per platform facility; the module side only sees their C
-# entry points (see utility/platform_sleep.cpp, platform_path.cpp and platform_dialog.cpp).
-target_sources(utility PRIVATE
+# entry points (see utility/platform_sleep.cpp, platform_path.cpp and platform_dialog.cpp). They are
+# per-half (no state), so they live in static_utility; shared_utility has its own plain TU for the
+# process-wide rotation claim (utility/shared/log_rotation_claim.cpp), kept there for the same reason.
+target_sources(static_utility PRIVATE
         utility/platform_sleep.cpp
         utility/platform_path.cpp
         utility/platform_dialog.cpp
