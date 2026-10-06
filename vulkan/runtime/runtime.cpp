@@ -103,7 +103,7 @@ namespace deren::vulkan {
             // submission (the G-buffer depth heap slot, which all four of them read). STORE_OP_DONT_CARE would
             // leave the contents undefined, which is exactly what those four read.
             VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(vk.gbuffer_depth_image_views[image_index], VK_ATTACHMENT_STORE_OP_STORE);
-            VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, vk.render_extent()}, gbuffer_attachments.data(), static_cast<uint32_t>(gbuffer_attachments.size()), &depth_attachment);
+            VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, this->render_extent()}, gbuffer_attachments.data(), static_cast<uint32_t>(gbuffer_attachments.size()), &depth_attachment);
             vkCmdBeginRendering(command_buffer, &rendering_info);
             return;
         }
@@ -122,7 +122,7 @@ namespace deren::vulkan {
         // nothing samples this depth (the G-buffer depth above is the one that is read back).
         VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(vk.depth_image_views[image_index], VK_ATTACHMENT_STORE_OP_DONT_CARE);
 
-        VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, vk.render_extent()}, true, &color_attachment, &depth_attachment);
+        VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, this->render_extent()}, true, &color_attachment, &depth_attachment);
         vkCmdBeginRendering(command_buffer, &rendering_info);
     }
 
@@ -196,7 +196,6 @@ namespace deren::vulkan {
     }
 
     void runtime::recreate_if_minimized() {
-        core& vk = this->vulkan_core;
         if (this->was_minimized) {
             this->was_minimized = false;
             deren::utility::log("window restored, recreating swapchain");
@@ -204,13 +203,21 @@ namespace deren::vulkan {
             // recreate (the window came back with a 0x0 drawable size) keeps every image the frame loop
             // is holding, so resetting here would throw the temporal histories away for nothing - and a
             // minimize/restore would then pay for two re-convergences instead of one.
-            if (vk.recreate_swap_chain()) {
+            // THE REBUILD GOES THROUGH THE CONTRACT (abi 14): the swapchain is the presentation
+            // surface's own behaviour, and `not_ready` is the deferred state above - not a failure.
+            rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+            if (surface != nullptr && surface->recreate() == rhi::error::ok) {
                 this->on_swapchain_recreated();
             }
         }
     }
 
     void runtime::on_swapchain_recreated() {
+        // THE GENERATION'S SIZES FIRST: a rebuild is exactly when the presentation extent can move,
+        // so the engine re-reads it from the contract (`frame_swapchain()->extent()`) and recomputes
+        // the render extent the rest of this function's work is sized by. Nothing was rebuilt on the
+        // deferred path, which is why this function is only called when `recreate()` answered `ok`.
+        this->refresh_frame_extents();
         // The swapchain generation changed: every per-image target was destroyed and rebuilt, so
         // every descriptor set that pointed at the old views must be replaced before it is used
         // again. Both per-image set families (the post chain's and the G-buffer path's) are dropped
@@ -270,29 +277,64 @@ namespace deren::vulkan {
         return static_cast<int32_t>(hw == 0 ? 2u : std::max(1u, hw / 4u));
     }
 
-    void runtime::gpu_mark(VkCommandBuffer const command_buffer, gpu_mark_id const mark, VkPipelineStageFlagBits const stage) noexcept {
+    void runtime::refresh_frame_extents() noexcept {
+        // THE PRESENTATION EXTENT COMES FROM THE CONTRACT: `swapchain::extent()` is the size the
+        // backend's images have (it does not pre-multiply any scale - that is a renderer decision).
+        rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+        rhi::image_extent const output = surface != nullptr ? surface->extent() : rhi::image_extent{};
+        this->output_extent = VkExtent2D{output.width, output.height};
+        // ... and the frame's resolution is that EXTENT times this engine's own scale, ROUNDED to
+        // nearest rather than truncated: at half scale the floor would take a pixel off an odd output
+        // width ON TOP of the halving, and both the images and the passes have to agree on the
+        // number, so there is one formula and it is this one. A zero extent is not a small frame, it
+        // is an invalid one, so every axis clamps to at least one - the same formula `core::render_extent()`
+        // applied while the engine named it.
+        auto const scaled = [this](uint32_t const axis) {
+            uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
+            return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
+        };
+        this->render_extent_value = VkExtent2D{scaled(output.width), scaled(output.height)};
+    }
+
+    bool runtime::gpu_timings_available() const noexcept {
+        // 读归引擎 THROUGH THE FACE: the profiler's one answer for "this device cannot timestamp" is
+        // `unsupported`, and it answers that BEFORE any index check (see gpu_profiler_view's
+        // get_stage_info) - so this predicate is the capability itself, not a guess from a report
+        // that happens to be empty. The engine used to read `core::gpu_timing_available()` directly.
+        rhi::gpu_profiler* const profiler = this->rhi_face().profiler();
+        return profiler != nullptr && profiler->get_stage_info(0, nullptr, nullptr) != rhi::error::unsupported;
+    }
+
+    void runtime::gpu_mark(gpu_mark_id const mark) noexcept {
         if (!this->gpu_timings_enabled) {
             return;
         }
-        uint32_t const slot = this->frame_ring().position();
-        // The mark's identity is positional - the interval it closes is the one opened by the mark
-        // before it - so every label in gpu_timing_labels is only correct while the calls happen in
-        // gpu_mark_id order. The core hands out the next index, which makes the violation visible
-        // here instead of only as a mislabeled report.
-        if (this->vulkan_core.gpu_timing_marks[slot] != static_cast<uint32_t>(mark)) {
-            deren::utility::log("runtime: GPU timing marks recorded out of order (mark {} at index {}) - the pass report is mislabeled",
-                                static_cast<uint32_t>(mark),
-                                this->vulkan_core.gpu_timing_marks[slot]);
+        // THE MARK GOES THROUGH THE FRAME'S OWN RECORDING VIEW (abi 14): `command_list` is where the
+        // timing range and its marks live now, and the backend owns both the POSITIONAL check (an
+        // out-of-order index is refused by name - the read of `gpu_timing_marks` this function used
+        // to make is gone with it) and WHICH PIPELINE STAGE the timestamp resolves at (a measurement
+        // detail of the query pool's owner, so the engine no longer names a VkPipelineStageFlagBits
+        // here at all). No list means no frame in flight: nothing to record into, and the frame's
+        // marks are written only inside a recording window anyway.
+        rhi::command_list* const commands = this->rhi_face().begin_commands();
+        if (commands == nullptr) {
             return;
         }
+        uint32_t const mark_index = static_cast<uint32_t>(mark);
         // THE MARK CARRIES ITS STAGE'S NAME, as static text from this engine's own label table (the
         // `window_title` rule): stage i is the interval mark i OPENS (mark i -> mark i + 1), which is
-        // exactly the row gpu_timing_labels[i] names - the contract's profiler face reports the frame
+        // exactly the row gpu_timing_labels[i] names - the profiler face reports the frame
         // self-described, and the engine's stage vocabulary never entered the contract. The frame's
         // last mark (frame_end) opens no stage and carries an empty name.
-        uint32_t const mark_index = static_cast<uint32_t>(mark);
-        this->vulkan_core.mark_gpu_timing(command_buffer, slot, stage,
-                                          mark_index < gpu_timing_labels.size() ? gpu_timing_labels[mark_index].name : std::string_view{});
+        rhi::error const marked = commands->mark_gpu_timing(mark_index, mark_index < gpu_timing_labels.size() ? gpu_timing_labels[mark_index].name : std::string_view{});
+        if (marked != rhi::error::ok) {
+            // The verb answers, and the answer is on the record: a refused mark (a device that
+            // cannot timestamp, or an out-of-order index) would mislabel the pass report, so it is
+            // reported here rather than silently skipped.
+            deren::utility::log("runtime: GPU timing mark {} was refused ({}) - the pass report is mislabeled",
+                                mark_index,
+                                static_cast<std::uint32_t>(marked));
+        }
     }
 
     void runtime::collect_gpu_timings() {
@@ -353,7 +395,7 @@ namespace deren::vulkan {
         if (!this->gpu_timings_enabled) {
             return "gpu timings: off";
         }
-        if (!this->vulkan_core.gpu_timing_available()) {
+        if (!this->gpu_timings_available()) {
             return "gpu timings: unavailable on this device";
         }
         if (this->gpu_timing_report_label.empty()) {
@@ -448,8 +490,8 @@ namespace deren::vulkan {
             if (built) {
                 // the two cached values every named pipeline needs (begin_pipeline re-emits them, and
                 // update_pass_geometry resyncs every registered pipeline once per frame)
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
+                built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
+                built->scissor = {{0, 0}, this->render_extent()};
                 mesh_result = std::move(*built);
             } else {
                 // NO FALLBACK LEFT (docs/mesh_shaders.md step 4): the caller sees this as the pipeline's failure
@@ -475,8 +517,8 @@ namespace deren::vulkan {
                                                            std::span<rhi::blend_mode const>(blend_attachments),
                                                            rhi::shader_stage::mesh);
             if (built) {
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
+                built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
+                built->scissor = {{0, 0}, this->render_extent()};
                 meshlet_result = std::move(*built);
             } else {
                 deren::utility::log("pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
@@ -526,8 +568,8 @@ namespace deren::vulkan {
                                                        what);
         if (built) {
             // the fullscreen viewport/scissor default the frame path re-syncs on every swapchain recreation
-            built->viewport = {0.0f, 0.0f, static_cast<float>(this->vulkan_core.render_extent().width), static_cast<float>(this->vulkan_core.render_extent().height), 0.0f, 1.0f};
-            built->scissor = {{0, 0}, this->vulkan_core.render_extent()};
+            built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
+            built->scissor = {{0, 0}, this->render_extent()};
         }
         // 工厂的错误文本属于 built；返回拥有文本的 string，避免 string_view 随局部对象失效。
         return built;

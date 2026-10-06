@@ -126,7 +126,16 @@ export namespace deren::promise::rhi {
     /// The factory entry's out-parameter changed `error*` -> `error_info*` in the SAME bump (one
     /// renumbering for one batch): the C entry's SIGNATURE is what the number protects, and an engine
     /// built for 12 calling 13's symbol would read a 40-byte diagnostic where it wrote a 4-byte enum.
-    inline constexpr std::uint32_t abi_version = 13u;
+    /// 13 -> 14 in the frame verbs' completion (the boundary batch, one renumbering for one batch):
+    /// `api_core` appended `submit(command_list&)` and `frame_swapchain()`, `present()` changed
+    /// `void` -> `error` (a presentation that failed silently was the information loss the error
+    /// mechanism exists to end), `command_list` appended the GPU timing recording verbs
+    /// (`begin_gpu_timing()` / `mark_gpu_timing(index, name)`), and `swapchain` appended
+    /// `recreate()` / `extent()` - every one an append or a return-type change on a tier-1 vtable,
+    /// which is the case the number exists for. The swapchain verbs live on the SWAPCHAIN, not on
+    /// the context, because a rebuild is the swapchain's own behaviour; the extent is the
+    /// presentation's fact and the render scale stays the caller's own decision.
+    inline constexpr std::uint32_t abi_version = 14u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

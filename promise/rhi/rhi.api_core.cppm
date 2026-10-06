@@ -493,6 +493,25 @@ export namespace deren::promise::rhi {
         virtual ~swapchain() noexcept = default;
         /// see `buffer::release()`
         virtual void release() noexcept = 0;
+
+        // ---- the presentation verbs (abi 14) --------------------------------------------------
+        // The swapchain was created once at startup and is rebuilt IN PLACE - never replaced - so
+        // the verbs below are APPENDED to this interface rather than new methods on `api_core`: a
+        // rebuild is the swapchain's own behaviour (the caller supplies nothing - the backend
+        // re-derives the extent from the window it owns, which is the one place the current size
+        // lives).
+        /// Rebuild the swapchain and its images for the window's current size.
+        /// `ok` = a new generation was built; `not_ready` = the window reports a zero extent (a
+        /// minimized or not-yet-sized window), nothing was built, and the caller retries later -
+        /// a deferred recreate is a STATE, not a failure, and `error` carries it as one; real
+        /// build failures are the backend's named startup-style panics (the same rule the
+        /// constructor's build path follows).
+        [[nodiscard]] virtual error recreate() = 0;
+
+        /// The extent of the swapchain's images, in pixels - what presentation shows. The caller
+        /// scales it to its own render resolution (a render scale is a RENDERER decision, not a
+        /// presentation fact, so the contract does not pre-multiply it).
+        [[nodiscard]] virtual image_extent extent() const noexcept = 0;
     };
 
     struct query : object {
@@ -637,6 +656,26 @@ export namespace deren::promise::rhi {
         /// The destination is a DEVICE buffer, not host memory: "record it into this frame" and "read it
         /// on the host" are two moments, and the second one is `buffer::mapped()` once the frame lands.
         [[nodiscard]] virtual error copy_image_to_buffer(buffer& destination, image const& source, image_copy_region const& region) noexcept = 0;
+
+        // ---- the GPU timing recording verbs (abi 14) -------------------------------------------
+        // One mark's duration is the interval it OPENS: stage i runs from mark i to mark i + 1 and is
+        // named by the name mark i carries (read back through `gpu_profiler`). WHICH PIPELINE STAGE a
+        // timestamp resolves at is a MEASUREMENT detail of the backend that owns the query pool, not
+        // a caller decision - the caller marks pass boundaries in order and names them; the contract
+        // deliberately does not carry a pipeline-stage vocabulary (that would import one API's
+        // execution model into every backend).
+        /// Open the frame's timing range: reset this frame slot's queries on the recorded timeline.
+        /// Call once per frame, before any mark. `unsupported` = this device cannot timestamp;
+        /// `not_ready` = no frame is being recorded (the same window `use()` refuses in).
+        [[nodiscard]] virtual error begin_gpu_timing() noexcept = 0;
+
+        /// Write one timing mark into the frame's range, named for the stage it opens. @p mark_index
+        /// must be the marks this frame has already written (the marks are POSITIONAL: an
+        /// out-of-order index would mislabel every later interval, so it is refused with
+        /// `invalid_argument` rather than accepted silently). `stage_name` is the caller's STATIC
+        /// text - a literal outliving the frame (the same rule as the creation descriptor's
+        /// `window_title`); the backend stores the view and reports it verbatim.
+        [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
     };
 
     /// What starting a frame hands back.
@@ -827,21 +866,41 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual submit_info frame_begin() = 0;
 
         /// Hand the recorded frame to the presentation engine.
-        virtual void present() = 0;
+        ///
+        /// ABI 14 CHANGED THE RETURN from `void` to `error` - the shape change the renumbering also
+        /// covers. A presentation that failed SILENTLY was information loss, the exact kind the error
+        /// mechanism exists to end: the caller cannot distinguish "shown" from "the swapchain just
+        /// expired" (out_of_date => rebuild) from "the device is gone" (device_lost => fatal), and
+        /// `command_list::use` set the style for frame verbs that answer.
+        [[nodiscard]] virtual error present() = 0;
 
         /// Block until nothing is in flight.
         virtual void wait_idle() = 0;
 
-        // ---- the frame face (abi 13) -------------------------------------------
-        // Both accessors answer BORROWED VIEWS owned by the backend - the same object every call,
-        // never released by the caller (see the types' notes above). They are APPENDED here, after
-        // every virtual the older engines dispatch, which is the one vtable change the abi number
-        // exists to number.
+        // ---- the frame face (abi 13, grown in abi 14) -------------------------------------------
+        // The accessors answer BORROWED VIEWS owned by the backend - the same object every call,
+        // never released by the caller (see the types' notes above). They are APPENDED after every
+        // virtual the older engines dispatch, which is the one vtable change the abi number exists
+        // to number.
         /// The frame ring's cursor: wait the slot, latch its timings, acquire, report, advance.
         [[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
 
         /// The last completed frame's GPU timing report.
         [[nodiscard]] virtual gpu_profiler* profiler() noexcept = 0;
+
+        /// The presentation surface the frames render into, as a BORROWED view (the same object every
+        /// call; `release()` on it is the borrowed-view no-op, not a reference). The REBUILD and the
+        /// EXTENT verbs live on it - a swapchain rebuild is the swapchain's behaviour, not the
+        /// context's (see the type's note).
+        [[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;
+
+        /// Hand the frame's recorded commands to the queue: the one frame verb the contract was
+        /// missing. The list is the one `begin_commands()` handed out (still recording-or-recorded,
+        /// not yet submitted); the backend owns which image is presented and which semaphores are
+        /// signalled - those are its own acquire state, never caller data. `ok` = submitted;
+        /// `invalid_argument` = a list this backend did not hand out; `not_ready` = no frame is in
+        /// flight; device-level failures travel as their own codes (device_lost, out_of_*_memory).
+        [[nodiscard]] virtual error submit(command_list& commands) = 0;
     };
 
     /// 在已完成ABI握手的有效对象上检查扩展身份；不能验证悬空指针或不可信后端。

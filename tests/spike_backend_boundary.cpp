@@ -101,12 +101,42 @@ namespace {
         return reinterpret_cast<function>(const_cast<void*>(address));
     }
 
+    /**
+     * @brief a command list the REAL backend never handed out - the foreign-list refusal's subject
+     *
+     * abi 14 put `submit(command_list&)` on the contract, and with it the question "is this list
+     * mine?". Without RTTI the backend cannot check the dynamic type, so the contract's precondition
+     * is the caller's, and a backend that cannot recognise the list must refuse it BY NAME rather
+     * than guess. This stand-in is the "not mine" half of that pair: it answers `invalid_argument`
+     * to everything, so a backend that accepted it would be caught here. It lives in the SPIKE,
+     * because "not handed out by the backend" is what this side knows and the DLL cannot.
+     */
+    struct foreign_command_list final : rhi::command_list {
+        [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use, rhi::image_use) noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error copy_image_to_buffer(rhi::buffer&, rhi::image const&, rhi::image_copy_region const&) noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error mark_gpu_timing(std::uint32_t, std::string_view) noexcept override {
+            return rhi::error::invalid_argument;
+        }
+    };
+
     /// Q4 (weak form) + the ABI handshake, driven through the symbols the DLL itself exports.
     void check_the_handshake(make_core_fn make_core) {
         // A mismatched ABI is refused BEFORE any object exists, and the refusal is a value, not a
         // crash and not an exception (§4.2). The wrong number is deliberately the right one plus
         // one: it is the shape a stale engine would present. The abi 13 channel reports the WHOLE
-        // diagnostic, so the assertions below read the fields a bare `error` could not carry.
+        // diagnostic, so the assertions below read the fields a bare `error` could not carry. (abi 14
+        // did not change this structure: it appended the frame verbs - `api_core::submit()` /
+        // `frame_swapchain()`, `swapchain::recreate()` / `extent()`, the two timing verbs on
+        // `command_list` - and changed `present()`'s return from void to error, which is exactly the
+        // vtable case the number exists for; the number itself is compared symbolically below, never
+        // spelled here, so a renumbering cannot silently pass this file.)
         rhi::create_info const creation{};
         rhi::error_info status{};
         rhi::api_core* const refused = make_core(rhi::abi_version + 1u, &creation, &status);
@@ -395,6 +425,47 @@ namespace {
                       "an index at the count is refused by name");
             CHECK_MSG(profiler->get_stage_info(0, &stage_name, &duration_ns) == rhi::error::invalid_argument,
                       "no frame has latched, so even index 0 is out of range on a timing device");
+
+            // ---- THE PRESENTATION SURFACE AND THE FRAME VERBS (abi 14), STRUCTURE ONLY -----------
+            // The same posture as the frame face above, for the same measured reason: no frame is
+            // acquired in this test, so a verb that needs one can only be measured on its REFUSAL
+            // path. (`submit()` is on the contract now, so the ring COULD be driven - but a frame
+            // this test opened and did not complete would leave an acquired image and a signalled
+            // acquire semaphore at teardown, which is what the frame face's note above records as
+            // the reason not to. The full wait -> acquire -> record -> submit -> present -> walk
+            // loop is witnessed by the engine's frame path and the 14 frozen render hashes, and
+            // abi 14's positional mark rule is witnessed on the probe's device-less list by
+            // tests/test_dynamic_link.cpp.)
+            mark("frame_swapchain: the presentation surface's borrowed view");
+            rhi::swapchain* const surface = core->frame_swapchain();
+            CHECK(surface != nullptr);
+            CHECK(core->frame_swapchain() == surface); // the same borrowed view every call, never a new object
+            rhi::image_extent const output = surface->extent();
+            // A real swapchain exists in this context, and a zero-sized one is the deferred state
+            // (the constructor's build path never created targets from it), so the extent is real.
+            CHECK(output.width > 0u);
+            CHECK(output.height > 0u);
+            CHECK(surface->extent().width == output.width); // asking twice does not move a generation
+            CHECK(surface->extent().height == output.height);
+
+            // THE TIMING VERBS LIVE ON THE LIST, AND WITH NO FRAME IN FLIGHT THERE IS NO LIST: that
+            // is the structural fact this context can witness about them - the handle the verbs
+            // would be called on does not exist, so an out-of-order mark cannot even be attempted
+            // here (its refusal is measured where a list exists, see the note above).
+            CHECK(core->begin_commands() == nullptr);
+
+            // SUBMIT: with no frame context the list to hand over does not exist. What this test CAN
+            // measure is the other half of the verb's precondition - a list the backend never handed
+            // out is refused BY NAME, never accepted and never guessed at.
+            foreign_command_list foreign{};
+            CHECK_MSG(core->submit(foreign) == rhi::error::invalid_argument,
+                      "a command list this backend did not hand out is refused by name");
+
+            // PRESENT: no frame was ever acquired, so there is nothing to show - the answer is
+            // `not_ready`, and the backend never reaches vkQueuePresentKHR with a present-ready
+            // semaphore nothing has signalled (which is exactly why that guard exists).
+            CHECK_MSG(core->present() == rhi::error::not_ready,
+                      "present with no acquired frame is refused by name, not run");
 
             mark("about to leave the scope: two releases and the DLL's deleter (core teardown) run next");
         } // <- the managers release their buffers, then the DLL's deleter runs

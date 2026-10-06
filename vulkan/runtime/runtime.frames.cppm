@@ -156,7 +156,6 @@ namespace deren::vulkan {
 
     frame_status runtime::pace_and_acquire() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::pace};
-        core& vk = this->vulkan_core;
 
         // A zero-sized swapchain (a window that has not been sized yet, or was restored from
         // minimized into a 0-sized client area) has no valid attachments: recording would set a
@@ -166,8 +165,10 @@ namespace deren::vulkan {
         // THE SWAPCHAIN'S OWN EXTENT, not the render extent, and the two are not interchangeable here:
         // this is the question "is there an image to record into at all", which the OUTPUT answers. A
         // render extent that rounded up to at least 1x1 (`render_extent` clamps there) would report a
-        // usable frame for a 0-sized window, which is the image the acquire just failed on.
-        if (vk.swap_chain_extent.width == 0 || vk.swap_chain_extent.height == 0) {
+        // usable frame for a 0-sized window, which is the image the acquire just failed on. The output
+        // extent is the contract's (`swapchain::extent()`), cached by the engine and refreshed on every
+        // successful rebuild - the same number the backend's own `swap_chain_extent` holds.
+        if (this->presentation_extent().width == 0 || this->presentation_extent().height == 0) {
             return frame_status::skipped;
         }
 
@@ -223,7 +224,12 @@ namespace deren::vulkan {
                 // e.g. the window was resized: rebuild the swapchain and let the caller retry on the
                 // next iteration - the same skip the zero-extent guard above returns.
                 deren::utility::log("swapchain out of date, recreating");
-                if (vk.recreate_swap_chain()) {
+                // THE REBUILD IS THE SWAPCHAIN'S OWN VERB (abi 14): the engine asks the presentation
+                // surface it renders into, and only a generation that was ACTUALLY rebuilt
+                // (`ok`; `not_ready` is a zero-sized window's deferred state) invalidates the
+                // per-image state - the same condition the raw bool used to spell.
+                rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+                if (surface != nullptr && surface->recreate() == rhi::error::ok) {
                     this->on_swapchain_recreated();
                 }
                 return frame_status::skipped;
@@ -255,11 +261,13 @@ namespace deren::vulkan {
         // Write this frame's camera UBO into the paced slot's per-slot buffer. The heap's
         //    per-slot camera slot points at that slot's own buffer, so one memcpy is the whole
         //    camera update - there is no per-frame descriptor write to make.
-        // The DISPLAY aspect, from the swapchain's extent: the projection is not a per-pixel quantity, so
+        // The DISPLAY aspect, from the presentation extent the contract reports (the engine's cached
+        // output extent, refreshed on every rebuild): the projection is not a per-pixel quantity, so
         // the render scale cancels out of it - but the output's own extent is the honest source (a scale
         // that rounds the two axes differently would otherwise tilt the projection by a fraction of a
         // pixel's worth of aspect).
-        this->current_aspect = static_cast<float>(vk.swap_chain_extent.width) / static_cast<float>(vk.swap_chain_extent.height);
+        VkExtent2D const output = this->presentation_extent();
+        this->current_aspect = static_cast<float>(output.width) / static_cast<float>(output.height);
         this->current_ubo = make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_extent_radius, this->current_aspect);
         // Motion-vector support: the G-buffer computes its vectors from the UNJITTERED pair, and the
         // previous matrix is the one THIS swapchain image's history was rendered with (not simply the
@@ -281,8 +289,8 @@ namespace deren::vulkan {
         // jitter twice the size of the pixel it is cancelling.
         if (this->taa_active()) {
             glm::vec2 const jitter_pixels = taa_jitter_offset(this->taa_jitter_index);
-            this->current_ubo.proj[2][0] += jitter_pixels.x * 2.0f / static_cast<float>(vk.render_extent().width);
-            this->current_ubo.proj[2][1] += jitter_pixels.y * 2.0f / static_cast<float>(vk.render_extent().height);
+            this->current_ubo.proj[2][0] += jitter_pixels.x * 2.0f / static_cast<float>(this->render_extent().width);
+            this->current_ubo.proj[2][1] += jitter_pixels.y * 2.0f / static_cast<float>(this->render_extent().height);
             this->taa_jitter_index = (this->taa_jitter_index + 1) % taa_jitter_count;
         }
         // The deferred lighting stage reconstructs world positions from the G-buffer depth, so its
@@ -324,8 +332,8 @@ namespace deren::vulkan {
             //      the swapchain has an extent) disables the pass for that frame: shade_surface() then
             //      loop every light, which is always correct - just slower.
             {
-                this->cluster_tiles_x = std::min((vk.render_extent().width + deren::vulkan::cluster_tile_size - 1) / deren::vulkan::cluster_tile_size, deren::vulkan::max_cluster_tiles_x);
-                this->cluster_tiles_y = std::min((vk.render_extent().height + deren::vulkan::cluster_tile_size - 1) / deren::vulkan::cluster_tile_size, deren::vulkan::max_cluster_tiles_y);
+                this->cluster_tiles_x = std::min((this->render_extent().width + deren::vulkan::cluster_tile_size - 1) / deren::vulkan::cluster_tile_size, deren::vulkan::max_cluster_tiles_x);
+                this->cluster_tiles_y = std::min((this->render_extent().height + deren::vulkan::cluster_tile_size - 1) / deren::vulkan::cluster_tile_size, deren::vulkan::max_cluster_tiles_y);
                 glm::mat4 const base_proj = this->current_proj_unjittered;
                 bool const degenerate = !(this->current_aspect > 0.0f) || std::abs(base_proj[2][2]) < 1e-6f;
                 float cluster_near = 0.1f;
@@ -344,8 +352,8 @@ namespace deren::vulkan {
                                                            clustered ? 1.0f : 0.0f);
                 this->light_state.cluster_depth = glm::vec4(cluster_near,
                                                             cluster_far,
-                                                            static_cast<float>(vk.render_extent().width),
-                                                            static_cast<float>(vk.render_extent().height));
+                                                            static_cast<float>(this->render_extent().width),
+                                                            static_cast<float>(this->render_extent().height));
                 // the pass only APPENDS, so the counts are cleared here - the buffer is host-coherent
                 // (no flush) and this slot was just paced, so its previous GPU reads are done
                 // Gated on the SAME feature flag the dispatch uses: without an active punctual light,
@@ -465,8 +473,19 @@ namespace deren::vulkan {
         // written in gpu_mark_id order from here on (see gpu_mark); opening the range outside any
         // rendering instance is required, and this is the first point of the frame where the
         // command buffer exists.
-        vk.begin_gpu_timing(*command_buffer, this->frame_ring().position());
-        this->gpu_mark(*command_buffer, gpu_mark_id::frame_begin, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT);
+        // THE RANGE IS OPENED THROUGH THE CONTRACT'S RECORDING LIST (abi 14): the timing range and
+        // its marks belong to the list that records the frame now, the device's capability is the
+        // backend's answer (`unsupported`, the same one the profiler face gives), and a frame that is
+        // not in flight has no list at all. The answer is read rather than dropped: `unsupported` is
+        // the device's honest state and is already reported by gpu_timing_summary(), while any other
+        // refusal means the range did not open and is worth a line.
+        if (rhi::command_list* const frame_commands = this->rhi_face().begin_commands(); frame_commands != nullptr) {
+            rhi::error const opened = frame_commands->begin_gpu_timing();
+            if (opened != rhi::error::ok && opened != rhi::error::unsupported) {
+                deren::utility::log("runtime: opening the GPU timing range was refused ({})", static_cast<std::uint32_t>(opened));
+            }
+        }
+        this->gpu_mark(gpu_mark_id::frame_begin);
 
         // The constant 1x1x6 environment cube, written here and ONCE per target generation: this is the
         // frame's first command buffer, and the cube is sampled by the SKYBOX - which runs long before
@@ -829,7 +848,7 @@ namespace deren::vulkan {
         // a frame that skips a pass still writes its mark next to the previous one (0 ms interval), and
         // the report's labels are positional: leaving a gap here relabeled the whole frame ("marks
         // recorded out of order", which the harness caught on all seven scenarios at once).
-        this->gpu_mark(*command_buffer, gpu_mark_id::rt_build_end, VK_PIPELINE_STAGE_ACCELERATION_STRUCTURE_BUILD_BIT_KHR);
+        this->gpu_mark(gpu_mark_id::rt_build_end);
 
         // ---- Shadow pass: render the scene's depth from the light into this slot's shadow map.
         //      Drawn before the main pass; the depth-only pipeline shares the flat scene layout
@@ -922,7 +941,7 @@ namespace deren::vulkan {
 
         // GPU timing: the shadow pass (and its hand-back barrier) ends here. The pass is optional,
         // so a frame without shadows just writes this mark next to frame_begin and reports ~0 ms.
-        this->gpu_mark(*command_buffer, gpu_mark_id::shadow_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::shadow_end);
 
         // The scene pass: the opaque leaves write the G-buffer, and everything else follows from it
         // in record_scene_tail (lighting, the transparent pass over the shaded image, TAA).
@@ -1065,7 +1084,6 @@ namespace deren::vulkan {
 
     // Resync the cached viewport/scissor of every pipeline that draws this frame.
     void runtime::update_pass_geometry() {
-        core& vk = this->vulkan_core;
         // Pipelines cache a fullscreen viewport/scissor at creation; after a resize the swapchain
         // extent changed, so resync them from the current extent before drawing (begin_pipeline
         // applies the stored values). Done here on the primary thread (it mutates the cached
@@ -1078,15 +1096,17 @@ namespace deren::vulkan {
         // deferred lighting, TAA, the post composite, FXAA and anything that resolves to the output - gets
         // its viewport from its own declaration's extent at record time, so a render scale below 1.0 cannot
         // leave a scene pipeline and a fullscreen pipeline disagreeing about how big a pixel is.
+        // (abi 14: the extent is THIS object's own number now, computed from the contract's swapchain
+        // extent - see runtime::refresh_frame_extents.)
         VkViewport const full_viewport = {
             0.0f,
             0.0f,
-            static_cast<float>(vk.render_extent().width),
-            static_cast<float>(vk.render_extent().height),
+            static_cast<float>(this->render_extent().width),
+            static_cast<float>(this->render_extent().height),
             0.0f,
             1.0f,
         };
-        VkRect2D const full_scissor = {{0, 0}, vk.render_extent()};
+        VkRect2D const full_scissor = {{0, 0}, this->render_extent()};
         {
             // unique lock: mutating every cached pipeline's viewport/scissor while parallel
             // recording workers may read them through their environments
@@ -1298,7 +1318,7 @@ namespace deren::vulkan {
                                                            0.0f, 0.0f, 0.0f, blends, rhi::shader_stage::mesh,
                                                            rhi::depth_compare::less_or_equal, "G-buffer");
             if (built) {
-                VkExtent2D const extent = this->vulkan_core.render_extent();
+                VkExtent2D const extent = this->render_extent();
                 built->viewport = {0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
                 built->scissor = {{0, 0}, extent};
             }
@@ -1361,7 +1381,7 @@ namespace deren::vulkan {
         vkCmdPipelineBarrier2(command_buffer, &clear_dependency);
         VkClearValue clear = {};
         VkRenderingAttachmentInfo const attachment = make_color_attachment_info(vk.scene_color_image_views[index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, vk.render_extent()}, true, &attachment, nullptr);
+        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->render_extent()}, true, &attachment, nullptr);
         vkCmdBeginRendering(command_buffer, &rendering_info);
         vkCmdEndRendering(command_buffer);
     }
@@ -2048,7 +2068,7 @@ namespace deren::vulkan {
             .depth_format = vk.depth_attachment_format,
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .gbuffer = true,
-            .extent = vk.render_extent(),
+            .extent = this->render_extent(),
         };
     }
 
@@ -2209,7 +2229,7 @@ namespace deren::vulkan {
             .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_format = deren::vulkan::hdr_format,
             .depth_format = vk.depth_attachment_format,
-            .extent = vk.render_extent(),
+            .extent = this->render_extent(),
         };
     }
 
@@ -2320,7 +2340,7 @@ namespace deren::vulkan {
             .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
             .color_format = deren::vulkan::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
             .depth_format = vk.depth_attachment_format,
-            .extent = vk.render_extent(),
+            .extent = this->render_extent(),
         };
     }
 
@@ -2489,7 +2509,6 @@ namespace deren::vulkan {
     // function's own comment argued for while it was the second copy.
 
     VkExtent2D runtime::resolve_resource_extent(render_resource::resource_id const id, uint32_t const element) const noexcept {
-        core const& vk = this->vulkan_core;
         switch (id) {
         case pass::resource_id::bloom: {
             // A bloom level is HALF the previous one - max(1, render >> (level + 1)) - which is the SAME
@@ -2500,7 +2519,7 @@ namespace deren::vulkan {
             // check is what limits the level, and a shift of 32 or more would be undefined behaviour if one
             // ever got through.
             uint32_t const shift = std::min<uint32_t>(element + 1u, 31u);
-            return VkExtent2D{std::max(1u, vk.render_extent().width >> shift), std::max(1u, vk.render_extent().height >> shift)};
+            return VkExtent2D{std::max(1u, this->render_extent().width >> shift), std::max(1u, this->render_extent().height >> shift)};
         }
         case pass::resource_id::swapchain_image:
             // THE ONE RESOURCE WHOSE EXTENT IS NOT THE FRAME'S. Every other entry here answers a size that is
@@ -2509,7 +2528,9 @@ namespace deren::vulkan {
             // image while the frame runs at the render extent - which is exactly what the resolve pass that
             // scales the render chain up to the swapchain has to do, and the reason its viewport has to come
             // from its own declaration rather than from the frame.
-            return vk.swap_chain_extent;
+            // abi 14: the OUTPUT is the contract's own swapchain extent (`swapchain::extent()`), which the
+            // engine caches as `presentation_extent()` - not the render extent and never scaled.
+            return this->presentation_extent();
         default:
             return VkExtent2D{}; // an element of a resource whose extent IS the frame's: nothing to answer
         }
@@ -2553,7 +2574,7 @@ namespace deren::vulkan {
             // chain back up to what is presented - declares `extent_rule::resource` over
             // `resource_id::swapchain_image` instead, and `resolve_resource_extent` answers with the
             // swapchain's extent.
-            .extent = vk.render_extent(),
+            .extent = this->render_extent(),
         };
     }
 
@@ -2759,7 +2780,7 @@ namespace deren::vulkan {
         // own record (see deren.vulkan.pass.scene). That line used to be the far half of a pair whose near half was
         // three functions away - the coupling this extraction removed.
         // GPU timing: the geometry instance ended where the scene pass closed it (the surface write).
-        this->gpu_mark(command_buffer, gpu_mark_id::scene_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::scene_end);
         core const& vk = this->vulkan_core;
 
         // Deferred mode: the surface is in the G-buffer and the sky + emissive are in the scene color
@@ -2798,7 +2819,7 @@ namespace deren::vulkan {
             // lighting stage - without it the traversals were reported as lighting time, which made the
             // lighting interval look four times more expensive with rays on (measured 0.32 -> 1.18 ms
             // while the rays themselves were ~0.85 of that).
-            this->gpu_mark(command_buffer, gpu_mark_id::rt_shadow_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+            this->gpu_mark(gpu_mark_id::rt_shadow_end);
             // ---- the stochastic punctual lighting stage ----
             // ITS POSITION IS THE WHOLE OF ITS CONTRACT, and it is the same constraint the ray-traced shadow
             // stage above states: AFTER the G-buffer pass, whose stored surface is what the estimator evaluates
@@ -2902,9 +2923,9 @@ namespace deren::vulkan {
             // The pass does not run (the debug view replaces the lighting stage, and a skipped lighting stage has
             // no G-buffer to start rays from), but every mark is written in order on every frame - the
             // report's labels are positional. Written next to scene_end, so the interval is 0 ms.
-            this->gpu_mark(command_buffer, gpu_mark_id::rt_shadow_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+            this->gpu_mark(gpu_mark_id::rt_shadow_end);
         }
-        this->gpu_mark(command_buffer, gpu_mark_id::lighting_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::lighting_end);
 
         // TAA resolve: blend the scene color with the reprojected history into the HDR target the post
         // chain reads, then copy the result into the history image for the next frame that renders this
@@ -2930,7 +2951,7 @@ namespace deren::vulkan {
         // not claim one. The pass answers that (`wrote_history`) and the owner reports it through `collect`; the
         // array stays the renderer's because the camera UBO - not TAA - reads it as `prev_view_proj`.
         this->collect_stage("taa");
-        this->gpu_mark(command_buffer, gpu_mark_id::taa_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::taa_end);
 
         // G-buffer debug mode (an inspection of the stored data, never combined with the lighting
         // stage or TAA): turn one channel into a visible image in the HDR target. THE PASS owns the recording
@@ -2958,7 +2979,7 @@ namespace deren::vulkan {
                 this->clear_hdr_for_missing_gbuffer_set(command_buffer);
             }
         }
-        this->gpu_mark(command_buffer, gpu_mark_id::main_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::main_end);
     }
 
     void runtime::barrier_image_to_sampling(VkCommandBuffer const command_buffer, VkImage const image) {
@@ -3016,12 +3037,14 @@ namespace deren::vulkan {
         // records with (deren.vulkan.pass.upscale, created by create_passes()).
         //
         // AT render_scale == 1.0 THE ANSWER IS FALSE BY CONSTRUCTION, and that is the whole reason this
-        // predicate is not just `pass_ready`: `core::render_extent()` returns the swapchain's extent at 1.0, so
+        // predicate is not just `pass_ready`: the render extent returns the swapchain's extent at 1.0, so
         // the resolve would read an image at the output size and write an image at the output size - a
         // same-size resample that costs a pass and changes no pixel. This is also what keeps every scale-1.0
         // capture byte-identical: the runner never resolves or records the stage, the composite never writes
-        // the LDR image for it, and the frame is the frame it always was.
-        return this->vulkan_core.render_scale < 1.0f && this->pass_ready("upscale");
+        // the LDR image for it, and the frame is the frame it always was. The scale is the ENGINE's own
+        // number now (abi 14, copied from the creation option the context was built with), not a field
+        // read out of the context.
+        return this->render_scale < 1.0f && this->pass_ready("upscale");
     }
 
     void runtime::draw_overlay_after(void* const owner, VkCommandBuffer const command_buffer) {
@@ -3063,7 +3086,7 @@ namespace deren::vulkan {
         vkCmdPipelineBarrier2(command_buffer, &clear_dependency);
         VkClearValue clear = {};
         VkRenderingAttachmentInfo const attachment = make_color_attachment_info(vk.hdr_image_views[index], clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, vk.render_extent()}, true, &attachment, nullptr);
+        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->render_extent()}, true, &attachment, nullptr);
         vkCmdBeginRendering(command_buffer, &rendering_info);
         vkCmdEndRendering(command_buffer);
     }
@@ -3146,7 +3169,7 @@ namespace deren::vulkan {
         }
         // GPU timing: the bloom chain ends here (a disabled chain is just the layout fixups above, so its interval
         // reads ~0).
-        this->gpu_mark(command_buffer, gpu_mark_id::bloom_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::bloom_end);
 
         // ---- THE COMPOSITE, as a stage of one pass ----
         // ITS FRAME CARRIES THE OVERLAY only when NEITHER resolve runs: the overlay has no load op of its own, so
@@ -3160,7 +3183,7 @@ namespace deren::vulkan {
         this->prepare_stage(composite_stage, command_buffer);
         [[maybe_unused]] pass::run_report const composite_report = pass::record_stage(composite_stage, this->make_pass_host());
         // GPU timing: the composite (and the debug overlay, when it draws here) is done.
-        this->gpu_mark(command_buffer, gpu_mark_id::composite_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::composite_end);
 
         // ---- THE FXAA RESOLVE, as a stage of one pass (deren.vulkan.pass.fxaa) ----
         // It is the frame's LAST writer whenever it runs, so it is the pass that carries the overlay - the other
@@ -3172,7 +3195,7 @@ namespace deren::vulkan {
         [[maybe_unused]] pass::run_report const fxaa_report = pass::record_stage(fxaa_stage, this->make_pass_host());
         // GPU timing: the FXAA pass (and the overlay it carries when it is the last writer) is done. Without FXAA
         // the composite already ended the frame's display work, so this interval is ~0.
-        this->gpu_mark(command_buffer, gpu_mark_id::fxaa_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::fxaa_end);
 
         // ---- THE UPSCALE RESOLVE, as a stage of one pass (deren.vulkan.pass.upscale) ----
         // It is the frame's LAST writer on the frames it runs (the render chain is smaller than the output), so
@@ -3289,7 +3312,7 @@ namespace deren::vulkan {
         vkCmdPipelineBarrier2(*command_buffer, &dependency_info);
         // GPU timing: last mark of the frame. The interval it closes is everything after the FXAA
         // (or composite) pass - the screenshot read-back copy and the present barrier.
-        this->gpu_mark(*command_buffer, gpu_mark_id::frame_end, VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT);
+        this->gpu_mark(gpu_mark_id::frame_end);
         if (vkEndCommandBuffer(*command_buffer) != VK_SUCCESS) {
             return frame_status::end_recording_failed;
         }
@@ -3313,27 +3336,49 @@ namespace deren::vulkan {
                                 this->resource_check_frames);
         }
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::submit};
-        core& vk = this->vulkan_core;
-        vk_command_buffer& command_buffer = this->command_buffers[this->frame_ring().position()];
 
-        // Submit + present; recreate the swapchain when presentation reports out of date
+        // SUBMIT + PRESENT GO THROUGH THE CONTRACT (abi 14): the frame verb the contract was missing
+        // is here, so the engine no longer names the backend's submission primitive. The list is the
+        // backend's own borrowed recording view (`begin_commands()` - the same list this frame's
+        // recording verbs were handed), and the IMAGE plus the present-ready semaphore are the
+        // backend's own acquire state: this object never touches either. The command buffer the frame
+        // RECORDED into is still this runtime's `command_buffers[slot]`, which is a view of the
+        // backend's own frame command buffers - the two name the same buffer by construction, so the
+        // verb submits exactly what was recorded.
         auto const submit_started = std::chrono::steady_clock::now(); // sub-phase marks: what of submit is the
         // queue submission (with its timeline signal) and what is the present call below
-        if (vk.submit(*command_buffer, this->current_image_index) != VK_SUCCESS) {
+        rhi::command_list* const commands = this->rhi_face().begin_commands();
+        if (commands == nullptr) {
+            // A frame that reached the submit point is the frame `wait_and_acquire()` opened, so this
+            // is an invariant, not a state a caller can produce: refusing by not submitting is the
+            // same answer `submit()` itself would give (`not_ready`), and it never appears as a
+            // successful frame.
+            deren::utility::log("runtime: submit called with no frame in flight");
+            return frame_status::submit_failed;
+        }
+        rhi::error const submitted = this->rhi_face().submit(*commands);
+        if (submitted != rhi::error::ok) {
+            // The contract's answer names WHAT failed (device_lost, out_of_*_memory, ...) - the
+            // information the old `!= VK_SUCCESS` test threw away.
+            deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));
             return frame_status::submit_failed;
         }
         this->cpu_timings.add(deren::vulkan::profiling::cpu_phase::submit_queue, std::chrono::steady_clock::now() - submit_started);
         auto const present_started = std::chrono::steady_clock::now();
-        // THE PRESENT LADDER GOES THROUGH THE ERROR MECHANISM: present_error is the PRESENT call
-        // site's translation - SUBOPTIMAL is out_of_date HERE (the frame showed, but the surface is
-        // one resize from gone), the reading the acquire site must NOT inherit.
-        // present() ANSWERS THE CONTRACT'S VOCABULARY now (the translation is the backend's, at the
-        // present call site): the engine reads the code, it never touches a VkResult.
-        rhi::error const presented = vk.present(this->current_image_index);
+        // THE PRESENT LADDER GOES THROUGH THE ERROR MECHANISM: `present()` answers the contract's
+        // vocabulary, and the translation is the backend's at the present call site - SUBOPTIMAL is
+        // out_of_date HERE (the frame showed, but the surface is one resize from gone), the reading
+        // the acquire site must NOT inherit. The engine reads the code; it never touches a VkResult
+        // and never names the image: the backend presents the image its own acquire took.
+        rhi::error const presented = this->rhi_face().present();
         this->cpu_timings.add(deren::vulkan::profiling::cpu_phase::present, std::chrono::steady_clock::now() - present_started);
         if (presented == rhi::error::out_of_date) {
             deren::utility::log("present out of date, recreating swapchain");
-            if (vk.recreate_swap_chain()) {
+            // THE REBUILD IS THE SWAPCHAIN'S OWN VERB (abi 14), and only a generation that was
+            // actually rebuilt (`ok`; `not_ready` is the deferred state) invalidates the per-image
+            // state - exactly the condition the raw bool used to spell.
+            rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
+            if (surface != nullptr && surface->recreate() == rhi::error::ok) {
                 this->on_swapchain_recreated();
             }
         } else if (presented != rhi::error::ok) {

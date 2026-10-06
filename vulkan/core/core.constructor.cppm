@@ -287,6 +287,7 @@ namespace deren::vulkan {
         // lesson, measured by the spike as 2 FAILs before anything else could look at it).
         this->frames_view.owner = this;
         this->profiler_view.owner = this;
+        this->swapchain_view_.owner = this;
         this->escape_view.owner = this;
         this->heap_view.owner = this;
         this->address_view.owner = this;

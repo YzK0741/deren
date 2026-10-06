@@ -256,6 +256,10 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error copy_image_to_buffer(deren::promise::rhi::buffer& destination,
                                                                           deren::promise::rhi::image const& source,
                                                                           deren::promise::rhi::image_copy_region const& region) noexcept override;
+            // ---- the GPU timing recording verbs (abi 14): this list IS the frame's slot, so the
+            // timing range and the marks ride the list rather than a raw slot index ----
+            [[nodiscard]] deren::promise::rhi::error begin_gpu_timing() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept override;
         };
 
         /// The swapchain image the frame in flight draws into, as the contract's `image`.
@@ -320,6 +324,20 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint32_t position() const noexcept override;
             [[nodiscard]] deren::promise::rhi::frame_open_info wait_and_acquire() override;
             void walk_to_next() noexcept override;
+        };
+
+        /// The presentation surface, as the contract's `swapchain`: a BORROWED view like the frame
+        /// views above (a `release()` on it logs once and drops no reference). `recreate()` and
+        /// `extent()` are abi 14's verbs - the rebuild is this object's own behaviour, re-derived
+        /// from the window it owns, and the extent answers what presentation shows.
+        struct swapchain_view final : deren::promise::rhi::swapchain {
+            core* owner = nullptr;
+            mutable bool borrowed_release_logged = false;
+
+            /// BORROWED: logs once and drops no reference (see frame_image_slot's note)
+            void release() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error recreate() override;
+            [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
         };
 
         /// The last completed frame's GPU timing report, as the contract's `gpu_profiler` (abi 13).
@@ -560,6 +578,8 @@ namespace deren::vulkan {
         /// spike caught it as 2 FAILs before anyone looked at a frame).
         frame_walker_view frames_view;
         gpu_profiler_view profiler_view;
+        /// the presentation surface `frame_swapchain()` answers with (abi 14), a borrowed view
+        swapchain_view swapchain_view_;
         /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
         frame_escape escape_view;
         frame_heap heap_view;
@@ -697,11 +717,14 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept override;
         [[nodiscard]] deren::promise::rhi::buffer* frame_readback_buffer() noexcept override;
         [[nodiscard]] deren::promise::rhi::submit_info frame_begin() override;
-        void present() override;
+        [[nodiscard]] deren::promise::rhi::error present() override;
         void wait_idle() override;
-        // ---- the frame face (abi 13): appended, after every virtual the older engines dispatch ----
+        // ---- the frame face (abi 13, grown in abi 14): appended, after every virtual the older
+        // engines dispatch ----
         [[nodiscard]] deren::promise::rhi::frame_walker* walk_frames() noexcept override;
         [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
+        [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept override;
+        [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_list& commands) override;
 
         VkSurfaceKHR surface = VK_NULL_HANDLE;
 
@@ -1462,7 +1485,12 @@ namespace deren::vulkan {
         /// swapchain rebuild plus `skipped`, while the contract's `frame_begin()` collapses anything
         /// but success into a zeroed `submit_info` (tier-1 has no error channel, plan §3.3).
         [[nodiscard]] VkResult acquire_next_image(uint32_t& image_index);
-        VkResult submit(VkCommandBuffer command_buffer, uint32_t image_index);
+        /// the SUBMISSION PRIMITIVE behind the contract's `submit(command_list&)` (abi 14): signals
+        /// this slot's completion timeline and the recorded image's present-ready semaphore. It
+        /// changed its name from `submit` when the contract's one-argument verb arrived - the two
+        /// coexisting would hide the virtual under -Woverloaded-virtual, and the primitive is an
+        /// implementation detail the engine no longer names.
+        VkResult submit_frame(VkCommandBuffer command_buffer, uint32_t image_index);
 
         /**
          * @ingroup vulkan_core

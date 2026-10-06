@@ -1574,10 +1574,21 @@ namespace deren::vulkan {
         return rhi::submit_info{.frame_index = static_cast<std::uint32_t>(this->current_frame), .image_index = image_index};
     }
 
-    void core::present() {
-        // The contract's present() has no argument: it presents the image its own frame_begin()
-        // acquired. The const overload next to it is the one that talks to vkQueuePresentKHR.
-        static_cast<void>(this->present(this->acquired_image_index));
+    rhi::error core::present() {
+        // The contract's present() has no argument: it presents the image its own acquire took, and
+        // the PRESENT call site's translation answers (out_of_date => the caller rebuilds; a failed
+        // presentation never reports silence - the abi 14 note on the verb).
+        //
+        // NO ACQUIRED FRAME IS A NAMED REFUSAL, not a queue call: `acquired_image_index` starts at 0,
+        // which NAMES a real image, so forwarding it before any acquire would reach
+        // vkQueuePresentKHR waiting on a present-ready semaphore nothing has signalled (and present
+        // image 0, which this frame never wrote). `frame_acquired` is what tells "the last acquire"
+        // from "there has never been one" - the same flag `frame_image()` answers on - so a caller
+        // that presents before opening a frame is told `not_ready` instead of being run into the WSI.
+        if (!this->frame_acquired) {
+            return rhi::error::not_ready;
+        }
+        return this->present(this->acquired_image_index);
     }
 
     void core::wait_idle() {
@@ -1585,6 +1596,25 @@ namespace deren::vulkan {
         // not const, so this overload exists to forward into it.
         core const& self = *this;
         self.wait_idle();
+    }
+
+    rhi::swapchain* core::frame_swapchain() noexcept {
+        return &this->swapchain_view_;
+    }
+
+    rhi::error core::submit(rhi::command_list& commands) {
+        // The list must be THIS frame's recording view - the same two-way check every frame verb
+        // makes (a foreign list is a caller bug, refused by name, never guessed at).
+        if (&commands != static_cast<rhi::command_list*>(&this->commands_view)) {
+            return rhi::error::invalid_argument;
+        }
+        if (!this->frame_in_flight) {
+            return rhi::error::not_ready;
+        }
+        // The image and the present-ready semaphore are this backend's own acquire state - never
+        // caller data (the contract's note). The raw failure becomes the generic translation; the
+        // device-level codes travel as themselves.
+        return generic_error(this->submit_frame(this->frame_command_buffer(), this->acquired_image_index));
     }
 
     // ---- the frame face (abi 13) ----------------------------------------------------------------

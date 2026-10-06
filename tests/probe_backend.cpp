@@ -20,7 +20,8 @@
 //
 //   - `api_core::abilities()` announces device_address, and
 //     `query_extension()` answers it and returns nullptr for anything else.
-//     ABI12 removed the old inert descriptor_heap: this probe has no recording domain.
+//     ABI12 removed the old inert descriptor_heap: this probe has no recording DOMAIN (abi 14's
+//     recording VIEW is a static list it hands out - see the last bullet).
 //     That pair is what the plan's "named failure, no silent downgrade" rests on
 //     (§1.9, §3.6): an engine that asks for ray_tracing gets a null, not a stub.
 //   - The factories return nullptr except `create_buffer()`: a probe has no device,
@@ -46,6 +47,15 @@
 //     (`rhi::create_info const*`), refuses a mismatched ABI with `abi_mismatch` and a
 //     missing descriptor with `invalid_argument`, and allocates the object with `new`
 //     so that the deleter the host resolved from THIS library is the one that frees it.
+//   - THE abi 14 SURFACE is implemented for the same compile-time reason every other virtual is
+//     (a pure virtual left unimplemented is an abstract class, not a probe): the two `swapchain`
+//     verbs on a STATIC presentation view (`extent()` echoes the creation descriptor's window size,
+//     `recreate()` answers the deferred state for a zero one), the two timing verbs on a STATIC
+//     recording list (`begin_commands()` hands it out while a frame is open; the positional rule
+//     answers `invalid_argument`, the capability answers `unsupported` exactly as the profiler face
+//     does), `frame_swapchain()` and `submit()` on the context, and `present()` answering `error`
+//     instead of nothing. Every one of them refuses by NAME where it cannot serve - nothing here
+//     silently downgrades, which is what makes the double (DLL + static) build a contract check.
 // ============================================================================
 import deren.promise.rhi;
 
@@ -131,6 +141,71 @@ namespace {
         }
     };
 
+    /// THE PROBE'S RECORDING VIEW (abi 14): the frame's command list, statically allocated and handed
+    /// out by `begin_commands()` for as long as the probe's frame fiction is open. It is the object the
+    /// two new TIMING verbs live on, and the probe's device cannot timestamp - which is why their
+    /// honest answer is `unsupported` (the profiler face's story) - while the ORDER rule stays
+    /// observable: `mark_gpu_timing()` checks the positional index BEFORE its own capability, so an
+    /// out-of-order mark is refused with `invalid_argument` on this device-less list exactly as the
+    /// contract requires it to be. (The real backend checks its capability first; both orders are
+    /// contract-faithful - the two codes say different things, "you asked wrong" and "I cannot
+    /// measure" - and the probe's choice is the one that makes the positional rule testable without
+    /// a GPU.)
+    struct probe_command_list final : rhi::command_list {
+        /// The probe records no barrier (it has no device) but the call has to ARRIVE, so the pair it
+        /// was handed is echoed into this object - the same "make the crossing visible" shape
+        /// `probe_buffer::release()` uses for the owned-handle path.
+        [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use const from, rhi::image_use const to) noexcept override {
+            this->last_use_from = from;
+            this->last_use_to = to;
+            return rhi::error::ok;
+        }
+
+        /// No device, no destination buffer to copy into: the honest answer is `unsupported`, never a
+        /// fake copy (the same rule `probe_buffer::mapped()` follows with its empty span).
+        [[nodiscard]] rhi::error copy_image_to_buffer(rhi::buffer&, rhi::image const&, rhi::image_copy_region const&) noexcept override {
+            return rhi::error::unsupported;
+        }
+
+        [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
+            this->marks = 0;
+            return rhi::error::unsupported;
+        }
+
+        [[nodiscard]] rhi::error mark_gpu_timing(std::uint32_t const mark_index, std::string_view const stage_name) noexcept override {
+            if (mark_index != this->marks) {
+                return rhi::error::invalid_argument; // positional: the next mark is the only valid index
+            }
+            this->last_stage_name = stage_name; // the echo: static text stored verbatim, never copied
+            return rhi::error::unsupported;
+        }
+
+        rhi::image_use last_use_from = rhi::image_use::color_attachment;
+        rhi::image_use last_use_to = rhi::image_use::color_attachment;
+        std::string_view last_stage_name = {};
+        std::uint32_t marks = 0;
+    };
+
+    /// THE PROBE'S PRESENTATION SURFACE (abi 14): a BORROWED view like the walker and the profiler, and
+    /// the DESCRIPTOR ECHO reaches through it - the "current size" a rebuild re-derives from the window
+    /// it owns is, for a probe with no window, the creation descriptor it was handed
+    /// (`window_width` x `window_height`), so a view that never crossed the boundary cannot answer
+    /// with those numbers. A zero-sized descriptor is the DEFERRED recreate state (`not_ready`), which
+    /// is the contract's rule for a not-yet-sized window. The bodies live below `impl` (they reach its
+    /// echo through the owner pointer, which the constructor sets).
+    struct probe_swapchain final : rhi::swapchain {
+        impl* owner = nullptr;
+
+        /// A BORROWED view: this surface is a static member of the probe, so there is no reference to
+        /// drop - the call is counted, and the count is what makes "the call arrived" observable.
+        void release() noexcept override;
+        [[nodiscard]] rhi::error recreate() override;
+        [[nodiscard]] rhi::image_extent extent() const noexcept override;
+
+        std::uint32_t releases = 0;
+        std::uint32_t recreates = 0;
+    };
+
     /// The probe's api_core. `final` so that a missing override is a compile error
     /// rather than an inherited pure virtual in an abstract class nobody notices.
     struct impl final : rhi::api_core {
@@ -177,7 +252,11 @@ namespace {
         }
 
         [[nodiscard]] rhi::command_list* begin_commands() override {
-            return nullptr; // no device, no pool: the test checks this is an answer, not a crash
+            // A BORROWED VIEW, AND ONLY WHILE A FRAME IS OPEN: the real backend answers nullptr when
+            // nothing is in flight, and the probe keeps that rule with its own frame fiction
+            // (`frame_begin()` / the walker's `wait_and_acquire()` open it, `submit()` closes it).
+            // abi 14's timing verbs live ON this list, which is the reason it is handed out at all.
+            return this->frame_open ? &this->commands : nullptr;
         }
 
         [[nodiscard]] rhi::submit_info frame_begin() override {
@@ -189,11 +268,21 @@ namespace {
             // filled is the field the test reads back - a descriptor that never reached the library
             // cannot produce the number.
             info.image_index = this->creation_window_width;
+            // ... AND THE FRAME IS OPEN: this is the window `begin_commands()` and the recording verbs
+            // answer in, the same window the real backend's acquire opens (see begin_commands()).
+            this->frame_open = true;
+            this->frame_acquired = true;
             return info;
         }
 
-        void present() override {
+        /// abi 14: the verb ANSWERS now. A frame that was never acquired has nothing to show, so the
+        /// probe refuses BY NAME (`not_ready`) instead of pretending it presented something.
+        [[nodiscard]] rhi::error present() override {
+            if (!this->frame_acquired) {
+                return rhi::error::not_ready;
+            }
             ++this->presents;
+            return rhi::error::ok;
         }
 
         void wait_idle() override {
@@ -219,6 +308,28 @@ namespace {
             return &this->profiler_view;
         }
 
+        // ---- the frame verbs abi 14 added to the context ----------------------------------------
+        /// THE PRESENTATION SURFACE, as a BORROWED view - the same object every call, never a new one
+        /// (the walker's and the profiler's rule). Its `extent()` is the creation-descriptor echo.
+        [[nodiscard]] rhi::swapchain* frame_swapchain() noexcept override {
+            return &this->swapchain_view;
+        }
+
+        /// abi 14: the frame verb the contract was missing. The list must be THIS probe's own borrowed
+        /// recording view (a foreign list is a caller bug, refused by name, never guessed at), and
+        /// there must be a frame to hand over - the same two-way check the real backend makes.
+        [[nodiscard]] rhi::error submit(rhi::command_list& commands_ref) override {
+            if (&commands_ref != static_cast<rhi::command_list*>(&this->commands)) {
+                return rhi::error::invalid_argument;
+            }
+            if (!this->frame_open) {
+                return rhi::error::not_ready;
+            }
+            this->frame_open = false; // handed over: no frame is open to record into any more
+            ++this->submits;
+            return rhi::error::ok;
+        }
+
         probe_buffer buffer{};
         probe_device_address address{};
         /// the ring cursor `frame_begin()` and the frame walker both answer (see the walker's note)
@@ -227,15 +338,28 @@ namespace {
         /// of frame_begin() and the walker's open; 0 would be an impl nobody filled, which the test's
         /// non-zero fill catches
         std::uint32_t creation_window_width = 0;
+        /// the creation descriptor's `window_height`, echoed by the swapchain view's `extent()` (the
+        /// creation descriptor is the only "window size" a probe has)
+        std::uint32_t creation_window_height = 0;
         std::uint32_t presents = 0;
         std::uint32_t waits = 0;
+        std::uint32_t submits = 0;
+        /// WHETHER A FRAME IS OPEN: the probe's stand-in for the backend's `frame_in_flight`, so
+        /// `begin_commands()`/the timing verbs/the submit check answer in the same window the real
+        /// backend answers in
+        bool frame_open = false;
+        /// whether a frame was ever opened, which is what `present()` refuses on (abi 14)
+        bool frame_acquired = false;
         probe_frame_walker walker{};
+        probe_command_list commands{};
+        probe_swapchain swapchain_view{};   // not `swapchain`: a type name, not a member name
         probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above owns that name
 
         impl() noexcept {
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
             // states: a view handed out with a null owner dereferences null on its first call.
             this->walker.owner = this;
+            this->swapchain_view.owner = this;
         }
     };
 
@@ -251,11 +375,32 @@ namespace {
     rhi::frame_open_info probe_frame_walker::wait_and_acquire() {
         // THE BY-VALUE POD, part two: `frame_open_info` crosses the boundary like `submit_info` does
         // - decision and frame together - and the slot it reports is the cursor's.
+        // Opening a frame here IS opening the recording window: `begin_commands()` and abi 14's
+        // timing verbs answer in it, exactly as they do after the real backend's acquire.
+        this->owner->frame_open = true;
+        this->owner->frame_acquired = true;
         return {.frame = {.frame_index = this->owner->current_slot, .image_index = this->owner->creation_window_width}, .result = {}};
     }
 
     void probe_frame_walker::walk_to_next() noexcept {
         this->owner->current_slot = (this->owner->current_slot + 1u) % this->slot_count();
+    }
+
+    // The swapchain view's bodies, where `impl` and its descriptor echo are complete.
+    void probe_swapchain::release() noexcept {
+        ++this->releases;
+    }
+
+    rhi::error probe_swapchain::recreate() {
+        ++this->recreates;
+        // A ZERO-SIZED DESCRIPTOR IS THE DEFERRED STATE, not a failure: the probe has no window, so
+        // the "current size" it re-derives is the creation descriptor, and a 0 x 0 one answers
+        // `not_ready` - the contract's own rule for a window that has not been sized yet.
+        return this->owner->creation_window_width != 0u && this->owner->creation_window_height != 0u ? rhi::error::ok : rhi::error::not_ready;
+    }
+
+    rhi::image_extent probe_swapchain::extent() const noexcept {
+        return {.width = this->owner->creation_window_width, .height = this->owner->creation_window_height, .depth = 1u};
     }
 
 } // namespace
@@ -298,6 +443,7 @@ extern "C" DEREN_API_EXPORT deren::promise::rhi::api_core* deren_make_api_core(s
     // for one that did.
     auto* const created = new impl();
     created->creation_window_width = static_cast<std::uint32_t>(desc->window_width);
+    created->creation_window_height = static_cast<std::uint32_t>(desc->window_height);
     return created;
 }
 

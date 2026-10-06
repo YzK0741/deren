@@ -105,34 +105,31 @@
       "members": []
     }
   ],
-  "count": 17,
+  "count": 10,
   "cross_boundary_symbols": [
     "_ZGIW5derenW6vulkanW10init_utils",
     "_ZGIW5derenW6vulkanW4core",
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core19recreate_swap_chainEv",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core6submitEP17VkCommandBuffer_Tj",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
     "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferC1EOS5_",
     "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferD1Ev",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core13render_extentEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core20gpu_timing_availableEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core29make_secondary_command_bufferEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core7presentEj",
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
   ],
-  "defined_in_backend": 1245,
+  "defined_in_backend": 1255,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core12make_samplerE20VkSamplerAddressModef",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15make_image_viewEP9VkImage_T8VkFormat15VkImageViewType",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core18make_shader_moduleENSt3__14spanIhLy18446744073709551615EEE"
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE",
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj",
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core19recreate_swap_chainEv",
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core6submitEP17VkCommandBuffer_Tj",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core13render_extentEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core20gpu_timing_availableEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core7presentEj"
   ],
   "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
@@ -160,19 +157,6 @@
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE": [
       "runtime.constructor.cppm.obj"
     ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE": [
-      "runtime.cpp.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj": [
-      "runtime.frames.cppm.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core19recreate_swap_chainEv": [
-      "runtime.cpp.obj",
-      "runtime.frames.cppm.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core6submitEP17VkCommandBuffer_Tj": [
-      "runtime.frames.cppm.obj"
-    ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE": [
       "runtime.constructor.cppm.obj"
     ],
@@ -183,21 +167,11 @@
       "readback.cpp.obj",
       "runtime.constructor.cppm.obj"
     ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core13render_extentEv": [
-      "runtime.cpp.obj",
-      "runtime.frames.cppm.obj"
-    ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv": [
       "readback.cpp.obj"
     ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core20gpu_timing_availableEv": [
-      "runtime.cpp.obj"
-    ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core29make_secondary_command_bufferEv": [
       "runtime.constructor.cppm.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core7presentEj": [
-      "runtime.frames.cppm.obj"
     ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv": [
       "runtime.frames.cppm.obj"
@@ -207,5 +181,5 @@
       "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 32
+  "usages": 23
 }

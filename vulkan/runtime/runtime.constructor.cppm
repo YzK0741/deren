@@ -287,6 +287,18 @@ namespace deren::vulkan {
         , vulkan_core{*this->core_owner}
         , filtered_core{core_owner}
         , pass_resources{core_owner} {
+        // ---- THE FRAME'S RESOLUTION IS THE ENGINE'S OWN FROM HERE ON (abi 14) ---------------------
+        // The core was just built from the creation descriptor, so its clamped render scale is the
+        // authoritative one for this run and the engine copies it ONCE (the option is startup-only:
+        // `render_scale` is read when the render targets are created, and the context clamps it at
+        // construction, so the two numbers cannot drift). The swapchain the core created is the
+        // generation every extent below is relative to, and it is read through the CONTRACT
+        // (`frame_swapchain()->extent()`) rather than out of the context's own field - which is what
+        // lets `core::render_extent()` leave the engine's boundary worklist. Every later generation
+        // arrives through the very same function (see on_swapchain_recreated).
+        this->render_scale = this->vulkan_core.render_scale;
+        this->refresh_frame_extents();
+
         // ---- THE ONE PLACE GLFW CALLBACKS ARE INSTALLED, and it stays here now that the WINDOW belongs to
         //      the APPLICATION: the callbacks dereference THIS runtime through the window's user pointer, so
         //      they can only be installed once both exist - which is exactly this constructor, running after

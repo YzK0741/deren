@@ -98,6 +98,32 @@ namespace {
     }
 
     /**
+     * @brief a command list the probe NEVER handed out - the foreign-list refusal's subject
+     *
+     * `api_core::submit(command_list&)` has to tell "the list I handed out this frame" from "some
+     * other list": without RTTI there is no honest way to check the dynamic type, so the contract's
+     * precondition is the caller's - and a backend that cannot recognise the list must refuse it BY
+     * NAME instead of guessing. This stand-in is that "some other list": it declares the same
+     * interface and answers `invalid_argument` to everything, so a probe that accepted it would be
+     * caught. It lives in the TEST, because "not handed out by the backend" is exactly what the test
+     * knows and the probe cannot.
+     */
+    struct foreign_command_list final : rhi::command_list {
+        [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use, rhi::image_use) noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error copy_image_to_buffer(rhi::buffer&, rhi::image const&, rhi::image_copy_region const&) noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error mark_gpu_timing(std::uint32_t, std::string_view) noexcept override {
+            return rhi::error::invalid_argument;
+        }
+    };
+
+    /**
      * @brief everything the promise contract promises, driven through one pair of entry points
      *
      * Called once with the symbols resolved from the loaded DLL and once with the ones the linker
@@ -125,7 +151,14 @@ namespace {
         // ABI13 is the frame face: `api_core` appended `walk_frames()` / `profiler()` (a vtable
         // shift) with the new tier-1 types, and the entry's out-parameter became `error_info*` -
         // the C signature is the other thing the number protects.
-        CHECK(rhi::abi_version == 13u);
+        // ABI14 is the frame verbs' completion (the boundary batch, one renumbering for one batch):
+        // `api_core` appended `submit(command_list&)` / `frame_swapchain()`, `present()` changed
+        // `void` -> `error` (a presentation that failed silently was information loss), and the two
+        // tier-1 vtables that carry the new recording surface grew - `command_list` appended
+        // `begin_gpu_timing()` / `mark_gpu_timing(index, name)`, `swapchain` appended `recreate()` /
+        // `extent()`. Appends and a return-type change on tier-1 vtables are exactly the case the
+        // number exists for.
+        CHECK(rhi::abi_version == 14u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -277,7 +310,12 @@ namespace {
         // (`creation.window_width` = 3), and the open's by-value POD carries the echo across with
         // its decision - a structure handed to `deren_make_api_core()` and never read there cannot
         // produce the number.
+        // The list is answered only while a frame is OPEN (abi 14's rule, the real backend's too),
+        // which is why this line comes before any `frame_begin()`: nothing is in flight yet.
         CHECK(core->begin_commands() == nullptr);
+        // ... and `present()` (abi 14, now answering) refuses that same no-frame state by name: a
+        // frame that was never acquired has nothing to show.
+        CHECK_MSG(core->present() == rhi::error::not_ready, which_half);
         rhi::frame_walker* const walker = core->walk_frames();
         CHECK(walker != nullptr);
         CHECK(core->walk_frames() == walker); // the same borrowed view every call, never a new object
@@ -295,6 +333,41 @@ namespace {
         CHECK(open.result.code == rhi::error::ok);
         CHECK(open.frame.frame_index == walker->position());
         CHECK(open.frame.image_index == 3u);
+
+        // ---- the abi 14 surface, on the same open frame ---------------------------------------
+        // THE PRESENTATION SURFACE IS A BORROWED VIEW like the two above - the same object every
+        // call - and its `extent()` is the descriptor echo again (`window_width` x `window_height` =
+        // 3 x 5): the descriptor crossed, and the view answers with what it carried. `recreate()`
+        // answers the STATE the contract names for a sized descriptor (a zero one is the deferred
+        // state, checked below).
+        rhi::swapchain* const surface = core->frame_swapchain();
+        CHECK(surface != nullptr);
+        CHECK(core->frame_swapchain() == surface); // the same borrowed view every call
+        CHECK(surface->extent().width == 3u);
+        CHECK(surface->extent().height == 5u);
+        CHECK(surface->extent().depth == 1u);
+        CHECK_MSG(surface->recreate() == rhi::error::ok, which_half);
+        // THE TIMING VERBS ARE ON THE LIST (abi 14), and the list is the borrowed recording view -
+        // reachable only because the open above opened the frame. The probe's device cannot
+        // timestamp (its profiler says `unsupported`, and so do these two), but the ORDER rule is
+        // measured here all the same: the positional index is checked before the capability, so an
+        // index that is not the next mark is refused BY NAME.
+        rhi::command_list* const commands = core->begin_commands();
+        CHECK(commands != nullptr); // a frame is open: wait_and_acquire above opened it
+        CHECK(core->begin_commands() == commands);
+        CHECK(commands->begin_gpu_timing() == rhi::error::unsupported);
+        CHECK_MSG(commands->mark_gpu_timing(1, "out of order") == rhi::error::invalid_argument, which_half);
+        CHECK(commands->mark_gpu_timing(0, "frame begin") == rhi::error::unsupported);
+        CHECK(commands->mark_gpu_timing(2, "out of order") == rhi::error::invalid_argument);
+        // SUBMIT (abi 14): the frame's own list is accepted and hands the frame over; a list the
+        // backend did not hand out is refused by name; and after the hand-over there is no frame to
+        // submit any more.
+        foreign_command_list foreign{};
+        CHECK_MSG(core->submit(foreign) == rhi::error::invalid_argument, which_half);
+        CHECK_MSG(core->submit(*commands) == rhi::error::ok, which_half);
+        CHECK(core->begin_commands() == nullptr); // handed over: no frame is open to record into
+        CHECK(core->submit(*commands) == rhi::error::not_ready);
+
         // the profiler face: the probe cannot timestamp, which is the `unsupported` story - a
         // constant zero and a named refusal, never silence and never a fake measurement
         rhi::gpu_profiler* const profiler = core->profiler();
@@ -305,7 +378,8 @@ namespace {
         std::uint64_t duration_ns = 0;
         CHECK_MSG(profiler->get_stage_info(0, &stage_name, &duration_ns) == rhi::error::unsupported,
                   which_half);
-        core->present();
+        // and the present that answers: a frame was acquired, so the probe echoes the call with ok
+        CHECK_MSG(core->present() == rhi::error::ok, which_half);
         core->wait_idle();
 
         // Destruction runs inside the backend, exactly once, and a deleter that only counts first

@@ -19,6 +19,10 @@ import :init_utils;
 import deren.vulkan.constant_init;
 
 namespace deren::vulkan {
+    // The contract's spelling, local to this TU: the frame verbs below return `rhi::error` /
+    // `rhi::image_extent`, and core.api_core.cpp carries the same alias (core.entry.cpp has it at
+    // global scope). Without it every `rhi::` in this file is "did you mean promise::rhi?".
+    namespace rhi = deren::promise::rhi;
 
     void core::begin_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot) noexcept {
         this->gpu_timing_marks[slot] = 0;
@@ -83,6 +87,42 @@ namespace deren::vulkan {
             result.milliseconds[mark] = deren::utility::timestamp_delta_milliseconds(ticks[mark], ticks[mark + 1], this->timestamp_valid_bits, this->timestamp_period_ns);
         }
         return result;
+    }
+
+    rhi::error core::frame_commands::begin_gpu_timing() noexcept {
+        core& owner = *this->owner;
+        if (!owner.gpu_timing_supported) {
+            return rhi::error::unsupported; // the device cannot timestamp: the report stays honestly empty
+        }
+        if (!owner.frame_in_flight) {
+            return rhi::error::not_ready; // the same window `use()` refuses in
+        }
+        owner.begin_gpu_timing(owner.frame_command_buffer(), static_cast<uint32_t>(owner.current_frame));
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::mark_gpu_timing(std::uint32_t const mark_index, std::string_view const stage_name) noexcept {
+        core& owner = *this->owner;
+        if (!owner.gpu_timing_supported) {
+            return rhi::error::unsupported;
+        }
+        if (!owner.frame_in_flight) {
+            return rhi::error::not_ready;
+        }
+        uint32_t const slot = static_cast<uint32_t>(owner.current_frame);
+        // THE MARKS ARE POSITIONAL: an out-of-order index would mislabel every later interval, so it
+        // is refused by name instead of being accepted silently (the check gpu_mark used to make by
+        // reading this class's count field - the field read leaves the engine with the check).
+        if (owner.gpu_timing_marks[slot] != mark_index) {
+            return rhi::error::invalid_argument;
+        }
+        // WHICH PIPELINE STAGE the timestamp resolves at is the backend's measurement policy, not a
+        // caller decision: the frame's first mark anchors at the top of the pipe (it measures from
+        // "nothing yet recorded"), every pass boundary resolves at the bottom (it measures everything
+        // submitted so far) - the one pattern this renderer's marks ever expressed, now owned here.
+        VkPipelineStageFlagBits const stage = mark_index == 0 ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
+        owner.mark_gpu_timing(owner.frame_command_buffer(), slot, stage, stage_name);
+        return rhi::error::ok;
     }
 
     vk_command_buffer core::make_command_buffer() const {
@@ -157,7 +197,7 @@ namespace deren::vulkan {
         current_frame = (current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
     }
 
-    VkResult core::submit(VkCommandBuffer const command_buffer, uint32_t const image_index) {
+    VkResult core::submit_frame(VkCommandBuffer const command_buffer, uint32_t const image_index) {
         // Signal this frame slot's TIMELINE to the next value (GPU completion + host pacing,
         // see wait_frame_slot) and the image's binary present-ready semaphore (vkQueuePresentKHR
         // requires a binary wait; per-image so a separate present queue cannot race a re-signal).
@@ -220,6 +260,30 @@ namespace deren::vulkan {
         // (and the engine referencing a translator would JOIN the boundary worklist - the direction
         // the flip measures against).
         return present_error(vkQueuePresentKHR(this->present_queue_handle, &present_info));
+    }
+
+    void core::swapchain_view::release() noexcept {
+        // A BORROWED VIEW CARRIES NO REFERENCE (the frame_image_slot rule): the presentation surface
+        // is the core's and dies with its teardown, so a release() here is a wrapped-borrow bug and
+        // the answer is a ONE-TIME NAMED LOG, not a panic and not a silent no-op.
+        if (!this->borrowed_release_logged) {
+            this->borrowed_release_logged = true;
+            deren::utility::log("rhi: release() on the swapchain view - it is BORROWED from the backend and carries no reference, so nothing was released; the object_manager that wrapped it is the bug");
+        }
+    }
+
+    rhi::error core::swapchain_view::recreate() {
+        // ok = a new generation was built; not_ready = the window reports a zero extent and nothing
+        // was built - a DEFERRED recreate is a state, not a failure, and the caller retries when the
+        // window is sized. Real build failures never reach here: they are the backend's named
+        // startup-style panics, the same rule the constructor's build path follows.
+        return this->owner->recreate_swap_chain() ? rhi::error::ok : rhi::error::not_ready;
+    }
+
+    rhi::image_extent core::swapchain_view::extent() const noexcept {
+        // What presentation SHOWS; the caller's render scale is the caller's own decision and is
+        // deliberately not pre-multiplied here (the contract's note).
+        return {.width = this->owner->swap_chain_extent.width, .height = this->owner->swap_chain_extent.height};
     }
 
     bool core::recreate_swap_chain() {

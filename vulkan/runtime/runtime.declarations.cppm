@@ -468,7 +468,7 @@ namespace deren::vulkan {
             {"tail", false},
         }};
         // whether to collect pass timings at all ([render] gpu_timings); the device must be able
-        // to timestamp as well, which core::gpu_timing_available() reports
+        // to timestamp as well, which gpu_timings_available() reports
         bool gpu_timings_enabled = true;
         // rolling window of measured intervals: every GPU_TIMING_WINDOW frames the collected
         // samples are averaged, logged, and the window starts over (the GUI label reads the
@@ -481,7 +481,15 @@ namespace deren::vulkan {
         // twitch, so this is refreshed once per window and every number is a fixed-width field.
         std::string gpu_timing_report_label = {};
         uint32_t gpu_timing_marks_measured = 0; // intervals the last measured frame had
-        void gpu_mark(VkCommandBuffer command_buffer, gpu_mark_id mark, VkPipelineStageFlagBits stage) noexcept;
+        /// Write ONE mark of this frame's timing range, named for the stage it opens.
+        ///
+        /// THE ENGINE NO LONGER OWNS THE MARK'S MACHINERY (abi 14). It used to read the backend's own
+        /// mark counter to check the positional rule and to hand the recording a PIPELINE STAGE; both
+        /// moved to the backend behind `command_list::mark_gpu_timing(index, name)` - the stage is a
+        /// measurement detail of the query-pool owner, and the ordering rule is the backend's to
+        /// enforce (it answers `invalid_argument`). What is left here is the engine's own half: which
+        /// boundary this mark is, and the static label that boundary opens (`gpu_timing_labels`).
+        void gpu_mark(gpu_mark_id mark) noexcept;
 
         // ---- CPU frame phase timing (same 60-frame window as the GPU marks) ----
         // A scope timer rather than manual marks: every phase function has early returns
@@ -494,6 +502,42 @@ namespace deren::vulkan {
         /// keeping a second copy of the slot index: every read that named `vk.current_frame` or
         /// `core::MAX_FRAMES_IN_FLIGHT` goes through `position()` / `slot_count()` here.
         [[nodiscard]] rhi::frame_walker& frame_ring() const noexcept;
+
+        // ---- THE FRAME'S RESOLUTION, SELF-MAINTAINED (abi 14) ------------------------------------
+        // `core::render_extent()` was the ONE definition of "the frame's resolution" while the
+        // engine named the backend's core for it. Now that the contract answers the presentation
+        // extent (`swapchain::extent()`, unchanged by any scale), the engine keeps the number
+        // itself: the OUTPUT comes from the contract, the SCALE is the caller's own creation
+        // option, and the multiply is the same rounded-to-nearest-and-clamped formula the backend
+        // used - so a frame at the default scale is the frame this renderer always produced.
+        //
+        // Refreshed in exactly the two places a swapchain generation can change: the constructor
+        // and `on_swapchain_recreated()` (which every successful rebuild calls). A DEFERRED
+        // recreate (`not_ready`, a zero-sized window) deliberately does not refresh: nothing was
+        // rebuilt, so the generation the frame loop is holding is still the current one.
+        /// the render scale this engine renders at: copied ONCE from the creation option the context
+        /// was built with (the context clamps it to 0.1 .. 1.0, and it is startup-only, so the two
+        /// cannot drift); `post_upscale_active()` is the other reader
+        float render_scale = 1.0f;
+        /// `frame_swapchain()->extent()` at the current generation: what presentation shows
+        VkExtent2D output_extent = {};
+        /// output_extent x render_scale, rounded to nearest and clamped to >= 1x1 (a zero extent is
+        /// not a small frame, it is an invalid one)
+        VkExtent2D render_extent_value = {.width = 1u, .height = 1u};
+        /// @brief the extent the RENDER chain runs at - the ONE definition of the frame's resolution
+        [[nodiscard]] VkExtent2D render_extent() const noexcept {
+            return this->render_extent_value;
+        }
+        /// @brief the extent presentation shows (the swapchain's own, from the contract)
+        [[nodiscard]] VkExtent2D presentation_extent() const noexcept {
+            return this->output_extent;
+        }
+        /// @brief re-read the contract's swapchain extent and recompute the render extent
+        void refresh_frame_extents() noexcept;
+        /// @brief whether this device can timestamp pass boundaries (`profiler()` is the face that
+        ///        answers, and `unsupported` is its one answer for "no timing on this device"):
+        ///        the engine used to read `core::gpu_timing_available()` directly
+        [[nodiscard]] bool gpu_timings_available() const noexcept;
 
         // ---- G-buffer / deferred path ----
         // M1: the opaque pass writes the G-buffer (three surface targets + the HDR target it adds
