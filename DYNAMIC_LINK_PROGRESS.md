@@ -740,3 +740,25 @@ GLFW 建的窗口"必然失败（同理 DLL 那份 GLFW 从未 `glfwInit`，`glf
   交互路径用的是同一个后端分支、同一份代码，但"有人看着窗口动"这件事本批没有验证。
 * **`plan_rhi_v4.md` §9 的四条 known-unknowns 里，sanitizer 那一条的代价兑现了**：DLL 无 sanitizer 覆盖
   （lld 无法链接 instrumented `-shared`，见 CMake 的注释），这是翻转的成本而不是本批的疏漏。
+
+### 18.7 一条偶发构建失败的记录（附证据，非本批引入）
+
+Lead 两次在同一棵树上看到 `cmake --build` 偶发 exit 1、重跑即过。本批期间**又复现 7 次**，每次都长同一个
+样子，因此记在这里而不是让它被 CI 的重试掩盖：
+
+```
+FAILED: [code=1] CMakeFiles/<target>.dir/<file>.cppm.obj CMakeFiles/<target>.dir/<module>.pcm
+error: unable to open output file 'CMakeFiles/<target>.dir/<module>.pcm':
+        '请求的操作无法在使用用户映射区域打开的文件上执行。'        <- Windows 1224, ERROR_USER_MAPPED_FILE
+```
+
+随后是它的**级联**（不是第二个故障）：
+`llvm-ar: error: CMakeFiles/<target>.dir/<file>.cppm.obj: No such file or directory` +
+`FAILED: lib<target>.a`，因为 `.pcm` 没写出来、对应的 `.obj` 也就不存在。
+
+* **判据**：同一份源码、同一棵树，**紧接着重跑一次就干净通过**（本批的对策是"重试最多 8 次、只在出现
+  **非**该错误时才停"）；96 份保留的构建日志里**没有一份**是该错误之外的"真"失败而重试仍过的。
+* **性质**：编译器写 `.pcm` 时目标文件正被另一个进程（防病毒/索引器/上一次构建遗留的映射）持有而
+  拒绝写入，**不是**本批引入、也不是本仓库代码的错。CMake 自己的 job server 不受影响（错误来自 clang 前端）。
+* **含义**：CI 若对该错误直接判红，会把一次重跑就能过的偶发事件当成真断；若**无脑**重试全部失败，又会
+  掩盖真崩。建议的机器判据就是本批用的这一条：**只把这一条错误文本视为可重试，其余任何 error 立即停**。
