@@ -81,6 +81,11 @@ param(
     [switch]$Full,
     [string]$Only = "",
     [string]$BuildDir = "",
+    # THE STANDARD COMPARISON (G2): "" = none, "frozen" = the migration's fourteen frozen hashes, or a
+    # PATH = another gate round's actual-hash file (how the two-tree phase was compared). The verdict it
+    # prints is the one that means something; this script's own `changed`/exit 1 is about the stale local
+    # reference set (see the note at the summary).
+    [string]$Compare = "",
     [string]$Model = "C:\Users\23530\Desktop\yzk\glTF-Sample-Assets\Models\DamagedHelmet\glTF\DamagedHelmet.gltf",
     [int]$Frames = 40,
     [string]$Camera = "35,20,7,0,-1.6,0",
@@ -423,6 +428,13 @@ function Invoke-Scenario {
 $onlyNames = @()
 if ($Only) { $onlyNames = @($Only -split '[,;\s]+' | Where-Object { $_ }) }
 $pass = 0; $fail = 0; $missing = 0; $flaky = 0; $skipped = 0
+# THE ACTUAL HASHES, KEPT (G2): `render_hashes.txt` is this round's machine-readable result - the file
+# `scripts/compare_render_hashes.py` reads (and the file a second tree's round is compared against while
+# two trees existed). It is written whether or not `-Compare` was asked for, so a round's evidence does
+# not depend on remembering a flag.
+$hashesFile = Join-Path $workDir "render_hashes.txt"
+$actualHashes = [ordered]@{}
+
 # ---- THE LOCAL ASSET PRECONDITION (G1): a missing asset tree is a NAMED FAILURE, not a hash -----------
 #
 # WHY THIS IS A PRECONDITION AND NOT A LINE IN THE REPORT, measured 2026-10-06 on the tree this script
@@ -494,7 +506,8 @@ foreach ($s in $scenarios) {
     Write-Host ("`n=== {0} ({1})" -f $s.name, $s.desc) -ForegroundColor Cyan
 
     $a = Invoke-Scenario -Scenario $s
-    if (-not $a.ok) { Write-Host "  FAIL: $($a.why)" -ForegroundColor Red; $fail++; continue }
+    if (-not $a.ok) { Write-Host "  FAIL: $($a.why)" -ForegroundColor Red; $actualHashes[$s.name] = "FAIL: $($a.why)"; $fail++; continue }
+    $actualHashes[$s.name] = $a.hash.Substring(0, 16)
     if ($Update) {
         Copy-Item $a.path $ref -Force
         Write-Host "  reference updated ($($a.hash.Substring(0,16)))"
@@ -510,10 +523,11 @@ foreach ($s in $scenarios) {
 
     # determinism first: two runs of the SAME binary must agree, or a mismatch below would be noise
     $b = Invoke-Scenario -Scenario $s
-    if (-not $b.ok) { Write-Host "  FAIL (second run): $($b.why)" -ForegroundColor Red; $fail++; continue }
+    if (-not $b.ok) { Write-Host "  FAIL (second run): $($b.why)" -ForegroundColor Red; $actualHashes[$s.name] = "FAIL (second run): $($b.why)"; $fail++; continue }
     if ($a.hash -ne $b.hash) {
         Write-Host "  FLAKY: two runs of this build differ ($($a.hash.Substring(0,16)) vs $($b.hash.Substring(0,16)))" -ForegroundColor Yellow
         Write-Host "  this scenario cannot be a regression check until it is deterministic"
+        $actualHashes[$s.name] = "FLAKY: $($a.hash.Substring(0,16)) vs $($b.hash.Substring(0,16))"
         $flaky++
         continue
     }
@@ -536,12 +550,25 @@ $ran = $pass + $fail + $flaky + $missing
 $set = if ($onlyNames.Count -gt 0) { "-Only $($onlyNames -join ',')" } elseif ($Full) { "full" } else { "core" }
 Write-Host "`n---------------- summary ----------------"
 Write-Host "  set      : $set   (of $($scenarios.Count) defined)"
+# ---- WHAT THIS ROUND ACTUALLY RENDERED, IN A FILE (G2) ------------------------------------------------
+# Written always (not only under -Compare): a round's evidence must not depend on remembering a flag, and
+# this is the file the comparison - and, while two trees existed, the OTHER tree's round - is made from.
+$hashLines = @()
+foreach ($s in $scenarios) {
+    if (-not $actualHashes.Contains($s.name)) { continue }
+    $hashLines += "=== $($s.name) ($($s.desc))"
+    $value = $actualHashes[$s.name]
+    if ($value -match '^[0-9A-F]{16}$') { $hashLines += "  actual  ($value)" } else { $hashLines += "  $value" }
+}
+Set-Content -Path $hashesFile -Value ($hashLines -join "`n")
+
 Write-Host "  defined  : $($scenarios.Count)   ran: $ran   skipped: $skipped"
 Write-Host "  passed   : $pass"
 Write-Host "  changed  : $fail"
 Write-Host "  flaky    : $flaky"
 Write-Host "  unseeded : $missing"
 Write-Host "  references: $baseDir"
+Write-Host "  actual hashes written to: $hashesFile"
 # AN EMPTY RUN IS A FAILURE, and this guard exists because the opposite was believed for several layers:
 # `-Only a,b` matched no scenario, so the run compared nothing and still printed "changed : 0".
 if ($ran -eq 0) { Write-Host "  ERROR: no scenario ran, so NOTHING was verified (check -Only / the scenario names)" -ForegroundColor Red; exit 1 }
@@ -550,6 +577,35 @@ if ($missing -gt 0) { Write-Host "  ERROR: $missing scenario(s) have no referenc
 # "changed : 0" over all fourteen - the other nine only ran if -Full asked for them.
 if (-not $Full -and $onlyNames.Count -eq 0 -and $skipped -gt 0) {
     Write-Host "  note     : $($skipped) extra scenario(s) NOT run - `-Full runs all $($scenarios.Count)" -ForegroundColor DarkGray
+}
+
+# ---- THE STANDARD COMPARISON (G2): the ACTUAL hashes, not this script's exit code --------------------
+#
+# WHY A SEPARATE VERDICT: everything above compares each frame against a reference captured earlier on
+# THIS machine, so a stale reference set makes `changed` (and this script's exit 1) the NORMAL answer on a
+# perfectly correct tree. The statement that means something is "the fourteen ACTUAL hashes are the ones
+# the migration's frozen list names" (or, while two trees existed, "the dynamic tree's are the control
+# tree's"). `scripts/compare_render_hashes.py` is that instrument, and `-Compare` runs it against the file
+# just written - so a gate round has ONE verdict that cannot be confused with "the references are old".
+if ($Compare) {
+    $compareArgs = @($hashesFile)
+    if ($Compare -eq "frozen") { $compareArgs += "--frozen" } else { $compareArgs += @("--against", $Compare) }
+    # --expect is how many scenarios THIS round was supposed to render, so a selection that silently
+    # dropped one cannot compare equal (see the script's own note).
+    $compareArgs += @("--expect", "$ran")
+    Write-Host ""
+    & python (Join-Path $PSScriptRoot "..\compare_render_hashes.py") @compareArgs
+    $compareExit = $LASTEXITCODE
+    if ($compareExit -ne 0) {
+        Write-Host "  ERROR: the ACTUAL hashes did not match their reference - this is the REAL failure (the reference-vs-frame comparison above is stale by design)" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "  comparison: PASS (this is the verdict that matters; `changed` above is the stale local reference set)" -ForegroundColor Green
+    # AND IT IS THE EXIT CODE: with -Compare the comparison REPLACES the reference-vs-frame verdict, so a
+    # round whose fourteen actual hashes are the ones the frozen list names exits 0 even though the local
+    # references are old (which is the normal state of this machine's reference set, and the reason this
+    # script's own exit code has never been the gate's verdict).
+    exit 0
 }
 if ($fail -gt 0 -or $flaky -gt 0) { exit 1 }
 exit 0

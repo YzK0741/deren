@@ -526,5 +526,4 @@ uploaded`），补上 `deren-ab\` 之后 14/14 逐字节相同。**结论**：�
 ### 16.4 紧随其后的两笔（门自身的两处缺口）
 
 * **G1 已落地**：`check_render.ps1` 在开跑前检查本次选择真正需要的那几个本地文件（**按场景声明**，不是从 `model`/`extra` 推导——`laevatain_no_sidecar` 的 `.toon.tsv` 是**故意不存在**的，那一份缺失就是它的对照），缺哪个就打印 **缺失文件 + 需要的场景 + 缺的是哪一棵树（`chars\` / `deren-ab\`）** 并 `exit 1`，**一个场景都不渲染**。实测两条路径：藏起 `deren-ab\...\PreIntegratedFGD_GGXDisneyDiffuse.png` → `REFUSING TO RUN ... missing tree(s): deren-ab\` 并 exit 1；放回去 → 正常跑出 `CF5A34D8DF6B6FFC`。为什么不能只在报告里标注：缺资产**不报错**，它渲染出**另一张图**，汇总里就是 14 里的 2 个 CHANGED——与一次渲染回归**逐字相同**，报告写在判据之后，判据已经错了。
-* **G2**：`scripts/compare_render_hashes.py` 从 build 目录里的临时产物**提升为标准门**，并接到
-  `check_render.ps1 -Compare …` 上：两棵树都在时比对两棵树，只剩一棵时比对冻结清单。
+* **G2 已落地**：`scripts/compare_render_hashes.py` 成为**仓库里的标准门**（不再是 build 目录里的产物），两种模式：`--against <另一棵树那一轮的输出>`（双树期）与 `--frozen`（只剩一棵时对冻结十四；不带参数即此模式）。`check_render.ps1` 现在**每一轮都把实际哈希写成** `render-check/render_hashes.txt`，并新增 `-Compare frozen|<文件>`：给出 `-Compare` 时，比对脚本的判定**取代**脚本自己那套旧参考集判定，**并成为 exit code**；`--expect` 传本轮**应当**渲染的场景数，少一个就不算过（与 `-Only` 空选择必须报错同一条纪律）。标准门命令与读数：`pwsh -File scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare frozen` → **exit 0**，`against the frozen fourteen: matched 14, mismatched 0`，同时汇总里仍是 `changed: 12`（旧参考集，按设计如此）。
