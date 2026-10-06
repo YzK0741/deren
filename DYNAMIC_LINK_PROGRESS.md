@@ -376,3 +376,86 @@ dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**�
 
 
 
+
+## 15 合并笔（S2+S3）**已落地**：六个分区一次进树，双树全门通过（2026-10-06）
+
+**结论先写**：第二次尝试留下的"只剩 14 个链接期未定义符号"这条路走完了。六个分区（`:declarations` /
+`:constructor` / `:frames` / `:probes` / `:readback` / `runtime.cpp`）现在都在根 `runtime/` 里，动态树
+**第一次把整个渲染器跑起来**，而且 **14 个场景哈希与 legacy 控制组逐个相同**。落地在 `wip/step2-merged`
+分支的两笔提交上（大切片 + S4 的文件表翻转），**未推送**。
+
+### 15.1 这一笔做了什么
+
+1. `runtime.declarations.cppm`（4200 行）**不再 import `deren.vulkan.core`**：`core_owner` 是
+   `std::shared_ptr<rhi::api_core>`（由 `make_contract_core()` 造：C 入口 + `deren_destroy_api_core`
+   deleter），`vulkan_core` 是 `rhi::api_core&`，`rhi_face()`/`escape()`/`valid()` 公开（scaffold 用），
+   文件尾三个自由函数首参改契约引用。
+2. 新增 **`runtime_detail` 命名空间**（声明在 `:declarations`，定义在 `:constructor`，
+   `graphics_queue_family_of` 在 `runtime.cpp`）：每个后端事实**只推导一次**。
+3. 六个分区的机械替换（§12/§14 的清单）：`core::heap_slots*`/`hdr_format`/`gbuffer_*` →
+   `deren.vulkan.render_layout`；`core&` → `rhi::api_core&`；`vk.*`/`vulkan_core.*` 的每个事实 →
+   `runtime_detail::` 或成员。
+4. `runtime.cpp` 进 `VR_RUNTIME_PRIVATE_SOURCES`，`:frames`/`:probes`/`:readback` 进
+   `VR_RUNTIME_MODULES`；**S4 的文件表翻转**：`VR_RUNTIME_SERVES_THE_APP` 在动态树也 ON（应用、
+   `chores`、`render_start_demo` 两棵树都建），因为"两棵树都渲染"才是 14 哈希可比的前提。
+
+### 15.2 测量没覆盖、这一笔补上的（逐条实测）
+
+| 缺口 | 处置 |
+|---|---|
+| `:probes` 的 host image copy | 改成契约虚函数 `host_image_copy::copy_image_to_memory(image, span, image_copy_region)`；**后端第一次服务这个能力**：新增 `core::frame_host_copy`，只在 `host_image_copy_available`（扩展 + feature + GENERAL 在 copy-source 列表里）时广播 |
+| 展示图像（`swapchain_image` 家族） | 契约不给"一整串交换链图像"，只借出**本帧那一张**（`frame_image()`）。引擎用 `image::make_view()`（abi 16 item B）自建 OWNED 视图，**按 acquire 到的 image index 发布这一个实例**（pass 正是按 `frame.image_index` 查找的）；视图**每个 frame slot 一个**（该 slot 的下一帧在等过自己的 timeline 之后才来），并在**任何 swapchain 重建之前** `wait_idle()` + 全部释放（否则视图会活过它包着的图像） |
+| 表面格式 | `escape().native_image_format(*frame_image())` **在第一次 acquire 之前不存在**（`frame_image()` 按契约是 nullptr），而 `create_passes()` 是首帧之前跑的。**abi 16 → 17**：`vulkan_escape::native_swapchain_image_format()`（§11.3 的"一行 escape 补面"条款正是为这种情形写的；§14 撤下的 17 号由这项使用，理由写在 `abi_version` 与访问器旁） |
+| G-buffer 深度格式 | 引擎自己经契约 `depth` ROLE 建了图像 ⇒ 问它自己建的那张（`escape().native_image_format(*gbuffer_depth_images[0])`），构造时一次 |
+| mesh dispatch 两个入口 | 用 `vkGetDeviceProcAddr` 在 escape 的原生设备上解析（仓库既定做法），构造时缓存进成员；两处调用点拿的是裸 `VkCommandBuffer`，契约的 `dispatch_mesh(command_list&)` 表达不了 |
+| 交换链图像数 | `rhi::max_swapchain_images`（契约承诺的**上界**，也是所有 per-image 数组的尺寸；契约自己的注释说 `swapchain::image_count()` 是 abi-17 的路线而它故意不走） |
+| 后端自建窗口（`native_window` 传空） | 这一半拿不到那个窗口（契约只有 caller 填的 `void*`）⇒ GLFW 回调**只在调用方交了窗口时安装**；正式应用永远交（`main.cpp`），所以交互路径零变化。`tests/test_runtime_dyn.cpp` 走的正是"不交窗口"这条路（它此前会在这里空指针崩） |
+| `deren.vulkan.core` 的其余事实 | 特性位（ray query / mesh shader：启用扩展 + `vkGetPhysicalDeviceFeatures2`）、`vkGetPhysicalDeviceProperties` 与 RT SBT 属性、`descriptor_heap::properties().max_push_data`、`window`/`render_scale` 取 `create_info` |
+| 两个镜像常量 | `gpu_timing_mark_capacity`=16、`scene_texture_capacity`=128 在 `runtime_detail` 里**写明出处**；`gbuffer_pass_attachment_count` = `render_layout::gbuffer_target_count + 2`（同一表达式，不复制数字） |
+
+**顺带修掉的两处**：`runtime::mesh_dispatch` 那个**从未被写、也从未被读**的 vestigial 成员删掉（两个调用点读的是后端 `core` 的指针）；`vulkan/readback/readback.cppm` + `.cpp` 改成
+`std::shared_ptr<rhi::api_core>` / 契约面 + escape 取原生句柄 —— import 门里那第二个站点因此离场。
+
+### 15.3 门读数（2026-10-06，本分支实测；数字以门自己的打印为唯一来源）
+
+| 项 | legacy（控制组） | dynamic |
+|---|---|---|
+| 构建 | exit 0 | exit 0 |
+| `ctest` | **18/18** | **18/18** |
+| `clang-format-check` | 0 | 0 |
+| 边界（符号/白名单） | **2** / 2 hit / **0 stale** / 0 untracked | **2** / 2 hit / **0 stale** / 0 untracked |
+| import 门 | **1 站点 / 1 文件**（legacy 自己的 declarations） | **1 站点 / 1 文件**（同上；那张清单是源码扫描，不看本树编不编） |
+| 尖刺 `--with-device` | 96 checks / 0 failed / 自退出 | 同（同一棵尖刺树） |
+| scaffold `test_runtime_dyn.exe --with-device` | —（legacy 树没有这个目标） | **7 checks / 0 failed / 自退出**；`abi_version() = 17` |
+| 渲染 14 哈希 | 14/14（见下） | **14/14 与 legacy 逐个相同**（`matched 14, mismatched 0`，程序化比对） |
+| 校验层 | 零 VUID / ERROR / WARNING（渲染门自己按 `VUID-|Validation Error|[ERROR]|[WARNING]|panic` 扫每个场景的日志，14 个场景全部通过这一关） |
+
+**14 个实际哈希（两棵树逐字节相同；也就是 `DYNAMIC_LINK_IMPLEMENTATION.md` §1 的冻结值）**：
+`deferred 972A31EC5FF55C87` / `deferred_taa_fxaa 4021B16AFDB2F43E` / `deferred_ssao_off BFE3A472FBAB0B5E` /
+`shadow_single A92C5965316679F3` / `unlit F3C2D7FEFDAD864F` / `transparent_blend CC7F77F93487AA5E` /
+`sponza 50AF7E46CC1E2A92` / `metal_rough_glossy A1AFBFB61DBFD104` / `glossy_motion 9F31E89BE38B771C` /
+`deformation 723569BA0D03640C` / `laevatain_goo_toon CF5A34D8DF6B6FFC` /
+`laevatain_goo_toon_body C3365CEEB8AD3723` / `laevatain_no_sidecar E9A2983BEB57D5C5` /
+`laevatain_old_chain 190EB09D3E9FDCDA`。**门的 exit code 仍然是 1**（本机参考集是旧的，CHANGED 是预期），
+判据是这两组打印出来的实际哈希。
+
+**边界账目跟着降**：动态白名单的第三条（`deren.vulkan.core` 的 initializer）**离场**进 `departures`
+（readback 不再 import 后端模块，剩下唯一的 import 者是 legacy 的 declarations，而动态树不编译它），
+动态 baseline 由门自己的 `--update` 收紧 **3 → 2**；legacy 白名单那条 initializer 的**理由文字**改成
+实测的 1 个文件（符号与条数不动，`count` 仍 2）。
+
+### 15.4 一个门覆盖缺口（实测，记档）
+
+`build-release-dyn-clang64` 里**没有** `chars\` 与 `deren-ab\` 两份**本地资产**（构建目录都被 gitignore，
+两棵树各有一份）。`-Full` 第一次跑在动态树上，4 个 `laevatain_*` 场景直接 FAIL（`failed to load model` →
+panic → `libc++abi: terminating`，exit `0xC0000409`），补上 `chars\` 后仍有两个场景**哈希不同**——原因是
+`deren-ab\gooblender\images\PreIntegratedFGD_GGXDisneyDiffuse.png` 也缺（日志里是 `goo FGD LUT: NOT
+uploaded`），补上 `deren-ab\` 之后 14/14 逐字节相同。**结论**：动态树跑渲染门之前必须把这两份资产拷到
+它的构建目录旁；这不是代码差异，但"缺资产会被记成 changed"这件事本身值得写下来。
+
+### 15.5 下一笔（S5）的入口
+
+`VR_RUNTIME=legacy|dynamic` 的分支现在只差"删旧 runtime"：legacy 那一对 baseline+whitelist、
+`vulkan/runtime/` 六个文件、`main.cpp` 里对旧路径的任何引用都在 S5 里一起走；import 门读到 0 的那一天
+就是 `deren.vulkan.core` 的 initializer 离场的日子（现在只剩 legacy declarations 一个消费者，
+而它正是 S5 要删的文件）。

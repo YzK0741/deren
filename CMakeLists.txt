@@ -489,12 +489,12 @@ target_include_directories(deren_vulkan
 # `vulkancorekit` gets, and the LEGACY tree stays the CONTROL for the dynamic one (both must read the same
 # fourteen render hashes; see docs/dynamic_runtime.md for the design and the acceptance).
 #
-# THE FULL-API CONSUMERS ARE GATED WHILE THE PORT IS INCOMPLETE (S1-S3): `render_start_demo` (a member of
-# vulkancorekit), `chores` and the app all name the FULL runtime API, which the dynamic runtime grows into
-# partition by partition. In the dynamic tree those three are simply not built, and every gate the runtime
-# itself can pass runs there - the runtime, the engine library, the 18 tests, and the runtime's own scaffold
-# test. When the port is complete (S4) this variable becomes unconditionally ON: the dynamic runtime is then
-# a drop-in replacement and nothing needs gating.
+# THE FULL-API CONSUMERS WERE GATED WHILE THE PORT WAS INCOMPLETE (S1-S3): `render_start_demo` (a member
+# of vulkancorekit), `chores` and the app all name the FULL runtime API, which the dynamic runtime grew
+# into partition by partition, so in the dynamic tree those three were simply not built. THE PORT IS
+# COMPLETE NOW (S4, the merged six-partition slice): the dynamic runtime IS the legacy runtime's API, so
+# the gate is ON in both trees - which is what the render gate's whole acceptance needs, because the
+# fourteen hashes can only be COMPARED between two trees that both render.
 set(VR_RUNTIME "legacy" CACHE STRING "which renderer runtime to build: legacy = vulkan/runtime, dynamic = runtime/ (the contract-only runtime)")
 set_property(CACHE VR_RUNTIME PROPERTY STRINGS legacy dynamic)
 if(NOT VR_RUNTIME STREQUAL "legacy" AND NOT VR_RUNTIME STREQUAL "dynamic")
@@ -512,7 +512,10 @@ if(VR_RUNTIME STREQUAL "dynamic")
     set(VR_RUNTIME_PRIVATE_SOURCES
         runtime/runtime.cpp
     )
-    set(VR_RUNTIME_SERVES_THE_APP OFF)
+    # S4: the dynamic runtime serves the app, exactly as the legacy one does. The variable is kept (rather
+    # than deleted) because the two branches below still read it, and because a future runtime swap wants
+    # the same spelling; both trees now set it ON.
+    set(VR_RUNTIME_SERVES_THE_APP ON)
 else()
     set(VR_RUNTIME_MODULES
         vulkan/runtime/runtime.cppm
