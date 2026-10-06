@@ -1498,7 +1498,7 @@ namespace deren::vulkan {
             // into the runtime every frame (see main.cpp), so resetting unconditionally here would
             // invalidate the history on every frame: the resolve would fall back to the current
             // (jittered, aliased) frame forever, which looks like TAA running while doing nothing.
-            std::size_t const image_count = this->vulkan_core.taa_history_images.size();
+            std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
             this->image_view_proj.assign(image_count, this->current_ubo.view_proj_unjittered);
             this->taa_jitter_index = 0;
         }
@@ -1917,14 +1917,32 @@ namespace deren::vulkan {
             return static_cast<bool>(owned) ? pass::resolved_binding{.image = static_cast<VkImage>(this->escape().native_image(*owned))}
                                             : pass::resolved_binding{};
         };
+        // ONE ENGINE-OWNED PER-IMAGE FAMILY (③-D/E A1): the engine holds the generation's handles, so the
+        // run the table needs is assembled here, instance by instance, each handle through the contract's
+        // escape. `find()` answers exactly what the family form answered; the family form itself needs a
+        // CONTIGUOUS run of `VkImageView`s, which an array of `object_manager`s is not - and a local run
+        // would dangle, because the table stores the span rather than copying it.
+        auto const owned_family = [this, &table](render_resource::resource_id const id, uint32_t const element, auto const& images, auto const& views) {
+            for (std::size_t instance = 0; instance < rhi::max_swapchain_images; ++instance) {
+                if (!static_cast<bool>(images[instance]) || !static_cast<bool>(views[instance])) {
+                    continue;
+                }
+                table.publish(id, element, static_cast<uint32_t>(instance),
+                              pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*views[instance])),
+                                                     .buffer = VK_NULL_HANDLE,
+                                                     .image = static_cast<VkImage>(this->escape().native_image(*images[instance]))});
+            }
+        };
 
-        // ---- the render-target chain: the image families core owns ----
+        // ---- the render-target chain: the families the backend owns, and the engine's own ones ----
         family(render_resource::resource_id::swapchain_image, 0, vk.swap_chain_image_views, vk.swap_chain_images);
         family(render_resource::resource_id::hdr, 0, vk.hdr_image_views, vk.hdr_images);
         family(render_resource::resource_id::ldr, 0, vk.ldr_image_views, vk.ldr_images);
         family(render_resource::resource_id::gbuffer_depth, 0, vk.gbuffer_depth_image_views, vk.gbuffer_depth_images);
         family(render_resource::resource_id::velocity, 0, vk.velocity_image_views, vk.velocity_images);
-        family(render_resource::resource_id::taa_history, 0, vk.taa_history_image_views, vk.taa_history_images);
+        // THE TAA HISTORY PAIR IS THE ENGINE'S OWN (③-D/E A1.1), and the rest of this chain follows it group
+        // by group - which is why this one call has a different shape from the five above.
+        owned_family(render_resource::resource_id::taa_history, 0, this->taa_history_images, this->taa_history_image_views);
         family(render_resource::resource_id::ml_trace, 0, vk.ml_image_views, vk.ml_images);
         family(render_resource::resource_id::ml_resolve, 0, vk.ml_resolve_image_views, vk.ml_resolve_images);
         family(render_resource::resource_id::ml_history, 0, vk.ml_history_image_views, vk.ml_history_images);
@@ -2704,8 +2722,15 @@ namespace deren::vulkan {
                 VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
                 [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), core::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
             };
-            if (heap_image < this->vulkan_core.taa_history_images.size()) {
-                write_sampled_target(core::heap_slots::taa_history + image_slot, this->vulkan_core.taa_history_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            // THE TAA HISTORY IMAGE IS THE ENGINE'S OWN (③-D/E A1.1): the raw handle comes through the
+            // contract's escape, and the guard is the fixed-size array's own VALIDITY rather than a vector's
+            // length - `heap_image` is the acquired image index, already inside the rhi::max_swapchain_images
+            // bound the frame's end_recording checks.
+            if (heap_image < rhi::max_swapchain_images && static_cast<bool>(this->taa_history_images[heap_image])) {
+                write_sampled_target(core::heap_slots::taa_history + image_slot,
+                                     static_cast<VkImage>(this->escape().native_image(*this->taa_history_images[heap_image])),
+                                     deren::vulkan::hdr_format,
+                                     VK_IMAGE_ASPECT_COLOR_BIT);
             }
             if (heap_image < this->vulkan_core.ml_images.size()) {
                 write_sampled_target(core::heap_slots::ml_trace + image_slot, this->vulkan_core.ml_images[heap_image], deren::vulkan::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);

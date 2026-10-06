@@ -1051,6 +1051,28 @@ namespace deren::vulkan {
          *         (the debug overlay's backend, whose views are gone) */
         void on_swapchain_recreated();
 
+        // ---- THE RENDER CHAIN'S PER-IMAGE TARGETS THE ENGINE OWNS (③-D/E A1) ------------------------
+        //
+        // WHAT MOVED AND WHY: `core::create_render_targets()` used to create these inside the backend, one
+        // per swapchain image. The engine owns them now and creates them through the contract
+        // (`create_image` / `make_view`): a resource the renderer drives must not be born inside the module
+        // the renderer loads by name, and `on_swapchain_recreated()` is what rebuilds the whole chain.
+        //
+        // WHAT DID NOT MOVE: every number. The extent is the frame's render extent, the format is the
+        // shared module's `hdr_format`, and the flags are exactly the usage bits the backend's creation
+        // loop asked for - so the images, their heap descriptors and the picture are the same.
+        //
+        // ONE PER SWAPCHAIN IMAGE, indexed by the image index ACQUIRE returned: `rhi::max_swapchain_images`
+        // is the contract's bound and the array size, the backend refuses a driver that reports more (its
+        // own panic), and the engine never indexes past the bound.
+        std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> taa_history_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> taa_history_image_views = {};
+        /// (re)create the per-image targets the engine owns: the previous generation is RELEASED first (a
+        /// view goes before its image - the borrowed-image view lifetime rule), then one set per current
+        /// swapchain image is created at the render extent and its heap descriptor is written. Generation 0
+        /// and every later generation both call this, so the two paths cannot drift.
+        void create_render_chain_targets();
+
         // ---- post-processing: HDR scene target -> exposure + ACES + gamma -> swapchain ----
         // THE CHAIN'S GPU MATERIAL, THE PUSH BLOCK'S SHAPE AND THE FXAA PIPELINE ARE ALL PASSES' NOW
         // (deren.vulkan.pass.post, deren.vulkan.pass.fxaa): the composite owns the chain's two pipelines, the push block's

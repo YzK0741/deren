@@ -218,6 +218,11 @@ namespace deren::vulkan {
         // the render extent the rest of this function's work is sized by. Nothing was rebuilt on the
         // deferred path, which is why this function is only called when `recreate()` answered `ok`.
         this->refresh_frame_extents();
+        // THE ENGINE'S OWN PER-IMAGE TARGETS ARE REBUILT HERE (③-D/E A1.1): the backend's `recreate()` no
+        // longer touches the TAA history pair, so the engine releases the previous generation and creates
+        // the new one - before any pass is told, because the resource table and every heap descriptor name
+        // these images. The extent read just above is the new generation's, which is what they are sized by.
+        this->create_render_chain_targets();
         // The swapchain generation changed: every per-image target was destroyed and rebuilt, so
         // every descriptor set that pointed at the old views must be replaced before it is used
         // again. Both per-image set families (the post chain's and the G-buffer path's) are dropped
@@ -255,7 +260,7 @@ namespace deren::vulkan {
         // changed): forget the matrices, so the next frame for each image starts a new accumulation
         // instead of blending in a misaligned one. (WHETHER a history holds anything is the TAA pass's own
         // state, and the call above is what cleared it.)
-        std::size_t const image_count = this->vulkan_core.taa_history_images.size();
+        std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
         this->image_view_proj.assign(image_count, this->current_ubo.view_proj_unjittered);
         // The per-image first-use state of the passes in a chain is the PASS's, and the recreate_stage call
         // above is what told each of them its first-use batch - which is why there is no host flag for it any

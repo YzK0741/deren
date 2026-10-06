@@ -338,9 +338,16 @@ namespace deren::vulkan {
         // The six samplers the declaration layer hands out by hint (③-D/E item C): created here, before any
         // pass resolves a binding, because `shared_samplers()` is what a declaration asks for a sampler with.
         this->init_shared_samplers();
+        // THE RENDER CHAIN'S PER-IMAGE TARGETS THE ENGINE OWNS (③-D/E A1): generation 0, created through
+        // the contract right here - the backend no longer creates the TAA history pair, and this is where
+        // the engine takes it over. Every later generation arrives through the same function from
+        // `on_swapchain_recreated`. It runs BEFORE anything publishes these images (the frame's resource
+        // table names them per frame) and AFTER `refresh_frame_extents()` above, which is where the render
+        // extent it sizes them by comes from.
+        this->create_render_chain_targets();
         // Every per-image flag that describes this generation starts where the generation's images do.
-        // The core has already built this generation's targets (its constructor ran
-        // create_hdr_resolve_resources), so the flags can be sized HERE, before any frame records; every
+        // The core has already built the groups it still owns (its constructor ran
+        // create_render_targets), so the flags can be sized HERE, before any frame records; every
         // later generation gets the very same reset from on_swapchain_recreated - one function, so the
         // two lists cannot drift (which they already had).
         this->reset_image_generation_state();
@@ -1125,6 +1132,70 @@ namespace deren::vulkan {
         // accumulation restarted, and a new generation IS that restart (see frame_facts::gi_cold_start).
         // ... and the furnace cube is a new image too, so its level has to be written again.
         this->furnace_cube_ready = false;
+    }
+
+    // ---- THE ENGINE'S OWN RENDER-CHAIN TARGETS (③-D/E A1) ----------------------------------------------
+    //
+    // The creation run the member notes in :declarations describe. ONE function because two paths need it
+    // (the constructor for generation 0, `on_swapchain_recreated` for every later one), and two copies of a
+    // creation loop is how two generations drift - the same argument `reset_image_generation_state` makes.
+    void runtime::create_render_chain_targets() {
+        // RELEASE BEFORE RE-CREATE, on BOTH paths: the previous generation's views and images go first, so
+        // a view never outlives the image it was made over (the borrowed-image view lifetime rule, abi 16).
+        // On generation 0 both arrays are empty and this is a no-op.
+        this->taa_history_image_views = {};
+        this->taa_history_images = {};
+
+        VkExtent2D const render = this->render_extent();
+        std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
+        // THE CONTRACT'S BOUND IS THE ARRAY SIZE, so the backend keeps the promise (it refuses a driver
+        // that reports more) and this is the engine's side of it: a count past `rhi::max_swapchain_images`
+        // is a broken invariant, and clamping would leave holes in a generation's target set.
+        if (image_count == 0 || image_count > rhi::max_swapchain_images) {
+            deren::utility::panic(std::source_location::current(),
+                                  "runtime: the swapchain holds {} images but rhi::max_swapchain_images promises at most {} - "
+                                  "the engine's per-image arrays are sized by the contract's bound",
+                                  image_count,
+                                  rhi::max_swapchain_images);
+        }
+        // A device without the descriptor-heap extension leaves the heap unused; every other creation-time
+        // heap write in this file accepts that state rather than failing, and this one matches them.
+        bool const heap_ready = contract_heap_ready(this->rhi_face()) && this->vulkan_core.heap_grid_offset != VK_WHOLE_SIZE;
+        for (std::size_t i = 0; i < image_count; ++i) {
+            // THE SAME DESCRIPTOR THE BACKEND'S LOOP USED: hdr_format, TRANSFER_DST | SAMPLED (the runtime
+            // copies the resolved frame into it, the next frame's resolve reads it), one mip, one layer,
+            // device-local - `create_image` derives the allocator's type and memory from the flags.
+            rhi::image_desc history_desc{};
+            history_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            history_desc.mip_levels = 1;
+            history_desc.array_layers = 1;
+            history_desc.format = contract_image_format(hdr_format);
+            history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
+            history_desc.debug_name = "TAA history image";
+            this->taa_history_images[i] = rhi::object_manager<rhi::image>{this->rhi_face().create_image(history_desc)};
+            if (!static_cast<bool>(this->taa_history_images[i])) {
+                deren::utility::panic("failed to create the TAA history image");
+            }
+            // The view TAA's history input is read through, and the one the resource table publishes: the
+            // `sampled` role is what the heap's SAMPLED_IMAGE descriptor below requires.
+            rhi::image_view_desc history_range{};
+            history_range.role = rhi::view_role::sampled;
+            this->taa_history_image_views[i] = rhi::object_manager<rhi::image_view>{this->taa_history_images[i]->make_view(history_range)};
+            if (!static_cast<bool>(this->taa_history_image_views[i])) {
+                deren::utility::panic("failed to create the TAA history view");
+            }
+            // THE HEAP'S COPY, at the array TAA's history input is named for. The slot number is ABSOLUTE
+            // (`heap_slots::taa_history` already includes the grid's base), so this is the multiply the
+            // backend's write was - the `reserve()` offsets are the backend's bookkeeping, already folded
+            // into the base, and nothing here repeats them.
+            if (heap_ready) {
+                VkDeviceSize const offset = deren::vulkan::render_layout::heap_slot_offset(core::heap_slots::taa_history + static_cast<uint32_t>(i));
+                if (!contract_write_heap_image(this->rhi_face(), offset, *this->taa_history_images[i], rhi::image_view_desc{.layer_count = 0, .mip_count = 0},
+                                               rhi::descriptor_type::sampled_image)) {
+                    deren::utility::log("descriptor heap: the TAA history for image {} did not reach grid slot {}", i, core::heap_slots::taa_history + static_cast<uint32_t>(i));
+                }
+            }
+        }
     }
 
     void runtime::ensure_shadow_resources() {

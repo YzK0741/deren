@@ -1134,31 +1134,14 @@ namespace deren::vulkan {
         create_sampled_target(velocity_images, velocity_image_memories, velocity_image_views, gbuffer_velocity_format, heap_slots::gbuffer_velocity);
         create_sampled_target(scene_color_images, scene_color_image_memories, scene_color_image_views, hdr_format, heap_slots::taa_current);
 
-        // The resolved-history image only needs TRANSFER_DST (the runtime copies the resolved frame
-        // into it) and SAMPLED (the next frame's resolve reads it).
-        taa_history_images.resize(swap_chain_image_views.size());
-        taa_history_image_memories.resize(swap_chain_image_views.size());
-        taa_history_image_views.resize(swap_chain_image_views.size());
-        for (size_t i = 0; i < swap_chain_image_views.size(); i++) {
-            create_target_image(
-                render.width,
-                render.height,
-                hdr_format,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                taa_history_images[i],
-                taa_history_image_memories[i]);
-
-            taa_history_image_views[i] = create_image_view(taa_history_images[i], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
-            // the heap's copy, at the array TAA's history input is named for (see the sampled-target lambda above)
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const heap_view = make_image_view_info(taa_history_images[i], hdr_format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::taa_history + static_cast<uint32_t>(i)) * heap_slot_stride, heap_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the TAA history for image {} did not reach grid slot {}", i, heap_slots::taa_history + static_cast<uint32_t>(i));
-                }
-            }
-        }
+        // ---- THE TAA HISTORY IMAGES ARE THE ENGINE'S NOW (③-D/E A1.1) --------------------------------
+        // The resolved-history pair (one image + one view per swapchain image, hdr_format, TRANSFER_DST |
+        // SAMPLED) and the heap write at `heap_slots::taa_history` used to be created right here. They are
+        // created through the contract by `runtime::create_render_chain_targets()` instead: the engine owns
+        // what it renders into, which is the whole direction of A1 - a resource the renderer drives must not
+        // be born inside the module the renderer loads by name. The members below stay declared (empty from
+        // here on) until the closing slice of A1 deletes them; the creation order of the remaining groups is
+        // unchanged, and the `reserve()` offsets the grid needed were applied before any of this ran.
 
         // The stochastic punctual lighting chain's images are HALF resolution, one per swapchain image: the
         // trace, the history and the resolve all share these two extents.
@@ -1457,7 +1440,8 @@ namespace deren::vulkan {
             };
             destroy_images(velocity_images, velocity_image_memories, velocity_image_views);
             destroy_images(scene_color_images, scene_color_image_memories, scene_color_image_views);
-            destroy_images(taa_history_images, taa_history_image_memories, taa_history_image_views);
+            // (the TAA history pair is NOT destroyed here any more: the engine owns it - see
+            // runtime::create_render_chain_targets, which releases the old generation before creating the new)
             destroy_images(ml_images, ml_image_memories, ml_image_views);
             destroy_images(ml_resolve_images, ml_resolve_image_memories, ml_resolve_image_views);
             destroy_images(ml_history_images, ml_history_image_memories, ml_history_image_views);

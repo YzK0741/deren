@@ -386,7 +386,8 @@ namespace deren::vulkan {
         };
         destroy_target_set(velocity_images, velocity_image_memories, velocity_image_views);
         destroy_target_set(scene_color_images, scene_color_image_memories, scene_color_image_views);
-        destroy_target_set(taa_history_images, taa_history_image_memories, taa_history_image_views);
+        // (the TAA history pair belongs to the ENGINE now - ③-D/E A1.1: `create_render_chain_targets()`
+        // releases the old generation on its own, right after this rebuild answered `ok`)
         destroy_target_set(ml_images, ml_image_memories, ml_image_views);
         destroy_target_set(ml_resolve_images, ml_resolve_image_memories, ml_resolve_image_views);
         destroy_target_set(ml_history_images, ml_history_image_memories, ml_history_image_views);
