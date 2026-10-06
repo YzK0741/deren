@@ -88,7 +88,7 @@ namespace {
     constexpr std::string_view unload_probe_file_name = "deren_probe_backend_unload_probe.dll";
     constexpr std::string_view detach_probe_file_name = "deren_probe_backend_detach_probe.dll";
 
-    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::create_info const*, rhi::error*);
+    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::create_info const*, rhi::error_info*);
     using destroy_core_fn = void (*)(rhi::api_core*);
 
     /** @brief a resolved C symbol: void const* to function pointer, constness dropped on purpose */
@@ -122,7 +122,10 @@ namespace {
         // and `vulkan_escape` grew the image/sampler native-handle borrows.
         // plan §10.3 measured the mechanism; this line is the number itself.
         // ABI12 adds object identity and moves heap services into tagged descriptor_heap requests.
-        CHECK(rhi::abi_version == 12u);
+        // ABI13 is the frame face: `api_core` appended `walk_frames()` / `profiler()` (a vtable
+        // shift) with the new tier-1 types, and the entry's out-parameter became `error_info*` -
+        // the C signature is the other thing the number protects.
+        CHECK(rhi::abi_version == 13u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -139,10 +142,11 @@ namespace {
         creation.window_title = "probe";
 
         // A mismatched ABI is refused before any object exists, and it is reported through the out
-        // parameter - a null `api_core` plus a code, never a crash and never an exception.
-        rhi::error mismatch_error = rhi::error::ok;
+        // parameter - a null `api_core` plus the WHOLE diagnostic (abi 13: code, api, text, the
+        // failure point), never a crash and never an exception.
+        rhi::error_info mismatch_error{};
         CHECK(make_core(rhi::abi_version + 1u, &creation, &mismatch_error) == nullptr);
-        CHECK_MSG(mismatch_error == rhi::error::abi_mismatch, which_half);
+        CHECK_MSG(mismatch_error.code == rhi::error::abi_mismatch, which_half);
         // ... and a caller that passes no out parameter is still not crashed into (the backend has
         // to tolerate the null: the engine passes one, a probe or a script may not).
         CHECK(make_core(rhi::abi_version + 1u, &creation, nullptr) == nullptr);
@@ -150,15 +154,15 @@ namespace {
         // NO DESCRIPTOR IS A CALLER BUG, not a request for the standard context: the answer is a null
         // pointer and `invalid_argument`, and the contract spells "standard context" as `create_info{}`
         // (backend_entry.hpp). A backend that defaulted here would hide the bug.
-        rhi::error missing_desc_error = rhi::error::ok;
+        rhi::error_info missing_desc_error{};
         CHECK(make_core(rhi::abi_version, nullptr, &missing_desc_error) == nullptr);
-        CHECK_MSG(missing_desc_error == rhi::error::invalid_argument, which_half);
+        CHECK_MSG(missing_desc_error.code == rhi::error::invalid_argument, which_half);
 
         // The matching call hands out a live object and says so in the out parameter. The sentinel
         // is not `ok`, so a backend that never wrote it fails the check below.
-        rhi::error make_error = rhi::error::abi_mismatch;
+        rhi::error_info make_error{.code = rhi::error::abi_mismatch};
         std::shared_ptr<rhi::api_core> core{make_core(rhi::abi_version, &creation, &make_error), destroy_core};
-        CHECK_MSG(make_error == rhi::error::ok, which_half);
+        CHECK_MSG(make_error.code == rhi::error::ok, which_half);
         CHECK(core != nullptr);
         if (core == nullptr) {
             return;
@@ -267,18 +271,40 @@ namespace {
         }
 
         // ---- tier-1: the frame calls --------------------------------------------------------
-        // No device means no command pool: a null command list is an answer, not a crash. The
-        // frame counter starts at a non-zero value in the probe so that a result which was never
-        // written by the backend cannot pass for one that was - and `image_index` is the probe's ECHO
-        // OF THE CREATION DESCRIPTOR (`creation.window_width` = 3), so these lines are also the proof
-        // that the structure handed to `deren_make_api_core()` reached the library and was read there.
+        // No device means no command pool: a null command list is an answer, not a crash. The frame
+        // face (abi 13) is here too, on the probe's two-slot ring: `frame_begin()` and the walker
+        // answer the SAME cursor, `image_index` is the probe's ECHO OF THE CREATION DESCRIPTOR
+        // (`creation.window_width` = 3), and the open's by-value POD carries the echo across with
+        // its decision - a structure handed to `deren_make_api_core()` and never read there cannot
+        // produce the number.
         CHECK(core->begin_commands() == nullptr);
+        rhi::frame_walker* const walker = core->walk_frames();
+        CHECK(walker != nullptr);
+        CHECK(core->walk_frames() == walker); // the same borrowed view every call, never a new object
+        CHECK(walker->slot_count() == 2u);    // the probe's ring
         rhi::submit_info const first = core->frame_begin();
-        CHECK(first.frame_index == 7u);
+        CHECK(first.frame_index == walker->position()); // one cursor, two faces agreeing
         CHECK(first.image_index == 3u);
+        walker->walk_to_next();
         rhi::submit_info const second = core->frame_begin();
-        CHECK(second.frame_index == 8u);
+        CHECK(second.frame_index == walker->position());
+        CHECK(second.frame_index == 1u); // the ring moved through the face
         CHECK(second.image_index == 3u);
+        // the open: decision and frame in one by-value POD, and the echo rides in it
+        rhi::frame_open_info const open = walker->wait_and_acquire();
+        CHECK(open.result.code == rhi::error::ok);
+        CHECK(open.frame.frame_index == walker->position());
+        CHECK(open.frame.image_index == 3u);
+        // the profiler face: the probe cannot timestamp, which is the `unsupported` story - a
+        // constant zero and a named refusal, never silence and never a fake measurement
+        rhi::gpu_profiler* const profiler = core->profiler();
+        CHECK(profiler != nullptr);
+        CHECK(core->profiler() == profiler);
+        CHECK(profiler->stage_count() == 0u);
+        std::string_view stage_name{};
+        std::uint64_t duration_ns = 0;
+        CHECK_MSG(profiler->get_stage_info(0, &stage_name, &duration_ns) == rhi::error::unsupported,
+                  which_half);
         core->present();
         core->wait_idle();
 

@@ -45,26 +45,26 @@ extern "C" DEREN_API_EXPORT std::uint32_t deren_abi_version() {
 }
 
 extern "C" DEREN_API_EXPORT rhi::api_core* deren_make_api_core(std::uint32_t abi_version, rhi::create_info const* desc,
-                                                               rhi::error* out_error) {
+                                                               rhi::error_info* out_error_info) {
     // THE HANDSHAKE FIRST, BEFORE ANY OBJECT EXISTS (plan §4.2): an engine built against a
     // different contract learns "we disagree" as a return value, at the only moment where
     // nothing has been allocated yet and nothing has to be cleaned up.
     if (abi_version != rhi::abi_version) {
-        if (out_error != nullptr) {
-            *out_error = rhi::error::abi_mismatch;
+        if (out_error_info != nullptr) {
+            *out_error_info = deren::vulkan::failed(rhi::error::abi_mismatch, 0, "the caller's abi_version is not this backend's");
         }
         return nullptr;
     }
     if (desc == nullptr) {
         // "I have no creation parameters" is a caller bug, not a request for the standard context:
         // `create_info{}` is how that is spelled, and defaulting here would hide the bug.
-        if (out_error != nullptr) {
-            *out_error = rhi::error::invalid_argument;
+        if (out_error_info != nullptr) {
+            *out_error_info = deren::vulkan::failed(rhi::error::invalid_argument, 0, "the creation descriptor is null");
         }
         return nullptr;
     }
-    if (out_error != nullptr) {
-        *out_error = rhi::error::ok;
+    if (out_error_info != nullptr) {
+        *out_error_info = rhi::error_info{}; // ok: a zeroed diagnostic says ok, api unknown - nobody failed
     }
     // OWNERSHIP TRANSFER, spelled out: the engine wraps this raw pointer in a
     // `shared_ptr` whose deleter is `deren_destroy_api_core` resolved from THIS library,
@@ -74,7 +74,7 @@ extern "C" DEREN_API_EXPORT rhi::api_core* deren_make_api_core(std::uint32_t abi
     // until this call returns (GLFW copies the text into the window), which the contract's own note
     // states and the constructor's member note repeats.
     //
-    // A failure INSIDE construction does not come back as an `error`: the backend's own
+    // A failure INSIDE construction does not come back as an `error_info`: the backend's own
     // startup rule is a NAMED panic with the missing thing in the message (a required
     // extension, a required feature, a swapchain that cannot be created -
     // core.constructor.cppm's `panic` sites), and the spike confirmed that shape. So a

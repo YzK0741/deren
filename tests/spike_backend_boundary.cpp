@@ -92,7 +92,7 @@ namespace {
     // which does search %PATH% - a different question).
     constexpr std::string_view spike_dll_path = VR_SPIKE_BACKEND_DLL;
 
-    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::create_info const*, rhi::error*);
+    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::create_info const*, rhi::error_info*);
     using destroy_core_fn = void (*)(rhi::api_core*);
 
     /** @brief a resolved C symbol: `void const*` to function pointer, constness dropped on purpose */
@@ -105,23 +105,26 @@ namespace {
     void check_the_handshake(make_core_fn make_core) {
         // A mismatched ABI is refused BEFORE any object exists, and the refusal is a value, not a
         // crash and not an exception (§4.2). The wrong number is deliberately the right one plus
-        // one: it is the shape a stale engine would present.
+        // one: it is the shape a stale engine would present. The abi 13 channel reports the WHOLE
+        // diagnostic, so the assertions below read the fields a bare `error` could not carry.
         rhi::create_info const creation{};
-        rhi::error status = rhi::error::ok;
+        rhi::error_info status{};
         rhi::api_core* const refused = make_core(rhi::abi_version + 1u, &creation, &status);
         CHECK(refused == nullptr);
-        CHECK(status == rhi::error::abi_mismatch);
+        CHECK(status.code == rhi::error::abi_mismatch);
+        CHECK(status.native_code == 0); // a handshake refusal is its own class: no underlying VkResult
+        CHECK_MSG(!status.message.empty(), "the refusal carries static text naming what disagreed");
 
         // A refused call still ends up inside a `shared_ptr` in the engine's own code, which is why
         // the deleter tolerates nullptr; `check_the_real_context` below covers the other half.
-        CHECK(status != rhi::error::ok);
+        CHECK(status.code != rhi::error::ok);
 
         // AND NO CREATION DESCRIPTOR IS A NAMED REFUSAL, not a defaulted context: `create_info{}` is
         // how the standard context is spelled (backend_entry.hpp), so a null pointer is a caller bug
         // that the REAL backend reports with a code rather than papering over.
-        rhi::error missing = rhi::error::ok;
+        rhi::error_info missing{};
         CHECK(make_core(rhi::abi_version, nullptr, &missing) == nullptr);
-        CHECK_MSG(missing == rhi::error::invalid_argument, "the real backend refuses a null create_info by name");
+        CHECK_MSG(missing.code == rhi::error::invalid_argument, "the real backend refuses a null create_info by name");
     }
 
     /// Q2 + Q4 (strong form): the real context, its virtuals, and its destruction inside the DLL.
@@ -143,10 +146,10 @@ namespace {
         creation.window_visible = false;
 
         mark("calling deren_make_api_core (instance/device/swapchain/heap are built in here)");
-        rhi::error status = rhi::error::ok;
+        rhi::error_info status{};
         rhi::api_core* const raw = make_core(rhi::abi_version, &creation, &status);
         mark("deren_make_api_core returned");
-        CHECK(status == rhi::error::ok);
+        CHECK(status.code == rhi::error::ok);
         CHECK(raw != nullptr);
         if (raw == nullptr) {
             return; // the backend refuses by returning null; the startup diagnosis is its own
@@ -366,6 +369,32 @@ namespace {
             bad_pipeline.vertex_code = std::span<std::byte const>();
             bad_pipeline.debug_name = "spike unknown-format pipeline";
             CHECK(core->create_pipeline(bad_pipeline) == nullptr);
+
+            // ---- THE FRAME FACE (abi 13): the two borrowed views, on the real device --------------
+            // STRUCTURE ONLY, ON PURPOSE: the contract has no submit verb yet, so a frame this test
+            // opened could never be handed back - presenting it would wait on a present-ready
+            // semaphore nothing signals, and tearing the context down while an image is acquired is
+            // invalid. The full wait -> latch -> acquire -> present -> walk loop is witnessed by the
+            // engine's own frame path and the render gate (14 scenes, hashes frozen). Two profiler
+            // lines the handoff names are machine- or stage-dependent and recorded here as such: the
+            // "no-timing device" refusal (this machine times) and the named-stage report after real
+            // marks (the engine's frame loop, once it walks the face) are witnessed where they run.
+            mark("walk_frames/profiler: the frame face's two borrowed views");
+            rhi::frame_walker* const walker = core->walk_frames();
+            CHECK(walker != nullptr);
+            CHECK(core->walk_frames() == walker); // the same borrowed view every call, never a new object
+            CHECK(walker->slot_count() > 0u);
+            CHECK(walker->position() < walker->slot_count()); // the cursor, read before any frame
+            rhi::gpu_profiler* const profiler = core->profiler();
+            CHECK(profiler != nullptr);
+            CHECK(core->profiler() == profiler);
+            CHECK(profiler->stage_count() == 0u); // nothing has latched: no frame has run in this test
+            std::string_view stage_name{};
+            std::uint64_t duration_ns = 0;
+            CHECK_MSG(profiler->get_stage_info(profiler->stage_count(), &stage_name, &duration_ns) == rhi::error::invalid_argument,
+                      "an index at the count is refused by name");
+            CHECK_MSG(profiler->get_stage_info(0, &stage_name, &duration_ns) == rhi::error::invalid_argument,
+                      "no frame has latched, so even index 0 is out of range on a timing device");
 
             mark("about to leave the scope: two releases and the DLL's deleter (core teardown) run next");
         } // <- the managers release their buffers, then the DLL's deleter runs

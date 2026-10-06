@@ -73,12 +73,16 @@ DEREN_API_EXPORT std::uint32_t deren_abi_version();
 /// `error::invalid_argument` rather than defaulted, because "I have no creation parameters" is a
 /// caller bug and not a request for the standard context (`create_info{}` is how that is spelled).
 ///
-/// On a version mismatch it returns `nullptr` and writes
-/// `deren::promise::rhi::error::abi_mismatch`, which is why a caller may not assume the
-/// out-parameter was written on failure.
+/// `out_error_info` is the abi 13 diagnostic channel: the CALLER provides the storage (an
+/// out-parameter whose storage the caller owns can stay a frozen type - the by-value rule does not
+/// bind here), and the backend fills the WHOLE structure - the decision code AND the diagnosis
+/// (which graphics API produced it, the raw native code, static text, the failure point). On a
+/// version mismatch it returns `nullptr` and fills `error::abi_mismatch`, which is why a caller may
+/// not assume the out-parameter was written on failure - but when it WAS written, it is the whole
+/// story, not a bare number.
 DEREN_API_EXPORT deren::promise::rhi::api_core* deren_make_api_core(std::uint32_t abi_version,
                                                                     deren::promise::rhi::create_info const* desc,
-                                                                    deren::promise::rhi::error* out_error);
+                                                                    deren::promise::rhi::error_info* out_error_info);
 
 /// The deleter itself, exported by name: the engine builds its `shared_ptr` around
 /// it so that the delete runs inside the backend. Accepts `nullptr`, because a

@@ -32,10 +32,15 @@ namespace deren::vulkan {
         vkCmdResetQueryPool(command_buffer, this->timestamp_query_pool, slot * gpu_timing_mark_capacity, gpu_timing_mark_capacity);
     }
 
-    void core::mark_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot, VkPipelineStageFlagBits const stage) noexcept {
+    void core::mark_gpu_timing(VkCommandBuffer const command_buffer, uint32_t const slot, VkPipelineStageFlagBits const stage,
+                               std::string_view const stage_name) noexcept {
         if (!this->gpu_timing_supported || this->gpu_timing_marks[slot] >= gpu_timing_mark_capacity) {
             return;
         }
+        // The name rides the mark: static text the caller owns, stored as a view and reported
+        // verbatim by the profiler's latched snapshot (the `window_title` rule - the characters
+        // never move into this class).
+        this->gpu_timing_names[slot][this->gpu_timing_marks[slot]] = stage_name;
         vkCmdWriteTimestamp(command_buffer, stage, this->timestamp_query_pool, slot * gpu_timing_mark_capacity + this->gpu_timing_marks[slot]);
         ++this->gpu_timing_marks[slot];
     }
@@ -128,18 +133,24 @@ namespace deren::vulkan {
     }
 
     void core::wait_frame_slot(uint32_t const slot) const {
+        // The transitional spelling: the engine's engine-side pacing call. The result it drops is
+        // exactly what `wait_frame_slot_result` reports - see the frame walker's wait_and_acquire.
+        static_cast<void>(this->wait_frame_slot_result(slot));
+    }
+
+    VkResult core::wait_frame_slot_result(uint32_t const slot) const noexcept {
         // Host pacing: wait until this slot's last submission (its timeline value) completed.
-        // Value 0 means the slot was never submitted — nothing to wait for.
+        // Value 0 means the slot was never submitted — nothing to wait for, SUCCESS by definition.
         uint64_t const value = this->frame_done_values[slot];
         if (value == 0) {
-            return;
+            return VK_SUCCESS;
         }
         VkSemaphoreWaitInfo wait_info = {};
         wait_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO;
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores = &this->frame_done_semaphores[slot];
         wait_info.pValues = &value;
-        vkWaitSemaphores(this->logical_device, &wait_info, UINT64_MAX);
+        return vkWaitSemaphores(this->logical_device, &wait_info, UINT64_MAX);
     }
 
     void core::to_next_frame() noexcept {

@@ -282,6 +282,11 @@ namespace deren::vulkan {
         this->commands_view.owner = this;
         this->frame_image_view.owner = this;
         this->readback_slot_view.owner = this;
+        // THE FRAME FACE'S VIEWS (abi 13) - `owner` SET HERE, in the constructor, on purpose: a view
+        // handed out with a null owner dereferences null on its first call (the `address_view`
+        // lesson, measured by the spike as 2 FAILs before anything else could look at it).
+        this->frames_view.owner = this;
+        this->profiler_view.owner = this;
         this->escape_view.owner = this;
         this->heap_view.owner = this;
         this->address_view.owner = this;

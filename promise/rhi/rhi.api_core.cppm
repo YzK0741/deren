@@ -46,7 +46,8 @@
 module;
 
 #include <cstdint>
-#include <span> // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
+#include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
+#include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
 
 export module deren.promise.rhi:api_core;
 
@@ -648,6 +649,94 @@ export namespace deren::promise::rhi {
         std::uint32_t image_index = 0; ///< the swapchain image this frame draws into
     };
 
+    /// What opening one frame decided, AND WHY - the frame face's answer type (abi 13).
+    ///
+    /// BY VALUE, THEREFORE FROZEN: the same rule `submit_info` and `error_info` live under - a
+    /// by-value POD's size is part of its calling convention, so any field addition moves
+    /// `abi_version`. This type is the minimal repair of a measured information loss: today's
+    /// `frame_begin()` squashes OUT_OF_DATE and every other failure into the same zeroed
+    /// `submit_info`, so the caller cannot tell a resized window from a dead device, and
+    /// `wait_frame_slot()` drops `vkWaitSemaphores`' result entirely. Both arrive here now:
+    ///
+    /// 1. `result.code == error::ok` => `frame` names the opened frame. ANYTHING else => `frame` is
+    ///    zeroed and MUST NOT be used - the readable "zero means no frame" of today, but now the
+    ///    caller also knows WHY (out_of_date => rebuild and skip; device_lost => fatal; ...).
+    /// 2. `result` may come from EITHER half of the open - the slot's timeline wait, or the image
+    ///    acquire. `result.message` names the step and `result.native_code` carries the raw VkResult;
+    ///    `where` is the backend's failure point. This is where `wait_frame_slot()`'s dropped
+    ///    `vkWaitSemaphores` result comes back.
+    struct frame_open_info {
+        submit_info frame = {}; ///< the opened frame; zeroed and invalid unless result.code == ok
+        error_info result = {}; ///< ok, or the failure of whichever step refused
+    };
+
+    /// The frame ring's cursor, as a BORROWED VIEW - the `command_list` shape, not the owned-handle
+    /// one: no `release()`, so `object_manager` cannot wrap it (the type system refuses), and the
+    /// `api_core` hands out the same object every call.
+    ///
+    /// WHY THE RING IS A CONTRACT FACE AT ALL: the cursor's one home is the backend's own frame
+    /// state - the engine today keeps a SECOND copy of it (`current_frame` field reads, the
+    /// `MAX_FRAMES_IN_FLIGHT` constant) plus three raw verbs (wait, acquire, advance), which is the
+    /// "two sources of truth" shape this face exists to end. The engine borrows the view and walks;
+    /// the backend stays the only authority. `position()` and a successful `wait_and_acquire()`'s
+    /// `frame.frame_index` answer the SAME slot - the consistency is asserted, not hoped for.
+    ///
+    /// THE ORDER INSIDE `wait_and_acquire()` IS LOAD-BEARING (it is today's frame prologue, fused):
+    /// read the cursor without advancing; wait that slot's timeline (value 0 = never submitted =>
+    /// nothing to wait for); LATCH the slot's last completed frame's GPU timings - here, between the
+    /// wait and the acquire, exactly where the engine's `collect_gpu_timings` sits today, so a frame
+    /// that dies on OUT_OF_DATE is still collected (behaviour unchanged); acquire the next image;
+    /// report. `walk_to_next()` advances after present, and it advances ONE step - it does not
+    /// promise "the frame is over" (`end_frame` would), only that the ring moved.
+    struct frame_walker {
+        virtual ~frame_walker() noexcept = default;
+
+        /// how many slots the ring has (today's `MAX_FRAMES_IN_FLIGHT` reads).
+        [[nodiscard]] virtual std::uint32_t slot_count() const noexcept = 0;
+
+        /// the slot THIS frame is being recorded into (today's `current_frame` field reads). Read-only:
+        /// the cursor moves in `walk_to_next()`, never in a read.
+        [[nodiscard]] virtual std::uint32_t position() const noexcept = 0;
+
+        /// wait this slot's timeline, latch its previous frame's GPU timings, acquire the next image,
+        /// and report the decision. See the type's note for the order and the zero-frame rule.
+        [[nodiscard]] virtual frame_open_info wait_and_acquire() = 0;
+
+        /// advance the ring one slot - the present-side close of the frame (today's `to_next_frame()`).
+        virtual void walk_to_next() noexcept = 0;
+    };
+
+    /// The GPU timing report of the LAST COMPLETED frame, as a BORROWED VIEW (no `release()`, same
+    /// rule as `frame_walker`).
+    ///
+    /// The REPORT, not the recording: marks are written by the backend while a frame is recorded
+    /// (a mark's semantic name rides the mark itself - the engine's static text, held as a pointer,
+    /// the same rule as `window_title`), and the backend latches a slot's finished frame when its
+    /// timeline is waited. Reading is then pure host-side work the CALLER orders: after
+    /// `wait_and_acquire()` answers, this face describes the frame that JUST completed.
+    ///
+    /// A "stage" is the interval one mark OPENS: stage i runs from mark i to mark i + 1 and is named
+    /// by the name mark i carried. The last mark closes the frame and opens nothing - asking for it
+    /// is `not_ready`. Durations are NANOSECONDS (the backend's timestamp period converts; on the
+    /// device this backend ships on it is 1 ns/tick with 64 valid bits, so the integer is lossless);
+    /// the display layer converts to milliseconds.
+    ///
+    /// THE ERRORS ARE THE ERROR MECHANISM WORKING: `unsupported` = this device or configuration
+    /// cannot timestamp (and `stage_count()` is then always 0); `invalid_argument` = an index at or
+    /// past `stage_count()`; `device_lost` = the timestamp read-back failed; `not_ready` = no marks
+    /// latched yet, or the index names the frame's last mark, which opens no stage.
+    struct gpu_profiler {
+        virtual ~gpu_profiler() noexcept = default;
+
+        /// how many marks the last completed frame wrote (0 = nothing latched, or no timing support).
+        [[nodiscard]] virtual std::uint32_t stage_count() const noexcept = 0;
+
+        /// one stage's name and duration. `name` / `duration_ns` are caller-provided stores and may be
+        /// nullptr individually (ask only what you need); the name is the static text the mark carried,
+        /// valid as long as the process runs (the backend is never unloaded - invariant 4).
+        [[nodiscard]] virtual error get_stage_info(std::uint32_t index, std::string_view* name, std::uint64_t* duration_ns) const noexcept = 0;
+    };
+
     /// The backend's context and its factories - today's `vulkan::core`, behind the
     /// boundary.
     ///
@@ -742,6 +831,17 @@ export namespace deren::promise::rhi {
 
         /// Block until nothing is in flight.
         virtual void wait_idle() = 0;
+
+        // ---- the frame face (abi 13) -------------------------------------------
+        // Both accessors answer BORROWED VIEWS owned by the backend - the same object every call,
+        // never released by the caller (see the types' notes above). They are APPENDED here, after
+        // every virtual the older engines dispatch, which is the one vtable change the abi number
+        // exists to number.
+        /// The frame ring's cursor: wait the slot, latch its timings, acquire, report, advance.
+        [[nodiscard]] virtual frame_walker* walk_frames() noexcept = 0;
+
+        /// The last completed frame's GPU timing report.
+        [[nodiscard]] virtual gpu_profiler* profiler() noexcept = 0;
     };
 
     /// 在已完成ABI握手的有效对象上检查扩展身份；不能验证悬空指针或不可信后端。

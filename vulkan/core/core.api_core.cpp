@@ -1587,4 +1587,150 @@ namespace deren::vulkan {
         self.wait_idle();
     }
 
+    // ---- the frame face (abi 13) ----------------------------------------------------------------
+    //
+    // THE ACCESSORS hand out this core's two borrowed views - the same object every call, the
+    // constructor set their `owner`. The views' methods compose the machinery this class already
+    // owned: the walker is today's frame prologue fused (wait -> latch timings -> acquire -> report),
+    // the profiler reads the timing snapshot the walker's latch produced.
+
+    rhi::frame_walker* core::walk_frames() noexcept {
+        return &this->frames_view;
+    }
+
+    rhi::gpu_profiler* core::profiler() noexcept {
+        return &this->profiler_view;
+    }
+
+    std::uint32_t core::frame_walker_view::slot_count() const noexcept {
+        return static_cast<std::uint32_t>(this->owner->MAX_FRAMES_IN_FLIGHT);
+    }
+
+    std::uint32_t core::frame_walker_view::position() const noexcept {
+        // THE one authority: this is the backend's own cursor, read without advancing.
+        return static_cast<std::uint32_t>(this->owner->current_frame);
+    }
+
+    rhi::frame_open_info core::frame_walker_view::wait_and_acquire() {
+        // THE FIVE STEPS in the order the contract's note spells out - each position is load-bearing.
+        uint32_t const slot = static_cast<uint32_t>(this->owner->current_frame);
+
+        // 1 + 2. the cursor (read, not advanced) and its timeline. A never-submitted slot (value 0)
+        // has nothing to wait for - VK_SUCCESS by definition, the same early return as today.
+        VkResult const waited = this->owner->wait_frame_slot_result(slot);
+        if (waited != VK_SUCCESS) {
+            // The wait's VkResult, REPORTED instead of dropped (today `wait_frame_slot` voids it):
+            // the code says what class of failure, the message names the step, native_code carries
+            // the raw VkResult for whoever needs the exact number.
+            return {.frame = {}, .result = deren::vulkan::failed(deren::vulkan::generic_error(waited), waited, "waiting the frame slot's timeline failed")};
+        }
+
+        // 3. LATCH this slot's previous frame's GPU timings, here between the wait and the acquire -
+        // exactly where the engine's collect_gpu_timings sits today, so the wait already guarantees
+        // the timestamps are readable AND a frame the acquire kills on OUT_OF_DATE is still
+        // collected. Behaviour unchanged; the position is the backend's now.
+        this->owner->profiler_view.latch(slot);
+
+        // 4. the acquire - the same primitive `frame_begin()` goes through (one mechanism, two
+        // spellings), translated AT THIS CALL SITE: SUBOPTIMAL is ok here (the acquired image
+        // renders), OUT_OF_DATE is the rebuild signal the caller's classifier acts on.
+        uint32_t image_index = 0;
+        VkResult const acquired = this->owner->acquire_next_image(image_index);
+        rhi::error const opened = deren::vulkan::acquire_error(acquired);
+        if (opened != rhi::error::ok) {
+            // The zero-frame rule: `frame` is zeroed and unusable, and the caller now knows WHY
+            // (out_of_date => rebuild and skip; device_lost => fatal; ...) - the information
+            // `frame_begin()`'s zeroed submit_info could not carry.
+            return {.frame = {}, .result = deren::vulkan::failed(opened, acquired, "acquiring the next swapchain image failed")};
+        }
+
+        // 5. the frame is open: this slot, the acquired image, and a zeroed diagnostic saying ok.
+        return {.frame = {.frame_index = slot, .image_index = image_index}, .result = {}};
+    }
+
+    void core::frame_walker_view::walk_to_next() noexcept {
+        // The present-side close: advance ONE slot. It does not promise "the frame is over" - only
+        // that the ring moved (the engine calls this after its present recipe).
+        this->owner->to_next_frame();
+    }
+
+    void core::gpu_profiler_view::latch(uint32_t const slot) noexcept {
+        // Non-const on purpose: the latch writes the read-once guard (a slot's timings are fetched
+        // at most once per submission), the same bookkeeping read_gpu_timings keeps.
+        core& self = *this->owner;
+        this->latch_failed = false;
+        if (!self.gpu_timing_supported) {
+            this->latched_mark_count = 0; // the device cannot timestamp: the report is honestly empty
+            return;
+        }
+        uint64_t const submitted = self.frame_done_values[slot];
+        if (submitted == 0 || submitted <= self.gpu_timing_read_value[slot]) {
+            return; // nothing new since the previous latch: the snapshot stays as it was
+        }
+        self.gpu_timing_read_value[slot] = submitted; // this submission is now accounted for (once)
+        uint32_t const marks = self.gpu_timing_marks[slot];
+        this->latched_mark_count = marks;
+        if (marks == 0) {
+            return; // a submission with no marks has nothing to fetch
+        }
+        std::array<uint64_t, gpu_timing_mark_capacity> ticks = {};
+        VkResult const status = vkGetQueryPoolResults(self.logical_device, self.timestamp_query_pool, slot * gpu_timing_mark_capacity, marks,
+                                                      sizeof(uint64_t) * marks, ticks.data(), sizeof(uint64_t), VK_QUERY_RESULT_64_BIT);
+        if (status == VK_NOT_READY) {
+            // The timeline wait already said the submission completed, so this is the same defensive
+            // reading read_gpu_timings has: report no measurement rather than waiting or stalling.
+            this->latched_mark_count = 0;
+            return;
+        }
+        if (status != VK_SUCCESS) {
+            // A real read-back failure: the mark count is host-known, the ticks are not - the
+            // getters answer `device_lost` for it instead of reporting silence.
+            this->latch_failed = true;
+            return;
+        }
+        this->latched_ticks = ticks;
+        for (uint32_t mark = 0; mark < marks; ++mark) {
+            // The names are by-value string_views of the engine's static text (the `window_title`
+            // rule), copied out at latch time - the array below may be overwritten by the next
+            // recording, the snapshot must not move with it.
+            this->latched_names[mark] = self.gpu_timing_names[slot][mark];
+        }
+    }
+
+    std::uint32_t core::gpu_profiler_view::stage_count() const noexcept {
+        if (!this->owner->gpu_timing_supported) {
+            return 0; // "no timing => always 0": the caller reads this as unsupported via get_stage_info
+        }
+        return this->latched_mark_count;
+    }
+
+    rhi::error core::gpu_profiler_view::get_stage_info(uint32_t const index, std::string_view* const name,
+                                                       uint64_t* const duration_ns) const noexcept {
+        if (!this->owner->gpu_timing_supported) {
+            return rhi::error::unsupported; // the device or configuration has no timing to report
+        }
+        if (index >= this->latched_mark_count) {
+            return rhi::error::invalid_argument;
+        }
+        if (this->latch_failed) {
+            return rhi::error::device_lost; // the timestamp read-back failed; the count is all we know
+        }
+        if (index + 1 >= this->latched_mark_count) {
+            return rhi::error::not_ready; // the last mark closes the frame and opens no stage
+        }
+        if (name != nullptr) {
+            *name = this->latched_names[index];
+        }
+        if (duration_ns != nullptr) {
+            // The same masking the milliseconds reader does: the counter is a modulo-2^valid_bits
+            // ring, so the delta is taken inside the width (a wrap inside the span comes out right),
+            // and the device's timestampPeriod converts ticks to nanoseconds (1 ns/tick with 64
+            // valid bits on the device this backend ships on - the integer is lossless there).
+            uint64_t const mask = this->owner->timestamp_valid_bits >= 64 ? ~uint64_t{0} : ((uint64_t{1} << this->owner->timestamp_valid_bits) - 1);
+            uint64_t const delta = (this->latched_ticks[index + 1] - this->latched_ticks[index]) & mask;
+            *duration_ns = static_cast<uint64_t>(static_cast<double>(delta) * static_cast<double>(this->owner->timestamp_period_ns));
+        }
+        return rhi::error::ok;
+    }
+
 } // namespace deren::vulkan

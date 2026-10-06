@@ -120,7 +120,13 @@ export namespace deren::promise::rhi {
     /// has never seen, which the rule above gives no reason to number. The `error*` -> `error_info*`
     /// entry-signature change that DOES move the number arrives with the frame face (abi 12 -> 13),
     /// in one step with the new tier-1 types.
-    inline constexpr std::uint32_t abi_version = 12u;
+    /// 12 -> 13 in the frame face: `api_core` APPENDED `walk_frames()` / `profiler()` - a virtual on
+    /// an existing tier-1 type shifts every vtable that reaches through it, which is exactly the case
+    /// the rule names - and `frame_walker` / `gpu_profiler` / `frame_open_info` are new tier-1 types.
+    /// The factory entry's out-parameter changed `error*` -> `error_info*` in the SAME bump (one
+    /// renumbering for one batch): the C entry's SIGNATURE is what the number protects, and an engine
+    /// built for 12 calling 13's symbol would read a 40-byte diagnostic where it wrote a 4-byte enum.
+    inline constexpr std::uint32_t abi_version = 13u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

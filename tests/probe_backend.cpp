@@ -52,11 +52,15 @@ import deren.promise.rhi;
 #include "../promise/rhi/backend_entry.hpp"
 
 #include <cstdint>
+#include <source_location>
 #include <span>
+#include <string_view>
 
 namespace {
 
     namespace rhi = deren::promise::rhi;
+
+    struct impl; // the walker back-references it; defined below with the rest of the probe
 
     /// The probe's buffer: a real object, statically allocated (see the banner).
     struct probe_buffer final : rhi::buffer {
@@ -98,6 +102,33 @@ namespace {
         }
 
         static constexpr std::uint64_t address_base = 0x1000ull;
+    };
+
+    /// The probe's frame ring: two virtual slots, one cursor, and an open that echoes the creation
+    /// descriptor - the frame face's shape (abi 13), witnessed without a device. The ring is the ONE
+    /// cursor: `frame_begin()` reports the slot `position()` names, so the "two sources of truth"
+    /// shape the face exists to end cannot exist even here. (The bodies live below `impl`, which
+    /// they reach through.)
+    struct probe_frame_walker final : rhi::frame_walker {
+        impl* owner = nullptr;
+
+        [[nodiscard]] std::uint32_t slot_count() const noexcept override;
+        [[nodiscard]] std::uint32_t position() const noexcept override;
+        [[nodiscard]] rhi::frame_open_info wait_and_acquire() override;
+        void walk_to_next() noexcept override;
+    };
+
+    /// The probe cannot timestamp anything, which is exactly the profiler face's `unsupported` story:
+    /// a constant zero and a named refusal - never silence, never a fake measurement.
+    struct probe_gpu_profiler final : rhi::gpu_profiler {
+
+        [[nodiscard]] std::uint32_t stage_count() const noexcept override {
+            return 0u;
+        }
+
+        [[nodiscard]] rhi::error get_stage_info(std::uint32_t, std::string_view*, std::uint64_t*) const noexcept override {
+            return rhi::error::unsupported;
+        }
     };
 
     /// The probe's api_core. `final` so that a missing override is a compile error
@@ -151,12 +182,13 @@ namespace {
 
         [[nodiscard]] rhi::submit_info frame_begin() override {
             rhi::submit_info info{};
-            info.frame_index = this->frames_handed_out;
-            // THE ECHO OF THE CREATION DESCRIPTOR (see deren_make_api_core below): `submit_info` is the
-            // one by-value POD result the contract returns, so the field the test filled is the field
-            // the test reads back - a descriptor that never crossed cannot produce this number.
+            // THE RING IS THE ONE CURSOR (see probe_frame_walker): `frame_begin()` reports the same
+            // slot the frame walker's `position()` names.
+            info.frame_index = this->current_slot;
+            // THE ECHO OF THE CREATION DESCRIPTOR (see deren_make_api_core below): the field the test
+            // filled is the field the test reads back - a descriptor that never reached the library
+            // cannot produce the number.
             info.image_index = this->creation_window_width;
-            ++this->frames_handed_out;
             return info;
         }
 
@@ -178,15 +210,53 @@ namespace {
             return nullptr;
         }
 
+        // ---- the frame face (abi 13) ------------------------------------------------------------
+        [[nodiscard]] rhi::frame_walker* walk_frames() noexcept override {
+            return &this->walker;
+        }
+
+        [[nodiscard]] rhi::gpu_profiler* profiler() noexcept override {
+            return &this->profiler_view;
+        }
+
         probe_buffer buffer{};
         probe_device_address address{};
-        std::uint32_t frames_handed_out = 7; // deliberately not 0: a default would hide a lost write
+        /// the ring cursor `frame_begin()` and the frame walker both answer (see the walker's note)
+        std::uint32_t current_slot = 0;
         /// the creation descriptor's `window_width`, carried in by deren_make_api_core and echoed out
-        /// of frame_begin(); 0 would be an impl nobody filled, which the test's non-zero fill catches
+        /// of frame_begin() and the walker's open; 0 would be an impl nobody filled, which the test's
+        /// non-zero fill catches
         std::uint32_t creation_window_width = 0;
         std::uint32_t presents = 0;
         std::uint32_t waits = 0;
+        probe_frame_walker walker{};
+        probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above owns that name
+
+        impl() noexcept {
+            // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
+            // states: a view handed out with a null owner dereferences null on its first call.
+            this->walker.owner = this;
+        }
     };
+
+    // The frame walker's bodies, where `impl` is complete (they answer through its cursor).
+    std::uint32_t probe_frame_walker::slot_count() const noexcept {
+        return 2u;
+    }
+
+    std::uint32_t probe_frame_walker::position() const noexcept {
+        return this->owner->current_slot;
+    }
+
+    rhi::frame_open_info probe_frame_walker::wait_and_acquire() {
+        // THE BY-VALUE POD, part two: `frame_open_info` crosses the boundary like `submit_info` does
+        // - decision and frame together - and the slot it reports is the cursor's.
+        return {.frame = {.frame_index = this->owner->current_slot, .image_index = this->owner->creation_window_width}, .result = {}};
+    }
+
+    void probe_frame_walker::walk_to_next() noexcept {
+        this->owner->current_slot = (this->owner->current_slot + 1u) % this->slot_count();
+    }
 
 } // namespace
 
@@ -196,29 +266,36 @@ extern "C" DEREN_API_EXPORT std::uint32_t deren_abi_version() {
 
 extern "C" DEREN_API_EXPORT deren::promise::rhi::api_core* deren_make_api_core(std::uint32_t abi_version,
                                                                                deren::promise::rhi::create_info const* desc,
-                                                                               deren::promise::rhi::error* out_error) {
+                                                                               deren::promise::rhi::error_info* out_error_info) {
     if (abi_version != deren::promise::rhi::abi_version) {
-        if (out_error != nullptr) {
-            *out_error = deren::promise::rhi::error::abi_mismatch;
+        if (out_error_info != nullptr) {
+            // THE DIAGNOSTIC, WHOLE: code, who produced it, static text and the failure point - the
+            // abi 13 channel is the whole story, not a bare number.
+            *out_error_info = rhi::error_info{.code = rhi::error::abi_mismatch,
+                                              .message = "probe: the caller's abi_version is not this backend's",
+                                              .where = std::source_location::current()};
         }
         return nullptr;
     }
     // "no creation parameters" is a caller bug, not a request for the standard context: the contract's
     // own `create_info{}` is how that is spelled (see backend_entry.hpp).
     if (desc == nullptr) {
-        if (out_error != nullptr) {
-            *out_error = deren::promise::rhi::error::invalid_argument;
+        if (out_error_info != nullptr) {
+            *out_error_info = rhi::error_info{.code = rhi::error::invalid_argument,
+                                              .message = "probe: the creation descriptor is null",
+                                              .where = std::source_location::current()};
         }
         return nullptr;
     }
-    if (out_error != nullptr) {
-        *out_error = deren::promise::rhi::error::ok;
+    if (out_error_info != nullptr) {
+        *out_error_info = rhi::error_info{}; // ok: a zeroed diagnostic says ok - nobody failed
     }
     // THE CREATION DESCRIPTOR IS ECHOED BACK THROUGH AN EXISTING CALL. The probe has no device, so it
     // cannot honour the descriptor's window / vsync / render-scale fields; what it CAN do - and what
-    // makes the crossing observable - is carry `window_width` into the one by-value POD result the
-    // contract returns: `frame_begin()`'s `submit_info.image_index`. The test fills the descriptor and
-    // reads the number back, so a request that never reached the library cannot pass for one that did.
+    // makes the crossing observable - is carry `window_width` into the by-value POD results the
+    // contract returns: `frame_begin()`'s and the frame walker's `image_index`. The test fills the
+    // descriptor and reads the number back, so a request that never reached the library cannot pass
+    // for one that did.
     auto* const created = new impl();
     created->creation_window_width = static_cast<std::uint32_t>(desc->window_width);
     return created;

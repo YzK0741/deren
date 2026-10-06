@@ -112,7 +112,7 @@
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE",
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBits",
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core16read_gpu_timingsEj",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core18acquire_next_imageERj",
@@ -176,7 +176,7 @@
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv": [
       "runtime.frames.cppm.obj"
     ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBits": [
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE": [
       "runtime.cpp.obj"
     ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj": [

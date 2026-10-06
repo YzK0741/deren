@@ -301,6 +301,56 @@ namespace deren::vulkan {
             [[nodiscard]] VkBuffer handle() const noexcept;
         };
 
+        /// The frame ring's cursor, as the contract's `frame_walker` (abi 13).
+        ///
+        /// A BORROWED VIEW like the two above - a member of the core, handed out by `walk_frames()`,
+        /// never released by the caller (the type has no `release()`, so `object_manager` refuses it).
+        /// `wait_and_acquire()` composes the frame prologue this class already owned: wait the slot's
+        /// timeline, LATCH the slot's last completed frame's GPU timings (the step between wait and
+        /// acquire, so an OUT_OF_DATE-skipped frame is still collected - today's order, now the
+        /// backend's), acquire, and report the decision through `frame_open_info` - which is where
+        /// today's two information losses are repaired: the acquire's OUT_OF_DATE stops being
+        /// squashed into a zeroed `submit_info`, and the timeline wait's `vkWaitSemaphores` result
+        /// stops being dropped. The existing methods keep their spellings and become what the face
+        /// is spelled FROM.
+        struct frame_walker_view final : deren::promise::rhi::frame_walker {
+            core* owner = nullptr;
+
+            [[nodiscard]] std::uint32_t slot_count() const noexcept override;
+            [[nodiscard]] std::uint32_t position() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::frame_open_info wait_and_acquire() override;
+            void walk_to_next() noexcept override;
+        };
+
+        /// The last completed frame's GPU timing report, as the contract's `gpu_profiler` (abi 13).
+        ///
+        /// A borrowed view like `frame_walker_view`. The LATCHED state below is the report's one
+        /// source: `frame_walker_view::wait_and_acquire()` calls `latch()` for the slot it just
+        /// waited - the moment its previous submission is guaranteed complete - and the getters
+        /// answer that snapshot until the next latch replaces it. The snapshot keeps RAW ticks and
+        /// the mark names (static text the engine passed at mark time, held as a view - the
+        /// `window_title` rule); durations are converted to nanoseconds on read.
+        struct gpu_profiler_view final : deren::promise::rhi::gpu_profiler {
+            core* owner = nullptr;
+
+            /// the latched frame: its mark count, the raw timestamp ticks, and the static names the
+            /// engine's marks carried. `latch_failed` reports a failed timestamp read-back (the count
+            /// is still host-known, so the getters can name the failure instead of reporting silence).
+            std::uint32_t latched_mark_count = 0;
+            bool latch_failed = false;
+            std::array<std::uint64_t, gpu_timing_mark_capacity> latched_ticks = {};
+            std::array<std::string_view, gpu_timing_mark_capacity> latched_names = {};
+
+            /// latch what THIS slot's last completed submission measured (no new submission since the
+            /// previous latch => the snapshot stays as it was). Called between the slot's timeline
+            /// wait and the image acquire - the position that gives the timing line its meaning.
+            void latch(std::uint32_t slot) noexcept;
+
+            [[nodiscard]] std::uint32_t stage_count() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error get_stage_info(std::uint32_t index, std::string_view* name,
+                                                                    std::uint64_t* duration_ns) const noexcept override;
+        };
+
         /// AN OWNED BUFFER: what `create_buffer()` hands the caller.
         ///
         /// THE OPPOSITE OF THE TWO VIEWS ABOVE, and the difference is the whole ownership model:
@@ -504,6 +554,12 @@ namespace deren::vulkan {
         /// the two frame-domain views `frame_image()` / `frame_readback_buffer()` answer with
         frame_image_slot frame_image_view;
         frame_readback_slot readback_slot_view;
+        /// the frame face's two views (abi 13): `walk_frames()` / `profiler()` answer with these, the
+        /// same object every call. THE VIEWS' `owner` IS SET IN THE CONSTRUCTOR - a view handed out
+        /// with a null owner is a null-dereference on first call (the `address_view` lesson: the
+        /// spike caught it as 2 FAILs before anyone looked at a frame).
+        frame_walker_view frames_view;
+        gpu_profiler_view profiler_view;
         /// the tier-2 escape object `query_extension(vulkan_escape)` answers with
         frame_escape escape_view;
         frame_heap heap_view;
@@ -641,6 +697,9 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::submit_info frame_begin() override;
         void present() override;
         void wait_idle() override;
+        // ---- the frame face (abi 13): appended, after every virtual the older engines dispatch ----
+        [[nodiscard]] deren::promise::rhi::frame_walker* walk_frames() noexcept override;
+        [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
 
         VkSurfaceKHR surface = VK_NULL_HANDLE;
 
@@ -1143,6 +1202,11 @@ namespace deren::vulkan {
 
         void to_next_frame() noexcept;
         void wait_frame_slot(uint32_t slot) const; // host wait until this slot's last submission completed
+        /// the RESULT-BEARING primitive the wait above is spelled from: `wait_frame_slot` drops the
+        /// VkResult (its one remaining caller is the transitional engine path), while
+        /// `frame_walker_view::wait_and_acquire()` reports it - the `vkWaitSemaphores` failure that
+        /// used to vanish arrives in `frame_open_info::result`.
+        [[nodiscard]] VkResult wait_frame_slot_result(uint32_t slot) const noexcept;
 
         static constexpr int32_t MAX_FRAMES_IN_FLIGHT = 2;
 
@@ -1162,6 +1226,11 @@ namespace deren::vulkan {
         // read back as "how many queries to fetch" for the submission that just completed, because
         // a slot is only read after it was paced and before it is recorded again.
         std::array<uint32_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_marks = {};
+        // the static names the engine's marks carry (the frame face's name channel, abi 13): mark i
+        // of slot s stores the caller's text here, and the profiler's latched snapshot reports it
+        // verbatim. THE TEXT MUST OUTLIVE THE FRAME - a literal (the same rule as `window_title`);
+        // the backend only stores the view, never the characters.
+        std::array<std::array<std::string_view, gpu_timing_mark_capacity>, MAX_FRAMES_IN_FLIGHT> gpu_timing_names = {};
         // frame_done value each slot's timings were last read for: a slot is read at most once per
         // submission, so a frame that hits an early return cannot fetch the same results twice
         std::array<uint64_t, MAX_FRAMES_IN_FLIGHT> gpu_timing_read_value = {};
@@ -1186,10 +1255,15 @@ namespace deren::vulkan {
          * @param stage pipeline stage the mark resolves at: callers use TOP_OF_PIPE for the first
          *        mark of the frame and BOTTOM_OF_PIPE for every pass boundary, so mark i + 1 minus
          *        mark i is exactly how long pass i took
+         * @param stage_name the mark's semantic name, AS STATIC TEXT (a literal): stored as a view
+         *        and reported verbatim by the contract's `gpu_profiler` face - the same rule as
+         *        `window_title`, and the reason no stage-id enum exists in the contract (the engine's
+         *        stage vocabulary stays the engine's)
          * @note a no-op when the device cannot timestamp or the frame already wrote
          *       gpu_timing_mark_capacity marks
          */
-        void mark_gpu_timing(VkCommandBuffer command_buffer, uint32_t slot, VkPipelineStageFlagBits stage) noexcept;
+        void mark_gpu_timing(VkCommandBuffer command_buffer, uint32_t slot, VkPipelineStageFlagBits stage,
+                             std::string_view stage_name = {}) noexcept;
 
         /**
          * @ingroup vulkan_core
