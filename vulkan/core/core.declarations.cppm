@@ -664,8 +664,10 @@ namespace deren::vulkan {
         GLFWwindow* window = nullptr;
 
         // ---- facade operations (keep raw Vulkan / GLFW calls out of the caller) ----
-        void wait_idle() const noexcept;                              // vkDeviceWaitIdle
-        void set_window_title(std::string_view title) const noexcept; // glfwSetWindowTitle
+        void wait_idle() const noexcept; // vkDeviceWaitIdle
+        // (no set_window_title: the title is the APPLICATION's - it names the window at creation
+        // through create_info.window_title and GLFW keeps it; a window-title facade here only
+        // dragged a backend symbol onto the boundary for a call the engine never made)
 
         // ---- deren.promise.rhi::api_core: THE RHI CONTRACT, IMPLEMENTED IN PLACE -------------------
         //

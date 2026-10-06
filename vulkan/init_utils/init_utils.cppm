@@ -65,18 +65,6 @@ export import deren.vulkan.core; // the vma handles + the vk_* wrappers this int
  *       belongs to deren.vulkan.core:vma and not to this module.)
  */
 namespace deren::vulkan::init_utils {
-    /**
-     * @ingroup vulkan_init_utils_runtime
-     * @brief the shared task pool's width: hardware_concurrency() / 4 (floor 1, fall back to 2 when the
-     *        runtime cannot report the core count)
-     * @return the number of worker threads the runtime's pool is built with
-     * @note a QUARTER of the hardware threads, not a half: measured on a 16-thread machine, moving this
-     *       to hw/2 cost 11-12% fps (822 -> 735 forward, 1706 -> 1497 unlit) and lengthened the shadow
-     *       sub-phase (0.61 -> 0.65 ms) - the recording stages are not worker-starved at hw/4, and more
-     *       workers only add wake/join, cache and driver-side recording contention. Kept as a documented
-     *       negative result so the experiment is not repeated
-     */
-    export [[nodiscard]] int32_t default_task_pool_threads() noexcept;
 
     /**
      * @ingroup vulkan_init_utils_runtime

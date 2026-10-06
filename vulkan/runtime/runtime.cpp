@@ -262,6 +262,14 @@ namespace deren::vulkan {
         this->reset_image_generation_state();
     }
 
+    int32_t runtime::default_task_pool_width() noexcept {
+        uint32_t const hw = std::thread::hardware_concurrency();
+        // A QUARTER of the hardware threads, not a half: the measurement and its negative result
+        // live on the member declaration (the boundary ruling moved this policy to the host side;
+        // the backend's init_utils no longer recommends thread counts).
+        return static_cast<int32_t>(hw == 0 ? 2u : std::max(1u, hw / 4u));
+    }
+
     void runtime::gpu_mark(VkCommandBuffer const command_buffer, gpu_mark_id const mark, VkPipelineStageFlagBits const stage) noexcept {
         if (!this->gpu_timings_enabled) {
             return;

@@ -95,7 +95,6 @@ export namespace deren::vulkan {
 
         // ---- facade operations (forwarded from core so callers need no raw API) ----
         void wait_idle() const noexcept;
-        void set_window_title(std::string_view title) const noexcept;
 
         // ---- safe factory operations ----
         [[nodiscard]] vk_command_buffer make_command_buffer() const;

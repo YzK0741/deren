@@ -330,7 +330,8 @@ namespace deren::vulkan {
     // destroys it before this runtime goes away (its leaves release GPU buffers through the vma
     // allocator while it is still alive), so no tree teardown happens here.
     runtime::~runtime() {
-        this->vulkan_core.vma.log_statistics();
+        // (no vma statistics log here: the accounting moved to the backend's own lifecycle point -
+        // the allocator's teardown logs what the session held, which is where that decision belongs)
         // Wait for the GPU to finish BEFORE releasing anything below: the last submitted frame
         // may still be executing and destroying in-use resources would violate VUIDs (~core()
         // also waits, but that runs after this body — too late for the VMA frees here).

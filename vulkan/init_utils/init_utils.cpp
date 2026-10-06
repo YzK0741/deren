@@ -1,12 +1,12 @@
 module;
 
-#include <algorithm> // std::max in default_task_pool_threads
+#include <algorithm> // std::max/min in the buffer-creation helpers
 #include <cstddef>
 #include <cstdint>
 #include <source_location>
 #include <span>
 #include <string_view>
-#include <thread> // std::thread::hardware_concurrency in default_task_pool_threads
+#include <thread>
 #include <utility>
 #include <vector>
 #include <vulkan/vulkan.h>
@@ -17,12 +17,6 @@ import deren.utility;
 import deren.vulkan.core;
 
 namespace deren::vulkan::init_utils {
-    int32_t default_task_pool_threads() noexcept {
-        uint32_t const hw = std::thread::hardware_concurrency();
-        // A QUARTER of the hardware threads, not a half (see the interface's note: the measurement that
-        // decided this is kept there, so the experiment is not repeated).
-        return static_cast<int32_t>(hw == 0 ? 2u : std::max(1u, hw / 4u));
-    }
 
     void create_host_buffer(core& device,
                             std::span<std::byte const> const initial,

@@ -105,12 +105,11 @@
       "members": []
     }
   ],
-  "count": 23,
+  "count": 20,
   "cross_boundary_symbols": [
     "_ZGIW5derenW6vulkanW10init_utils",
     "_ZGIW5derenW6vulkanW4core",
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE",
-    "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core16begin_gpu_timingEP17VkCommandBuffer_Tj",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core19recreate_swap_chainEv",
@@ -118,11 +117,9 @@
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
     "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferC1EOS5_",
     "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferD1Ev",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core13vma_allocator14log_statisticsEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core12make_samplerE20VkSamplerAddressModef",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core13render_extentEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15make_image_viewEP9VkImage_T8VkFormat15VkImageViewType",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core16set_window_titleENSt3__117basic_string_viewIcNS5_11char_traitsIcEEEE",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core18make_shader_moduleENSt3__14spanIhLy18446744073709551615EEE",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core20gpu_timing_availableEv",
@@ -131,15 +128,14 @@
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv",
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
   ],
-  "defined_in_backend": 1247,
+  "defined_in_backend": 1245,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core13to_next_frameEv",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core16read_gpu_timingsEj",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4core18acquire_next_imageERj",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15wait_frame_slotEj"
+    "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core13vma_allocator14log_statisticsEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core16set_window_titleENSt3__117basic_string_viewIcNS5_11char_traitsIcEEEE"
   ],
   "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
@@ -167,9 +163,6 @@
     "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE": [
       "runtime.constructor.cppm.obj"
     ],
-    "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils25default_task_pool_threadsEv": [
-      "runtime.constructor.cppm.obj"
-    ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4core15mark_gpu_timingEP17VkCommandBuffer_Tj23VkPipelineStageFlagBitsNSt3__117basic_string_viewIcNS8_11char_traitsIcEEEE": [
       "runtime.cpp.obj"
     ],
@@ -194,9 +187,6 @@
       "readback.cpp.obj",
       "runtime.constructor.cppm.obj"
     ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core13vma_allocator14log_statisticsEv": [
-      "runtime.constructor.cppm.obj"
-    ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core12make_samplerE20VkSamplerAddressModef": [
       "filters.cpp.obj"
     ],
@@ -205,9 +195,6 @@
       "runtime.frames.cppm.obj"
     ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core15make_image_viewEP9VkImage_T8VkFormat15VkImageViewType": [
-      "filters.cpp.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core16set_window_titleENSt3__117basic_string_viewIcNS5_11char_traitsIcEEEE": [
       "filters.cpp.obj"
     ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4core4core18make_shader_moduleENSt3__14spanIhLy18446744073709551615EEE": [
@@ -234,5 +221,5 @@
       "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 40
+  "usages": 37
 }

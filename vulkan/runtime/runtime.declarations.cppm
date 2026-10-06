@@ -1175,7 +1175,15 @@ namespace deren::vulkan {
         // order is reverse declaration: pipelines etc. go first, the pool joins last).
         // The width is init_utils::default_task_pool_threads(), which carries the measurement
         // that decided the quarter (see vulkan/init_utils/init_utils.cppm).
-        deren::utility::thread_pool task_pool = deren::utility::thread_pool{init_utils::default_task_pool_threads()};
+        /// THE POOL WIDTH IS THE HOST'S DECISION (the boundary ruling: the backend does not recommend
+        /// thread counts). hardware_concurrency() / 4 - a QUARTER, not a half: measured on a 16-thread
+        /// machine, hw/2 cost 11-12% fps (822 -> 735 forward, 1706 -> 1497 unlit) and lengthened the
+        /// shadow sub-phase (0.61 -> 0.65 ms) - the recording stages are not worker-starved at hw/4,
+        /// and more workers only add wake/join, cache and driver-side recording contention. Kept as a
+        /// documented negative result so the experiment is not repeated.
+        [[nodiscard]] static int32_t default_task_pool_width() noexcept;
+
+        deren::utility::thread_pool task_pool = deren::utility::thread_pool{runtime::default_task_pool_width()};
 
         // Guards the pipeline registry below (pipelines / default_pipeline_name):
         // parallel recording workers read it through render_environment's binder (shared locks,

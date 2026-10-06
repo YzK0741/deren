@@ -37,10 +37,6 @@ namespace deren::vulkan {
         this->vk_core->wait_idle();
     }
 
-    void user_filter::set_window_title(std::string_view const title) const noexcept {
-        this->vk_core->set_window_title(title);
-    }
-
     VkExtent2D user_filter::get_swap_chain_extent() const noexcept {
         return this->vk_core->swap_chain_extent;
     }

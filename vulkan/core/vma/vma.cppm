@@ -720,6 +720,10 @@ namespace deren::vulkan {
                 this->buffer_size = 0;
             }
 
+            // THE BACKEND'S OWN LIFECYCLE POINT for the statistics log (the engine's destructor used
+            // to make this call from across the boundary): the session's allocation accounting is the
+            // allocator's business, logged while every number it reports is still alive.
+            this->log_statistics();
             vmaDestroyAllocator(this->allocator);
             this->allocator = VK_NULL_HANDLE;
         }

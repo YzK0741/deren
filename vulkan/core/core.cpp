@@ -726,9 +726,4 @@ namespace deren::vulkan {
         vkDeviceWaitIdle(this->logical_device);
     }
 
-    void core::set_window_title(std::string_view const title) const noexcept {
-        if (this->window != nullptr) {
-            glfwSetWindowTitle(this->window, title.data());
-        }
-    }
 } // namespace deren::vulkan
