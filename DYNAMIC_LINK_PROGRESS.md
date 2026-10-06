@@ -345,11 +345,30 @@ dynamic 那条应用证据的缺口**不是记账问题，是 S4 的验收项**�
 
 **两条不能破的约束**（写下来，否则这个想法会撞坏已定的裁决）：
 1. **契约不依赖 `shared_utility`**（已定：`rhi` 既不依赖 shared 也不依赖 static）。所以**不让 `deren_make_api_core` 返回 `shared_object*`**——那会让契约 ABI 带上一个来自 `shared_utility` 的类型。正确形状：**契约仍只谈 `rhi::api_core*`**；后端新增两个 C 入口 **`deren_retain_api_core` / `deren_release_api_core`**（引用计数在后端对象里）；`shared_utility::shared_object` 是**引擎侧的 RAII 句柄**（进程一份的注册表 + 计数），`get_api_core` 返回它。**契约的返回类型原则不变：按值返回的 POD 冻结、新增函数＝跳号。**
-2. **abi 16 → 17 已预定给 `graphics_queue_family_index()`（随 S3）** ⇒ `shared_object` 方案**另计一次跳号（18）**，**与批④ `shared_utility` 拆分同批**，不塞进 S2/S3，也不为省号提前。
+2. **abi 16 → 17 已预定给 `graphics_queue_family_index()`（随 S3）** ⇒ `shared_object` 方案**另计一次跳号（18）**，**与批④ `shared_utility` 拆分同批**，不塞进 S2/S3，也不为省号提前。~~（2026-10-06 更正：那**一次 16 → 17 已被撤销**——`graphics_queue_family_index` 改走运行时只读推导，见 §14。于是 `shared_object` 从 18 变为**下一次可用号**，其余不变。）~~
 
 **批④ 原内容不变**（日志 sink / 轮转 / panic 汇聚 / 分配器钩子 + C 形状导出 + 两目标先都 STATIC、翻转时同批转 SHARED）；**`shared_object` 是加在它里面的第二样东西**。
 
 **终局形状（做 S5/翻转时就知道它要来接谁）**：`deren_make_api_core` 仍是契约的 C 入口（返回 `rhi::api_core*`）；后端对象自己带引用计数，两个 retain/release 入口是它的门；`shared_utility::shared_object` 是引擎侧那个**唯一**的设备根持有者，`get_api_core` 交出的就是它；`dynamic_link` 仍在 exe 侧加载后端并按名字取那三个入口（make + retain + release）。
+
+---
+
+## 14 合并笔（S2+S3）的第二次尝试：**编译面已全通，只剩链接面的定义缺失，仍整体回滚**（2026-10-06）
+
+**结论先写**：六个分区**全部编译通过**（0 编译错误），剩的是**链接期的未定义符号**——也就是说"逐条清错误"这条路的**不确定性已经归零**，剩下的是纯机械的量。两次尝试都在同一轮预算内做不完，故仍**整体回滚**，树回到 `2e8b071` 全绿。
+
+**这一轮做出来的（全部实测，回滚后需要重做但已记录）**：
+1. `runtime_detail` 命名空间（在 `:declarations` 里、被所有分区共享）落地：`gbuffer_pass_attachment_count`（= `render_layout::gbuffer_target_count + 2`）、两个镜像常量（`backend_gpu_timing_mark_capacity`=16、`scene_texture_capacity`=128，各带注释）、以及 `native_device_of` / `native_instance_of` / `native_physical_device_of` / `native_queue_of` / `host_copy_of` / `physical_properties_of` / `heap_max_push_data` / `ray_tracing_properties_of` / `graphics_queue_family_of`（声明）。**这些就是"每个后端事实的唯一推导处"**。
+2. **判决②落地**：`graphics_queue_family_index` **运行时推导**（`vkGetDeviceQueue(device, family, 0)`，返回 escape 队列句柄的那个 family 就是对的——Vulkan 自己的规则、只读、零 ABI），**构造时算一次、缓存进成员**，失败**panic**（不是默认 0），注释里写明"后端 `find_queue_families` 取的是第一个 `VK_QUEUE_GRAPHICS_BIT` family，其 index 由构造时的 `vkGetDeviceQueue` 产生，所以比较不会错"。
+3. **判决③落地（并已在 legacy 树验证编译通过）**：`render_layout::clamp_render_scale(float)` 作为**唯一钳制者**；后端 `core.constructor.cppm` 调它（保留它自己的"越界就打日志"），引擎也调它。**两棵树都能编译**（legacy 树实测 0 错误）。→ **`graphics_queue_family_index` 的 abi 16→17 取消**：见下。
+4. 六个分区的机械替换全部跑完：`core::heap_slot*`→`render_layout::`、`hdr_format`/`gbuffer_*`→`render_layout::`、`vk.*`/`this->vulkan_core.*` 的每个后端事实→`runtime_detail::` 或成员、`core&`→`rhi::api_core&`、构造改为 `make_contract_core()`（C 入口 + 后端 deleter）+ 三参委托构造、`rhi_face()` 返回 `*core_owner`。
+
+**取消 abi 17 的结论（必须同步）**：§11.3 里"`graphics_queue_family_index()` 进 escape、abi 16→17"**作废**；合并笔**不需要任何跳号**，abi 停在 **16**。§13 的 `shared_object` 因此从编号 18 变成"下一次可用号"。
+
+**剩下的链接期未定义符号（14 个，就是下一笔的清单）**：`runtime::default_task_pool_width` / `refresh_frame_extents` / `frame_ring` / `buffer_address` / `write_heap_buffer` / `buffer_of` / `run_heap_probe` / `run_heap_graphics_probe`、自由函数 `create_buffer` / `create_buffers` / `buffer_address`、`runtime_detail::graphics_queue_family_of`（**尚未写定义**）。其中前者全部来自 `runtime.cpp`——它**已经进 CMake 的 `VR_RUNTIME_PRIVATE_SOURCES`**（本轮已加，回滚时一并撤掉），定义补上即消。
+
+**下一笔的最短路径（照此执行，少走弯路）**：① 六个分区照上表替换；② 在 `runtime.cpp` 里给 `graphics_queue_family_of` 写定义（遍历 family、`vkGetDeviceQueue` 比对句柄）；③ `VR_RUNTIME_MODULES` 加 `:frames`/`:probes`/`:readback`，`VR_RUNTIME_PRIVATE_SOURCES` 加 `runtime.cpp`；④ 编译——预期只剩 `:frames`/`:probes` 里的**同类机械替换**（本轮已把清单缩到"链接期缺失"这一步，编译错误为 0）；⑤ 全门（**两棵树**构建/ctest/格式/边界/import/尖刺/scaffold/14 哈希程序化比对/VUID=0）。
+
 
 
 
