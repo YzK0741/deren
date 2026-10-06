@@ -762,3 +762,67 @@ error: unable to open output file 'CMakeFiles/<target>.dir/<module>.pcm':
   拒绝写入，**不是**本批引入、也不是本仓库代码的错。CMake 自己的 job server 不受影响（错误来自 clang 前端）。
 * **含义**：CI 若对该错误直接判红，会把一次重跑就能过的偶发事件当成真断；若**无脑**重试全部失败，又会
   掩盖真崩。建议的机器判据就是本批用的这一条：**只把这一条错误文本视为可重试，其余任何 error 立即停**。
+
+## 19 现状与流程（一页速览）
+
+**给下一个人看的**：这一段是"现在到底是什么样、怎么跑、坏在哪里"。历史裁决在 §0–§18 与
+`DYNAMIC_LINK_BOUNDARY_GOALS.md` 的 §0–§7，那些是**当时**的记录，不要当现状读。
+
+### 19.1 `main` 的流程（行号引自当前 `main.cpp`）
+
+1. `main` **@407** → 解析命令行、载入配置（`deren.application_configuration`）。
+2. **`window_owner` @107-137**：`glfwInit()` 的返回值被**检查**（@111，失败即 panic）→ hints →
+   `glfwCreateWindow`（@117，失败即 panic）→ 析构里 `glfwTerminate()`（@137）。**注释 @93 定了顺序**：
+   `glfwTerminate` 会销毁所有剩余窗口，所以窗口（和 GLFW）必须**晚于 runtime 和它的 surface** 拆。
+3. 建 `create_info`（**@517** 起）：`window_width`/`window_height`/`window_title`(借用的 `char const*`)/
+   `vsync`/`validation_layers`/`render_scale`/`window_visible`（脚本化捕获为 false）/`native_window`。
+   **这是唯一一套 creation options**，没有第二份。
+4. **`load_api_core(core_options)` @554**（批⑥之后）：`deren.vulkan.backend_loader` 按**绝对路径**打开
+   `deren_vulkan.dll`（`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | …DEFAULT_DIRS`，不搜 `%PATH%`）、解析**唯一导出**
+   `deren_make_api_core`、把 `rhi::abi_version` 作为入参做**创建侧握手**、`detach()` **永不卸载**；失败给具名
+   `error_info` 诊断并返回空 `shared_ptr` → 这里报错并 `return 1`（**应用决定**失败意味着什么）。
+5. **`runtime{std::move(core), core_options}` @566**：runtime **不加载任何东西**；构造函数第一件事是
+   `require_core`（空 root ⇒ panic；`api_core::api_version()` ≠ `rhi::abi_version` ⇒ panic，消息里两个数字），
+   之后一切经契约（`rhi_face()` / `vulkan_escape`）。
+6. **帧循环 `while (true)` @2588**：`poll_events` @2590 → `pace_and_acquire` @2615 →
+   `begin_recording` @2698 → passes → `end_recording` @2703 → `submit_and_present` @2707。**每步都过
+   `frame_status`**（`deren::vulkan::frame_status`），失败不静默。
+7. **退出 @2881-2885**：`log_camera_pose("exit")` → `runtime->wait_idle()` → `return 0` ⇒ **栈上逆序销毁**
+   （runtime 先、window 后），最后 `shared_ptr` 的控制块 deleter 在后端镜像里跑 `~core`
+   （`vkDestroyDevice`）——这就是"永不卸载"能成立的前提。
+
+### 19.2 契约的"面"（便于看全，不是清单的替代）
+
+* **tier-1**：`api_core`（`abilities` / `query_extension(s)` / `create_swapchain|buffer|image|sampler|shader|pipeline|query`
+  / `begin_commands` / `frame_image` / `frame_swapchain` / `walk_frames` / `profiler` / `submit` /
+  `wait_idle` / `create_command_buffer` / **`api_version`（abi 19 新增）**）、`object` 家族
+  （`buffer` / `image` / `image_view` / `sampler` / `shader` / `pipeline` / `query` / `command_list` /
+  `command_buffer` / `swapchain` / `frame_walker` / `gpu_profiler`）。
+* **tier-2（能力，经 `query_extension(kind)`）**：`vulkan_escape`（原生 instance / physical_device / device /
+  queue / command_buffer / buffer / image / image_view / sampler / pipeline / shader_module、
+  已启用 instance/device 扩展列表、`native_image_format`、`native_swapchain_image_format`）、
+  `descriptor_heap`、`device_address`、`ray_tracing`、`mesh_shader`、`host_image_copy`。
+* **入口**：`promise/rhi/backend_entry.hpp` 的**一个** `extern "C"` 导出
+  `deren_make_api_core(abi_version, create_info const*, error_info*)` 返回
+  `std::shared_ptr<api_core>`；空 `shared_ptr` = 拒绝；控制块携带后端自己的 deleter。
+
+### 19.3 怎么跑（确切命令）
+
+```
+cmake --build build-release-dyn-clang64                          # 构建
+ctest --test-dir build-release-dyn-clang64                       # 测试（19）
+cmake --build build-release-dyn-clang64 --target clang-format-check
+python scripts/check_backend_boundary.py --config dynamic --require-zero
+cmake --build build-spike-clang64 --target test_backend_boundary_spike
+.build-spike-clang64/test_backend_boundary_spike.exe --with-device
+.build-release-dyn-clang64/test_runtime_dyn.exe --with-device     # scaffold：真的走 load_api_core + DLL
+pwsh -File scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare frozen
+```
+
+**渲染门的判据是 exit code 与那 14 个哈希**（对冻结清单 `matched 14 / mismatched 0`），**不是 `changed` 计数**——
+本机参考集是 2026-10-01 的旧集，`changed` 会一直有；`-Compare frozen` 的那个比较才是这个门要的结论。
+
+### 19.4 构建偶发（照 §18.7 处理）
+
+`error: unable to open output file '…pcm'`（Windows 1224，`ERROR_USER_MAPPED_FILE`）**只此一条可重试**；
+其余任何 error 立即停。它的级联是 `llvm-ar: … No such file or directory` + `FAILED: libX.a`，那不是第二个故障。

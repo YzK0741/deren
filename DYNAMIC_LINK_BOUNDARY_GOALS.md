@@ -1,40 +1,31 @@
 # 遗留跨界符号的目标清单
 
-## §现状综述（先读这段；细节在下面各节）
+## §现状综述（先读这段；细节在下面各节，**但下面各节是历史**）
 
-**目标**：把 `deren_vulkan` 翻成按名加载的 DLL（步 ④）。**度量** = 跨边界符号数；**靶子** = "白名单之外为零"（可达下限 ≈ 9，见 §0.1）。
+**目标已达成**：后端是 `deren_vulkan.dll`，由 exe **按名加载**（`LoadLibraryExW` + 绝对路径 +
+`LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | …DEFAULT_DIRS`，不搜 `%PATH%`），**唯一导出 `deren_make_api_core`**，
+`shared_ptr` 的控制块携带 deleter，**永不卸载**（`dynamic_link` 的 `detach()`）。
 
-**当前状态**（`1e0f404`；代码自已验证的 `119ffcc` 起未变，其后只有 markdown）：契约 **abi 12**；边界 **27 symbols / 44 站点 / 3 消费者 / owning-STL 0**；`ctest` **17/17**；`clang-format-check` 0；尖刺 `--with-device` **50 checks / 0 failed / 自行退出**；**渲染 14 场景全部跑通，哈希与合入前逐字节相同**（锚点 `deferred = 972A31EC5FF55C87`、`laevatain_old_chain = 190EB09D3E9FDCDA`）。
+**当前读数（`dadea31`，本文件顶部这段话随每次落地更新）**：边界 **0 symbols / 0 站点**；import
+**0 站点 / 0 文件**；白名单 **0 条**（`departures` 4 条：`deren_make_api_core`、`deren_destroy_api_core`、
+`deren_abi_version`、legacy initializer）；`--require-zero` **exit 0**；`ctest` 18/18；尖刺
+**95 checks / 0 failed**；scaffold **7/0**；渲染 **14/14 exit 0，VUID=0**；abi **18**（19 在途）。
 
-**已完成**（追溯用）：契约 buffer 面（abi 6）→ 后端实现 + 加载器 `detach()`（`FreeLibrary` 死锁的出口）→ 引擎 buffer 面迁移（77 → 66）→ 门硬化（joiners 即失败 / `--update` 只降 / `--require-zero`）→ 加载器空串与 NUL → F1–F4 修复 → 能力入口只留 `query_extension()` → 图像面（abi 7）→ 管线面（abi 8）→ 堆面（abi 9–12，66 → 27）。
+**批⑥（A/B）落地后的读数补充**（不替换上一段的 `dadea31` 读数，只把"在途"落成事实）：abi **19**
+（`api_core::api_version()` 追加 + 构造路径改签名）；`ctest` **19/19**（新增 `test_runtime_injection`）；
+scaffold **10/0**（+3 条"root 被 runtime 接管"的身份断言）；加载与获取移到 **`deren.vulkan.backend_loader`**
+（`load_api_core`），`runtime{core, options}` **不再自己加载**；边界 0、import 0、渲染 14/14 均**未移动**。
 
-**待做四批**
+**门 = 四件仪器，不再是一个数字**：① 符号棘轮；② **import 图**（引擎/应用源码不得 import 任何
+`deren_vulkan` 模块）；③ **导出表 / 导入表**（DLL 导出恰好一个 `deren_*`；DLL 导入 `shared_utility.dll`；
+exe 与 DLL 都导入 `libc++.dll`）；④ **共享工具单副本**（`libshared_utility.a` 的成员名不得出现在别的归档里）。
 
-| 批 | 内容 | 跳 abi？ | 见证 |
-|---|---|---|---|
-| **① 错误机制** | 追加 `out_of_date`/`surface_lost`/`timeout`/`out_of_device_memory`/`out_of_host_memory`/`initialization_failed`；`error_info` + `graphics_api` + `zone_of(error)`；utility 加 `ensure`/`verdict`/`enforce`；后端三个**按调用点**翻译器 | 否 | 表驱动 CPU 测试（`tests/test_error_mapping.cpp`）+ 布局 `static_assert` |
-| **② 帧面：`frame_walker` + `gpu_profiler`** | `frame_walker` 借用视图（`position`/`wait_and_acquire`/`walk_to_next`）+ `gpu_profiler`（`stage_count`/`get_stage_info`）+ `api_core::{walk_frames,profiler}()`；后端两个借用视图（**构造函数里务必设 owner**）；probe 两个实现；尖刺断言 | **是（12 → 13，一次做完）** | 尖刺断言 `position() == frame_begin().frame_index`、`get_stage_info(stage_count(),…) == invalid_argument`；`MAX_FRAMES_IN_FLIGHT` 与 29 处 `current_frame` 读点消失 |
-| **③ 27 个符号** | ① A(6)+B(4)+两处删除 → 15；② C(4)+删 `set_window_title` → 10；③ `core::core(create_info)` **最后一步**；④ 门改"白名单之外为零" | ③ 随 ② 批 | 边界降到该步目标值 + 14 场景哈希不变 |
-| **④ utility 拆分** | `shared_utility`（日志 sink/轮转/panic/分配器钩子）+ `static_utility`（BVH/data_block/…/**`dynamic_link`**）；**先两半都 STATIC**，翻转时 shared 转 SHARED | 否 | 后端 DLL 导入表出现 `shared_utility.dll`（而非自带 sink） |
+**本文件其余部分（§0–§7）是历史**：它们是**当时**的裁决与路径记录（写作时读数是 27 符号 / abi 12）。
+**不要再当现状读**；现状以本段与 `DYNAMIC_LINK_PROGRESS.md` 为准。
 
-**待裁决：无（本节全部已定案）**
-
-1. ~~`wait_and_acquire()` 融合后 GPU 计时收集放哪~~ —— **已由 `gpu_profiler` 解决**：**收集归后端**（在 `wait_and_acquire()` 内、"取下一张图"之前 latch 该槽上一帧的计时，所以被 `OUT_OF_DATE` 跳过的帧照样收集），**读归引擎**（调用返回之后读 `profiler()`）；引擎不再需要在"等"与"采集"之间插一步，**行为零变化**；
-2. ~~`frame_open_info` 的错误通道形状~~ —— **已定案（选 A）**：见 §frame_open_info；
-1. ~~`ring_depth()` 与 `walk_frames()` 的最终拼写~~ —— **已定案**：`slot_count()` + `walk_frames()`（`walker()` 备选未采用）。
-
-**治理**：集成点是本仓库主干；`codex/upstream-sync-2026-10-04`（= 我们主干快照）与 `codex/abi8-followup-2026-10-04`（**已合并**：ABI 9–12）是补丁来源；`codex/dynamic-link-v3` 是**旧现场归档**、不合并；每笔移植提交带 provenance。
-
-
-> 数据来源：`python scripts/check_backend_boundary.py --list`（本文件基于 `119ffcc`，即合入 Codex 的 ABI 9–12 堆面之后）。
-> 当次读数：**27 个后端符号 / 44 处引用 / 3 个消费者 / 0 个携带 owning STL**；后端定义 1227 个符号。
-> 工具分类：18 个 `core::core` 成员、4 个原生 RAII 句柄、3 个 `init_utils`、1 个 `vma_allocator`、1 个模块 initializer data。
-> 区域（symbol/member 对）：runtime 27、other 15、pass 2。
->
-> **"改进目标"的判据**：翻转门要的是"零依赖"，所以每个符号的目标必须是**它为什么该消失、消失后由什么承担**，不是"把它挪走"。
->
-> **每一步的完成条件相同**：边界门降到该步目标值 且 `owning STL = 0` 且 `ctest` 全绿 且 `clang-format-check` 通过 且 **渲染 14 场景哈希逐字节不变**（至少锚点 `deferred = 972A31EC5FF55C87`、`laevatain_old_chain = 190EB09D3E9FDCDA`）。
-
+**后续（已记档，不必现在做）**：`pass/`/`readback/`/`core/filter/` 是否也搬出 `vulkan/`（用户"先做完再考虑"）；
+后端去掉自带的 GLFW（只用 Win32 surface）；DLL 失去 sanitizer 覆盖（lld 无法链接 instrumented `-shared`）；
+历史里约 95 MB 截图；`demo_lights` 不可复现（任何打开它的场景不能当门）；bloom 缺 config key。
 ---
 
 ## §0 裁决（已定，2026-10-05）
