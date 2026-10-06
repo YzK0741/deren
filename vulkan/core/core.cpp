@@ -309,32 +309,13 @@ namespace deren::vulkan {
         // 1. Wait for the device to be idle
         vkDeviceWaitIdle(logical_device);
 
-        // 2. THE HDR AND LDR/DISPLAY TARGETS ARE THE ENGINE'S FROM A1.3 ON, THE G-BUFFER CLUSTER - the three
-        //    stored surface targets, the G-buffer pass's own depth image, the motion-vector target and the
-        //    scene-colour TAA working image - FROM A1.4 ON, AND THE STOCHASTIC-CHAIN TRIO PLUS THE FOUR BLOOM
-        //    LEVELS FROM A1.5 ON, so this function no longer destroys any of them:
+        // 2. EVERY RENDER TARGET IS THE ENGINE'S NOW, so section 2 destroys NOTHING: the HDR/LDR pair from
+        //    A1.3, the G-buffer cluster (three surface targets, the pass's own depth, the motion-vector target
+        //    and the scene-colour TAA working image) from A1.4, the stochastic-chain trio and the four bloom
+        //    levels from A1.5, and the furnace environment cube from A1.6. What replaces all of it is one call:
         //    `runtime::create_render_chain_targets()` releases the old generation and creates the new one right
-        //    after this rebuild answered `ok` (see on_swapchain_recreated).
-
-        // 2d-3. Destroy the furnace image (same lifetime as the G-buffer)
-        auto const destroy_target_set = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
-            for (auto const& view : views) {
-                vkDestroyImageView(logical_device, view, nullptr);
-            }
-            views.clear();
-            for (auto const& image : images) {
-                vkDestroyImage(logical_device, image, nullptr);
-            }
-            images.clear();
-            for (auto const& memory : memories) {
-                vkFreeMemory(logical_device, memory, nullptr);
-            }
-            memories.clear();
-        };
-        // (the motion-vector and scene-colour targets belong to the ENGINE now - ③-D/E A1.4; the TAA history
-        // pair from A1.1, the ray-traced visibility pair from A1.2, and the stochastic-chain trio from A1.5 -
-        // all released and recreated by the same `create_render_chain_targets()` call)
-        destroy_target_set(furnace_cube_images, furnace_cube_memories, furnace_cube_views);
+        //    after this rebuild answered `ok` (see on_swapchain_recreated), so the destroy lambda that lived
+        //    here is gone with its last caller.
 
         // 3. Destroy depth resources
         for (auto const& view : depth_image_views) {

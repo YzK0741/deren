@@ -1177,6 +1177,8 @@ namespace deren::vulkan {
         for (auto& level_images : this->bloom_images) {
             level_images = {};
         }
+        this->furnace_cube_view = {};
+        this->furnace_cube_image = {};
 
         VkExtent2D const render = this->render_extent();
         std::size_t const image_count = this->vulkan_core.swap_chain_images.size();
@@ -1398,6 +1400,32 @@ namespace deren::vulkan {
                 create_sampled_target(level_desc, core::heap_slots::bloom_l0 + level * core::heap_image_capacity + static_cast<uint32_t>(i),
                                       this->bloom_images[level][i], this->bloom_image_views[level][i], "the bloom level target");
             }
+        }
+
+        // ---- THE FURNACE MODE'S CONSTANT ENVIRONMENT (③-D/E A1.6) --------------------------------------
+        // ONE 1x1x6 cube, device-wide: TRANSFER_DST because a clear is what gives it contents, SAMPLED because
+        // the IBL bindings point at it, and `cube_compatible` with six layers - which is ALL the contract has
+        // to say for the backend to derive a CUBE view from the range (the derivation lives in the heap path,
+        // so this group needs no new vocabulary). No heap descriptor: what the furnace mode (and the empty-IBL
+        // placeholder) needs is the resource table's view.
+        rhi::image_desc furnace_desc{};
+        furnace_desc.extent = rhi::image_extent{.width = 1u, .height = 1u, .depth = 1u};
+        furnace_desc.mip_levels = 1;
+        furnace_desc.array_layers = 6;
+        furnace_desc.format = contract_image_format(hdr_format);
+        furnace_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination) | rhi::to_bits(rhi::image_flag::cube_compatible);
+        furnace_desc.debug_name = "furnace environment cube";
+        this->furnace_cube_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(furnace_desc)};
+        if (!static_cast<bool>(this->furnace_cube_image)) {
+            deren::utility::panic("failed to create the furnace environment cube");
+        }
+        rhi::image_view_desc furnace_range{};
+        furnace_range.mip_count = 0;   // all remaining mips (one)
+        furnace_range.layer_count = 0; // all remaining layers - the SIX faces a CUBE view needs
+        furnace_range.role = rhi::view_role::sampled;
+        this->furnace_cube_view = rhi::object_manager<rhi::image_view>{this->furnace_cube_image->make_view(furnace_range)};
+        if (!static_cast<bool>(this->furnace_cube_view)) {
+            deren::utility::panic("failed to create the furnace environment cube view");
         }
 
         // ---- THE RAY-TRACED VISIBILITY, ONE PER FRAME SLOT (③-D/E A1.2) --------------------------------

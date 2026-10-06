@@ -1110,6 +1110,13 @@ namespace deren::vulkan {
         std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> ml_history_image_views = {};
         std::array<std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images>, deren::vulkan::render_layout::bloom_level_count> bloom_images = {};
         std::array<std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images>, deren::vulkan::render_layout::bloom_level_count> bloom_image_views = {};
+        // THE FURNACE MODE'S CONSTANT ENVIRONMENT (③-D/E A1.6): ONE 1x1x6 cube, device-wide rather than
+        // per-image - the furnace verification mode points the IBL bindings at it as the constant environment
+        // (level 1.0), and the unloaded-IBL path uses it as the type-correct CUBE placeholder. Its view covers
+        // ALL SIX faces, which is the range that makes the backend answer a CUBE view for a `cube_compatible`
+        // image: the same derivation the heap path uses, so this group adds no contract vocabulary.
+        rhi::object_manager<rhi::image> furnace_cube_image = {};
+        rhi::object_manager<rhi::image_view> furnace_cube_view = {};
         // THE ONE PER-FRAME-SLOT GROUP (③-D/E A1.2): the ray-traced sun visibility, one image per FRAME SLOT
         // - the rays are traced once per frame, not once per swapchain image (that reasoning moves here with
         // the creation). At the frame's render extent, R16F (one visibility factor per pixel), STORAGE for

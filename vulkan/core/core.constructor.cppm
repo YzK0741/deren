@@ -1025,20 +1025,16 @@ namespace deren::vulkan {
 
         // The GI denoiser's resolve target, its history and the spatial filter's output were created here: three
 
-        // The furnace verification mode's constant environment (see the member comment): TRANSFER_DST because
-        // a clear is what gives it contents, SAMPLED because the IBL bindings will point at it.
-        furnace_cube_images.assign(1, VK_NULL_HANDLE);
-        furnace_cube_memories.assign(1, VK_NULL_HANDLE);
-        furnace_cube_views.assign(1, VK_NULL_HANDLE);
-        create_target_image_cube(
-            1,
-            hdr_format,
-            VK_IMAGE_TILING_OPTIMAL,
-            VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
-            VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-            furnace_cube_images[0],
-            furnace_cube_memories[0]);
-        furnace_cube_views[0] = create_image_view(furnace_cube_images[0], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device, VK_IMAGE_VIEW_TYPE_CUBE, 6);
+        // ---- THE FURNACE MODE'S CONSTANT ENVIRONMENT IS THE ENGINE'S NOW (③-D/E A1.6) -----------------
+        // The 1x1x6 cube (hdr_format, SAMPLED | TRANSFER_DST because a clear gives it contents and the IBL
+        // bindings point at it, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT with six layers) used to be created right
+        // here. `runtime::create_render_chain_targets()` creates it through the contract instead, where
+        // `cube_compatible` + six layers is all the contract has to say for the backend to derive a CUBE view
+        // from the range - the same derivation the heap path uses, so this group adds no vocabulary. The
+        // members stay declared (empty from here on) until the closing slice A1.7.
+        // NOTHING IS LEFT IN THIS FUNCTION AFTER A1.6: every render target it was written for belongs to the
+        // engine now, and A1.7 deletes the function, its call sites and the raw image helpers beside it.
+
         // ---- THE RAY-TRACED VISIBILITY PAIR IS THE ENGINE'S NOW (③-D/E A1.2) -------------------------
         // One R16F image + view per FRAME SLOT (the rays are traced once per frame, not once per swapchain
         // image), STORAGE | SAMPLED, plus the TWO heap descriptors the pass and the lighting stage read
@@ -1054,37 +1050,11 @@ namespace deren::vulkan {
         // target per level per swapchain image, `max(1, render >> (level + 1))`, COLOR_ATTACHMENT | SAMPLED,
         // at `bloom_l0 + level * heap_image_capacity`)
 
-        // The teardown is registered ONCE, not once per swapchain generation: this function reruns on
-        // every recreate_swap_chain(), and register_cleanup() *pushes* (LIFO), so registering
-        // unconditionally grew the cleanup stack by one identical lambda per resize. The single
-        // lambda destroys whatever the vectors hold at destruction time, which is what we want.
-        if (this->resolve_cleanup_registered) {
-            return;
-        }
-        this->resolve_cleanup_registered = true;
-
-        register_cleanup([this] {
-            // (the HDR/LDR/display targets, the G-buffer cluster - three surface targets + depth - the
-            // motion-vector / scene-colour pair, the stochastic-chain trio and the four bloom levels are NOT
-            // destroyed here any more: the engine owns all of them from A1.3/A1.4/A1.5 on, and
-            // `runtime::create_render_chain_targets()` releases the old generation first)
-            // the furnace image shares this lifetime with the ones above
-            auto const destroy_images = [this](std::vector<VkImage>& images, std::vector<VkDeviceMemory>& memories, std::vector<VkImageView>& views) {
-                for (auto const& view : views) {
-                    vkDestroyImageView(logical_device, view, nullptr);
-                }
-                for (auto const& memory : memories) {
-                    vkFreeMemory(logical_device, memory, nullptr);
-                }
-                for (auto const& image : images) {
-                    vkDestroyImage(logical_device, image, nullptr);
-                }
-                views.clear();
-                memories.clear();
-                images.clear();
-            };
-            destroy_images(furnace_cube_images, furnace_cube_memories, furnace_cube_views);
-        });
+        // ---- AND THE CLEANUP REGISTRATION IS GONE WITH THE LAST TARGET IT DESTROYED (③-D/E A1.6) --------
+        // The `register_cleanup` below used to destroy whatever the target vectors held; every group it
+        // named is the engine's now (A1.1-A1.6), and the engine's release is what destroys a generation -
+        // `runtime::create_render_chain_targets()` releases the old set before creating the new one. The
+        // `resolve_cleanup_registered` flag stays declared for A1.7, which deletes this function whole.
     }
 
     void core::create_target_image(

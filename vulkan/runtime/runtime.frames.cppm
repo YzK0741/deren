@@ -457,7 +457,7 @@ namespace deren::vulkan {
 
     frame_status runtime::begin_recording() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::begin};
-        core& vk = this->vulkan_core;
+        core& vk = this->vulkan_core; // the heap calls below take the contract face itself, not a native handle
         if (this->bound_scene == nullptr) {
             deren::utility::panic("runtime::begin_recording() called before set_scene() bound a scene");
         }
@@ -530,19 +530,23 @@ namespace deren::vulkan {
         // the analytic answer and the environment agree by construction), and the unloaded-IBL path
         // uses it as the type-correct CUBE placeholder (see write_ibl_bindings) - a descriptor pointing
         // at an image nothing ever initialized is worse than one pointing at a neutral value.
-        if (!this->furnace_cube_ready && !vk.furnace_cube_images.empty() && vk.furnace_cube_images[0] != VK_NULL_HANDLE) {
+        // THE CUBE IS THE ENGINE'S OWN (③-D/E A1.6): the handle comes through the contract's escape and the
+        // guard is the manager's validity - a fixed-size engine handle cannot answer "how many images do I
+        // hold", so the vector-length test that stood here has no subject any more.
+        if (!this->furnace_cube_ready && static_cast<bool>(this->furnace_cube_image)) {
+            VkImage const furnace_native = static_cast<VkImage>(this->escape().native_image(*this->furnace_cube_image));
             VkImageMemoryBarrier2 to_transfer = deren::vulkan::undefined_to_transfer_dst_transition;
-            to_transfer.image = vk.furnace_cube_images[0];
+            to_transfer.image = furnace_native;
             to_transfer.subresourceRange.layerCount = 6; // all six faces, not the one the constant defaults to
             VkDependencyInfo const to_transfer_dependency = make_image_dependency_info(1, &to_transfer);
             vkCmdPipelineBarrier2(command_buffer, &to_transfer_dependency);
 
             VkClearColorValue const level = {{1.0f, 1.0f, 1.0f, 1.0f}};
             VkImageSubresourceRange const faces = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
-            vkCmdClearColorImage(command_buffer, vk.furnace_cube_images[0], VK_IMAGE_LAYOUT_GENERAL, &level, 1, &faces);
+            vkCmdClearColorImage(command_buffer, furnace_native, VK_IMAGE_LAYOUT_GENERAL, &level, 1, &faces);
 
             VkImageMemoryBarrier2 to_sampling = deren::vulkan::transfer_dst_to_sampling_transition;
-            to_sampling.image = vk.furnace_cube_images[0];
+            to_sampling.image = furnace_native;
             to_sampling.subresourceRange.layerCount = 6;
             VkDependencyInfo const to_sampling_dependency = make_image_dependency_info(1, &to_sampling);
             vkCmdPipelineBarrier2(command_buffer, &to_sampling_dependency);
@@ -2064,9 +2068,11 @@ namespace deren::vulkan {
         }
 
         // ---- device-wide: the probe grid's eight elements, its geometry, the cubes and the textures ----
-        if (!vk.furnace_cube_views.empty() && !vk.furnace_cube_images.empty()) {
+        if (static_cast<bool>(this->furnace_cube_image) && static_cast<bool>(this->furnace_cube_view)) {
             single(render_resource::resource_id::furnace_cube, 0, 0,
-                   pass::resolved_binding{.view = vk.furnace_cube_views[0], .buffer = VK_NULL_HANDLE, .image = vk.furnace_cube_images[0]});
+                   pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->furnace_cube_view)),
+                                          .buffer = VK_NULL_HANDLE,
+                                          .image = static_cast<VkImage>(this->escape().native_image(*this->furnace_cube_image))});
         }
         // The white fallback and the array it is element 0 of. The array is BINDLESS (one binding, N descriptors),
         // which the declaration vocabulary cannot index element by element yet - so what is published is the one
