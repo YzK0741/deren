@@ -130,8 +130,10 @@ export namespace deren::vulkan::pass {
             .group_size_x = group_size,
             .group_size_y = group_size,
             .group_size_z = 1,
-            .extent = extent_rule::half, // the chain's resolution, like the tracer's
-            .extent_of = resource_id::none,
+            .extent = extent_rule::resource, // the same rule as the tracer's, one stage on: this pass writes the
+                                             // accumulation, so `ml_resolve`'s created extent IS the chain's
+                                             // resolution (③-D/E A1.7 - no second copy of the formula)
+            .extent_of = resource_id::ml_resolve,
             .pipelines = pipeline_names,
             .resync_viewport = false,
         };

@@ -309,13 +309,12 @@ namespace deren::vulkan {
         // 1. Wait for the device to be idle
         vkDeviceWaitIdle(logical_device);
 
-        // 2. EVERY RENDER TARGET IS THE ENGINE'S NOW, so section 2 destroys NOTHING: the HDR/LDR pair from
-        //    A1.3, the G-buffer cluster (three surface targets, the pass's own depth, the motion-vector target
-        //    and the scene-colour TAA working image) from A1.4, the stochastic-chain trio and the four bloom
-        //    levels from A1.5, and the furnace environment cube from A1.6. What replaces all of it is one call:
-        //    `runtime::create_render_chain_targets()` releases the old generation and creates the new one right
-        //    after this rebuild answered `ok` (see on_swapchain_recreated), so the destroy lambda that lived
-        //    here is gone with its last caller.
+        // 2. AND EVERY RENDER TARGET BELONGS TO THE ENGINE (③-D/E A1.7), so this function destroys NOTHING
+        //    of the chain: the HDR/LDR pair (A1.3), the G-buffer cluster (A1.4), the stochastic-chain trio
+        //    and the four bloom levels (A1.5) and the furnace environment cube (A1.6) are the engine's, and
+        //    `runtime::create_render_chain_targets()` releases the old generation and creates the new one
+        //    right after this rebuild answered `ok` (see on_swapchain_recreated). What remains backend-owned
+        //    and is rebuilt below is the swapchain itself and the forward path's depth image.
 
         // 3. Destroy depth resources
         for (auto const& view : depth_image_views) {
@@ -345,11 +344,13 @@ namespace deren::vulkan {
             swap_chain = VK_NULL_HANDLE;
         }
 
-        // 6. Recreate all resources
+        // 6. Recreate all resources THE BACKEND OWNS
         this->init_swap_chain();        // rebuild swapchain
         this->init_image_views();       // rebuild image views
         this->create_depth_resources(); // rebuild depth resources
-        this->create_render_targets();  // rebuild the scene targets
+        // (the render chain's targets are rebuilt by the ENGINE right after this function returns `true`:
+        // `on_swapchain_recreated()` calls runtime::create_render_chain_targets(), which releases the old
+        // generation first - ③-D/E A1.7)
 
         // Present-ready semaphores are allocated per image index; destroy and rebuild when the
         // count changes (device is idle here). The per-slot timeline + binary acquire

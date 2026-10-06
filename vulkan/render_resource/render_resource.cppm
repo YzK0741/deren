@@ -165,10 +165,11 @@ export namespace deren::vulkan::render_resource {
      * @brief the schema itself
      *
      * EACH ENTRY'S PROVENANCE, so the table can be re-derived rather than trusted: the HDR chain, the
-     * G-buffer, the velocity and scene-colour targets and the TAA history are created in
-     * `core::create_render_targets` (`core.cpp:506-693`); the chain's images at `636-749`; the probe grid
-     * and its geometry at `798-811`; the furnace cube at `814-825`; the ray-traced shadow visibility at
-     * `831-844`, one per FRAME SLOT rather than per image; the shadow map is the one family `deren.vulkan.runtime`
+     * G-buffer, the velocity and scene-colour targets, the TAA history, the stochastic-chain trio, the
+     * bloom levels, the ray-traced shadow visibility (one per FRAME SLOT rather than per image) and the
+     * furnace cube are all created by the ENGINE now - `deren.vulkan.runtime`'s
+     * `create_render_chain_targets()` (③-D/E A1.1-A1.7), through the contract - releasing and rebuilding
+     * them with the swapchain generation; the shadow map is the one family `deren.vulkan.runtime`
      * creates itself (`runtime.cpp:495-560`, layered, one image per slot); the scene buffers and the IBL
      * textures are `deren.vulkan.runtime`'s (`runtime.cpp:148-231`, `163-166`); the top level structure belongs to
      * `deren.vulkan.acceleration_structure` and reaches shaders through the frame's heap.

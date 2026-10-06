@@ -110,8 +110,10 @@ export namespace deren::vulkan::pass {
             .group_size_x = group_size,
             .group_size_y = group_size,
             .group_size_z = 1,
-            .extent = extent_rule::half, // the chain's resolution, like the GI tracer's
-            .extent_of = resource_id::none,
+            .extent = extent_rule::resource, // THE TARGET ANSWERS ITS OWN SIZE (③-D/E A1.7): this pass writes
+                                             // `ml_trace`, so that image's created extent IS its viewport - the
+                                             // half-resolution formula is not repeated here any more
+            .extent_of = resource_id::ml_trace,
             .pipelines = pipeline_names,
             .resync_viewport = false,
         };

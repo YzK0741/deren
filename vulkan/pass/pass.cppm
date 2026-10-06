@@ -1116,9 +1116,12 @@ export namespace deren::vulkan::pass {
      * @brief the extent a behaviour's rule asks for, from the frame and the owner's own images
      * @param how the pass's behaviour
      * @param context the frame and the owner's `extent_of` lookup
-     * @note `half` is `max(1, axis / 2)` - the SAME formula the renderer creates its half-size images with, so a
-     *       pass cannot disagree with the image it writes; `resource` is the owner's answer, because only it
-     *       knows its own images' sizes; `none` means the pass sizes its own work and gets {0,0}
+     * @note `half` is `max(1, axis / 2)` - a fraction of the FRAME, for a pass that wants one. It is NOT how
+     *       the renderer's derived targets are sized any more (③-D/E A1.7): a pass that writes the
+     *       half-resolution trio or a bloom level declares `resource` over ITS OWN TARGET, so the extent it
+     *       renders at is the extent the image was actually created at - one source, not two copies of a
+     *       formula. `resource` is the owner's answer, because only it knows its own images' sizes; `none`
+     *       means the pass sizes its own work and gets {0,0}
      */
     [[nodiscard]] inline VkExtent2D resolve_extent(behaviour const& how, resolve_context const& context) noexcept {
         switch (how.extent) {

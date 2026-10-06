@@ -3403,6 +3403,17 @@ namespace deren::vulkan {
          *         used to live in `pass_extent`, now shared with the framework's resolver */
         [[nodiscard]] VkExtent2D resolve_resource_extent(render_resource::resource_id id, uint32_t element) const noexcept;
         /**
+         * @brief THE CREATED IMAGE ANSWERS ITS OWN EXTENT (③-D/E A1.7)
+         *
+         * The extent a DERIVED target was created at IS the extent its passes have to be resolved with, so the
+         * SECOND copy of the size formula - the one that sat in `resolve_resource_extent` while the creation
+         * site computed the same number - is gone: both the half-resolution trio and the bloom levels answer
+         * from the image the engine actually created. A manager that holds nothing (only before the
+         * generation is created, or after a creation the backend refused) answers the frame's own extent
+         * rather than a second formula.
+         */
+        [[nodiscard]] VkExtent2D render_target_extent(rhi::object_manager<rhi::image> const& image) const noexcept;
+        /**
          * @brief the pipeline a `behaviour::pipelines` name refers to
          *
          * Two places are asked, in this order: this renderer's own registry (the pipelines the APP registered), and

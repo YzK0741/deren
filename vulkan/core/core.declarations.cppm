@@ -128,7 +128,8 @@ namespace deren::vulkan {
     /**
      * @brief format of the HDR scene target the deferred lighting stage renders into and the post-process
      *        pass samples: the scene color target uses it, and each swapchain image owns one
-     *        single-sample resolve target in it (see core::create_render_targets)
+     *        single-sample resolve target in it (the ENGINE creates that target now - see
+     *        runtime::create_render_chain_targets)
      *
      * MOVED INTO `deren.vulkan.render_layout` (③-D/E item A1, A1.0): the ENGINE creates these targets now,
      * so the formats it creates them WITH have to live in a module both halves compile. The names stay
@@ -848,143 +849,18 @@ namespace deren::vulkan {
         std::vector<VkImageView> swap_chain_image_views = {};
 
         VkFormat color_format = VK_FORMAT_UNDEFINED;
-        // HDR scene targets (one per swapchain image, format hdr_format): the lighting stage (or the
-        // TAA resolve, when TAA is on) writes them, and the post-process pass samples them
-        std::vector<VkImage> hdr_images = {};
-        std::vector<VkDeviceMemory> hdr_image_memories = {};
-        std::vector<VkImageView> hdr_image_views = {};
-        // create_render_targets() runs again on every swapchain recreation (it rebuilds the
-        // HDR/LDR/bloom/G-buffer targets); its teardown must be pushed onto the cleanup stack only
-        // once, or the stack grows one identical lambda per resize.
-        bool resolve_cleanup_registered = false;
-        // bloom targets: a 4-level chain (1/2, 1/4, 1/8, 1/16 of the swapchain extent, min 1x1),
-        // one chain per swapchain image; the post pass prefilters into level 0, downsamples
-        // through the levels and composites a weighted sum of all of them
-        // The COUNT MOVED TO THE SHARED MODULE in A1.5 (the engine sizes its own per-level arrays by it now);
-        // the alias plus the assert below are this backend's half of the drift guard A1.0 established.
-        static constexpr uint32_t bloom_level_count = deren::vulkan::render_layout::bloom_level_count;
-        static_assert(bloom_level_count == 4u, "the bloom chain's level count moved");
-        std::array<std::vector<VkImage>, bloom_level_count> bloom_images = {};
-        std::array<std::vector<VkDeviceMemory>, bloom_level_count> bloom_image_memories = {};
-        std::array<std::vector<VkImageView>, bloom_level_count> bloom_image_views = {};
-        // Display-referred (LDR) targets, one per swapchain image: with FXAA enabled the post
-        // composite renders here instead of straight into the swapchain, FXAA reads it back and
-        // writes the swapchain. hdr_format (R16F) even though the values are display range: FXAA
-        // needs a *gamma-encoded* image to run its luma thresholds on, and a 16F target lets the
-        // composite store that encoding itself (an sRGB attachment would decode it again on read,
-        // and 8-bit would band).
-        std::vector<VkImage> ldr_images = {};
-        std::vector<VkDeviceMemory> ldr_image_memories = {};
-        std::vector<VkImageView> ldr_image_views = {};
-
-        // ---- G-buffer targets (see gbuffer_formats): one set per swapchain image, single-sampled,
-        // written by the G-buffer pass and sampled by the deferred lighting / debug view. They are
-        // created and destroyed with the HDR/LDR/bloom targets (create_render_targets +
-        // recreate_swap_chain), so a resize rebuilds them in the same step.
-        std::array<std::vector<VkImage>, gbuffer_target_count> gbuffer_images = {};
-        std::array<std::vector<VkDeviceMemory>, gbuffer_target_count> gbuffer_image_memories = {};
-        std::array<std::vector<VkImageView>, gbuffer_target_count> gbuffer_image_views = {};
-        // The G-buffer pass has its own depth image rather than sharing the main one: a dynamic
-        // rendering instance requires every attachment to have the same sample count, and keeping
-        // them separate lets the G-buffer depth be SAMPLED later while the main one is never read.
-        // Single-sampled, sampled (the lighting pass
-        // reads it), cleared by the G-buffer pass like the main depth.
-        std::vector<VkImage> gbuffer_depth_images = {};
-        std::vector<VkDeviceMemory> gbuffer_depth_image_memories = {};
-        std::vector<VkImageView> gbuffer_depth_image_views = {};
-        // Motion vectors (gbuffer_velocity_format), one per swapchain image: written by the G-buffer
-        // pass, read by the TAA resolve.
-        std::vector<VkImage> velocity_images = {};
-        std::vector<VkDeviceMemory> velocity_image_memories = {};
-        std::vector<VkImageView> velocity_image_views = {};
-
-        // ---- the stochastic punctual lighting chain's images ----
-        // Its raw trace, its accumulation, its history and its spatial filter's output (four half-resolution
-        // families) stood here. They went with the chain. The half-resolution pair below belongs to the
-        // stochastic punctual lighting chain, which is a different feature that happens to share the size.
-        // The stochastic PUNCTUAL LIGHTING chain's first image (see docs/megalights.md): the raw estimate
-        // the trace writes, at half resolution - STORAGE for the compute pass that
-        // writes it and SAMPLED for the lighting stage that adds it. One per swapchain image, because what
-        // it holds depends on the frame's jittered camera.
-        std::vector<VkImage> ml_images = {};
-        std::vector<VkDeviceMemory> ml_image_memories = {};
-        std::vector<VkImageView> ml_image_views = {};
-        // ... and the temporal resolve's two, the same half resolution: the ACCUMULATION it writes (what the
-        // lighting stage samples) and the history that becomes next frame's input - the latter written only by
-        // a copy, so TRANSFER_DST plus SAMPLED and nothing else, exactly like the GI history beside it.
-        std::vector<VkImage> ml_resolve_images = {};
-        std::vector<VkDeviceMemory> ml_resolve_image_memories = {};
-        std::vector<VkImageView> ml_resolve_image_views = {};
-        std::vector<VkImage> ml_history_images = {};
-        std::vector<VkDeviceMemory> ml_history_image_memories = {};
-        std::vector<VkImageView> ml_history_image_views = {};
-        // per-cell surface-offset image stood here, with the sampler that read them. The cache was the traced
-        // chain's answer for the hits the screen cannot resolve; it is gone.
-        // The furnace verification mode's constant environment: one texel per face, all six faces at the
-        // mode's level. One element vectors rather than a scalar handle so the teardown paths that already
-        // know how to destroy a target set can be reused unchanged. Its CONTENTS come from a clear, which
-        // together with the binding that points the IBL at it is the next slice; until then nothing samples
-        // it, which is what keeps this addition invisible.
-        std::vector<VkImage> furnace_cube_images = {};
-        std::vector<VkDeviceMemory> furnace_cube_memories = {};
-        std::vector<VkImageView> furnace_cube_views = {};
-
-        // ---- ray-traced sun visibility (see the shaders/rt_shadow.* pipeline stages) ----
-        // FULL resolution, one per FRAME SLOT rather than per swapchain image: it is written and read
-        // within one frame, and BOTH ends live in the frame's scene block, which is per slot. A
-        // per-image image would have to be paired there with a per-slot top level structure, and
-        // the same image can be recorded on either slot - so the two are different lifetimes and mixing
-        // them would be wrong on exactly the frames where they disagree.
-        std::vector<VkImage> rt_shadow_images = {};
-        std::vector<VkDeviceMemory> rt_shadow_image_memories = {};
-        std::vector<VkImageView> rt_shadow_image_views = {};
-
-        // ---- temporal anti-aliasing (see runtime::set_taa) ----
-        // The scene color TAA resolves FROM, one per swapchain image: when TAA is on, the geometry
-        // and lighting stages write this image instead of the HDR target, and the TAA resolve blends
-        // it with the history into the HDR target - which keeps the whole post chain (bloom,
-        // composite, FXAA) reading exactly what it read before TAA existed.
-        std::vector<VkImage> scene_color_images = {};
-        std::vector<VkDeviceMemory> scene_color_image_memories = {};
-        std::vector<VkImageView> scene_color_image_views = {};
-        // The previous RESOLVED frame, one per swapchain image, read by the TAA resolve as history.
-        // It is a separate image rather than a copy of the HDR target because a pass cannot sample the
-        // image it renders into: the TAA resolve writes the HDR target (for the post chain) and the
-        // runtime copies that into this image afterwards, which is one vkCmdCopyImage per frame - no
-        // ping-pong, no per-frame descriptor rewrites.
-        // TRANSFER_DST | SAMPLED: it is only ever written by the copy and read by the resolve.
-        std::vector<VkImage> taa_history_images = {};
-        std::vector<VkDeviceMemory> taa_history_image_memories = {};
-        std::vector<VkImageView> taa_history_image_views = {};
-        /**
-         * @brief create a single-sampled device-local image with its memory, and return both
-         * @param width / @param height the extent in texels
-         * @param format the image format
-         * @param tiling OPTIMAL or LINEAR (staging images that are mapped on the host)
-         * @param usage the usage flags the image is created with
-         * @param properties the memory type the image is bound to
-         * @note every target the engine creates is single-sampled: the only multisampled images it
-         *       ever had were the forward path's, and that path is gone. The sample count is fixed
-         *       rather than a parameter so there is one less thing a caller can get wrong.
-         */
-
-        /**
-         * @ingroup vulkan_core
-         * @brief create a single-sampled 3D target image (the same allocation path as the 2D one)
-         * @param width / @p height / @p depth the three extents, in texels
-         * @note its own entry point rather than a defaulted fourth parameter on create_target_image:
-         *       the two differ in exactly one field of VkImageCreateInfo (imageType), and a caller that
-         *       reads `create_target_image_3d(w, h, d, ...)` cannot pass a depth of 1 by accident and
-         *       then sample the result as a volume.
-         */
-        /**
-         * @ingroup vulkan_core
-         * @brief create a single-sampled CUBE target: a six-layer 2D array with CUBE_COMPATIBLE set
-         * @param size the edge length of one face, in texels (all six faces are the same size)
-         * @note its own entry point rather than a generalised array helper, for the same reason
-         *       create_target_image_3d has one: a cube is six layers AND the compatibility flag, and a caller
-         *       that got one of those wrong would have an image the sampler refuses.
-         */
+        // ---- THE RENDER CHAIN'S TARGETS ARE THE ENGINE'S (③-D/E A1.1-A1.7) ---------------------------
+        // Every per-image and per-frame-slot target this backend used to create, own and destroy stood
+        // here: the HDR target and the display-referred (LDR) target, the G-buffer cluster (the three
+        // stored surface targets, the pass's own depth image, the motion-vector target and the scene-colour
+        // TAA working image), the TAA history pair, the stochastic punctual lighting trio, the four bloom
+        // levels, the ray-traced visibility pair and the furnace environment cube. The ENGINE creates and
+        // holds all of them now - `runtime::create_render_chain_targets()`, through the contract, releasing
+        // the old set before it creates the new one - which is why the members, the cleanup registration
+        // that destroyed them and the raw `create_target_image*` helpers beside it are gone.
+        // WHAT STAYS IN THIS CLASS IS WHAT THE BACKEND ITSELF OWNS: the swapchain images and their views
+        // (above), the forward path's depth image (below), the samplers, the command buffers, the
+        // allocator and the device.
 
         // called depth_attachment_format, not depth_format: make_depth_pipeline keeps a parameter named
         // depth_format, which would hide the member of that name and MSVC /W4 reports C4458 (an error under /WX).
@@ -1510,53 +1386,6 @@ namespace deren::vulkan {
         void init_device_and_queue() noexcept;
         void init_swap_chain() noexcept;
         void init_image_views() noexcept;
-        void create_render_targets();
-        /**
-         * @brief create a single-sampled device-local image with its memory, and return both
-         * @param width / @param height the extent in texels
-         * @param format the image format
-         * @param tiling OPTIMAL or LINEAR (staging images that are mapped on the host)
-         * @param usage the usage flags the image is created with
-         * @param properties the memory type the image is bound to
-         * @note every target the engine creates is single-sampled: the only multisampled images it
-         *       ever had were the forward path's, and that path is gone. The sample count is fixed
-         *       rather than a parameter so there is one less thing a caller can get wrong.
-         */
-        void create_target_image(
-            uint32_t width,
-            uint32_t height,
-            VkFormat format,
-            VkImageTiling tiling,
-            VkImageUsageFlags usage,
-            VkMemoryPropertyFlags properties,
-            VkImage& image,
-            VkDeviceMemory& image_memory) const noexcept;
-        /**
-         * @ingroup vulkan_core
-         * @brief create a single-sampled CUBE target: a six-layer 2D array with CUBE_COMPATIBLE set
-         * @param size the edge length of one face, in texels (all six faces are the same size)
-         * @note its own entry point rather than a generalised array helper, for the same reason
-         *       create_target_image_3d has one: a cube is six layers AND the compatibility flag, and a caller
-         *       that got one of those wrong would have an image the sampler refuses.
-         */
-        void create_target_image_cube(
-            uint32_t size,
-            VkFormat format,
-            VkImageTiling tiling,
-            VkImageUsageFlags usage,
-            VkMemoryPropertyFlags properties,
-            VkImage& image,
-            VkDeviceMemory& image_memory) const noexcept;
-        void create_target_image_3d(
-            uint32_t width,
-            uint32_t height,
-            uint32_t depth,
-            VkFormat format,
-            VkImageTiling tiling,
-            VkImageUsageFlags usage,
-            VkMemoryPropertyFlags properties,
-            VkImage& image,
-            VkDeviceMemory& image_memory) const noexcept;
         void create_depth_image(VkImage& image, VkDeviceMemory& image_memory, VkImageView& image_view) const noexcept;
         void create_depth_resources() noexcept;
         void create_color_resources();

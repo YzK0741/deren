@@ -143,8 +143,9 @@ namespace deren::vulkan {
     core::core(deren::promise::rhi::create_info const& desc)
         : create_options{sanitize_create_info(desc)} {
         // THE RENDER SCALE BEFORE ANYTHING IS CREATED: `init_swap_chain` below sets `swap_chain_extent`,
-        // which `render_extent()` multiplies, and `create_depth_resources` / `create_render_targets` are
-        // created with the result. Clamped rather than rejected: 1.0 is the historic behaviour and the
+        // which `render_extent()` multiplies, and `create_depth_resources` is created with the result (the
+        // ENGINE's render targets are created with it too, but by the engine, through the contract).
+        // Clamped rather than rejected: 1.0 is the historic behaviour and the
         // value a caller writes by omission, a value above 1.0 would ask the render chain for MORE pixels
         // than are presented (a supersample this renderer's resolve does not implement), and a zero or
         // negative scale is an invalid extent rather than a small frame.
@@ -170,7 +171,9 @@ namespace deren::vulkan {
         init_image_views();
         create_depth_resources();
         color_format = swap_chain_image_format;
-        create_render_targets(); // the scene's render targets: the post-process pass input
+        // (NO create_render_targets() HERE ANY MORE - ③-D/E A1.7: the render chain's targets are created by
+        // the engine through the contract, in runtime::create_render_chain_targets() right after this core
+        // exists. The backend is left with the swapchain and the forward path's depth, which is what it owns.)
         // (no create_command_pool() here: every command buffer owns its own pool now - see
         // core::make_command_buffer / deren::vulkan::vk_command_buffer)
         create_samplers(); // the shared samplers a declaration picks by hint
@@ -976,225 +979,15 @@ namespace deren::vulkan {
         });
     }
 
-    void core::create_render_targets() {
-        // WHAT IS LEFT HERE AFTER A1.5 IS THE FURNACE CUBE AND NOTHING ELSE, which is why the render-extent
-        // local that used to head this function is gone: every group it was computed for - the HDR/LDR pair,
-        // the G-buffer cluster, the stochastic-chain trio and the four bloom levels - is created by the ENGINE
-        // now, at the frame's render extent (or at a size derived from it), through the contract. The furnace
-        // cube is 1x1 and A1.6 hands it over too, at which point this function has nothing left to create.
-        // The frame's resolution itself is unchanged: `render_extent()` still answers it, and the ENGINE reads
-        // it through the same contract-side rule it always did.
-        // ---- THE HDR SCENE TARGET AND THE DISPLAY-REFERRED TARGET ARE THE ENGINE'S NOW (③-D/E A1.3) ----
-        // One HDR target and one LDR (FXAA-input) target per swapchain image used to be created right here,
-        // with their two heap descriptors (`post_color` sampled, `display_color` sampled). Both are created
-        // through the contract by `runtime::create_render_chain_targets()` instead: same render extent, same
-        // `hdr_format` and same usage flags - COLOR_ATTACHMENT | SAMPLED for the display target, plus
-        // TRANSFER_SRC for the HDR one, because the TAA resolve copies the frame it wrote there into the
-        // history image (vkCmdCopyImage needs the source to carry the usage flag) and the screenshot path
-        // reads it back. The members stay declared (empty from here on) until the closing slice A1.7.
-
-        // ---- THE G-BUFFER CLUSTER IS THE ENGINE'S NOW (③-D/E A1.4) -------------------------------------
-        // The three stored surface targets (gbuffer_formats, COLOR_ATTACHMENT | SAMPLED, at the heap arrays
-        // `gbuffer_albedo` / `gbuffer_normal` / `gbuffer_material`), the motion-vector target
-        // (`gbuffer_velocity_format`, at `gbuffer_velocity`) and the TAA working image (the scene colour the
-        // resolve reads, `hdr_format`, at `taa_current` - exactly what that slot is named after) used to be
-        // created right here, and the G-buffer pass's own single-sampled depth image further down.
-        // `runtime::create_render_chain_targets()` creates all of them through the contract instead: same
-        // render extent, same formats, same two usage flags per group, and the depth through the contract's
-        // `depth` ROLE (which resolves to the same device format this backend would have chosen). The members
-        // stay declared (empty from here on) until the closing slice A1.7.
-
-        // ---- THE TAA HISTORY IMAGES ARE THE ENGINE'S NOW (③-D/E A1.1) --------------------------------
-        // The resolved-history pair (one image + one view per swapchain image, hdr_format, TRANSFER_DST |
-        // SAMPLED) and the heap write at `heap_slots::taa_history` used to be created right here. They are
-        // created through the contract by `runtime::create_render_chain_targets()` instead: the engine owns
-        // what it renders into, which is the whole direction of A1 - a resource the renderer drives must not
-        // be born inside the module the renderer loads by name. The members below stay declared (empty from
-        // here on) until the closing slice of A1 deletes them; the creation order of the remaining groups is
-        // unchanged, and the `reserve()` offsets the grid needed were applied before any of this ran.
-
-        // ---- THE STOCHASTIC PUNCTUAL LIGHTING CHAIN IS THE ENGINE'S NOW (③-D/E A1.5) ------------------
-        // The half-resolution trio - the raw estimate (`ml_trace`), the temporal accumulation
-        // (`ml_resolved`, STORAGE + SAMPLED + TRANSFER_SRC because the next frame's history is copied FROM
-        // it) and that history (`ml_history`, written only by that copy) - plus the four-level bloom chain
-        // used to be created right here, with their heap descriptors. `runtime::create_render_chain_targets()`
-        // creates them through the contract instead: same half extent for the three (`max(1, render/2)`), the
-        // same hdr_format, the same flags per group, and for the two images a compute pass writes BOTH the
-        // SAMPLED and the STORAGE descriptor (one heap descriptor is never both). The members stay declared
-        // (empty from here on) until the closing slice A1.7.
-
-        // The GI denoiser's resolve target, its history and the spatial filter's output were created here: three
-
-        // ---- THE FURNACE MODE'S CONSTANT ENVIRONMENT IS THE ENGINE'S NOW (③-D/E A1.6) -----------------
-        // The 1x1x6 cube (hdr_format, SAMPLED | TRANSFER_DST because a clear gives it contents and the IBL
-        // bindings point at it, VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT with six layers) used to be created right
-        // here. `runtime::create_render_chain_targets()` creates it through the contract instead, where
-        // `cube_compatible` + six layers is all the contract has to say for the backend to derive a CUBE view
-        // from the range - the same derivation the heap path uses, so this group adds no vocabulary. The
-        // members stay declared (empty from here on) until the closing slice A1.7.
-        // NOTHING IS LEFT IN THIS FUNCTION AFTER A1.6: every render target it was written for belongs to the
-        // engine now, and A1.7 deletes the function, its call sites and the raw image helpers beside it.
-
-        // ---- THE RAY-TRACED VISIBILITY PAIR IS THE ENGINE'S NOW (③-D/E A1.2) -------------------------
-        // One R16F image + view per FRAME SLOT (the rays are traced once per frame, not once per swapchain
-        // image), STORAGE | SAMPLED, plus the TWO heap descriptors the pass and the lighting stage read
-        // (`rt_visibility` sampled, `rt_visibility_storage` written by the compute pass) used to be created
-        // right here. `runtime::create_render_chain_targets()` creates them through the contract instead -
-        // same extent, same format, same two flags - and writes both descriptors. The members stay declared
-        // (empty from here on) until the closing slice of A1 deletes them.
-
-        // (the G-buffer pass's own depth image is the engine's too from A1.4 - see the cluster note above:
-        // `depth` ROLE, DEPTH_STENCIL_ATTACHMENT | SAMPLED, at the heap array `gbuffer_depth`)
-
-        // (the four bloom levels are the engine's too from A1.5 - see the stochastic-chain note above: one
-        // target per level per swapchain image, `max(1, render >> (level + 1))`, COLOR_ATTACHMENT | SAMPLED,
-        // at `bloom_l0 + level * heap_image_capacity`)
-
-        // ---- AND THE CLEANUP REGISTRATION IS GONE WITH THE LAST TARGET IT DESTROYED (③-D/E A1.6) --------
-        // The `register_cleanup` below used to destroy whatever the target vectors held; every group it
-        // named is the engine's now (A1.1-A1.6), and the engine's release is what destroys a generation -
-        // `runtime::create_render_chain_targets()` releases the old set before creating the new one. The
-        // `resolve_cleanup_registered` flag stays declared for A1.7, which deletes this function whole.
-    }
-
-    void core::create_target_image(
-        uint32_t width,
-        uint32_t height,
-        VkFormat format,
-        VkImageTiling tiling,
-        VkImageUsageFlags usage,
-        VkMemoryPropertyFlags properties,
-        VkImage& image,
-        VkDeviceMemory& image_memory) const noexcept {
-        VkImageCreateInfo image_info = {};
-        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        image_info.imageType = VK_IMAGE_TYPE_2D;
-        image_info.extent.width = width;
-        image_info.extent.height = height;
-        image_info.extent.depth = 1;
-        image_info.mipLevels = 1;
-        image_info.arrayLayers = 1;
-        image_info.format = format;
-        image_info.tiling = tiling;
-        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        image_info.usage = usage;
-        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
-            deren::utility::panic("can't create target image");
-        }
-
-        VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(logical_device, image, &mem_requirements);
-
-        VkMemoryAllocateInfo alloc_info = {};
-        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        alloc_info.allocationSize = mem_requirements.size;
-        alloc_info.memoryTypeIndex = find_memory_type(
-            mem_requirements.memoryTypeBits,
-            properties,
-            physical_device);
-
-        if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
-            deren::utility::panic("can't allocate target image memory");
-        }
-
-        vkBindImageMemory(logical_device, image, image_memory, 0);
-    }
-
-    void core::create_target_image_3d(
-        uint32_t width,
-        uint32_t height,
-        uint32_t depth,
-        VkFormat format,
-        VkImageTiling tiling,
-        VkImageUsageFlags usage,
-        VkMemoryPropertyFlags properties,
-        VkImage& image,
-        VkDeviceMemory& image_memory) const noexcept {
-        VkImageCreateInfo image_info = {};
-        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        image_info.imageType = VK_IMAGE_TYPE_3D; // the only field that differs from the 2D path
-        image_info.extent.width = width;
-        image_info.extent.height = height;
-        image_info.extent.depth = depth;
-        image_info.mipLevels = 1;
-        image_info.arrayLayers = 1;
-        image_info.format = format;
-        image_info.tiling = tiling;
-        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        image_info.usage = usage;
-        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
-            deren::utility::panic("can't create 3D target image");
-        }
-
-        VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(logical_device, image, &mem_requirements);
-
-        VkMemoryAllocateInfo alloc_info = {};
-        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        alloc_info.allocationSize = mem_requirements.size;
-        alloc_info.memoryTypeIndex = find_memory_type(
-            mem_requirements.memoryTypeBits,
-            properties,
-            physical_device);
-
-        if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
-            deren::utility::panic("can't allocate 3D target image memory");
-        }
-
-        vkBindImageMemory(logical_device, image, image_memory, 0);
-    }
-
-    void core::create_target_image_cube(
-        uint32_t size,
-        VkFormat format,
-        VkImageTiling tiling,
-        VkImageUsageFlags usage,
-        VkMemoryPropertyFlags properties,
-        VkImage& image,
-        VkDeviceMemory& image_memory) const noexcept {
-        VkImageCreateInfo image_info = {};
-        image_info.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
-        image_info.flags = VK_IMAGE_CREATE_CUBE_COMPATIBLE_BIT; // what makes a six-layer array a cube
-        image_info.imageType = VK_IMAGE_TYPE_2D;
-        image_info.extent.width = size;
-        image_info.extent.height = size;
-        image_info.extent.depth = 1;
-        image_info.mipLevels = 1;
-        image_info.arrayLayers = 6;
-        image_info.format = format;
-        image_info.tiling = tiling;
-        image_info.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        image_info.usage = usage;
-        image_info.samples = VK_SAMPLE_COUNT_1_BIT;
-        image_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-
-        if (vkCreateImage(logical_device, &image_info, nullptr, &image) != VK_SUCCESS) {
-            deren::utility::panic("can't create cube target image");
-        }
-
-        VkMemoryRequirements mem_requirements;
-        vkGetImageMemoryRequirements(logical_device, image, &mem_requirements);
-
-        VkMemoryAllocateInfo alloc_info = {};
-        alloc_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
-        alloc_info.allocationSize = mem_requirements.size;
-        alloc_info.memoryTypeIndex = find_memory_type(
-            mem_requirements.memoryTypeBits,
-            properties,
-            physical_device);
-
-        if (vkAllocateMemory(logical_device, &alloc_info, nullptr, &image_memory) != VK_SUCCESS) {
-            deren::utility::panic("can't allocate cube target image memory");
-        }
-
-        vkBindImageMemory(logical_device, image, image_memory, 0);
-    }
+    // ---- THE RENDER TARGETS THE BACKEND NO LONGER CREATES (③-D/E A1.7) ---------------------------------
+    // `create_render_targets()` and the three raw target-image helpers that stood here
+    // (`create_target_image`, `create_target_image_3d`, `create_target_image_cube`) are gone: every target
+    // they allocated is created by the ENGINE now, through the contract, at the frame's render extent or at
+    // a size derived from it (`runtime::create_render_chain_targets`, released and rebuilt per generation).
+    // They went with the LAST caller - the furnace environment cube in A1.6 - and no caller was left for any
+    // of them, which is the same 'dead code is deleted, not left' rule the earlier boundary batches followed.
+    // The backend's own depth path (`create_depth_image` / `create_depth_resources`) is NOT one of them: the
+    // forward path's depth image is the backend's own and still created here.
 
     void core::create_sync_objects() {
         // Per frame slot: one BINARY image-available semaphore (vkAcquireNextImageKHR requires

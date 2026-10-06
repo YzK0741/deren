@@ -1136,8 +1136,9 @@ namespace deren::vulkan {
         //
         // THE RENDER EXTENT, and this is complete rather than approximate: the pipelines that read these
         // stored values are the ones that declared `resync_viewport = false` (the scene, transparent,
-        // character, shadow and cluster stages), and every one of them draws into a target that
-        // `create_render_targets` created at the render extent. A pass that DID declare the resync - the
+        // character, shadow and cluster stages), and every one of them draws into a target the ENGINE
+        // created at the render extent (`create_render_chain_targets`, ③-D/E A1). A pass that DID declare
+        // the resync - the
         // deferred lighting, TAA, the post composite, FXAA and anything that resolves to the output - gets
         // its viewport from its own declaration's extent at record time, so a render scale below 1.0 cannot
         // leave a scene pipeline and a fullscreen pipeline disagreeing about how big a pixel is.
@@ -2638,18 +2639,38 @@ namespace deren::vulkan {
     // `extent_of` callback below), so the bridge had no callers left - the rule is in ONE place, which is what the
     // function's own comment argued for while it was the second copy.
 
+    VkExtent2D runtime::render_target_extent(rhi::object_manager<rhi::image> const& image) const noexcept {
+        // THE CREATED IMAGE IS THE ANSWER (③-D/E A1.7, see the declaration): no size arithmetic lives here,
+        // because the arithmetic already happened ONCE - when `create_render_chain_targets()` created this
+        // image at the frame's render extent or at a size derived from it. An empty manager answers the
+        // frame's own extent: that state only exists before the generation is created (or after a creation
+        // the backend refused), and answering the frame's extent there is honest rather than a second formula.
+        if (!static_cast<bool>(image)) {
+            return this->render_extent();
+        }
+        rhi::image_extent const extent = image->extent();
+        return VkExtent2D{extent.width, extent.height};
+    }
+
     VkExtent2D runtime::resolve_resource_extent(render_resource::resource_id const id, uint32_t const element) const noexcept {
         switch (id) {
+        case pass::resource_id::ml_trace:
+            // THE HALF-RESOLUTION CHAIN ANSWERS FROM ITS OWN IMAGES (③-D/E A1.7): the three ml images are
+            // created at the same extent, so the first one is the whole answer - and the formula that used to
+            // be repeated here (and, before A1.5, in the backend's creation loop) is gone.
+            return this->render_target_extent(this->ml_images[0]);
+        case pass::resource_id::ml_resolve:
+            return this->render_target_extent(this->ml_resolve_images[0]);
+        case pass::resource_id::ml_history:
+            return this->render_target_extent(this->ml_history_images[0]);
         case pass::resource_id::bloom: {
-            // A bloom level is HALF the previous one - max(1, render >> (level + 1)) - which is the SAME
-            // formula `core::create_render_targets` created the images with, over the same base: the RENDER
-            // extent, so the bloom chain follows a render scale down with the rest of the chain instead of
-            // staying output-sized and sampling a target that no longer exists at that size. The clamp is
-            // belt-and-braces rather than the contract: the schema's `count` (4) plus the validator's element
-            // check is what limits the level, and a shift of 32 or more would be undefined behaviour if one
-            // ever got through.
-            uint32_t const shift = std::min<uint32_t>(element + 1u, 31u);
-            return VkExtent2D{std::max(1u, this->render_extent().width >> shift), std::max(1u, this->render_extent().height >> shift)};
+            // A bloom level is HALF the previous one, created at `max(1, render >> (level + 1))` - and this
+            // answers the level's OWN created image rather than computing that formula a second time. The
+            // clamp is belt-and-braces rather than the contract: the schema's `count` (4) plus the validator's
+            // element check is what limits the level, so the element is in range in every path that reaches
+            // here; clamping it keeps an out-of-range answer an extent rather than an out-of-range read.
+            std::size_t const level = std::min<std::size_t>(element, this->bloom_images.size() - 1u);
+            return this->render_target_extent(this->bloom_images[level][0]);
         }
         case pass::resource_id::swapchain_image:
             // THE ONE RESOURCE WHOSE EXTENT IS NOT THE FRAME'S. Every other entry here answers a size that is
