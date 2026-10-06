@@ -13,21 +13,32 @@ export import deren.vstd;
 namespace deren::vulkan {
     /**
      * @ingroup vulkan_handles
-     * @brief raii wrapper VkCommandBuffer
+     * @brief raii wrapper of VkCommandBuffer - and of the VkCommandPool it was allocated from
      * @note
      *     - use operator* or get() to get naked handle
-     *     - sole ownership
+     *     - SOLE OWNERSHIP, OF BOTH: the wrapper owns the command buffer and, on the one path that
+     *       creates it (make_command_buffer below), THE POOL TOO. release() destroys the pool, which
+     *       frees its buffers with it - so a command buffer is ONE self-contained device resource and
+     *       the caller has no second object to keep alive. A pool per command buffer is the canonical
+     *       Vulkan shape for per-slot / per-thread recording, because a VkCommandPool is not thread
+     *       safe and every recording thread must own its own.
+     *     - THE POOL CARRIES VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT (constant_init's
+     *       make_command_pool_info), which is what lets vkBeginCommandBuffer implicitly reset a buffer
+     *       that has already been recorded - the frame loop re-records the same primary every frame.
+     *     - the pool is reachable only through this wrapper: nothing outside owns or destroys it
      */
     export class vk_command_buffer {
         VkCommandBuffer command_buffer = VK_NULL_HANDLE;
         VkDevice device = VK_NULL_HANDLE;
         VkCommandPool command_pool = VK_NULL_HANDLE;
+        /// whether THIS wrapper created command_pool and must destroy it (see make_command_buffer)
+        bool owns_pool = false;
 
     public:
         [[nodiscard]] VkCommandBuffer const& get() const noexcept;
         [[nodiscard]] VkCommandBuffer const& operator*() const noexcept;
         void release() noexcept;
-        explicit vk_command_buffer(VkCommandBuffer command_buffer, VkDevice device, VkCommandPool pool) noexcept;
+        explicit vk_command_buffer(VkCommandBuffer command_buffer, VkDevice device, VkCommandPool pool, bool owns_pool) noexcept;
         ~vk_command_buffer() noexcept;
 
         explicit vk_command_buffer(vk_command_buffer& command_buffer) = delete;
@@ -39,19 +50,12 @@ namespace deren::vulkan {
     /**
      * @ingroup vulkan_handles
      * @param device valid VkDevice
-     * @param command_pool valid VkCommandPool
-     * @return raii VkCommandBuffer wrapper
+     * @param queue_family the queue family the buffer's own command pool belongs to
+     * @param level VK_COMMAND_BUFFER_LEVEL_PRIMARY or _SECONDARY
+     * @return raii VkCommandBuffer wrapper that OWNS its command pool: it creates the pool, allocates
+     *         the buffer from it, and `release()`/destruction destroys the pool (freeing the buffer)
      */
-    export vk_command_buffer make_command_buffer(VkDevice device, VkCommandPool command_pool) noexcept;
-
-    /**
-     * @ingroup vulkan_handles
-     * @param device valid VkDevice
-     * @param command_pool valid VkCommandPool
-     * @return raii secondary VkCommandBuffer wrapper (level SECONDARY; recorded inside a render
-     *         pass / dynamic rendering instance and executed there via vkCmdExecuteCommands)
-     */
-    export vk_command_buffer make_secondary_command_buffer(VkDevice device, VkCommandPool command_pool) noexcept;
+    export vk_command_buffer make_command_buffer(VkDevice device, uint32_t queue_family, VkCommandBufferLevel level) noexcept;
 
     /**
      * @ingroup vulkan_handles

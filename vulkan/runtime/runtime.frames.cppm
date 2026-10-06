@@ -2051,8 +2051,10 @@ namespace deren::vulkan {
         auto const& segments = this->main_segments[static_cast<std::size_t>(frame_slot)];
         this->scene_segment_view.clear();
         this->scene_segment_view.reserve(segments.size());
-        for (auto const& [pool, buffer] : segments) {
-            this->scene_segment_view.push_back(pass::segment_buffer{.pool = pool, .buffer = *buffer});
+        for (auto const& buffer : segments) {
+            // NO POOL TRAVELS WITH THE BUFFER ANY MORE (the wrapper owns it), and the pass never read
+            // one: `segment_buffer` used to carry a VkCommandPool field that no pass touched.
+            this->scene_segment_view.push_back(pass::segment_buffer{.buffer = *buffer});
         }
         // the secondaries inherit the instance's attachments: the three surface targets in order, the velocity
         // target, and the scene colour - the same order the pass's declaration lists them in
@@ -2357,13 +2359,14 @@ namespace deren::vulkan {
     // imports the modules of the passes whose frames it stopped naming.
 
     pass::shadow_frame runtime::make_shadow_frame() noexcept {
-        // The per-cascade secondaries live in per-slot pairs (a command pool is not thread safe), so they are NOT
-        // contiguous: they are gathered into the scratch array the returned span points at, and that array is a
+        // The per-cascade secondaries live in per-slot vectors (each buffer owns its own command pool,
+        // because a pool is not thread safe), so they are NOT contiguous with the frame's other buffers:
+        // they are gathered into the scratch array the returned span points at, and that array is a
         // member because a span over a local would dangle the moment this function returned.
         uint32_t const slot = this->frame_ring().position();
         uint32_t const cascades = std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades);
         for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
-            this->shadow_secondaries_scratch[cascade] = *this->shadow_recording[slot][cascade].second;
+            this->shadow_secondaries_scratch[cascade] = *this->shadow_recording[slot][cascade];
         }
         return pass::shadow_frame{.record_cascade = &runtime::record_shadow_cascade,
                                   .run_tasks = &runtime::run_shadow_tasks,

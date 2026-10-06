@@ -119,8 +119,10 @@ namespace deren::vulkan {
             return std::unexpected(std::string("readback: staging buffer unavailable"));
         }
 
-        // one command buffer per call: the core's pool hands them out and this wrapper frees the
-        // buffer back to it on destruction, so nothing accumulates across calls
+        // one command buffer per call, and it OWNS ITS OWN POOL (handles/handles.cppm): the wrapper
+        // destroys the pool - freeing the buffer with it - on destruction, so nothing accumulates
+        // across calls. (The fence wait below is what makes that destruction legal: the pool must not
+        // go away while its buffer is pending.)
         vk_command_buffer const commands = vk.make_command_buffer();
         VkCommandBufferBeginInfo const begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
                                                      .pNext = nullptr,

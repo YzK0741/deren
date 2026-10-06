@@ -118,16 +118,6 @@ namespace deren::vulkan::init_utils {
 
     /**
      * @ingroup vulkan_init_utils_runtime
-     * @brief a command pool that owns one SECONDARY command buffer, for recording on a worker thread
-     * @param device the core to create both from
-     * @return the {pool, buffer} pair the runtime's per-cascade and per-worker recording vectors store
-     * @note one pool PER consumer, never a shared one: a VkCommandPool is not thread safe and these
-     *       buffers are filled concurrently (see the recording stages' notes in deren.vulkan.runtime)
-     */
-    export [[nodiscard]] std::pair<VkCommandPool, vk_command_buffer> create_recording_pool(core& device);
-
-    /**
-     * @ingroup vulkan_init_utils_runtime
      * @brief an uploaded 2D texture together with the view that samples it
      */
     export struct texture_2d {

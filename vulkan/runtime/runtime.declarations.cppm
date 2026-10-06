@@ -1170,12 +1170,12 @@ namespace deren::vulkan {
         // called cluster_pass, not cluster_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> cluster_pass = {};
-        // Per-cascade shadow recording pairs (one {pool, buffer} per cascade per frame slot). The
-        // cascade tasks run CONCURRENTLY on the task pool, and a VkCommandPool is not thread safe, so
-        // they may not share one - the same rule the main-pass workers already follow. The shared
-        // secondary_command_buffers pool stays for the slot-scoped passes (gui, transparent) that the
-        // primary thread records alone.
-        std::vector<std::vector<std::pair<VkCommandPool, vk_command_buffer>>> shadow_recording = {};
+        // Per-cascade shadow recording buffers (one per cascade per frame slot), each owning its own
+        // command pool. The cascade tasks run CONCURRENTLY on the task pool, and a VkCommandPool is not
+        // thread safe, so they may not share one - the same rule the main-pass workers already follow,
+        // and now the same mechanism (the wrapper owns the pool). secondary_command_buffers holds the
+        // slot-scoped secondaries the primary thread records alone (transparent).
+        std::vector<std::vector<vk_command_buffer>> shadow_recording = {};
         // Reused task scratch: the frame builds its task batches into these vectors every frame, so
         // they are members with clear() (capacity kept) instead of a fresh heap allocation per frame
         // (M9 overhead trim: a per-frame allocation plus one std::function per task is a few
@@ -1328,8 +1328,8 @@ namespace deren::vulkan {
         //     primary executes - they share the primary's lifetime (reused after the slot's
         //     timeline wait, no per-frame allocation, no pool lock).
         // The slot-scoped secondary the primary thread records alone (the alpha-blended pass), plus
-        // the per-cascade shadow pairs and the main-pass segments that live elsewhere:
-        //  - shadow: one {pool, buffer} PER CASCADE PER SLOT (see shadow_recording), because the
+        // the per-cascade shadow buffers and the main-pass segments that live elsewhere:
+        //  - shadow: one self-owned buffer PER CASCADE PER SLOT (see shadow_recording), because the
         //    cascades record concurrently on the task pool and a VkCommandPool is not thread safe;
         //  - main: SEGMENT secondaries per frame slot (stage 3), one per task-pool worker, in
         //    main_segments.
@@ -1340,15 +1340,13 @@ namespace deren::vulkan {
         enum class secondary_pass : std::size_t { transparent = 0,
                                                   count = 1 }; // fixed non-segment slots
         std::vector<std::array<vk_command_buffer, static_cast<std::size_t>(secondary_pass::count)>> secondary_command_buffers;
-        // per-slot main-pass parallel segments (stage 3): one {command pool, secondary buffer}
-        // PAIR per task-pool worker, in the same style as the vma allocator's command_cache -
-        // a VkCommandPool is not thread safe, so every parallel recording thread owns its own
-        // pool and the buffer allocated from it, kept together so they can never drift apart.
-        // The pair's pool is registered on the core (destroyed by its cleanup AFTER this
-        // runtime's RAII vk_command_buffer members free their buffers into those pools). One
-        // inner vector per frame slot (the GPU reads the secondaries while the slot's primary
-        // executes, so they share the primary's lifetime), index = segment.
-        std::vector<std::vector<std::pair<VkCommandPool, vk_command_buffer>>> main_segments;
+        // per-slot main-pass parallel segments (stage 3): one secondary buffer per task-pool worker.
+        // EVERY ONE OWNS ITS OWN COMMAND POOL (handles/handles.cppm) - a VkCommandPool is not thread
+        // safe, so a pool per recording thread was already required, and the wrapper now supplies it
+        // instead of the engine carrying a {pool, buffer} pair around. One inner vector per frame slot
+        // (the GPU reads the secondaries while the slot's primary executes, so they share the primary's
+        // lifetime), index = segment.
+        std::vector<std::vector<vk_command_buffer>> main_segments;
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its own work between the same steps)
         uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()

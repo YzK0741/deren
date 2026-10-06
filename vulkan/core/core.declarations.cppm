@@ -926,7 +926,10 @@ namespace deren::vulkan {
         std::vector<VkDeviceMemory> depth_image_memories = {};
         std::vector<VkImageView> depth_image_views = {};
 
-        VkCommandPool command_pool = {};
+        // NOTE: there is deliberately no `command_pool` member beside the frame command buffers below.
+        // Each `vk_command_buffer` OWNS ITS OWN pool (handles/handles.cppm): the shared pool was the
+        // last reason a caller had to keep a second object alive next to a command buffer, and it was
+        // also the one pool every recording thread shared - which a VkCommandPool does not permit.
 
         /** @brief create the shared samplers above: device-level, reference-counted by nobody, destroyed with core */
 
@@ -1338,21 +1341,14 @@ namespace deren::vulkan {
         explicit core(deren::promise::rhi::create_info const& options);
         ~core();
 
+        /// @brief allocate a PRIMARY command buffer THAT OWNS ITS OWN COMMAND POOL
+        /// @note one pool per buffer is what makes the wrapper self-contained (see
+        ///       deren::vulkan::vk_command_buffer): no shared pool exists any more, which is also what
+        ///       a recording thread needs - a VkCommandPool is not thread safe.
         vk_command_buffer make_command_buffer() const;
-        /** @brief allocate a SECONDARY command buffer (recorded inside a dynamic rendering
-         *         instance, executed there via vkCmdExecuteCommands) */
+        /** @brief allocate a SECONDARY command buffer that owns its own command pool
+         *         (recorded inside a dynamic rendering instance, executed there via vkCmdExecuteCommands) */
         vk_command_buffer make_secondary_command_buffer() const;
-        /** @brief like make_secondary_command_buffer() but allocated from @p pool (a per-thread
-         *         pool from make_command_pool(); the RAII wrapper frees into that same pool) */
-        vk_command_buffer make_secondary_command_buffer(VkCommandPool pool) const;
-        /**
-         * @brief create an extra graphics command pool (RESET flag set, graphics queue family)
-         *        whose lifetime is tied to this core (destroyed by the registered cleanup).
-         *        Parallel recording needs one pool PER RECORDING THREAD - a single pool's
-         *        command buffers must not be begun concurrently on different threads.
-         * @note not const: registers the pool's destruction on this core (like create_command_pool)
-         */
-        VkCommandPool make_command_pool();
 
         std::optional<vk_shader_module> make_shader_module(std::span<uint8_t> shader) const noexcept;
 
@@ -1671,7 +1667,6 @@ namespace deren::vulkan {
         void create_depth_image(VkImage& image, VkDeviceMemory& image_memory, VkImageView& image_view) const noexcept;
         void create_depth_resources() noexcept;
         void create_color_resources();
-        void create_command_pool() noexcept;
         void create_samplers();
         void create_sync_objects();
         void create_timestamp_query_pool() noexcept;

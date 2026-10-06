@@ -53,9 +53,11 @@ import deren.vulkan.render_environment; // the per-segment draw state the render
 
 export namespace deren::vulkan::pass {
 
-    /// @brief one per-slot secondary command buffer and the pool it came from (a worker never shares its pool)
+    /// @brief one per-slot secondary command buffer for a recording segment
+    /// @note the command POOL does not travel with it: the backend's `vk_command_buffer` owns its own
+    ///       pool now (one per buffer, which is what keeps concurrent recording threads off a shared
+    ///       pool), and no pass ever read the pool this struct used to carry.
     struct segment_buffer {
-        VkCommandPool pool = VK_NULL_HANDLE;
         VkCommandBuffer buffer = VK_NULL_HANDLE;
     };
 

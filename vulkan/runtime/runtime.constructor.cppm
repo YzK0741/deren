@@ -991,13 +991,12 @@ namespace deren::vulkan {
         // what lets the contract's begin_commands() hand out the frame's list (see
         // core.declarations.cppm's frame_command_buffers).
         this->command_buffers = this->vulkan_core.frame_command_buffers;
-        // One shadow-pass + one gui-overlay secondary command buffer per frame slot (stage 2/3
-        // of parallel recording): pre-allocated with the primaries so the GPU can read them
-        // while this slot's primary executes. Stage 3 additionally gives the main pass one
-        // parallel segment per task-pool worker, each as a {pool, secondary} PAIR (vma-style):
-        // a VkCommandPool is not thread safe, so the workers must never begin buffers of a
-        // shared pool concurrently - every worker owns its own pool + its buffer (recorded in
-        // parallel; see sub_render_task).
+        // One shadow-pass secondary command buffer per frame slot (stage 2/3 of parallel recording):
+        // pre-allocated with the primaries so the GPU can read them while this slot's primary
+        // executes. Stage 3 additionally gives the main pass one parallel segment per task-pool worker.
+        // EVERY ONE OF THEM OWNS ITS OWN COMMAND POOL (handles/handles.cppm): a VkCommandPool is not
+        // thread safe, so the workers must never begin buffers of a shared pool concurrently - and the
+        // wrapper is what carries that pool now, instead of the engine storing a {pool, buffer} pair.
         this->secondary_command_buffers.reserve(this->frame_ring().slot_count());
         this->main_segments.reserve(this->frame_ring().slot_count());
         uint32_t const record_workers = static_cast<uint32_t>(std::max(1, this->task_pool_threads()));
@@ -1009,18 +1008,18 @@ namespace deren::vulkan {
             };
             this->secondary_command_buffers.push_back(std::move(pair));
 
-            // Shadow cascades record on the task pool, so each cascade gets its OWN {pool, buffer}: a
-            // VkCommandPool is not thread safe and concurrent recording must not share one (M9).
-            std::vector<std::pair<VkCommandPool, vk_command_buffer>> cascade_recording;
+            // Shadow cascades record on the task pool, so each cascade gets its OWN buffer - and its
+            // own pool with it (M9).
+            std::vector<vk_command_buffer> cascade_recording;
             cascade_recording.reserve(deren::vulkan::max_shadow_cascades);
             for (uint32_t cascade = 0; cascade < deren::vulkan::max_shadow_cascades; ++cascade) {
-                cascade_recording.push_back(init_utils::create_recording_pool(this->vulkan_core));
+                cascade_recording.push_back(this->vulkan_core.make_secondary_command_buffer());
             }
             this->shadow_recording.push_back(std::move(cascade_recording));
-            std::vector<std::pair<VkCommandPool, vk_command_buffer>> segments;
+            std::vector<vk_command_buffer> segments;
             segments.reserve(record_workers);
             for (uint32_t s = 0; s < record_workers; ++s) {
-                segments.push_back(init_utils::create_recording_pool(this->vulkan_core)); // one per worker
+                segments.push_back(this->vulkan_core.make_secondary_command_buffer()); // one per worker
             }
             this->main_segments.push_back(std::move(segments));
         }

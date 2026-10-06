@@ -171,7 +171,8 @@ namespace deren::vulkan {
         create_depth_resources();
         color_format = swap_chain_image_format;
         create_render_targets(); // the scene's render targets: the post-process pass input
-        create_command_pool();
+        // (no create_command_pool() here: every command buffer owns its own pool now - see
+        // core::make_command_buffer / deren::vulkan::vk_command_buffer)
         create_samplers(); // the shared samplers a declaration picks by hint
         create_sync_objects();
         create_timestamp_query_pool(); // GPU pass timings (a no-op on devices that cannot timestamp)
@@ -293,6 +294,10 @@ namespace deren::vulkan {
         this->address_view.owner = this;
         this->frame_command_buffers.reserve(static_cast<std::size_t>(MAX_FRAMES_IN_FLIGHT));
         for (int32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
+            // EACH ONE BRINGS ITS OWN POOL: make_command_buffer() creates a pool per buffer (see
+            // deren::vulkan::vk_command_buffer), so the per-slot primaries share no command pool - and
+            // the cleanup below, which empties this vector while the device is idle, destroys those
+            // pools too.
             this->frame_command_buffers.push_back(this->make_command_buffer());
         }
         // THE VIEWS THAT OWN DEVICE MEMORY HAVE TO BE EMPTIED BEFORE THE DEVICE GOES AWAY, and that is
@@ -1462,20 +1467,6 @@ namespace deren::vulkan {
             bloom_image_views = {};
             bloom_image_memories = {};
             bloom_images = {};
-        });
-    }
-
-    void core::create_command_pool() noexcept {
-        VkCommandPoolCreateInfo const pool_info = make_command_pool_info(graphics_queue_family_index);
-
-        if (vkCreateCommandPool(logical_device, &pool_info, nullptr, &command_pool) != VK_SUCCESS) {
-            deren::utility::panic("failed to create command pool");
-        }
-
-        register_cleanup([this] {
-            if (command_pool != VK_NULL_HANDLE) {
-                vkDestroyCommandPool(logical_device, command_pool, nullptr);
-            }
         });
     }
 

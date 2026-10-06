@@ -126,32 +126,14 @@ namespace deren::vulkan {
     }
 
     vk_command_buffer core::make_command_buffer() const {
-        return ::deren::vulkan::make_command_buffer(this->logical_device, this->command_pool);
+        // EACH BUFFER OWNS ITS OWN POOL (handles/handles.cppm): the wrapper creates the pool, allocates
+        // the buffer from it and destroys the pool on release - there is no shared pool member left for
+        // a caller to keep alive, and no pool shared between recording threads.
+        return ::deren::vulkan::make_command_buffer(this->logical_device, this->graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_PRIMARY);
     }
 
     vk_command_buffer core::make_secondary_command_buffer() const {
-        return ::deren::vulkan::make_secondary_command_buffer(this->logical_device, this->command_pool);
-    }
-
-    vk_command_buffer core::make_secondary_command_buffer(VkCommandPool const pool) const {
-        return ::deren::vulkan::make_secondary_command_buffer(this->logical_device, pool);
-    }
-
-    VkCommandPool core::make_command_pool() {
-        VkCommandPoolCreateInfo pool_info = make_command_pool_info(this->graphics_queue_family_index);
-
-        VkCommandPool pool = VK_NULL_HANDLE;
-        if (vkCreateCommandPool(this->logical_device, &pool_info, nullptr, &pool) != VK_SUCCESS) {
-            deren::utility::panic("failed to create extra command pool");
-        }
-        // lifetime tied to this core: the pool is destroyed by the registered cleanup (LIFO,
-        // after every command buffer allocated from it was freed by its RAII owner)
-        this->register_cleanup([this, pool] {
-            if (pool != VK_NULL_HANDLE) {
-                vkDestroyCommandPool(this->logical_device, pool, nullptr);
-            }
-        });
-        return pool;
+        return ::deren::vulkan::make_command_buffer(this->logical_device, this->graphics_queue_family_index, VK_COMMAND_BUFFER_LEVEL_SECONDARY);
     }
 
     vk_image_view core::make_image_view(VkImage const image, VkFormat const format, VkImageViewType const type) const {

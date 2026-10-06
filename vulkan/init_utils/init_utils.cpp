@@ -61,11 +61,6 @@ namespace deren::vulkan::init_utils {
         }
     }
 
-    std::pair<VkCommandPool, vk_command_buffer> create_recording_pool(core& device) {
-        VkCommandPool const pool = device.make_command_pool();
-        return {pool, device.make_secondary_command_buffer(pool)};
-    }
-
     texture_2d create_texture_2d(core& device,
                                  std::span<std::byte const> const pixels,
                                  image_create_info const& info,
