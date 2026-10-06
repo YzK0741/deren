@@ -73,7 +73,21 @@ laevatain_old_chain  190EB09D3E9FDCDA
 3. `clang-format-check` exit 0 —— 注意**构建过程本身会跑 `clang-format -i`**（`Formatting sources with clang-format`），它会改源码；把格式化带来的差异**单独归因**，别当成修复；
 4. 边界门读数达到该批目标值（见批③）；
 5. 尖刺 `--with-device` 0 failed 且**自行退出**；
-6. **渲染 14 场景哈希逐字节不变**。
+6. **渲染 14 场景哈希逐字节不变**；
+7. 翻转门 `--require-zero`：**白名单之外为零**（③-E 改完），并且**引擎/应用不得 import 一个 `deren_vulkan` 拥有的模块**。
+
+**门的具体跑法（③-E 之后）**
+
+```powershell
+python scripts/check_backend_boundary.py                  # 棘轮：只降不升；报告里打印白名单命中项与 import 读数
+python scripts/check_backend_boundary.py --update         # 把基线收紧到实测值（永不写白名单）
+python scripts/check_backend_boundary.py --list           # 符号清单 + 全部残留 import + 后端模块名
+python scripts/check_backend_boundary.py --require-zero   # 翻转门：白名单感知 + import 图（见下）
+```
+
+- **白名单**：`scripts/backend_boundary_whitelist.json`，逐条写**符号全名 + 理由 + 谁把它带走**，每次运行逐条打印（`HIT` / `STALE`）。三种失败：实测符号在白名单之外、白名单项无命中（只减不增）、白名单项是棘轮从未记录过的（新依赖不能靠改这个文件变成合法）。`--update` 永不触碰它。
+- **import 图**：符号数可以归零而引擎仍在 import 后端的**模块**，而 import 模块才是 SHARED 后端的真正障碍（BMI 得来自 DLL）。门读取 CMake `target_sources(deren_vulkan ...)` 里的模块名（**不看名字前缀**：`deren.vulkan.core.filters` 其实是引擎模块），扫描引擎/应用源文件；测试源单独统计、不进门。
+- **实测（2026-10-06，③-E 落地时）**：符号 **3** / 11 站点 / 0 owning-STL；import **38 点 / 33 文件**（`deren.vulkan.constant_init` 33、`deren.vulkan.core` 12、`deren.vulkan.core.pipeline` 3），测试 1 文件。**动态链接版 runtime 的目标是 import = 0。**
 
 ### 已踩过的坑（照做，别重踩）
 

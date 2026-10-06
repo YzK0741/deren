@@ -50,19 +50,35 @@
 
 ### §0.1 裁决 2 的后果：**翻转门到不了 0，门要重新定义**
 
-白名单意味着**可达下限不是 0**。按现在的依赖关系，保留的例外会连带把两条 initializer 一起留在边界上：
+白名单意味着**可达下限不是 0**。当时的账（本文写于 b③ 之前）估的是 ≈9；**实测已落到 3**
+（`fd 批次"batch 3-C + abi 14/15 + 一个 command buffer 自持池"`之后，2026-10-06 实测）：
 
-| 例外 | 数量 | 为什么它必须留 |
+| 例外 | 状态 | 为什么它必须留 / 谁把它带走 |
 |---|---|---|
-| `vk_command_buffer`：移动构造、析构、`operator*()` | 3 | 引擎自己持有并录制二级命令缓冲（契约注释：*"secondary buffers stay the engine's"*） |
-| `vk_sampler::operator*()` | 1 | filters 的采样器缓存要拿裸 `VkSampler` |
-| `core::make_command_buffer()` / `make_secondary_command_buffer()` | 2 | 上面那些句柄的来源 |
-| `init_utils::create_recording_pool(core&)` | 1 | 二级命令池的来源 |
-| `initializer for module deren.vulkan.core` | 1 | 只要引擎还 import `deren.vulkan.core:handles`（上面 4 个句柄就在这个分区里），整模块的 initializer 就会跟着来 |
-| `initializer for module deren.vulkan.init_utils` | 1 | `create_recording_pool` 留在白名单 ⇒ 这个 import 也留 |
-| **可达下限** | **≈ 9** | 其余 18 个应清零 |
+| `core::core(rhi::create_info const&)` | **仍在（1）** | 引擎还在构造具体后端类；动态链接版 runtime 经 `deren_make_api_core()` 构造后离场 |
+| `initializer for module deren.vulkan.core` | **仍在（1）** | 引擎侧仍有 **33 个文件 / 38 个 import 点** import deren_vulkan 的模块（见"import 图"一节）；import 一断即离场 |
+| `vk_sampler::operator*()` | **仍在（1）** | 采样器缓存要拿裸 `VkSampler`；契约 sampler + `vulkan_escape::native_sampler()` 可带走（独立小批） |
+| ~~`vk_command_buffer` 三件套~~ | 已离场（③-C + abi 15） | 契约 `command_buffer` 拥有型句柄 |
+| ~~`make_command_buffer` / `make_secondary_command_buffer`~~ | 已离场（abi 15） | `api_core::create_command_buffer()` |
+| ~~`init_utils::create_recording_pool` + 其 initializer~~ | 已离场（③-E） | 每缓冲自持 command pool + 删除 4 个 vestigial import |
+| **可达下限（实测）** | **3** | 门就是按这个数跑的（`scripts/backend_boundary_whitelist.json`） |
 
-⇒ **翻转门的定义必须改**（这是裁决 2 的直接工作项）：`--require-zero` 要变成"**白名单之外为零**"，白名单写进门的配置里、**只减不增**（和棘轮同一条纪律），并且在报告里逐条打印白名单命中项。否则门永远红着，或者有人为了让门变绿去偷偷放宽它。
+⇒ **翻转门的定义已经改完**（③-E）：`--require-zero` = "**白名单之外为零**"；白名单在
+`scripts/backend_boundary_whitelist.json`（逐条写符号全名 + 理由 + 谁把它带走）、**只减不增**
+（无命中项即失败；棘轮从未记录过的项也失败）、每次报告**逐条打印命中项**。`--update` 永不写白名单。
+
+**§0.1b 符号门看不见的那一层：import 图（③-E 新增的第三件仪器）**
+
+符号数可以归零而引擎仍在 import 后端的**模块**——而 import 模块才是 SHARED 后端真正的障碍
+（BMI 必须来自 DLL）。所以 `--require-zero` 同时扫描 引擎/应用 源文件，对任何
+`import <一个 deren_vulkan 拥有的模块>` 报 FAIL。模块归属取自 CMake 的
+`target_sources(deren_vulkan ...)`，**不看名字前缀**：`vulkan/core/filter/filters.cppm` 声明
+`deren.vulkan.core.filters` 却属于**引擎**（vulkancorekit），而 `vulkan/constant_init/constant_init.cppm`
+属于**后端**。测试源单独统计（它们本来就链后端），不进门。
+
+**实测（2026-10-06）**：引擎/应用 **38 个 import 点 / 33 个文件**（扫描 129 个源文件，后端 5 个模块）
+——`deren.vulkan.constant_init` **33**、`deren.vulkan.core` **12**、`deren.vulkan.core.pipeline` **3**；
+测试 1 个文件（`test_error_mapping`）。**这就是动态链接版 runtime 的目标读数：0。**
 
 ---
 

@@ -19,8 +19,30 @@ WHY A RATCHET
     gate fails when a NEW SYMBOL appears, even if another dependency disappeared.
     While the migration is in flight the count falls;
     lower the baseline with `--update` each time, and the boundary can never quietly
-    re-acquire a dependency. At the flip use --require-zero; DLL import/export and
-    product behavior gates remain separate requirements.
+    re-acquire a dependency, because `--update` refuses a "joiner" (a symbol the ratchet
+    never recorded).
+
+THE FLIP GATE IS WHITELIST-AWARE (`--require-zero`)
+    The archive boundary cannot reach zero: some symbols are deliberate exceptions. So the
+    flip gate asks a different question - NOTHING OUTSIDE THE WHITELIST. The whitelist lives
+    in `scripts/backend_boundary_whitelist.json`: one entry per symbol, with the reason it is
+    still there and what removes it, printed on every run. It is SHRINK-ONLY in three
+    enforceable senses:
+      * a measured symbol outside the whitelist fails (the list is not an allow-all);
+      * a whitelist entry with no live hit fails (the exception it claims is gone);
+      * an entry the ratchet never tracked fails (a new dependency cannot be whitelisted
+        into existence - `--update` refuses joiners anyway).
+    `--update` never writes the whitelist: only a human edits it.
+
+THE THIRD INSTRUMENT: THE IMPORT GRAPH
+    A symbol count can reach zero while the engine keeps importing the backend's MODULES - and
+    a module import is what actually forbids a SHARED backend, because the BMI would have to
+    come from the DLL. `--require-zero` therefore also scans the engine/application sources and
+    fails on every import of a module `deren_vulkan` owns. Ownership comes from CMake's own
+    `target_sources(deren_vulkan ...)` list, NOT from a name prefix: `vulkan/core/filter/
+    filters.cppm` declares `deren.vulkan.core.filters` but belongs to the ENGINE, while
+    `vulkan/constant_init/constant_init.cppm` belongs to the BACKEND. Test sources are reported
+    separately (they link the backend deliberately) and are not part of the gate.
 
 THE SECOND NUMBER: OWNING STL ACROSS THE BOUNDARY
     A symbol whose signature carries `std::vector` / `std::string` / an allocator is an
@@ -44,9 +66,12 @@ BASELINES ARE PER TOOLCHAIN (the symbol sets are not comparable across them):
 USAGE
     python scripts/check_backend_boundary.py                       # gate against the baseline
     python scripts/check_backend_boundary.py --update              # ratchet down to today
-    python scripts/check_backend_boundary.py --list                # the worklist, demangled
+    python scripts/check_backend_boundary.py --list                # the worklist, demangled, + the imports
     python scripts/check_backend_boundary.py --warn                # ordinary checks report failures; mutations/flip stay strict
+    python scripts/check_backend_boundary.py --require-zero        # the flip gate: whitelist-aware + import graph
     python scripts/check_backend_boundary.py --build-dir DIR
+    python scripts/check_backend_boundary.py --whitelist PATH      # alternate whitelist (tests)
+    python scripts/check_backend_boundary.py --repo-root DIR       # alternate tree for the import scan (tests)
 """
 from __future__ import annotations
 
@@ -218,6 +243,104 @@ def load_baseline(path: str) -> dict | None:
         raise ValueError(f"invalid baseline {path}: {error}") from error
 
 
+def load_whitelist(path: str) -> dict | None:
+    """The flip gate's whitelist: symbols the boundary may still carry, each with its reason.
+
+    Shrink-only, and that is enforced rather than documented: an entry with no live hit is a failure
+    in `--require-zero` (the exception it claims no longer exists, so the entry must go), the file is
+    never written by `--update`, and an entry the ratchet never tracked is refused too - so a new
+    dependency cannot be silenced by editing this file alone.
+    """
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as handle:
+            data = json.load(handle)
+        entries = data["entries"]
+        if (not isinstance(entries, list)
+                or not all(isinstance(e, dict) and isinstance(e.get("symbol"), str) and e["symbol"]
+                           and isinstance(e.get("reason"), str) and e["reason"].strip() for e in entries)
+                or data["count"] != len(entries)
+                or len({e["symbol"] for e in entries}) != len(entries)):
+            raise ValueError("inconsistent entries: every entry needs a symbol and a non-empty reason, "
+                             "symbols are unique, and count matches")
+        symbols = [e["symbol"] for e in entries]
+        return {"count": len(entries), "entries": entries, "symbols": symbols, "path": os.path.abspath(path)}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        raise ValueError(f"invalid whitelist {path}: {error}") from error
+
+
+IMPORT_RE = re.compile(r"^\s*(?:export\s+)?import\s+([\w.]+(?::[\w.]+)?)\s*;", re.M)
+MODULE_DECL_RE = re.compile(r"^\s*(?:export\s+)?module\s+([\w.]+)(?::[\w.]+)?\s*;", re.M)
+SOURCE_SUFFIXES = (".cppm", ".cpp", ".hpp", ".h")
+
+
+def backend_modules_of(repo_root: str) -> tuple[set[str], set[str]]:
+    """({modules deren_vulkan owns}, {its source files, repo-relative}).
+
+    OWNERSHIP COMES FROM THE TARGET, NOT FROM THE NAME. `vulkan/core/filter/filters.cppm` declares
+    `deren.vulkan.core.filters` but belongs to the ENGINE target (vulkancorekit), while
+    `vulkan/constant_init/constant_init.cppm` declares `deren.vulkan.constant_init` and belongs to the
+    BACKEND - so a name prefix would be wrong in both directions. The list is read out of CMake's own
+    `target_sources(deren_vulkan ...)` block, which is what makes this check self-maintaining.
+    """
+    cmake = os.path.join(repo_root, "CMakeLists.txt")
+    if not os.path.isfile(cmake):
+        return set(), set()
+    with open(cmake, encoding="utf-8", errors="replace") as handle:
+        text = handle.read()
+    block = re.search(r"target_sources\(deren_vulkan\b(.*?)\n\)", text, re.S)
+    if block is None:
+        return set(), set()
+    files = {f.replace("\\", "/") for f in re.findall(r"^\s*([\w./\\-]+\.(?:cppm|cpp|c|h|hpp))\s*$", block.group(1), re.M)}
+    modules = set()
+    for rel in sorted(files):
+        if not rel.endswith(".cppm"):
+            continue
+        path = os.path.join(repo_root, rel)
+        if not os.path.isfile(path):
+            continue
+        with open(path, encoding="utf-8", errors="replace") as handle:
+            modules.update(MODULE_DECL_RE.findall(handle.read()))
+    return modules, files
+
+
+def scan_backend_imports(repo_root: str, backend_modules: set[str], backend_files: set[str]) -> dict:
+    """Which engine/application sources still import a module deren_vulkan owns.
+
+    THE LAYER THE SYMBOL COUNT CANNOT SEE: a symbol dependency can fall to zero while the engine keeps
+    importing the backend's modules, and a module import is what makes a SHARED backend impossible
+    (the BMI would have to come from the DLL). This reports the engine/application side as the gate's
+    subject and the test sources separately, because the tests link the backend deliberately.
+    """
+    engine: list[str] = []
+    tests: list[str] = []
+    if not backend_modules:
+        return {"engine": engine, "tests": tests, "modules": sorted(backend_modules), "scanned": 0}
+    scanned = 0
+    for directory, subdirectories, names in os.walk(repo_root):
+        subdirectories[:] = [d for d in subdirectories
+                             if d not in (".git", "third_party") and not d.startswith("build")]
+        for name in names:
+            if not name.endswith(SOURCE_SUFFIXES):
+                continue
+            absolute = os.path.join(directory, name)
+            relative = os.path.relpath(absolute, repo_root).replace("\\", "/")
+            if relative in backend_files:
+                continue
+            scanned += 1
+            with open(absolute, encoding="utf-8", errors="replace") as handle:
+                text = handle.read()
+            for match in IMPORT_RE.finditer(text):
+                imported = match.group(1)
+                if imported.split(":", 1)[0] not in backend_modules:
+                    continue
+                line = text.count("\n", 0, match.start()) + 1
+                record = f"{relative}:{line}: import {imported}"
+                (tests if relative.startswith("tests/") else engine).append(record)
+    return {"engine": engine, "tests": tests, "modules": sorted(backend_modules), "scanned": scanned}
+
+
 def write_json(path: str, data: dict) -> None:
     """先写临时文件再替换，失败不能留下半份基线。"""
     parent = os.path.dirname(os.path.abspath(path))
@@ -254,11 +377,24 @@ def main() -> int:
     parser.add_argument("--app-object", action="append", default=[],
                         help="explicit principal application object (for nonstandard build layouts)")
     parser.add_argument("--report", help="write machine-readable measurement and set delta")
-    parser.add_argument("--require-zero", action="store_true", help="enforce the flip gate, including application evidence")
+    parser.add_argument("--require-zero", action="store_true",
+                        help="enforce the flip gate: nothing measured outside the whitelist, no stale whitelist "
+                             "entry, no whitelist entry the ratchet never tracked, application evidence, and no "
+                             "engine/application import of a module deren_vulkan owns")
+    parser.add_argument("--whitelist", default=None,
+                        help="the flip gate's whitelist (default: scripts/backend_boundary_whitelist.json; "
+                             "shrink-only, hand-edited, never written by --update)")
+    parser.add_argument("--repo-root", default=None,
+                        help="the tree whose CMakeLists names deren_vulkan's modules and whose sources are "
+                             "scanned for engine/application imports of them (default: the repository root)")
     args = parser.parse_args()
 
     if args.baseline is None:
         args.baseline = os.path.join(scripts_dir, f"backend_boundary_baseline.{flavor_of(args.build_dir)}.json")
+    if args.whitelist is None:
+        args.whitelist = os.path.join(scripts_dir, "backend_boundary_whitelist.json")
+    if args.repo_root is None:
+        args.repo_root = repo_root
 
     nm = find_tool(NM_CANDIDATES)
     if not nm:
@@ -354,6 +490,31 @@ def main() -> int:
         return 1
     report["joiners"] = sorted(set(symbols) - set(baseline["cross_boundary_symbols"])) if baseline else symbols
     report["leavers"] = sorted(set(baseline["cross_boundary_symbols"]) - set(symbols)) if baseline else []
+
+    # ---- THE FLIP GATE'S OTHER TWO INSTRUMENTS -------------------------------------------------
+    # (1) the whitelist: which of today's symbols the flip is still allowed to carry, and why;
+    # (2) the IMPORT GRAPH: a symbol set can reach zero while the engine keeps importing the backend's
+    #     modules - and a module import is what makes a SHARED backend impossible, because the BMI
+    #     would have to come from the DLL. The symbol count cannot see that layer; this can.
+    try:
+        whitelist = load_whitelist(args.whitelist)
+    except ValueError as error:
+        print(f"FAIL: {error}")
+        return 1
+    whitelist_symbols = set(whitelist["symbols"]) if whitelist else set()
+    whitelist_hits = sorted(whitelist_symbols & set(symbols))
+    whitelist_stale = sorted(whitelist_symbols - set(symbols))
+    baseline_symbols = set(baseline["cross_boundary_symbols"]) if baseline else set()
+    whitelist_untracked = sorted(whitelist_symbols - baseline_symbols)
+    backend_modules, backend_files = backend_modules_of(args.repo_root)
+    imports = scan_backend_imports(args.repo_root, backend_modules, backend_files)
+    report["whitelist"] = {"path": whitelist["path"] if whitelist else None,
+                           "count": len(whitelist_symbols), "hits": whitelist_hits, "stale": whitelist_stale,
+                           "untracked_by_the_ratchet": whitelist_untracked}
+    report["backend_modules"] = sorted(backend_modules)
+    report["backend_imports"] = {"engine_application": imports["engine"], "tests_informational": imports["tests"],
+                                 "sources_scanned": imports["scanned"]}
+
     if args.report:
         if os.path.normcase(os.path.realpath(args.report)) == os.path.normcase(os.path.realpath(args.baseline)):
             print("FAIL: report path must differ from baseline path")
@@ -371,10 +532,39 @@ def main() -> int:
         for symbol in reverse:
             print(f"    REVERSE  {symbol}")
         failed = True
-    if args.require_zero and (symbols or not application_evidence):
-        print(f"FAIL: flip gate requires zero backend dependencies AND main/chores evidence "
-              f"(or explicit --app-object for another layout; found {len(symbols)} symbols)")
-        failed = True
+    if args.require_zero:
+        if whitelist is None:
+            print(f"FAIL: the flip gate needs its whitelist at {args.whitelist} (the file is missing)")
+            failed = True
+        outside = sorted(set(symbols) - whitelist_symbols)
+        if outside:
+            print(f"FAIL: {len(outside)} measured symbol(s) are OUTSIDE the whitelist "
+                  f"({len(symbols)} measured, {len(whitelist_symbols)} whitelisted)")
+            for symbol in outside:
+                print(f"    OUTSIDE  {symbol}")
+            failed = True
+        if whitelist_stale:
+            print(f"FAIL: {len(whitelist_stale)} whitelist entr(ies) have NO live hit - the whitelist may only "
+                  f"shrink, so delete them")
+            for symbol in whitelist_stale:
+                print(f"    STALE    {symbol}")
+            failed = True
+        if whitelist_untracked:
+            print(f"FAIL: {len(whitelist_untracked)} whitelist entr(ies) name symbols the ratchet never tracked - "
+                  f"a new dependency cannot be whitelisted into existence")
+            for symbol in whitelist_untracked:
+                print(f"    UNTRACKED {symbol}")
+            failed = True
+        if not application_evidence:
+            print("FAIL: the flip gate needs main/chores evidence (or explicit --app-object for another layout)")
+            failed = True
+        if imports["engine"]:
+            engine_files = sorted({record.split(":", 1)[0] for record in imports["engine"]})
+            print(f"FAIL: {len(imports['engine'])} import site(s) in {len(engine_files)} engine/application file(s) "
+                  f"still import a module deren_vulkan owns - the backend cannot be a DLL while that is true")
+            for record in imports["engine"]:
+                print(f"    IMPORT   {record}")
+            failed = True
     if args.initialize:
         if baseline is not None or args.update:
             print("FAIL: --initialize requires a missing baseline and cannot be combined with --update")
@@ -413,6 +603,29 @@ def main() -> int:
             print(f"    {count:>4}  {name}")
         print()
 
+        # THE WHITELIST, HIT BY HIT (the flip gate's exception list, never a silent allow-list)
+        if whitelist is None:
+            print(f"whitelist (missing): {args.whitelist} - --require-zero will refuse to run without it")
+        else:
+            print(f"whitelist {whitelist['path']}")
+            print(f"    {len(whitelist_hits)} hit, {len(whitelist_stale)} stale, {len(whitelist_untracked)} untracked")
+            for entry in whitelist["entries"]:
+                marker = "HIT    " if entry["symbol"] in set(whitelist_hits) else "STALE  "
+                print(f"    {marker}{entry['symbol']}")
+                print(f"           {entry['reason']}")
+            print()
+
+        # THE IMPORT GRAPH (the layer the symbol count cannot see)
+        engine_files = {record.split(":", 1)[0] for record in imports["engine"]}
+        print(f"imports  engine/application: {len(imports['engine'])} site(s) in {len(engine_files)} file(s) import a "
+              f"module deren_vulkan owns (of {imports['scanned']} source(s) scanned; {len(backend_modules)} backend module(s))")
+        for record in imports["engine"][:10]:
+            print(f"    IMPORT   {record}")
+        if len(imports["engine"]) > 10:
+            print(f"    ... and {len(imports['engine']) - 10} more (--list prints all)")
+        print(f"imports  tests (informational, not part of the flip gate): {len(imports['tests'])} file(s)")
+        print()
+
     if args.list:
         print("worklist:")
         for symbol in symbols:
@@ -424,6 +637,16 @@ def main() -> int:
             marker = "  [owning STL]" if carries_owning_stl(symbol) else ""
             print(f"    {shown}{marker}")
             print(f"        <- {', '.join(sorted(set(cross[symbol])))}")
+        print()
+        print("backend imports still reached from the engine/application (the flip's real blocker):")
+        for record in imports["engine"]:
+            print(f"    {record}")
+        if not imports["engine"]:
+            print("    (none)")
+        print()
+        print("backend modules deren_vulkan owns (from CMake's target_sources):")
+        for module in sorted(backend_modules):
+            print(f"    {module}")
         print()
 
     if baseline is None:
@@ -465,11 +688,12 @@ def main() -> int:
 
     print(f"OK: {len(symbols)} symbols, baseline {allowed}, {usages} reference sites, "
           f"{len(owning)} with owning STL")
-    if allowed == 0:
-        if args.require_zero:
-            print("the measured consumers have zero backend dependencies; DLL import/export gates remain separate")
-        else:
-            print("archive boundary is zero; run --require-zero with application consumers before the flip")
+    if args.require_zero:
+        print(f"flip gate: every measured symbol is whitelisted ({len(whitelist_hits)} hit), the whitelist has no "
+              f"stale entry, and no engine/application source imports a deren_vulkan module")
+        print("DLL import/export gates remain separate")
+    elif allowed == 0:
+        print("archive boundary is zero; run --require-zero with application consumers before the flip")
     return 0
 
 

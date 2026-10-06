@@ -56,7 +56,6 @@ import deren.vulkan.shadow_fit;                 // the cascade fit itself (pure 
 // The module itself stays in the tree; it simply has no consumer left in the engine.
 import deren.vulkan.acceleration_structure; // build_input_usage: the usage bits a structure build reads a buffer through
 import deren.vulkan.ray_tracing;            // THE STRUCTURE PHASE: the structures, the caster map and the copies (a value this class owns)
-import deren.vulkan.init_utils;             // the resource-creation patterns the init functions below repeat
 import deren.promise.rhi;                   // the creation contract (create_info): the type the constructor below takes
 import deren.vulkan.pipelines;              // pipeline_handle: the toon family builder answers it (abi 8)
 export import deren.vstd;

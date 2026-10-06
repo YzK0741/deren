@@ -105,9 +105,8 @@
       "members": []
     }
   ],
-  "count": 4,
+  "count": 3,
   "cross_boundary_symbols": [
-    "_ZGIW5derenW6vulkanW10init_utils",
     "_ZGIW5derenW6vulkanW4core",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv"
@@ -117,11 +116,7 @@
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferC1EOS5_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferD1Ev",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core29make_secondary_command_bufferEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
+    "_ZGIW5derenW6vulkanW10init_utils"
   ],
   "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
@@ -129,12 +124,6 @@
   "reverse_boundary_symbols": [],
   "stale_consumers": [],
   "symbol_sources": {
-    "_ZGIW5derenW6vulkanW10init_utils": [
-      "runtime.declarations.cppm.obj",
-      "runtime.constructor.cppm.obj",
-      "runtime.probes.cppm.obj",
-      "runtime.frames.cppm.obj"
-    ],
     "_ZGIW5derenW6vulkanW4core": [
       "toon_screen_rim.cpp.obj",
       "goo_rim.cpp.obj",
@@ -153,5 +142,5 @@
       "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 15
+  "usages": 11
 }

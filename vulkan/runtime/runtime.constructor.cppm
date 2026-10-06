@@ -40,7 +40,6 @@ import deren.vulkan.render_resource.shared;
 
 import deren.utility;
 import deren.vulkan.constant_init;
-import deren.vulkan.init_utils;      // the resource-creation patterns the init/ensure functions below repeat
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
 import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)

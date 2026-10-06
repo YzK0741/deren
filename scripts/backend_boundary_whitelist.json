@@ -1,0 +1,28 @@
+{
+  "why": [
+    "THE FLIP WHITELIST: the backend symbols the boundary may still carry when --require-zero runs.",
+    "Every entry is a symbol that is PRESENT in the measured set TODAY, with the reason it is still",
+    "there and what removes it. The list may only SHRINK: an entry with no live hit is a failure",
+    "(the exception it claims no longer exists, so it must be deleted), and --update never touches this",
+    "file. A symbol that is not on this list and not in the measured set is nothing; a measured symbol",
+    "that is not on this list fails the gate.",
+    "MEASURED TODAY: 3 symbols / 11 reference sites, and 41 engine+application files still import a",
+    "module deren_vulkan owns (the import check below reports it) - the layer the symbol count cannot",
+    "see, and the reason the flip is not imminent."
+  ],
+  "count": 3,
+  "entries": [
+    {
+      "symbol": "_ZGIW5derenW6vulkanW4core",
+      "reason": "initializer for module deren.vulkan.core. 9 engine files still import a deren_vulkan module (acceleration_structure, filters, goo_rim, toon_screen_rim, pipelines, primitive, ray_tracing, readback, runtime.declarations), and importing a backend module forces its initializer. LEAVES WITH: the dynamic-link runtime plus the constant_init/core.pipeline imports the passes still carry - i.e. when the import check reads 0."
+    },
+    {
+      "symbol": "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
+      "reason": "core::core(rhi::create_info const&). The engine still CONSTRUCTS the concrete backend class (runtime.constructor's std::make_shared<core>). LEAVES WITH: the dynamic-link runtime, which constructs through deren_make_api_core(rhi::abi_version, &options, &error_info) into a shared_ptr<rhi::api_core> and never names core."
+    },
+    {
+      "symbol": "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv",
+      "reason": "vk_sampler::operator*() const. The engine still dereferences the backend's shared samplers (the renderer's sampler set) to reach the native VkSampler. LEAVES WITH: a small batch that reaches those samplers through the contract (create_sampler + vulkan_escape::native_sampler), which is NOT the dynamic-link runtime's job."
+    }
+  ]
+}

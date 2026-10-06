@@ -24,9 +24,12 @@ class BoundaryTests(unittest.TestCase):
         self.addCleanup(self.temporary.cleanup)
         self.root = Path(self.temporary.name)
         self.baseline = self.root / "baseline.json"
+        self.whitelist = self.root / "whitelist.json"
         self.make_archive("libderen_vulkan.a", "int backend_a(void) { return 1; } int backend_b(void) { return 2; }")
         self.make_archive("libvulkancorekit.a", "extern int backend_a(void); int engine_entry(void) { return backend_a(); }")
         self.write_baseline(["backend_a"])
+        self.write_whitelist([])
+        self.write_synthetic_repo()
 
     def make_archive(self, name, source):
         path = self.root / (name + ".c")
@@ -40,9 +43,37 @@ class BoundaryTests(unittest.TestCase):
         self.baseline.write_text(json.dumps({"count": len(symbols), "cross_boundary_symbols": symbols,
                                              "owning_stl_count": 0, "owning_stl_symbols": []}), encoding="utf-8")
 
+    def write_whitelist(self, entries):
+        """(symbol, reason) pairs; the flip gate's shrink-only exception list."""
+        payload = {"count": len(entries), "entries": [{"symbol": symbol, "reason": reason} for symbol, reason in entries]}
+        self.whitelist.write_text(json.dumps(payload), encoding="utf-8")
+
+    def write_synthetic_repo(self, engine_imports=()):
+        """A tree the import check can read: CMake names deren_vulkan's module file, that file declares
+        the module, and every name in `engine_imports` becomes an engine source importing it."""
+        core = self.root / "vulkan" / "core"
+        core.mkdir(parents=True, exist_ok=True)
+        (self.root / "CMakeLists.txt").write_text(
+            "add_library(deren_vulkan STATIC)\n"
+            "target_sources(deren_vulkan\n"
+            "    PUBLIC\n"
+            "        FILE_SET CXX_MODULES\n"
+            "        FILES\n"
+            "        vulkan/core/core.cppm\n"
+            ")\n", encoding="utf-8")
+        (core / "core.cppm").write_text("export module deren.vulkan.core;\n", encoding="utf-8")
+        for relative in engine_imports:
+            path = self.root / relative
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text("import deren.vulkan.core;\n", encoding="utf-8")
+
     def run_gate(self, *args):
         return subprocess.run([sys.executable, str(SCRIPT), "--build-dir", str(self.root),
-                               "--baseline", str(self.baseline), *args], capture_output=True, text=True)
+                               "--baseline", str(self.baseline), "--whitelist", str(self.whitelist),
+                               "--repo-root", str(self.root), *args], capture_output=True, text=True)
+
+    def make_application(self):
+        return self.make_archive("application.a", "int app_entry(void) { return 0; }")
 
     def test_existing_dependency_passes(self):
         self.assertEqual(self.run_gate().returncode, 0)
@@ -145,6 +176,72 @@ class BoundaryTests(unittest.TestCase):
     def test_nonzero_ratchet_does_not_pass_flip_gate(self):
         result = self.run_gate("--require-zero", "--consumer", str(self.root / "libvulkancorekit.a"))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+
+    # ---- the flip gate's two instruments (whitelist + import graph) ----------------------------------
+    def test_flip_gate_rejects_a_symbol_outside_the_whitelist(self):
+        app = self.make_application()
+        result = self.run_gate("--require-zero", "--app-object", str(app))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("OUTSIDE", result.stdout)
+        self.assertIn("backend_a", result.stdout)
+
+    def test_flip_gate_accepts_a_whitelisted_symbol_and_prints_the_hit(self):
+        self.write_whitelist([("backend_a", "fixture: the one dependency this test whitelists")])
+        app = self.make_application()
+        result = self.run_gate("--require-zero", "--app-object", str(app))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("HIT", result.stdout)
+        self.assertIn("fixture: the one dependency this test whitelists", result.stdout)
+
+    def test_flip_gate_rejects_a_whitelist_entry_with_no_hit(self):
+        # the exception it claims no longer exists: the whitelist may only shrink, so it must be deleted
+        self.write_whitelist([("backend_a", "live"), ("retired_dependency", "no longer measured")])
+        app = self.make_application()
+        result = self.run_gate("--require-zero", "--app-object", str(app))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("STALE", result.stdout)
+        self.assertIn("retired_dependency", result.stdout)
+
+    def test_flip_gate_rejects_a_whitelist_entry_the_ratchet_never_tracked(self):
+        # a NEW dependency cannot be whitelisted into existence: the ratchet never recorded it
+        self.make_archive("libvulkancorekit.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
+        self.write_whitelist([("backend_b", "added by hand to silence the gate")])
+        app = self.make_application()
+        result = self.run_gate("--require-zero", "--app-object", str(app))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UNTRACKED", result.stdout)
+
+    def test_flip_gate_rejects_a_missing_whitelist(self):
+        self.whitelist.unlink()
+        app = self.make_application()
+        result = self.run_gate("--require-zero", "--app-object", str(app))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("whitelist", result.stdout)
+
+    def test_flip_gate_rejects_an_engine_import_of_a_backend_module(self):
+        self.write_synthetic_repo(engine_imports=["vulkan/runtime/runtime.cppm"])
+        app = self.make_application()
+        result = self.run_gate("--require-zero", "--app-object", str(app))
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("import deren.vulkan.core", result.stdout)
+
+    def test_import_reading_is_reported_without_blocking_the_ratchet(self):
+        self.write_synthetic_repo(engine_imports=["vulkan/runtime/runtime.cppm"])
+        result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("imports  engine/application: 1 site(s) in 1 file(s)", result.stdout)
+
+    def test_an_engine_file_that_is_not_a_backend_module_is_not_flagged(self):
+        # `deren.vulkan.core.filters` is declared by ENGINE code (vulkancorekit owns filters.cppm), so a
+        # name prefix must not put it in the backend's set: only CMake's target list may.
+        core = self.root / "vulkan" / "core" / "filter"
+        core.mkdir(parents=True, exist_ok=True)
+        (core / "filters.cppm").write_text("export module deren.vulkan.core.filters;\n", encoding="utf-8")
+        (self.root / "vulkan" / "runtime" / "runtime.cppm").parent.mkdir(parents=True, exist_ok=True)
+        (self.root / "vulkan" / "runtime" / "runtime.cppm").write_text("import deren.vulkan.core.filters;\n", encoding="utf-8")
+        result = self.run_gate()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("imports  engine/application: 0 site(s)", result.stdout)
 
     def test_zero_gate_requires_application_evidence(self):
         self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
