@@ -478,6 +478,63 @@ target_include_directories(deren_vulkan
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
+# ================================================================================================
+# WHICH RENDERER RUNTIME (the dynamic-backend migration's step 2): `legacy` is `vulkan/runtime/` (what the
+# app has always used); `dynamic` is `runtime/` at the repository root - the runtime that reaches the
+# backend ONLY through the contract (`deren_make_api_core()` + `rhi::api_core` + the raw-handle escape) and
+# never names `core`.
+#
+# ONE RUNTIME PER BUILD TREE, AND WHY: two BMIs of one module name cannot both be visible to one
+# translation unit, so the two runtimes cannot share a target - the switch picks the file list
+# `vulkancorekit` gets, and the LEGACY tree stays the CONTROL for the dynamic one (both must read the same
+# fourteen render hashes; see docs/dynamic_runtime.md for the design and the acceptance).
+#
+# THE FULL-API CONSUMERS ARE GATED WHILE THE PORT IS INCOMPLETE (S1-S3): `render_start_demo` (a member of
+# vulkancorekit), `chores` and the app all name the FULL runtime API, which the dynamic runtime grows into
+# partition by partition. In the dynamic tree those three are simply not built, and every gate the runtime
+# itself can pass runs there - the runtime, the engine library, the 18 tests, and the runtime's own scaffold
+# test. When the port is complete (S4) this variable becomes unconditionally ON: the dynamic runtime is then
+# a drop-in replacement and nothing needs gating.
+set(VR_RUNTIME "legacy" CACHE STRING "which renderer runtime to build: legacy = vulkan/runtime, dynamic = runtime/ (the contract-only runtime)")
+set_property(CACHE VR_RUNTIME PROPERTY STRINGS legacy dynamic)
+if(NOT VR_RUNTIME STREQUAL "legacy" AND NOT VR_RUNTIME STREQUAL "dynamic")
+    message(FATAL_ERROR "VR_RUNTIME must be 'legacy' or 'dynamic' (got '${VR_RUNTIME}')")
+endif()
+if(VR_RUNTIME STREQUAL "dynamic")
+    set(VR_RUNTIME_MODULES
+        runtime/runtime.cppm
+        runtime/runtime.declarations.cppm
+        runtime/runtime.constructor.cppm
+    )
+    set(VR_RUNTIME_PRIVATE_SOURCES)
+    set(VR_RUNTIME_SERVES_THE_APP OFF)
+else()
+    set(VR_RUNTIME_MODULES
+        vulkan/runtime/runtime.cppm
+        vulkan/runtime/runtime.declarations.cppm
+        vulkan/runtime/runtime.constructor.cppm
+        vulkan/runtime/runtime.probes.cppm
+        vulkan/runtime/runtime.frames.cppm
+        vulkan/runtime/runtime.readback.cppm
+    )
+    set(VR_RUNTIME_PRIVATE_SOURCES
+        vulkan/runtime/runtime.cpp
+    )
+    set(VR_RUNTIME_SERVES_THE_APP ON)
+endif()
+# The two places the app owns, named once so the target lists below read the same under both runtimes.
+if(VR_RUNTIME_SERVES_THE_APP)
+    set(VR_FULL_API_TARGETS deren chores)
+    set(VR_APP_EXE deren)
+    set(VR_FULL_API_MODULES vulkan/render_start_demo/render_start_demo.cppm)
+    set(VR_FULL_API_SOURCES vulkan/render_start_demo/render_start_demo.cpp)
+else()
+    set(VR_FULL_API_TARGETS)
+    set(VR_APP_EXE)
+    set(VR_FULL_API_MODULES)
+    set(VR_FULL_API_SOURCES)
+endif()
+
 add_library(vulkancorekit STATIC)
 
 target_sources(vulkancorekit
@@ -486,12 +543,7 @@ target_sources(vulkancorekit
         FILES
         vulkan/core/filter/filters.cppm
         vulkan/math/math.cppm
-        vulkan/runtime/runtime.cppm
-    vulkan/runtime/runtime.declarations.cppm
-    vulkan/runtime/runtime.constructor.cppm
-    vulkan/runtime/runtime.probes.cppm
-    vulkan/runtime/runtime.frames.cppm
-    vulkan/runtime/runtime.readback.cppm
+        ${VR_RUNTIME_MODULES}
         vulkan/bindings/bindings.cppm
         vulkan/pipelines/pipelines.cppm
         vulkan/render_resource/render_resource.cppm
@@ -517,7 +569,7 @@ target_sources(vulkancorekit
         vulkan/pass/geometry_buffer_debug.cppm
         vulkan/pass/shadow.cppm
         vulkan/pass/chain.cppm
-        vulkan/render_start_demo/render_start_demo.cppm
+        ${VR_FULL_API_MODULES}
         vulkan/profiling/profiling.cppm
         vulkan/shadow_fit/shadow_fit.cppm
         vulkan/readback/readback.cppm
@@ -533,7 +585,7 @@ target_sources(vulkancorekit
     PRIVATE
         vulkan/core/filter/filters.cpp
         vulkan/math/math.cpp
-        vulkan/runtime/runtime.cpp
+        ${VR_RUNTIME_PRIVATE_SOURCES}
         vulkan/pass/taa.cpp
         vulkan/pass/scene.cpp
         vulkan/pass/transparent.cpp
@@ -552,7 +604,7 @@ target_sources(vulkancorekit
         vulkan/pass/upscale.cpp
         vulkan/pass/geometry_buffer_debug.cpp
         vulkan/pass/shadow.cpp
-        vulkan/render_start_demo/render_start_demo.cpp
+        ${VR_FULL_API_SOURCES}
         vulkan/shadow_fit/shadow_fit.cpp
         vulkan/readback/readback.cpp
         vulkan/acceleration_structure/acceleration_structure.cpp
@@ -747,11 +799,15 @@ target_include_directories(vulkancorekit
 # (§11.2): vulkancorekit's own name and its outward link surface are unchanged by S1-A.
 target_link_libraries(vulkancorekit PUBLIC deren_vulkan)
 
+# THE APPLICATION IS GATED IN THE DYNAMIC TREE WHILE THE PORT IS INCOMPLETE (S1-S3): `main.cpp` and its
+# `chores` helpers name the FULL runtime API. See the boundary variable's comment above `vulkancorekit`.
+if(VR_RUNTIME_SERVES_THE_APP)
 add_executable(deren main.cpp)
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
 # running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
 # still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
 set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Release>:ON>)
+endif()
 
 # utility.cpp implements the xxHash-based hash functions (deren::utility::xxh3_128bits) on top of
 # the vendored xxhash library, so the dependency is declared here, on the library that
@@ -786,6 +842,10 @@ target_link_libraries(app_config
 # (export import std pattern) declares, chores.cpp implements. Demo/application layer only -
 # these helpers know about app_config (settings), the runtime (deren.vulkan.runtime) and utility
 # log/panic, never about glTF.
+#
+# NOT BUILT IN THE DYNAMIC TREE WHILE THE PORT IS INCOMPLETE (S1-S3): this module takes `runtime&` and
+# therefore names the full runtime API - the boundary `VR_RUNTIME_SERVES_THE_APP` draws (see its comment).
+if(VR_RUNTIME_SERVES_THE_APP)
 add_library(chores STATIC)
 
 target_sources(chores
@@ -804,7 +864,9 @@ target_link_libraries(chores
         utility
         vstd_lib
 )
+endif()
 
+if(VR_RUNTIME_SERVES_THE_APP)
 target_link_libraries(${PROJECT_NAME}
         utility
         vulkancorekit
@@ -815,6 +877,7 @@ target_link_libraries(${PROJECT_NAME}
         glm::glm
         imgui
 )
+endif()
 
 # The C++ RUNTIME IS DYNAMIC, ON PURPOSE (Windows/GNU-Clang): the exe used to link with -static,
 # which pinned libc++.a / libc++abi.a / libunwind.a INTO the executable. A first-party DLL cannot
@@ -843,6 +906,7 @@ target_link_libraries(${PROJECT_NAME}
 # THE MSVC SPELLING of this is only the sections half: /OPT:REF /OPT:ICF is a real replacement for
 # -Wl,--gc-sections, while the static CRT and the strip below have no counterpart - an MSVC Release exe
 # keeps the dynamic CRT and its symbols (see the dialect table at the top of this file).
+if(VR_RUNTIME_SERVES_THE_APP) # the app's own link options: nothing to set when it is not built
 if(MSVC)
     target_link_options(${PROJECT_NAME} PRIVATE
             # drop unused function/data sections at link (first-party code is compiled with /Gy /Gw;
@@ -876,6 +940,7 @@ else()
             $<$<CONFIG:Release>:-s>
     )
 endif()
+endif() # VR_RUNTIME_SERVES_THE_APP
 
 # ---------------------------------------------------------------------------------------------
 # Headless unit tests (no GPU, no external test framework - see tests/vk_test.h): each test is
@@ -1110,10 +1175,31 @@ if(VR_BUILD_TESTS)
     endif()
 endif()
 
+# ---- the dynamic runtime's scaffold test (the flip's step 2) ------------------------------------
+# IT EXISTS SO THE PORT CANNOT ROT: the dynamic runtime is written partition by partition, and this
+# executable - built and RUN in every slice of that work - is what proves the construction path
+# (`deren_make_api_core()` -> `shared_ptr<api_core>` with the backend's deleter -> the face -> the raw
+# handle escape -> teardown) still holds as the partitions arrive.
+#
+# SPIKE-SHAPED ON PURPOSE, like `test_backend_boundary_spike` above and for the same reasons: it creates a
+# real device (so it cannot be in the headless ctest set, and tests/test_docs.cpp compares that list
+# against the workflow), it is NOT in VR_TEST_TARGETS, and it is built only in the tree that has the
+# runtime under development (`-DVR_RUNTIME=dynamic`).
+if(VR_RUNTIME STREQUAL "dynamic")
+    add_executable(test_runtime_dyn tests/test_runtime_dyn.cpp)
+    target_compile_options(test_runtime_dyn PRIVATE ${COMPILE_OPTIONS})
+    target_link_libraries(test_runtime_dyn
+            vulkancorekit
+            promise
+            utility
+            vstd_lib
+    )
+endif()
+
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib deren deren_vulkan vulkan_constant_init vulkancorekit utility promise gltf_loader app_config chores ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkancorekit utility promise gltf_loader app_config ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
@@ -1198,7 +1284,7 @@ target_compile_definitions(deren_vulkan PRIVATE
 #    that surface it: the Vulkan app_info (vulkan/core/core.cpp, applicationVersion /
 #    engineVersion), the --version flag and the startup log banner (main.cpp). Bump the number
 #    in project(VERSION) and keep README/docs' "current version" lines in sync.
-foreach(version_target IN ITEMS vulkancorekit deren deren_vulkan)
+foreach(version_target IN ITEMS vulkancorekit ${VR_APP_EXE} deren_vulkan)
     target_compile_definitions(${version_target} PRIVATE
             DEREN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
             DEREN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
@@ -1224,6 +1310,7 @@ if(CLANG_FORMAT_EXECUTABLE)
             ${CMAKE_CURRENT_SOURCE_DIR}/gltf_loader/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/utility/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/runtime/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/core/vma/texture_upload_layout.h
             ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp*
             ${CMAKE_CURRENT_SOURCE_DIR}/promise/rhi/*.cppm
@@ -1247,7 +1334,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt utility promise app_config deren_vulkan vulkan_constant_init vulkancorekit gltf_loader deren)
+    foreach(_tgt utility promise app_config deren_vulkan vulkan_constant_init vulkancorekit gltf_loader ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -1571,5 +1658,13 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(shaders ALL DEPENDS ${VR_SHADER_OUTPUTS} "${VR_SHADER_OUT_DIR}/.sources-copied")
-add_dependencies(deren shaders)
+if(TARGET deren)
+    add_dependencies(deren shaders)
+endif()
+# The dynamic runtime's own scaffold test needs the compiled shaders as soon as the port starts building
+# pipelines from them (S2/S3); in S1 it needs none, and asking anyway keeps the dependency from being
+# forgotten when the test grows.
+if(TARGET test_runtime_dyn)
+    add_dependencies(test_runtime_dyn shaders)
+endif()
 message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles shaders/*.spv into ${VR_SHADER_OUT_DIR}")
