@@ -187,15 +187,27 @@ export namespace deren::promise::rhi {
     /// which concrete depth format a device serves is the backend's capability question, not the
     /// caller's. The judge is §17's: does the caller need to know the byte layout? Named formats say
     /// yes; `depth` says no.
+    ///
+    /// `r16_sfloat` is APPENDED (③-D/E A1.2, 2026-10-06) - one half-float channel, the format the
+    /// ray-traced sun visibility image is created with: the pass writes a single visibility factor and
+    /// the lighting stage multiplies the sun term by it, so one channel is what the byte layout IS
+    /// (RGBA16F here would be three quarters padding). It is spelled with an EXPLICIT value AFTER the
+    /// `depth` role so that every enumerator that already existed keeps the number it had - "only ever
+    /// APPENDED" is about the numbers, and no caller compares format values by order. No `abi_version`
+    /// bump follows for the same reason the appended `error` values did not need one: nothing that
+    /// already crossed the boundary changed. A backend built against the older enum refuses the value
+    /// (its `native_image_format` switch has no case) instead of misreading it - the documented answer
+    /// to a descriptor a backend cannot honour.
     enum class image_format : std::uint32_t { unknown = 0,
                                               rgba8_unorm,
                                               rgba8_srgb,
                                               bgra8_unorm,
                                               bgra8_srgb,
-                                              r16g16_sfloat,         ///< two half-float channels (BRDF LUT)
-                                              r16g16b16a16_sfloat,   ///< four half-float channels (environment/irradiance cubes)
-                                              r32g32b32_sfloat,      ///< three 32-bit float channels
-                                              depth = 0x7FFFFFFFu }; ///< ROLE: a depth attachment the backend shapes
+                                              r16g16_sfloat,              ///< two half-float channels (BRDF LUT)
+                                              r16g16b16a16_sfloat,        ///< four half-float channels (environment/irradiance cubes)
+                                              r32g32b32_sfloat,           ///< three 32-bit float channels
+                                              depth = 0x7FFFFFFFu,        ///< ROLE: a depth attachment the backend shapes
+                                              r16_sfloat = 0x80000000u }; ///< APPENDED: one half-float channel (ray-traced visibility)
 
     // ---- OWNERSHIP: WHAT `release()` IS, AND WHAT IT IS NOT ---------------------------------------
     //

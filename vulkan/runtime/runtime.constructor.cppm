@@ -1196,6 +1196,54 @@ namespace deren::vulkan {
                 }
             }
         }
+
+        // ---- THE RAY-TRACED VISIBILITY, ONE PER FRAME SLOT (③-D/E A1.2) --------------------------------
+        // The ONE group whose count is the RING's rather than the swapchain's - the rays are traced once per
+        // frame, not once per image - and it is rebuilt per generation all the same, because a resize moves
+        // the render extent it is created at. The same numbers the backend's loop used: R16F (the pass writes
+        // a single visibility factor per pixel - `image_format::r16_sfloat`, appended to the contract for
+        // exactly this image), STORAGE for the compute pass that writes it and SAMPLED for the lighting
+        // stage that multiplies the sun term by it.
+        this->rt_shadow_image_views = {};
+        this->rt_shadow_images = {};
+        for (uint32_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
+            rhi::image_desc visibility_desc{};
+            visibility_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
+            visibility_desc.mip_levels = 1;
+            visibility_desc.array_layers = 1;
+            visibility_desc.format = rhi::image_format::r16_sfloat;
+            visibility_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
+            visibility_desc.debug_name = "ray-traced visibility image";
+            this->rt_shadow_images[slot] = rhi::object_manager<rhi::image>{this->rhi_face().create_image(visibility_desc)};
+            if (!static_cast<bool>(this->rt_shadow_images[slot])) {
+                deren::utility::panic("failed to create the ray-traced visibility image");
+            }
+            rhi::image_view_desc visibility_range{};
+            visibility_range.role = rhi::view_role::sampled;
+            this->rt_shadow_image_views[slot] = rhi::object_manager<rhi::image_view>{this->rt_shadow_images[slot]->make_view(visibility_range)};
+            if (!static_cast<bool>(this->rt_shadow_image_views[slot])) {
+                deren::utility::panic("failed to create the ray-traced visibility view");
+            }
+            // TWO HEAP DESCRIPTORS FOR THE ONE IMAGE, which is not redundancy: SAMPLED_IMAGE and
+            // STORAGE_IMAGE are different descriptor kinds and one heap descriptor is never both, while this
+            // image is WRITTEN by the visibility compute pass and SAMPLED by the lighting stage. Each write
+            // states the role its descriptor needs - the backend REFUSES a storage descriptor over a
+            // sampled-role range and vice versa - and both sit at the ABSOLUTE slots the shaders bake.
+            if (heap_ready) {
+                rhi::image_view_desc sampled_range{};
+                sampled_range.role = rhi::view_role::sampled;
+                rhi::image_view_desc storage_range{};
+                storage_range.role = rhi::view_role::storage;
+                if (!contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(core::heap_slots::rt_visibility + slot),
+                                               *this->rt_shadow_images[slot], sampled_range, rhi::descriptor_type::sampled_image)) {
+                    deren::utility::log("descriptor heap: the rt visibility SAMPLED descriptor did not reach grid slot {}", core::heap_slots::rt_visibility + slot);
+                }
+                if (!contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(core::heap_slots::rt_visibility_storage + slot),
+                                               *this->rt_shadow_images[slot], storage_range, rhi::descriptor_type::storage_image)) {
+                    deren::utility::log("descriptor heap: the rt visibility STORAGE descriptor did not reach grid slot {}", core::heap_slots::rt_visibility_storage + slot);
+                }
+            }
+        }
     }
 
     void runtime::ensure_shadow_resources() {

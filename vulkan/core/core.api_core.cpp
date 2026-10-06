@@ -215,6 +215,11 @@ namespace deren::vulkan {
                 return VK_FORMAT_R16G16B16A16_SFLOAT;
             case rhi_image_format::r32g32b32_sfloat:
                 return VK_FORMAT_R32G32B32_SFLOAT;
+            // APPENDED in A1.2 with the contract value of the same name: the ray-traced visibility image,
+            // which the engine creates now. The mapping is spelled out here like every other one because a
+            // new contract value must not silently become whatever the integer happens to mean.
+            case rhi_image_format::r16_sfloat:
+                return VK_FORMAT_R16_SFLOAT;
             case rhi_image_format::depth:
                 return depth_format;
             case rhi_image_format::unknown:

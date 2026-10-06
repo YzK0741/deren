@@ -1249,41 +1249,13 @@ namespace deren::vulkan {
             furnace_cube_images[0],
             furnace_cube_memories[0]);
         furnace_cube_views[0] = create_image_view(furnace_cube_images[0], hdr_format, VK_IMAGE_ASPECT_COLOR_BIT, logical_device, VK_IMAGE_VIEW_TYPE_CUBE, 6);
-        // The ray-traced sun visibility: FULL resolution (one ray per screen pixel) and one per FRAME
-        // SLOT - see the member's comment for why the slot, not the swapchain image, is the right
-        // lifetime. R16F rather than RGBA16F: the pass writes a single visibility factor, and the
-        // deferred lighting stage multiplies the sun term by it. STORAGE for the compute pass that
-        // writes it, SAMPLED for the lighting stage that reads it.
-        rt_shadow_images.assign(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
-        rt_shadow_image_memories.assign(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
-        rt_shadow_image_views.assign(deren::vulkan::core::MAX_FRAMES_IN_FLIGHT, VK_NULL_HANDLE);
-        for (uint32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
-            create_target_image(
-                render.width,
-                render.height,
-                VK_FORMAT_R16_SFLOAT,
-                VK_IMAGE_TILING_OPTIMAL,
-                VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
-                VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT,
-                rt_shadow_images[slot],
-                rt_shadow_image_memories[slot]);
-            rt_shadow_image_views[slot] = create_image_view(rt_shadow_images[slot], VK_FORMAT_R16_SFLOAT, VK_IMAGE_ASPECT_COLOR_BIT, logical_device);
-
-            // THE HEAP'S COPIES OF THAT IMAGE - TWO of them, which is not redundancy: SAMPLED_IMAGE and
-            // STORAGE_IMAGE are different descriptor kinds and one heap descriptor is never both, while this image
-            // is WRITTEN by the visibility compute pass and SAMPLED by the lighting stage. A heap image descriptor
-            // carries a view CREATE INFO rather than a view, so both are built from the same arguments
-            // create_image_view used on the line above. The layouts differ for the same reason the types do.
-            if (this->descriptor_heaps.ready() && this->heap_grid_offset != VK_WHOLE_SIZE) {
-                VkImageViewCreateInfo const visibility_view = make_image_view_info(rt_shadow_images[slot], VK_FORMAT_R16_SFLOAT, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::rt_visibility + slot) * heap_slot_stride, visibility_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE)) {
-                    deren::utility::log("descriptor heap: the rt visibility SAMPLED descriptor did not reach grid slot {}", heap_slots::rt_visibility + slot);
-                }
-                if (!this->descriptor_heaps.write_image(static_cast<VkDeviceSize>(heap_slots::rt_visibility_storage + slot) * heap_slot_stride, visibility_view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE)) {
-                    deren::utility::log("descriptor heap: the rt visibility STORAGE descriptor did not reach grid slot {}", heap_slots::rt_visibility_storage + slot);
-                }
-            }
-        }
+        // ---- THE RAY-TRACED VISIBILITY PAIR IS THE ENGINE'S NOW (③-D/E A1.2) -------------------------
+        // One R16F image + view per FRAME SLOT (the rays are traced once per frame, not once per swapchain
+        // image), STORAGE | SAMPLED, plus the TWO heap descriptors the pass and the lighting stage read
+        // (`rt_visibility` sampled, `rt_visibility_storage` written by the compute pass) used to be created
+        // right here. `runtime::create_render_chain_targets()` creates them through the contract instead -
+        // same extent, same format, same two flags - and writes both descriptors. The members stay declared
+        // (empty from here on) until the closing slice of A1 deletes them.
 
         gbuffer_depth_images.resize(swap_chain_image_views.size());
         gbuffer_depth_image_memories.resize(swap_chain_image_views.size());
@@ -1446,7 +1418,7 @@ namespace deren::vulkan {
             destroy_images(ml_resolve_images, ml_resolve_image_memories, ml_resolve_image_views);
             destroy_images(ml_history_images, ml_history_image_memories, ml_history_image_views);
             destroy_images(furnace_cube_images, furnace_cube_memories, furnace_cube_views);
-            destroy_images(rt_shadow_images, rt_shadow_image_memories, rt_shadow_image_views);
+            // (the ray-traced visibility pair is the ENGINE's too, from A1.2 on - same function, same release)
             for (auto const& level_views : bloom_image_views) {
                 for (auto const& view : level_views) {
                     vkDestroyImageView(logical_device, view, nullptr);

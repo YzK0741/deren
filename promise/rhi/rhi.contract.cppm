@@ -152,6 +152,13 @@ export namespace deren::promise::rhi {
     /// creates its own sampler set (six samplers whose NEAREST minification, NEAREST mipmapping and
     /// `less_or_equal` comparison have to survive the trip), so the two knobs the old description carried
     /// were no longer enough to keep the pictures identical.
+    /// AND ONE APPENDED `image_format` VALUE, WHICH DOES NOT RENUMBER THIS (③-D/E A1.2): `r16_sfloat`
+    /// (one half-float channel - the ray-traced visibility image the engine now creates itself) joins
+    /// the enum with an explicit value placed after the `depth` role, so every enumerator that already
+    /// existed keeps the number it had. That is the rule the appended `error` values follow (see the
+    /// `image_format` note in rhi.api_core.cppm), and it is why this is not a bump: nothing already
+    /// crossing the boundary changed shape, size or spelling. An older backend handed the new value
+    /// refuses it (its format switch has no case) rather than misreading it.
     inline constexpr std::uint32_t abi_version = 16u;
 
     /// Why a promise entry point could not do what it was asked.

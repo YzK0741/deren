@@ -1963,9 +1963,18 @@ namespace deren::vulkan {
         }
 
         // ---- per FRAME SLOT: the ray-traced visibility image, the shadow map's cascades, the buffers ----
-        for (std::size_t slot = 0; slot < vk.rt_shadow_image_views.size() && slot < vk.rt_shadow_images.size(); ++slot) {
+        // THE ENGINE'S OWN IMAGE NOW (③-D/E A1.2), and published instance by instance because THIS GROUP HAS
+        // NO FAMILY-SPAN CONSUMER: `rt_shadow_visibility` is scoped PER FRAME SLOT, and `resolve_declaration`
+        // only fills `own_per_image` for `resource_scope::per_swapchain_image` - so no `views_of` run is owed
+        // here, and the engine's `std::array<object_manager>` needs no parallel contiguous native array.
+        for (std::size_t slot = 0; slot < rhi::max_frames_in_flight; ++slot) {
+            if (!static_cast<bool>(this->rt_shadow_image_views[slot]) || !static_cast<bool>(this->rt_shadow_images[slot])) {
+                continue;
+            }
             single(render_resource::resource_id::rt_shadow_visibility, 0, static_cast<uint32_t>(slot),
-                   pass::resolved_binding{.view = vk.rt_shadow_image_views[slot], .buffer = VK_NULL_HANDLE, .image = vk.rt_shadow_images[slot]});
+                   pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->rt_shadow_image_views[slot])),
+                                          .buffer = VK_NULL_HANDLE,
+                                          .image = static_cast<VkImage>(this->escape().native_image(*this->rt_shadow_images[slot]))});
         }
         // The shadow map's family elements are the CASCADES (see render_resource::shadow_io): the image is one
         // layered depth array per slot and the pass renders one layer at a time, so every layer the image
@@ -2882,15 +2891,15 @@ namespace deren::vulkan {
             // `record_stage` (the stages carry no marks), so the command stream is unchanged.
             this->prepare_stage(rt_shadow_stage, command_buffer);
             pass::run_report const rt_shadow_report = pass::record_stage(rt_shadow_stage, this->make_pass_host());
-            if (rt_shadow_report.recorded == 0 && this->frame_ring().position() < vk.rt_shadow_images.size() &&
-                vk.rt_shadow_images[this->frame_ring().position()] != VK_NULL_HANDLE) {
+            if (rt_shadow_report.recorded == 0 && this->frame_ring().position() < rhi::max_frames_in_flight &&
+                static_cast<bool>(this->rt_shadow_images[this->frame_ring().position()])) {
                 // The pass did not run, but the lighting stage's descriptor still declares the image as
                 // a shader input: its shader samples the binding only under a flag, and Vulkan requires
                 // a statically-used binding's image to be in the layout the descriptor declares whether
                 // or not the value is used. UNDEFINED as the old layout asserts nothing - the same
                 // answer the GI image's off path gives.
                 VkImageMemoryBarrier2 to_sampling = deren::vulkan::undefined_to_sampling_transition;
-                to_sampling.image = vk.rt_shadow_images[this->frame_ring().position()];
+                to_sampling.image = static_cast<VkImage>(this->escape().native_image(*this->rt_shadow_images[this->frame_ring().position()]));
                 VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
                 vkCmdPipelineBarrier2(command_buffer, &sampling_dependency);
             }

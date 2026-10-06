@@ -392,7 +392,8 @@ namespace deren::vulkan {
         destroy_target_set(ml_resolve_images, ml_resolve_image_memories, ml_resolve_image_views);
         destroy_target_set(ml_history_images, ml_history_image_memories, ml_history_image_views);
         destroy_target_set(furnace_cube_images, furnace_cube_memories, furnace_cube_views);
-        destroy_target_set(rt_shadow_images, rt_shadow_image_memories, rt_shadow_image_views);
+        // (the ray-traced visibility pair is the engine's too, from A1.2 - released and recreated by
+        // `create_render_chain_targets()`, which `on_swapchain_recreated()` calls)
 
         // 2d. Destroy the bloom targets (all levels)
         for (auto const& level_views : bloom_image_views) {

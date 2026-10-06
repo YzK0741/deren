@@ -191,6 +191,10 @@ namespace deren::vulkan {
             return rhi::image_format::r16g16b16a16_sfloat;
         case VK_FORMAT_R32G32B32_SFLOAT:
             return rhi::image_format::r32g32b32_sfloat;
+        // APPENDED with the contract's own appended value (③-D/E A1.2): the ray-traced visibility image is
+        // created at VK_FORMAT_R16_SFLOAT, so the engine has to be able to NAME the format it creates with.
+        case VK_FORMAT_R16_SFLOAT:
+            return rhi::image_format::r16_sfloat;
         default:
             return rhi::image_format::unknown;
         }
@@ -1067,10 +1071,19 @@ namespace deren::vulkan {
         // own panic), and the engine never indexes past the bound.
         std::array<rhi::object_manager<rhi::image>, rhi::max_swapchain_images> taa_history_images = {};
         std::array<rhi::object_manager<rhi::image_view>, rhi::max_swapchain_images> taa_history_image_views = {};
-        /// (re)create the per-image targets the engine owns: the previous generation is RELEASED first (a
-        /// view goes before its image - the borrowed-image view lifetime rule), then one set per current
-        /// swapchain image is created at the render extent and its heap descriptor is written. Generation 0
-        /// and every later generation both call this, so the two paths cannot drift.
+        // THE ONE PER-FRAME-SLOT GROUP (③-D/E A1.2): the ray-traced sun visibility, one image per FRAME SLOT
+        // - the rays are traced once per frame, not once per swapchain image (that reasoning moves here with
+        // the creation). At the frame's render extent, R16F (one visibility factor per pixel), STORAGE for
+        // the compute pass that writes it and SAMPLED for the lighting stage that multiplies the sun term by
+        // it. ITS LIFETIME IS STILL THE GENERATION'S: the count is the ring's, but a resize moves the render
+        // extent it is created at, which is why it is rebuilt in the same function as the per-image groups.
+        std::array<rhi::object_manager<rhi::image>, rhi::max_frames_in_flight> rt_shadow_images = {};
+        std::array<rhi::object_manager<rhi::image_view>, rhi::max_frames_in_flight> rt_shadow_image_views = {};
+        /// (re)create the render-chain targets the engine owns: the previous generation is RELEASED first (a
+        /// view goes before its image - the borrowed-image view lifetime rule), then each group is created
+        /// at the current render extent and its heap descriptor(s) written - one set per swapchain image for
+        /// the per-image groups, one per FRAME SLOT for the ray-traced visibility. Generation 0 and every
+        /// later generation both call this, so the two paths cannot drift.
         void create_render_chain_targets();
 
         // ---- post-processing: HDR scene target -> exposure + ACES + gamma -> swapchain ----
