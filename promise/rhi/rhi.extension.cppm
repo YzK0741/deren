@@ -371,6 +371,31 @@ export namespace deren::promise::rhi {
         api_core const* context = nullptr;
     };
 
+    /// THE ATTACHMENT INHERITANCE a SECONDARY command buffer declares (abi 15, the
+    /// `vulkan_command_buffer_inheritance` structure type).
+    ///
+    /// `command_buffer_begin_info::next` carries THIS when the recording is a `render_pass_continue`
+    /// one, because that is the one begin fact no portable vocabulary covers: Vulkan's dynamic
+    /// rendering requires the secondary to declare the attachment formats it will render against
+    /// (VUID-vkBeginCommandBuffer-commandBuffer-00050 and its pNext-chain companions), and which
+    /// formats a device serves is a property of the API, not of a recording session. It rides the SAME
+    /// tagged mechanism `vulkan_command_buffer_info` / `vulkan_heap_image_info` use - a
+    /// `structure_header` first, exactly one layer, borrowed only until the call returns - so the
+    /// portable `command_buffer_begin_info` stays free of one API's attachment model.
+    ///
+    /// The formats are NATIVE (`VkFormat` as a `std::int32_t`, the way Vulkan spells it): this struct
+    /// exists precisely to name what the contract cannot. `color_formats` is borrowed for the call and
+    /// must hold @p color_format_count entries; a count of 0 with a null pointer means "no colour
+    /// attachment", and `depth_format == 0` (VK_FORMAT_UNDEFINED) means "no depth attachment".
+    struct vulkan_command_buffer_inheritance_info {
+        structure_header header{structure_type::vulkan_command_buffer_inheritance, sizeof(vulkan_command_buffer_inheritance_info), nullptr};
+        std::uint32_t color_format_count = 0;
+        std::int32_t const* color_formats = nullptr; ///< native VkFormat values
+        std::int32_t depth_format = 0;               ///< native VkFormat; 0 = no depth attachment
+        std::uint32_t samples = 1;                   ///< VkSampleCountFlagBits; 1 = single-sampled
+        std::uint32_t view_mask = 0;                 ///< VkCommandBufferInheritanceRenderingInfo::viewMask
+    };
+
     [[nodiscard]] constexpr interface_type extension_interface_type(extension_kind const kind) noexcept {
         switch (kind) {
         case extension_kind::device_address:

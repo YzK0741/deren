@@ -56,6 +56,11 @@
 //     does), `frame_swapchain()` and `submit()` on the context, and `present()` answering `error`
 //     instead of nothing. Every one of them refuses by NAME where it cannot serve - nothing here
 //     silently downgrades, which is what makes the double (DLL + static) build a contract check.
+//   - THE abi 15 SURFACE is one more pure virtual on `api_core`: `create_command_buffer()`, answered
+//     with a STATIC owned stand-in whose echo is the contract's whole lifecycle - the descriptor's
+//     kind goes in, `begin_recording()`'s usage flags are remembered, `recording()` answers the same
+//     borrowed view every call, `execute()` tells its own buffer from a foreign one, and `release()`
+//     drops the one reference so every later verb answers `not_ready`.
 // ============================================================================
 import deren.promise.rhi;
 
@@ -152,10 +157,18 @@ namespace {
     /// measure" - and the probe's choice is the one that makes the positional rule testable without
     /// a GPU.)
     struct probe_command_list final : rhi::command_list {
+        /// WHOSE LIST THIS IS (abi 15): the probe has exactly two kinds of list - the FRAME's
+        /// (`begin_commands()`, the abi-13/14 object) and one per owned command buffer - and the
+        /// frame-scoped verbs below must tell them apart the way the real backend does.
+        bool frame_scoped = true;
+
         /// The probe records no barrier (it has no device) but the call has to ARRIVE, so the pair it
         /// was handed is echoed into this object - the same "make the crossing visible" shape
         /// `probe_buffer::release()` uses for the owned-handle path.
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use const from, rhi::image_use const to) noexcept override {
+            if (!this->frame_scoped) {
+                return rhi::error::not_ready; // the frame's image is not in this buffer (the frame-scoped rule)
+            }
             this->last_use_from = from;
             this->last_use_to = to;
             return rhi::error::ok;
@@ -164,15 +177,21 @@ namespace {
         /// No device, no destination buffer to copy into: the honest answer is `unsupported`, never a
         /// fake copy (the same rule `probe_buffer::mapped()` follows with its empty span).
         [[nodiscard]] rhi::error copy_image_to_buffer(rhi::buffer&, rhi::image const&, rhi::image_copy_region const&) noexcept override {
-            return rhi::error::unsupported;
+            return this->frame_scoped ? rhi::error::unsupported : rhi::error::not_ready;
         }
 
         [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
+            if (!this->frame_scoped) {
+                return rhi::error::not_ready; // the timing range is the frame slot's, and this is not it
+            }
             this->marks = 0;
             return rhi::error::unsupported;
         }
 
         [[nodiscard]] rhi::error mark_gpu_timing(std::uint32_t const mark_index, std::string_view const stage_name) noexcept override {
+            if (!this->frame_scoped) {
+                return rhi::error::not_ready;
+            }
             if (mark_index != this->marks) {
                 return rhi::error::invalid_argument; // positional: the next mark is the only valid index
             }
@@ -184,6 +203,31 @@ namespace {
         rhi::image_use last_use_to = rhi::image_use::color_attachment;
         std::string_view last_stage_name = {};
         std::uint32_t marks = 0;
+    };
+
+    /// THE PROBE'S OWNED COMMAND BUFFER (abi 15): the handle `create_command_buffer()` hands out,
+    /// statically allocated like `probe_buffer` (a probe has no device to allocate from, and the point
+    /// here is the CONTRACT's shape: one reference, a begin/end lifecycle, a borrowed recording view,
+    /// and execution of a secondary). Its answers are the echo the test reads:
+    ///   - `begin_recording()` records the usage it was handed (the flags cross the boundary),
+    ///   - `release()` drops the one reference, and every later verb answers `not_ready` (the same
+    ///     "a released handle is dead" shape `probe_buffer::release()` gives through size() == 0),
+    ///   - `execute()` accepts only THIS probe's buffer and refuses anything else by name.
+    /// The bodies live below `impl` (the execute check reaches back through the owner).
+    struct probe_command_buffer final : rhi::command_buffer {
+        impl* owner = nullptr;
+        /// the borrowed recording view `recording()` answers with (the same object every call)
+        probe_command_list list{};
+        rhi::command_buffer_kind kind_echo = rhi::command_buffer_kind::primary;
+        rhi::command_buffer_flags usage_echo = rhi::no_command_buffer_flags;
+        std::uint32_t executions = 0;
+        bool released = false;
+
+        void release() noexcept override;
+        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const& info) override;
+        [[nodiscard]] rhi::error end_recording() noexcept override;
+        [[nodiscard]] rhi::command_list* recording() noexcept override;
+        [[nodiscard]] rhi::error execute(rhi::command_buffer& secondary) override;
     };
 
     /// THE PROBE'S PRESENTATION SURFACE (abi 14): a BORROWED view like the walker and the profiler, and
@@ -330,8 +374,28 @@ namespace {
             return rhi::error::ok;
         }
 
+        /// abi 15: the owned recording handle. The probe has no device, so it answers with its static
+        /// stand-in and ECHOES the descriptor into it; a kind outside the two roles the contract names
+        /// is the factory's one refusal (`nullptr`, the contract's named-refusal rule).
+        [[nodiscard]] rhi::command_buffer* create_command_buffer(rhi::command_buffer_desc const& desc) override {
+            if (desc.kind != rhi::command_buffer_kind::primary && desc.kind != rhi::command_buffer_kind::secondary) {
+                return nullptr;
+            }
+            // RESET ON CREATION, like probe_buffer's size: the one reference the factory hands out starts
+            // here, so a released object becomes live again exactly as a fresh one would be.
+            this->command_buffer.kind_echo = desc.kind;
+            this->command_buffer.usage_echo = rhi::no_command_buffer_flags;
+            this->command_buffer.executions = 0;
+            this->command_buffer.released = false;
+            return &this->command_buffer;
+        }
+
         probe_buffer buffer{};
         probe_device_address address{};
+        /// abi 15: the command buffer `create_command_buffer()` hands out. ONE object, reset on every
+        /// creation - the same "statically allocated stand-in" shape `buffer` has, and the reason a
+        /// second create answers with the same pointer (the test says so where it matters).
+        probe_command_buffer command_buffer{};
         /// the ring cursor `frame_begin()` and the frame walker both answer (see the walker's note)
         std::uint32_t current_slot = 0;
         /// the creation descriptor's `window_width`, carried in by deren_make_api_core and echoed out
@@ -360,6 +424,10 @@ namespace {
             // states: a view handed out with a null owner dereferences null on its first call.
             this->walker.owner = this;
             this->swapchain_view.owner = this;
+            this->command_buffer.owner = this;
+            // ITS list is NOT the frame's: the frame-scoped verbs must refuse it (abi 15's rule the
+            // real backend applies, mirrored here so the test can measure it without a GPU).
+            this->command_buffer.list.frame_scoped = false;
         }
     };
 
@@ -401,6 +469,46 @@ namespace {
 
     rhi::image_extent probe_swapchain::extent() const noexcept {
         return {.width = this->owner->creation_window_width, .height = this->owner->creation_window_height, .depth = 1u};
+    }
+
+    // The command buffer's bodies, where `impl` is complete (the execute check reaches back to the one
+    // object the factory hands out).
+    void probe_command_buffer::release() noexcept {
+        // THE ONE REFERENCE IS DROPPED: the probe's buffer is a static stand-in, so "freed" can only be
+        // OBSERVED, and it is - every later verb answers `not_ready` (the same shape probe_buffer's
+        // release gives through size() == 0).
+        this->released = true;
+    }
+
+    rhi::error probe_command_buffer::begin_recording(rhi::command_buffer_begin_info const& info) {
+        if (this->released) {
+            return rhi::error::not_ready;
+        }
+        // THE USAGE CROSSES AND IS ECHOED: the four-flag set the caller composed is what the probe
+        // remembers, so the test can tell "the call arrived with these bits" from "a default was used".
+        this->usage_echo = info.usage;
+        return rhi::error::ok;
+    }
+
+    rhi::error probe_command_buffer::end_recording() noexcept {
+        return this->released ? rhi::error::not_ready : rhi::error::ok;
+    }
+
+    rhi::command_list* probe_command_buffer::recording() noexcept {
+        return this->released ? nullptr : &this->list; // the same borrowed view on every call
+    }
+
+    rhi::error probe_command_buffer::execute(rhi::command_buffer& secondary) {
+        if (this->released) {
+            return rhi::error::not_ready;
+        }
+        // THE SAME PROVENANCE RULE THE REAL BACKEND APPLIES: a buffer this factory did not hand out is
+        // refused by name (the probe has exactly one, so "ours" is an identity comparison).
+        if (&secondary != static_cast<rhi::command_buffer*>(&this->owner->command_buffer)) {
+            return rhi::error::invalid_argument;
+        }
+        ++this->executions;
+        return rhi::error::ok;
     }
 
 } // namespace

@@ -89,6 +89,17 @@ namespace deren::vulkan {
         return result;
     }
 
+    VkCommandBuffer core::frame_commands::native() const noexcept {
+        // A LIST KNOWS THE BUFFER IT RECORDS INTO (abi 15): `target` is what an owned command buffer's
+        // `recording()` sets, and a null target means the FRAME's slot buffer - the meaning every abi
+        // 13/14 call site already has. The frame's answer comes from the same method `submit_frame` and
+        // the heap requests use, so there is no second source of truth for it.
+        if (this->target != VK_NULL_HANDLE) {
+            return this->target;
+        }
+        return this->owner != nullptr ? this->owner->frame_command_buffer() : VK_NULL_HANDLE;
+    }
+
     rhi::error core::frame_commands::begin_gpu_timing() noexcept {
         core& owner = *this->owner;
         if (!owner.gpu_timing_supported) {
@@ -97,7 +108,13 @@ namespace deren::vulkan {
         if (!owner.frame_in_flight) {
             return rhi::error::not_ready; // the same window `use()` refuses in
         }
-        owner.begin_gpu_timing(owner.frame_command_buffer(), static_cast<uint32_t>(owner.current_frame));
+        if (this->target != VK_NULL_HANDLE) {
+            // THE TIMING RANGE IS THE FRAME SLOT'S (abi 15): the queries live in that slot's slice of
+            // the query pool and the profiler reads that slot, so a list recording into another buffer
+            // has no range to open - the frame-scoped verbs' own `not_ready` window.
+            return rhi::error::not_ready;
+        }
+        owner.begin_gpu_timing(this->native(), static_cast<uint32_t>(owner.current_frame));
         return rhi::error::ok;
     }
 
@@ -108,6 +125,9 @@ namespace deren::vulkan {
         }
         if (!owner.frame_in_flight) {
             return rhi::error::not_ready;
+        }
+        if (this->target != VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // the frame slot's range again (see begin_gpu_timing)
         }
         uint32_t const slot = static_cast<uint32_t>(owner.current_frame);
         // THE MARKS ARE POSITIONAL: an out-of-order index would mislabel every later interval, so it
@@ -121,7 +141,7 @@ namespace deren::vulkan {
         // "nothing yet recorded"), every pass boundary resolves at the bottom (it measures everything
         // submitted so far) - the one pattern this renderer's marks ever expressed, now owned here.
         VkPipelineStageFlagBits const stage = mark_index == 0 ? VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT : VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
-        owner.mark_gpu_timing(owner.frame_command_buffer(), slot, stage, stage_name);
+        owner.mark_gpu_timing(this->native(), slot, stage, stage_name);
         return rhi::error::ok;
     }
 

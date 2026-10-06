@@ -243,14 +243,27 @@ namespace deren::vulkan {
         // the first lands exactly on constant_init's two recipes (plan §8.3, gate A5).
 
         /// The frame's PRIMARY command buffer, as the contract's recording surface (`begin_commands()`).
+        ///
+        /// abi 15 GENERALIZED IT: `target` says WHICH buffer this list records into, so one list type
+        /// serves both the frame's slot buffer (`target` null - the abi 13/14 meaning, and the object
+        /// `begin_commands()` answers) and every `command_buffer` this backend hands out (target set -
+        /// `command_buffer::recording()`). The frame-scoped verbs below (`use`,
+        /// `copy_image_to_buffer`, the timing pair) are the FRAME's: they answer `not_ready` on a list
+        /// that is not the frame's, which is the window their own contract notes already name.
         struct frame_commands final : deren::promise::rhi::command_list {
             core* owner = nullptr;
+            /// the buffer this list records into: null = the frame's slot buffer, set = an owned one
+            VkCommandBuffer target = VK_NULL_HANDLE;
             /// `use()` ANSWERS with an `error` now (it does not drop a barrier silently); this flag is only
             /// about how often the backend spells out the REASON for a refusal, so a per-frame caller
             /// cannot turn one broken pair into a log flood
             bool unexpected_use_logged = false;
             /// the A5 dump (both sides of each barrier) is emitted once per pair per process
             std::uint32_t shadow_gate_dumped = 0;
+
+            /// the native command buffer this list records into (the escape answers with it, see
+            /// core.api_core.cpp's frame_escape::native_command_buffer)
+            [[nodiscard]] VkCommandBuffer native() const noexcept;
 
             [[nodiscard]] deren::promise::rhi::error use(deren::promise::rhi::image const& resource, deren::promise::rhi::image_use from, deren::promise::rhi::image_use to) noexcept override;
             [[nodiscard]] deren::promise::rhi::error copy_image_to_buffer(deren::promise::rhi::buffer& destination,
@@ -260,6 +273,29 @@ namespace deren::vulkan {
             // timing range and the marks ride the list rather than a raw slot index ----
             [[nodiscard]] deren::promise::rhi::error begin_gpu_timing() noexcept override;
             [[nodiscard]] deren::promise::rhi::error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept override;
+        };
+
+        /// A command buffer the caller OWNS, as the contract's `command_buffer` (abi 15).
+        ///
+        /// THE HEAP OBJECT THE FACTORY MAKES: it wraps one `vk_command_buffer` (which OWNS ITS OWN
+        /// COMMAND POOL - handles/handles.cppm, so no allocator crosses the boundary) and one
+        /// `frame_commands` view whose `target` is that buffer, which is what
+        /// `command_buffer::recording()` hands out. `release()` is the contract's one-reference drop and
+        /// the matching delete, exactly like `owned_buffer`.
+        struct owned_command_buffer final : deren::promise::rhi::command_buffer {
+            core* owner = nullptr;
+            /// the buffer and its command pool; the pool dies with this object
+            vk_command_buffer buffer;
+            /// THIS buffer's borrowed recording view (returned by `recording()`, never owned by a caller)
+            frame_commands list;
+            /// one log per buffer, not one per call: a begin that repeats a refusal must not flood the log
+            bool refused_chain_logged = false;
+
+            void release() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const& info) override;
+            [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override;
+            [[nodiscard]] deren::promise::rhi::command_list* recording() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer& secondary) override;
         };
 
         /// The swapchain image the frame in flight draws into, as the contract's `image`.
@@ -585,6 +621,13 @@ namespace deren::vulkan {
         frame_heap heap_view;
         std::mutex contract_images_mutex;
         std::unordered_set<deren::promise::rhi::image const*> contract_images;
+        /// THE COMMAND BUFFERS `create_command_buffer()` HANDED OUT (abi 15), the same registry shape
+        /// `contract_images` uses and for the same reason: `execute()` and the escape's native-handle
+        /// answer must tell "a buffer this backend made" from "some pointer a caller has" WITHOUT
+        /// casting the caller's pointer (the cast is only defined once provenance is known). Erased by
+        /// `owned_command_buffer::release()`.
+        std::mutex contract_command_buffers_mutex;
+        std::unordered_set<deren::promise::rhi::command_buffer const*> contract_command_buffers;
         /// the tier-2 address object `query_extension(device_address)` answers with
         buffer_address_view address_view;
         /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,
@@ -725,6 +768,9 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
         [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept override;
         [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_list& commands) override;
+        /// abi 15: the owned recording handle. The result is heap-allocated here and destroyed by the
+        /// contract's `release()` (which is also what removes it from the registry below).
+        [[nodiscard]] deren::promise::rhi::command_buffer* create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
 
         VkSurfaceKHR surface = VK_NULL_HANDLE;
 

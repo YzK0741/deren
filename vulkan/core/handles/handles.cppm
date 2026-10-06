@@ -35,6 +35,9 @@ namespace deren::vulkan {
         bool owns_pool = false;
 
     public:
+        /// THE EMPTY HANDLE, for an owner that fills it in later: the backend's owned command buffer
+        /// default-constructs its member and then assigns the factory's result to it.
+        vk_command_buffer() noexcept = default;
         [[nodiscard]] VkCommandBuffer const& get() const noexcept;
         [[nodiscard]] VkCommandBuffer const& operator*() const noexcept;
         void release() noexcept;

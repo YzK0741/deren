@@ -124,6 +124,32 @@ namespace {
     };
 
     /**
+     * @brief a command buffer the probe NEVER handed out - the provenance rule's subject (abi 15)
+     *
+     * `command_buffer::execute()` has to tell "a buffer this backend made" from "some pointer a
+     * caller has"; without RTTI the contract's precondition is the caller's, and the backend answers
+     * `invalid_argument` for anything it does not recognise (never a cast of an unknown pointer).
+     * This stand-in is that "not mine" case, and it lives in the TEST because the test is what knows
+     * the difference.
+     */
+    struct foreign_command_buffer final : rhi::command_buffer {
+        void release() noexcept override {
+        }
+        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error end_recording() noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::command_list* recording() noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
+            return rhi::error::invalid_argument;
+        }
+    };
+
+    /**
      * @brief everything the promise contract promises, driven through one pair of entry points
      *
      * Called once with the symbols resolved from the loaded DLL and once with the ones the linker
@@ -158,7 +184,13 @@ namespace {
         // `begin_gpu_timing()` / `mark_gpu_timing(index, name)`, `swapchain` appended `recreate()` /
         // `extent()`. Appends and a return-type change on tier-1 vtables are exactly the case the
         // number exists for.
-        CHECK(rhi::abi_version == 14u);
+        // ABI15 is the recording surface's ownership: `api_core` appended
+        // `create_command_buffer(command_buffer_desc const&)` - a virtual on an existing tier-1 type -
+        // and `command_buffer` is a NEW tier-1 interface (`release` / `begin_recording` /
+        // `end_recording` / `recording` / `execute`) with its own `interface_type` value. The `next`
+        // chain of `command_buffer_begin_info` is data, so the tagged structures that ride it do not
+        // renumber anything (the same rule the appended `error` values follow).
+        CHECK(rhi::abi_version == 15u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -367,6 +399,40 @@ namespace {
         CHECK_MSG(core->submit(*commands) == rhi::error::ok, which_half);
         CHECK(core->begin_commands() == nullptr); // handed over: no frame is open to record into
         CHECK(core->submit(*commands) == rhi::error::not_ready);
+
+        // ---- the abi 15 surface: the OWNED command buffer ---------------------------------------
+        // `create_command_buffer()` hands out ONE reference; the probe answers with its static
+        // stand-in (the same shape its buffer has), reset on every creation - so a second create
+        // answers with the SAME pointer, and what this block measures is the LIFE CYCLE, not identity.
+        rhi::command_buffer* const recorded = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
+        CHECK_MSG(recorded != nullptr, which_half);
+        if (recorded != nullptr) {
+            CHECK(recorded->type() == rhi::command_buffer::interface_id);
+            // the borrowed recording view: the same object every call, exactly like the frame's list
+            rhi::command_list* const recorded_view = recorded->recording();
+            CHECK(recorded_view != nullptr);
+            CHECK(recorded->recording() == recorded_view);
+            // ... and the frame-scoped verbs refuse a list that is not the frame's (the contract's own
+            // window for `use` / the timing pair)
+            CHECK(recorded_view->begin_gpu_timing() == rhi::error::not_ready);
+            // the recording lifecycle, portable usage bits and all
+            CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) == rhi::error::ok);
+            CHECK(recorded->end_recording() == rhi::error::ok);
+            // A SECONDARY comes back as the probe's one stand-in (documented above), which is enough
+            // for the provenance rule the next two lines measure: a foreign buffer is refused by name,
+            // this backend's own is accepted.
+            rhi::command_buffer* const secondary = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary});
+            CHECK(secondary == recorded); // one static stand-in per probe, reset on each create
+            foreign_command_buffer foreign{};
+            CHECK_MSG(recorded->execute(foreign) == rhi::error::invalid_argument, which_half);
+            CHECK_MSG(recorded->execute(*recorded) == rhi::error::ok, which_half);
+            // RELEASE drops the one reference, and the probe echoes it: every later verb is not_ready
+            recorded->release();
+            CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::not_ready);
+            CHECK(recorded->recording() == nullptr);
+        }
+        // a kind outside the two roles is the factory's one refusal (`nullptr`, the contract's rule)
+        CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
 
         // the profiler face: the probe cannot timestamp, which is the `unsupported` story - a
         // constant zero and a named refusal, never silence and never a fake measurement

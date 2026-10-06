@@ -678,6 +678,137 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
     };
 
+    // ---- THE COMMAND BUFFER: THE OWNED RECORDING HANDLE (abi 15) ------------------------------------
+    //
+    // `command_list` is a BORROWED view of a recording (abi 1/2/14: it has no `release()`, and the
+    // ownership note above says why); what the contract never had was the RESOURCE behind it - a
+    // command buffer the caller can create, keep, begin, end and execute, which is what the engine's
+    // per-slot primaries, its per-cascade and per-worker secondaries and the read-back's one-shot
+    // buffer need. `command_buffer` is that resource, in the ownership shape `buffer` / `image`
+    // established: the factory hands out ONE reference, `release()` drops it inside the backend, and
+    // `rhi::object_manager<T>` is the owner spelling.
+    //
+    // WHAT DOES NOT CROSS THIS BOUNDARY, and it is the decision this type rests on: the ALLOCATOR. A
+    // command buffer is allocated from an API-specific pool/allocator whose lifetime is entangled with
+    // GPU progress (it may be reset only once the device is done with it), and neither Vulkan's
+    // `VkCommandPool` nor D3D12's allocator nor Metal's queue is a portable concept. This backend's
+    // wrapper OWNS ITS OWN POOL (vulkan/core/handles/handles.cppm), so the one lifetime rule is the
+    // handle's own and no allocator, pool or reset verb appears here; a backend that needs one keeps
+    // it behind `begin_recording()` / `release()`.
+    // ----------------------------------------------------------------------------------------------
+
+    /// HOW A COMMAND BUFFER IS USED BY ITS OWNER (abi 15).
+    ///
+    /// The two roles every API in this family names: a PRIMARY buffer is handed to the device as a
+    /// unit of work, a SECONDARY one is recorded inside a primary's rendering instance and executed by
+    /// it (Vulkan secondary command buffers, D3D12 bundles, WebGPU render bundles). The contract names
+    /// the ROLE, not the level: `VK_COMMAND_BUFFER_LEVEL_*` is one backend's spelling of it.
+    enum class command_buffer_kind : std::uint32_t {
+        primary = 0,   ///< submitted by the frame itself
+        secondary = 1, ///< recorded inside a rendering instance and executed by a primary
+    };
+
+    /// How a command buffer is created (abi 15).
+    ///
+    /// `struct_size` is the ABI guard every descriptor in this file carries and follows the same
+    /// append-only rule: a field whose whole extent is not inside the bytes the caller declares keeps
+    /// this build's default, so an older caller is detected instead of mis-read.
+    struct command_buffer_desc {
+        std::uint32_t struct_size = sizeof(command_buffer_desc); ///< size of this structure as the CALLER compiled it
+        command_buffer_kind kind = command_buffer_kind::primary; ///< what the buffer is for (see above)
+    };
+
+    /// WHAT ONE RECORDING SESSION NEEDS BEYOND ITS KIND (abi 15): the three usage facts every API in
+    /// this family has a spelling of. WHICH barriers, stages and layouts that implies stays the
+    /// backend's - the contract states the intent, never the mechanism.
+    enum class command_buffer_usage : std::uint32_t {
+        none = 0,
+        one_time_submit = 1u << 0,      ///< recorded once and submitted once: the backend may optimise
+        render_pass_continue = 1u << 1, ///< recorded INSIDE a rendering instance (secondary only)
+        simultaneous_use = 1u << 2,     ///< may be recorded from more than one thread at once
+    };
+
+    /// The flags of `command_buffer_usage`, spelled the way the buffer flag set is (`to_bits` + `has_flag`).
+    using command_buffer_flags = std::uint32_t;
+
+    /// The empty flag set, spelled where a caller passes "none".
+    inline constexpr command_buffer_flags no_command_buffer_flags = 0u;
+
+    /// The same value as a bitmask, for a caller composing a set.
+    [[nodiscard]] constexpr auto to_bits(command_buffer_usage flag) noexcept -> command_buffer_flags {
+        return static_cast<command_buffer_flags>(flag);
+    }
+
+    /// Whether @p flags has @p flag set.
+    [[nodiscard]] constexpr auto has_flag(command_buffer_flags flags, command_buffer_usage flag) noexcept -> bool {
+        return (flags & to_bits(flag)) != no_command_buffer_flags;
+    }
+
+    /// What one `begin_recording()` call is told (abi 15).
+    ///
+    /// PORTABLE BY CONSTRUCTION: the usage bits, a size guard, and a one-layer BACKEND PARAMETER CHAIN.
+    /// The chain is the same tagged mechanism `descriptor_heap`'s `vulkan_*_info` structs ride
+    /// (`structure_header` + a `structure_type` value): an attachment-inheritance model is one API's
+    /// execution model, so it does not live in this structure - a backend that needs one names it in
+    /// the chain. A backend that cannot serve a chain REFUSES THE CALL BY NAME (`unsupported`) rather
+    /// than dropping it, which is the rule the heap requests already follow ("不静默丢链").
+    ///
+    /// `struct_size` is the same ABI guard `command_buffer_desc` carries; `next` is borrowed only
+    /// until the call returns.
+    struct command_buffer_begin_info {
+        std::uint32_t struct_size = sizeof(command_buffer_begin_info); ///< size of this structure as the CALLER compiled it
+        command_buffer_flags usage = no_command_buffer_flags;          ///< see command_buffer_usage
+        structure_header const* next = nullptr;                        ///< optional tagged backend parameters
+    };
+
+    /// A command buffer the caller OWNS (abi 15).
+    ///
+    /// ONE REFERENCE, dropped through `release()` - the ownership the other owned handles carry (see
+    /// the ownership note above). What is specific to this type is that the resource is a RECORDING
+    /// SESSION rather than memory: the verbs below are that session's lifecycle, and the backend keeps
+    /// the pool, the query pool and the API's state machine behind them.
+    struct command_buffer : object {
+        static constexpr interface_type interface_id = interface_type::command_buffer;
+        command_buffer() noexcept
+            : object(interface_id) {
+        }
+        virtual ~command_buffer() noexcept = default;
+
+        /// RELEASE THE CALLER'S ONE REFERENCE (see `buffer::release()`): the recording session and the
+        /// allocation behind it die with the last reference, inside the backend.
+        virtual void release() noexcept = 0;
+
+        /// Open this buffer's recording session.
+        ///
+        /// `ok` = recording; `not_ready` = this handle holds no reference any more, or the backend's
+        /// recording context is not available; `unsupported` = a usage bit or a chain entry this
+        /// backend cannot serve (REFUSED BY NAME, never silently dropped); device-level failures
+        /// (`device_lost`, `out_of_*_memory`) travel as themselves.
+        [[nodiscard]] virtual error begin_recording(command_buffer_begin_info const& info) = 0;
+
+        /// Close the recording session: the buffer becomes executable - by `api_core::submit()`
+        /// (a primary) or by `execute()` (a secondary).
+        [[nodiscard]] virtual error end_recording() noexcept = 0;
+
+        /// THIS buffer's borrowed recording view: the same `command_list` type `begin_commands()` hands
+        /// out for the frame, and the same object every call. The FRAME-scoped verbs on that list
+        /// (`use`, `copy_image_to_buffer`, the timing pair) answer `not_ready` when the list is not the
+        /// frame's - the window their own notes already name - so what the view is for on any other
+        /// buffer is the native-handle escape (`vulkan_escape::native_command_buffer`), with the
+        /// portable recording verbs arriving as the passes migrate onto the contract.
+        [[nodiscard]] virtual command_list* recording() noexcept = 0;
+
+        /// Record @p secondary's commands into THIS buffer, which must be recording.
+        ///
+        /// ONE secondary per call: that is the unit every API in this family executes (Vulkan
+        /// `vkCmdExecuteCommands`, D3D12 `ExecuteBundle`, WebGPU `executeBundles`). `secondary` is an
+        /// object THIS backend handed out and must already be executable (`end_recording()`);
+        /// `invalid_argument` = it is not one of ours, `not_ready` = this buffer is not recording or
+        /// holds no reference. The backend owns the compatibility rules (inheritance, layouts) and
+        /// reports what it cannot serve.
+        [[nodiscard]] virtual error execute(command_buffer& secondary) = 0;
+    };
+
     /// What starting a frame hands back.
     ///
     /// §3.3 fixes the name and the fact that it is a value, not a handle; the fields the
@@ -901,6 +1032,14 @@ export namespace deren::promise::rhi {
         /// `invalid_argument` = a list this backend did not hand out; `not_ready` = no frame is in
         /// flight; device-level failures travel as their own codes (device_lost, out_of_*_memory).
         [[nodiscard]] virtual error submit(command_list& commands) = 0;
+
+        /// Create a command buffer the caller OWNS (abi 15). `nullptr` = this backend cannot serve the
+        /// descriptor (a kind it does not have; the reason is on the record, the contract's named-
+        /// refusal rule). The handle carries ONE reference - `rhi::object_manager<command_buffer>` is
+        /// the owner spelling and `release()` drops it inside the backend - and the allocation behind
+        /// it (the API's own pool/allocator) stays the backend's, so nothing but the handle crosses
+        /// this boundary.
+        [[nodiscard]] virtual command_buffer* create_command_buffer(command_buffer_desc const& desc) = 0;
     };
 
     /// 在已完成ABI握手的有效对象上检查扩展身份；不能验证悬空指针或不可信后端。

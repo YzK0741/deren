@@ -41,6 +41,17 @@ namespace deren::vulkan {
             }
             return reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
         }
+
+        /// The VkCommandBuffer a contract COMMAND LIST names, through the same escape (abi 15). A list
+        /// of a buffer the caller created is resolvable outside a frame - that is exactly what the
+        /// read-back's one-shot buffer needs, because its read runs after the frame has landed.
+        VkCommandBuffer native_command_buffer_of(core& gpu, deren::promise::rhi::command_list& list) {
+            auto* const escape = escape_of(gpu);
+            if (escape == nullptr) {
+                return VK_NULL_HANDLE;
+            }
+            return static_cast<VkCommandBuffer>(escape->native_command_buffer(list));
+        }
     } // namespace
 
     readback::readback(core& device)
@@ -119,17 +130,27 @@ namespace deren::vulkan {
             return std::unexpected(std::string("readback: staging buffer unavailable"));
         }
 
-        // one command buffer per call, and it OWNS ITS OWN POOL (handles/handles.cppm): the wrapper
-        // destroys the pool - freeing the buffer with it - on destruction, so nothing accumulates
-        // across calls. (The fence wait below is what makes that destruction legal: the pool must not
-        // go away while its buffer is pending.)
-        vk_command_buffer const commands = vk.make_command_buffer();
-        VkCommandBufferBeginInfo const begin_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                                                     .pNext = nullptr,
-                                                     .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT,
-                                                     .pInheritanceInfo = nullptr};
-        if (vkBeginCommandBuffer(*commands, &begin_info) != VK_SUCCESS) {
-            return std::unexpected(std::string("readback: vkBeginCommandBuffer failed"));
+        // ONE COMMAND BUFFER PER CALL, OUT OF THE CONTRACT (abi 15): `create_command_buffer()` hands out
+        // a buffer that OWNS ITS OWN COMMAND POOL (handles/handles.cppm), and `object_manager` releases
+        // it when this function returns - release destroys the pool, which frees the buffer with it - so
+        // nothing accumulates across calls. (The fence wait below is what makes that destruction legal:
+        // a pool must not go away while its buffer is pending.)
+        deren::promise::rhi::object_manager<deren::promise::rhi::command_buffer> commands{
+            contract_of(vk).create_command_buffer({.kind = deren::promise::rhi::command_buffer_kind::primary})};
+        if (!commands) {
+            return std::unexpected(std::string("readback: create_command_buffer refused"));
+        }
+        // THE RECORDING LIFECYCLE IS THE CONTRACT'S, because this buffer is the CALLER's own (the
+        // frame's primaries belong to the backend, so this is the one engine-side session that goes
+        // through `begin_recording`/`end_recording`); the raw handle the copy commands are recorded on
+        // comes from the contract's native-handle path - the same escape this file already uses for
+        // buffers (see native_buffer_of above).
+        if (commands->begin_recording({.usage = deren::promise::rhi::to_bits(deren::promise::rhi::command_buffer_usage::one_time_submit)}) != deren::promise::rhi::error::ok) {
+            return std::unexpected(std::string("readback: begin_recording failed"));
+        }
+        VkCommandBuffer const command_buffer = native_command_buffer_of(vk, *commands->recording());
+        if (command_buffer == VK_NULL_HANDLE) {
+            return std::unexpected(std::string("readback: the escape answered no command buffer"));
         }
 
         // The transfer needs the source's writes visible and finished, and it must not start while an
@@ -158,12 +179,12 @@ namespace deren::vulkan {
                                              .pBufferMemoryBarriers = barriers.data(),
                                              .imageMemoryBarrierCount = 0,
                                              .pImageMemoryBarriers = nullptr};
-        vkCmdPipelineBarrier2(*commands, &dependency);
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
 
         VkBufferCopy const region = {.srcOffset = offset, .dstOffset = 0, .size = size};
-        vkCmdCopyBuffer(*commands, source, target->buffer, 1, &region);
-        if (vkEndCommandBuffer(*commands) != VK_SUCCESS) {
-            return std::unexpected(std::string("readback: vkEndCommandBuffer failed"));
+        vkCmdCopyBuffer(command_buffer, source, target->buffer, 1, &region);
+        if (commands->end_recording() != deren::promise::rhi::error::ok) {
+            return std::unexpected(std::string("readback: end_recording failed"));
         }
 
         // the fence has just been reset by wait()/creation, so it is unsignaled as submit requires
@@ -173,7 +194,7 @@ namespace deren::vulkan {
                                           .pWaitSemaphores = nullptr,
                                           .pWaitDstStageMask = nullptr,
                                           .commandBufferCount = 1,
-                                          .pCommandBuffers = &*commands,
+                                          .pCommandBuffers = &command_buffer,
                                           .signalSemaphoreCount = 0,
                                           .pSignalSemaphores = nullptr};
         if (vkQueueSubmit(vk.graphics_queue_handle, 1, &submit_info, this->fence) != VK_SUCCESS) {

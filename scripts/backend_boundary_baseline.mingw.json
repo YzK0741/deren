@@ -105,24 +105,23 @@
       "members": []
     }
   ],
-  "count": 9,
+  "count": 4,
   "cross_boundary_symbols": [
     "_ZGIW5derenW6vulkanW10init_utils",
     "_ZGIW5derenW6vulkanW4core",
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferC1EOS5_",
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferD1Ev",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core29make_secondary_command_bufferEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
+    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv"
   ],
-  "defined_in_backend": 1236,
+  "defined_in_backend": 1252,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZN5deren6vulkan10init_utilsW5derenW6vulkanW10init_utils21create_recording_poolERNS0_S3_W4core4coreE"
+    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferC1EOS5_",
+    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferD1Ev",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core29make_secondary_command_bufferEv",
+    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv"
   ],
   "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
@@ -150,26 +149,9 @@
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE": [
       "runtime.constructor.cppm.obj"
     ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferC1EOS5_": [
-      "runtime.constructor.cppm.obj"
-    ],
-    "_ZN5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferD1Ev": [
-      "readback.cpp.obj",
-      "runtime.constructor.cppm.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core19make_command_bufferEv": [
-      "readback.cpp.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4core4core29make_secondary_command_bufferEv": [
-      "runtime.constructor.cppm.obj"
-    ],
     "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv": [
-      "runtime.frames.cppm.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles17vk_command_bufferdeEv": [
-      "readback.cpp.obj",
       "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 22
+  "usages": 15
 }

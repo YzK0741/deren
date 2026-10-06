@@ -1162,6 +1162,174 @@ namespace deren::vulkan {
         return &this->commands_view;
     }
 
+    // ---- THE OWNED COMMAND BUFFER (abi 15) ----------------------------------------------------------
+
+    rhi::command_buffer* core::create_command_buffer(rhi::command_buffer_desc const& declared_desc) {
+        // THE ABI GUARD, the same rule every factory descriptor follows: only the prefix the caller
+        // declares is read, so an older caller's structure keeps this build's default.
+        rhi::command_buffer_kind kind = rhi::command_buffer_kind::primary;
+        if (covered_by(declared_desc.struct_size, offsetof(rhi::command_buffer_desc, kind), sizeof(rhi::command_buffer_desc::kind))) {
+            kind = declared_desc.kind;
+        }
+        // THE KIND IS THE ONE REFUSAL THIS FACTORY HAS: a value outside the two roles the contract
+        // names is a caller bug, and the answer is nullptr plus the reason on the record (§4.2: no
+        // throwing path).
+        if (kind != rhi::command_buffer_kind::primary && kind != rhi::command_buffer_kind::secondary) {
+            deren::utility::log("rhi: create_command_buffer refused: unknown command_buffer_kind {}", static_cast<std::uint32_t>(kind));
+            return nullptr;
+        }
+
+        auto* const answer = new owned_command_buffer();
+        answer->owner = this;
+        // ONE POOL PER BUFFER, created and owned by the wrapper (handles/handles.cppm): the handle is a
+        // self-contained device resource and the recording thread that owns it never shares a pool.
+        answer->buffer = ::deren::vulkan::make_command_buffer(this->logical_device, this->graphics_queue_family_index,
+                                                              kind == rhi::command_buffer_kind::secondary ? VK_COMMAND_BUFFER_LEVEL_SECONDARY
+                                                                                                          : VK_COMMAND_BUFFER_LEVEL_PRIMARY);
+        if (*answer->buffer == VK_NULL_HANDLE) {
+            delete answer;
+            deren::utility::log("rhi: create_command_buffer refused: the backend could not allocate the buffer");
+            return nullptr;
+        }
+        // ITS RECORDING VIEW IS THIS BUFFER'S OWN (abi 15): the list the contract hands back knows which
+        // buffer it records into, which is what keeps one `command_list` type serving both the frame's
+        // list and every owned buffer.
+        answer->list.owner = this;
+        answer->list.target = *answer->buffer;
+        {
+            // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: `execute()` and the
+            // escape's native-handle answer must tell a buffer this backend made from a pointer a
+            // caller holds, and the cast that reads it is only defined once that is known.
+            std::lock_guard const lock(this->contract_command_buffers_mutex);
+            this->contract_command_buffers.insert(answer);
+        }
+        deren::utility::log("rhi: create_command_buffer {} -> native {:#x} (its own command pool)",
+                            kind == rhi::command_buffer_kind::secondary ? "secondary" : "primary",
+                            reinterpret_cast<std::uintptr_t>(*answer->buffer));
+        return answer;
+    }
+
+    void core::owned_command_buffer::release() noexcept {
+        {
+            std::lock_guard const lock(this->owner->contract_command_buffers_mutex);
+            this->owner->contract_command_buffers.erase(this);
+        }
+        // `delete this`: the destructor releases the `vk_command_buffer`, whose own release DESTROYS THE
+        // COMMAND POOL it created - the contract's one reference is the whole lifetime rule here (there
+        // is no allocator registry behind this resource, unlike a buffer or an image).
+        delete this;
+    }
+
+    rhi::error core::owned_command_buffer::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
+        // THE ABI GUARD for the begin info: only the prefix the caller declares is read.
+        std::uint32_t const declared = declared_info.struct_size;
+        rhi::command_buffer_flags usage = rhi::no_command_buffer_flags;
+        rhi::structure_header const* next = nullptr;
+        if (covered_by(declared, offsetof(rhi::command_buffer_begin_info, usage), sizeof(rhi::command_buffer_begin_info::usage))) {
+            usage = declared_info.usage;
+        }
+        if (covered_by(declared, offsetof(rhi::command_buffer_begin_info, next), sizeof(rhi::command_buffer_begin_info::next))) {
+            next = declared_info.next;
+        }
+
+        if (*this->buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // this handle holds no reference any more
+        }
+
+        VkCommandBufferInheritanceRenderingInfo rendering = {};
+        VkCommandBufferInheritanceInfo inheritance = {};
+        bool const inherits = next != nullptr;
+        if (inherits) {
+            // THE CHAIN IS READ, NEVER DROPPED (the rule the heap requests live by). Today's one
+            // structure is the Vulkan attachment inheritance a `render_pass_continue` secondary MUST
+            // declare; anything else is refused BY NAME below.
+            if (next->s_type != rhi::structure_type::vulkan_command_buffer_inheritance ||
+                rhi::validate_structure(*next, rhi::structure_type::vulkan_command_buffer_inheritance, sizeof(rhi::vulkan_command_buffer_inheritance_info)) != rhi::error::ok) {
+                if (!this->refused_chain_logged) {
+                    this->refused_chain_logged = true;
+                    deren::utility::log("rhi: begin_recording refused a parameter chain of type {:#x} - this backend serves only "
+                                        "vulkan_command_buffer_inheritance (a chain is never dropped silently)",
+                                        static_cast<std::uint32_t>(next->s_type));
+                }
+                return rhi::error::unsupported;
+            }
+            auto const& declared_inheritance = *reinterpret_cast<rhi::vulkan_command_buffer_inheritance_info const*>(next);
+            rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
+            rendering.pNext = nullptr;
+            rendering.flags = 0;
+            rendering.viewMask = declared_inheritance.view_mask;
+            rendering.colorAttachmentCount = declared_inheritance.color_format_count;
+            rendering.pColorAttachmentFormats = reinterpret_cast<VkFormat const*>(declared_inheritance.color_formats);
+            rendering.depthAttachmentFormat = static_cast<VkFormat>(declared_inheritance.depth_format);
+            rendering.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
+            rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(declared_inheritance.samples);
+            inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+            inheritance.pNext = &rendering;
+        } else if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
+            // A CONTINUATION WITH NO INHERITANCE IS NOT EXPRESSIBLE: Vulkan requires the secondary to
+            // declare the attachments it continues (dynamic rendering), and the backend cannot invent
+            // them. Refused by name rather than begun into an unvalidated state.
+            return rhi::error::unsupported;
+        }
+
+        VkCommandBufferUsageFlags flags = 0;
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::one_time_submit)) {
+            flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        }
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
+            flags |= VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT;
+        }
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::simultaneous_use)) {
+            flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+        }
+
+        VkCommandBufferBeginInfo const begin = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .pInheritanceInfo = inherits ? &inheritance : nullptr,
+        };
+        return generic_error(vkBeginCommandBuffer(*this->buffer, &begin));
+    }
+
+    rhi::error core::owned_command_buffer::end_recording() noexcept {
+        if (*this->buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        return generic_error(vkEndCommandBuffer(*this->buffer));
+    }
+
+    rhi::command_list* core::owned_command_buffer::recording() noexcept {
+        if (*this->buffer == VK_NULL_HANDLE) {
+            return nullptr; // no reference held: there is no view to lend
+        }
+        return &this->list;
+    }
+
+    rhi::error core::owned_command_buffer::execute(rhi::command_buffer& secondary) {
+        if (*this->buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        {
+            // PROVENANCE FIRST (the registry, so no pointer is cast before it is known to be ours):
+            // a command buffer this backend did not hand out is a caller bug, refused by name.
+            std::lock_guard const lock(this->owner->contract_command_buffers_mutex);
+            if (!this->owner->contract_command_buffers.contains(&secondary)) {
+                return rhi::error::invalid_argument;
+            }
+        }
+        auto const& other = static_cast<core::owned_command_buffer const&>(secondary);
+        VkCommandBuffer const native = *other.buffer;
+        if (native == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // the secondary was released
+        }
+        // ONE SECONDARY PER CALL: vkCmdExecuteCommands takes an array, and the contract's unit is the
+        // single secondary every API in this family executes. This records into THIS buffer, which the
+        // caller promised is recording (the state itself is not queryable through Vulkan).
+        vkCmdExecuteCommands(*this->buffer, 1, &native);
+        return rhi::error::ok;
+    }
+
     rhi::image* core::frame_image() noexcept {
         // THE IMAGE THE LAST ACQUIRE RETURNED, and it stays answerable AFTER the frame is submitted -
         // which is one step longer than the contract's minimum ("valid until that frame is submitted")
@@ -1327,6 +1495,13 @@ namespace deren::vulkan {
             // state nobody declared, which is the failure class task-148 measured.
             return rhi::error::not_ready;
         }
+        if (this->target != VK_NULL_HANDLE) {
+            // THE FRAME-SCOPED VERBS BELONG TO THE FRAME'S LIST (abi 15): `use()` declares the FRAME
+            // image's role pair, and a list that records into a buffer the caller created has no frame
+            // image in it. `not_ready` is the contract's own word for it ("or the list is not this
+            // frame's" - the window `use()` and `begin_commands()` share).
+            return rhi::error::not_ready;
+        }
         if (static_cast<void const*>(&resource) != static_cast<void const*>(&self->frame_image_view)) {
             // The factories still answer nullptr, so `frame_image()` is the ONLY image that can reach this
             // call today. A foreign object is the caller's bug: the answer says so, and the reason is
@@ -1347,7 +1522,7 @@ namespace deren::vulkan {
             }
             return rhi::error::unsupported;
         }
-        VkCommandBuffer const command_buffer = self->frame_command_buffer();
+        VkCommandBuffer const command_buffer = this->native();
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
@@ -1382,7 +1557,13 @@ namespace deren::vulkan {
         if (self == nullptr || !self->frame_in_flight) {
             return rhi::error::not_ready;
         }
-        VkCommandBuffer const command_buffer = self->frame_command_buffer();
+        if (this->target != VK_NULL_HANDLE) {
+            // THE FRAME-SCOPED VERBS BELONG TO THE FRAME'S LIST (abi 15): the copy's source is the
+            // FRAME image and its destination the frame's read-back slot, so a list that records into
+            // some other buffer has neither (the same `not_ready` window `use()` answers in).
+            return rhi::error::not_ready;
+        }
+        VkCommandBuffer const command_buffer = this->native();
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
@@ -1473,18 +1654,29 @@ namespace deren::vulkan {
     }
 
     void* core::frame_escape::native_command_buffer(rhi::command_list& commands) const noexcept {
-        // THE SAME WINDOW `begin_commands()` ANSWERS IN: outside the frame there is no command buffer to
-        // name, and answering with "the slot that would be next" would be a lie an escaping pass could
-        // record into. The key is the contract's own list: the ONE list this backend hands out belongs to
-        // the frame in flight, so "which command buffer is this list" is an identity comparison.
-        core const& self = *this->owner;
-        if (!self.frame_in_flight) {
-            return nullptr;
+        // THE SAME WINDOW `begin_commands()` ANSWERS IN for the FRAME's list: outside the frame there is
+        // no command buffer to name, and answering with "the slot that would be next" would be a lie an
+        // escaping pass could record into.
+        core& self = *this->owner;
+        if (static_cast<void const*>(&commands) == static_cast<void const*>(&self.commands_view)) {
+            if (!self.frame_in_flight) {
+                return nullptr;
+            }
+            return reinterpret_cast<void*>(self.frame_command_buffer());
         }
-        if (static_cast<void const*>(&commands) != static_cast<void const*>(&self.commands_view)) {
-            return nullptr;
+        // ... AND AN OWNED BUFFER'S LIST (abi 15): resolved through the SAME provenance registry
+        // `execute()` uses, so no caller pointer is cast before it is known to be one of ours. Outside a
+        // frame is legitimate here - a buffer the caller owns exists on its own (the read-back's
+        // one-shot buffer is created and recorded after the frame has landed), and it names itself
+        // rather than "the slot that would be next".
+        std::lock_guard const lock(self.contract_command_buffers_mutex);
+        for (deren::promise::rhi::command_buffer const* const candidate : self.contract_command_buffers) {
+            auto const* const owned = static_cast<owned_command_buffer const*>(candidate);
+            if (static_cast<void const*>(&owned->list) == static_cast<void const*>(&commands)) {
+                return reinterpret_cast<void*>(*owned->buffer);
+            }
         }
-        return reinterpret_cast<void*>(self.frame_command_buffer());
+        return nullptr; // not a list this backend handed out
     }
 
     std::span<char const* const> core::frame_escape::enabled_instance_extensions() const noexcept {

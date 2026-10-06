@@ -220,7 +220,7 @@ namespace deren::vulkan {
         /// instead of a rewrite).
         [[nodiscard]] rhi::api_core& rhi_face() const noexcept;
         /// the escape the transitional raw sites borrow through (`native_image` and friends, abi 7).
-        [[nodiscard]] rhi::vulkan_escape& escape() noexcept;
+        [[nodiscard]] rhi::vulkan_escape& escape() const noexcept;
         /// THE TOON FAMILY'S SHARED RECIPE (abi 8): one HDR colour target, the depth ROLE, the depth
         /// TEST with per-draw write, the caller's blend mode and compare - formerly three near-equal
         /// core members (character-forward / overlay / outline), now one contract-face builder here.
@@ -1175,7 +1175,7 @@ namespace deren::vulkan {
         // thread safe, so they may not share one - the same rule the main-pass workers already follow,
         // and now the same mechanism (the wrapper owns the pool). secondary_command_buffers holds the
         // slot-scoped secondaries the primary thread records alone (transparent).
-        std::vector<std::vector<vk_command_buffer>> shadow_recording = {};
+        std::vector<std::vector<rhi::object_manager<rhi::command_buffer>>> shadow_recording = {};
         // Reused task scratch: the frame builds its task batches into these vectors every frame, so
         // they are members with clear() (capacity kept) instead of a fresh heap allocation per frame
         // (M9 overhead trim: a per-frame allocation plus one std::function per task is a few
@@ -1305,13 +1305,11 @@ namespace deren::vulkan {
         // camera identity for result reuse: yaw, pitch, distance, target.xyz (7 floats)
         std::array<float, 7> camera_key = {};
         bool camera_moved = true; // camera key differs from the last cull frame
-        // THE FRAME'S PRIMARY COMMAND BUFFERS, BORROWED FROM THE BACKEND (S2 batch 2). The RAII objects
-        // moved into `core`, because the contract's begin_commands() has to hand out the frame's list and
-        // the type that owns the device should own them; this runtime still decides the SHAPE (one per
-        // frame slot, allocated once at construction) and still begins, ends and submits them. A SPAN and
-        // not a vector: keeping the container here would be a second owner of resources this class does
-        // not own.
-        std::span<vk_command_buffer> command_buffers;
+        // THE FRAME'S PRIMARY COMMAND BUFFERS ARE NOT HELD HERE ANY MORE (abi 15). They are the CORE's
+        // (`core::frame_command_buffers`), the contract hands out the frame's borrowed recording view
+        // through `begin_commands()` exactly as it did, and this runtime asks for the RAW handle it
+        // records with through the contract's native-handle path (`frame_primary_handle()` below). The
+        // span that used to alias the core's container is gone with the type it named.
         // per-slot secondary command buffers for pass recording (stage 2/3 of parallel
         // recording):
         //   - shadow: one shadow-pass CB per frame slot (single segment; the depth-only pass
@@ -1339,14 +1337,28 @@ namespace deren::vulkan {
         // nothing. It is one entry now - the secondaries that are really used.
         enum class secondary_pass : std::size_t { transparent = 0,
                                                   count = 1 }; // fixed non-segment slots
-        std::vector<std::array<vk_command_buffer, static_cast<std::size_t>(secondary_pass::count)>> secondary_command_buffers;
+        // THE CONTRACT'S OWNED HANDLE (abi 15), not the backend's RAII type: `object_manager` is the
+        // owner spelling every other contract resource in this file uses, and `release()` runs inside
+        // the backend (which destroys the buffer AND the command pool it created).
+        std::vector<std::array<rhi::object_manager<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)>> secondary_command_buffers;
         // per-slot main-pass parallel segments (stage 3): one secondary buffer per task-pool worker.
         // EVERY ONE OWNS ITS OWN COMMAND POOL (handles/handles.cppm) - a VkCommandPool is not thread
         // safe, so a pool per recording thread was already required, and the wrapper now supplies it
         // instead of the engine carrying a {pool, buffer} pair around. One inner vector per frame slot
         // (the GPU reads the secondaries while the slot's primary executes, so they share the primary's
         // lifetime), index = segment.
-        std::vector<std::vector<vk_command_buffer>> main_segments;
+        std::vector<std::vector<rhi::object_manager<rhi::command_buffer>>> main_segments;
+        // ---- abi 15: THE TWO BRIDGES FROM A CONTRACT BUFFER TO THE RAW HANDLE THE RECORDING USES -----
+        // The contract owns the buffers; the recording (the frame's own begin/end, the passes, the
+        // render-environment callbacks) speaks Vulkan's `VkCommandBuffer`, and the contract's own
+        // native-handle path is the escape (`vulkan_escape::native_command_buffer`). These two helpers
+        // are that one conversion, so no call site spells the escape out by hand.
+        /// the FRAME's primary command buffer, as the raw handle the frame's recording begins, ends and
+        /// escapes through (`rhi::api_core::begin_commands()` names the same buffer's list)
+        [[nodiscard]] VkCommandBuffer frame_primary_handle() const noexcept;
+        /// the raw handle of a command buffer the CONTRACT handed out (its `recording()` view is what
+        /// the escape resolves, so this is the contract's own path - not a backend detail reached into)
+        [[nodiscard]] VkCommandBuffer native_handle(rhi::command_buffer& buffer) const noexcept;
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its own work between the same steps)
         uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()

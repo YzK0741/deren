@@ -135,7 +135,14 @@ export namespace deren::promise::rhi {
     /// which is the case the number exists for. The swapchain verbs live on the SWAPCHAIN, not on
     /// the context, because a rebuild is the swapchain's own behaviour; the extent is the
     /// presentation's fact and the render scale stays the caller's own decision.
-    inline constexpr std::uint32_t abi_version = 14u;
+    /// 14 -> 15 in the recording-surface batch (the command buffer's ownership lands): `api_core`
+    /// appended `create_command_buffer(command_buffer_desc const&)` - a virtual on an existing tier-1
+    /// type, the case the rule names - and `command_buffer` is a NEW tier-1 interface (`release()` /
+    /// `begin_recording()` / `end_recording()` / `recording()` / `execute()`) with its own
+    /// `interface_type` value. The `next` chain of `command_buffer_begin_info` is data, not a vtable,
+    /// so a later tagged structure (the Vulkan inheritance one this batch adds, and any other) does
+    /// not renumber this: the same rule the appended `error` values follow.
+    inline constexpr std::uint32_t abi_version = 15u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -284,6 +291,7 @@ export namespace deren::promise::rhi {
         swapchain = 8,
         query = 9,
         command_list = 10,
+        command_buffer = 11, ///< appended in abi 15: the owned recording handle `create_command_buffer()` hands out
         device_address = 0x100,
         descriptor_heap = 0x101,
         mesh_shader = 0x102,
@@ -317,6 +325,10 @@ export namespace deren::promise::rhi {
         heap_push = 4,
         vulkan_heap_image = 0x10000,
         vulkan_command_buffer = 0x10001,
+        /// appended in abi 15: the attachment inheritance a SECONDARY recording declares (see
+        /// `vulkan_command_buffer_inheritance_info`) - a value, not a vtable, so appending it does not
+        /// move `abi_version` (the same rule the appended `error` values follow)
+        vulkan_command_buffer_inheritance = 0x10002,
     };
 
     /// next只借用到同步调用结束；当前只接受明确支持的一层后端参数，不静默丢链。

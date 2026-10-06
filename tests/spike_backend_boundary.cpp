@@ -126,17 +126,44 @@ namespace {
         }
     };
 
+    /**
+     * @brief a command buffer the REAL backend never handed out (abi 15's provenance rule)
+     *
+     * `command_buffer::execute()` must tell a buffer this backend made from a pointer a caller holds;
+     * without RTTI the contract's precondition is the caller's, and a backend that cannot recognise
+     * the buffer must refuse it BY NAME (`invalid_argument`) rather than cast an unknown pointer. This
+     * stand-in is the "not mine" case, and it lives in the SPIKE because "not handed out by the
+     * backend" is what this side knows and the DLL cannot.
+     */
+    struct foreign_command_buffer final : rhi::command_buffer {
+        void release() noexcept override {
+        }
+        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error end_recording() noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::command_list* recording() noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
+            return rhi::error::invalid_argument;
+        }
+    };
+
     /// Q4 (weak form) + the ABI handshake, driven through the symbols the DLL itself exports.
     void check_the_handshake(make_core_fn make_core) {
         // A mismatched ABI is refused BEFORE any object exists, and the refusal is a value, not a
         // crash and not an exception (§4.2). The wrong number is deliberately the right one plus
         // one: it is the shape a stale engine would present. The abi 13 channel reports the WHOLE
         // diagnostic, so the assertions below read the fields a bare `error` could not carry. (abi 14
-        // did not change this structure: it appended the frame verbs - `api_core::submit()` /
+        // did not change this structure, and neither did abi 15: the frame verbs - `api_core::submit()` /
         // `frame_swapchain()`, `swapchain::recreate()` / `extent()`, the two timing verbs on
-        // `command_list` - and changed `present()`'s return from void to error, which is exactly the
-        // vtable case the number exists for; the number itself is compared symbolically below, never
-        // spelled here, so a renumbering cannot silently pass this file.)
+        // `command_list` - were APPENDED, and abi 15 appended the owned `command_buffer` interface plus
+        // `api_core::create_command_buffer()`, with `present()`'s return changing from void to error in
+        // 14 - exactly the vtable case the number exists for; the number itself is compared symbolically
+        // below, never spelled here, so a renumbering cannot silently pass this file.)
         rhi::create_info const creation{};
         rhi::error_info status{};
         rhi::api_core* const refused = make_core(rhi::abi_version + 1u, &creation, &status);
@@ -466,6 +493,76 @@ namespace {
             // semaphore nothing has signalled (which is exactly why that guard exists).
             CHECK_MSG(core->present() == rhi::error::not_ready,
                       "present with no acquired frame is refused by name, not run");
+
+            // ---- THE OWNED COMMAND BUFFER (abi 15), ON THE REAL DEVICE ---------------------------
+            // This is the one part of abi 15 that CAN be driven without a frame, and it is driven end
+            // to end: two buffers are created (each with its own command pool), both are recorded, the
+            // primary executes the secondary, and the refusals are measured by name. What a frame would
+            // add is submission/presentation, which the engine's frame path and the render gate cover.
+            mark("create_command_buffer: an owned primary and secondary, recorded and executed");
+            rhi::object_manager<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
+            rhi::object_manager<rhi::command_buffer> secondary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary})};
+            CHECK(static_cast<bool>(primary));
+            CHECK(static_cast<bool>(secondary));
+            // a kind outside the two roles the contract names is the factory's one refusal
+            CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
+            if (primary && secondary) {
+                CHECK(primary->type() == rhi::command_buffer::interface_id);
+                // the borrowed recording view: the same object every call, and NOT the frame's list
+                rhi::command_list* const view = primary->recording();
+                CHECK(view != nullptr);
+                CHECK(primary->recording() == view);
+                CHECK_MSG(view->begin_gpu_timing() == rhi::error::not_ready,
+                          "the frame-scoped timing verbs refuse a list that is not the frame's");
+                CHECK_MSG(view->mark_gpu_timing(0, "not the frame's") == rhi::error::not_ready,
+                          "the frame-scoped mark verb refuses the same way");
+                // THE NATIVE HANDLE: the escape answers it for a buffer the CALLER owns, outside any
+                // frame - which is the read-back's case (its read runs after the frame has landed).
+                rhi::extension* const escape_extension = core->query_extension(rhi::extension_kind::vulkan_escape);
+                CHECK(escape_extension != nullptr);
+                if (escape_extension != nullptr) {
+                    auto* const escape = static_cast<rhi::vulkan_escape*>(escape_extension);
+                    CHECK_MSG(escape->native_command_buffer(*view) != nullptr,
+                              "an owned buffer's raw handle answers through the escape outside a frame");
+                }
+
+                // THE SECONDARY, the executable path: recorded with no usage flags (so executing it
+                // outside a render pass instance is legal) and ended - only an ended secondary may be
+                // executed.
+                CHECK(secondary->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::ok);
+                CHECK(secondary->end_recording() == rhi::error::ok);
+
+                // THE CHAIN: a `render_pass_continue` continuation must declare its attachment
+                // inheritance, and that rides the tagged structure - the portable begin info stays free
+                // of Vulkan's attachment model. Here the inheritance is EMPTY (no colour, no depth) and
+                // a chain this backend does not serve is refused BY NAME, never dropped.
+                rhi::object_manager<rhi::command_buffer> continuation{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary})};
+                CHECK(static_cast<bool>(continuation));
+                if (continuation) {
+                    rhi::vulkan_command_buffer_inheritance_info const inheritance = {};
+                    rhi::command_buffer_begin_info const continuation_begin{
+                        .usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue),
+                        .next = &inheritance.header,
+                    };
+                    CHECK_MSG(continuation->begin_recording(continuation_begin) == rhi::error::ok,
+                              "a render_pass_continue begin carries its inheritance through the tagged chain");
+                    CHECK(continuation->end_recording() == rhi::error::ok);
+                    rhi::heap_bind_info const wrong_chain = {};
+                    rhi::command_buffer_begin_info const refused_begin{.usage = 0u, .next = &wrong_chain.header};
+                    CHECK_MSG(continuation->begin_recording(refused_begin) == rhi::error::unsupported,
+                              "a chain type this backend does not serve is refused by name, not dropped");
+                }
+
+                // THE PRIMARY: begun, hands the ended secondary over, ended. The foreign buffer is the
+                // provenance refusal (a pointer this backend did not hand out).
+                foreign_command_buffer foreign{};
+                CHECK(primary->begin_recording({.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) == rhi::error::ok);
+                CHECK_MSG(primary->execute(foreign) == rhi::error::invalid_argument,
+                          "a command buffer this backend did not hand out is refused by name");
+                CHECK_MSG(primary->execute(*secondary) == rhi::error::ok,
+                          "an ended secondary is executed by the recording primary");
+                CHECK(primary->end_recording() == rhi::error::ok);
+            }
 
             mark("about to leave the scope: two releases and the DLL's deleter (core teardown) run next");
         } // <- the managers release their buffers, then the DLL's deleter runs
