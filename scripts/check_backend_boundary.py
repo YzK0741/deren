@@ -63,26 +63,27 @@ BASELINES ARE PER TOOLCHAIN (the symbol sets are not comparable across them):
     A tree with no baseline fails; `--initialize` explicitly records the first one.
     `--update` can only reduce an existing set. Neither mutation obeys `--warn`.
 
-TWO CONFIGURATIONS, TWO PAIRS (`--config`, step 2 of the flip)
-    Step 2 builds a SECOND runtime (`runtime/`, contract-only) in its own tree, and the two trees cross
-    the boundary in DIFFERENT SHAPES: the legacy engine still references the CONCRETE CLASS
-    (`core::core(create_info const&)`), while the dynamic engine references the C ENTRY
-    (`deren_make_api_core` / `deren_destroy_api_core`, the interface the flip is built on). Sharing one
-    pair of files would make each tree report the other's symbols as STALE - noise, not a boundary - so
-    each configuration carries its OWN baseline and whitelist, both shrink-only, each with its reasons:
+ONE CONFIGURATION, ONE PAIR (S5, the flip)
+    Step 2 built a SECOND runtime (`runtime/`, contract-only) in its own tree, and while both existed the
+    two trees crossed the boundary in DIFFERENT SHAPES: the legacy engine referenced the CONCRETE CLASS
+    (`core::core(create_info const&)`), the dynamic one references the C ENTRY
+    (`deren_make_api_core` / `deren_destroy_api_core`). Sharing one pair of files would have made each
+    tree report the other's symbols as STALE - noise, not a boundary - so each configuration carried its
+    OWN baseline and whitelist, both shrink-only, each with its reasons.
 
-        --config legacy   (default)  backend_boundary_baseline.<flavor>.json
-                                     backend_boundary_whitelist.json
-        --config dynamic             backend_boundary_baseline.dynamic.<flavor>.json
-                                     backend_boundary_whitelist_dynamic.json
+    S5 DELETED THE LEGACY RUNTIME (`vulkan/runtime/`, which named `core`) and the legacy pair with it.
+    What is left is the DYNAMIC configuration, whose boundary is the C entry - the DESIGNED boundary,
+    declared in promise/rhi/backend_entry.hpp, and the one that never leaves while the backend is a DLL:
 
-    `--config` also picks the default `--build-dir` (build-release-clang64 / build-release-dyn-clang64),
-    and WHICH SET IS BEING MEASURED IS PRINTED ON EVERY RUN, `--quiet` INCLUDED: a blind quiet run once
-    read as a dynamic-tree measurement while it was measuring the legacy pair again, so the
-    identification is deliberately not part of the quiet-able report.
+        --config dynamic   (default, the only value)  backend_boundary_baseline.dynamic.<flavor>.json
+                                                     backend_boundary_whitelist_dynamic.json
 
-    THE DYNAMIC PAIR IS THE ONE THAT HAS TO REACH ZERO. After step 3 deletes the legacy runtime, the
-    legacy pair is deleted with it and the world is single again (one baseline, one whitelist).
+    `--config` is kept as an accepted argument so the invocations the migration's docs and CI already
+    carry keep working; `--config legacy` is now a named argument error rather than a silent fallback,
+    and the default `--build-dir` is the surviving tree. `--build-dir` still overrides it, and WHICH SET
+    IS BEING MEASURED IS PRINTED ON EVERY RUN, `--quiet` INCLUDED: a blind quiet run once read as a
+    dynamic-tree measurement while it was measuring the legacy pair again, so the identification is
+    deliberately not part of the quiet-able report.
 
 USAGE
     python scripts/check_backend_boundary.py                       # gate against the baseline
@@ -90,7 +91,7 @@ USAGE
     python scripts/check_backend_boundary.py --list                # the worklist, demangled, + the imports
     python scripts/check_backend_boundary.py --warn                # ordinary checks report failures; mutations/flip stay strict
     python scripts/check_backend_boundary.py --require-zero        # the flip gate: whitelist-aware + import graph
-    python scripts/check_backend_boundary.py --config dynamic      # the contract-only runtime's pair + tree
+    python scripts/check_backend_boundary.py --config dynamic      # explicit spelling of the only value
     python scripts/check_backend_boundary.py --build-dir DIR
     python scripts/check_backend_boundary.py --whitelist PATH      # alternate whitelist (tests)
     python scripts/check_backend_boundary.py --repo-root DIR       # alternate tree for the import scan (tests)
@@ -208,18 +209,15 @@ def flavor_of(build_dir: str | None) -> str:
     return platform_flavor()
 
 
-# WHICH RUNTIME CONFIGURATION A RUN MEASURES (`--config`). Two trees, two boundary SHAPES, two pairs of
-# files - see the module docstring's "TWO CONFIGURATIONS, TWO PAIRS" for why sharing one pair would be
-# noise. `{flavor}` is filled by `flavor_of(build_dir)` (the toolchain key of the symbol sets).
+# WHICH RUNTIME CONFIGURATION A RUN MEASURES (`--config`). ONE ENTRY SINCE S5: the flip deleted the
+# legacy runtime (`vulkan/runtime/`) and the legacy pair of files with it, so there is one boundary shape
+# left - the C entry, the designed boundary declared in promise/rhi/backend_entry.hpp. The argument is
+# kept (not removed) because the invocations the migration's docs and CI carry pass `--config dynamic`,
+# and `choices=` makes `--config legacy` a NAMED refusal rather than a silent fallback to another pair.
+# `{flavor}` is filled by `flavor_of(build_dir)` (the toolchain key of the symbol sets).
 CONFIGURATIONS = {
-    "legacy": {
-        "description": "the legacy runtime: the boundary is the CONCRETE CLASS (core::core)",
-        "baseline": "backend_boundary_baseline.{flavor}.json",
-        "whitelist": "backend_boundary_whitelist.json",
-        "build_dir": "build-release-clang64",
-    },
     "dynamic": {
-        "description": "the contract-only runtime: the boundary is the C ENTRY (deren_make_api_core)",
+        "description": "the runtime: the boundary is the C ENTRY (deren_make_api_core / deren_destroy_api_core)",
         "baseline": "backend_boundary_baseline.dynamic.{flavor}.json",
         "whitelist": "backend_boundary_whitelist_dynamic.json",
         "build_dir": "build-release-dyn-clang64",
@@ -411,10 +409,11 @@ def main() -> int:
     scripts_dir = os.path.dirname(os.path.abspath(__file__))
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--config", choices=sorted(CONFIGURATIONS), default="legacy",
-                        help="WHICH runtime configuration this measures: it picks the baseline+whitelist PAIR and "
-                             "the default build dir (legacy -> build-release-clang64, dynamic -> "
-                             "build-release-dyn-clang64). Printed on every run, --quiet included.")
+    parser.add_argument("--config", choices=sorted(CONFIGURATIONS), default="dynamic",
+                        help="WHICH runtime configuration this measures: since S5 there is ONE (the dynamic "
+                             "runtime's C-entry boundary), and it picks the baseline+whitelist pair and the "
+                             "default build dir (build-release-dyn-clang64). Printed on every run, --quiet "
+                             "included.")
     parser.add_argument("--build-dir", default=None,
                         help="the build tree holding both archives (default: per --config)")
     parser.add_argument("--baseline", default=None,

@@ -459,3 +459,73 @@ uploaded`），补上 `deren-ab\` 之后 14/14 逐字节相同。**结论**：�
 `vulkan/runtime/` 六个文件、`main.cpp` 里对旧路径的任何引用都在 S5 里一起走；import 门读到 0 的那一天
 就是 `deren.vulkan.core` 的 initializer 离场的日子（现在只剩 legacy declarations 一个消费者，
 而它正是 S5 要删的文件）。
+
+## 16 S5（翻转）**已落地**：只剩一份 runtime，import 门读到 0（2026-10-06）
+
+**结论先写**：默认翻成唯一配置、删 `vulkan/runtime/`、删 legacy 那对 baseline/whitelist。判据里最关键的
+"**import → 0**"达成（门自己打印 `0 site(s) in 0 file(s)`），边界 **2 symbols / 2 hit / 0 stale**，
+**14 个哈希对冻结清单 matched 14, mismatched 0**。
+
+### 16.1 这一笔做了什么
+
+* **删**：`vulkan/runtime/` 七个文件；`scripts/backend_boundary_baseline.mingw.json` +
+  `scripts/backend_boundary_whitelist.json`（legacy 那一对，随旧 runtime 一起退役）。
+* **CMake**：`-DVR_RUNTIME=legacy|dynamic` 选项与 `VR_RUNTIME_SERVES_THE_APP` **一起退役**（注释写明选项当初
+  为什么存在、为什么现在只剩一份文件表），`runtime/` 的六个模块 + `runtime.cpp` 无条件进 `vulkancorekit`；
+  `test_runtime_dyn` 不再被条件包着。
+* **`scripts/check_backend_boundary.py`**：只剩 `dynamic` 一个配置（`--config legacy` 现在是 argparse 的
+  **具名拒绝**，exit 2，而不是悄悄回落到另一对），默认 build-dir 改为 `build-release-dyn-clang64`。
+* **三个按路径读源码的测试**改指向 `runtime/`（这一条是 §8 里"import 门与三个按路径解析源码的测试"的兑现）：
+  `test_render_resources` 的目录遍历现在走 `vulkan/` + `runtime/` **两个根**（它此前一直读的，是还留在
+  `vulkan/` 里的那份副本）；`test_toon_material_sidecar` 两条路径；`test_goo_toon_math` 三条路径 + 一处
+  源码文本钉值（`core::heap_slots::goo_fgd_lut` → `deren::vulkan::render_layout::heap_slots::goo_fgd_lut`，
+  注释写明钉的是同一常量、只是现在从**两半都编译**的那个模块里取）。
+* **`tests/test_backend_boundary.py`**：`--config legacy` 的用例改成"被拒绝"；"每个配置各自一对文件"的用例
+  改成"只剩一对，且 legacy 那对被删除"。
+* **`docs/dynamic_runtime.md`**：状态改为 **LANDED(S5)**；§1 记录开关退役与"只剩一个配置"；§3 明确标注为
+  **移植前的历史测量**（路径已不存在）；§5 记两项开放项（见 16.3）。
+* 动态 baseline 由门自己的 `--update` 刷新（应用证据 `complete: true`、import 列表清空、扫描 139 → 132）。
+
+### 16.2 门的读数（唯一存活的树 = `build-release-dyn-clang64`；数字以门自己的打印为唯一来源）
+
+| 项 | 读数 |
+|---|---|
+| 构建 | exit 0 |
+| `ctest` | **18/18** |
+| `clang-format-check` | 0 |
+| 边界 | **2 symbols / baseline 2 / 2 hit / 0 stale / 0 untracked** |
+| import 门 | **0 站点 / 0 文件**（132 源文件扫描；这就是"最后一个站点 `vulkan/runtime/runtime.declarations.cppm:62` 消失"的读数） |
+| `--require-zero` | **exit 0 全绿**（"every measured symbol is whitelisted (2 hit), the whitelist has no stale entry, and no engine/application source imports a deren_vulkan module"） |
+| scaffold | `test_runtime_dyn.exe --with-device` → **7 checks / 0 failed / 自退出** |
+| 尖刺 | `test_backend_boundary_spike.exe --with-device` → **96 checks / 0 failed / 自退出** |
+| 渲染 | **14 哈希 vs 冻结清单：matched 14 / mismatched 0**（`scripts/compare_render_hashes.py --frozen`，exit 0；证据 `build-release-dyn-clang64/render-s5-out.txt`） |
+| 校验层 | 零 VUID / ERROR / WARNING：门自己按 `VUID-|Validation Error|[ERROR]|[WARNING]|panic` 扫每个场景的日志，14 个场景一次都没命中 |
+
+**14 个实际哈希**（与 `DYNAMIC_LINK_IMPLEMENTATION.md` §1 的冻结值逐个相同）：`deferred 972A31EC5FF55C87` /
+`deferred_taa_fxaa 4021B16AFDB2F43E` / `deferred_ssao_off BFE3A472FBAB0B5E` / `shadow_single A92C5965316679F3` /
+`unlit F3C2D7FEFDAD864F` / `transparent_blend CC7F77F93487AA5E` / `sponza 50AF7E46CC1E2A92` /
+`metal_rough_glossy A1AFBFB61DBFD104` / `glossy_motion 9F31E89BE38B771C` / `deformation 723569BA0D03640C` /
+`laevatain_goo_toon CF5A34D8DF6B6FFC` / `laevatain_goo_toon_body C3365CEEB8AD3723` /
+`laevatain_no_sidecar E9A2983BEB57D5C5` / `laevatain_old_chain 190EB09D3E9FDCDA`。
+
+**`check_render.ps1` 自己的 exit code 仍然是 1，而这不是失败**：本机参考集是旧的，`CHANGED` 是预期答案；
+判据是打印出来的实际哈希（这正是 `compare_render_hashes.py` 存在的理由）。
+
+### 16.3 用户要求的两条，照实记档
+
+1. **"把 runtime 移出 `vulkan/`"：已满足**。新的契约-only runtime 自 S1 起就住在仓库根 `runtime/`（S5 的
+   提交正文显式点名这一条）；S5 删掉的，是**还留在 `vulkan/` 里的那份副本**——用户当初看到的目录位置问题，
+   到这一笔为止在物理上也不存在了。
+2. **"引擎侧其他文件是否也搬出 `vulkan/`"（`vulkan/pass/`、`vulkan/readback/`、`vulkan/core/filter/`）：
+   翻转后再议**（用户原话"先做完再考虑"）。这是**开放项**，不是遗漏：搬目录要同时改边界基线的路径、
+   import 门与三个按路径读源码的测试，是机械但独立的一笔；记在 `docs/dynamic_runtime.md` §5 与本节。
+3. **legacy 构建树 `build-release-clang64` 退役成"同一个配置"**（`VR_RUNTIME` 退役后，重新 configure 它就是
+   动态那一套：同源码、无分支），所以"双树比对"这个手段随之不存在，S5 的判据是**冻结清单**。该目录的本地
+   资产与场景配置由 lead 的构建目录维护任务收尾（本地数据，不进仓库）。
+
+### 16.4 紧随其后的两笔（门自身的两处缺口）
+
+* **G1**：`check_render.ps1` 把两棵本地资产树（`chars\`、`deren-ab\`）当**先决条件**，缺哪棵就**指名**并
+  响亮退出——因为"缺资产"会以**哈希变化**的形式出现（§15.4 实测），那是最坏的一类静默假阴性。
+* **G2**：`scripts/compare_render_hashes.py` 从 build 目录里的临时产物**提升为标准门**，并接到
+  `check_render.ps1 -Compare …` 上：两棵树都在时比对两棵树，只剩一棵时比对冻结清单。

@@ -769,17 +769,27 @@ int32_t main() {
         // live" has to be updated by the same person who just moved the writes. A directory walk cannot
         // be forgotten, and it is STRICTER - it sees files the list never had.
         std::string host_text;
-        for (auto const& entry : std::filesystem::recursive_directory_iterator(std::string(VR_TEST_SOURCE_DIR) + "/vulkan")) {
-            if (!entry.is_regular_file()) {
-                continue;
-            }
-            std::string const extension = entry.path().extension().string();
-            if (extension != ".cpp" && extension != ".cppm") {
-                continue;
-            }
-            for (std::string const& line : read_lines(entry.path().string())) {
-                host_text += line;
-                host_text += '\n';
+        // THE RENDERER'S SOURCES LIVE IN TWO DIRECTORIES SINCE S5, and both are walked for the reason this
+        // loop replaced the hand-kept file list in the first place: `vulkan/` holds the backend and the
+        // engine modules around it, and `runtime/` at the repository root holds the runtime - which moved
+        // out of `vulkan/` in S1, while the copy left behind inside `vulkan/runtime/` was still the file
+        // this walk found. S5 deleted that copy, so the walk must name the runtime's real home or the
+        // needles below would be looked for in a directory that no longer holds them.
+        std::array<std::string, 2> const source_roots = {std::string(VR_TEST_SOURCE_DIR) + "/vulkan",
+                                                         std::string(VR_TEST_SOURCE_DIR) + "/runtime"};
+        for (std::string const& root : source_roots) {
+            for (auto const& entry : std::filesystem::recursive_directory_iterator(root)) {
+                if (!entry.is_regular_file()) {
+                    continue;
+                }
+                std::string const extension = entry.path().extension().string();
+                if (extension != ".cpp" && extension != ".cppm") {
+                    continue;
+                }
+                for (std::string const& line : read_lines(entry.path().string())) {
+                    host_text += line;
+                    host_text += '\n';
+                }
             }
         }
         std::array<std::string_view, 3> const written_by_arithmetic = {"bloom_l1", "bloom_l2", "bloom_l3"};

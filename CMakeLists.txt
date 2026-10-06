@@ -479,69 +479,43 @@ target_include_directories(deren_vulkan
 )
 
 # ================================================================================================
-# WHICH RENDERER RUNTIME (the dynamic-backend migration's step 2): `legacy` is `vulkan/runtime/` (what the
-# app has always used); `dynamic` is `runtime/` at the repository root - the runtime that reaches the
-# backend ONLY through the contract (`deren_make_api_core()` + `rhi::api_core` + the raw-handle escape) and
-# never names `core`.
+# THE RENDERER RUNTIME, AND WHY THERE IS EXACTLY ONE NOW (the dynamic-backend migration's S5, the flip).
 #
-# ONE RUNTIME PER BUILD TREE, AND WHY: two BMIs of one module name cannot both be visible to one
-# translation unit, so the two runtimes cannot share a target - the switch picks the file list
-# `vulkancorekit` gets, and the LEGACY tree stays the CONTROL for the dynamic one (both must read the same
-# fourteen render hashes; see docs/dynamic_runtime.md for the design and the acceptance).
+# `runtime/` at the repository root IS the renderer runtime. It reaches the backend ONLY through the
+# contract (`deren_make_api_core()` + `rhi::api_core` + the raw-handle escape) and never names `core`.
+# `vulkan/runtime/` - the runtime that DID name it and that lived inside the backend's own directory -
+# is deleted with this batch. See docs/dynamic_runtime.md for the design.
 #
-# THE FULL-API CONSUMERS WERE GATED WHILE THE PORT WAS INCOMPLETE (S1-S3): `render_start_demo` (a member
-# of vulkancorekit), `chores` and the app all name the FULL runtime API, which the dynamic runtime grew
-# into partition by partition, so in the dynamic tree those three were simply not built. THE PORT IS
-# COMPLETE NOW (S4, the merged six-partition slice): the dynamic runtime IS the legacy runtime's API, so
-# the gate is ON in both trees - which is what the render gate's whole acceptance needs, because the
-# fourteen hashes can only be COMPARED between two trees that both render.
-set(VR_RUNTIME "legacy" CACHE STRING "which renderer runtime to build: legacy = vulkan/runtime, dynamic = runtime/ (the contract-only runtime)")
-set_property(CACHE VR_RUNTIME PROPERTY STRINGS legacy dynamic)
-if(NOT VR_RUNTIME STREQUAL "legacy" AND NOT VR_RUNTIME STREQUAL "dynamic")
-    message(FATAL_ERROR "VR_RUNTIME must be 'legacy' or 'dynamic' (got '${VR_RUNTIME}')")
-endif()
-if(VR_RUNTIME STREQUAL "dynamic")
-    set(VR_RUNTIME_MODULES
-        runtime/runtime.cppm
-        runtime/runtime.declarations.cppm
-        runtime/runtime.constructor.cppm
-        runtime/runtime.frames.cppm
-        runtime/runtime.probes.cppm
-        runtime/runtime.readback.cppm
-    )
-    set(VR_RUNTIME_PRIVATE_SOURCES
-        runtime/runtime.cpp
-    )
-    # S4: the dynamic runtime serves the app, exactly as the legacy one does. The variable is kept (rather
-    # than deleted) because the two branches below still read it, and because a future runtime swap wants
-    # the same spelling; both trees now set it ON.
-    set(VR_RUNTIME_SERVES_THE_APP ON)
-else()
-    set(VR_RUNTIME_MODULES
-        vulkan/runtime/runtime.cppm
-        vulkan/runtime/runtime.declarations.cppm
-        vulkan/runtime/runtime.constructor.cppm
-        vulkan/runtime/runtime.probes.cppm
-        vulkan/runtime/runtime.frames.cppm
-        vulkan/runtime/runtime.readback.cppm
-    )
-    set(VR_RUNTIME_PRIVATE_SOURCES
-        vulkan/runtime/runtime.cpp
-    )
-    set(VR_RUNTIME_SERVES_THE_APP ON)
-endif()
-# The two places the app owns, named once so the target lists below read the same under both runtimes.
-if(VR_RUNTIME_SERVES_THE_APP)
-    set(VR_FULL_API_TARGETS deren chores)
-    set(VR_APP_EXE deren)
-    set(VR_FULL_API_MODULES vulkan/render_start_demo/render_start_demo.cppm)
-    set(VR_FULL_API_SOURCES vulkan/render_start_demo/render_start_demo.cpp)
-else()
-    set(VR_FULL_API_TARGETS)
-    set(VR_APP_EXE)
-    set(VR_FULL_API_MODULES)
-    set(VR_FULL_API_SOURCES)
-endif()
+# THE `-DVR_RUNTIME=legacy|dynamic` OPTION IS RETIRED WITH THOSE FILES, and that is the honest shape
+# rather than a tidy-up: the option existed because two BMIs of one module name cannot both be visible
+# to one translation unit, so a single build tree could not host both runtimes, and the LEGACY tree was
+# the CONTROL for the dynamic one (both had to read the same fourteen render hashes). With the legacy
+# sources gone there is nothing to select between and nothing to control, so the file list below is
+# simply what `vulkancorekit` gets. `VR_RUNTIME_SERVES_THE_APP` retires in the same move: it gated the
+# application, `chores` and `render_start_demo` while the port was incomplete (S1-S3) and has been
+# unconditionally ON since S4's file-list swap.
+#
+# THE LEGACY BUILD TREE (`build-release-clang64`) IS RETIRED AS A CONFIGURATION, and its cache still
+# names the old option: re-configuring that directory now builds exactly what the surviving tree
+# (`build-release-dyn-clang64`) builds, because there is no switch to leave stale. Nothing in the
+# repository points at it any more - the gates run in the surviving tree.
+# ================================================================================================
+set(VR_RUNTIME_MODULES
+    runtime/runtime.cppm
+    runtime/runtime.declarations.cppm
+    runtime/runtime.constructor.cppm
+    runtime/runtime.frames.cppm
+    runtime/runtime.probes.cppm
+    runtime/runtime.readback.cppm
+)
+set(VR_RUNTIME_PRIVATE_SOURCES
+    runtime/runtime.cpp
+)
+# The two places the app owns, named once so the target lists below read the same everywhere.
+set(VR_FULL_API_TARGETS deren chores)
+set(VR_APP_EXE deren)
+set(VR_FULL_API_MODULES vulkan/render_start_demo/render_start_demo.cppm)
+set(VR_FULL_API_SOURCES vulkan/render_start_demo/render_start_demo.cpp)
 
 add_library(vulkancorekit STATIC)
 
@@ -807,15 +781,13 @@ target_include_directories(vulkancorekit
 # (§11.2): vulkancorekit's own name and its outward link surface are unchanged by S1-A.
 target_link_libraries(vulkancorekit PUBLIC deren_vulkan)
 
-# THE APPLICATION IS GATED IN THE DYNAMIC TREE WHILE THE PORT IS INCOMPLETE (S1-S3): `main.cpp` and its
-# `chores` helpers name the FULL runtime API. See the boundary variable's comment above `vulkancorekit`.
-if(VR_RUNTIME_SERVES_THE_APP)
+# THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
+# comment above `vulkancorekit`).
 add_executable(deren main.cpp)
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
 # running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
 # still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
 set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Release>:ON>)
-endif()
 
 # utility.cpp implements the xxHash-based hash functions (deren::utility::xxh3_128bits) on top of
 # the vendored xxhash library, so the dependency is declared here, on the library that
@@ -851,9 +823,8 @@ target_link_libraries(app_config
 # these helpers know about app_config (settings), the runtime (deren.vulkan.runtime) and utility
 # log/panic, never about glTF.
 #
-# NOT BUILT IN THE DYNAMIC TREE WHILE THE PORT IS INCOMPLETE (S1-S3): this module takes `runtime&` and
-# therefore names the full runtime API - the boundary `VR_RUNTIME_SERVES_THE_APP` draws (see its comment).
-if(VR_RUNTIME_SERVES_THE_APP)
+# `chores` takes `runtime&` and therefore names the full runtime API - which is exactly what the ONE
+# runtime now serves (its S1-S3 gate retired with the legacy runtime: see `vulkancorekit`'s comment).
 add_library(chores STATIC)
 
 target_sources(chores
@@ -872,9 +843,7 @@ target_link_libraries(chores
         utility
         vstd_lib
 )
-endif()
 
-if(VR_RUNTIME_SERVES_THE_APP)
 target_link_libraries(${PROJECT_NAME}
         utility
         vulkancorekit
@@ -885,7 +854,6 @@ target_link_libraries(${PROJECT_NAME}
         glm::glm
         imgui
 )
-endif()
 
 # The C++ RUNTIME IS DYNAMIC, ON PURPOSE (Windows/GNU-Clang): the exe used to link with -static,
 # which pinned libc++.a / libc++abi.a / libunwind.a INTO the executable. A first-party DLL cannot
@@ -914,7 +882,6 @@ endif()
 # THE MSVC SPELLING of this is only the sections half: /OPT:REF /OPT:ICF is a real replacement for
 # -Wl,--gc-sections, while the static CRT and the strip below have no counterpart - an MSVC Release exe
 # keeps the dynamic CRT and its symbols (see the dialect table at the top of this file).
-if(VR_RUNTIME_SERVES_THE_APP) # the app's own link options: nothing to set when it is not built
 if(MSVC)
     target_link_options(${PROJECT_NAME} PRIVATE
             # drop unused function/data sections at link (first-party code is compiled with /Gy /Gw;
@@ -948,7 +915,6 @@ else()
             $<$<CONFIG:Release>:-s>
     )
 endif()
-endif() # VR_RUNTIME_SERVES_THE_APP
 
 # ---------------------------------------------------------------------------------------------
 # Headless unit tests (no GPU, no external test framework - see tests/vk_test.h): each test is
@@ -1183,26 +1149,23 @@ if(VR_BUILD_TESTS)
     endif()
 endif()
 
-# ---- the dynamic runtime's scaffold test (the flip's step 2) ------------------------------------
-# IT EXISTS SO THE PORT CANNOT ROT: the dynamic runtime is written partition by partition, and this
-# executable - built and RUN in every slice of that work - is what proves the construction path
+# ---- the runtime's scaffold test (the flip's step 2) -------------------------------------------
+# IT EXISTS SO THE PORT CANNOT ROT: the runtime was ported partition by partition, and this executable -
+# built and RUN in every slice of that work - is what proves the construction path
 # (`deren_make_api_core()` -> `shared_ptr<api_core>` with the backend's deleter -> the face -> the raw
-# handle escape -> teardown) still holds as the partitions arrive.
+# handle escape -> teardown) still holds. Since S5 it is built in the ONE configuration there is.
 #
 # SPIKE-SHAPED ON PURPOSE, like `test_backend_boundary_spike` above and for the same reasons: it creates a
 # real device (so it cannot be in the headless ctest set, and tests/test_docs.cpp compares that list
-# against the workflow), it is NOT in VR_TEST_TARGETS, and it is built only in the tree that has the
-# runtime under development (`-DVR_RUNTIME=dynamic`).
-if(VR_RUNTIME STREQUAL "dynamic")
-    add_executable(test_runtime_dyn tests/test_runtime_dyn.cpp)
-    target_compile_options(test_runtime_dyn PRIVATE ${COMPILE_OPTIONS})
-    target_link_libraries(test_runtime_dyn
-            vulkancorekit
-            promise
-            utility
-            vstd_lib
-    )
-endif()
+# against the workflow) and it is NOT in VR_TEST_TARGETS.
+add_executable(test_runtime_dyn tests/test_runtime_dyn.cpp)
+target_compile_options(test_runtime_dyn PRIVATE ${COMPILE_OPTIONS})
+target_link_libraries(test_runtime_dyn
+        vulkancorekit
+        promise
+        utility
+        vstd_lib
+)
 
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the

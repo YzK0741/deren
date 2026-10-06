@@ -541,7 +541,7 @@ namespace {
     void test_the_two_asset_scalar_lanes_hold_on_both_sides() {
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/shaders/character_forward.slang"};
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
-        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/vulkan/runtime/runtime.constructor.cppm"};
+        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/runtime/runtime.constructor.cppm"};
         std::ifstream host_file{VR_TEST_SOURCE_DIR "/main.cpp"};
         CHECK(shader_file.good());
         CHECK(primitive_file.good());
@@ -685,8 +685,8 @@ namespace {
     /// `M_actor_chen_hair_01` stating `_Specular = 0.0`, registered one node earlier than the hair, made the
     /// hair render BYTE-FOR-BYTE like an asset whose hair states 0.0 - the hair's own 1.0 discarded.
     void test_the_material_dedup_key_carries_the_colour_lanes() {
-        std::ifstream declarations_file{VR_TEST_SOURCE_DIR "/vulkan/runtime/runtime.declarations.cppm"};
-        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/vulkan/runtime/runtime.constructor.cppm"};
+        std::ifstream declarations_file{VR_TEST_SOURCE_DIR "/runtime/runtime.declarations.cppm"};
+        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/runtime/runtime.constructor.cppm"};
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
         CHECK(declarations_file.good());
         CHECK(runtime_file.good());

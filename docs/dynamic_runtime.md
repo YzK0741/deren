@@ -1,31 +1,33 @@
 # The dynamic runtime: the design for step 2
 
-**Status: design, not code.** A1 landed the ownership hand-over (the render chain's fourteen targets are created,
-held and released by the engine, through the contract); what is left of the engine's dependency on the backend is
-the runtime itself. This is the shape of the second runtime that does not name `core` at all, written before any
-line of it exists so the coexistence rules are stated rather than discovered.
+**Status: LANDED (S5, the flip).** A1 landed the ownership hand-over (the render chain's fourteen targets are
+created, held and released by the engine, through the contract); the merged six-partition slice moved the whole
+renderer onto the contract-only runtime; **S5 deleted the legacy runtime and retired the switch**, so `runtime/`
+at the repository root is now THE renderer runtime - it does not name `core` at all. The coexistence rules below
+are kept as the record of how the port was developed and gated.
 
-## 1. Shape: a directory, the SAME module names, and one runtime per build tree
+## 1. Shape: a directory, the SAME module names, and (until S5) one runtime per build tree
 
-* **`runtime/`** at the repository root, a peer of `vulkan/`, `promise/` and `utility/`. It holds the same five
-  module units the renderer has today - `runtime.cppm` (`export module deren.vulkan.runtime;` +
-  `export import :declarations;`) and the four partitions `:declarations` / `:constructor` / `:frames` /
+* **`runtime/`** at the repository root, a peer of `vulkan/`, `promise/` and `utility/`. It holds the same
+  module units the renderer had - `runtime.cppm` (`export module deren.vulkan.runtime;` +
+  `export import :declarations;`) and the five partitions `:declarations` / `:constructor` / `:frames` /
   `:probes` / `:readback` - under the SAME module names. That is what keeps `main.cpp`, `chores`, the passes and
   the tests unchanged: they import a name, not a path.
-* **One runtime per build tree, chosen at configure time:**
-  * `-DVR_RUNTIME=legacy` (default, today): `vulkan/runtime/*` is in `vulkancorekit`.
-  * `-DVR_RUNTIME=dynamic`: `runtime/*` is in `vulkancorekit`, and `vulkan/runtime/*` is **not compiled at all**.
-  Why exclusive rather than "both in one build": two BMIs of one module name cannot both be visible to one
-  target, so a single tree cannot host both runtimes. Two trees over one source tree, with one switch, is the
-  arrangement - and it is what makes the acceptance below a comparison: the legacy tree is the CONTROL.
-* **What is SHARED and therefore has to stay green in both trees:** the contract (`promise`), `utility` (the
-  loader lives in `deren.utility.dynamic_link`), `vulkan_constant_init` + `vulkan/render_layout` (the slot grid,
-  the formats, `bloom_level_count` - A1.0/A1.5), every pass, `deren.vulkan.pipelines` (its builders already take
+* **The `-DVR_RUNTIME=legacy|dynamic` switch existed while both runtimes did** (S1-S4): two BMIs of one module
+  name cannot both be visible to one target, so `legacy` (`vulkan/runtime/*`) and `dynamic` (`runtime/*`) were
+  two configurations of one source tree, and the legacy tree was the CONTROL for the dynamic one - both had to
+  read the same fourteen render hashes. **S5 deleted `vulkan/runtime/` and the switch retired with it:** there
+  is one file list and one configuration now (see `CMakeLists.txt`'s comment above `vulkancorekit`, and
+  `scripts/check_backend_boundary.py`, which carries the single surviving baseline+whitelist pair).
+* **What is SHARED and had to stay green in both trees:** the contract (`promise`), `utility` (the loader lives
+  in `deren.utility.dynamic_link`), `vulkan_constant_init` + `vulkan/render_layout` (the slot grid, the formats,
+  `bloom_level_count` - A1.0/A1.5), every pass, `deren.vulkan.pipelines` (its builders already take
   `rhi::api_core&`), and the app.
-* **CI:** a second configure of the same tree, `-DVR_RUNTIME=dynamic`, added to the existing job (or as a sibling
-  job once it renders): ctest, the boundary/import meter, the spike, then the render gate. The 14 references are
-  the RENDERER's, not the runtime's, so the dynamic tree must reproduce the same fourteen hashes - that is the
-  whole acceptance for a runtime swap.
+* **CI:** while both runtimes existed, a second configure of the same tree, `-DVR_RUNTIME=dynamic`, ran ctest,
+  the boundary/import meter, the spike and then the render gate. The 14 references are the RENDERER's, not the
+  runtime's, so the dynamic tree had to reproduce the same fourteen hashes - the whole acceptance for a runtime
+  swap, and now the FROZEN list the single tree is compared against
+  (`scripts/compare_render_hashes.py --frozen`).
 
 ## 2. Who builds/owns what while both exist
 
@@ -46,10 +48,16 @@ line of it exists so the coexistence rules are stated rather than discovered.
   formats, the bloom level count) already lives in `deren.vulkan.render_layout`, so the agreement is a shared
   module rather than a review.
 
-## 3. The eight import points, point by point (measured)
+## 3. The eight import points, point by point (measured BEFORE the slice - the port's record)
 
-The import meter reads **8 sites / 8 files** today. A grep of the class name `core` in each file separates three
-kinds: vestigial (only comments name it), the new runtime's own, and two facade types that really do hold it.
+> **HISTORICAL AS OF S5.** This section is the measurement the port was planned from: the paths and line
+> numbers below no longer exist (`vulkan/runtime/` was deleted by S5, and `readback.cppm` /
+> `filters.cppm` moved to the contract during the port). It is kept because it is how each of the eight was
+> decided, and because the two "real work" rows (1, 7) are what the flip's file list is made of.
+
+The import meter read **8 sites / 8 files** before the prep commits. A grep of the class name `core` in each
+file separates three kinds: vestigial (only comments name it), the new runtime's own, and two facade types
+that really do hold it.
 
 | # | site | what it actually names today | who takes it |
 |---|---|---|---|
@@ -66,20 +74,30 @@ So the meter's 8 splits as **5 deletable by measurement** (2-6) and **3 that are
 commit doing 2-6 first is worth landing on its own: it moves the reading before the dynamic runtime exists, and
 it tells the truth about what step 2 actually has to convert.
 
-## 4. Acceptance (what "the dynamic runtime is done" means)
+## 4. Acceptance (what "the dynamic runtime is done" means) - and how it was met
 
-1. `-DVR_RUNTIME=dynamic` configures, builds (exit 0), `ctest` 18/18, clang-format-check 0;
-2. the boundary ratchet still reads 2 with no stale/untracked, and the **import reading DROPS** by the prep
-   commits plus whatever the new runtime contributes (the target stays 0 for the runtime; the remaining sites
-   are whatever 7/8 still owe at that point, and they are written down rather than discovered);
+1. the runtime configures, builds (exit 0), `ctest` 18/18, clang-format-check 0;
+2. the boundary ratchet reads 2 with no stale/untracked, and the **import reading reached 0** when the last
+   engine-side importer of a backend module left (S5: `vulkan/runtime/runtime.declarations.cppm` went with the
+   legacy runtime; `readback.cppm` and `filters.cppm` had already moved to the contract);
 3. spike `--with-device` 96 checks / 0 failed / self-exited;
-4. **the 14 scenario hashes are byte-identical in the dynamic tree**, AND the legacy tree still reads 14/14
-   (the control), with validation-layer VUID 0 in both;
-5. `--require-zero` is red only on the two whitelisted symbols + the imports still outstanding, and the reading
+4. **the 14 scenario hashes are byte-identical** - compared between the two trees while both existed
+   (`matched 14, mismatched 0`), and against the FROZEN list from the single tree after the flip, with
+   validation-layer VUID 0;
+5. `--require-zero` is red only on the two whitelisted symbols (the designed C-entry boundary), and the reading
    is recorded in `DYNAMIC_LINK_PROGRESS.md`.
 
-## 5. What is NOT in this step
+## 5. What is NOT in this step, and what remains open after the flip
 
-Touching `vulkan/runtime/` (the legacy copy stays byte-for-byte as it is, so the control is honest); flipping
-`deren_vulkan` to SHARED (step 4); renaming the module or moving the legacy files out of `vulkan/` (that is the
-step-3 deletion); and converting any pass - the passes are already contract-side.
+Not in step 2: flipping `deren_vulkan` to SHARED (step 4 of the larger plan - the backend is still STATIC and
+`deren_make_api_core()` is exercised exactly as `test_dynamic_link` and the spike exercise it); renaming the
+module (`deren.vulkan.runtime` is kept deliberately, so no call site moved); and converting any pass - the
+passes were already contract-side.
+
+**OPEN AFTER THE FLIP (recorded, not silently dropped): whether the OTHER engine-side files under `vulkan/`
+should move out too** - `vulkan/pass/`, `vulkan/readback/`, `vulkan/core/filter/`. The user's own words were
+"finish the port first, then consider it"; this is the "consider it" list, and it is deliberately not part of
+S5: moving directories re-points the boundary baseline's paths, the import meter and three path-reading tests,
+which is a mechanical but separate change. `runtime/` itself already satisfies the one move the user DID ask
+for ("move the runtime out of `vulkan/`"): it has lived at the repository root since S1, and S5 is what deleted
+the copy that was still inside `vulkan/`.

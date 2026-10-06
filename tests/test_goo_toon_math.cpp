@@ -2543,7 +2543,7 @@ int32_t main() {
         };
         std::string const shader = slurp("shaders/goo_toon.slang");
         std::string const primitive = slurp("vulkan/primitive/primitive.cppm");
-        std::string const constructor = slurp("vulkan/runtime/runtime.constructor.cppm");
+        std::string const constructor = slurp("runtime/runtime.constructor.cppm");
         std::string const app = slurp("main.cpp");
         std::string const config = slurp("application_configuration/application_configuration.cpp");
         // the files the two suppressions live in, and the two other readers of the colour table's stride
@@ -2766,7 +2766,12 @@ int32_t main() {
             CHECK_MSG(constructor.find("runtime::set_goo_fgd_lut(") != std::string::npos, "the uploader the host writes it with");
             CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != std::string::npos,
                       "its format is UNORM and NOT sRGB: the reference's data-block is `Non-Color`, so an sRGB upload would decode all three FGD outputs once (abi 7: the named contract value maps 1:1 to VK_FORMAT_R8G8B8A8_UNORM in the backend)");
-            CHECK_MSG(constructor.find("write_heap_grid_image(this->vulkan_core, core::heap_slots::goo_fgd_lut") != std::string::npos, "and it reaches the slot");
+            // THE SLOT IS NAMED THROUGH THE SHARED MODULE NOW (S5): the runtime used to spell the backend's
+            // alias (`core::heap_slots::goo_fgd_lut`), and it names `deren.vulkan.render_layout::heap_slots`
+            // directly - the same constant, in the module BOTH halves compile (which is what the line above
+            // pins). What this check is for is unchanged: the HOST WRITES the slot.
+            CHECK_MSG(constructor.find("write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::goo_fgd_lut") != std::string::npos,
+                      "and it reaches the slot");
             CHECK_MSG(constructor.find("fgd_desc.mip_levels = 1;") != std::string::npos, "one mip, which is the reference's own `image_user` (no Mip input)");
             // ... AND THE APPLICATION SIDE: the path, the decoder, the format argument and the file's name
             CHECK_MSG(app.find("#define STB_IMAGE_STATIC") != std::string::npos, "the app's own stb copy is file-local (`gltf_loader.cpp` defines the extern one)");
@@ -3564,7 +3569,7 @@ int32_t main() {
         CHECK_MSG(goo_rim_answer.find("self.runtime_owner->goo_toon_active()") != std::string::npos, "answered with the SAME predicate the pipeline choice uses");
         CHECK_MSG(goo_rim_answer.find("self.goo_rim->ready() && goo_toon_active") != std::string::npos, "and true only when the rewritten chain is the one drawing");
         // ... and the frame loop records the stage after the character stage, gated on that name
-        std::string const frames = slurp("vulkan/runtime/runtime.frames.cppm");
+        std::string const frames = slurp("runtime/runtime.frames.cppm");
         CHECK_MSG(frames.find("this->goo_rim_pass = {at(\"goo_rim\")};") != std::string::npos, "the stage is bound to the chain by name");
         CHECK_MSG(frames.find("pass::stage const goo_rim_stage = {.name = \"goo_rim\"") != std::string::npos, "and recorded as its own stage");
         // ... and the G-buffer's publication is gated on the same feature name, or a frame with `goo_toon` off
@@ -4021,7 +4026,7 @@ int32_t main() {
                                "{0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};") != std::string::npos,
                       "DEBT (s): the cel band-count table must keep index 0 == 0.0f (plain PBR)");
 
-            std::string const runtime_cpp = slurp("vulkan/runtime/runtime.cpp");
+            std::string const runtime_cpp = slurp("runtime/runtime.cpp");
             CHECK_MSG(runtime_cpp.find("this->toon_steps = steps < 1.5f ? 0.0f : "
                                        "std::round(std::clamp(steps, 2.0f, 8.0f));") != std::string::npos,
                       "DEBT (s): `set_toon_shading` must keep the 0-step early out");
