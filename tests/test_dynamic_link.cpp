@@ -488,6 +488,32 @@ namespace {
         CHECK_MSG(core->present() == rhi::error::ok, which_half);
         core->wait_idle();
 
+        // ---- abi 16: THE BORROWED FRAME IMAGE HANDS OUT OWNED VIEWS (③-D/E item B) -------------------
+        // The asymmetry is the whole point, and it is what a caller can get wrong: the IMAGE is borrowed
+        // (its `release()` is a no-op that the probe counts), while a VIEW made from it is a new owned
+        // object whose `release()` is real. A range outside the swapchain image's one-layer/one-mip shape
+        // is REFUSED rather than clamped - the contract's rule for every `make_view()`.
+        {
+            rhi::image* const frame = core->frame_image();
+            CHECK_MSG(frame != nullptr, which_half); // a frame is open at this point in the probe's fiction
+            if (frame != nullptr) {
+                rhi::image_view* const whole = frame->make_view(rhi::image_view_desc{});
+                CHECK_MSG(whole != nullptr, which_half);
+                if (whole != nullptr) {
+                    CHECK(whole->type() == rhi::interface_type::image_view);
+                    whole->release(); // the OWNED view: this is the call that has to arrive
+                }
+                rhi::image_view_desc outside{};
+                outside.layer_count = 2; // a swapchain image has one layer
+                CHECK(frame->make_view(outside) == nullptr);
+                rhi::image_view_desc wrong_mip{};
+                wrong_mip.base_mip = 1;
+                CHECK(frame->make_view(wrong_mip) == nullptr);
+                // ... and releasing the IMAGE ITSELF is the borrowed no-op: it carries no reference.
+                frame->release();
+            }
+        }
+
         // Destruction runs inside the backend, exactly once, and a deleter that only counts first
         // still leaves the actual delete to `destroy_core` (the resolved symbol). The descriptor is
         // passed again here and the out parameter is deliberately null: a backend has to tolerate both.

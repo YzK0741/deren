@@ -104,6 +104,49 @@ namespace {
         bool released = false; ///< set by release(); the test reads it through size() == 0
     };
 
+    /// THE BORROWED FRAME IMAGE AND THE OWNED VIEW IT HANDS OUT (③-D/E item B, abi 16). `frame_image()`
+    /// answers a BORROWED view in the real backend, but a view MADE FROM one is a new owned object whose
+    /// `release()` is real - and that asymmetry is exactly what a caller can get wrong, so the probe mirrors
+    /// it: the image's own `release()` is the borrowed no-op, the view's is observable, and a range outside
+    /// the single-layer/single-mip shape is refused by name (nullptr), never clamped.
+    struct probe_image_view final : rhi::image_view {
+        void release() noexcept override {
+            this->released = true;
+        }
+
+        bool released = false;
+    };
+
+    struct probe_frame_image final : rhi::image {
+        void release() noexcept override {
+            // BORROWED: the real backend logs once and releases nothing (the engine owns no reference to the
+            // swapchain image). The probe's observable channel is an echo instead of a log, so a test can tell
+            // "the borrowed release was called" from "someone released the image itself".
+            ++this->borrowed_releases;
+        }
+
+        [[nodiscard]] rhi::image_extent extent() const noexcept override {
+            return {.width = 4, .height = 4, .depth = 1};
+        }
+
+        [[nodiscard]] rhi::image_format format() const noexcept override {
+            return rhi::image_format::bgra8_srgb;
+        }
+
+        [[nodiscard]] rhi::image_view* make_view(rhi::image_view_desc const& desc) override {
+            uint32_t const layers = desc.layer_count == 0 ? 1u : desc.layer_count;
+            uint32_t const mips = desc.mip_count == 0 ? 1u : desc.mip_count;
+            if (desc.base_layer != 0u || layers != 1u || desc.base_mip != 0u || mips != 1u) {
+                return nullptr; // a swapchain image is one layer, one mip: refused, not clamped
+            }
+            this->view.released = false;
+            return &this->view;
+        }
+
+        probe_image_view view{};
+        uint32_t borrowed_releases = 0;
+    };
+
     /// THE SAMPLER STAND-IN, AND WHY IT ECHOES ITS DESCRIPTOR (abi 16): `sampler_desc` gained five fields
     /// in that batch, and a DESCRIPTOR that travels by `const&` across the boundary is exactly the sort of
     /// thing a compiler cannot tell you was mis-laid-out - the backend would simply read different bytes.
@@ -354,10 +397,11 @@ namespace {
             ++this->waits;
         }
 
-        /// NO DEVICE, NO SWAPCHAIN IMAGE, NO READ-BACK SLOT: the probe's honest answer to the frame
-        /// getters is nullptr, the same shape as its `begin_commands()`.
+        /// THE FRAME IMAGE ANSWERS NOW (③-D/E item B): the probe has no device and no swapchain, so the
+        /// stand-in is a 4x4 fiction - but its SHAPE is the contract's: borrowed from the probe, alive only
+        /// while a frame is open (`frame_acquired`), and handing out an owned view from `make_view()`.
         [[nodiscard]] rhi::image* frame_image() noexcept override {
-            return nullptr;
+            return this->frame_acquired ? &this->borrowed_frame_image : nullptr;
         }
 
         [[nodiscard]] rhi::buffer* frame_readback_buffer() noexcept override {
@@ -412,7 +456,8 @@ namespace {
         }
 
         probe_buffer buffer{};
-        probe_sampler sampler{}; ///< abi 16: the descriptor echo the sampler test reads
+        probe_sampler sampler{};                  ///< abi 16: the descriptor echo the sampler test reads
+        probe_frame_image borrowed_frame_image{}; ///< abi 16 (item B): the borrowed frame image and its owned view
         probe_device_address address{};
         /// abi 15: the command buffer `create_command_buffer()` hands out. ONE object, reset on every
         /// creation - the same "statically allocated stand-in" shape `buffer` has, and the reason a

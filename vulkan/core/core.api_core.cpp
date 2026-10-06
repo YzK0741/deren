@@ -1435,15 +1435,53 @@ namespace deren::vulkan {
         return rhi::image_extent{.width = extent.width, .height = extent.height, .depth = 1};
     }
 
-    rhi::image_view* core::frame_image_slot::make_view(rhi::image_view_desc const& /*desc*/) {
-        // A BORROWED VIEW DOES NOT MAKE VIEWS (abi 7's make_view on the frame image): the swapchain
-        // image's views belong to the backend's own presentation path. The one-time log is the same
-        // borrowed-view rule the release override below lives by.
-        if (!this->borrowed_make_view_logged) {
-            this->borrowed_make_view_logged = true;
-            deren::utility::log("rhi: make_view on the borrowed frame image answers nullptr - the swapchain image has no contract views");
+    rhi::image_view* core::frame_image_slot::make_view(rhi::image_view_desc const& declared_desc) {
+        // A BORROWED IMAGE HANDS OUT OWNED VIEWS (③-D/E item B, abi 16). What is borrowed is the IMAGE -
+        // the swapchain image, owned by the presentation path - but a VIEW is a NEW backend object created
+        // right here, so `release()` on it is real and the contract's ownership rule applies to it exactly
+        // as it does to `create_image()->make_view()`: one reference, dropped once, inside the backend.
+        //
+        // THE LIFETIME RULE THE CALLER MUST KEEP (and the reason this used to refuse): a view made over a
+        // swapchain image dies with that image, so the caller has to release every view it created from a
+        // borrowed frame image BEFORE the swapchain is recreated (`swapchain::recreate()`, which the engine
+        // drives from `runtime::on_swapchain_recreated`). A view that outlives its image is a stale handle
+        // the validation layer reports; this backend does not track the caller's views, so it cannot paper
+        // over it. In this renderer the window is exactly one frame's worth: the engine makes the view while
+        // a frame is being recorded and releases it after the frame's submission, and a rebuild happens
+        // between frames.
+        rhi::image_view_desc const desc = sanitize_image_view_desc(declared_desc);
+        VkImage const image = this->handle();
+        if (image == VK_NULL_HANDLE) {
+            deren::utility::log("rhi: make_view on the borrowed frame image refused: no image has been acquired yet");
+            return nullptr;
         }
-        return nullptr;
+        // THE SWAPCHAIN IMAGE'S SHAPE IS ONE LAYER AND ONE MIP, and that is a fact rather than a limit of
+        // this implementation: the presentation image is what it is. A range outside it is refused, not
+        // clamped - the same rule `owned_image::make_view` follows, for the same reason (a clamped view
+        // samples something the caller did not ask for and says nothing).
+        uint32_t const layers = desc.layer_count == 0 ? 1u : desc.layer_count;
+        uint32_t const mips = desc.mip_count == 0 ? 1u : desc.mip_count;
+        if (desc.base_layer != 0u || layers != 1u || desc.base_mip != 0u || mips != 1u) {
+            deren::utility::log("rhi: make_view on the borrowed frame image refused: it is a single-layer, single-mip image "
+                                "(asked for layer {} + {}, mip {} + {})",
+                                desc.base_layer, layers, desc.base_mip, mips);
+            return nullptr;
+        }
+        VkImageViewCreateInfo const view_info = make_image_view_info(image,
+                                                                     this->owner->swap_chain_image_format,
+                                                                     VK_IMAGE_VIEW_TYPE_2D,
+                                                                     VK_IMAGE_ASPECT_COLOR_BIT,
+                                                                     mips,
+                                                                     layers);
+        VkImageView handle = VK_NULL_HANDLE;
+        if (vkCreateImageView(this->owner->logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
+            deren::utility::log("rhi: make_view on the borrowed frame image refused: vkCreateImageView failed");
+            return nullptr;
+        }
+        auto* const answer = new owned_image_view();
+        answer->native_view = handle;
+        answer->device = this->owner->logical_device;
+        return answer;
     }
 
     void core::frame_image_slot::release() noexcept {

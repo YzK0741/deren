@@ -235,6 +235,14 @@ export namespace deren::promise::rhi {
     // alternative, a silent no-op, would hide a caller that thinks it holds a reference it does not.
     // `command_list` therefore carries no `release()` at all: it is only ever a borrowed view.
     //
+    // WHAT A BORROWED IMAGE MAY STILL HAND OUT, AND THE RULE THAT COMES WITH IT (③-D/E item B, abi 16):
+    // `frame_image()->make_view(desc)` answers an OWNED view - the image is borrowed, the view is a new
+    // backend object created for the caller and released like any other factory product. The rule is a
+    // lifetime one: a view made over a swapchain image dies with that image, so the caller MUST release
+    // every such view BEFORE `swapchain::recreate()` (the backend does not track the caller's views, and a
+    // view that outlives its image is what the validation layer reports). The range is the swapchain
+    // image's own shape - one layer, one mip - and anything outside it is REFUSED, not clamped.
+    //
     // WHY A VIRTUAL AND NOT JUST THE VIRTUAL DESTRUCTOR: `delete p` through these bases is already a
     // vtable dispatch into the backend, so it *works* (measured on `core`: the engine references no
     // destructor symbol for it at all). What `delete` cannot express is RELEASE WITHOUT DESTRUCTION,
