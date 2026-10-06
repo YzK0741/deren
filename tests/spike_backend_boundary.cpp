@@ -29,16 +29,19 @@
 //                          CONTRACT (from the STATIC `promise` target) without consuming the
 //                          backend's module. Whether those two facts can coexist is the
 //                          question; a configure/build failure is the answer.
-//   Q4 BMI across target   `deren_abi_version()` resolved from the DLL answers the number the
-//                          TEST compiled from its own copy of the contract module - the
-//                          "both sides compile the contract" rule, checked across a real
-//                          image boundary. With `--with-device`, virtual calls on an object
-//                          CONSTRUCTED INSIDE the DLL dispatch through the exe's own vtable
-//                          copy, which is the stronger form of the same question.
-//   Q2 the deleter         with `--with-device`: the `shared_ptr` is built with the deleter
-//                          RESOLVED FROM THE DLL, so the `delete` runs inside the library that
-//                          allocated the object. The static half of the probe proved the shape
-//                          against a probe; this proves it against `deren::vulkan::core`.
+//   Q4 BMI across target   the version handshake is read across the image boundary WITHOUT a version
+//                          symbol (abi 18 deleted the query): the caller passes the number THIS TEST
+//                          compiled from its own copy of the contract module, and the DLL's own number
+//                          comes back in the refusal's `native_code` - the "both sides compile the
+//                          contract" rule, checked across a real image boundary. With
+//                          `--with-device`, virtual calls on an object CONSTRUCTED INSIDE the DLL
+//                          dispatch through the exe's own vtable copy, the stronger form of the same
+//                          question.
+//   Q2 the deleter         with `--with-device`: the `shared_ptr` the DLL RETURNS carries the control
+//                          block built inside that library (abi 18), so the `delete` runs in the image
+//                          that allocated the object without the host naming a deleter symbol at all.
+//                          The static half of the probe proved the shape against a probe; this proves
+//                          it against `deren::vulkan::core`.
 //   Q1 sanitizers          not observable from inside a single test: it is decided at BUILD
 //                          time (an instrumented DLL cannot put a second ASan runtime into the
 //                          instrumented process - CMakeLists' probe_backend comment). The
@@ -92,8 +95,9 @@ namespace {
     // which does search %PATH% - a different question).
     constexpr std::string_view spike_dll_path = VR_SPIKE_BACKEND_DLL;
 
-    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::create_info const*, rhi::error_info*);
-    using destroy_core_fn = void (*)(rhi::api_core*);
+    // abi 18: the entry returns the owning handle, so the resolved symbol IS the whole surface - the
+    // contract's own typedef keeps this file from spelling a signature that could drift from the header.
+    using make_core_fn = deren_make_api_core_fn;
 
     /** @brief a resolved C symbol: `void const*` to function pointer, constness dropped on purpose */
     template <typename function>
@@ -166,26 +170,26 @@ namespace {
         // below, never spelled here, so a renumbering cannot silently pass this file.)
         rhi::create_info const creation{};
         rhi::error_info status{};
-        rhi::api_core* const refused = make_core(rhi::abi_version + 1u, &creation, &status);
-        CHECK(refused == nullptr);
+        std::shared_ptr<rhi::api_core> const refused = make_core(rhi::abi_version + 1u, &creation, &status);
+        CHECK(!refused); // an EMPTY shared_ptr is the refusal (abi 18), exactly as a null raw pointer was
         CHECK(status.code == rhi::error::abi_mismatch);
-        CHECK(status.native_code == 0); // a handshake refusal is its own class: no underlying VkResult
+        // THE BACKEND'S OWN NUMBER IS THE DIAGNOSTIC'S `native_code` (abi 18): `deren_abi_version()` is
+        // gone, so this field is where a host reads the number it disagreed with.
+        CHECK(status.native_code == static_cast<std::int32_t>(rhi::abi_version));
         CHECK_MSG(!status.message.empty(), "the refusal carries static text naming what disagreed");
 
-        // A refused call still ends up inside a `shared_ptr` in the engine's own code, which is why
-        // the deleter tolerates nullptr; `check_the_real_context` below covers the other half.
         CHECK(status.code != rhi::error::ok);
 
         // AND NO CREATION DESCRIPTOR IS A NAMED REFUSAL, not a defaulted context: `create_info{}` is
         // how the standard context is spelled (backend_entry.hpp), so a null pointer is a caller bug
         // that the REAL backend reports with a code rather than papering over.
         rhi::error_info missing{};
-        CHECK(make_core(rhi::abi_version, nullptr, &missing) == nullptr);
+        CHECK(!make_core(rhi::abi_version, nullptr, &missing));
         CHECK_MSG(missing.code == rhi::error::invalid_argument, "the real backend refuses a null create_info by name");
     }
 
     /// Q2 + Q4 (strong form): the real context, its virtuals, and its destruction inside the DLL.
-    void check_the_real_context(make_core_fn make_core, destroy_core_fn destroy_core) {
+    void check_the_real_context(make_core_fn make_core) {
         // THE CONTRACT'S ONE CREATION STRUCTURE, filled here the way the application fills it at
         // startup (main.cpp) - the same type, and the same call shape, the flip will use.
         //
@@ -204,20 +208,20 @@ namespace {
 
         mark("calling deren_make_api_core (instance/device/swapchain/heap are built in here)");
         rhi::error_info status{};
-        rhi::api_core* const raw = make_core(rhi::abi_version, &creation, &status);
+        std::shared_ptr<rhi::api_core> const core = make_core(rhi::abi_version, &creation, &status);
         mark("deren_make_api_core returned");
         CHECK(status.code == rhi::error::ok);
-        CHECK(raw != nullptr);
-        if (raw == nullptr) {
-            return; // the backend refuses by returning null; the startup diagnosis is its own
+        CHECK(core != nullptr);
+        if (core == nullptr) {
+            return; // the backend refuses with an empty handle; the startup diagnosis is its own
         }
 
-        // THE DELETER IS THE DLL'S OWN SYMBOL, not the one the linker would have given this test:
-        // an object allocated inside the library must be freed inside it (plan §4.1 item 3). The
-        // `shared_ptr` lives in an inner scope ON PURPOSE, so the destroy runs while the library is
-        // still loaded - the ordering the engine has to reproduce with its own member order.
+        // THE DELETER CAME WITH THE ANSWER (abi 18): the control block was built INSIDE the DLL, so the
+        // destruction runs in the image that allocated the object without this test naming a deleter
+        // symbol at all. The scope below is kept ON PURPOSE: it is where the last reference drops, and
+        // the library is still loaded (detached) when it does - the ordering the engine reproduces with
+        // its own member order.
         {
-            std::shared_ptr<rhi::api_core> core{raw, destroy_core};
 
             // A virtual call on an object CONSTRUCTED INSIDE THE DLL, dispatching through the
             // vtable compiled into this executable: the cross-image form of "both sides compile the
@@ -644,26 +648,20 @@ int main(int argc, char** argv) {
     auto loaded = std::move(*loaded_result);
     CHECK(loaded.native_handle() != nullptr);
 
-    // Q4 (weak form): the DLL's compiled contract number equals the one this executable compiled.
-    auto const version_symbol = loaded.symbol("deren_abi_version");
-    CHECK(version_symbol.has_value());
-    if (version_symbol.has_value()) {
-        auto const abi_version = as_function<std::uint32_t (*)()>(version_symbol.value());
-        CHECK(abi_version() == rhi::abi_version);
-        deren::vk_test::write_line("spike: deren_abi_version() = {} (this executable compiled {})", abi_version(), rhi::abi_version);
-    }
-
+    // Q4 (weak form) + THE ONE-EXPORT SHAPE (abi 18): the DLL exports exactly one symbol, and the two
+    // that shaped abi 17 are ABSENT - their absence is checked rather than assumed, because "the host
+    // resolves the version from the DLL" is no longer a step (the version is the call's argument, and
+    // the DLL answers a mismatch with its own number inside the diagnostic).
+    CHECK(!loaded.symbol("deren_abi_version").has_value());
+    CHECK(!loaded.symbol("deren_destroy_api_core").has_value());
     auto const make_symbol = loaded.symbol("deren_make_api_core");
-    auto const destroy_symbol = loaded.symbol("deren_destroy_api_core");
     CHECK(make_symbol.has_value());
-    CHECK(destroy_symbol.has_value());
-    if (make_symbol.has_value() && destroy_symbol.has_value()) {
+    if (make_symbol.has_value()) {
         make_core_fn const make_core = as_function<make_core_fn>(make_symbol.value());
-        destroy_core_fn const destroy_core = as_function<destroy_core_fn>(destroy_symbol.value());
 
         check_the_handshake(make_core);
         if (with_device) {
-            check_the_real_context(make_core, destroy_core);
+            check_the_real_context(make_core);
         } else {
             deren::vk_test::write_line("spike: device path skipped (pass --with-device to build a real context)");
         }

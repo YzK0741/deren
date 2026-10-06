@@ -88,8 +88,10 @@ namespace {
     constexpr std::string_view unload_probe_file_name = "deren_probe_backend_unload_probe.dll";
     constexpr std::string_view detach_probe_file_name = "deren_probe_backend_detach_probe.dll";
 
-    using make_core_fn = rhi::api_core* (*)(std::uint32_t, rhi::create_info const*, rhi::error_info*);
-    using destroy_core_fn = void (*)(rhi::api_core*);
+    // abi 18: the entry RETURNS the owning handle, so there is no second function to resolve and no
+    // deleter name to look up - the contract's own typedef is used so this test cannot drift from the
+    // header it is testing (promise/rhi/backend_entry.hpp).
+    using make_core_fn = deren_make_api_core_fn;
 
     /** @brief a resolved C symbol: void const* to function pointer, constness dropped on purpose */
     template <typename function>
@@ -152,11 +154,11 @@ namespace {
     /**
      * @brief everything the promise contract promises, driven through one pair of entry points
      *
-     * Called once with the symbols resolved from the loaded DLL and once with the ones the linker
-     * found in the static half. `make_core` and `destroy_core` are the only things that differ;
-     * every expectation below has to hold for both.
+     * Called once with the symbol resolved from the loaded DLL and once with the one the linker
+     * found in the static half. `make_core` is the only thing that differs; every expectation below
+     * has to hold for both - and since abi 18 the ownership it hands over needs no deleter argument.
      */
-    void check_core_contract(make_core_fn make_core, destroy_core_fn destroy_core, char const* which_half) {
+    void check_core_contract(make_core_fn make_core, char const* which_half) {
         // The ABI number is part of the contract, not an implementation detail: pin the value so a
         // silent renumbering is a test failure and not a mystery at a customer's machine. 1 -> 2 in the
         // recording-surface batch: SIX new virtuals landed on EXISTING tier-1 types (a vtable shift).
@@ -205,7 +207,14 @@ namespace {
         // format had no pre-acquire answer, and this accessor is the one thing the slice adds to the
         // contract. (The number was previously reserved for `graphics_queue_family_index()`; that entry
         // was withdrawn when the queue family became a read-only runtime derivation.)
-        CHECK(rhi::abi_version == 17u);
+        // ABI18 is the SHARED flip: the C entry goes from THREE symbols to ONE - `deren_make_api_core`
+        // RETURNS a `std::shared_ptr<api_core>` (ownership in the control block, so
+        // `deren_destroy_api_core` has nothing left to do), and the version is the call's FIRST
+        // ARGUMENT (so `deren_abi_version()` has nothing left to answer). The old spelling existed to
+        // keep "one C++ runtime" out of the boundary's premises; that premise is now measured and
+        // machine-checked (`cxx deren.exe imports libc++.dll`, which covers the DLL too). A C-entry
+        // signature change is what the number protects, exactly as it did for 2 -> 3.
+        CHECK(rhi::abi_version == 18u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -225,23 +234,26 @@ namespace {
         // parameter - a null `api_core` plus the WHOLE diagnostic (abi 13: code, api, text, the
         // failure point), never a crash and never an exception.
         rhi::error_info mismatch_error{};
-        CHECK(make_core(rhi::abi_version + 1u, &creation, &mismatch_error) == nullptr);
+        CHECK(!make_core(rhi::abi_version + 1u, &creation, &mismatch_error));
         CHECK_MSG(mismatch_error.code == rhi::error::abi_mismatch, which_half);
+        // THE BACKEND'S OWN NUMBER COMES BACK IN THE DIAGNOSTIC (abi 18): `deren_abi_version()` is
+        // gone, so a host that disagrees learns the number it disagreed WITH from the refusal itself.
+        CHECK_MSG(mismatch_error.native_code == static_cast<std::int32_t>(rhi::abi_version), which_half);
         // ... and a caller that passes no out parameter is still not crashed into (the backend has
         // to tolerate the null: the engine passes one, a probe or a script may not).
-        CHECK(make_core(rhi::abi_version + 1u, &creation, nullptr) == nullptr);
+        CHECK(!make_core(rhi::abi_version + 1u, &creation, nullptr));
 
         // NO DESCRIPTOR IS A CALLER BUG, not a request for the standard context: the answer is a null
         // pointer and `invalid_argument`, and the contract spells "standard context" as `create_info{}`
         // (backend_entry.hpp). A backend that defaulted here would hide the bug.
         rhi::error_info missing_desc_error{};
-        CHECK(make_core(rhi::abi_version, nullptr, &missing_desc_error) == nullptr);
+        CHECK(!make_core(rhi::abi_version, nullptr, &missing_desc_error));
         CHECK_MSG(missing_desc_error.code == rhi::error::invalid_argument, which_half);
 
         // The matching call hands out a live object and says so in the out parameter. The sentinel
         // is not `ok`, so a backend that never wrote it fails the check below.
         rhi::error_info make_error{.code = rhi::error::abi_mismatch};
-        std::shared_ptr<rhi::api_core> core{make_core(rhi::abi_version, &creation, &make_error), destroy_core};
+        std::shared_ptr<rhi::api_core> core = make_core(rhi::abi_version, &creation, &make_error);
         CHECK_MSG(make_error.code == rhi::error::ok, which_half);
         CHECK(core != nullptr);
         if (core == nullptr) {
@@ -249,9 +261,9 @@ namespace {
         }
         CHECK(core->type() == rhi::api_core::interface_id);
 
-        // Ownership is real: the deleter the engine installed is the backend's own (for the DLL
-        // half, the pointer resolved out of that DLL), the count is observable, and copying the
-        // handle does not hand the object out twice.
+        // Ownership is real and it came WITH the answer: the control block holds the backend's own
+        // deleter (for the DLL half, one built inside that DLL), the count is observable, and copying
+        // the handle does not hand the object out twice.
         CHECK(core.use_count() == 1);
         {
             std::shared_ptr<rhi::api_core> const borrowed = core;
@@ -523,20 +535,25 @@ namespace {
             }
         }
 
-        // Destruction runs inside the backend, exactly once, and a deleter that only counts first
-        // still leaves the actual delete to `destroy_core` (the resolved symbol). The descriptor is
+        // DESTRUCTION IS THE CONTROL BLOCK'S JOB NOW (abi 18), and that is observable as OWNERSHIP
+        // ARITHMETIC rather than as a wrapped deleter: the test can no longer name the function that
+        // destroys the object (there is no second entry point to resolve), but it can pin that a second
+        // reference keeps the SAME object alive and that the last one releases it. The descriptor is
         // passed again here and the out parameter is deliberately null: a backend has to tolerate both.
-        int32_t destroy_calls = 0;
         {
-            std::shared_ptr<rhi::api_core> scoped{
-                make_core(rhi::abi_version, &creation, nullptr),
-                [&destroy_calls, destroy_core](rhi::api_core* raw) {
-                    ++destroy_calls;
-                    destroy_core(raw);
-                }};
+            std::shared_ptr<rhi::api_core> scoped = make_core(rhi::abi_version, &creation, nullptr);
             CHECK(scoped != nullptr);
+            if (scoped != nullptr) {
+                CHECK(scoped.use_count() == 1);
+                std::shared_ptr<rhi::api_core> const second = scoped; // a second OWNER, not a second object
+                CHECK(second.get() == scoped.get());
+                CHECK_MSG(scoped.use_count() == 2, which_half);
+            }
+            // ... the last reference goes here, and the control block's deleter - built inside the
+            // backend - is what runs. A double delete or a leak on that path is what the sanitizer job
+            // watches; no account of it is available to THIS half any more, which is the trade abi 18
+            // made when it deleted `deren_destroy_api_core`.
         }
-        CHECK_MSG(destroy_calls == 1, which_half);
     }
 
     void test_a_missing_file_is_a_returned_error(fs::path const& directory) {
@@ -583,41 +600,32 @@ namespace {
         }
         CHECK(loaded->native_handle() != nullptr);
 
-        auto const version = loaded->symbol("deren_abi_version");
-        CHECK(version.has_value());
+        // THE ONE EXPORT (abi 18). The probe DLL exports exactly its entry point; the two symbols that
+        // shaped abi 17 are GONE with it - the version is the call's first argument and the deleter
+        // lives in the returned control block - so their absence is checked, not assumed.
         CHECK(!loaded->symbol("deren_no_such_symbol_in_the_probe_backend").has_value());
         CHECK(!loaded->symbol("").has_value());
-        if (version.has_value()) {
-            auto const abi_version = as_function<std::uint32_t (*)()>(version.value());
-            CHECK(abi_version() == rhi::abi_version);
-            CHECK(abi_version() == deren_abi_version()); // the DLL and the static half agree
-        }
+        CHECK(!loaded->symbol("deren_abi_version").has_value());
+        CHECK(!loaded->symbol("deren_destroy_api_core").has_value());
 
         auto const make = loaded->symbol("deren_make_api_core");
-        auto const destroy = loaded->symbol("deren_destroy_api_core");
         CHECK(make.has_value());
-        CHECK(destroy.has_value());
-        if (!make.has_value() || !destroy.has_value()) {
+        if (!make.has_value()) {
             return;
         }
 
-        // The pair driven here is the one RESOLVED FROM THE DLL, not the one the linker would give
-        // this test: that is the plan's rule (§4.1) - an object made inside the library has to be
-        // deleted inside the library - and the reason `deren_destroy_api_core` is exported by name
-        // instead of being wrapped in engine-side glue.
-        check_core_contract(as_function<make_core_fn>(make.value()), as_function<destroy_core_fn>(destroy.value()),
-                            "dll");
+        // The function driven here is the one RESOLVED FROM THE DLL, not the one the linker would give
+        // this test: that is the plan's rule (§4.1) - an object made inside the library is owned and
+        // destroyed inside the library - and with abi 18 that rule travels in the control block the
+        // call returns.
+        check_core_contract(as_function<make_core_fn>(make.value()), "dll");
 
         // A moved-from library is empty (not a second owner of the same handle), and the symbols
         // taken from the destination keep working.
         deren::utility::dynamic_link::library moved{std::move(*loaded)};
         CHECK(moved.native_handle() != nullptr);
         CHECK(loaded->native_handle() == nullptr);
-        auto const moved_version = moved.symbol("deren_abi_version");
-        CHECK(moved_version.has_value());
-        if (moved_version.has_value()) {
-            CHECK(as_function<std::uint32_t (*)()>(moved_version.value())() == rhi::abi_version);
-        }
+        CHECK(moved.symbol("deren_make_api_core").has_value());
     }
 
     void test_the_library_is_unloaded_when_it_goes_out_of_scope(fs::path const& directory) {
@@ -631,7 +639,7 @@ namespace {
             auto const loaded = deren::utility::dynamic_link::load(copy.filename().string());
             CHECK(loaded.has_value());
             if (loaded.has_value()) {
-                CHECK(loaded->symbol("deren_abi_version").has_value());
+                CHECK(loaded->symbol("deren_make_api_core").has_value());
 #if defined(_WIN32)
                 std::error_code still_mapped{};
                 CHECK(!fs::remove(copy, still_mapped)); // sharing violation: the image is mapped
@@ -660,14 +668,14 @@ namespace {
             if (!loaded.has_value()) {
                 return;
             }
-            CHECK(loaded->symbol("deren_abi_version").has_value());
+            CHECK(loaded->symbol("deren_make_api_core").has_value());
 
             void* const detached = loaded->detach();
             CHECK(detached != nullptr);
             // THE OBJECT IS EMPTY AFTERWARDS: the handle left with the caller, and every remaining
             // operation says so instead of using a handle it no longer owns.
             CHECK(loaded->native_handle() == nullptr);
-            CHECK(!loaded->symbol("deren_abi_version").has_value());
+            CHECK(!loaded->symbol("deren_make_api_core").has_value());
             // destructor runs here: it must NOT unload (the handle is gone; nothing left to close)
         }
 #if defined(_WIN32)
@@ -683,11 +691,10 @@ namespace {
 
     void test_the_static_half_behaves_the_same() {
         // No library is involved here: abi_export.hpp's static branch produces ordinary C symbols,
-        // and the same contract is reached through the linker. `deren_make_api_core` and friends
-        // are the declarations from promise/rhi/rhi.api_core.cppm - this test no longer spells the C ABI
-        // out by hand, so a drift between the header and the backend is a link error.
-        CHECK(deren_abi_version() == rhi::abi_version);
-        check_core_contract(&deren_make_api_core, &deren_destroy_api_core, "static");
+        // and the same contract is reached through the linker. `deren_make_api_core` is the
+        // declaration from promise/rhi/backend_entry.hpp - this test does not spell the C ABI out by
+        // hand, so a drift between the header and the backend is a compile/link error.
+        check_core_contract(&deren_make_api_core, "static");
     }
 } // namespace
 

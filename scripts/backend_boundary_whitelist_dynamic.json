@@ -1,39 +1,37 @@
 {
   "why": [
     "THE DYNAMIC CONFIGURATION'S FLIP WHITELIST: the backend symbols the boundary may still carry when",
-    "--require-zero runs against build-release-dyn-clang64 (the contract-only runtime in root runtime/).",
-    "A SEPARATE PAIR FROM THE LEGACY ONE, because the two trees cross the boundary in different SHAPES:",
-    "the legacy engine references the CONCRETE CLASS (core::core(create_info const&), which is STALE here",
-    "- that is the flip's target, not a regression), while the dynamic engine references the C ENTRY",
-    "(deren_make_api_core / deren_destroy_api_core). One shared pair would report each tree's symbols as",
-    "STALE in the other - noise, not a boundary.",
-    "SET ONCE, FROM THE DYNAMIC TREE'S OWN MEASUREMENT (2026-10-06, S1 tree state, `--config dynamic",
-    "--initialize`: 3 symbols / 4 reference sites / 0 owning STL, kit 71 members, backend 1235 defined).",
-    "The baseline is the record; --update may only shrink it. Like the legacy file this list may only",
-    "SHRINK: an entry with no live hit is a failure, --update never writes it, and an entry the ratchet",
-    "never tracked is refused (a new dependency cannot be whitelisted into existence).",
-    "THE DYNAMIC PAIR IS THE ONE THAT HAS TO REACH ZERO. When step 3 (S5) deletes the legacy runtime,",
-    "the legacy pair is deleted with it and the world is single again: one baseline, one whitelist.",
-    "TWO OF TODAY'S ENTRIES ARE THE DESIGNED BOUNDARY, NOT A DEBT - and after step 2's slice there are",
-    "only those two left: the third (the deren.vulkan.core initializer) left the measured set when",
-    "vulkan/readback stopped importing the backend module, and it is recorded under `departures` below."
+    "--require-zero runs against build-release-dyn-clang64 (the runtime in root runtime/). ONE",
+    "CONFIGURATION, ONE PAIR (S5); this file and its baseline are the only boundary record left.",
+    "THE LIST IS DOWN TO THE DESIGNED BOUNDARY ITSELF, which is what the migration was for: after abi 18",
+    "the C entry is ONE symbol, and `deren_destroy_api_core` (deleted with the pointer-plus-deleter shape)",
+    "and `deren_abi_version` (folded into the call's first argument) are recorded under `departures`.",
+    "SET ONCE, FROM THE DYNAMIC TREE'S OWN MEASUREMENT, and only ever SHRUNK since: --update may only",
+    "shrink it, an entry with no live hit is a failure, an entry the ratchet never tracked is refused",
+    "(a new dependency cannot be whitelisted into existence), and --update never writes this file."
   ],
   "departures": [
     {
       "symbol": "_ZGIW5derenW6vulkanW4core",
-      "left_in": "\u2462-D/E step 2 (the merged runtime slice, abi 17)",
+      "left_in": "③-D/E step 2 (the merged runtime slice, abi 17)",
       "reason": "initializer for module deren.vulkan.core. It was in this list as the one exception the import graph FORCED: the dynamic engine imported the backend module through two engine facades (vulkan/readback/readback.cppm and the legacy runtime's own declarations, the second of which this tree does not compile). The slice converted vulkan/readback to `rhi::api_core&` and dropped its import, so the initializer left the dynamic tree's measured set - the legacy runtime's file is the only importer left, and this tree does not build it. An exit, not a silence."
+    },
+    {
+      "symbol": "deren_destroy_api_core",
+      "left_in": "the SHARED flip (abi 18)",
+      "reason": "the deleter entry point is DELETED, not silenced: `deren_make_api_core` now RETURNS a `std::shared_ptr<api_core>` whose control block carries the backend's own deleter, so no host resolves a destroy symbol any more and the engine references none. The old spelling existed to keep \"one C++ runtime\" out of the boundary's premises; that premise is now measured and machine-checked (`cxx deren.exe imports libc++.dll`, which covers the backend DLL too), so the entry set went from three symbols to one. An exit, not a silence."
+    },
+    {
+      "symbol": "deren_abi_version",
+      "left_in": "the SHARED flip (abi 18)",
+      "reason": "recorded for completeness rather than as a removed HIT: this symbol was never in the whitelist, because the engine never referenced it - it was an EXPORT the host called by name. It is deleted with the same batch: the version is now the entry's FIRST ARGUMENT, and a mismatch is refused with the backend's own number inside `error_info.native_code`. The export surface therefore carries exactly one `deren_*` symbol, which the DLL export gate checks on the artifact."
     }
   ],
-  "count": 2,
+  "count": 1,
   "entries": [
     {
       "symbol": "deren_make_api_core",
       "reason": "this is the DESIGNED boundary, declared in promise/rhi/backend_entry.hpp. The dynamic runtime is its only engine-side caller: it builds a shared_ptr<rhi::api_core> around deren_make_api_core(rhi::abi_version, &options, &error) and takes the face as *core_owner. It is what the design predicts the boundary to be, not a regression - and it never leaves while the backend is a DLL."
-    },
-    {
-      "symbol": "deren_destroy_api_core",
-      "reason": "this is the DESIGNED boundary, declared in promise/rhi/backend_entry.hpp - the deleter half of the same contract: the shared_ptr the dynamic runtime holds calls it, so the backend destroys what it made. Never unload (the loader's detach()) is why this is destruction and not FreeLibrary. Not a regression."
     }
   ]
 }

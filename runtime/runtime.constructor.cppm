@@ -407,8 +407,12 @@ namespace deren::vulkan {
          */
         [[nodiscard]] std::shared_ptr<rhi::api_core> make_contract_core(rhi::create_info const& options) {
             rhi::error_info status{};
-            rhi::api_core* const raw = deren_make_api_core(rhi::abi_version, &options, &status);
-            if (raw == nullptr) {
+            // THE ENTRY OWNS THE OBJECT FROM THE MOMENT IT ANSWERS (abi 18): the `shared_ptr` it returns
+            // carries the backend's own deleter in its control block, so there is no raw pointer here
+            // and no deleter name to resolve - the last reference this runtime holds is the whole
+            // lifetime story.
+            std::shared_ptr<rhi::api_core> core = deren_make_api_core(rhi::abi_version, &options, &status);
+            if (!core) {
                 deren::utility::panic(std::source_location::current(),
                                       "runtime: deren_make_api_core refused the creation (abi {}, error code {}, native {}): {}",
                                       rhi::abi_version,
@@ -416,10 +420,7 @@ namespace deren::vulkan {
                                       status.native_code,
                                       status.message);
             }
-            // THE DELETER IS THE BACKEND'S OWN SYMBOL, from the same entry header the factory came from:
-            // the object lives in the backend's image, so `deren_destroy_api_core` - never `delete` - is
-            // what gives it back (plan §4.1 item 3).
-            return std::shared_ptr<rhi::api_core>{raw, &deren_destroy_api_core};
+            return core;
         }
     } // namespace
 

@@ -177,7 +177,22 @@ export namespace deren::promise::rhi {
     /// asked of the context rather than of an image. (The withdrawn entry at this number was
     /// `graphics_queue_family_index()`; that one was replaced by a read-only runtime derivation and is
     /// NOT coming back - see DYNAMIC_LINK_PROGRESS.md §14.)
-    inline constexpr std::uint32_t abi_version = 17u;
+    /// 17 -> 18 in the SHARED flip (the last batch of the dynamic-backend migration): the C entry
+    /// surface goes from THREE symbols to ONE. `deren_make_api_core` RETURNS a
+    /// `std::shared_ptr<api_core>` instead of a raw pointer, and `deren_destroy_api_core` plus
+    /// `deren_abi_version()` are DELETED with it: ownership lives in the control block the backend
+    /// built (so no host names a deleter and no raw pointer crosses), and the version became the call's
+    /// FIRST ARGUMENT - a mismatch is still refused before any object exists, with the backend's own
+    /// number carried back inside the `error_info` it fills. WHY THE OLD SHAPE COULD BE RETIRED RATHER
+    /// THAN KEPT: the raw-pointer-plus-deleter spelling existed to keep "one C++ runtime" out of the
+    /// boundary's premises (m02244). That premise is now MEASURED and machine-checked - every image
+    /// imports libc++.dll and uses the UCRT heap, so one runtime and one heap are shared and a control
+    /// block allocated on one side may be released on the other (scripts/check_backend_boundary.py's
+    /// `cxx` check, which now covers the executable AND the backend DLL). The C ENTRY's signature is
+    /// what the abi number protects, so this is a bump even though no vtable moved.
+    /// `-Wreturn-type-c-linkage` is silenced at the declaration and at the definition, because the C
+    /// linkage is there for the NAME - an undecorated symbol a host resolves as a string.
+    inline constexpr std::uint32_t abi_version = 18u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

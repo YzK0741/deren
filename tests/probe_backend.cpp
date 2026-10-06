@@ -580,22 +580,21 @@ namespace {
 
 } // namespace
 
-extern "C" DEREN_API_EXPORT std::uint32_t deren_abi_version() {
-    return deren::promise::rhi::abi_version;
-}
-
-extern "C" DEREN_API_EXPORT deren::promise::rhi::api_core* deren_make_api_core(std::uint32_t abi_version,
-                                                                               deren::promise::rhi::create_info const* desc,
-                                                                               deren::promise::rhi::error_info* out_error_info) {
+extern "C" DEREN_API_EXPORT std::shared_ptr<rhi::api_core>
+deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info const* desc,
+                    deren::promise::rhi::error_info* out_error_info) {
     if (abi_version != deren::promise::rhi::abi_version) {
         if (out_error_info != nullptr) {
             // THE DIAGNOSTIC, WHOLE: code, who produced it, static text and the failure point - the
-            // abi 13 channel is the whole story, not a bare number.
+            // abi 13 channel is the whole story, not a bare number. THE BACKEND'S OWN NUMBER travels in
+            // `native_code` since abi 18: `deren_abi_version()` is gone, so this is where a host reads
+            // the number it disagrees with.
             *out_error_info = rhi::error_info{.code = rhi::error::abi_mismatch,
+                                              .native_code = static_cast<std::int32_t>(rhi::abi_version),
                                               .message = "probe: the caller's abi_version is not this backend's",
                                               .where = std::source_location::current()};
         }
-        return nullptr;
+        return {};
     }
     // "no creation parameters" is a caller bug, not a request for the standard context: the contract's
     // own `create_info{}` is how that is spelled (see backend_entry.hpp).
@@ -605,7 +604,7 @@ extern "C" DEREN_API_EXPORT deren::promise::rhi::api_core* deren_make_api_core(s
                                               .message = "probe: the creation descriptor is null",
                                               .where = std::source_location::current()};
         }
-        return nullptr;
+        return {};
     }
     if (out_error_info != nullptr) {
         *out_error_info = rhi::error_info{}; // ok: a zeroed diagnostic says ok - nobody failed
@@ -616,12 +615,11 @@ extern "C" DEREN_API_EXPORT deren::promise::rhi::api_core* deren_make_api_core(s
     // contract returns: `frame_begin()`'s and the frame walker's `image_index`. The test fills the
     // descriptor and reads the number back, so a request that never reached the library cannot pass
     // for one that did.
-    auto* const created = new impl();
+    //
+    // OWNERSHIP: `make_shared` puts the deleter in the control block (abi 18), so the probe object is
+    // destroyed by whoever drops the last reference - no deleter entry point exists to resolve.
+    auto created = std::make_shared<impl>();
     created->creation_window_width = static_cast<std::uint32_t>(desc->window_width);
     created->creation_window_height = static_cast<std::uint32_t>(desc->window_height);
     return created;
-}
-
-extern "C" DEREN_API_EXPORT void deren_destroy_api_core(deren::promise::rhi::api_core* core) {
-    delete core;
 }

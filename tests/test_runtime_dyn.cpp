@@ -13,17 +13,21 @@
 // CI). It is built only in the tree that has the runtime under development (`-DVR_RUNTIME=dynamic`).
 //
 // WHAT IT MEASURES, ONE GROUP PER FACT:
-//   1. THE ABI HANDSHAKE (no device needed): `deren_abi_version()`, resolved by the linker against the
-//      backend in this tree and by the loader at the flip, equals the `abi_version` THIS executable compiled
-//      from the contract module - "both sides compile the contract", the premise the C ABI is built on.
+//   1. THE ABI HANDSHAKE (no device needed): the version this executable compiled from the contract
+//      module is the number it PASSES to the entry (abi 18: the version is an argument, and a mismatch
+//      is refused by the backend with its own number in the diagnostic) - "both sides compile the
+//      contract", the premise the C ABI is built on.
 //   2. THE CONSTRUCTION (`--with-device`): `deren::vulkan::runtime{create_info}` builds the whole device
 //      (instance, device, swapchain, descriptor heap) through `deren_make_api_core()`. No `core` is named
-//      anywhere on that path, which is the entire reason this runtime exists.
+//      anywhere on that path, which is the entire reason this runtime exists. SINCE THE SHARED FLIP that
+//      call arrives BY NAME out of `deren_vulkan.dll` (the runtime's loader step), so a successful
+//      construction here is also the load path's reading.
 //   3. THE FACE AND THE ESCAPE (`--with-device`): the contract's `abilities()` answers with the
 //      `vulkan_escape` and `device_address` bits, `query_extension<vulkan_escape>()` is non-null, and
 //      `native_device()` is a live handle - the two accessors every later partition is written against.
-//   4. TEARDOWN (`--with-device`): the `shared_ptr`'s deleter is `deren_destroy_api_core`, the backend's own
-//      symbol, so the destruction runs on the side that allocated the object.
+//   4. TEARDOWN (`--with-device`): the `shared_ptr` the entry returned carries the backend's own
+//      deleter in its control block, so the destruction runs on the side that allocated the object -
+//      there is no deleter symbol to resolve (abi 18).
 //
 // THE SAFE DEFAULT: without `--with-device` it checks the ABI handshake only (no window, no device), so it
 // runs anywhere. Run it with the flag in every slice of the port - that is what it is for.
@@ -56,10 +60,13 @@ namespace {
 } // namespace
 
 int main(int const argc, char** const argv) {
-    // ---- 1. THE ABI HANDSHAKE: the number the backend answers is the number this executable compiled ----
-    std::uint32_t const backend_abi = deren_abi_version();
-    deren::vk_test::write_line("runtime_dyn: deren_abi_version() = {} (this executable compiled {})", backend_abi, rhi::abi_version);
-    CHECK(backend_abi == rhi::abi_version);
+    // ---- 1. THE ABI HANDSHAKE: the number this executable compiled is the number it HANDS OVER ----
+    // abi 18: the version is the call's first argument (`deren_make_api_core(rhi::abi_version, ...)`,
+    // done inside the runtime), so there is no `deren_abi_version()` to ask any more - the handshake
+    // below is that the contract's own constant is what every caller passes, checked where it is
+    // refused (`check_core_contract` in tests/test_dynamic_link.cpp drives the mismatch case).
+    deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
+    CHECK(rhi::abi_version == 18u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");

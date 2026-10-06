@@ -12,7 +12,7 @@
   "backend_archive": "libderen_vulkan.a",
   "backend_imports": {
     "engine_application": [],
-    "sources_scanned": 132,
+    "sources_scanned": 136,
     "tests_informational": [
       "tests/test_error_mapping.cpp:23: import deren.vulkan.core"
     ]
@@ -118,34 +118,78 @@
       "members": []
     }
   ],
-  "count": 2,
+  "count": 1,
+  "cpp_runtime": {
+    "dll": "libc++.dll",
+    "images": {
+      "deren.exe": {
+        "dynamic_cxx_runtime": true,
+        "imports": [
+          "KERNEL32.dll",
+          "libc++.dll",
+          "api-ms-win-crt-stdio-l1-1-0.dll",
+          "api-ms-win-crt-runtime-l1-1-0.dll",
+          "api-ms-win-crt-locale-l1-1-0.dll",
+          "api-ms-win-crt-math-l1-1-0.dll",
+          "api-ms-win-crt-heap-l1-1-0.dll",
+          "api-ms-win-crt-private-l1-1-0.dll",
+          "api-ms-win-crt-string-l1-1-0.dll",
+          "api-ms-win-crt-convert-l1-1-0.dll",
+          "vulkan-1.dll",
+          "api-ms-win-crt-environment-l1-1-0.dll",
+          "comdlg32.dll",
+          "api-ms-win-crt-utility-l1-1-0.dll",
+          "api-ms-win-crt-time-l1-1-0.dll",
+          "USER32.dll",
+          "SHELL32.dll",
+          "GDI32.dll",
+          "ADVAPI32.dll"
+        ]
+      }
+    },
+    "ok": true
+  },
   "cross_boundary_symbols": [
-    "deren_destroy_api_core",
     "deren_make_api_core"
   ],
-  "defined_in_backend": 1239,
+  "defined_in_backend": 1242,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
-  "leavers": [],
+  "leavers": [
+    "deren_destroy_api_core"
+  ],
   "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
   "owning_stl_symbols": [],
   "reverse_boundary_symbols": [],
+  "shared_utility": {
+    "archive": "libshared_utility.a",
+    "copies": [],
+    "defined_symbols": 209,
+    "ok": true,
+    "referenced_by": {
+      "libderen_vulkan.a": 3,
+      "libstatic_utility.a": 3,
+      "libvulkancorekit.a": 3
+    },
+    "shared_members": [
+      "better_pmr.cpp.obj",
+      "log_rotation_claim.cpp.obj",
+      "shared_utility.cpp.obj",
+      "shared_utility.cppm.obj"
+    ]
+  },
   "stale_consumers": [],
   "symbol_sources": {
-    "deren_destroy_api_core": [
-      "runtime.constructor.cppm.obj"
-    ],
     "deren_make_api_core": [
       "runtime.constructor.cppm.obj"
     ]
   },
-  "usages": 2,
+  "usages": 1,
   "whitelist": {
-    "count": 2,
+    "count": 1,
     "hits": [
-      "deren_destroy_api_core",
       "deren_make_api_core"
     ],
     "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\scripts\\backend_boundary_whitelist_dynamic.json",
