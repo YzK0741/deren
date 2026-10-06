@@ -85,10 +85,10 @@ python scripts/check_backend_boundary.py --list           # 符号清单 + 全�
 python scripts/check_backend_boundary.py --require-zero   # 翻转门：白名单感知 + import 图（见下）
 ```
 
-- **白名单**：`scripts/backend_boundary_whitelist.json`，逐条写**符号全名 + 理由 + 谁把它带走**，每次运行逐条打印（`HIT` / `STALE`）。三种失败：实测符号在白名单之外、白名单项无命中（只减不增）、白名单项是棘轮从未记录过的（新依赖不能靠改这个文件变成合法）。`--update` 永不触碰它。
+- **白名单**：`scripts/backend_boundary_whitelist.json`，逐条写**符号全名 + 理由 + 谁把它带走**（另有 `departures` 记录离场项），每次运行逐条打印（`HIT` / `STALE`）。三种失败：实测符号在白名单之外、白名单项无命中（只减不增）、白名单项是棘轮从未记录过的（新依赖不能靠改这个文件变成合法）。`--update` 永不触碰它。**当前 count = 2**（`deren.vulkan.core` 的 initializer + `core::core(create_info const&)`）。
 - **import 图**：符号数可以归零而引擎仍在 import 后端的**模块**，而 import 模块才是 SHARED 后端的真正障碍（BMI 得来自 DLL）。门读取 CMake `target_sources(deren_vulkan ...)` 里的模块名（**不看名字前缀**：`deren.vulkan.core.filters` 其实是引擎模块），扫描引擎/应用源文件；测试源单独统计、不进门。
-- **实测（2026-10-06，③-E 落地时）**：符号 **3** / 11 站点 / 0 owning-STL；import **38 点 / 33 文件**，拆解 `deren.vulkan.constant_init` **26**、`deren.vulkan.core` **9**、`deren.vulkan.core.pipeline` **3**（**勘误**：③-E 提交正文写的 33/12/3 来自报告前缀的重复计数；总数 38 无误），测试 1 文件。
-- **第一步（`constant_init` 独立成 `vulkan_constant_init` target）之后**：import **12 点 / 12 文件**（`core` 9 + `core.pipeline` 3），后端模块 5 → 4；测试仍 1 文件。动态链接版 runtime 的目标是 **import = 0**。
+- **实测（③-D/E 之后，abi 16；数字一律以门自己的打印为唯一来源）**：符号 **2** / 8 站点 / 0 owning-STL；import **10 点 / 10 文件**（`deren.vulkan.core` 7 + `deren.vulkan.core.pipeline` 3），测试 1 文件。**目标 import = 0。**
+- **abi 16**：`sampler_desc` 追加 `mag_filter` / `min_filter` / `mipmap_mode` / `compare_enable` / `compare_op`——引擎自持那 6 个渲染器采样器所需。描述符按 `const&` 跨界，`struct_size` 是首成员，后端对调用者未覆盖的字段按默认值处理（旧调用者行为逐值不变）。
 
 ### 已踩过的坑（照做，别重踩）
 

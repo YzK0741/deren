@@ -343,6 +343,42 @@ namespace {
                 }
             }
 
+            // ---- abi 16: THE SAMPLER DESCRIPTOR'S APPENDED FIELDS, ON THE REAL DEVICE ----------------
+            // The engine creates the renderer's own sampler set now, so these five fields cross for real:
+            // NEAREST minification, NEAREST mipmapping and a `less_or_equal` comparison have to survive the
+            // trip, or the samplers behind the captures are not the samplers the renderer asked for. A
+            // descriptor passed by `const&` that is laid out differently on the two sides fails SILENTLY,
+            // which is why this is measured against the backend instead of asserted in a comment: the two
+            // descriptions must answer with two DISTINCT non-null native handles, exactly like the buffers.
+            mark("create_sampler: nearest/nearest/nearest + less_or_equal, and the defaults beside it");
+            rhi::sampler_desc compare_desc{};
+            compare_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+            compare_desc.max_lod = 0.0f;
+            compare_desc.mag_filter = rhi::sampler_filter::linear;
+            compare_desc.min_filter = rhi::sampler_filter::nearest;
+            compare_desc.mipmap_mode = rhi::sampler_mipmap_mode::nearest;
+            compare_desc.compare_enable = true;
+            compare_desc.compare_op = rhi::sampler_compare_op::less_or_equal;
+            rhi::sampler_desc default_desc{};
+            default_desc.address_mode = rhi::sampler_address_mode::repeat;
+            default_desc.max_lod = 12.0f;
+            rhi::object_manager<rhi::sampler> compare_sampler{core->create_sampler(compare_desc)};
+            rhi::object_manager<rhi::sampler> default_sampler{core->create_sampler(default_desc)};
+            CHECK(static_cast<bool>(compare_sampler));
+            CHECK(static_cast<bool>(default_sampler));
+            if (compare_sampler && default_sampler) {
+                rhi::extension* const sampler_escape_extension = core->query_extension(rhi::extension_kind::vulkan_escape);
+                auto* const sampler_escape = sampler_escape_extension != nullptr ? static_cast<rhi::vulkan_escape*>(sampler_escape_extension) : nullptr;
+                CHECK(sampler_escape != nullptr);
+                if (sampler_escape != nullptr) {
+                    void* const compare_native = sampler_escape->native_sampler(*compare_sampler);
+                    void* const default_native = sampler_escape->native_sampler(*default_sampler);
+                    CHECK(compare_native != nullptr);
+                    CHECK(default_native != nullptr);
+                    CHECK(compare_native != default_native);
+                }
+            }
+
             // frame_image() before any acquire is nullptr by contract; the frame verbs refuse rather
             // than record nonsense. Driving them here would need a swapchain acquisition.
 

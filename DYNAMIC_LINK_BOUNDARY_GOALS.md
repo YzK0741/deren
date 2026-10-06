@@ -50,18 +50,18 @@
 
 ### §0.1 裁决 2 的后果：**翻转门到不了 0，门要重新定义**
 
-白名单意味着**可达下限不是 0**。当时的账（本文写于 b③ 之前）估的是 ≈9；**实测已落到 3**
-（`fd 批次"batch 3-C + abi 14/15 + 一个 command buffer 自持池"`之后，2026-10-06 实测）：
+白名单意味着**可达下限不是 0**。当时的账（本文写于 b③ 之前）估的是 ≈9；**实测已落到 2**
+（③-D/E 的 C 批之后，abi 16，2026-10-06 实测）：
 
 | 例外 | 状态 | 为什么它必须留 / 谁把它带走 |
 |---|---|---|
 | `core::core(rhi::create_info const&)` | **仍在（1）** | 引擎还在构造具体后端类；动态链接版 runtime 经 `deren_make_api_core()` 构造后离场 |
-| `initializer for module deren.vulkan.core` | **仍在（1）** | 引擎侧仍有 **33 个文件 / 38 个 import 点** import deren_vulkan 的模块（见"import 图"一节）；import 一断即离场 |
-| `vk_sampler::operator*()` | **仍在（1）** | 采样器缓存要拿裸 `VkSampler`；契约 sampler + `vulkan_escape::native_sampler()` 可带走（独立小批） |
+| `initializer for module deren.vulkan.core` | **仍在（1）** | 引擎侧仍有 **10 个 import 点 / 10 个文件** import deren_vulkan 的模块（见"import 图"，数字以 `--require-zero` 打印为唯一来源）；import 一断即离场 |
+| ~~`vk_sampler::operator*()`~~ | **已离场（③-D/E C 批，abi 16）** | 引擎自己经契约 `create_sampler()` 创建并持有那 6 个渲染器采样器（`runtime::init_shared_samplers`），裸句柄走 `vulkan_escape::native_sampler()` |
 | ~~`vk_command_buffer` 三件套~~ | 已离场（③-C + abi 15） | 契约 `command_buffer` 拥有型句柄 |
 | ~~`make_command_buffer` / `make_secondary_command_buffer`~~ | 已离场（abi 15） | `api_core::create_command_buffer()` |
 | ~~`init_utils::create_recording_pool` + 其 initializer~~ | 已离场（③-E） | 每缓冲自持 command pool + 删除 4 个 vestigial import |
-| **可达下限（实测）** | **3** | 门就是按这个数跑的（`scripts/backend_boundary_whitelist.json`） |
+| **可达下限（实测）** | **2** | 门就是按这个数跑的（`scripts/backend_boundary_whitelist.json`，`count: 2`） |
 
 ⇒ **翻转门的定义已经改完**（③-E）：`--require-zero` = "**白名单之外为零**"；白名单在
 `scripts/backend_boundary_whitelist.json`（逐条写符号全名 + 理由 + 谁把它带走）、**只减不增**
@@ -80,10 +80,11 @@
 `deren.vulkan.core.pipeline` **3**（**勘误**：③-E 提交正文里的 33/12/3 是报告前缀重复计数造成的；
 总数 38 无误，拆解应为 26/9/3）；测试 1 个文件（`test_error_mapping`）。**目标读数：0。**
 
-**第一步落地之后（`constant_init` 独立成 target）**：**12 个 import 点 / 12 个文件**，后端模块降到 **4** 个
-（`core` **9** + `core.pipeline` **3**），测试仍 1 个文件。`constant_init` 装的是纯 Vulkan constexpr 构造器，
-归 `vulkan_constant_init` 这个**两半共享**的 STATIC target（与 `promise` 同形：一个 BMI，不会漂移），
-所以它不再是"后端模块"，引擎对它的 import 也不再是越界依赖。**剩下的 12 点才是新 runtime 要清的东西。**
+**逐步收窄的实测**（数字一律以 `--require-zero` 的打印为唯一来源）：
+- `constant_init` 移进共享 target（第一步）：**38 → 12 点 / 12 文件**，后端模块 5 → 4；
+- `acceleration_structure` / `ray_tracing` 脱离 `core`（1b）：**12 → 10 点 / 10 文件**；
+- **当前 = 10 点 / 10 文件**（`deren.vulkan.core` 7 + `deren.vulkan.core.pipeline` 3），测试仍 1 个文件。
+**这 10 点才是新 runtime 要清的东西。**
 
 ---
 

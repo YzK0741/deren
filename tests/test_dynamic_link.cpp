@@ -190,7 +190,13 @@ namespace {
         // `end_recording` / `recording` / `execute`) with its own `interface_type` value. The `next`
         // chain of `command_buffer_begin_info` is data, so the tagged structures that ride it do not
         // renumber anything (the same rule the appended `error` values follow).
-        CHECK(rhi::abi_version == 15u);
+        // ABI16 is the SAMPLER DESCRIPTION's width: `sampler_desc` gained `mag_filter` / `min_filter` /
+        // `mipmap_mode` / `compare_enable` / `compare_op` so the engine can create the renderer's own
+        // sampler set (NEAREST minification, NEAREST mipmapping, a `less_or_equal` comparison) and stay
+        // value-for-value equal to the samplers the backend used to create for it. A descriptor that
+        // travels by `const&` into `create_sampler()` is part of the ABI even though no vtable moved -
+        // `struct_size` is the first member that makes the bump checkable rather than assumed.
+        CHECK(rhi::abi_version == 16u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -433,6 +439,40 @@ namespace {
         }
         // a kind outside the two roles is the factory's one refusal (`nullptr`, the contract's rule)
         CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
+
+        // ---- the abi 16 surface: THE WIDENED SAMPLER DESCRIPTOR -----------------------------------
+        // What the probe CAN witness is the factory's own contract: one reference handed out, the right
+        // interface id, and a `release()` that arrives. WHAT IT CANNOT WITNESS is the descriptor's new
+        // fields actually crossing (the probe implements no `vulkan_escape`, and a sampler carries no
+        // accessor to echo through) - so that is the SPIKE's job, against the real backend: it creates a
+        // sampler spelled with NEAREST minification and a `less_or_equal` comparison and reads the native
+        // handle back. The end-to-end witness is the render gate: the engine's six samplers are the ones
+        // the passes bind, so a mis-laid-out descriptor would move all fourteen captures.
+        {
+            rhi::sampler_desc desc{};
+            desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+            desc.max_lod = 0.0f;
+            desc.mag_filter = rhi::sampler_filter::linear;
+            desc.min_filter = rhi::sampler_filter::nearest;
+            desc.mipmap_mode = rhi::sampler_mipmap_mode::nearest;
+            desc.compare_enable = true;
+            desc.compare_op = rhi::sampler_compare_op::less_or_equal;
+            rhi::sampler* const made = core->create_sampler(desc);
+            CHECK_MSG(made != nullptr, which_half);
+            if (made != nullptr) {
+                CHECK(made->type() == rhi::interface_type::sampler);
+                made->release();
+            }
+            // ... and a descriptor spelled with the DEFAULTS is the old behaviour exactly, which is what
+            // lets a caller built against abi 15 keep the samplers it was compiled against.
+            rhi::sampler_desc defaults{};
+            CHECK(defaults.struct_size == sizeof(rhi::sampler_desc));
+            CHECK(defaults.mag_filter == rhi::sampler_filter::linear);
+            CHECK(defaults.min_filter == rhi::sampler_filter::linear);
+            CHECK(defaults.mipmap_mode == rhi::sampler_mipmap_mode::linear);
+            CHECK(!defaults.compare_enable);
+            CHECK(defaults.compare_op == rhi::sampler_compare_op::never);
+        }
 
         // the profiler face: the probe cannot timestamp, which is the `unsupported` story - a
         // constant zero and a named refusal, never silence and never a fake measurement

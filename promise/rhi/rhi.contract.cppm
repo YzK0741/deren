@@ -142,7 +142,17 @@ export namespace deren::promise::rhi {
     /// `interface_type` value. The `next` chain of `command_buffer_begin_info` is data, not a vtable,
     /// so a later tagged structure (the Vulkan inheritance one this batch adds, and any other) does
     /// not renumber this: the same rule the appended `error` values follow.
-    inline constexpr std::uint32_t abi_version = 15u;
+    /// 15 -> 16 in the sampler-description batch (③-D/E item C): `sampler_desc` GAINED FIELDS
+    /// (`mag_filter` / `min_filter` / `mipmap_mode` / `compare_enable` / `compare_op`), and a DESCRIPTOR
+    /// that travels across the boundary is part of the ABI even though no vtable changed - it is passed
+    /// by `const&` into `create_sampler()`, so a backend built against the old width would read a
+    /// different structure than the caller passed. The mechanism that makes the bump honest is already
+    /// the structure's first member: `struct_size`, which the backend checks and refuses on a mismatch
+    /// (the `buffer_desc` / `image_desc` rule). The reason the WIDTH had to change at all: the engine now
+    /// creates its own sampler set (six samplers whose NEAREST minification, NEAREST mipmapping and
+    /// `less_or_equal` comparison have to survive the trip), so the two knobs the old description carried
+    /// were no longer enough to keep the pictures identical.
+    inline constexpr std::uint32_t abi_version = 16u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

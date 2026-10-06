@@ -378,12 +378,48 @@ export namespace deren::promise::rhi {
         clamp_to_border = 3,
     };
 
-    /// How a sampler is created: the addressing mode and the mip LOD it clamps at - the two knobs this
-    /// renderer's sampler sites turn (§17's survey). Everything else is the backend's device judgement.
+    /// The two filters this renderer's creation sites choose between (Vulkan's NEAREST/LINEAR; CUBIC is not
+    /// asked for anywhere, so it is not in the vocabulary).
+    enum class sampler_filter : std::uint32_t {
+        nearest = 0,
+        linear = 1,
+    };
+
+    /// How a mip level is picked between two levels.
+    enum class sampler_mipmap_mode : std::uint32_t {
+        nearest = 0,
+        linear = 1,
+    };
+
+    /// The depth-comparison ops the renderer asks for, plus the disabled spelling: a comparison turns a
+    /// `sampler2DShadow` tap into the hardware PCF test, and the cascaded shadow map asks for `less_or_equal`
+    /// (shaders/pbr.frag's "not deeper than stored depth"). `never` is what `compare_enable == false` means.
+    enum class sampler_compare_op : std::uint32_t {
+        never = 0,
+        less_or_equal = 1,
+    };
+
+    /// How a sampler is created: the knobs this renderer's sampler sites turn - addressing, the two filters,
+    /// the mipmap mode, the LOD it clamps at and (for the shadow map) a depth comparison. Everything else is
+    /// the backend's device judgement: anisotropy off, border transparent black, min LOD 0 - measured, no
+    /// creation site asks for anything else.
+    ///
+    /// WIDENED IN abi 16 (see `abi_version`): the first version carried `address_mode` + `max_lod` only, and
+    /// the ENGINE's own sampler set needs NEAREST minification (the G-buffer's stored surface is read at exact
+    /// texel centres; so is the composite's depth tap), NEAREST mipmapping and a compare op (the shadow map)
+    /// to stay value-for-value equal to the samplers the backend used to create on its behalf. The fields are
+    /// APPENDED and the defaults reproduce the old behaviour exactly (linear/linear/linear, no comparison), and
+    /// `struct_size` stays the first member: a caller built against the previous revision is REFUSED by the
+    /// guard rather than read out of bounds.
     struct sampler_desc {
         std::uint32_t struct_size = sizeof(sampler_desc); ///< ABI guard, same rule as `buffer_desc`
         sampler_address_mode address_mode = sampler_address_mode::repeat;
         float max_lod = 0.0f; ///< the mip the sampler clamps at (the shadow comparators use small values)
+        sampler_filter mag_filter = sampler_filter::linear;
+        sampler_filter min_filter = sampler_filter::linear;
+        sampler_mipmap_mode mipmap_mode = sampler_mipmap_mode::linear;
+        bool compare_enable = false; ///< depth comparison: turns a `sampler2DShadow` tap into a PCF test
+        sampler_compare_op compare_op = sampler_compare_op::never;
     };
 
     /// The shader stage a `shader_desc`'s code is compiled for. Values are the renderer's actual

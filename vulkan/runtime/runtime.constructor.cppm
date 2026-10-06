@@ -335,6 +335,9 @@ namespace deren::vulkan {
 
         // Shared scene resources: camera UBO buffers, white fallback texture, texture sampler
         this->init_scene_resources();
+        // The six samplers the declaration layer hands out by hint (③-D/E item C): created here, before any
+        // pass resolves a binding, because `shared_samplers()` is what a declaration asks for a sampler with.
+        this->init_shared_samplers();
         // Every per-image flag that describes this generation starts where the generation's images do.
         // The core has already built this generation's targets (its constructor ran
         // create_hdr_resolve_resources), so the flags can be sized HERE, before any frame records; every
@@ -998,6 +1001,63 @@ namespace deren::vulkan {
     // own). This is also where the command pools would move to the core (the "command pools and
     // secondaries" item of the trim list): the SHAPE is policy and stays
     // here, the objects are device resources.
+    void runtime::init_shared_samplers() {
+        // ---- THE SIX SAMPLERS THE RENDERER DECLARES BY HINT (③-D/E item C, abi 16) --------------------
+        // Each description below is the VALUE-FOR-VALUE equivalent of the sampler `core::create_samplers()`
+        // used to build and lend out (its own comments are quoted where the choice needs a reason), and that
+        // equality is what keeps the captures byte-identical: `create_sampler()` rides the same
+        // `make_texture_sampler_info()` the backend's six rode, and overrides exactly these fields.
+        //
+        // THE ORDER IS THE SAMPLER GRID'S ORDER and it is not decoration: `render_resource::shared::sampler_set`
+        // is filled from these six, and shaders/heap_slots.glsl names the heap grid's sampler slots in the
+        // order `shared_sampler_infos` writes them. `test_render_resources` holds that order against the
+        // shader's names; the two sets are separate objects but the same six descriptions.
+        auto const make = [this](rhi::sampler_desc const& desc) {
+            return rhi::object_manager<rhi::sampler>{this->rhi_face().create_sampler(desc)};
+        };
+
+        // The bindless texture array: REPEAT, all its mip levels (12 is the capacity's own limit).
+        rhi::sampler_desc texture_desc = {};
+        texture_desc.address_mode = rhi::sampler_address_mode::repeat;
+        texture_desc.max_lod = 12.0f;
+        this->texture_sampler = make(texture_desc);
+
+        // The G-buffer's stored surface: NEAREST, clamp. An interpolated normal or a filterable material id
+        // is a different surface, not a smoother one.
+        rhi::sampler_desc gbuffer_desc = {};
+        gbuffer_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        gbuffer_desc.max_lod = 0.0f;
+        gbuffer_desc.mag_filter = rhi::sampler_filter::nearest;
+        gbuffer_desc.min_filter = rhi::sampler_filter::nearest;
+        this->gbuffer_sampler = make(gbuffer_desc);
+
+        // The TAA resolve upsamples the scene colour but must NOT average neighbouring history texels:
+        // linear magnification, nearest minification.
+        rhi::sampler_desc taa_desc = gbuffer_desc;
+        taa_desc.mag_filter = rhi::sampler_filter::linear;
+        this->taa_sampler = make(taa_desc);
+
+        // The post chain and the FXAA filter: LINEAR, clamp, one mip.
+        rhi::sampler_desc post_desc = {};
+        post_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        post_desc.max_lod = 1.0f;
+        this->post_sampler = make(post_desc);
+
+        // The composite's GI upsample taps depth and normals AT CENTRES: an averaged depth invents a surface
+        // between two samples, which is exactly what an edge-aware test must not see.
+        this->post_nearest_sampler = make(gbuffer_desc);
+
+        // The cascaded shadow map: a depth comparison with LINEAR filtering, which is the hardware PCF the
+        // shader's `sampler2DShadow` tap expects (compareOp matches pbr.frag's "not deeper than stored depth").
+        rhi::sampler_desc shadow_desc = {};
+        shadow_desc.address_mode = rhi::sampler_address_mode::clamp_to_edge;
+        shadow_desc.max_lod = 0.0f;
+        shadow_desc.mipmap_mode = rhi::sampler_mipmap_mode::nearest;
+        shadow_desc.compare_enable = true;
+        shadow_desc.compare_op = rhi::sampler_compare_op::less_or_equal;
+        this->shadow_sampler = make(shadow_desc);
+    }
+
     void runtime::init_recording_resources() {
         // THE FRAME'S PRIMARY COMMAND BUFFERS STAY THE BACKEND'S (abi 15): core allocates one per frame
         // slot in its own constructor, `begin_commands()` hands out that slot's borrowed recording view,

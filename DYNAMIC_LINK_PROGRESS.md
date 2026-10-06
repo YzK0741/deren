@@ -8,11 +8,11 @@
 
 ## 0 一句话位置
 
-批①②③（含录制面 A 批）全部落地并过全门；**abi 15**。`bec8bd4`（命令缓冲自持池）把边界 10 → 9，`d97b754`（拥有型 `rhi::command_buffer`）把它推到 **4**，**③-E**（白名单门 + 删 4 个 vestigial `import deren.vulkan.init_utils;`）推到 **3**。当前读数：**3 symbols / 11 站点 / 0 owning-STL**；`ctest` **18/18** + 边界回归 **35/35**；尖刺 **90 checks / 0 failed / 自行退出**；**14 场景哈希逐字节不变**（录制面被重排而无一移动，并有校验层见证 VUID=0）。剩余 3 = `deren.vulkan.core` 的 initializer（**实测被 9 个引擎文件强制**）+ `core::core(create_info const&)` + `vk_sampler::operator*`（前两条正是路线决定要一起消失的）。
+批①②③（含录制面 A 批）全部落地并过全门；**abi 16**。边界一路收窄：`bec8bd4` 10 → 9，`d97b754`（拥有型 `rhi::command_buffer`）→ **4**，**③-E** → **3**，③-D/E 的第一步（`constant_init` 共享 target）→ 3（import 38 → 12），1b（`acceleration_structure`/`ray_tracing` 脱离 `core`）→ 3（import 12 → 10），**C 批（abi 16，引擎自持采样器）→ 2**。当前读数：**2 symbols / 8 站点 / 0 owning-STL**、白名单 **2 条 0 stale**；`ctest` **18/18** + 边界回归 **35/35**；尖刺 **96 checks / 0 failed / 自行退出**；**14 场景哈希逐字节不变**（并有校验层见证 VUID=0）。剩余 2 = `deren.vulkan.core` 的 initializer（**被 10 个文件的 import 强制**）+ `core::core(create_info const&)`，**两条正是动态链接版 runtime 要一起消失的**。
 
-**③-E 落地的两件仪器**（详见 `DYNAMIC_LINK_IMPLEMENTATION.md` §2）：`--require-zero` 现在**白名单感知**（`scripts/backend_boundary_whitelist.json`，逐条打印命中项，只减不增，棘轮未记录过的项一律拒），并新增**import 图检查**——符号门看不见的那一层。**今天实测：引擎/应用 38 个 import 点 / 33 个文件**（`constant_init` 33、`core` 12、`core.pipeline` 3），**这就是动态链接版 runtime 要打到 0 的读数**。
+**现在的主仪表是 import 图**（`--require-zero` 每次打印，唯一来源）：**38 → 12 → 10 点 / 10 文件**（`core` 7 + `core.pipeline` 3，测试 1 文件）。**目标 0，只有读到 0 且 14 哈希不变才允许删旧 runtime。**
 
-**路线（用户裁决，取代"扩 escape/最小 ③-D"）：以现在的 runtime 为蓝本写动态链接版，成功后删掉前者。** 新 runtime 从第一天就经 `deren_make_api_core()` 构造、持 `shared_ptr<rhi::api_core>`、永不命名 `core`；那 46 个后端内部资源改走**契约**（拥有型 `object_manager`）或**已有** escape 访问器；契约表达不了的一事一案请示。顺序：**③-E（已完成）→ 一页设计（待 Lead 评审）→ 实现 → 同批删除旧 runtime**。
+**路线（用户裁决，取代"扩 escape/最小 ③-D"）：以现在的 runtime 为蓝本写动态链接版，成功后删掉前者。** 新 runtime 从第一天就经 `deren_make_api_core()` 构造、持 `shared_ptr<rhi::api_core>`、永不命名 `core`；渲染链资源改由引擎经契约 `create_image()`/`make_view()` 创建并持有（**A1 已批准**，后端交出所有权），裸句柄走**已有** escape 访问器。顺序：**③-E（已完成）→ 第 1 步 E/D/1b（已完成）→ 第 4 项 A1/B/C（C 已完成，A1/B 待做）→ 第 2 步写 `vulkan/runtime_dyn/` → 第 3 步原子删除旧 runtime**。
 
 ---
 
@@ -32,18 +32,20 @@
 
 ---
 
-## 2 边界账目（③-E 之后的实测：3）
+## 2 边界账目（③-D/E C 批之后的实测：2）
 
 | 处置 | 数量 | 符号 | 谁带走它 |
 |---|---|---|---|
-| **白名单**（`scripts/backend_boundary_whitelist.json`，只减不增） | **3** | `initializer for module deren.vulkan.core` | import 图归零（动态链接版 runtime + `constant_init`/`core.pipeline` 的收窄） |
+| **白名单**（`scripts/backend_boundary_whitelist.json`，只减不增） | **2** | `initializer for module deren.vulkan.core` | import 图归零（动态链接版 runtime + `core.pipeline` 的收窄） |
 | | | `core::core(create_info const&)` | 动态链接版 runtime：`deren_make_api_core()` + `shared_ptr<rhi::api_core>` |
-| | | `vk_sampler::operator*()` | 独立小批：契约 sampler + `vulkan_escape::native_sampler()` |
-| **可达下限** | **3**（实测） | 翻转门就是按这个数跑的 |  |
+| ~~`vk_sampler::operator*()`~~ | **已离场** | 见白名单的 `departures` 段 | C 批：引擎自持 6 个采样器（`create_sampler` + `native_sampler`），不再读后端的采样器 |
+| **可达下限** | **2**（实测） | 翻转门就是按这个数跑的 |  |
 
 **历史（每一笔的实测下降，供核对）**：27 →（②段2）23 →（③A）20 →（③B）17 →（③-C + abi 14）10
 →（`bec8bd4` 命令缓冲自持池）9 →（`d97b754` 拥有型 `rhi::command_buffer`，abi 15）4
-→（③-E：白名单门 + 删 4 个 vestigial `import deren.vulkan.init_utils;`）**3**。
+→（③-E：白名单门 + 删 4 个 vestigial `import deren.vulkan.init_utils;`）3
+→（`06a1080` `constant_init` 共享 target；`4e1634a` 契约环形深度；`c3844c6` 槽格共享模块；`7af1018` AS/ray_tracing 脱离 `core`）3（import 38 → 12 → 10）
+→（C 批：abi 16 + 引擎自持采样器）**2**。
 
 **符号之外的另一半账（③-E 新增）**：引擎/应用 **38 个 import 点 / 33 个文件**（`deren.vulkan.constant_init`
 33、`deren.vulkan.core` 12、`deren.vulkan.core.pipeline` 3），测试 1 个文件。**动态链接版 runtime 的目标是 0**；

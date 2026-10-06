@@ -104,6 +104,22 @@ namespace {
         bool released = false; ///< set by release(); the test reads it through size() == 0
     };
 
+    /// THE SAMPLER STAND-IN, AND WHY IT ECHOES ITS DESCRIPTOR (abi 16): `sampler_desc` gained five fields
+    /// in that batch, and a DESCRIPTOR that travels by `const&` across the boundary is exactly the sort of
+    /// thing a compiler cannot tell you was mis-laid-out - the backend would simply read different bytes.
+    /// So the probe stores what it was handed, and `test_dynamic_link` asserts each new field arrived with
+    /// the value the caller spelled. `release()` is observable for the same reason `probe_buffer`'s is: the
+    /// object is statically allocated, so the call has to ARRIVE.
+    struct probe_sampler final : rhi::sampler {
+        void release() noexcept override {
+            this->released = true;
+            this->seen = {};
+        }
+
+        rhi::sampler_desc seen = {}; ///< the descriptor `create_sampler` was handed, verbatim
+        bool released = false;
+    };
+
     /// device_address, implemented over that buffer: the answer depends on the size
     /// the descriptor carried, so the test can tell "the ability was called about
     /// this object" from "the ability was called about something else".
@@ -279,8 +295,13 @@ namespace {
             return nullptr;
         }
 
-        [[nodiscard]] rhi::sampler* create_sampler(rhi::sampler_desc const&) override {
-            return nullptr;
+        [[nodiscard]] rhi::sampler* create_sampler(rhi::sampler_desc const& desc) override {
+            // abi 16: the descriptor's new fields have to CROSS, so the probe keeps it and the test reads it
+            // back (a nullptr answer would make the crossing untestable - the same reason create_buffer
+            // returns its stand-in rather than nothing).
+            this->sampler.seen = desc;
+            this->sampler.released = false;
+            return &this->sampler;
         }
 
         [[nodiscard]] rhi::shader* create_shader(rhi::shader_desc const&) override {
@@ -391,6 +412,7 @@ namespace {
         }
 
         probe_buffer buffer{};
+        probe_sampler sampler{}; ///< abi 16: the descriptor echo the sampler test reads
         probe_device_address address{};
         /// abi 15: the command buffer `create_command_buffer()` hands out. ONE object, reset on every
         /// creation - the same "statically allocated stand-in" shape `buffer` has, and the reason a

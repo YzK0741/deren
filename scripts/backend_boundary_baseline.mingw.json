@@ -10,6 +10,30 @@
     ]
   },
   "backend_archive": "libderen_vulkan.a",
+  "backend_imports": {
+    "engine_application": [
+      "vulkan/core/filter/filters.cppm:50: import deren.vulkan.core",
+      "vulkan/pass/goo_rim.cpp:23: import deren.vulkan.core",
+      "vulkan/pass/toon_screen_rim.cpp:25: import deren.vulkan.core",
+      "vulkan/pipelines/pipelines.cppm:39: import deren.vulkan.core",
+      "vulkan/primitive/primitive.cppm:42: import deren.vulkan.core",
+      "vulkan/readback/readback.cppm:26: import deren.vulkan.core",
+      "vulkan/runtime/runtime.constructor.cppm:44: import deren.vulkan.core.pipeline",
+      "vulkan/runtime/runtime.declarations.cppm:62: import deren.vulkan.core",
+      "vulkan/runtime/runtime.frames.cppm:38: import deren.vulkan.core.pipeline",
+      "vulkan/runtime/runtime.probes.cppm:38: import deren.vulkan.core.pipeline"
+    ],
+    "sources_scanned": 131,
+    "tests_informational": [
+      "tests/test_error_mapping.cpp:23: import deren.vulkan.core"
+    ]
+  },
+  "backend_modules": [
+    "deren.vulkan.core",
+    "deren.vulkan.core.handles",
+    "deren.vulkan.core.pipeline",
+    "deren.vulkan.init_utils"
+  ],
   "consumers": [
     {
       "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-clang64\\libvulkancorekit.a",
@@ -105,18 +129,17 @@
       "members": []
     }
   ],
-  "count": 3,
+  "count": 2,
   "cross_boundary_symbols": [
     "_ZGIW5derenW6vulkanW4core",
-    "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv"
+    "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE"
   ],
-  "defined_in_backend": 1252,
+  "defined_in_backend": 1251,
   "joiners": [],
   "kit_archive": "libvulkancorekit.a",
   "kit_members": 77,
   "leavers": [
-    "_ZGIW5derenW6vulkanW10init_utils"
+    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv"
   ],
   "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
   "owning_stl_count": 0,
@@ -131,16 +154,24 @@
       "runtime.declarations.cppm.obj",
       "pipelines.cppm.obj",
       "readback.cppm.obj",
-      "acceleration_structure.cppm.obj",
-      "ray_tracing.cppm.obj",
       "primitive.cppm.obj"
     ],
     "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE": [
       "runtime.constructor.cppm.obj"
-    ],
-    "_ZNK5deren6vulkanW5derenW6vulkanW4coreW7handles10vk_samplerdeEv": [
-      "runtime.frames.cppm.obj"
     ]
   },
-  "usages": 11
+  "usages": 8,
+  "whitelist": {
+    "count": 2,
+    "hits": [
+      "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE"
+    ],
+    "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\scripts\\backend_boundary_whitelist.json",
+    "stale": [
+      "_ZGIW5deren6vulkanW4core"
+    ],
+    "untracked_by_the_ratchet": [
+      "_ZGIW5deren6vulkanW4core"
+    ]
+  }
 }

@@ -417,6 +417,24 @@ namespace deren::vulkan {
             if (covered_by(declared, offsetof(rhi_sampler_desc, max_lod), sizeof(rhi_sampler_desc::max_lod))) {
                 options.max_lod = desc.max_lod;
             }
+            // abi 16's APPENDED fields, read the same way: the default-constructed `options` carries today's
+            // defaults (linear / linear / linear, no comparison), so a caller built against the previous
+            // revision keeps exactly the behaviour it compiled against.
+            if (covered_by(declared, offsetof(rhi_sampler_desc, mag_filter), sizeof(rhi_sampler_desc::mag_filter))) {
+                options.mag_filter = desc.mag_filter;
+            }
+            if (covered_by(declared, offsetof(rhi_sampler_desc, min_filter), sizeof(rhi_sampler_desc::min_filter))) {
+                options.min_filter = desc.min_filter;
+            }
+            if (covered_by(declared, offsetof(rhi_sampler_desc, mipmap_mode), sizeof(rhi_sampler_desc::mipmap_mode))) {
+                options.mipmap_mode = desc.mipmap_mode;
+            }
+            if (covered_by(declared, offsetof(rhi_sampler_desc, compare_enable), sizeof(rhi_sampler_desc::compare_enable))) {
+                options.compare_enable = desc.compare_enable;
+            }
+            if (covered_by(declared, offsetof(rhi_sampler_desc, compare_op), sizeof(rhi_sampler_desc::compare_op))) {
+                options.compare_op = desc.compare_op;
+            }
             return options;
         }
 
@@ -926,7 +944,16 @@ namespace deren::vulkan {
             break;
         }
 
-        VkSamplerCreateInfo const info = make_texture_sampler_info(mode, desc.max_lod);
+        // abi 16's fields ride on the SAME builder the backend's own six samplers use
+        // (`make_texture_sampler_info`), so a description that spells out those six is value-for-value the
+        // sampler the backend used to create on the engine's behalf - that equality is what keeps the
+        // pictures identical, and it is why only the four knobs are overridden here.
+        VkSamplerCreateInfo info = make_texture_sampler_info(mode, desc.max_lod);
+        info.magFilter = desc.mag_filter == rhi::sampler_filter::nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        info.minFilter = desc.min_filter == rhi::sampler_filter::nearest ? VK_FILTER_NEAREST : VK_FILTER_LINEAR;
+        info.mipmapMode = desc.mipmap_mode == rhi::sampler_mipmap_mode::nearest ? VK_SAMPLER_MIPMAP_MODE_NEAREST : VK_SAMPLER_MIPMAP_MODE_LINEAR;
+        info.compareEnable = desc.compare_enable ? VK_TRUE : VK_FALSE;
+        info.compareOp = desc.compare_enable ? VK_COMPARE_OP_LESS_OR_EQUAL : VK_COMPARE_OP_NEVER;
         VkSampler handle = VK_NULL_HANDLE;
         if (vkCreateSampler(this->logical_device, &info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
             deren::utility::log("rhi: create_sampler refused: vkCreateSampler failed (mode {}, max lod {})",

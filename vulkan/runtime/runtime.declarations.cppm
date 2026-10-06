@@ -294,6 +294,23 @@ namespace deren::vulkan {
         rhi::object_manager<rhi::image> goo_fgd_image = {};
         rhi::object_manager<rhi::image_view> goo_fgd_view = {};
         rhi::object_manager<rhi::sampler> env_sampler = {};
+        // ---- THE RENDERER'S OWN SAMPLER SET (③-D/E item C, abi 16) ----------------------------------
+        // These six used to be the DEVICE ROOT's (`core::create_samplers`), and the engine read them by
+        // dereferencing the backend's handles - the last thing that kept `vk_sampler::operator*` on the
+        // boundary's whitelist. They are the RENDERER's samplers: a sampler has no per-frame state and no
+        // owner among the passes, but which filter a stored surface is read with IS a renderer-level choice
+        // (NEAREST for the G-buffer's surface and the composite's depth tap, a comparison for the cascaded
+        // shadow map), so the engine creates and owns them through the contract's `create_sampler()` and
+        // hands the raw handle out through `vulkan_escape::native_sampler()`.
+        //
+        // THE BACKEND KEEPS ITS OWN SIX CREATE INFOS for the sampler HEAP: a heap sampler is created by the
+        // driver FROM a create info (VK_EXT_descriptor_heap), so the heap's six were never these objects.
+        rhi::object_manager<rhi::sampler> texture_sampler = {};
+        rhi::object_manager<rhi::sampler> gbuffer_sampler = {};
+        rhi::object_manager<rhi::sampler> taa_sampler = {};
+        rhi::object_manager<rhi::sampler> post_sampler = {};
+        rhi::object_manager<rhi::sampler> post_nearest_sampler = {};
+        rhi::object_manager<rhi::sampler> shadow_sampler = {};
         // GPU material table (set 0 binding 5): one material_record per entry (texture indices +
         // factors + flags); primitives only push their material_index. Host-visible, written at
         // registration, read-only for the GPU.
@@ -1865,6 +1882,9 @@ namespace deren::vulkan {
         // ---- scene resource management (see the members above) ----
         void init_scene_resources();     // camera UBO buffers + white fallback texture + texture sampler + material table
         void init_recording_resources(); // primary + secondary command buffers and their pools
+        /// The six samplers `shared_samplers()` hands out (③-D/E item C): created through the contract, one
+        /// `create_sampler()` per sampler, with the filters/compare the renderer's own sites need.
+        void init_shared_samplers();
         /**
          * @brief reset every per-image flag that describes a swapchain GENERATION
          *

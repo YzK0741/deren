@@ -1716,20 +1716,28 @@ namespace deren::vulkan {
     }
 
     render_resource::shared::sampler_set runtime::shared_samplers() const noexcept {
-        // The five samplers a declaration chooses between, as handles. One place, so that two passes cannot end
+        // The six samplers a declaration chooses between, as HANDLES. One place, so that two passes cannot end
         // up with two different ideas of "the post sampler".
-        // THE SAMPLERS ARE THE DEVICE ROOT'S (core::create_samplers): a sampler has no per-frame state and no owner
-        // among the passes, so this function is now a READ of the handles rather than the place that made them - and
-        // it stays the single place the renderer maps them onto the declaration layer's hints.
-        core const& vk = this->vulkan_core;
-        return {.gbuffer = *vk.gbuffer_sampler,
-                .taa = *vk.taa_sampler,
-                .post = *vk.post_sampler,
-                .nearest = *vk.post_nearest_sampler,
-                .shadow = *vk.shadow_sampler,
+        // THEY ARE THE RENDERER'S OWN NOW (③-D/E item C, abi 16): this runtime creates them through the
+        // contract - `init_shared_samplers()` - and hands the raw `VkSampler` out through the escape, which is
+        // what took `vk_sampler::operator*()` off the boundary's whitelist. The values are the ones the device
+        // root used to build on the engine's behalf (see init_shared_samplers for each choice and its reason).
+        //
+        // THE ESCAPE IS THE ONLY WAY TO A RAW HANDLE HERE, and that is deliberate: `sampler_set` carries
+        // `VkSampler`s because the declaration layer's own hand-written sets take them; the contract's own
+        // path is the heap. Asking the contract for a native handle would put a Vulkan type in the contract.
+        rhi::vulkan_escape& escape = this->escape();
+        auto native = [&escape](rhi::object_manager<rhi::sampler> const& owned) {
+            return owned ? reinterpret_cast<VkSampler>(escape.native_sampler(*owned)) : VK_NULL_HANDLE;
+        };
+        return {.gbuffer = native(this->gbuffer_sampler),
+                .taa = native(this->taa_sampler),
+                .post = native(this->post_sampler),
+                .nearest = native(this->post_nearest_sampler),
+                .shadow = native(this->shadow_sampler),
                 // The bindless texture array's sampler, which only hand-written set code used until the MASK
                 // bake had to write the scene layout's binding 1 itself (see sampler_set's doc).
-                .textures = *vk.texture_sampler};
+                .textures = native(this->texture_sampler)};
     }
 
     std::span<uint8_t const> runtime::registered_shader(std::string_view const name) const noexcept {
