@@ -112,10 +112,21 @@ BACKEND_TARGET = "deren_vulkan"
 KIT_TARGET = "vulkancorekit"
 
 # Where the two halves land, per toolchain. MinGW/clang64 archives first, MSVC after.
+#
+# THE BACKEND IS A DLL SINCE THE SHARED FLIP, so its public surface is its EXPORT TABLE rather than
+# an archive's symbol table: a `nm` over the DLL would read the (stripped) image symbol table, which
+# says nothing about what the library OFFERS. `BACKEND_DLL_NAMES` is resolved first, and the export
+# table (llvm-readobj --coff-exports / objdump -p) becomes the "defined in the backend" set. The
+# archive spellings stay for a STATIC tree, so the gate still measures an intermediate state.
 ARCHIVE_NAMES = {
     BACKEND_TARGET: ("libderen_vulkan.a", "deren_vulkan.lib"),
     KIT_TARGET: ("libvulkancorekit.a", "vulkancorekit.lib"),
 }
+BACKEND_DLL_NAMES = ("deren_vulkan.dll", "libderen_vulkan.dll")
+# The process-wide half, which the backend DLL must import (batch ④'s package: the backend ships as
+# deren_vulkan.dll + shared_utility.dll).
+SHARED_UTILITY_DLL = "shared_utility.dll"
+UTILITY_SHARED_DLL = SHARED_UTILITY_DLL
 
 # The nm to use. llvm-nm reads both GNU archives and MSVC .lib; plain nm is the fallback.
 NM_CANDIDATES = ("llvm-nm", "llvm-nm-18", "llvm-nm-17", "nm")
@@ -217,7 +228,8 @@ def flavor_of(build_dir: str | None) -> str:
 # `{flavor}` is filled by `flavor_of(build_dir)` (the toolchain key of the symbol sets).
 CONFIGURATIONS = {
     "dynamic": {
-        "description": "the runtime: the boundary is the C ENTRY (deren_make_api_core / deren_destroy_api_core)",
+        "description": "the runtime: the boundary is the ONE C ENTRY (deren_make_api_core, abi 18) - "
+                       "the backend is a DLL and the executable resolves it by name",
         "baseline": "backend_boundary_baseline.dynamic.{flavor}.json",
         "whitelist": "backend_boundary_whitelist_dynamic.json",
         "build_dir": "build-release-dyn-clang64",
@@ -299,22 +311,61 @@ UTILITY_SHARED_MEMBERS = ("shared_utility.cpp.obj", "shared_utility.cppm.obj", "
 
 
 def check_shared_utility(build_dir: str, nm: str) -> dict:
-    """(a) One copy of the process-wide half, and both halves referencing it - from the archives."""
-    shared_path = os.path.join(build_dir, UTILITY_SHARED_ARCHIVE)
-    if not os.path.isfile(shared_path):
-        # no shared archive in this tree (a synthetic tree, or a build that never linked the toolkit):
-        # nothing to judge, and the flip gate's application evidence is what demands a real one.
-        return {"ok": True, "archive": UTILITY_SHARED_ARCHIVE, "defined_symbols": 0, "copies": [],
-                "referenced_by": {}, "shared_members": []}
-    shared_defined, shared_members = read_symbols(shared_path, nm, defined=True)
+    """(a) ONE COPY OF THE PROCESS-WIDE HALF, in whichever shape this tree has.
+
+    STATIC REGIME (before the flip): the shared TUs live in `libshared_utility.a`, and "once per
+    process" is a property of the LINK - so the engine and the backend archives must not carry their own
+    copy, and each must reference symbols that archive defines.
+
+    DLL REGIME (the flip, and the regime the split was for): `shared_utility.dll` IS the one copy,
+    because the OS loads one image per process - so the evidence is that EVERY consumer imports it
+    (`deren.exe` and `deren_vulkan.dll`), and that no archive in the tree carries the shared TUs as
+    members. That is the property the split exists to guarantee, checked on the artifacts rather than
+    asserted: two copies would show up as a second importer-visible image or as the TUs inside an
+    archive that gets linked into one of the two images.
+    """
+    dll_path = os.path.join(build_dir, UTILITY_SHARED_DLL)
     result: dict = {
         "ok": True,
         "archive": UTILITY_SHARED_ARCHIVE,
-        "defined_symbols": len(shared_defined),
-        "shared_members": sorted(m for m in shared_members if m in UTILITY_SHARED_MEMBERS),
+        "dll": None,
+        "defined_symbols": 0,
+        "shared_members": [],
         "copies": [],
         "referenced_by": {},
     }
+    if os.path.isfile(dll_path):
+        result["dll"] = UTILITY_SHARED_DLL
+        exports = read_backend_exports(dll_path) or []
+        result["defined_symbols"] = len(exports)
+        # Every consumer in the package must import the same image.
+        for consumer in CPP_RUNTIME_IMAGES:
+            path = os.path.join(build_dir, consumer)
+            if not os.path.isfile(path):
+                continue
+            imports = image_dll_imports(path)
+            result["referenced_by"][consumer] = 1 if (imports and UTILITY_SHARED_DLL in imports) else 0
+        # ... and no archive may carry the process-wide TUs.
+        for name in UTILITY_SHARED_CONSUMERS:
+            path = os.path.join(build_dir, name)
+            if not os.path.isfile(path):
+                continue
+            _, members = read_symbols(path, nm, defined=True)
+            duplicates = sorted(member for member in UTILITY_SHARED_MEMBERS if member in members)
+            if duplicates:
+                result["copies"].append({"archive": name, "members": duplicates})
+        result["ok"] = (not result["copies"]) and bool(result["referenced_by"]) and all(
+            count > 0 for count in result["referenced_by"].values())
+        return result
+
+    shared_path = os.path.join(build_dir, UTILITY_SHARED_ARCHIVE)
+    if not os.path.isfile(shared_path):
+        # no shared artifact in this tree (a synthetic tree, or a build that never linked the toolkit):
+        # nothing to judge, and the flip gate's application evidence is what demands a real one.
+        return result
+    shared_defined, shared_members = read_symbols(shared_path, nm, defined=True)
+    result["defined_symbols"] = len(shared_defined)
+    result["shared_members"] = sorted(member for member in shared_members if member in UTILITY_SHARED_MEMBERS)
     for name in UTILITY_SHARED_CONSUMERS:
         path = os.path.join(build_dir, name)
         if not os.path.isfile(path):
@@ -326,6 +377,60 @@ def check_shared_utility(build_dir: str, nm: str) -> dict:
         consumer_undefined, _ = read_symbols(path, nm, defined=False)
         result["referenced_by"][name] = len(set(consumer_undefined) & set(shared_defined))
     result["ok"] = (not result["copies"]) and all(count > 0 for count in result["referenced_by"].values())
+    return result
+
+
+def read_backend_exports(dll: str) -> list[str] | None:
+    """The names a DLL EXPORTS, or None when neither objdump could read them.
+
+    An export table is the honest subject once a library is a DLL: the archive's symbol table is gone
+    (and a Release image is stripped anyway), while the export table is exactly what a host can resolve
+    at run time - and exactly what must be checked to keep the boundary's surface designed rather than
+    incidental.
+    """
+    for tool, flag in (("llvm-readobj", "--coff-exports"), ("objdump", "-p")):
+        path = shutil.which(tool)
+        if path is None:
+            continue
+        proc = subprocess.run([path, flag, dll], capture_output=True, text=True)
+        if proc.returncode != 0:
+            continue
+        if tool == "llvm-readobj":
+            names = re.findall(r"^\s*Name:\s*(\S+)\s*$", proc.stdout, re.MULTILINE)
+        else:
+            # objdump -p prints an "Export Address Table" then a bracketed name table; the exported names
+            # are the bracketed entries after that header.
+            tail = proc.stdout.split("[Ordinal/Name Pointer] Table", 1)
+            names = re.findall(r"^\s*\[\s*\d+\]\s*(\S+)\s*$", tail[1], re.MULTILINE) if len(tail) == 2 else []
+        if names:
+            return names
+    return None
+
+
+def check_dll_surface(build_dir: str) -> dict:
+    """(the flip's own instrument) WHAT THE BACKEND DLL OFFERS, AND WHICH HALVES ARE IN PLACE.
+
+    Three questions, all on the artifact rather than on the link line:
+      1. the export table carries EXACTLY the one designed entry - `deren_make_api_core`. A second
+         exported name means something else became part of the ABI by accident (an auto-export setting,
+         a missing dllexport boundary, a stray `extern "C"`);
+      2. the DLL imports `shared_utility.dll` - the process-wide half of the package, which is what keeps
+         ONE log sink in the process (batch ④'s whole subject);
+      3. the package's two halves are both there at all.
+    A STATIC tree has no DLL; then the archive's symbol table is the surface and this check says so.
+    """
+    result: dict = {"ok": True, "dll": None, "exports": [], "imports": None, "imports_shared_utility": False}
+    for name in BACKEND_DLL_NAMES:
+        path = os.path.join(build_dir, name)
+        if os.path.isfile(path):
+            result["dll"] = name
+            result["exports"] = read_backend_exports(path) or []
+            result["imports"] = image_dll_imports(path)
+            result["imports_shared_utility"] = bool(result["imports"] and SHARED_UTILITY_DLL in result["imports"])
+            break
+    if result["dll"] is None:
+        return result
+    result["ok"] = result["exports"] == ["deren_make_api_core"] and result["imports_shared_utility"]
     return result
 
 
@@ -572,7 +677,12 @@ def main() -> int:
                          + ", ".join(NM_CANDIDATES) + ")")
     filt = find_tool(FILT_CANDIDATES)
 
-    backend_archive = resolve_archive(args.build_dir, BACKEND_TARGET)
+    # THE BACKEND'S ARTIFACT IS A DLL SINCE THE FLIP, so this lookup is allowed to come up empty: the
+    # export table below is the surface then, and "no archive" is the CORRECT state rather than a
+    # missing build. A static tree still resolves an archive and is measured the old way.
+    backend_dll = next((os.path.join(args.build_dir, name) for name in BACKEND_DLL_NAMES
+                        if os.path.isfile(os.path.join(args.build_dir, name))), None)
+    backend_archive = None if backend_dll is not None else resolve_archive(args.build_dir, BACKEND_TARGET)
     kit_archive = resolve_archive(args.build_dir, KIT_TARGET)
 
     # A HALF-BUILT TREE UNDER-REPORTS, AND IT DID: rebuilding `deren_vulkan` alone leaves
@@ -581,8 +691,16 @@ def main() -> int:
     # (measured: 78 -> 76 that way, against 78 -> 77 for the change that was actually made). The
     # Consumers more than 5 minutes older than the backend fail; the build target completes
     # the product first. This timestamp guard is conservative, not proof of a clean build.
-    defined, _ = read_symbols(backend_archive, nm, defined=True)
-    backend_undefined, _ = read_symbols(backend_archive, nm, defined=False)
+    # THE BACKEND'S PUBLIC SURFACE, in whichever shape this tree has: a DLL's EXPORT TABLE since the
+    # SHARED flip, an archive's symbol table in a static tree. The names are the same kind of thing
+    # (what a consumer could resolve), which is why the rest of the measurement does not care.
+    if backend_dll is not None:
+        exports = read_backend_exports(backend_dll) or []
+        defined = {name: [os.path.basename(backend_dll)] for name in exports}
+        backend_undefined, _ = {}, set()
+    else:
+        defined, _ = read_symbols(backend_archive, nm, defined=True)
+        backend_undefined, _ = read_symbols(backend_archive, nm, defined=False)
     engine_defined, _ = read_symbols(kit_archive, nm, defined=True)
     undefined, kit_members = read_symbols(kit_archive, nm, defined=False)
 
@@ -608,13 +726,13 @@ def main() -> int:
     consumers = [{"file": os.path.abspath(kit_archive), "members": sorted(kit_members)}]
     stale = []
     for path in [kit_archive, *application]:
-        if same_artifact(path, backend_archive):
+        if backend_archive is not None and same_artifact(path, backend_archive):
             print(f"FAIL: backend archive cannot serve as an engine/application consumer: {path}")
             return 1
         if not os.path.isfile(path):
             print(f"FAIL: consumer does not exist: {path}")
             return 1
-        if os.path.getmtime(path) < os.path.getmtime(backend_archive) - 300.0:
+        if backend_archive is not None and os.path.getmtime(path) < os.path.getmtime(backend_archive) - 300.0:
             stale.append(path)
         if os.path.abspath(path) == os.path.abspath(kit_archive):
             continue
@@ -635,7 +753,7 @@ def main() -> int:
     symbols = sorted(cross)
     owning = [s for s in symbols if carries_owning_stl(s)]
     report = {
-        "backend_archive": os.path.basename(backend_archive),
+        "backend_archive": os.path.basename(backend_archive or backend_dll),
         "defined_in_backend": len(defined),
         "kit_archive": os.path.basename(kit_archive),
         "kit_members": len(kit_members),
@@ -686,6 +804,8 @@ def main() -> int:
                                  "sources_scanned": imports["scanned"]}
     report["cpp_runtime"] = check_cpp_runtime(args.build_dir)
     report["shared_utility"] = check_shared_utility(args.build_dir, nm)
+    report["dll_surface"] = check_dll_surface(args.build_dir)
+    report["backend_surface_shape"] = "export table" if backend_dll is not None else "archive symbol table"
 
     if args.report:
         if os.path.normcase(os.path.realpath(args.report)) == os.path.normcase(os.path.realpath(args.baseline)):
@@ -778,7 +898,7 @@ def main() -> int:
         return 0
 
     if not args.quiet:
-        print(f"backend  {os.path.basename(backend_archive):<24} "
+        print(f"backend  {os.path.basename(backend_archive or backend_dll):<24} "
               f"{len(defined)} defined symbols")
         print(f"engine   {os.path.basename(kit_archive):<24} "
               f"{len(kit_members)} members; {len(cross)} unique backend symbols across {len(consumers)} consumer(s)")
@@ -793,14 +913,42 @@ def main() -> int:
         else:
             print(f"cxx      no deren.exe/deren_vulkan.dll in this tree - nothing to read (see the flip gate's "
                   f"application evidence)")
+        # ---- THE DLL SURFACE (the flip's own instrument) ---------------------------------------
+        # Three questions, all on the artifact: the export table carries exactly the one designed
+        # entry, the DLL imports the process-wide half (one log sink per process), and the package's
+        # second half is really there.
+        dll_surface = report["dll_surface"]
+        if dll_surface["dll"] is not None:
+            if dll_surface["exports"] != ["deren_make_api_core"]:
+                print(f"FAIL: {dll_surface['dll']} exports {len(dll_surface['exports'])} name(s); the boundary is "
+                      f"exactly one ('deren_make_api_core'). Everything else that is exported became part of the "
+                      f"ABI by accident: {', '.join(dll_surface['exports']) or '(nothing)'}")
+                failed = True
+            if not dll_surface["imports_shared_utility"]:
+                print(f"FAIL: {dll_surface['dll']} does not import {SHARED_UTILITY_DLL} - the process-wide half is "
+                      f"missing from the package, so the backend would carry its OWN copy of the log sink")
+                failed = True
+        elif application_evidence and backend_archive is None:
+            # A DLL tree must HAVE its DLL (the loader resolves it by name at run time); a static tree
+            # has an archive instead and is measured through it, which is why this is not an error then.
+            print(f"FAIL: application evidence is present but no backend DLL was found in {args.build_dir} - "
+                  f"looked for {', '.join(BACKEND_DLL_NAMES)}")
+            failed = True
         # (a) one copy of the process-wide half, from the archives
         shared_utility = report["shared_utility"]
         if shared_utility["defined_symbols"]:
             references = ", ".join(f"{name}={count}" for name, count in shared_utility["referenced_by"].items())
-            print(f"shared   {shared_utility['archive']:<24} {shared_utility['defined_symbols']} defined symbols; "
+            print(f"shared   {(shared_utility['dll'] or shared_utility['archive']):<24} {shared_utility['defined_symbols']} defined symbols; "
                   f"references to them: {references}; own copies elsewhere: {len(shared_utility['copies'])}")
         else:
-            print(f"shared   no {shared_utility['archive']} in this tree - nothing to read")
+            print("shared   no shared_utility.dll / libshared_utility.a in this tree - nothing to read")
+        # the DLL surface, printed every run
+        dll_surface = report["dll_surface"]
+        if dll_surface["dll"] is not None:
+            print(f"dll      {dll_surface['dll']:<24} exports: {', '.join(dll_surface['exports']) or '(none)'}; "
+                  f"imports {SHARED_UTILITY_DLL}: {'yes' if dll_surface['imports_shared_utility'] else 'NO'}")
+        else:
+            print("dll      no backend DLL in this tree - the backend is still an archive")
         print()
 
         by_category: dict[str, int] = defaultdict(int)

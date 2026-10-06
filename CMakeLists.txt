@@ -286,7 +286,22 @@ endif()
 # object keyed by the process id, so even if a second copy of the sink ever appears in one process the
 # second one does NOT rotate the file the first one is writing.
 # =============================================================================================
-add_library(shared_utility STATIC)
+# SHARED, IN THE SAME BATCH AS deren_vulkan, AND THIS IS THE MOMENT THE SPLIT WAS FOR: until now both
+# halves of the toolkit were STATIC, so the process happened to hold one sink even with two copies of
+# the code. A DLL carries its own copy of what it links, so with deren_vulkan SHARED the sink WOULD be
+# duplicated - two `ofstream`s on one debug.log, two startup rotations, and
+# `rotate_previous_log()` TRUNCATING the file the other copy still has open. `shared_utility` being a
+# DLL is what prevents it: the executable and deren_vulkan.dll both import THIS image, so the OS loads
+# one copy of the sink for the whole process. The rotation claim
+# (utility/shared/log_rotation_claim.cpp, an OS-named object keyed by the process id) stays as the
+# second line of defence, and this batch is where it is first genuinely needed - see
+# DYNAMIC_LINK_PROGRESS.md §18 for the one-rotation measurement.
+add_library(shared_utility SHARED)
+# THE FILE NAME IS PART OF THE DESIGN: the process-wide half ships as `shared_utility.dll`, because
+# BOTH the executable and deren_vulkan.dll import it BY THAT NAME. MinGW's default `lib` prefix would
+# produce `libshared_utility.dll`, so it is removed on purpose (the import library keeps its
+# conventional spelling through IMPORT_PREFIX).
+set_target_properties(shared_utility PROPERTIES PREFIX "")
 
 target_sources(shared_utility
         PUBLIC
@@ -424,28 +439,25 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # the shape static_utility / vstd_lib already have). Products are expected to be byte-identical: same TUs,
 # same flags, same executable - S1-A is the one step of S1 that is constructive.
 #
-# STATIC ON PURPOSE, AND SHARED ONLY AT S2: the plan's order is S1-C first (this backend implements
-# deren::promise::rhi::api_core, and one in-process instance is all that needs to exist to prove the
-# contract), and S2 second (this same target becomes SHARED, exports the THREE C entry points of
-# promise/rhi/backend_entry.hpp, and deren.utility.dynamic_link resolves them at run time). Making it
-# SHARED before the contract exists produces exactly what the plan does not ask for: an ordinary
-# auto-import DLL, whose load-time binding is what dynamic_link is supposed to replace.
+# SHARED, AND THAT IS THE FLIP ITSELF (the migration's last batch). The order the plan asked for is
+# now full: S1-C made this target implement deren::promise::rhi::api_core and prove the contract
+# in-process, and this batch makes the SAME TARGET the DLL whose ONE export
+# (promise/rhi/backend_entry.hpp, abi 18) the executable resolves BY NAME through
+# deren.utility.dynamic_link - never by linking it. `target_link_libraries(vulkancorekit
+# PUBLIC deren_vulkan)` is GONE with it (see that line): an import library would load the backend at
+# process start, before main, which is exactly the load-time binding dynamic_link exists to replace -
+# and a missing DLL would then fail as a system loader error instead of a diagnosable refusal.
 #
-# -DDEREN_BACKEND_SPIKE=ON IS THE S2 SPIKE, NOT S2 (DYNAMIC_LINK_V2.md §4 step 1b). It turns THIS
-# target into the SHARED library in a THROWAWAY build tree so the boundary's four known-unknowns are
-# measured BEFORE the contract migration is paid for instead of after it (plan_rhi_v4.md §9 items
-# 14-17: sanitizers with an instrumented DLL, the real DLL's shared_ptr deleter, two static mimalloc
-# instances, a module BMI crossing a target boundary). It is not a second mechanism and not a second
-# code path: same TUs, same flags, one build-tree variable.
-#
-# WITH IT ON THE ENGINE HALF CANNOT LINK, and that is the point rather than a side effect:
-# vulkancorekit still reaches into this target with 78 symbols (measured; the worklist is
-# scripts/check_backend_boundary.py --list), so only the spike target below is built. The spike tree
-# is disposable; the product tree is untouched because the option defaults OFF.
+# -DDEREN_BACKEND_SPIKE RETIRED IN THIS BATCH, and it retired by SUCCEEDING: it existed to build this
+# target SHARED in a throwaway tree so the boundary's four known-unknowns were measured before the
+# migration was paid for (plan_rhi_v4.md §9 items 14-17). SHARED is the main configuration now, so the
+# option and its `if()` branches are deleted rather than left as a switch that means "the same thing,
+# but hidden". Two things it carried become permanent instead of conditional: the dllexport half of
+# the boundary (DEREN_API_SHARED + DEREN_API_BUILD) and the sanitizer suppression below. The spike
+# TEST stays, unconditionally built and deliberately NOT registered with ctest (it loads a DLL and with
+# --with-device builds a real context, so it cannot belong to the headless set that tests/test_docs.cpp
+# compares against the workflow).
 # ============================================================================================
-option(DEREN_BACKEND_SPIKE
-        "build deren_vulkan as a SHARED library plus the boundary spike test (S2 spike; the engine targets will not link)"
-        OFF)
 
 # ============================================================================================
 # deren.vulkan.constant_init - THE VULKAN CONSTEXPR BUILDERS, COMPILED FOR BOTH HALVES.
@@ -459,14 +471,17 @@ option(DEREN_BACKEND_SPIKE
 # points off the meter.
 #
 # WHY A TARGET AND NOT "LIST THE SAME .cppm IN BOTH TARGETS": two BMIs of the same module name would
-# both be visible to one TU (vulkancorekit links deren_vulkan PUBLIC, so it inherits deren_vulkan's file
-# set), and a translation unit cannot import the same module from two definitions. The proven shape in
-# this repository is one owning target linked by both - `promise` does exactly that for the contract.
+# both be visible to one TU of a target that links both owners, and a translation unit cannot import
+# the same module from two definitions. The proven shape in this repository is one owning target linked
+# by both - `promise` does exactly that for the contract. (The engine no longer links deren_vulkan at
+# all since the flip, so today this argument is about `promise` and `vulkan_constant_init`, both of
+# which the engine and the backend DO share.)
 #
 # FLAGS: the shared COMPILE_OPTIONS set (the foreach below), and deliberately NOT deren_vulkan's
 # `-fno-sanitize=all`: that suppression exists because an INSTRUMENTED DLL cannot carry a second ASan
-# runtime, and this target is never the DLL's code path (the sanitizer job builds no DEREN_BACKEND_SPIKE
-# tree; `promise`, which both halves also share, is not suppressed either).
+# runtime, and this target is never the DLL's code path (the DLL is uninstrumented by construction -
+# see deren_vulkan's sanitizer suppression; `promise`, which both halves also share, is not
+# suppressed either).
 # ============================================================================================
 add_library(vulkan_constant_init STATIC)
 target_sources(vulkan_constant_init
@@ -483,17 +498,42 @@ target_sources(vulkan_constant_init
 )
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
 
-if(DEREN_BACKEND_SPIKE)
-    add_library(deren_vulkan SHARED)
-else()
-    add_library(deren_vulkan STATIC)
-endif()
-add_library(deren::vulkan ALIAS deren_vulkan)
+# ============================================================================================
+# vulkan_error_tables - THE ERROR TRANSLATORS, CARRIED BY A TARGET BOTH SIDES LINK (the SHARED
+# flip's third move of this kind, after vulkan_constant_init and both utility halves).
+#
+# WHY THEY LEFT `deren_vulkan`'s MODULE: until the flip they were `export` declarations of
+# `deren.vulkan.core` with definitions in a module implementation unit. A module attachment is a
+# LINK-TIME fact - a consumer needs the module's initializer and its decorated symbols - and a DLL
+# can serve those only by exporting its module surface. `deren_vulkan.dll` exports EXACTLY ONE name
+# by design (promise/rhi/backend_entry.hpp), so the tables had to become ordinary functions in a
+# target that (a) the backend links (core.api_core.cpp / core.cpp call them) and (b) the tables'
+# unit test links, WITHOUT the test having to import a backend module. Same TUs on both sides, one
+# definition, no BMI: the shape this repository already proved twice.
+# ============================================================================================
+add_library(vulkan_error_tables STATIC)
+target_sources(vulkan_error_tables
+    PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        # The translators AND the diagnostic builder, as a module: VkResult -> contract error, once
+        # per call-site family.
+        vulkan/core/error_tables.cppm
+)
+# The contract's module is the dependency of the interface unit itself (it re-exports it, so an
+# importer needs no second import just to name an `error`).
+target_link_libraries(vulkan_error_tables PUBLIC promise Vulkan::Vulkan)
 
-if(DEREN_BACKEND_SPIKE)
-    # The dllexport side of the boundary (utility/abi_export.hpp). The importing side needs neither
-    # macro: a host that resolves the symbols by name is not linked against this library at all.
-    target_compile_definitions(deren_vulkan PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
+add_library(deren_vulkan SHARED)
+add_library(deren::vulkan ALIAS deren_vulkan)
+# Same rule as shared_utility: the backend ships as `deren_vulkan.dll`, which is what the runtime's
+# loader looks for beside the executable (runtime/runtime.constructor.cppm).
+set_target_properties(deren_vulkan PROPERTIES PREFIX "")
+
+# The dllexport side of the boundary (utility/abi_export.hpp). The importing side needs neither
+# macro: the executable resolves the entry by NAME through dynamic_link and is not linked against
+# this library at all, so only the probe/test consumers ever see `dllimport`.
+target_compile_definitions(deren_vulkan PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
 
     # MEASURED, AND IT IS WORSE THAN "DOES NOT LINK": with the CI sanitizer job's flags
     # (-DCMAKE_CXX_FLAGS="-fsanitize=address,undefined ...", which carry the runtime only on the
@@ -513,7 +553,6 @@ if(DEREN_BACKEND_SPIKE)
         target_compile_options(deren_vulkan PRIVATE -fno-sanitize=all)
         target_link_options(deren_vulkan PRIVATE -fno-sanitize=all)
     endif()
-endif()
 
 target_sources(deren_vulkan
     PUBLIC
@@ -535,25 +574,25 @@ target_sources(deren_vulkan
         #  target's comment above deren_vulkan)
     PRIVATE
         vulkan/core/core.cpp
-        # The error mechanism's VkResult -> contract-error translation tables (per call-site family,
-        # not one global map: SUBOPTIMAL is ok at acquire and out_of_date at present). Declared in
-        # core.declarations.cppm; the tables' unit test is tests/test_error_mapping.cpp.
-        vulkan/core/core.error.cpp
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
         vulkan/core/core.api_core.cpp
-        # The THREE C entry points, DEFINED for the real backend (promise/rhi/backend_entry.hpp,
-        # S2). A plain TU rather than a module implementation unit, because an entry point has to be
-        # reachable BY NAME from an image that imports no module of this target - the same reason
-        # tests/probe_backend.cpp is a plain TU. Harmless while this target is STATIC (an ordinary C
-        # symbol nothing calls) and the dllexport half of the boundary under -DDEREN_BACKEND_SPIKE.
+        # The ONE C entry point, DEFINED for the real backend (promise/rhi/backend_entry.hpp, abi 18).
+        # A plain TU rather than a module implementation unit, because the entry has to be reachable BY
+        # NAME from an image that imports no module of this target - the same reason
+        # tests/probe_backend.cpp is a plain TU. With this target SHARED it is the dllexport side of the
+        # boundary, and the export table carries exactly this one `deren_*` name.
         vulkan/core/core.entry.cpp
         vulkan/core/handles/handles.cpp
         vulkan/init_utils/init_utils.cpp
         vulkan/core/pipeline/pipeline.cpp
         third_party/spirv-reflect/spirv_reflect.c
 )
+# The error translators (see the target above): a static library, so the DLL carries its own copy of
+# them - which is correct, because the ENGINE never calls them; the unit test links the same target
+# and gets the identical code without importing the backend's module.
 target_link_libraries(deren_vulkan
+        vulkan_error_tables
         # The backend implements the contract, so the contract's module is a dependency of THIS target
         # and of nothing else in the backend's direction (promise/rhi/*.cppm imports nothing back).
         promise
@@ -876,7 +915,16 @@ target_include_directories(vulkancorekit
 # The engine side gets the backend's modules (BMIs) and symbols from deren_vulkan. PUBLIC, because a
 # static library's link interface is what carries the module file set to the exe and to the tests
 # (§11.2): vulkancorekit's own name and its outward link surface are unchanged by S1-A.
-target_link_libraries(vulkancorekit PUBLIC deren_vulkan)
+# THE ENGINE DOES NOT LINK THE BACKEND ANY MORE, and that is what makes the backend a DLL rather than
+# an auto-import library: the runtime resolves `deren_make_api_core` BY NAME out of deren_vulkan.dll
+# (runtime/runtime.constructor.cppm, through deren.utility.dynamic_link, detaching the handle so the
+# image is never unloaded - the measured FreeLibrary deadlock), and the boundary's one whitelisted
+# symbol disappears from the link with it. The module BMIs this line used to carry PUBLIC were needed
+# by NOTHING on the engine side (the import meter reads 0 sites / 0 files); the tests that do import a
+# backend module link deren_vulkan themselves.
+#
+# `deren_vulkan` still exists as a target and CMake still knows how to build it - it is simply not in
+# this link interface. The APP depends on it as a build ORDER (the DLL must exist before a test runs).
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
 # comment above `vulkancorekit`).
@@ -962,6 +1010,14 @@ target_link_libraries(${PROJECT_NAME}
         glm::glm
         imgui
 )
+# BUILD ORDER, NOT LINKAGE: the runtime resolves deren_make_api_core out of deren_vulkan.dll at run
+# time (runtime/runtime.constructor.cppm), so the DLL has to exist beside the executable - but the
+# executable must NOT link it (an import library would load the backend before main, which is the
+# load-time binding the flip removes). A missing DLL is then a NAMED loader panic instead of a system
+# 'entry point not found' dialog. shared_utility.dll comes in through static_utility's link interface;
+# listing deren_vulkan here also drags it in, and the explicit pair below documents the package: the
+# backend ships as deren_vulkan.dll + shared_utility.dll, both beside the executable.
+add_dependencies(${PROJECT_NAME} deren_vulkan shared_utility)
 
 # The C++ RUNTIME IS DYNAMIC, ON PURPOSE (Windows/GNU-Clang): the exe used to link with -static,
 # which pinned libc++.a / libc++abi.a / libunwind.a INTO the executable. A first-party DLL cannot
@@ -1224,8 +1280,11 @@ if(VR_BUILD_TESTS)
     # translators' definitions only - the test creates no device, no window, no instance - and the
     # contract module supplies the unified values (rhi::error / error_info / zone_of).
     target_link_libraries(test_error_mapping
+        vulkan_error_tables
             promise
-            deren_vulkan
+            # NO deren_vulkan: this test imports no backend module any more (the flip moved the
+            # tables into `vulkan_error_tables`, linked below), so it neither links the backend
+            # nor loads its DLL.
             vstd_lib
     )
 
@@ -1234,27 +1293,24 @@ if(VR_BUILD_TESTS)
     # context, so it cannot belong to the headless ctest set - and tests/test_docs.cpp compares that
     # list against the workflow, so putting it there would be a lie in CI. It is registered as a test
     # only in the spike tree, where the option is on and CI is not the consumer.
-    if(DEREN_BACKEND_SPIKE)
-        add_executable(test_backend_boundary_spike tests/spike_backend_boundary.cpp)
-        target_compile_options(test_backend_boundary_spike PRIVATE ${COMPILE_OPTIONS})
-        # The ABSOLUTE path of the library under test: the spike's whole Q5 is that loading by
-        # absolute path uses LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS and
-        # therefore never searches %PATH%.
-        target_compile_definitions(test_backend_boundary_spike PRIVATE
-                VR_SPIKE_BACKEND_DLL="$<TARGET_FILE:deren_vulkan>")
-        target_link_libraries(test_backend_boundary_spike
-                promise
-                static_utility
-                vstd_lib
-        )
-        # The library the test opens has to exist first, or the run reports a loader error as a test
-        # failure (the same rule test_dynamic_link lives by).
-        add_dependencies(test_backend_boundary_spike deren_vulkan)
-        add_test(NAME test_backend_boundary_spike COMMAND $<TARGET_FILE:test_backend_boundary_spike>)
-        set_tests_properties(test_backend_boundary_spike PROPERTIES
-                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
-                TIMEOUT 300)
-    endif()
+    add_executable(test_backend_boundary_spike tests/spike_backend_boundary.cpp)
+    target_compile_options(test_backend_boundary_spike PRIVATE ${COMPILE_OPTIONS})
+    # The ABSOLUTE path of the library under test: the spike's whole Q5 is that loading by
+    # absolute path uses LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS and
+    # therefore never searches %PATH%.
+    target_compile_definitions(test_backend_boundary_spike PRIVATE
+            VR_SPIKE_BACKEND_DLL="$<TARGET_FILE:deren_vulkan>")
+    target_link_libraries(test_backend_boundary_spike
+            promise
+            static_utility
+            vstd_lib
+    )
+    # The library the test opens has to exist first, or the run reports a loader error as a test
+    # failure (the same rule test_dynamic_link lives by).
+    add_dependencies(test_backend_boundary_spike deren_vulkan)
+    # NOT `add_test`: this spike loads a DLL and, with --with-device, builds a real context, so it
+    # cannot be in the headless ctest set (tests/test_docs.cpp compares that set against the
+    # workflow). It is RUN by the batch that touches the boundary, which is what its report is for.
 endif()
 
 # ---- the runtime's scaffold test (the flip's step 2) -------------------------------------------
@@ -1274,11 +1330,14 @@ target_link_libraries(test_runtime_dyn
         static_utility
         vstd_lib
 )
+# Same build-order rule as the app: this test CONSTRUCTS a runtime, so the DLL it resolves at run time
+# has to exist first (it does not link it).
+add_dependencies(test_runtime_dyn deren_vulkan)
 
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkancorekit shared_utility static_utility promise gltf_loader app_config ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit shared_utility static_utility promise gltf_loader app_config ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
@@ -1413,7 +1472,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility promise app_config deren_vulkan vulkan_constant_init vulkancorekit gltf_loader ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility promise app_config deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit gltf_loader ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

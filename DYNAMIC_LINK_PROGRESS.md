@@ -625,3 +625,118 @@ cxx      deren.exe                imports libc++.dll
 * **(b) 只有门在跑，没有单元测试**：造一个"不导入 `libc++.dll` 的 PE"超出这个测试夹具的范围，所以它的守卫
   是**每轮门运行**而不是 `tests/` 里的用例——这一点照实写在这里。
 * `deren_vulkan.dll` 目前**不存在**（后端还是 STATIC），所以 (b) 的镜像清单里现在只有 `deren.exe` 一项被读到。
+
+## 18 SHARED 翻转：入口收敛到 ONE EXPORT、后端变 DLL、exe 按名加载（2026-10-06）
+
+**一句话**：这一批之后"deren 用上动态后端"才算**名副其实**——`deren_vulkan` 是 **DLL**、`shared_utility`
+也是 **DLL**、`deren.exe` **不链接后端**而是按名解析**唯一一个**导出，**边界读数从 1 走到 0**，
+14 个场景哈希仍对冻结清单 **matched 14 / mismatched 0**。
+
+### 18.1 入口收敛（abi 17 → 18）：三个符号 → 一个
+
+`promise/rhi/backend_entry.hpp` 现在只有：
+
+```cpp
+extern "C" [[nodiscard]] std::shared_ptr<rhi::api_core>
+deren_make_api_core(std::uint32_t abi_version, create_info const* desc, error_info* out_error_info);
+```
+
+* **删 `deren_destroy_api_core`**：所有权变成**返回的 `shared_ptr` 的控制块**（后端在自己镜像里
+  `make_shared`，deleter 随控制块走），宿主不再解析 deleter、也没有裸指针可 delete。旧写法是为了把
+  "同一个 C++ 运行时"排除在边界前提之外（m02244）；**这条前提现在已实测且机器可查** ——
+  `scripts/check_backend_boundary.py` 的 `cxx` 检查（`deren.exe` 与 `deren_vulkan.dll` 都导入
+  `libc++.dll`、UCRT 堆 ⇒ 一个运行时 + 一个堆）。
+* **删 `deren_abi_version()`**：版本成为**入参**，失配即拒绝，后端自己的号放进 `error_info.native_code`
+  （loader 测试与尖刺都断言了这个字段）。
+* 空 `shared_ptr` = 拒绝；`create_info` 仍是唯一的创建结构、仍只在调用期间借用；空 descriptor 仍是
+  `invalid_argument`。`-Wreturn-type-c-linkage` 在声明与定义两处显式 silencing（C linkage 是为了**名字**）。
+* 白名单 **2 → 1**；`deren_destroy_api_core` 进 `departures`。
+
+### 18.2 链接形态翻转 + 真正按名加载（exe 侧）
+
+* `deren_vulkan` = **SHARED**（`-DDEREN_BACKEND_SPIKE` **退役**：它当年就是在一次性树里预演这个形态，
+  现在形态是常态，选项与它的 `if()` 一起删掉；它带来的 dllexport 宏与 sanitizer 抑制变成无条件）。
+* `shared_utility` = **SHARED**。**这一刻"两个 sink"的隐患才真正成立**，而 `shared_utility` 是 DLL
+  正是解法：exe 与 deren_vulkan.dll **导入同一个镜像** ⇒ 一个进程一个 sink。`log_rotation_claim`
+  仍是第二道防线。见证见 18.5。
+* **`target_link_libraries(vulkancorekit PUBLIC deren_vulkan)` 删除**：导入库会让后端在 main 之前被
+  加载（正是 dynamic_link 要替代的 load-time binding），DLL 缺失也会变成系统弹窗而不是可诊断的拒绝。
+* **加载器**（`runtime/runtime.constructor.cppm` 的 `backend_entry_address()`）：用
+  `deren::utility::executable_directory() / "deren_vulkan.dll"` 组**绝对路径**（Q5 教训：
+  `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`，**不搜 %PATH%**），
+  `symbol("deren_make_api_core")` 解析**唯一一个**导出，然后 **`detach()` 永不卸载**（§13 实测过的
+  `FreeLibrary` 死锁）。函数内 `static` ⇒ 每进程解析一次；失败/缺符号是**具名 panic**。
+* DLL 文件名是设计的一部分：`PREFIX ""` 让产物就叫 `deren_vulkan.dll` / `shared_utility.dll`
+  （MinGW 默认的 `lib` 前缀会变成 `libderen_vulkan.dll`，而 loader 找的是前者）。
+* exe 与 scaffold 测试加的是 **`add_dependencies`（构建顺序）而不是链接**：DLL 必须在可执行文件运行前存在。
+
+### 18.3 翻转暴露的两个"两份进程级状态"，都修在根上
+
+**(1) 后端模块的 BMI 不能被 DLL 服务。** `test_error_mapping` 原来 `import deren.vulkan.core` 拿三个
+VkResult 翻译表；后端变 DLL 后那是"让 DLL 导出整个模块面"，与"只有一个导出"冲突。**第三个中立目标**
+（前两个是 `vulkan_constant_init` 与两个 utility 半）落地：新模块 **`deren.vulkan.error_tables`**
+（`vulkan/core/error_tables.cppm`，含三个翻译器 + `failed`），由 `vulkan_error_tables` 这个 STATIC 目标
+承载，**后端与测试都链接它**；`deren.vulkan.core` 改成 `export import` 它，所以后端所有调用点一字未改。
+顺带把 import 表的 "tests (informational)" 也从 1 文件变成 **0 文件**。
+
+**(2) 后端自带一份 GLFW。** 这是**渲染门全红的原因**，也是本批最值得记的一条：
+14 个场景全部 `exit code -1073740791 (0xC0000409)`，`debug.log` 的最后一行是
+`[ERROR] program panic! / error info: can not init surface / at core::init_surface() line 547`。
+根因不是 Vulkan：**GLFW 的状态是按镜像算的**。exe 用它自己的 GLFW 建窗口，把这个 `GLFWwindow*` 通过
+`create_info.native_window` 交给 DLL，而 DLL 有自己的 GLFW 副本 —— `glfwCreateWindowSurface` 对"别的
+GLFW 建的窗口"必然失败（同理 DLL 那份 GLFW 从未 `glfwInit`，`glfwGetRequiredInstanceExtensions` 也
+答不出东西）。**修法**：契约的 `native_window` 在本平台改为**原生句柄 HWND**（契约本来就写
+"whatever the backend understands"），`runtime::make_contract_core` 用
+`glfwGetWin32Window()` 把 engine 自己的窗口转成 HWND 再交给后端（runtime 自己的 `create_options` 仍留
+`GLFWwindow*` —— 回调在这个镜像里跑，需要的正是它）；后端 `init_surface` 对 caller window 走
+`vkCreateWin32SurfaceKHR`（`VK_USE_PLATFORM_WIN32_KHR` + `GLFW_EXPOSE_NATIVE_WIN32`），实例扩展也用
+显式 `VK_KHR_surface` + `VK_KHR_win32_surface`（不向未初始化的 GLFW 提问）。**后端只在"自己建窗口"那条
+路径上继续用 GLFW**（尖刺走的就是这条）。
+
+### 18.4 门与仪器
+
+* 边界读数 **1 → 0**：引擎最后一个后端符号引用随按名解析消失（`OK: 0 symbols, baseline 0`），
+  白名单**按测量清空**（不是删掉），`departures` 记录 `deren_make_api_core` 的离开。**保留读数为 1
+  需要重新链接后端导入库**，那会把 load-time binding 请回来并让显式按名加载变成摆设——所以 0 才是这一批
+  的正确读数（比 1 更强）。
+* `check_backend_boundary.py` 学会 DLL 形态：后端"定义集"= **导出表**（`llvm-readobj --coff-exports`），
+  并新增三条 artifact 检查（`--require-zero` 会 FAIL）：**导出表恰好 `deren_make_api_core` 一个名字**、
+  **DLL 导入 `shared_utility.dll`**、`cxx` 覆盖 **DLL 本身**也导入 `libc++.dll`；
+  `check_shared_utility` 在 DLL 形态下以"**exe 与 DLL 都导入同一个 `shared_utility.dll`** + 没有归档私藏
+  这些 TU"为证据。
+* 那句"DLL import/export gates remain separate"不再只是声明：导出/导入面现在是**真的**在量。
+
+### 18.5 读数与见证（唯一存活树 `build-release-dyn-clang64`，master `HEAD`）
+
+| 项 | 读数 |
+|---|---|
+| 构建 | exit 0 |
+| `ctest` | **18/18** |
+| `clang-format-check` | 0 |
+| `check_backend_boundary.py --require-zero` | **exit 0**：边界 **0 symbols / baseline 0 / 0 site**；**import 0 站点 / 0 文件**；导出表 1 个名字；DLL 导入 shared_utility.dll；两镜像都导入 libc++.dll |
+| 尖刺 `--with-device` | **95 checks / 0 failed / 自退出**（比上批少一条：版本符号查询与它的两条断言随符号一起消失，握手改读 `native_code`） |
+| scaffold `--with-device` | 7 checks / 0 failed / 自退出（**这条现在真的走了 DLL**：`constructed through deren_make_api_core(); native_device() = ...`） |
+| 渲染 `check_render.ps1 -Full -Compare frozen` | **exit 0，matched 14 / mismatched 0**，validation 扫描零命中 |
+| abi | **18** |
+
+**见证（本批自己的四条）**
+
+1. **导出表恰好一个 `deren_*`**：`llvm-readobj --coff-exports deren_vulkan.dll` 只有一个 `Name: deren_make_api_core`
+   （门里机器检查）。
+2. **DLL 导入 `shared_utility.dll`**：`deren_vulkan.dll` 的导入表里有它（门里机器检查）——这就是"一个进程一个 sink"。
+3. **日志只有一次轮转**：新建目录写入带标记的 `debug.log`，跑一次 `test_runtime_dyn.exe --with-device`；
+   结果 `debug.log.old` 里
+   `===== session ended at ... =====` **恰好 1 条**、标记 **恰好 1 份**，`debug.log` 里标记 **0** ——
+   一次进程 = 一次轮转（`debug.log.old` 见 `build-release-dyn-clang64/rotation-witness/`）。
+4. **进程干净退出**：渲染门 14 个场景各自退出码 0（每个场景还要跑两次做确定性比较），尖刺/scaffold
+   自退出 —— "按名加载 + 永不卸载"这条链走通了。
+
+### 18.6 本批没做 / 没能验证的
+
+* **(b) 的单元测试仍缺**：造一个"不导入 `libc++.dll` 的 PE"超出测试夹具范围；守卫是**每轮门运行**。
+* **POSIX 分支仍未构建**（CI 只有 windows）：`dynamic_link` 的 `dlopen` 路径与新的
+  `native_window = HWND` 语义都是 Windows 事实。
+* **交互路径（可见窗口）没有人工跑过**：脚本化捕获走了 HWND + `vkCreateWin32SurfaceKHR` 这条新路，
+  交互路径用的是同一个后端分支、同一份代码，但"有人看着窗口动"这件事本批没有验证。
+* **`plan_rhi_v4.md` §9 的四条 known-unknowns 里，sanitizer 那一条的代价兑现了**：DLL 无 sanitizer 覆盖
+  （lld 无法链接 instrumented `-shared`，见 CMake 的注释），这是翻转的成本而不是本批的疏漏。

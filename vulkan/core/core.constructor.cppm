@@ -17,7 +17,14 @@
 module;
 
 #define GLFW_INCLUDE_VULKAN
+// THE WIN32 PLATFORM, for the CALLER-WINDOW path (see init_surface): the contract's opaque window is the
+// HWND on this platform since the SHARED flip, and the surface comes from vkCreateWin32SurfaceKHR rather
+// than from this image's GLFW copy (whose state a caller-made window cannot belong to). Defined BEFORE the
+// Vulkan header reaches this translation unit - glfw3.h includes vulkan.h itself under GLFW_INCLUDE_VULKAN.
+#define VK_USE_PLATFORM_WIN32_KHR
 #include <GLFW/glfw3.h>
+#define GLFW_EXPOSE_NATIVE_WIN32 // HWND, and the windows.h that names it
+#include <GLFW/glfw3native.h>
 #include <cstddef>
 #include <cstdint>
 #include <vulkan/vulkan.h>
@@ -159,10 +166,16 @@ namespace deren::vulkan {
             deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", this->create_options.render_scale, this->render_scale);
         }
         if (this->create_options.native_window != nullptr) {
-            // caller-provided window: bind to it as-is - no glfwInit / glfwCreateWindow here and
-            // no glfwDestroyWindow cleanup (ownership stays with the caller). The `void*` is the
-            // backend's own reinterpretation of the contract's opaque handle.
-            window = reinterpret_cast<GLFWwindow*>(this->create_options.native_window);
+            // CALLER-PROVIDED WINDOW: THE CONTRACT'S OPAQUE HANDLE IS AN HWND (SHARED flip), and no GLFW
+            // call is made with it anywhere below. WHY IT HAD TO CHANGE: this image is a DLL with ITS OWN
+            // GLFW copy, and GLFW's state is per-image - a `GLFWwindow*` created by the EXECUTABLE's copy
+            // means nothing to this one, so `glfwCreateWindowSurface` on it fails (MEASURED: "can not init
+            // surface" in init_surface, exit 0xC0000409, for all fourteen render scenarios). The engine
+            // therefore converts its own window to the native handle before handing it over
+            // (runtime.constructor.cppm's to_rhi_create_info), and this half creates the surface with
+            // vkCreateWin32SurfaceKHR - the platform call GLFW would have made on its behalf.
+            // Ownership is unchanged: the window belongs to the caller, this core binds to it.
+            window = nullptr;
         } else {
             // the title is read HERE and nowhere else: it is the contract's borrowed `char const*`
             // and GLFW copies the text into the window during this call (the member note says so).
@@ -415,11 +428,20 @@ namespace deren::vulkan {
         create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
         create_info.pApplicationInfo = &app_info;
 
-        // get and set GLFW required extensions
-        uint32_t glfw_extension_count = 0;
-        char const** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
-
-        std::vector<char const*> extensions(glfw_extensions, glfw_extensions + glfw_extension_count);
+        // THE SURFACE EXTENSIONS. With a caller-provided window they are the WIN32 PAIR, spelled here rather
+        // than asked of GLFW - and that is not a shortcut: this image's GLFW copy was never initialised in
+        // that mode (the CALLER owns GLFW's lifetime, and its copy is a different one), so
+        // `glfwGetRequiredInstanceExtensions` would answer nullptr here. With no caller window this core
+        // creates the window itself and GLFW's own answer is used, as before.
+        std::vector<char const*> extensions;
+        if (this->create_options.native_window != nullptr) {
+            extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+            extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+        } else {
+            uint32_t glfw_extension_count = 0;
+            char const** glfw_extensions = glfwGetRequiredInstanceExtensions(&glfw_extension_count);
+            extensions.assign(glfw_extensions, glfw_extensions + glfw_extension_count);
+        }
 
         // validation layers + debug messenger: runtime switch from create_options (app_config's
         // [render] validation_layers; Debug defaults on, Release off - both overridable)
@@ -543,6 +565,22 @@ namespace deren::vulkan {
     }
 
     void core::init_surface() noexcept {
+        // CALLER WINDOW -> vkCreateWin32SurfaceKHR on the HWND (see the constructor's note): this image's
+        // GLFW cannot create a surface for a window it never made. OWN WINDOW -> GLFW, as before.
+        if (this->create_options.native_window != nullptr) {
+            VkWin32SurfaceCreateInfoKHR const win32_info{
+                .sType = VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR,
+                .pNext = nullptr,
+                .flags = 0,
+                .hinstance = static_cast<HINSTANCE>(GetModuleHandleW(nullptr)),
+                // hwnd takes the native handle the engine converted its window to (MSG says HWND)
+                .hwnd = static_cast<HWND>(this->create_options.native_window),
+            };
+            if (vkCreateWin32SurfaceKHR(this->instance, &win32_info, nullptr, &this->surface) != VK_SUCCESS) {
+                deren::utility::panic("can not init surface (vkCreateWin32SurfaceKHR on the caller's HWND)");
+            }
+            return;
+        }
         if (glfwCreateWindowSurface(this->instance, this->window, nullptr, &this->surface) != VK_SUCCESS) {
             deren::utility::panic("can not init surface");
         }

@@ -18,6 +18,9 @@ import deren.vulkan.core.pipeline;
 import :init_utils;
 import deren.vulkan.constant_init;
 
+// The contract's types are named by the tables' declarations, so the import comes first (see the header).
+import deren.promise.rhi;
+
 namespace deren::vulkan {
     // The contract's spelling, local to this TU: the frame verbs below return `rhi::error` /
     // `rhi::image_extent`, and core.api_core.cpp carries the same alias (core.entry.cpp has it at

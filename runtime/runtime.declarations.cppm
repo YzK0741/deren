@@ -2506,6 +2506,10 @@ namespace deren::vulkan {
          * neither creates nor destroys it, while this runtime still registers its orbit-camera callbacks
          * on it (see the constructor above). A null `native_window` keeps today's behaviour: the backend
          * creates the window from the fields.
+         * THE FIELD IS A `GLFWwindow*` FOR THIS HALF AND AN `HWND` ON THE WIRE (SHARED flip): this runtime
+         * converts it in `make_contract_core` before the contract structure reaches the backend, because the
+         * backend is a DLL with its own GLFW image and cannot use a window made by this image's copy - while
+         * the callbacks above run on THIS side and need exactly that pointer (see that function's note).
          * @note it creates its OWN core (see the constructor above for the sharing variant)
          */
         explicit runtime(deren::promise::rhi::create_info const& options);

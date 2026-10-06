@@ -1,6 +1,14 @@
 # The dynamic runtime: the design for step 2
 
-**Status: LANDED (S5, the flip).** A1 landed the ownership hand-over (the render chain's fourteen targets are
+**Status: LANDED, INCLUDING THE LOADER (the SHARED flip, abi 18).** The backend is a DLL now:
+`deren_vulkan.dll` (with `shared_utility.dll` beside it) is loaded BY NAME out of the executable's own
+directory, its ONE export (`deren_make_api_core`) is resolved at run time, the handle is detached and
+never unloaded, and the executable does not link the backend at all - so the boundary's measured symbol
+count is ZERO. DYNAMIC_LINK_PROGRESS.md §18 carries the readings and the two hazards the flip exposed
+(a backend module a DLL cannot serve, and the backend's own GLFW image). What follows was written while
+the work was in flight:
+
+A1 landed the ownership hand-over (the render chain's fourteen targets are
 created, held and released by the engine, through the contract); the merged six-partition slice moved the whole
 renderer onto the contract-only runtime; **S5 deleted the legacy runtime and retired the switch**, so `runtime/`
 at the repository root is now THE renderer runtime - it does not name `core` at all. The coexistence rules below

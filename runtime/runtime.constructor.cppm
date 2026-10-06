@@ -19,14 +19,18 @@
 module;
 
 #include <GLFW/glfw3.h>
-#include <algorithm> // std::min in the resource publication
-#include <bit>       // std::bit_cast for the caster world-matrix hash
+#define GLFW_EXPOSE_NATIVE_WIN32 // glfwGetWin32Window: the engine's window, as the native handle the
+#include <GLFW/glfw3native.h>    // backend's own GLFW image can understand (see to_rhi_create_info)
+#include <algorithm>             // std::min in the resource publication
+#include <bit>                   // std::bit_cast for the caster world-matrix hash
 #include <chrono>
-#include <cstring> // std::memcpy, for composing a pass's push block
+#include <cstring>    // std::memcpy, for composing a pass's push block
+#include <filesystem> // the backend DLL's path: executable_directory() / "deren_vulkan.dll"
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory>      // std::shared_ptr: the device root this half builds and owns
 #include <span>        // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
+#include <string>      // the DLL path handed to the loader (dynamic_link::load takes a std::string)
 #include <string_view> // the enabled-extension lookup in runtime_detail (see device_extension_enabled)
 #include <thread>      // std::this_thread::yield in the frame limiter
 #include <vulkan/vulkan.h>
@@ -41,18 +45,17 @@ import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
+import deren.utility.dynamic_link; // the loader: the backend is a DLL resolved BY NAME since the flip
 import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
 import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
 
-// THE THREE C ENTRY POINTS (③-D/E step 2), included AFTER the contract import because their declarations
-// name the contract's types (the header says so itself). They are ordinary `extern "C"` symbols with C
-// language linkage, so a declaration in a module purview is attached to the GLOBAL module - the backend's
-// definition and this declaration are the same entity, which is what the linker sees. `deren_make_api_core`
-// is this partition's ONE device-root factory and `deren_destroy_api_core` is the deleter the shared_ptr
-// holds (plan §4.1 item 3: the object lives in the backend's image, so the destruction has to run THERE -
-// `delete` would free memory this image never allocated).
+// THE ONE C ENTRY POINT (abi 18), included AFTER the contract import because its declaration names the
+// contract's types (the header says so itself): the type of the symbol this partition RESOLVES AT RUN
+// TIME. It is NOT linked - `target_link_libraries(vulkancorekit PUBLIC deren_vulkan)` is gone with the
+// flip - so the include is here for `deren_make_api_core_fn` and the declaration's agreement with it,
+// and the entry's address comes from `deren_vulkan.dll` (see backend_entry_address below).
 #include "../promise/rhi/backend_entry.hpp"
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
@@ -391,8 +394,64 @@ namespace deren::vulkan {
 
     namespace {
         /**
+         * @brief THE BACKEND'S ONE ENTRY, RESOLVED BY NAME OUT OF `deren_vulkan.dll` (the SHARED flip).
+         *
+         * THIS IS THE LOADER STEP, AND IT REPLACES A LINK-TIME REFERENCE - which is the whole difference
+         * between "the interface half is done" and "the program uses a dynamic backend". Until this
+         * batch `vulkancorekit` linked `deren_vulkan`, so the backend was an ordinary library bound at
+         * process start; now the executable does not link it at all, `deren_vulkan.dll` is loaded here,
+         * and the ONE export it carries (`deren_make_api_core`, abi 18) is resolved out of it by name.
+         *
+         * THE PATH IS THE EXECUTABLE'S OWN DIRECTORY, PASSED ABSOLUTE, and that is the Q5 lesson measured
+         * during the spike: an absolute path makes the loader use
+         * `LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS`, so the DLL's own
+         * directory and the system directories are searched and %PATH% never is (a bare name would take
+         * the classic search order instead, which is how a planted DLL gets in).
+         *
+         * THE HANDLE IS DETACHED AND NEVER UNLOADED, for a MEASURED reason rather than tidiness:
+         * `FreeLibrary` after a context had been built and torn down never returned (recorded in
+         * DYNAMIC_LINK_V2.md §13). The process ends with the image mapped, which costs nothing it does
+         * not already use - the backend's code has to stay valid for as long as its object does.
+         *
+         * RESOLVED ONCE PER PROCESS (`static`, function-local), so the load is not repeated per runtime
+         * and cannot be re-entered from a second thread halfway through.
+         */
+        [[nodiscard]] deren_make_api_core_fn backend_entry_address() {
+            static deren_make_api_core_fn const resolved = []() -> deren_make_api_core_fn {
+                std::filesystem::path const dll = deren::utility::executable_directory() / "deren_vulkan.dll";
+                auto loaded = deren::utility::dynamic_link::load(dll.string());
+                if (!loaded.has_value()) {
+                    deren::utility::panic(std::source_location::current(),
+                                          "runtime: the backend library could not be loaded from '{}' (code {}): {}",
+                                          dll.string(),
+                                          loaded.error().code,
+                                          loaded.error().message);
+                }
+                auto const symbol = loaded->symbol("deren_make_api_core");
+                if (!symbol.has_value()) {
+                    deren::utility::panic(std::source_location::current(),
+                                          "runtime: '{}' does not export deren_make_api_core - this is not a deren "
+                                          "backend (code {}): {}",
+                                          dll.string(),
+                                          symbol.error().code,
+                                          symbol.error().message);
+                }
+                // THE ADDRESS IS VALID FOR THE LIFE OF THE PROCESS because the handle is detached here and
+                // never handed back (see the note above): unloading is what would invalidate it.
+                static_cast<void>(loaded->detach());
+                return reinterpret_cast<deren_make_api_core_fn>(const_cast<void*>(*symbol));
+            }();
+            return resolved;
+        }
+
+        /**
          * @brief THE ONE DEVICE-ROOT FACTORY OF THIS HALF (③-D/E step 2): the contract's creation
          *        structure to the C entry, and the answer wrapped in the `shared_ptr` that owns it.
+         *
+         * THE ENTRY IS RESOLVED BY NAME (the flip): `backend_entry_address()` above loads
+         * `deren_vulkan.dll` beside this executable, takes the one export out of it and detaches the
+         * handle, so this call is a call through a pointer THIS image obtained at run time - nothing in
+         * this file is bound to the backend by the linker.
          *
          * THE ABI HANDSHAKE IS THE CALL'S FIRST ARGUMENT, and it is the constant BOTH sides compiled
          * from the contract module: a mismatch is refused by the backend (`error::abi_mismatch`) rather
@@ -407,11 +466,26 @@ namespace deren::vulkan {
          */
         [[nodiscard]] std::shared_ptr<rhi::api_core> make_contract_core(rhi::create_info const& options) {
             rhi::error_info status{};
+            // THE WINDOW CROSSES AS A NATIVE HANDLE, NOT AS A `GLFWwindow*` (SHARED flip), and this is the
+            // one place the conversion belongs. The backend is a DLL with ITS OWN GLFW image, and GLFW's
+            // state is per-image: a pointer made by THIS executable's copy means nothing on the other side,
+            // so `glfwCreateWindowSurface` on it failed (MEASURED: all fourteen render scenarios panicking
+            // in core::init_surface, exit 0xC0000409). The engine knows both worlds - its own GLFWwindow and
+            // the HWND behind it - so the contract's opaque `void*` carries the HWND (the contract's own
+            // note states that for this backend), and the backend creates the surface from it with
+            // vkCreateWin32SurfaceKHR. THE RUNTIME'S OWN COPY of the structure keeps the GLFWwindow*: the
+            // callbacks installed further down this constructor run in THIS image's GLFW and need it.
+            rhi::create_info backend_options = options;
+#if defined(_WIN32)
+            backend_options.native_window = options.native_window != nullptr
+                                                ? static_cast<void*>(glfwGetWin32Window(static_cast<GLFWwindow*>(options.native_window)))
+                                                : nullptr;
+#endif
             // THE ENTRY OWNS THE OBJECT FROM THE MOMENT IT ANSWERS (abi 18): the `shared_ptr` it returns
             // carries the backend's own deleter in its control block, so there is no raw pointer here
             // and no deleter name to resolve - the last reference this runtime holds is the whole
             // lifetime story.
-            std::shared_ptr<rhi::api_core> core = deren_make_api_core(rhi::abi_version, &options, &status);
+            std::shared_ptr<rhi::api_core> core = backend_entry_address()(rhi::abi_version, &backend_options, &status);
             if (!core) {
                 deren::utility::panic(std::source_location::current(),
                                       "runtime: deren_make_api_core refused the creation (abi {}, error code {}, native {}): {}",

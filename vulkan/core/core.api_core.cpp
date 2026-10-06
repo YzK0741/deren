@@ -54,8 +54,11 @@ module;
 module deren.vulkan.core;
 
 import deren.promise.rhi;
+
 import deren.vulkan.constant_init;
 import deren.vulkan.core.pipeline;
+
+// After the imports it needs: the header names deren::promise::rhi types and declares the translators.
 
 namespace deren::vulkan {
 

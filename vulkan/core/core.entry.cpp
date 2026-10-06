@@ -42,6 +42,8 @@ import deren.vulkan.core;
 
 // After the imports it names: the header declares deren::promise::rhi types (see its note).
 #include "../../promise/rhi/backend_entry.hpp"
+// The error diagnostic's builder and the VkResult translators (the flip moved them out of the
+// backend's module into this header, so both halves of the boundary can name them).
 
 namespace rhi = deren::promise::rhi;
 

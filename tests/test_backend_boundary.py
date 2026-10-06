@@ -368,8 +368,10 @@ class BoundaryTests(unittest.TestCase):
 
     def test_one_configuration_remains_and_the_legacy_pair_is_gone(self):
         # S5 deleted the legacy runtime and its gate pair: the repository carries ONE baseline (this
-        # toolchain's) and ONE whitelist, and that whitelist's entries are the DESIGNED boundary - the C
-        # entry from promise/rhi/backend_entry.hpp, not a regression.
+        # toolchain's) and ONE whitelist. THE SHARED FLIP EMPTIED THAT LIST BY MEASUREMENT (abi 18 +
+        # the by-name load): the boundary is ZERO, and every symbol that ever sat here is recorded as a
+        # DEPARTURE rather than deleted silently - so the file still says what happened, and the DLL's
+        # export table (exactly one `deren_*`) is the surface the flip gate checks instead.
         repository = Path(__file__).resolve().parents[1]
         scripts = repository / "scripts"
         self.assertFalse((scripts / "backend_boundary_whitelist.json").exists(),
@@ -380,13 +382,13 @@ class BoundaryTests(unittest.TestCase):
         self.assertTrue(dynamic_whitelist.is_file())
         payload = json.loads(dynamic_whitelist.read_text(encoding="utf-8"))
         self.assertEqual(payload["count"], len(payload["entries"]))
-        symbols = {entry["symbol"] for entry in payload["entries"]}
-        # THE DESIGNED BOUNDARY: the C entry, from promise/rhi/backend_entry.hpp - what the design predicts,
-        # not a regression. (Their absence would mean the pair was built without them.)
-        self.assertIn("deren_make_api_core", symbols)
-        self.assertIn("deren_destroy_api_core", symbols)
-        for entry in payload["entries"]:
+        self.assertEqual(payload["entries"], [], "the boundary reached zero in the SHARED flip")
+        departures = {entry["symbol"] for entry in payload["departures"]}
+        for symbol in ("deren_make_api_core", "deren_destroy_api_core", "deren_abi_version"):
+            self.assertIn(symbol, departures, "a removed boundary symbol must be recorded as a departure")
+        for entry in payload["departures"]:
             self.assertTrue(entry["reason"].strip())
+            self.assertTrue(entry["left_in"].strip())
 
 
 if __name__ == "__main__":

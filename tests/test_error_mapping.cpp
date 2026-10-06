@@ -1,7 +1,7 @@
 // Headless unit tests: the error mechanism's translation tables (pure CPU, no GPU) ==================
 // Every VkResult this backend can plausibly receive goes through the three per-call-site
-// translators (vulkan/core/core.error.cpp, declared in core.declarations.cppm) and the unified
-// contract value is asserted per site. The load-bearing row is VK_SUBOPTIMAL_KHR: the SAME code
+// translators (vulkan/core/error_tables.cpp, declared in vulkan/core/error_tables.hpp) and the
+// unified contract value is asserted per site. The load-bearing row is VK_SUBOPTIMAL_KHR: the SAME code
 // is "carry on" (ok) at acquire and "rebuild" (out_of_date) at present - the one behavior a
 // single global map could never hold, and the reason the translation is per call site at all.
 //
@@ -20,7 +20,11 @@
 #include <vulkan/vulkan.h>
 
 import deren.promise.rhi;
-import deren.vulkan.core;
+// NO BACKEND MODULE IS IMPORTED ANY MORE (the SHARED flip): the translators and `failed` live in
+// `deren.vulkan.error_tables`, a NEUTRAL module owned by the static target `vulkan_error_tables`,
+// which this test links. So the test drives the REAL tables without needing the DLL to export a module
+// interface - the thing the flip's one-export rule forbids - and without a second copy of them.
+import deren.vulkan.error_tables;
 
 namespace rhi = deren::promise::rhi;
 

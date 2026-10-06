@@ -53,6 +53,10 @@ export import :descriptor_heap;
 // module imports nothing (promise/rhi/*.cppm), so a backend that implements it cannot drag anything
 // back into the engine's contract.
 import deren.promise.rhi;
+// The error translators and the diagnostic builder: a neutral module both sides link (see the note
+// in the purview). RE-EXPORTED, because every backend TU that names `failed`/`*_error` imports THIS
+// module and must keep compiling unchanged.
+export import deren.vulkan.error_tables;
 // The renderer's slot grid (③-D/E batch, ruling D): the values live in a module BOTH halves compile, so
 // the engine can name the grid without importing this backend. Re-exported, because `core::heap_slots`
 // and the `core::heap_slot_*` constants below are aliases INTO it - a consumer of an alias needs the
@@ -773,6 +777,9 @@ namespace deren::vulkan {
         uint32_t present_queue_family_index = 0;
         VkDebugUtilsMessengerEXT debug_messenger = VK_NULL_HANDLE;
 
+        /// THE WINDOW THIS CORE OWNS, and ONLY when it created one: with a caller-provided window this
+        /// stays null, because since the SHARED flip the caller hands over a NATIVE HANDLE (an HWND) rather
+        /// than a `GLFWwindow*` made by another image's GLFW - see init_surface in core.constructor.cppm.
         GLFWwindow* window = nullptr;
 
         // ---- facade operations (keep raw Vulkan / GLFW calls out of the caller) ----
@@ -1434,42 +1441,11 @@ namespace deren::vulkan {
     // with the frame face.
     // ---------------------------------------------------------------------------
 
-    /**
-     * @brief build the contract's diagnostic for one failure, at the point that FAILED
-     * @param code the decision the caller acts on
-     * @param native_code the raw VkResult, SIGNED (Vulkan's codes are negative)
-     * @param message the backend's static text (a literal; it outlives the call because the
-     *        backend is never unloaded - invariant 4)
-     * @param where just use the default argument: it captures THIS call site, which is the
-     *        backend's failure point - the reason this helper exists instead of callers filling
-     *        error_info{} themselves, and the reason a contract virtual must never take a default
-     *        `where` (a default argument evaluates at the CALL site, which would name the engine)
-     * @return the filled error_info (trivially copyable; api is this backend's graphics_api::vulkan)
-     */
-    export [[nodiscard]] constexpr deren::promise::rhi::error_info failed(deren::promise::rhi::error const code,
-                                                                          std::int32_t const native_code = 0,
-                                                                          std::string_view const message = {},
-                                                                          std::source_location const where = std::source_location::current()) noexcept {
-        return {.code = code, .api = deren::promise::rhi::graphics_api::vulkan, .native_code = native_code, .message = message, .where = where};
-    }
-
-    /// Translate a raw VkResult at the ACQUIRE call site (vkAcquireNextImageKHR). SUBOPTIMAL is a
-    /// state here, not a failure: the acquired image renders fine, so it translates to ok - the
-    /// same VkResult translates to out_of_date at the PRESENT site, which is exactly why the
-    /// translation is per call site rather than one global function.
-    export [[nodiscard]] deren::promise::rhi::error acquire_error(VkResult result) noexcept;
-
-    /// Translate a raw VkResult at the PRESENT call site (vkQueuePresentKHR). SUBOPTIMAL means the
-    /// presentation still showed but the surface is one resize from gone: out_of_date, so the
-    /// caller rebuilds - acquire must NOT inherit this reading, and present must NOT inherit
-    /// acquire's.
-    export [[nodiscard]] deren::promise::rhi::error present_error(VkResult result) noexcept;
-
-    /// Translate a raw VkResult everywhere else (creation, queries, submission): this site has no
-    /// swapchain-shaped knowledge, so neither SUBOPTIMAL (a state the acquire/present sites each
-    /// read their own way) nor OUT_OF_DATE is reinterpreted here - both fall through with everything
-    /// else the tables do not name, keeping the raw value for the caller. INITIALIZATION_FAILED and
-    /// INCOMPATIBLE_DRIVER are creation-shaped failures, hence initialization_failed; the
-    /// *_NOT_PRESENT family and FORMAT_NOT_SUPPORTED are the unsupported mechanism's own codes.
-    export [[nodiscard]] deren::promise::rhi::error generic_error(VkResult result) noexcept;
+    // THE THREE TRANSLATORS AND `failed` MOVED TO `deren.vulkan.error_tables` (the SHARED flip),
+    // which this module RE-EXPORTS below, so the backend's own call sites (core.api_core.cpp,
+    // core.cpp, core.entry.cpp - which import this module) name them exactly as before. They had to
+    // move because a module attachment is a link-time fact: a DLL can serve a module's symbols only
+    // by exporting its module surface, and `deren_vulkan.dll` exports exactly one name by design.
+    // The neutral module is owned by `vulkan_error_tables`, which BOTH this backend and the tables'
+    // unit test link, so the test drives the real translators without importing a backend module.
 } // namespace deren::vulkan
