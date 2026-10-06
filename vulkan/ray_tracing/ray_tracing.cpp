@@ -26,36 +26,37 @@ namespace deren::vulkan::ray_tracing {
 
     namespace {
         /// The contract's view of the device, and the reason EVERY factory and ability call in this file
-        /// goes through one of these helpers. `core` implements `api_core`, so a call written on the
-        /// CONCRETE `core&` compiles to a direct call and emits an undefined reference to
-        /// `core::create_buffer` / `core::query_extension` in the engine half - which JOINS the
-        /// backend-boundary worklist this migration is measured by. Through the contract's interface the
-        /// call is virtual and emits no symbol at all.
-        rhi::api_core& contract_of(core& gpu) {
-            return static_cast<rhi::api_core&>(gpu);
-        }
-
-        /// The escape, obtained from the contract once and then used through ITS pointer.
-        rhi::vulkan_escape* escape_of(core& gpu) {
-            return static_cast<rhi::vulkan_escape*>(contract_of(gpu).query_extension(rhi::extension_kind::vulkan_escape));
+        /// goes through one of these helpers. This module no longer knows the backend's class AT ALL
+        /// (③-D/E step 1b): it holds the contract's `api_core` face, so every factory and ability call is a
+        /// virtual call that emits no backend symbol, and the device it needs comes from the escape.
+        /// The escape, obtained from the contract face once and then used through ITS pointer.
+        rhi::vulkan_escape* escape_of(rhi::api_core& face) {
+            return static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
         }
 
         /// ... and the address ability the same way (`device_address` is its own tier-2 ability).
-        rhi::device_address* address_of(core& gpu) {
-            return static_cast<rhi::device_address*>(contract_of(gpu).query_extension(rhi::extension_kind::device_address));
+        rhi::device_address* address_of(rhi::api_core& face) {
+            return static_cast<rhi::device_address*>(face.query_extension(rhi::extension_kind::device_address));
         }
 
         /// The borrowed VkBuffer behind a contract buffer; null when the buffer carries none.
-        VkBuffer native_buffer_of(core& gpu, rhi::buffer const& buffer) {
-            auto* const escape = escape_of(gpu);
+        VkBuffer native_buffer_of(rhi::api_core& face, rhi::buffer const& buffer) {
+            auto* const escape = escape_of(face);
             return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
         }
 
         /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
         /// the address could not be answered (the flag was not set, or the ability is not announced).
-        VkDeviceAddress buffer_address_of(core& gpu, rhi::buffer const& buffer) {
-            auto* const addresses = address_of(gpu);
+        VkDeviceAddress buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
+            auto* const addresses = address_of(face);
             return addresses == nullptr ? 0 : static_cast<VkDeviceAddress>(addresses->buffer_address(buffer, 0));
+        }
+
+        /// THE DEVICE THE ENTRY POINTS ARE RESOLVED AGAINST, TAKEN FROM THE ESCAPE (③-D/E step 1b): the same
+        /// value the backend's class used to hand out (`core::logical_device`), without naming `core`.
+        VkDevice device_of(rhi::api_core& face) {
+            auto* const escape = escape_of(face);
+            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkDevice>(escape->native_device());
         }
 
         /// The pair every buffer this module builds a structure FROM carries: an address, and the
@@ -66,8 +67,11 @@ namespace deren::vulkan::ray_tracing {
         constexpr rhi::buffer_flags addressable_flag = rhi::to_bits(rhi::buffer_flag::device_address);
     } // namespace
 
-    structure_set::structure_set(core& device_root) noexcept
-        : device(&device_root) {
+    structure_set::structure_set(rhi::api_core& face) noexcept
+        : contract(&face) {
+        // The one raw handle this phase needs for its own entry points (`vkGetDeviceProcAddr`), taken from the
+        // escape: the same value `core` used to hand out, without naming `core` (③-D/E step 1b).
+        this->device = device_of(face);
     }
 
     bool structure_set::attempted() const noexcept {
@@ -112,11 +116,11 @@ namespace deren::vulkan::ray_tracing {
 
     void structure_set::release_micromaps() noexcept {
         if (this->device != nullptr) {
-            auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(this->device->logical_device, "vkDestroyMicromapEXT"));
+            auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(this->device, "vkDestroyMicromapEXT"));
             if (destroy != nullptr) {
                 for (micromap_resource const& resource : this->micromap_resources) {
                     if (resource.micromap != VK_NULL_HANDLE) {
-                        destroy(this->device->logical_device, resource.micromap, nullptr);
+                        destroy(this->device, resource.micromap, nullptr);
                     }
                 }
             }
@@ -162,13 +166,13 @@ namespace deren::vulkan::ray_tracing {
      * @param triangle_count the caster's triangles; 0 makes this a no-op that returns nothing
      * @return the resource, or nullopt when the device does not publish the entry points or an allocation fails
      */
-    std::optional<structure_set::micromap_resource> make_micromap(core& vk, uint32_t const triangle_count) {
+    std::optional<structure_set::micromap_resource> make_micromap(rhi::api_core& vk, uint32_t const triangle_count) {
         if (triangle_count == 0) {
             return std::nullopt;
         }
-        auto const get_sizes = reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkGetMicromapBuildSizesEXT"));
-        auto const create = reinterpret_cast<PFN_vkCreateMicromapEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkCreateMicromapEXT"));
-        auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkDestroyMicromapEXT"));
+        auto const get_sizes = reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>(vkGetDeviceProcAddr(device_of(vk), "vkGetMicromapBuildSizesEXT"));
+        auto const create = reinterpret_cast<PFN_vkCreateMicromapEXT>(vkGetDeviceProcAddr(device_of(vk), "vkCreateMicromapEXT"));
+        auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(device_of(vk), "vkDestroyMicromapEXT"));
         if (get_sizes == nullptr || create == nullptr || destroy == nullptr) {
             return std::nullopt;
         }
@@ -211,7 +215,7 @@ namespace deren::vulkan::ray_tracing {
         // makes them mappable at all.
         constexpr rhi::buffer_flags setup_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_build_input);
         auto const create_setup_buffer = [&vk](std::vector<uint8_t> const& bytes) -> std::pair<rhi::object_manager<rhi::buffer>, VkDeviceAddress> {
-            rhi::object_manager<rhi::buffer> buffer{contract_of(vk).create_buffer(
+            rhi::object_manager<rhi::buffer> buffer{vk.create_buffer(
                 rhi::buffer_desc{.size = bytes.size() + micromap_address_alignment, .usage = rhi::buffer_usage::storage_coherent, .flags = setup_flags})};
             VkDeviceAddress const base = buffer ? buffer_address_of(vk, *buffer) : 0;
             std::span<std::byte> const mapped = buffer ? buffer->mapped() : std::span<std::byte>{};
@@ -257,17 +261,17 @@ namespace deren::vulkan::ray_tracing {
 
         VkMicromapBuildSizesInfoEXT sizes = {};
         sizes.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
-        get_sizes(vk.logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
+        get_sizes(device_of(vk), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
         if (sizes.micromapSize == 0) {
             return std::nullopt;
         }
         // The micromap's own memory: MICROMAP_STORAGE is what the create call needs of it, and the build
         // receives its ADDRESS, so the contract's device_address flag rides along. It is GPU-only.
-        out.storage = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+        out.storage = rhi::object_manager<rhi::buffer>{vk.create_buffer(
             rhi::buffer_desc{.size = sizes.micromapSize, .usage = rhi::buffer_usage::storage_gpu_only, .flags = addressable_flag | rhi::to_bits(rhi::buffer_flag::micromap_storage)})};
         if (sizes.buildScratchSize != 0) {
             // only its ADDRESS is read (by the build), so it needs the device-address flag and nothing else
-            out.scratch = rhi::object_manager<rhi::buffer>{contract_of(vk).create_buffer(
+            out.scratch = rhi::object_manager<rhi::buffer>{vk.create_buffer(
                 rhi::buffer_desc{.size = sizes.buildScratchSize, .usage = rhi::buffer_usage::storage_gpu_only, .flags = addressable_flag})};
             out.scratch_address = out.scratch ? buffer_address_of(vk, *out.scratch) : 0;
             if (out.scratch_address == 0) {
@@ -290,7 +294,7 @@ namespace deren::vulkan::ray_tracing {
         create_info.size = sizes.micromapSize;
         create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
         create_info.deviceAddress = 0;
-        if (create(vk.logical_device, &create_info, nullptr, &out.micromap) != VK_SUCCESS || out.micromap == VK_NULL_HANDLE) {
+        if (create(device_of(vk), &create_info, nullptr, &out.micromap) != VK_SUCCESS || out.micromap == VK_NULL_HANDLE) {
             return std::nullopt;
         }
         return out;
@@ -351,12 +355,12 @@ namespace deren::vulkan::ray_tracing {
         }
         this->build_attempted = true;
 
-        core& vk = *this->device;
+        rhi::api_core& vk = *this->contract;
         auto const start = std::chrono::steady_clock::now();
         this->bottom.emplace(vk);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
         // be rewritten by the frame being recorded while the previous one still reads it.
-        this->top_level.emplace(vk, deren::vulkan::core::MAX_FRAMES_IN_FLIGHT);
+        this->top_level.emplace(vk, deren::promise::rhi::max_frames_in_flight);
         auto& structures = *this->bottom;
 
         uint32_t skipped_no_address = 0;
@@ -460,7 +464,7 @@ namespace deren::vulkan::ray_tracing {
                     // the build reads it.
                     constexpr uint32_t mask_vertex_stride = 32u;
                     uint64_t const expanded_bytes = static_cast<uint64_t>(caster->draw_index_count) * mask_vertex_stride;
-                    rhi::object_manager<rhi::buffer> expanded{contract_of(vk).create_buffer(
+                    rhi::object_manager<rhi::buffer> expanded{vk.create_buffer(
                         rhi::buffer_desc{.size = expanded_bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags})};
                     // The factory answering non-null IS the old "the allocator has a detail record" test:
                     // `create_buffer()` only returns an object after the allocation succeeded, and it is the
@@ -509,7 +513,7 @@ namespace deren::vulkan::ray_tracing {
                 caster->push.skin_base != 0 && caster->vertex_count != 0 && caster->vertex_stride == skin_source_stride_expected) {
                 constexpr uint32_t skin_vertex_stride = 32u; // position, normal, uv - what hit shading reads
                 uint64_t const skinned_bytes = static_cast<uint64_t>(caster->vertex_count) * skin_vertex_stride;
-                rhi::object_manager<rhi::buffer> skinned_vertices{contract_of(vk).create_buffer(
+                rhi::object_manager<rhi::buffer> skinned_vertices{vk.create_buffer(
                     rhi::buffer_desc{.size = skinned_bytes, .usage = rhi::buffer_usage::storage_gpu_only, .flags = build_input_flags})};
                 if (skinned_vertices) {
                     skin_address = buffer_address_of(vk, *skinned_vertices);
@@ -602,7 +606,7 @@ namespace deren::vulkan::ray_tracing {
         // makes the attachment in the next step legal. Getting the first one wrong reads a micromap built from
         // memory the host had not published; getting the second wrong reads a micromap that is still being built.
         if (!this->micromap_resources.empty()) {
-            auto const build_micromaps = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(vk.logical_device, "vkCmdBuildMicromapsEXT"));
+            auto const build_micromaps = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(device_of(vk), "vkCmdBuildMicromapsEXT"));
             if (build_micromaps != nullptr) {
                 std::vector<VkMicromapBuildInfoEXT> infos(this->micromap_resources.size());
                 for (std::size_t i = 0; i < this->micromap_resources.size(); ++i) {
@@ -702,7 +706,7 @@ namespace deren::vulkan::ray_tracing {
         if (!this->ready()) {
             return {}; // nothing was built (or the build failed): there is nothing to refit or to instance
         }
-        core& vk = *this->device;
+        rhi::api_core& vk = *this->contract;
         auto& levels = *this->bottom;
         auto& top = *this->top_level;
 

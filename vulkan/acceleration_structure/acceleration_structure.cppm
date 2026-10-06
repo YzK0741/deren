@@ -27,7 +27,9 @@ export module deren.vulkan.acceleration_structure;
 
 import deren.promise.rhi; // the contract's buffer handle + object_manager: the storage/scratch owners
 export import deren.vstd;
-export import deren.vulkan.core;
+// (③-D/E step 1b: the `export import deren.vulkan.core;` that used to sit here is GONE - these
+//  classes hold `rhi::api_core&` plus a device resolved through the escape, so this module no longer
+//  imports the backend at all.)
 
 /**
  * @file vulkan/acceleration_structure/acceleration_structure.cppm
@@ -66,6 +68,9 @@ export import deren.vulkan.core;
  *    build can read.
  */
 namespace deren::vulkan::acceleration_structure {
+    /// The contract's names under the short alias this file's ~95 neighbours use; it used to arrive with
+    /// `deren.vulkan.core`, which this module no longer imports (③-D/E step 1b).
+    namespace rhi = deren::promise::rhi;
     /**
      * @ingroup vulkan_acceleration_structure
      * @brief the usage bits a buffer must carry to be an acceleration-structure build input
@@ -200,7 +205,14 @@ namespace deren::vulkan::acceleration_structure {
         /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
         /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
         /// (clang does not warn: -Wshadow is not enabled there).
-        core* gpu = nullptr; // non-const: VMA's detail lookups and buffer creation are not const
+        /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b): non-const, because creating and
+        /// releasing the storage/scratch buffers goes through the contract's factories.
+        rhi::api_core* contract = nullptr;
+        /// The device and the two answers these structures need, resolved ONCE from the escaping handles
+        /// (`native_device()` / `native_physical_device()`): the front end asks the device itself now,
+        /// instead of reading `core`'s cached fields - which is what removes the backend import.
+        VkDevice device = VK_NULL_HANDLE;
+        VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
         std::vector<entry> entries = {};
         /// The extension entry points, resolved per device in the constructor. Declared incomplete here
         /// and defined in the .cpp, because a function pointer table is implementation detail - and a
@@ -244,7 +256,7 @@ namespace deren::vulkan::acceleration_structure {
         std::deque<micromap_attachment> micromap_geometries = {};
 
     public:
-        explicit bottom_level_structures(core& device);
+        explicit bottom_level_structures(rhi::api_core& face);
         bottom_level_structures(bottom_level_structures const&) = delete;
         bottom_level_structures& operator=(bottom_level_structures const&) = delete;
         bottom_level_structures(bottom_level_structures&&) = delete;
@@ -343,7 +355,14 @@ namespace deren::vulkan::acceleration_structure {
         /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
         /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
         /// (clang does not warn: -Wshadow is not enabled there).
-        core* gpu = nullptr; // non-const: VMA's detail lookups and buffer creation are not const
+        /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b): non-const, because creating and
+        /// releasing the storage/scratch buffers goes through the contract's factories.
+        rhi::api_core* contract = nullptr;
+        /// The device and the two answers these structures need, resolved ONCE from the escaping handles
+        /// (`native_device()` / `native_physical_device()`): the front end asks the device itself now,
+        /// instead of reading `core`'s cached fields - which is what removes the backend import.
+        VkDevice device = VK_NULL_HANDLE;
+        VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
         /// The extension entry points, forward-declared and held by pointer for the same reason (and with the
         /// same NO-initializer rule) as `bottom_level_structures::functions` above - see the note there.
         struct entry_points;
@@ -353,7 +372,7 @@ namespace deren::vulkan::acceleration_structure {
         build_stats stats = {};
 
     public:
-        explicit top_level_structure(core& device, uint32_t frame_slot_count);
+        explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count);
         top_level_structure(top_level_structure const&) = delete;
         top_level_structure& operator=(top_level_structure const&) = delete;
         top_level_structure(top_level_structure&&) = delete;

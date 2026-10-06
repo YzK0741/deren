@@ -63,10 +63,15 @@ import deren.utility;
  */
 
 export import deren.vstd;
-export import deren.vulkan.core;
+// (③-D/E step 1b: the `export import deren.vulkan.core;` that used to sit here is GONE - this class
+//  holds `rhi::api_core&` plus a device resolved through the escape, so the module no longer imports
+//  the backend at all.)
 export import deren.vulkan.primitive;
 
 export namespace deren::vulkan::ray_tracing {
+    /// The contract's names under the short alias this file's neighbours use; it used to arrive with
+    /// `deren.vulkan.core`, which this module no longer imports (③-D/E step 1b).
+    namespace rhi = deren::promise::rhi;
 
     /**
      * @brief ONE CASTER WHOSE BOTTOM LEVEL WAS BUILT, with the addresses a hit's shading reads it through
@@ -160,7 +165,7 @@ export namespace deren::vulkan::ray_tracing {
      */
     class structure_set {
     public:
-        explicit structure_set(core& device_root) noexcept;
+        explicit structure_set(rhi::api_core& face) noexcept;
         structure_set(structure_set const&) = delete;
         structure_set& operator=(structure_set const&) = delete;
 
@@ -239,7 +244,10 @@ export namespace deren::vulkan::ray_tracing {
                                                                               uint32_t skin_stride,
                                                                               micromap_resource const* micromap) const noexcept;
 
-        core* device = nullptr;
+        /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b), plus the one raw handle this phase
+        /// resolves its own entry points with - obtained through the escape, never read out of `core`.
+        rhi::api_core* contract = nullptr;
+        VkDevice device = VK_NULL_HANDLE;
         std::optional<acceleration_structure::bottom_level_structures> bottom = {};
         /// named `top_level` rather than `top`: `build` keeps a local `auto& top`, and a member of that name
         /// would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
