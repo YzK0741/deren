@@ -840,6 +840,17 @@ export namespace deren::promise::rhi {
         error_info result = {}; ///< ok, or the failure of whichever step refused
     };
 
+    /// The frame-in-flight ring depth this ABI is written for (abi 15's follow-up, ③-D/E batch).
+    ///
+    /// DATA, NOT A VTABLE: an `inline constexpr`, so adding it cannot renumber `abi_version` (the same
+    /// rule every appended `error` value follows). It exists because a compile-time number is what the
+    /// engine needs for its per-slot C++ (arrays sized by the ring), which `frame_walker::slot_count()`
+    /// - the RUNTIME truth, and the only authority - cannot provide. The two are therefore pinned to
+    /// each other rather than trusted: the backend `static_assert`s its own ring against this constant,
+    /// and the engine checks `slot_count()` against it once at startup and PANICS on a mismatch (a
+    /// backend whose ring is a different size must fail loudly, never overrun a per-slot array).
+    inline constexpr std::uint32_t max_frames_in_flight = 2u;
+
     /// The frame ring's cursor, as a BORROWED VIEW - the `command_list` shape, not the owned-handle
     /// one: no `release()`, so `object_manager` cannot wrap it (the type system refuses), and the
     /// `api_core` hands out the same object every call.

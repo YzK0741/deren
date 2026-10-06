@@ -48,6 +48,9 @@ module;
 export module deren.vulkan.core.filters;
 export import deren.vstd;
 export import deren.vulkan.core;
+// The contract's own constants (③-D/E batch): `max_frames_in_flight` is the depth this facade used to
+// read out of the backend's class, and the ring depth is a contract fact now.
+import deren.promise.rhi;
 export import deren.vulkan.render_resource; // resource_id: what a pass asks for, in the declaration's own vocabulary
 
 export namespace deren::vulkan {
@@ -91,7 +94,7 @@ export namespace deren::vulkan {
         [[nodiscard]] VkExtent2D get_swap_chain_extent() const noexcept;
         [[nodiscard]] VkFormat get_swap_chain_image_format() const noexcept;
         [[nodiscard]] uint32_t get_current_frame() const noexcept;
-        static constexpr int32_t max_frames_in_flight = core::MAX_FRAMES_IN_FLIGHT;
+        static constexpr int32_t max_frames_in_flight = static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight);
 
         // ---- facade operations (forwarded from core so callers need no raw API) ----
         void wait_idle() const noexcept;

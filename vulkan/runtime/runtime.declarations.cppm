@@ -1187,8 +1187,8 @@ namespace deren::vulkan {
         // an animated/deformed/programmatic scene changes it (the fit cache does NOT, which is exactly
         // the trap the animated-Fox test caught), while a static scene repeats it.
         uint32_t shadow_content_version = 1;
-        std::array<uint32_t, deren::vulkan::core::MAX_FRAMES_IN_FLIGHT> shadow_rendered_version = {};
-        std::array<uint64_t, deren::vulkan::core::MAX_FRAMES_IN_FLIGHT> shadow_rendered_models = {};
+        std::array<uint32_t, rhi::max_frames_in_flight> shadow_rendered_version = {};
+        std::array<uint64_t, rhi::max_frames_in_flight> shadow_rendered_models = {};
         // The other half of geometry changed: a SKINNED caster keeps a constant push.model, its
         // pose lives entirely in the joint matrices the vertex shader reads, so those are hashed at
         // upload instead (set_skin_matrices). Morph targets have no upload hook at all - the caller

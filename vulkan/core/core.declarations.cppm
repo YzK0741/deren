@@ -1283,6 +1283,14 @@ namespace deren::vulkan {
         [[nodiscard]] VkResult wait_frame_slot_result(uint32_t slot) const noexcept;
 
         static constexpr int32_t MAX_FRAMES_IN_FLIGHT = 2;
+        /// THE RING DEPTH IS PINNED TO THE CONTRACT (③-D/E batch): the engine sizes per-slot C++ arrays
+        /// with `rhi::max_frames_in_flight`, so a backend ring of a different depth would overrun them.
+        /// The static_assert makes "the two drifted" a COMPILE ERROR instead of a silent overrun, and
+        /// the engine repeats the check at startup against the runtime truth
+        /// (`frame_walker::slot_count()`) because a backend built from a different revision would have
+        /// compiled against its own copy of the contract.
+        static_assert(MAX_FRAMES_IN_FLIGHT == static_cast<int32_t>(deren::promise::rhi::max_frames_in_flight),
+                      "the backend's frame ring must be the depth rhi::max_frames_in_flight promises");
 
         // ---- GPU pass timing (VK_QUERY_TYPE_TIMESTAMP) ----
         // A timestamp pool with one contiguous range of gpu_timing_mark_capacity queries per frame

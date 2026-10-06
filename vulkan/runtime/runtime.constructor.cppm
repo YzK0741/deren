@@ -298,6 +298,22 @@ namespace deren::vulkan {
         this->render_scale = this->vulkan_core.render_scale;
         this->refresh_frame_extents();
 
+        // ---- THE RING DEPTH IS PINNED, AND A MISMATCH PANICS (③-D/E batch) ------------------------
+        // The engine sizes per-slot C++ with the CONTRACT's compile-time depth
+        // (`rhi::max_frames_in_flight`: `shadow_rendered_version` / `shadow_rendered_models` are arrays
+        // of it), while the RUNTIME truth is the backend's ring - `frame_walker::slot_count()`, the one
+        // authority. A backend built from a different revision compiled against its own copy of the
+        // contract, so the backend's own static_assert cannot see this pairing; this is where the two
+        // numbers meet, and a mismatch must PANIC here rather than write past the end of a per-slot
+        // array on the first frame. Checked once, at construction, before anything uses the arrays.
+        if (this->frame_ring().slot_count() != rhi::max_frames_in_flight) {
+            deren::utility::panic(std::source_location::current(),
+                                  "runtime: the backend's frame ring is {} slots but rhi::max_frames_in_flight promises {} - "
+                                  "the engine's per-slot arrays are sized by the contract's number",
+                                  this->frame_ring().slot_count(),
+                                  rhi::max_frames_in_flight);
+        }
+
         // ---- THE ONE PLACE GLFW CALLBACKS ARE INSTALLED, and it stays here now that the WINDOW belongs to
         //      the APPLICATION: the callbacks dereference THIS runtime through the window's user pointer, so
         //      they can only be installed once both exist - which is exactly this constructor, running after
