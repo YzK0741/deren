@@ -85,6 +85,21 @@ export namespace deren::vulkan::render_layout {
     inline constexpr uint32_t bloom_level_count = 4;
 
     /**
+     * @brief the size (in bytes) of the shared scene layout's FIRST push-constant range: the per-primitive
+     *        `material_push_constants` block (6 uints + an aligned mat4 = 96 bytes, see
+     *        vulkan/scene_tree/scene_tree.cppm).
+     *
+     * @note IT LIVES HERE FOR THE SAME REASON `hdr_format` AND `bloom_level_count` DO: the ENGINE needs it -
+     *       `deren.vulkan.primitive` `static_assert`s its own push block against it and derives its exported
+     *       push-block offsets from it - and the engine may not import a backend module to reach it. A value
+     *       compiled once and linked by both halves cannot drift; `core` keeps an alias plus a
+     *       `static_assert`, which is the backend's half of the guard. The SECOND range
+     *       (`scene_cascade_push_offset` / `scene_cascade_push_size`) stays in `core`: nothing outside the
+     *       backend names it.
+     */
+    inline constexpr uint32_t scene_push_constant_size = 96;
+
+    /**
      * @brief THE SLOT GRID: where every descriptor this renderer uses lives, in SLOTS of @ref heap_slot_stride
      *        bytes, and why an index is a slot number rather than a byte offset
      *

@@ -36,7 +36,6 @@ module;
 export module deren.vulkan.pipelines;
 
 import deren.promise.rhi;
-import deren.vulkan.core;
 import deren.vulkan.render_resource;
 
 namespace deren::vulkan::pipelines {

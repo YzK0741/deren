@@ -38,8 +38,11 @@ module;
 
 export module deren.vulkan.primitive;
 import deren.promise.rhi; // the contract's buffer handle + object_manager: this module's geometry owners
+// The scene push block's size (a shared-module constant, like the formats and the bloom level count): this
+// module `static_assert`s its own material block against it and derives its exported push-block offsets from
+// it, which is exactly why it lives where BOTH halves compile it rather than in the backend's class.
+import deren.vulkan.render_layout;
 export import deren.vstd;
-export import deren.vulkan.core;
 export import deren.vulkan.render_environment;
 export import deren.vulkan.scene_tree; // the abstract leaf interface these implement
 export import deren.vulkan.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
@@ -1788,7 +1791,7 @@ namespace deren::vulkan {
         // (offset 32 in the block): align explicitly so the CPU layout matches the shader
         alignas(16) glm::mat4 model = glm::mat4(1.0f);
     };
-    static_assert(sizeof(material_push_constants) == scene_push_constant_size);
+    static_assert(sizeof(material_push_constants) == deren::vulkan::render_layout::scene_push_constant_size);
 
     /**
      * @ingroup vulkan_primitive
@@ -1813,7 +1816,7 @@ namespace deren::vulkan {
      * run to the BLOCK's end rather than to the lanes' end.
      */
     export constexpr uint32_t mesh_geometry_lanes_offset = 112;
-    export constexpr uint32_t mesh_geometry_push_offset_scene = scene_push_constant_size + 3u * sizeof(uint32_t);
+    export constexpr uint32_t mesh_geometry_push_offset_scene = deren::vulkan::render_layout::scene_push_constant_size + 3u * sizeof(uint32_t);
     /// ... and the shadow pass's own end: the same offset plus the cascade lane its block declares
     export constexpr uint32_t mesh_geometry_push_offset_shadow = mesh_geometry_push_offset_scene + sizeof(uint32_t);
     /**
@@ -2024,7 +2027,12 @@ namespace deren::vulkan {
          *        layout. One instance per recording thread, never shared across workers.
          */
         virtual void draw(render_environment& env) const = 0;
-        virtual void destroy(vma_allocator& vma) noexcept = 0;
+        /// THE ALLOCATOR IS GONE FROM THIS HOOK (the boundary batch's import cleanup): it took a
+        /// `vma_allocator&`, which was the ONLY reason this module imported `deren.vulkan.core` - and every
+        /// implementation already ignored it, because the geometry is owned by CONTRACT handles
+        /// (`rhi::object_manager<rhi::buffer>`) whose `reset()` is the whole of what this does. No caller
+        /// anywhere passed one either. The hook itself now depends on no backend type.
+        virtual void destroy() noexcept = 0;
         [[nodiscard]] virtual bool is_valid() const noexcept = 0;
 
     protected:
@@ -2074,7 +2082,7 @@ namespace deren::vulkan {
     export class normal_draw_primitive final : public primitive {
     public:
         void draw(render_environment& env) const override;
-        void destroy(vma_allocator& vma) noexcept override;
+        void destroy() noexcept override;
         [[nodiscard]] bool is_valid() const noexcept override;
     };
 
@@ -2091,7 +2099,7 @@ namespace deren::vulkan {
         uint32_t instance_count = 0;
 
         void draw(render_environment& env) const override;
-        void destroy(vma_allocator& vma) noexcept override;
+        void destroy() noexcept override;
         [[nodiscard]] bool is_valid() const noexcept override;
     };
 
@@ -2173,7 +2181,7 @@ namespace deren::vulkan {
         std::vector<chunk_record> chunks = {};
 
         void draw(render_environment& env) const override;
-        void destroy(vma_allocator& vma) noexcept override;
+        void destroy() noexcept override;
         [[nodiscard]] bool is_valid() const noexcept override;
     };
 

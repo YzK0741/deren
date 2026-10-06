@@ -19,6 +19,12 @@ export module deren.vulkan.animation;
 
 import deren.vstd;
 import deren.utility;
+// THE RING DEPTH COMES FROM THE CONTRACT, NOT FROM THE BACKEND'S CLASS: this module used to read
+// `deren::vulkan::core::MAX_FRAMES_IN_FLIGHT` and got `core` only TRANSITIVELY, through
+// `deren.vulkan.primitive`'s export import. That import had no other reason to exist and is gone, so the
+// dependency is stated where it belongs - and the two numbers cannot drift: the backend `static_assert`s
+// its own constant against `rhi::max_frames_in_flight`.
+import deren.promise.rhi;
 import deren.vulkan.scene_tree; // scene + node types (pure-CPU scene storage)
 import deren.vulkan.primitive;  // GPU leaf primitive + scene capacity constants the rigs drive
 
@@ -490,7 +496,7 @@ namespace deren::vulkan::animation {
             // identity block for unskinned draws: upload once into EVERY slot's skin buffer
             {
                 constexpr std::array<glm::mat4, 4> identity_block = {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)};
-                for (uint32_t slot = 0; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+                for (uint32_t slot = 0; slot < deren::promise::rhi::max_frames_in_flight; ++slot) {
                     this->host.set_skin_matrices_slot(identity_block, slot);
                 }
             }
@@ -651,7 +657,7 @@ namespace deren::vulkan::animation {
                     // duplicate the baked blocks (contiguous [0, total_floats)) into every other
                     // frame slot's morph buffer: deltas are static, only the per-frame weight
                     // rewrites target the active slot's buffer
-                    for (uint32_t slot = 1; slot < deren::vulkan::core::MAX_FRAMES_IN_FLIGHT; ++slot) {
+                    for (uint32_t slot = 1; slot < deren::promise::rhi::max_frames_in_flight; ++slot) {
                         float* const other = this->host.morph_scratch_slot(slot);
                         if (other != nullptr) {
                             std::memcpy(other, morph_scratch_mem, total_floats * sizeof(float));

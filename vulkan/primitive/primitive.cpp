@@ -242,7 +242,7 @@ namespace deren::vulkan {
         this->mesh_dispatch(env, *this, this->draw_index_count, 1u, survivors);
     }
 
-    void normal_draw_primitive::destroy(vma_allocator&) noexcept {
+    void normal_draw_primitive::destroy() noexcept {
         // geometry is owned by the two contract handles: reset() drops THIS leaf's reference (the GPU
         // memory dies with the last one - release is not destruction, see rhi::buffer::release()), and
         // there is no cached accessor to drop beside them any more. The old code nulled two
@@ -277,7 +277,7 @@ namespace deren::vulkan {
         this->mesh_dispatch(env, geometry_source, geometry_source.draw_index_count, this->instance_count, survivors);
     }
 
-    void instanced_draw_primitive::destroy([[maybe_unused]] vma_allocator& vma) noexcept {
+    void instanced_draw_primitive::destroy() noexcept {
         // owns nothing: the instance transform buffer is runtime-owned, geometry is source's
     }
 
@@ -316,7 +316,7 @@ namespace deren::vulkan {
         }
     }
 
-    void static_draw_primitive::destroy(vma_allocator&) noexcept {
+    void static_draw_primitive::destroy() noexcept {
         // owns the merged buffers: dropping the two handles' references frees the GPU memory when the
         // last reference goes (see the note on normal_draw_primitive::destroy above)
         this->vertex_buffer.reset();

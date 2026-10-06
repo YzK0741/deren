@@ -35,7 +35,6 @@ import deren.vulkan.render_resource.shared;
 import deren.utility;
 import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
-import deren.vulkan.core.pipeline;   // deren::vulkan::make_pipeline for the post-process pipeline
 import deren.promise.rhi;            // the contract's recording surface: the frame's list, image and read-back slot
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:

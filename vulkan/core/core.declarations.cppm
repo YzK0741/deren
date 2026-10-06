@@ -112,7 +112,11 @@ namespace deren::vulkan {
     // keeps its own copy and nothing crosses the boundary as data. The values are unchanged.
     export inline constexpr uint32_t scene_texture_capacity = 128;
     // material_push_constants: 6 uints + aligned mat4 = 96 bytes, see vulkan/scene_tree/scene_tree.cppm
-    export inline constexpr uint32_t scene_push_constant_size = 96;
+    // MOVED INTO `deren.vulkan.render_layout` by the import-cleanup batch, for the reason `hdr_format` moved
+    // (A1.0): `deren.vulkan.primitive` needs it for its exported push-block offsets, and it may not import a
+    // backend module to get it. The alias plus the assert below are this backend's half of the drift guard.
+    export inline constexpr uint32_t scene_push_constant_size = deren::vulkan::render_layout::scene_push_constant_size;
+    static_assert(scene_push_constant_size == 96u, "the scene push block's size moved");
     /**
      * @ingroup vulkan_core
      * @brief offset of the SECOND push constant range of the shared scene layout, right after the

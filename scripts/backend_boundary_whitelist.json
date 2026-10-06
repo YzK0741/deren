@@ -21,7 +21,7 @@
   "entries": [
     {
       "symbol": "_ZGIW5derenW6vulkanW4core",
-      "reason": "initializer for module deren.vulkan.core. The engine still imports a deren_vulkan module in 10 files (the same instrument prints them), and importing a backend module forces its initializer. LEAVES WITH: the dynamic-link runtime plus the constant_init/core.pipeline imports the passes still carry - i.e. when the import check reads 0."
+      "reason": "initializer for module deren.vulkan.core. The engine still imports a deren_vulkan module in 3 files (the same instrument prints them: filters, readback and the legacy runtime's declarations), and importing a backend module forces its initializer. LEAVES WITH: the dynamic-link runtime plus the two engine facades that still take core& - i.e. when the import check reads 0."
     },
     {
       "symbol": "_ZN5deren6vulkanW5derenW6vulkanW4core4coreC1ERKNS_7promise3rhiS1_W7promiseW3rhi11create_infoE",
