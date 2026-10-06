@@ -129,14 +129,20 @@ namespace deren::vulkan {
      * @brief format of the HDR scene target the deferred lighting stage renders into and the post-process
      *        pass samples: the scene color target uses it, and each swapchain image owns one
      *        single-sample resolve target in it (see core::create_render_targets)
+     *
+     * MOVED INTO `deren.vulkan.render_layout` (③-D/E item A1, A1.0): the ENGINE creates these targets now,
+     * so the formats it creates them WITH have to live in a module both halves compile. The names stay
+     * reachable as `deren::vulkan::hdr_format` / `core::hdr_format` through the aliases below, and the
+     * frozen numbers are `static_assert`ed against the module - a drift is a COMPILE ERROR rather than a
+     * different picture.
      */
-    export inline constexpr VkFormat hdr_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    export inline constexpr VkFormat hdr_format = deren::vulkan::render_layout::hdr_format;
 
     /**
      * @ingroup vulkan_core
      * @brief how many color targets the G-buffer pass writes (see gbuffer_formats)
      */
-    export inline constexpr uint32_t gbuffer_target_count = 3;
+    export inline constexpr uint32_t gbuffer_target_count = deren::vulkan::render_layout::gbuffer_target_count;
 
     /**
      * @ingroup vulkan_core
@@ -150,12 +156,9 @@ namespace deren::vulkan {
      * @note every target is single-sampled (1x) on purpose: a G-buffer cannot be multisampled
      *       without per-sample shading, which is the trade that makes TAA the anti-aliasing
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
+     * @note the values themselves moved to `deren.vulkan.render_layout` with `hdr_format` (A1.0).
      */
-    export inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = {
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_FORMAT_R16G16B16A16_SFLOAT,
-        VK_FORMAT_R8G8B8A8_UNORM,
-    };
+    export inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = deren::vulkan::render_layout::gbuffer_formats;
 
     /**
      * @ingroup vulkan_core
@@ -164,7 +167,17 @@ namespace deren::vulkan {
      *        8-bit would quantize it to ~1/255 of the screen - coarser than the jitter TAA exists to
      *        resolve)
      */
-    export inline constexpr VkFormat gbuffer_velocity_format = VK_FORMAT_R16G16_SFLOAT;
+    export inline constexpr VkFormat gbuffer_velocity_format = deren::vulkan::render_layout::gbuffer_velocity_format;
+
+    /// THE DRIFT GUARD for the moved formats (A1.0), the same shape ruling D used for the slot grid: the
+    /// numbers this backend was built with are frozen HERE, so a change on either side has to be a
+    /// deliberate edit in both places and a layout drift stops the build.
+    static_assert(hdr_format == VK_FORMAT_R16G16B16A16_SFLOAT, "the HDR target's format moved");
+    static_assert(gbuffer_target_count == 3u, "the G-buffer's target count moved");
+    static_assert(gbuffer_formats[0] == VK_FORMAT_R8G8B8A8_UNORM && gbuffer_formats[1] == VK_FORMAT_R16G16B16A16_SFLOAT &&
+                      gbuffer_formats[2] == VK_FORMAT_R8G8B8A8_UNORM,
+                  "the G-buffer's formats moved");
+    static_assert(gbuffer_velocity_format == VK_FORMAT_R16G16_SFLOAT, "the motion-vector format moved");
 
     /**
      * @ingroup vulkan_core

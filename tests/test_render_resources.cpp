@@ -687,6 +687,20 @@ int32_t main() {
             std::size_t const name_begin = lhs.rfind(' ');
             std::string const name = lhs.substr(name_begin == std::string::npos ? 0u : name_begin + 1u);
             std::optional<std::string> const rhs = rhs_after_eq(line, eq);
+            // A BRACED INITIALIZER IS NOT A SCALAR, and since A1.0 this file carries more than the grid:
+            // `deren.vulkan.render_layout` also declares the render chain's formats (`gbuffer_formats` is
+            // an `std::array`). The grid comparison and the scalar one below can only use a scalar, and a
+            // declaration neither of them can read is not a failure of the file - so it is skipped rather
+            // than reported. (`rhs_after_eq` answers nothing at all for a brace, which is why the check is
+            // on the LINE here instead of on its result. The scalar comparison only looks at `heap_*`
+            // names anyway, so an added non-grid constant was never going to join it.)
+            {
+                std::string const after_eq = line.substr(eq + 1u);
+                std::size_t const first = after_eq.find_first_not_of(' ');
+                if (first != std::string::npos && after_eq[first] == '{') {
+                    continue;
+                }
+            }
             CHECK_MSG(rhs.has_value(), line.c_str());
             if (!rhs.has_value()) {
                 continue;

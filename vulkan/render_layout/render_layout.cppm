@@ -2,6 +2,7 @@ module;
 
 // The slot grid's constants are Vulkan values (VkDeviceSize / VkFormat-free numbers), and a module both
 // halves compile must include the header itself (the same rule deren.vulkan.constant_init follows).
+#include <array>
 #include <cstdint>
 #include <vulkan/vulkan.h>
 
@@ -23,6 +24,52 @@ module;
 export module deren.vulkan.render_layout;
 
 export namespace deren::vulkan::render_layout {
+
+    // ================================================================================================
+    // THE RENDER CHAIN'S FORMATS (③-D/E item A1, A1.0). They sat in `core` as `core::hdr_format` and
+    // friends; the ENGINE creates these targets now, so the formats it creates them WITH have to be
+    // nameable without importing the backend. `core` keeps aliases plus a drift guard, and the numbers
+    // below are the ones the renderer shipped with - a change here without a change there is a compile
+    // error, which is the whole point of moving them rather than copying them.
+    // ================================================================================================
+
+    /**
+     * @brief format of the HDR scene target the deferred lighting stage renders into and the post-process
+     *        pass samples: the scene color target uses it, and each swapchain image owns one
+     *        single-sample resolve target in it.
+     */
+    inline constexpr VkFormat hdr_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+
+    /**
+     * @brief how many color targets the G-buffer pass writes (see @ref gbuffer_formats)
+     */
+    inline constexpr uint32_t gbuffer_target_count = 3;
+
+    /**
+     * @brief formats of the G-buffer targets, in attachment order (= the fragment output locations
+     *        of shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
+     *        - 0 RGBA8_UNORM: albedo.rgb (base color, linear) + metallic in a
+     *        - 1 RGBA16F: world normal.xyz (no encoding - the conservative layout trades 4 bytes per
+     *          pixel for not having to reason about octahedral precision) + roughness in a
+     *        - 2 RGBA8_UNORM: material_id low/high byte + ambient occlusion + material flags
+     *        16 bytes per pixel in total; the depth is the pass's own single-sampled depth image.
+     * @note every target is single-sampled (1x) on purpose: a G-buffer cannot be multisampled
+     *       without per-sample shading, which is the trade that makes TAA the anti-aliasing
+     *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
+     */
+    inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = {
+        VK_FORMAT_R8G8B8A8_UNORM,
+        VK_FORMAT_R16G16B16A16_SFLOAT,
+        VK_FORMAT_R8G8B8A8_UNORM,
+    };
+
+    /**
+     * @brief motion-vector format: the fourth G-buffer target, written by the G-buffer pass and read
+     *        by TAA (RG16F because a motion vector is a signed sub-pixel quantity in UV space and
+     *        8-bit would quantize it to ~1/255 of the screen - coarser than the jitter TAA exists to
+     *        resolve)
+     */
+    inline constexpr VkFormat gbuffer_velocity_format = VK_FORMAT_R16G16_SFLOAT;
 
     /**
      * @brief THE SLOT GRID: where every descriptor this renderer uses lives, in SLOTS of @ref heap_slot_stride
