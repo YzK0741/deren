@@ -121,7 +121,7 @@ namespace deren::vulkan {
         // commit (batch ③), and until it lands no pass may migrate - a partial mapping must never read as
         // a green coverage light.
         // ============================================================================================
-        constexpr std::array<image_use_pair, 21> image_use_pairs = {{
+        constexpr std::array image_use_pairs = {
             // ---- the fresh-target family: UNDEFINED as the old layout ----
             pair_of(rhi::image_use::undefined, rhi::image_use::color_attachment, deren::vulkan::color_attachment_transition),
             pair_of(rhi::image_use::undefined, rhi::image_use::depth_attachment, deren::vulkan::depth_attachment_transition),
@@ -151,7 +151,7 @@ namespace deren::vulkan {
             pair_of(rhi::image_use::transfer_source, rhi::image_use::color_attachment, deren::vulkan::transfer_to_color_attachment_transition),
             pair_of(rhi::image_use::transfer_source, rhi::image_use::shader_read, deren::vulkan::transfer_src_to_sampling_transition),
             pair_of(rhi::image_use::transfer_destination, rhi::image_use::shader_read, deren::vulkan::transfer_dst_to_sampling_transition),
-        }};
+        };
         // ============================================================================================
         // A COUNT ASSERTION MUST COME FROM THE CENSUS, NEVER FROM AN ENUMERATION. This assert said
         // `size() == 20` when batch 2 landed, because 20 was the number in a hand-written list - and the
@@ -231,29 +231,61 @@ namespace deren::vulkan {
         }
 
         // ============================================================================================
-        // BATCH 3: WHY A COMBINATION IS UNSUPPORTED - RULES, EACH WITH THE CENSUS NUMBER THAT BACKS IT,
-        // AND A GATE THAT FAILS THE BUILD (NAMING THE PAIR) WHEN A COMBINATION IS NEITHER IN THE TABLE NOR
-        // UNDER A RULE.
+        // BATCH 3b: THE COVERAGE GATE, REPAIRED - AND THE REPAIR IS EVIDENCE-DRIVEN.
         //
-        // The criterion, stated so the list can be AUDITED instead of trusted: the census measured which
-        // two ROLES meet in every recipe this renderer records (21 pairs over 10 role values). A combination
-        // is unsupported when that measurement shows the renderer never produces it, and every rule quotes
-        // the histogram number that shows it - so a rule that becomes false fails the asserts below instead
-        // of living on as a comfortable sentence.
-        //
-        //   1. NOTHING TRANSITIONS *INTO* undefined: `undefined as to: 0`. It is a starting state.
-        //   2. NOTHING READS OUT OF A PRESENTED IMAGE: `present as from: 0` - presentation hands the image
-        //      to the display engine; the frame acquires a fresh one instead of reading the old one back.
-        //   3. NOTHING READS OUT OF A DEPTH READ: `depth_read as from: 0`.
-        //   4. NOTHING READS OUT OF A READ-MODIFY-WRITE STATE: `shader_read_write as from: 0` - that role is
-        //      the destination of the one self barrier the table carries.
-        //   5. OF THE COMBINATIONS WHOSE BOTH ROLES DO APPEAR IN THE MEASUREMENT, ONLY THE MEASURED PAIRS
-        //      EXIST: the census's `measured pairs: 21` IS the list, and any other in-grid combination is a
-        //      transition this renderer never records (`color_attachment -> depth_read`, say).
-        //
-        // A rule with no checkable number is not written down - the rule set says less than it could, on
-        // purpose, and the next measurement adds the rest.
+        // THE FIRST VERSION OF THIS GATE WAS GREEN WHEN IT SHOULD HAVE BEEN RED. Measured, not reasoned:
+        // deleting the row `transfer_source -> shader_read` left `-fsyntax-only` at EXIT 0, because
+        //     * `std::array<image_use_pair, 21>` with twenty initializers VALUE-INITIALISES a twenty-first
+        //       (dummy `undefined -> undefined`) row, so `size() == 21` still held;
+        //     * `unsupported_reason` short-circuited on the table, so the check that was supposed to name
+        //       the offending pair reduced to `in_table == !in_table` - a tautology, never false.
+        // A substituted row therefore kept every number intact. Three rules follow, and they are now the
+        // ACCEPTANCE STANDARD for this gate:
+        //     * THE SET IS ASSERTED, NOT ONLY THE COUNT (a substituted row preserves any count);
+        //     * THE TWO PREDICATES MUST NOT SHORT-CIRCUIT EACH OTHER (or the partition check is vacuous);
+        //     * THE GATE MUST BE ABLE TO FAIL, and that is proven by MUTATION, not by reading the code.
         // ============================================================================================
+
+        /// THE PAIRS THE CENSUS MEASURED - transcribed from `scripts/recording_face_census.py`'s output
+        /// (the `measured pairs` line, printed as role pairs). This is the INDEPENDENT side of the set
+        /// equality below: the table is checked against the measurement, never against itself.
+        struct role_pair_expected {
+            rhi::image_use from;
+            rhi::image_use to;
+        };
+        constexpr std::array expected_pairs_from_census = {
+            role_pair_expected{rhi::image_use::undefined, rhi::image_use::color_attachment},
+            role_pair_expected{rhi::image_use::undefined, rhi::image_use::depth_attachment},
+            role_pair_expected{rhi::image_use::undefined, rhi::image_use::shader_read},
+            role_pair_expected{rhi::image_use::undefined, rhi::image_use::depth_read},
+            role_pair_expected{rhi::image_use::undefined, rhi::image_use::shader_write},
+            role_pair_expected{rhi::image_use::undefined, rhi::image_use::transfer_destination},
+            role_pair_expected{rhi::image_use::undefined, rhi::image_use::present},
+            role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::shader_read},
+            role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::transfer_source},
+            role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::present},
+            role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::color_attachment},
+            role_pair_expected{rhi::image_use::shader_write, rhi::image_use::shader_read},
+            role_pair_expected{rhi::image_use::shader_write, rhi::image_use::transfer_source},
+            role_pair_expected{rhi::image_use::shader_write, rhi::image_use::shader_read_write},
+            role_pair_expected{rhi::image_use::shader_read, rhi::image_use::shader_write},
+            role_pair_expected{rhi::image_use::shader_read, rhi::image_use::transfer_destination},
+            role_pair_expected{rhi::image_use::shader_read, rhi::image_use::depth_attachment},
+            role_pair_expected{rhi::image_use::depth_attachment, rhi::image_use::shader_read},
+            role_pair_expected{rhi::image_use::transfer_source, rhi::image_use::color_attachment},
+            role_pair_expected{rhi::image_use::transfer_source, rhi::image_use::shader_read},
+            role_pair_expected{rhi::image_use::transfer_destination, rhi::image_use::shader_read},
+        };
+
+        [[nodiscard]] constexpr bool expected_pair(rhi::image_use const from, rhi::image_use const to) noexcept {
+            for (role_pair_expected const& row : expected_pairs_from_census) {
+                if (row.from == from && row.to == to) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
         [[nodiscard]] constexpr bool image_use_pair_is_in_table(rhi::image_use const from, rhi::image_use const to) noexcept {
             for (image_use_pair const& row : image_use_pairs) {
                 if (row.from == from && row.to == to) {
@@ -263,10 +295,29 @@ namespace deren::vulkan {
             return false;
         }
 
-        /// nullptr when the table carries the pair; otherwise the census number that says why it cannot.
-        [[nodiscard]] constexpr char const* unsupported_reason(rhi::image_use const from, rhi::image_use const to) noexcept {
-            if (image_use_pair_is_in_table(from, to)) {
-                return nullptr;
+        /// The census histograms, as the booleans a rule can be checked against: `role as from: 0` means
+        /// the role never starts a measured transition, and likewise for `as to`.
+        [[nodiscard]] constexpr bool appears_as_from(rhi::image_use const role) noexcept {
+            return role == rhi::image_use::undefined || role == rhi::image_use::color_attachment ||
+                   role == rhi::image_use::shader_read || role == rhi::image_use::shader_write ||
+                   role == rhi::image_use::transfer_source || role == rhi::image_use::transfer_destination ||
+                   role == rhi::image_use::depth_attachment;
+        }
+        [[nodiscard]] constexpr bool appears_as_to(rhi::image_use const role) noexcept {
+            return role == rhi::image_use::color_attachment || role == rhi::image_use::depth_attachment ||
+                   role == rhi::image_use::depth_read || role == rhi::image_use::present ||
+                   role == rhi::image_use::shader_read || role == rhi::image_use::shader_read_write ||
+                   role == rhi::image_use::shader_write || role == rhi::image_use::transfer_source ||
+                   role == rhi::image_use::transfer_destination;
+        }
+
+        /// WHY A COMBINATION IS UNSUPPORTED, in rules that DO NOT LOOK AT THE TABLE (that short circuit is
+        /// what made the first gate a tautology), each citing the census number that backs it. nullptr means
+        /// "no rule speaks against this pair", which is exactly the case for a MEASURED pair - so a measured
+        /// pair missing from the table is caught below instead of being quietly absorbed by a rule.
+        [[nodiscard]] constexpr char const* image_use_pair_rule(rhi::image_use const from, rhi::image_use const to) noexcept {
+            if (expected_pair(from, to)) {
+                return nullptr; // the measurement says this pair exists; only the table may disagree
             }
             if (to == rhi::image_use::undefined) {
                 return "nothing transitions INTO undefined (census: 'undefined as to: 0')";
@@ -280,15 +331,20 @@ namespace deren::vulkan {
             if (from == rhi::image_use::shader_read_write) {
                 return "nothing reads out of a read-modify-write state (census: 'shader_read_write as from: 0')";
             }
-            return "not among the pairs the census measured (census: 'measured pairs: 21')";
+            if (appears_as_from(from) && appears_as_to(to)) {
+                return "both roles occur in the census, but this pair is not among the measured 21 "
+                       "(census: 'measured pairs: 21')";
+            }
+            return "a role that never appears on that side of a measured recipe (census: the role histograms)";
         }
 
-        /// How many combinations the rules above leave unsupported - counted, not typed in.
+        /// How many combinations the rules leave unsupported - counted from the RULES, never from the
+        /// table, so a substituted table row cannot move this number.
         [[nodiscard]] consteval std::size_t unsupported_combination_count() noexcept {
             std::size_t count = 0;
             for (std::uint32_t from = 0; from < image_use_value_count; ++from) {
                 for (std::uint32_t to = 0; to < image_use_value_count; ++to) {
-                    if (unsupported_reason(static_cast<rhi::image_use>(from), static_cast<rhi::image_use>(to)) != nullptr) {
+                    if (image_use_pair_rule(static_cast<rhi::image_use>(from), static_cast<rhi::image_use>(to)) != nullptr) {
                         ++count;
                     }
                 }
@@ -299,17 +355,45 @@ namespace deren::vulkan {
                       "the rules must leave exactly the census's 79 combinations unsupported "
                       "(scripts/recording_face_census.py: 'unsupported by this measurement: 79')");
 
+        [[nodiscard]] consteval bool table_rows_are_unique() noexcept {
+            for (std::size_t a = 0; a < image_use_pairs.size(); ++a) {
+                for (std::size_t b = a + 1; b < image_use_pairs.size(); ++b) {
+                    if (image_use_pairs[a].from == image_use_pairs[b].from && image_use_pairs[a].to == image_use_pairs[b].to) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+        static_assert(table_rows_are_unique(), "the table must not carry the same pair twice - a duplicate is "
+                                               "how a value-initialised (dummy) row silently replaced a real one");
+
+        /// Set equality, both directions: the sizes agree (declared below) and no measured pair is absent.
+        [[nodiscard]] consteval bool every_expected_pair_is_in_the_table() noexcept {
+            for (role_pair_expected const& row : expected_pairs_from_census) {
+                if (!image_use_pair_is_in_table(row.from, row.to)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        static_assert(every_expected_pair_is_in_the_table(),
+                      "every pair the census measured must be a table row - a missing row is a gap, and this "
+                      "assert exists because the first version of the gate stayed GREEN while one was gone");
+        // THE SIZE IS DEDUCED (CTAD above), so a deleted row cannot hide behind a declared size.
+        static_assert(image_use_pairs.size() == expected_pairs_from_census.size(),
+                      "the table and the census must have the same number of pairs (21)");
+
         /// THE FIRST COMBINATION THAT IS NEITHER IN THE TABLE NOR UNDER A RULE, ENCODED as from * 10 + to
-        /// (the encoding is part of the diagnostic; 100 means "every combination is accounted for").
-        /// Instantiating the deliberately INCOMPLETE template below for that value is how a C++ build
-        /// PRINTS the offending pair - a static_assert can only carry one fixed sentence.
+        /// (100 = every combination is accounted for). NOTE the shape: the two sides are INDEPENDENT
+        /// predicates, so "in the table AND under a rule" (a dummy row) is flagged just as loudly as
+        /// "neither" (a deleted row) - the first version compared a predicate with its own negation.
         [[nodiscard]] consteval std::uint32_t first_uncovered_pair() noexcept {
             for (std::uint32_t from = 0; from < image_use_value_count; ++from) {
                 for (std::uint32_t to = 0; to < image_use_value_count; ++to) {
                     auto const f = static_cast<rhi::image_use>(from);
                     auto const t = static_cast<rhi::image_use>(to);
-                    // exactly one of the two must speak: in the table, or under a rule - never both, never neither
-                    if (image_use_pair_is_in_table(f, t) == (unsupported_reason(f, t) != nullptr)) {
+                    if (image_use_pair_is_in_table(f, t) == (image_use_pair_rule(f, t) != nullptr)) {
                         return from * image_use_value_count + to;
                     }
                 }
@@ -318,9 +402,12 @@ namespace deren::vulkan {
         }
         template <std::uint32_t EncodedPair>
         struct image_use_pair_must_be_in_the_table_or_under_a_rule;
+        /// The complete case: every combination is accounted for. Empty ON PURPOSE - a member nothing reads
+        /// is a `-Wunused-const-variable` error in this build.
         template <>
         struct image_use_pair_must_be_in_the_table_or_under_a_rule<100> {};
-        // THE GATE: if some pair is uncovered this alias fails with the encoded pair in the diagnostic.
+        // THE GATE, and it can FAIL: the alias instantiates a DELIBERATELY INCOMPLETE template carrying the
+        // encoded offending pair, so a mutation produces a diagnostic naming it (proven by mutation).
         using image_use_coverage_gate = image_use_pair_must_be_in_the_table_or_under_a_rule<first_uncovered_pair()>;
 
         // ---- GATE A5, THE COMPILE-TIME HALF: THE DERIVED BARRIERS ARE THE SHIPPED RECIPES ----------

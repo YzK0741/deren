@@ -126,6 +126,12 @@ def print_role_histograms():
     pairs = set(RECIPE_ROLES.values())
     print(f"  measured pairs: {len(pairs)}   role values: {len(roles)}   "
           f"combinations: {len(roles) ** 2}   unsupported by this measurement: {len(roles) ** 2 - len(pairs)}")
+    # THE PAIRS THEMSELVES, because a COUNT IS NOT A SET: the backend's gate asserts set equality against
+    # this list (a substituted row preserves every count - that is exactly how the first version of that gate
+    # stayed green while a real pair was missing), so the list must be printable for the two to be compared.
+    print("  the measured pairs, verbatim (this is the MEASUREMENT, not a copy of the backend table):")
+    for frm, to in sorted(pairs):
+        print(f"        {frm} -> {to}")
     return dict(froms), dict(tos)
 
 
