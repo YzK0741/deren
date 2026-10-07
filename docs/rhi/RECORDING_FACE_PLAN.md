@@ -230,7 +230,7 @@ every batch.
 - One pass per commit once the pilot lands. `runtime.frames.cppm` (18 barriers) is the largest
   single chunk and should go last.
 - **Two documented, retryable infrastructure flakes** (recorded in
-  `DYNAMIC_LINK_PROGRESS.md` §18.7 and §19): a ninja PCM write failure
+  `DYNAMIC_LINK_PROGRESS.md` section 18.7 and section 19): a ninja PCM write failure
   (`unable to open output file '...pcm'`, `ERROR_USER_MAPPED_FILE`) and the docs build's
   `epstopdf`/`xpdf: reading PDF image failed`. Retry ONLY those two signatures; any other error
   stops immediately.
