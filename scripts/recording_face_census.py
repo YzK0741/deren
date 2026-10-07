@@ -80,6 +80,55 @@ def census_recipes(files):
     return result
 
 
+# THE RECIPE -> ROLE-PAIR MAP, and why it is data here rather than a derivation: this renderer keeps every
+# image in GENERAL, so a recipe's masks say what a transition MEANS but its name says which two ROLES meet -
+# and names alone cannot be parsed (`hdr_sampling_transition` is color_attachment -> shader_read). The map
+# exists so the ROLE HISTOGRAMS below can be printed, and those histograms are what a rule in the backend's
+# unsupported list must cite: "no recipe reads out of `present`" is checkable against `present as from: 0`,
+# which is a number this script prints - not a claim someone wrote down.
+RECIPE_ROLES = {
+    "color_attachment_transition": ("undefined", "color_attachment"),
+    "depth_attachment_transition": ("undefined", "depth_attachment"),
+    "undefined_to_sampling_transition": ("undefined", "shader_read"),
+    "undefined_to_depth_sampling_transition": ("undefined", "depth_read"),
+    "undefined_to_general_transition": ("undefined", "shader_write"),
+    "undefined_to_transfer_dst_transition": ("undefined", "transfer_destination"),
+    "undefined_to_present_transition": ("undefined", "present"),
+    "hdr_sampling_transition": ("color_attachment", "shader_read"),
+    "color_attachment_to_transfer_transition": ("color_attachment", "transfer_source"),
+    "present_transition": ("color_attachment", "present"),
+    "color_attachment_dependency": ("color_attachment", "color_attachment"),
+    "general_to_sampling_transition": ("shader_write", "shader_read"),
+    "general_to_transfer_src_transition": ("shader_write", "transfer_source"),
+    "compute_storage_transition": ("shader_write", "shader_read_write"),
+    "sampling_to_general_transition": ("shader_read", "shader_write"),
+    "sampling_to_transfer_dst_transition": ("shader_read", "transfer_destination"),
+    "sampling_to_depth_attachment_transition": ("shader_read", "depth_attachment"),
+    "shadow_map_sampling_transition": ("depth_attachment", "shader_read"),
+    "transfer_to_color_attachment_transition": ("transfer_source", "color_attachment"),
+    "transfer_dst_to_sampling_transition": ("transfer_destination", "shader_read"),
+    "transfer_src_to_sampling_transition": ("transfer_source", "shader_read"),
+}
+
+
+def print_role_histograms():
+    """The from/to role histograms: the evidence a rule in the backend's unsupported list must cite."""
+    froms = collections.Counter()
+    tos = collections.Counter()
+    for _name, (frm, to) in RECIPE_ROLES.items():
+        froms[frm] += 1
+        tos[to] += 1
+    roles = sorted(set(froms) | set(tos))
+    print("ROLE HISTOGRAMS over the measured recipe set (a rule's `why` must cite one of these numbers):")
+    print(f"    {'role':22} {'as from':>8} {'as to':>8}")
+    for role in roles:
+        print(f"    {role:22} {froms[role]:8} {tos[role]:8}")
+    pairs = set(RECIPE_ROLES.values())
+    print(f"  measured pairs: {len(pairs)}   role values: {len(roles)}   "
+          f"combinations: {len(roles) ** 2}   unsupported by this measurement: {len(roles) ** 2 - len(pairs)}")
+    return dict(froms), dict(tos)
+
+
 def main() -> int:
     call_re = re.compile(r"\bvkCmd(\w+)\s*\(")
     include_re = re.compile(r"#\s*include\s*<vulkan/")
@@ -123,6 +172,8 @@ def main() -> int:
                   f"not measurable, they are dead):")
             for name in unused:
                 print(f"        {name}")
+    print()
+    print_role_histograms()
     print()
     print("files still calling a vkCmd*:")
     for rel, count in per_file.most_common():
