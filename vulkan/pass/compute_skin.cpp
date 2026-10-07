@@ -65,14 +65,18 @@ namespace deren::vulkan::pass {
         if (!this->ready() || requests.empty() || push_indices == nullptr) {
             return false;
         }
-        // THE BIND IS RAW ON PURPOSE (see the header): this job's compute pipeline is not a contract pipeline
-        // yet, so the one bind goes through the contract's own escape. A face that answers no native command
-        // buffer records nothing rather than mis-casting a foreign pointer.
-        VkCommandBuffer const native = pass::native_commands(this->built_against, commands);
-        if (native == VK_NULL_HANDLE) {
+        // THE BIND RIDES THE CONTRACT (abi 21): this job's pipeline IS a contract pipeline (the builders create
+        // through `api_core::create_pipeline`), so `bind_pipeline` carries the compute bind point the backend
+        // decided, and there is no raw fallback left to keep - a job whose pipeline has no contract handle is a
+        // wiring bug, and it is REPORTED rather than recorded into the void. Nothing else binds for this job: it
+        // is not a frame pass, the acceleration-structure set drives it.
+        if (!this->pass_pipeline.has_value() || this->pass_pipeline->contract == nullptr) {
+            deren::utility::log("compute skin: the job's pipeline has no contract handle - the skin dispatches are skipped");
             return false;
         }
-        vkCmdBindPipeline(native, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline());
+        if (commands.bind_pipeline(*this->pass_pipeline->contract) != deren::promise::rhi::error::ok) {
+            return false; // a refused bind would record the dispatches with no pipeline bound
+        }
         // No descriptor set is bound: the per-joint matrices are a heap slot the shader names itself, and a set
         // bound to a layout-less pipeline is invalid. The block travels as data (see the header) with the two heap
         // indices appended, which is how the shader finds the frame's matrices at all.
@@ -98,31 +102,29 @@ namespace deren::vulkan::pass {
             return false;
         }
 
-        // What follows reads what these dispatches wrote: the BUILD on the frame the structures are created, and
-        // the REFIT on every frame after. A compute write is not visible to the acceleration structure build
-        // stage without this barrier, and the symptom would be a structure built or refitted against the
-        // previous frame's vertices - a shadow one frame behind, which reads as animation lag.
-        // THE BUILD-ORDERING BARRIER STAYS RAW, and it is the record series' one measured gap here: this is a
-        // GLOBAL memory barrier (COMPUTE_SHADER/SHADER_WRITE -> ACCELERATION_STRUCTURE_BUILD/SHADER_READ) and
-        // `barrier_group` carries IMAGES and BUFFERS, not a memory barrier with no operand. The escape is the
-        // contract's own answer for a step it has no concept for; a face without one records nothing (the
-        // dispatches above are already recorded, which is the same ordering the old code left).
-        VkMemoryBarrier2 skin_order = {};
-        skin_order.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        skin_order.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-        skin_order.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-        skin_order.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        skin_order.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-        VkDependencyInfo const skin_dependency = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                  .pNext = nullptr,
-                                                  .dependencyFlags = 0,
-                                                  .memoryBarrierCount = 1,
-                                                  .pMemoryBarriers = &skin_order,
-                                                  .bufferMemoryBarrierCount = 0,
-                                                  .pBufferMemoryBarriers = nullptr,
-                                                  .imageMemoryBarrierCount = 0,
-                                                  .pImageMemoryBarriers = nullptr};
-        vkCmdPipelineBarrier2(native, &skin_dependency);
+        // THE BUILD-ORDERING BARRIER RIDES THE CONTRACT NOW (abi 21), and it is the site the GLOBAL memory
+        // barrier was added for: a memory barrier has NO operand (it orders every write of a stage pair against
+        // every read of the next), so it could not be a `buffer_barrier` or an `image_barrier` - it is
+        // `barrier_group::has_memory` + a role pair, recorded in the same call as the resource barriers.
+        // THE PAIR IS THE MEASUREMENT: (shader_write, acceleration_structure_read) is exactly the raw masks this
+        // replaced (COMPUTE_SHADER/SHADER_WRITE -> ACCELERATION_STRUCTURE_BUILD/SHADER_READ), and no earlier
+        // role named the acceleration-structure build as a READER (see `buffer_use`).
+        deren::promise::rhi::barrier_group const order{
+            .struct_size = sizeof(deren::promise::rhi::barrier_group),
+            .images = {},
+            .buffers = {},
+            .stage = deren::promise::rhi::stage_hint::none,
+            .has_memory = true,
+            .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::shader_write,
+                                                          .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+        };
+        if (commands.barrier(order) != deren::promise::rhi::error::ok) {
+            // A REFUSED ORDERING BARRIER IS NOT DROPPED SILENTLY: the dispatches are already recorded and the
+            // structure build would read the previous frame's vertices (a shadow one frame behind, which reads
+            // as animation lag). The failure is named, and the job reports it as a failure.
+            deren::utility::log("compute skin: the build-ordering memory barrier was refused - the structure build would read the previous frame's vertices");
+            return false;
+        }
         return true;
     }
 

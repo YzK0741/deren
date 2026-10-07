@@ -169,40 +169,30 @@ namespace deren::vulkan::pass {
     void rt_shadow_pass::record(resolved_io const& io) {
         if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::rt_shadow_barriers.size() ||
             io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE || io.list == nullptr ||
-            io.barrier_images[barrier_visibility].image == VK_NULL_HANDLE ||
+            io.barrier_images[barrier_visibility].image_handle == nullptr ||
             this->hit_region.deviceAddress == 0 ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
-        VkImage const visibility_native = io.barrier_images[barrier_visibility].image;
+        rhi::image* const visibility = io.barrier_images[barrier_visibility].image_handle;
 
         // The image is written as a storage image (GENERAL) and read by the lighting stage as a sampler
         // (SHADER_READ). Both transitions happen here, around the dispatch, because this is the only place that
         // knows the image is being rewritten - the lighting stage's descriptor declares SHADER_READ whether or
         // not this pass ran (see the off path in the frame loop).
-        // THE STAGE OVERRIDE IS WHY THIS SITE IS STILL RAW, and it is the measurement the recording face's
-        // `stage_hint` is owed: the raw spelling REPLACES the recipe's writing stage with the RAY-TRACING
-        // one, because the producer is a traceRays LAUNCH and not a dispatch - a barrier whose masks do not
-        // cover the stage that actually ran leaves the writes unsynchronized (measured: half the model lost
-        // its sun). The pair-only contract vocabulary (`image_barrier`'s resource/from/to/range) derives the
-        // masks from the pair and cannot spell a stage override, so the call goes through the contract's OWN
-        // escape (see `pass::native_commands` and promise/rhi/rhi.api_core.cppm's barrier-model note, whose
-        // "add a stage hint only where a migrated site demonstrably needs it" names this site). It is a
-        // §8.2-style remainder, not a permanent raw lane.
-        VkCommandBuffer const native = pass::native_commands(this->built_against, *io.list);
-        if (native == VK_NULL_HANDLE) {
-            return; // a face with no native command buffer records nothing rather than mis-casting
+        // THE PAIR IS THE SHIPPED RECIPE AND THE STAGE IS THE HINT (abi 21): (undefined, shader_write) is
+        // `undefined_to_general_transition`, and `stage_hint::ray_tracing` replaces the stage that recipe names
+        // (COMPUTE_SHADER) with the one that actually RAN - a traceRays LAUNCH, not a dispatch. THE OVERRIDE IS
+        // MEASURED, which is what the barrier model's own note asks for before a vocabulary grows: with the
+        // recipe's stage the writes go unsynchronised and the lighting stage samples an image the trace has not
+        // finished writing (measured: half the model lost its sun, deterministically, while a constant write -
+        // which no ordering can make wrong - came out right).
+        std::array<rhi::image_barrier, 1> const to_general = {
+            rhi::image_barrier{.resource = visibility, .from = rhi::image_use::undefined, .to = rhi::image_use::shader_write, .range = {}},
+        };
+        if (io.list->barrier(rhi::barrier_group{.images = to_general, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {
+            return; // a refused barrier would leave the visibility image in a state nobody declared
         }
-        VkImageMemoryBarrier2 to_general = deren::vulkan::undefined_to_general_transition;
-        to_general.image = visibility_native;
-        // THE PRODUCER IS A RAY-TRACING STAGE, NOT A DISPATCH. The shared constants name COMPUTE_SHADER because
-        // every other writer of this image was one; a barrier whose masks do not cover the stage that actually
-        // ran leaves the writes unsynchronized, and the lighting stage then samples an image the trace has not
-        // necessarily finished writing (measured: half the model lost its sun, deterministically, while a
-        // constant write - which no ordering can make wrong - came out right).
-        to_general.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-        VkDependencyInfo const general_dependency = make_image_dependency_info(1, &to_general);
-        vkCmdPipelineBarrier2(native, &general_dependency);
 
         // No sets to bind (see the heap bind in begin_recording): the tracer's scene buffers, its G-buffer images
         // and the acceleration structure are heap slots the shader names, and the frame's indices arrive in its
@@ -221,14 +211,15 @@ namespace deren::vulkan::pass {
         // contract buffer in, the native out of the escape (see `trace_rays` above).
         this->trace_rays(*io.cmd, &this->raygen_region, &this->miss_region, &this->hit_region, &this->callable_region, io.extent.width, io.extent.height, 1);
 
-        // ... and the hand-off to the lighting stage, with the SAME caveat as the first barrier: the raw
-        // spelling names the RAY-TRACING stage as the SOURCE of the writes being published, which the
-        // pair-only vocabulary cannot express (see the first barrier's note).
-        VkImageMemoryBarrier2 to_sampling = deren::vulkan::general_to_sampling_transition;
-        to_sampling.image = visibility_native;
-        to_sampling.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
-        VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-        vkCmdPipelineBarrier2(native, &sampling_dependency);
+        // ... and the hand-off to the lighting stage, with the SAME hint and for the SAME reason: the recipe
+        // (shader_write, shader_read) is `general_to_sampling_transition`, and its SOURCE stage is the
+        // ray-tracing one here (see the first barrier's note).
+        std::array<rhi::image_barrier, 1> const to_sampling = {
+            rhi::image_barrier{.resource = visibility, .from = rhi::image_use::shader_write, .to = rhi::image_use::shader_read, .range = {}},
+        };
+        if (io.list->barrier(rhi::barrier_group{.images = to_sampling, .stage = rhi::stage_hint::ray_tracing}) != rhi::error::ok) {
+            return; // a refused hand-off would leave the visibility image in a state nobody declared
+        }
 
         if (!this->logged) {
             this->logged = true;

@@ -76,16 +76,18 @@ namespace deren::vulkan::pass {
         bake.index_type = request.index_type;
         bake.triangle_count = request.triangle_count;
         bake.material_index = request.material_index;
-        // THE BIND IS THE ONE RAW STEP LEFT, and it is raw because this job's compute pipeline is not a CONTRACT
-        // pipeline yet: `command_buffer::bind_pipeline` binds what `create_pipeline` made, and the compute
-        // assemblies are still created through `vkCreateComputePipelines` (the pipeline migration, §8.2 of the
-        // recording-face note, is what removes this). The native handle comes from the contract's own escape, and
-        // a face that answers none records nothing rather than mis-casting a foreign pointer.
-        VkCommandBuffer const native = pass::native_commands(this->built_against, commands);
-        if (native == VK_NULL_HANDLE) {
+        // THE BIND RIDES THE CONTRACT (abi 21): the pipeline this JOB owns IS a contract pipeline (the builders
+        // create through `api_core::create_pipeline`), so `bind_pipeline` carries the compute bind point the
+        // backend decided. NO RUNNER BINDS FOR THIS JOB - it is not a frame pass, the acceleration-structure set
+        // drives it - so this is the one place its pipeline is bound, and a job whose pipeline has no contract
+        // handle is a wiring bug that is REPORTED rather than recorded into the void.
+        if (!this->pass_pipeline.has_value() || this->pass_pipeline->contract == nullptr) {
+            deren::utility::log("mask bake: the job's pipeline has no contract handle - the bake is skipped");
             return;
         }
-        vkCmdBindPipeline(native, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline());
+        if (commands.bind_pipeline(*this->pass_pipeline->contract) != deren::promise::rhi::error::ok) {
+            return; // a refused bind would record the push and the dispatch with no pipeline bound
+        }
         // THE BLOCK GOES AS DATA, not as a push constant: the pipeline has no layout (see the header). This shader
         // declares no heap indices, so nothing is appended - the block is pushed exactly as declared. The job's own
         // set is no longer bound either: the material table and the bindless textures are heap slots the shader

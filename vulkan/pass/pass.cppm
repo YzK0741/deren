@@ -318,6 +318,14 @@ export namespace deren::vulkan::pass {
         /// in the order `behaviour::pipelines` names them, one entry per name
         std::span<VkPipeline const> pipelines = {};
         /**
+         * THE SAME RUN IN THE CONTRACT'S SPELLING (abi 21), one entry per name in the same order: the handle
+         * `command_buffer::bind_pipeline` takes, or NULL for a pipeline the contract cannot name yet (the
+         * ray-tracing assembly - see `owned_pipeline`). A pass that binds its OWN pipeline asks THIS lane, and
+         * a null entry means the raw fallback; the runner does the same for a pass whose pipeline it binds.
+         */
+        std::array<deren::promise::rhi::pipeline*, max_pass_pipelines> pipeline_handle_storage = {};
+        std::span<deren::promise::rhi::pipeline* const> pipeline_handles = {};
+        /**
          * The push block the HOST composed for this pass this frame, as raw bytes.
          *
          * Raw, because the framework has no pass's type and will not learn one: the declaration's `push`
@@ -356,27 +364,36 @@ export namespace deren::vulkan::pass {
     /**
      * @brief a pipeline a pass owns
      * @note the frame resolves a `behaviour::pipelines` NAME to one of these, and the runner binds what it finds
+     *
+     * TWO LANES, the same shape `resolved_binding` carries and for the same reason: `pipeline` is the raw
+     * `VkPipeline` a bind needs today, and `contract` is the contract object
+     * `command_buffer::bind_pipeline` (abi 20) takes. A pipeline built through
+     * `api_core::create_pipeline` has BOTH (the backend hands the native handle out through the escape); the
+     * raw one is null only for a handle the caller does not have. WHERE THE CONTRACT LANE IS NULL - the
+     * ray-tracing assembly, which the contract cannot spell yet - the runner keeps the raw bind, and that is
+     * the single remainder §8.2 of the recording-face note names.
      */
     struct owned_pipeline {
         VkPipeline pipeline = VK_NULL_HANDLE;
+        deren::promise::rhi::pipeline* contract = nullptr;
     };
 
     /**
-     * @brief the RAW `VkCommandBuffer` behind a contract buffer, for the sites the record series cannot
-     *        spell YET.
+     * @brief the RAW `VkCommandBuffer` behind a contract buffer, for the ONE thing the record series cannot
+     *        spell at all: an ALLOCATED ENTRY POINT.
      *
-     * ONE USER, AND IT IS TRANSITIONAL: `command_buffer::bind_pipeline` binds what
-     * `api_core::create_pipeline` made, and the COMPUTE and ray-tracing assemblies are still created raw
-     * through the escape (`vulkan/pipelines/pipelines.cppm`'s `vkCreateComputePipelines` builders), so a
-     * compute pass that binds its own pipeline has no contract handle to bind. This helper is how such a
-     * site reaches the native command buffer WITHOUT the pass layer carrying a raw handle it would then
-     * have to keep in step: the escape is the contract's own, documented answer for "the contract has no
-     * concept for this yet".
+     * ITS USERS ARE THE FUNCTION-POINTER BUCKET (recording-face note §1.5): `vkCmdTraceRaysKHR` is resolved
+     * through `vkGetDeviceProcAddr` (the loader's import library does not export it), so a pass that launches
+     * rays holds a function pointer and an API command buffer - and no contract verb answers `trace_rays`,
+     * because the vocabulary was measured from the recording sites this renderer has and a ray-tracing launch
+     * is not one of them yet. `pass::native_commands()` is how such a site reaches the buffer WITHOUT the pass
+     * layer keeping a raw handle in step (the escape is the contract's own, documented answer for "the contract
+     * has no concept for this").
      *
-     * IT ANSWERS NULL rather than casting a foreign pointer: a face that does not announce
-     * `vulkan_escape` (a non-Vulkan backend) has no native command buffer at all, and the caller then
-     * records nothing instead of mis-casting. The pipeline migration (§8.2 of the recording-face note)
-     * deletes this helper together with its call sites.
+     * IT ANSWERS NULL rather than casting a foreign pointer: a face that does not announce `vulkan_escape` (a
+     * non-Vulkan backend) has no native command buffer at all, and the caller then records nothing instead of
+     * mis-casting. The COMPUTE and GRAPHICS pipeline binds do NOT use this any more - since abi 21 every one of
+     * them is a contract pipeline and binds through `command_buffer::bind_pipeline`.
      */
     [[nodiscard]] inline VkCommandBuffer native_commands(deren::promise::rhi::api_core* const face,
                                                          deren::promise::rhi::command_buffer& commands) noexcept {
@@ -1237,6 +1254,7 @@ export namespace deren::vulkan::pass {
         std::span<std::string_view const> const names = pass.behaviour().pipelines;
         if (names.empty()) {
             out.pipelines = {};
+            out.pipeline_handles = {}; // both lanes empty: a pass that binds nothing declares no pipeline
             return true;
         }
         if (names.size() > out.pipeline_storage.size() || context.pipeline == nullptr) {
@@ -1248,8 +1266,13 @@ export namespace deren::vulkan::pass {
                 return false; // the frame cannot bind a pipeline the pass declared: do not record it
             }
             out.pipeline_storage[i] = found.pipeline;
+            out.pipeline_handle_storage[i] = found.contract;
         }
         out.pipelines = std::span<VkPipeline const>(out.pipeline_storage.data(), names.size());
+        // THE CONTRACT LANE IS AS LONG AS THE RAW ONE, and a null ENTRY is meaningful (see owned_pipeline):
+        // the runner asks `bind_pipeline` for the ones the backend built and falls back to the raw bind for
+        // the one it could not (the ray-tracing assembly).
+        out.pipeline_handles = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_handle_storage.data(), names.size());
         return true;
     }
 

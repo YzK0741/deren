@@ -278,6 +278,12 @@ export namespace deren::promise::rhi {
         shader_write,
         transfer_source,
         transfer_destination,
+        /// APPENDED (abi 21, and adding VALUES is explicitly not an abi change - see `abi_version`): the one
+        /// reader whose stage is not a shader stage. The renderer's compute-skinning job writes vertices and
+        /// the ACCELERATION-STRUCTURE BUILD reads them back, and no existing role named that reader - the
+        /// measured site is `vulkan/pass/compute_skin.cpp`'s build-ordering barrier, whose raw masks were
+        /// COMPUTE_SHADER/SHADER_WRITE -> ACCELERATION_STRUCTURE_BUILD/SHADER_READ.
+        acceleration_structure_read,
     };
 
     /// One buffer's transition. `size == 0` means "the whole buffer" (the plan's spelling).
@@ -289,7 +295,44 @@ export namespace deren::promise::rhi {
         std::uint64_t size = 0;
     };
 
-    /// A batch of transitions recorded together - what `vkCmdPipelineBarrier2` receives as two arrays.
+    /// A GLOBAL memory barrier's two roles: NO resource, because the ordering rule is about every write and
+    /// every read of a stage pair rather than about one buffer or image.
+    ///
+    /// WHY A ROLE PAIR AND NOT A MASK: the same argument the image pair carries - the caller knows WHICH WAY
+    /// the memory moved (it recorded it), the backend knows what that costs. The measured site is the
+    /// compute-skinning job's build-ordering barrier (see `buffer_use::acceleration_structure_read`), and it
+    /// is the ONLY global barrier in the engine: a second one should be added here only with its own
+    /// measurement, the way the roles above were.
+    struct memory_barrier {
+        buffer_use from = buffer_use::undefined;
+        buffer_use to = buffer_use::undefined;
+    };
+
+    /// WHICH SHADER STAGE a pair's shader side belongs to, for the sites whose producer or consumer is NOT the
+    /// stage the shipped recipe names.
+    ///
+    /// ADDED WITH ITS MEASUREMENT (abi 21), which is what the barrier model's own note demands: the 20
+    /// transition recipes name the stage their shader side runs at (the storage-image recipes say
+    /// COMPUTE_SHADER), and the ray-traced shadow's visibility image is written by a traceRays LAUNCH rather
+    /// than by a dispatch - a barrier whose masks do not cover the stage that actually ran leaves the writes
+    /// unsynchronised, and the measured symptom was "half the model lost its sun". The pair is still the
+    /// vocabulary (WHICH WAY the image moves); this says only WHICH STAGE did it, so it does not re-open the
+    /// question the pair answers.
+    ///
+    /// `none` IS THE DEFAULT AND THE OVERWHELMING CASE: every site but one uses the recipe's own stages, and a
+    /// hint of `none` is what an older caller's bytes decode to (the field is behind `struct_size`).
+    enum class stage_hint : std::uint32_t {
+        none = 0,
+        vertex,
+        fragment,
+        compute,
+        /// the mesh stage, which carries the TASK stage with it: a mesh pipeline that dispatches work runs both
+        /// entry points, and no site separates them.
+        mesh,
+        ray_tracing,
+    };
+
+    /// A batch of transitions recorded together - what `vkCmdPipelineBarrier2` receives as three arrays.
     ///
     /// GROWS BY `struct_size` (plan §6): it is its FIRST member, and the backend reads a field only when
     /// the caller's declared size covers it (the `covered_by` rule `sanitize_sampler_desc` already uses),
@@ -299,6 +342,15 @@ export namespace deren::promise::rhi {
         std::uint32_t struct_size = sizeof(barrier_group);
         std::span<image_barrier const> images = {};
         std::span<buffer_barrier const> buffers = {};
+        /// WHICH STAGE the images' shader side is (see `stage_hint`); `none` = the recipes' own stages.
+        /// APPENDED, so a caller that declares the older prefix keeps `none` and the shipped behaviour.
+        stage_hint stage = stage_hint::none;
+        /// THE GLOBAL MEMORY BARRIER of this batch, recorded WITH the resource barriers above and in the same
+        /// `vkCmdPipelineBarrier2` (the call takes the three arrays at once). `has_memory` is the "present"
+        /// flag, because an all-`undefined` pair is a legal refusal rather than "no barrier": a batch with
+        /// neither images, buffers nor memory is a no-op the backend answers `ok` for.
+        bool has_memory = false;
+        memory_barrier memory = {};
     };
 
     /// What a rendering scope does with an attachment it does not need to keep.
@@ -715,6 +767,28 @@ export namespace deren::promise::rhi {
         std::span<blend_mode const> blend_modes; ///< per color attachment; empty = all opaque
         depth_compare compare = depth_compare::less_or_equal;
         char const* debug_name = nullptr; ///< what the backend logs on refusal; not retained
+        /**
+         * THE COMPUTE SPELLING (APPENDED, guarded by `struct_size`, so an older caller keeps the graphics
+         * meaning it compiled against).
+         *
+         * WHY A FIELD AND NOT A SECOND DESCRIPTOR: a compute pipeline is the SAME request with ONE stage and
+         * no attachment state, and `first_stage == shader_stage::compute` is what selects it - the colour
+         * formats, the depth format, the blend modes, the sample count and the depth test are then IGNORED,
+         * exactly as `fragment_code` is ignored for a stage that has no fragment shader. The name says what
+         * the bytes ARE rather than reusing `vertex_code` for a shader that is not a vertex stage: the two
+         * graphics fields are named for their stages, and this one is named for its own.
+         *
+         * THE ENTRY POINT IS NOT HERE, on purpose: every shader this renderer builds is entered at "main"
+         * (the graphics path hardcodes the same name in `make_pipeline`), so a field for it would carry one
+         * value forever. A backend that sees no entry-point field uses "main"; a caller with a differently
+         * named entry point is not a case this engine has.
+         *
+         * THE HEAP FLAG IS THE BACKEND'S: a heap-native pipeline is created with a NULL layout (validation
+         * refuses the alternative), and a create call in that shape must carry
+         * `VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT` - a descriptor-heap capability of the backend, not a
+         * caller decision, so the contract does not spell it.
+         */
+        std::span<std::byte const> compute_code;
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).

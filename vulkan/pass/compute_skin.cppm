@@ -91,11 +91,11 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
         /**
          * @brief record one dispatch per request, then the build-ordering barrier; whether anything was recorded
-         * @param commands the frame's recording buffer, through the CONTRACT (abi 20): the dispatches and the push
-         *        blocks are contract verbs. The two RAW steps this job still takes through the contract's own
-         *        escape are named where they are: the pipeline BIND (its compute pipeline is created raw until
-         *        the pipeline migration lands) and the build-ordering MEMORY barrier, which the record series has
-         *        no verb for (a `barrier_group` carries images and buffers, not a global memory barrier).
+         * @param commands the frame's recording buffer, through the CONTRACT (abi 20/21): the pipeline BIND, the
+         *        dispatches, the push blocks AND the build-ordering barrier are contract verbs. The last one is
+         *        the reason the contract grew a GLOBAL memory barrier (`barrier_group::has_memory` + a role pair):
+         *        it orders every shader write against the acceleration-structure build's reads and has no
+         *        resource operand at all.
          * @param requests the frame's skin requests (one dispatch each)
          * @param push_owner the renderer, @param push_indices its endpoint: the block is sent as DATA with the two
          *        heap indices appended (this shader reads the per-frame joint matrices, so it declares both), which

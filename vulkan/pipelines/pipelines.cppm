@@ -420,83 +420,41 @@ namespace deren::vulkan::pipelines {
     // bindless texture array to sample it. It owns no set layout, like every traced compute pass, and it is the only compute
     // pass here whose output is not an image: it writes vertices into a buffer the acceleration structure is
     // then built from.
-    std::expected<compute_pipeline_owned, std::string> build_mask_bake(rhi::api_core& face, VkDevice device, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_owned, std::string> build_mask_bake(rhi::api_core& face, [[maybe_unused]] VkDevice const /*device*/, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
         compute_pipeline_owned out;
-
-        std::expected<shader_module_handle, std::string> const module = make_shader_module_raw(face, compute_shader_code, rhi::shader_stage::compute, "compute stage");
-        if (!module.has_value()) {
-            return fail("mask bake: compute shader module creation failed");
+        // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "mask bake";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("mask bake: the contract's compute pipeline factory refused the descriptor");
         }
-        VkPipelineShaderStageCreateInfo stage_info = {};
-        stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage_info.module = module->get();
-        stage_info.pName = "main";
-
-        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL: validation's rule is "both or neither", and it
-        // says so exactly - "pCreateInfos[0].flags (VkPipelineCreateFlags2(0)) does not include
-        // VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT while layout is VK_NULL_HANDLE"
-        // (VUID-VkComputePipelineCreateInfo-None-11367), measured on the first run of the migrated renderer. The
-        // flag is a flags2 bit, past the 32-bit `flags` field, so it reaches a classic create call through
-        // VkPipelineCreateFlags2CreateInfo - the shape the graphics path and the two probes already use.
-        VkPipelineCreateFlags2CreateInfo const heap_flags = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
-        };
-        VkComputePipelineCreateInfo pipeline_info = {};
-        pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipeline_info.pNext = &heap_flags;
-        pipeline_info.stage = stage_info;
-        pipeline_info.layout = VK_NULL_HANDLE; // heap-native stages: a layout would contradict them (see docs)
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) != VK_SUCCESS) {
-            return fail("mask bake: vkCreateComputePipelines failed");
-        }
-        out.trace = pipeline_handle(pipeline, device);
+        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
         return out;
     }
 
     // The compute skinning pass (see shaders/compute_skin.slang): the same shape as the mask bake above and
     // for the same reason - it reads only the per-joint matrices heap slot.
-    std::expected<compute_pipeline_owned, std::string> build_compute_skin(rhi::api_core& face, VkDevice device, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_owned, std::string> build_compute_skin(rhi::api_core& face, [[maybe_unused]] VkDevice const /*device*/, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
         compute_pipeline_owned out;
-
-        std::expected<shader_module_handle, std::string> const module = make_shader_module_raw(face, compute_shader_code, rhi::shader_stage::compute, "compute stage");
-        if (!module.has_value()) {
-            return fail("compute skin: compute shader module creation failed");
+        // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "compute skin";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("compute skin: the contract's compute pipeline factory refused the descriptor");
         }
-        VkPipelineShaderStageCreateInfo stage_info = {};
-        stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage_info.module = module->get();
-        stage_info.pName = "main";
-
-        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL: validation's rule is "both or neither", and it
-        // says so exactly - "pCreateInfos[0].flags (VkPipelineCreateFlags2(0)) does not include
-        // VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT while layout is VK_NULL_HANDLE"
-        // (VUID-VkComputePipelineCreateInfo-None-11367), measured on the first run of the migrated renderer. The
-        // flag is a flags2 bit, past the 32-bit `flags` field, so it reaches a classic create call through
-        // VkPipelineCreateFlags2CreateInfo - the shape the graphics path and the two probes already use.
-        VkPipelineCreateFlags2CreateInfo const heap_flags = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
-        };
-        VkComputePipelineCreateInfo pipeline_info = {};
-        pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipeline_info.pNext = &heap_flags;
-        pipeline_info.stage = stage_info;
-        pipeline_info.layout = VK_NULL_HANDLE; // heap-native stages: a layout would contradict them (see docs)
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) != VK_SUCCESS) {
-            return fail("compute skin: vkCreateComputePipelines failed");
-        }
-        out.trace = pipeline_handle(pipeline, device);
+        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
         return out;
     }
 
@@ -504,72 +462,39 @@ namespace deren::vulkan::pipelines {
     // (see docs/descriptor_heap_handover.md), so this pipeline is created with VK_NULL_HANDLE and the heap flag;
     // the shader reads the light UBO and the cluster buffers out of the scene block by slot, and the slot itself
     // travels in the stage push block (shaders/heap_slots.glsl). Owning the pipeline is all that is left to own.
-    std::expected<compute_pipeline_owned, std::string> build_cluster(rhi::api_core& face, VkDevice const device, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_owned, std::string> build_cluster(rhi::api_core& face, [[maybe_unused]] VkDevice const /*device*/, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
         compute_pipeline_owned out;
-
-        std::expected<shader_module_handle, std::string> const module = make_shader_module_raw(face, compute_shader_code, rhi::shader_stage::compute, "compute stage");
-        if (!module.has_value()) {
-            return fail("cluster: compute shader module creation failed");
+        // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "cluster";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("cluster: the contract's compute pipeline factory refused the descriptor");
         }
-        VkPipelineShaderStageCreateInfo stage_info = {};
-        stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage_info.module = module->get();
-        stage_info.pName = "main";
-
-        // THE HEAP FLAG IS WHAT MAKES A NULL LAYOUT LEGAL, and it is set unconditionally: this stage is
-        // heap-native, so its layout is VK_NULL_HANDLE and the flag is what validation demands for that.
-        VkPipelineCreateFlags2CreateInfo pipeline_flags = {};
-        pipeline_flags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
-        pipeline_flags.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
-
-        VkComputePipelineCreateInfo pipeline_info = {};
-        pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipeline_info.pNext = &pipeline_flags; // the heap flag rides in flags2 (its bit is past the 32-bit `flags` field)
-        pipeline_info.stage = stage_info;
-        pipeline_info.layout = VK_NULL_HANDLE; // heap-native: a layout would contradict the flag (VUID ...-11367)
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) != VK_SUCCESS) {
-            return fail("cluster: vkCreateComputePipelines failed");
-        }
-        out.trace = pipeline_handle(pipeline, device);
+        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
         return out;
     }
 
-    std::expected<compute_pipeline_owned, std::string> build_heap_probe(rhi::api_core& face, VkDevice const device, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_owned, std::string> build_heap_probe(rhi::api_core& face, [[maybe_unused]] VkDevice const /*device*/, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
         compute_pipeline_owned out;
-
-        std::expected<shader_module_handle, std::string> const module = make_shader_module_raw(face, compute_shader_code, rhi::shader_stage::compute, "compute stage");
-        if (!module.has_value()) {
-            return fail("heap probe: compute shader module creation failed");
+        // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "heap probe";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("heap probe: the contract's compute pipeline factory refused the descriptor");
         }
-        VkPipelineShaderStageCreateInfo stage_info = {};
-        stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage_info.module = module->get();
-        stage_info.pName = "main";
-
-        // The heap flag is a flags2 bit (0x1000000000, past the 32-bit `flags` field), so it arrives through
-        // VkPipelineCreateFlags2CreateInfo - and it REQUIRES layout = VK_NULL_HANDLE, which is the whole point:
-        // with the flag set the pipeline layout is not read at all, and the shader's resources come from the heap.
-        VkPipelineCreateFlags2CreateInfo pipeline_flags = {};
-        pipeline_flags.sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO;
-        pipeline_flags.flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT;
-
-        VkComputePipelineCreateInfo pipeline_info = {};
-        pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipeline_info.pNext = &pipeline_flags;
-        pipeline_info.stage = stage_info;
-        pipeline_info.layout = VK_NULL_HANDLE;
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) != VK_SUCCESS) {
-            return fail("heap probe: vkCreateComputePipelines failed");
-        }
-        out.trace = pipeline_handle(pipeline, device);
+        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
         return out;
     }
 
@@ -698,42 +623,21 @@ namespace deren::vulkan::pipelines {
         return pipeline_handle(pipeline, device);
     }
 
-    std::expected<compute_pipeline_owned, std::string> build_two_set_compute(rhi::api_core& face, VkDevice device, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<compute_pipeline_owned, std::string> build_two_set_compute(rhi::api_core& face, [[maybe_unused]] VkDevice const /*device*/, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
         compute_pipeline_owned out;
-
-        std::expected<shader_module_handle, std::string> const module = make_shader_module_raw(face, compute_shader_code, rhi::shader_stage::compute, "compute stage");
-        if (!module.has_value()) {
-            return fail("rt shadow: compute shader module creation failed");
+        // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "rt shadow";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("rt shadow: the contract's compute pipeline factory refused the descriptor");
         }
-        VkPipelineShaderStageCreateInfo stage_info = {};
-        stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage_info.module = module->get();
-        stage_info.pName = "main";
-
-        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL: validation's rule is "both or neither", and it
-        // says so exactly - "pCreateInfos[0].flags (VkPipelineCreateFlags2(0)) does not include
-        // VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT while layout is VK_NULL_HANDLE"
-        // (VUID-VkComputePipelineCreateInfo-None-11367), measured on the first run of the migrated renderer. The
-        // flag is a flags2 bit, past the 32-bit `flags` field, so it reaches a classic create call through
-        // VkPipelineCreateFlags2CreateInfo - the shape the graphics path and the two probes already use.
-        VkPipelineCreateFlags2CreateInfo const heap_flags = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
-        };
-        VkComputePipelineCreateInfo pipeline_info = {};
-        pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipeline_info.pNext = &heap_flags;
-        pipeline_info.stage = stage_info;
-        pipeline_info.layout = VK_NULL_HANDLE; // heap-native stages: a layout would contradict them (see docs)
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) != VK_SUCCESS) {
-            return fail("rt shadow: vkCreateComputePipelines failed");
-        }
-        out.trace = pipeline_handle(pipeline, device);
+        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
         return out;
     }
     /**
@@ -890,42 +794,21 @@ namespace deren::vulkan::pipelines {
 
     // The temporal resolve: its own pipeline, over the images the frame's heap carries. It reads no scene
     // buffer: the push block carries the two projection terms its depth guard needs.
-    std::expected<resolve_pipeline_owned, std::string> build_resolve_pipeline(rhi::api_core& face, VkDevice const device, std::span<uint8_t const> const compute_shader_code) {
+    std::expected<resolve_pipeline_owned, std::string> build_resolve_pipeline(rhi::api_core& face, [[maybe_unused]] VkDevice const /*device*/, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
         resolve_pipeline_owned out;
-
-        std::expected<shader_module_handle, std::string> const module = make_shader_module_raw(face, compute_shader_code, rhi::shader_stage::compute, "compute stage");
-        if (!module.has_value()) {
-            return fail("temporal resolve: compute shader module creation failed");
+        // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the heap-native compute rules live in the backend
+        // (`core::create_compute_pipeline`), which is the side that owns the bind point and the heap flag.
+        rhi::pipeline_desc desc{};
+        desc.first_stage = rhi::shader_stage::compute;
+        desc.compute_code = std::as_bytes(compute_shader_code);
+        desc.debug_name = "temporal resolve";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("temporal resolve: the contract's compute pipeline factory refused the descriptor");
         }
-        VkPipelineShaderStageCreateInfo stage_info = {};
-        stage_info.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
-        stage_info.stage = VK_SHADER_STAGE_COMPUTE_BIT;
-        stage_info.module = module->get();
-        stage_info.pName = "main";
-
-        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL: validation's rule is "both or neither", and it
-        // says so exactly - "pCreateInfos[0].flags (VkPipelineCreateFlags2(0)) does not include
-        // VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT while layout is VK_NULL_HANDLE"
-        // (VUID-VkComputePipelineCreateInfo-None-11367), measured on the first run of the migrated renderer. The
-        // flag is a flags2 bit, past the 32-bit `flags` field, so it reaches a classic create call through
-        // VkPipelineCreateFlags2CreateInfo - the shape the graphics path and the two probes already use.
-        VkPipelineCreateFlags2CreateInfo const heap_flags = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
-        };
-        VkComputePipelineCreateInfo pipeline_info = {};
-        pipeline_info.sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO;
-        pipeline_info.pNext = &heap_flags;
-        pipeline_info.stage = stage_info;
-        pipeline_info.layout = VK_NULL_HANDLE; // heap-native stages: a layout would contradict them (see docs)
-
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (vkCreateComputePipelines(device, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) != VK_SUCCESS) {
-            return fail("temporal resolve: vkCreateComputePipelines failed");
-        }
-        out.resolve = pipeline_handle(pipeline, device);
+        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        out.resolve = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
         return out;
     }
 

@@ -223,7 +223,16 @@ export namespace deren::promise::rhi {
     /// their implementations live); an owner-side entry point that is not virtual appends NO vtable slot,
     /// no dispatch crosses the boundary through it, and `command_buffer`'s shape and implementers are
     /// untouched. The number moves for an APPENDED tier-1 slot, which this is not.
-    inline constexpr std::uint32_t abi_version = 20u;
+    /// 20 -> 21 in the RECORDING FACE's owner half (the append the note above anticipated): `api_core`
+    /// APPENDED the pure virtual `make_command_buffer(command_buffer_desc) ->
+    /// std::shared_ptr<command_buffer>` - a NEW vtable slot on an existing tier-1 interface, which is
+    /// exactly the case the number exists for - and `command_list` was DELETED rather than renumbered
+    /// (its `interface_type` enumerator and its number stay retired in place, and the series it carried
+    /// is declared on `command_buffer` itself). The same batch's PODs are additive and carry NO bump:
+    /// `pipeline_desc::compute_code`, `barrier_group`'s stage hint and its global memory barrier, and the
+    /// appended `buffer_use` VALUE the last of those needed - the first two are guarded by `struct_size`,
+    /// and adding a value never renumbers anything (the rule stated above).
+    inline constexpr std::uint32_t abi_version = 21u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

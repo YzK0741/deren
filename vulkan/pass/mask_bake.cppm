@@ -99,10 +99,10 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
         /**
          * @brief dispatch ONE caster's bake
-         * @param commands the frame's recording buffer, through the CONTRACT (abi 20): the dispatch and the push
-         *        block are contract verbs. The pipeline BIND is the one step that still needs the native handle
-         *        (this job's compute pipeline is created raw until the pipeline migration lands), and it derives
-         *        that through the contract's own escape (`pass::native_commands`).
+         * @param commands the frame's recording buffer, through the CONTRACT (abi 20/21): the pipeline BIND, the
+         *        dispatch and the push block are all contract verbs - the job's pipeline is a contract pipeline
+         *        since the compute builders moved to `api_core::create_pipeline`, so `bind_pipeline` carries the
+         *        compute bind point the backend decided.
          * @param request the caster's bake request
          * @param push_owner the renderer, @param push_raw its endpoint for a stage that declares NO index lanes
          *

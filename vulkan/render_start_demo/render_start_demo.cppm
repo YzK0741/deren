@@ -29,7 +29,8 @@ module;
 #include <cstdint>
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
+// NO VULKAN HEADER: the chain and the wiring this module declares are the pass framework's types, and the
+// frames a pass is handed are the contract's (see RECORDING_FACE_REFACTOR_STATUS section 8.5).
 
 export module deren.vulkan.render_start_demo;
 

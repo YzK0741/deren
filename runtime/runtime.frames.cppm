@@ -2811,7 +2811,11 @@ namespace deren::vulkan {
 
     pass::owned_pipeline runtime::resolve_pipeline(std::string_view const name) const noexcept {
         if (pipelines::pipeline_handle const* const pipeline = this->get_pipeline(name); pipeline != nullptr) {
-            return pass::owned_pipeline{.pipeline = pipeline->get_pipeline()};
+            // BOTH LANES: the raw handle (the fallback bind) and the contract object the record series takes.
+            // `pipeline_handle::contract` is set for every pipeline built through `create_pipeline` - which is
+            // every graphics recipe AND, since abi 21, every compute assembly - and null ONLY for the
+            // ray-tracing assembly, which the contract cannot spell yet (see pass::owned_pipeline).
+            return pass::owned_pipeline{.pipeline = pipeline->get_pipeline(), .contract = pipeline->contract};
         }
         // ... AND THEN THE CHAIN'S OWN PASSES, because a chain's stages may SHARE one pipeline: the post chain's
         // four bloom levels record with the composite's R16F variant, and a copy per level would be five identical
@@ -3010,9 +3014,21 @@ namespace deren::vulkan {
         VkPipelineBindPoint const bind_point = behaviour.kind == pass::behaviour_kind::compute       ? VK_PIPELINE_BIND_POINT_COMPUTE
                                                : behaviour.kind == pass::behaviour_kind::ray_tracing ? VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR
                                                                                                      : VK_PIPELINE_BIND_POINT_GRAPHICS;
-        for (VkPipeline const pipeline : io.pipelines) {
-            if (pipeline != VK_NULL_HANDLE) {
-                vkCmdBindPipeline(commands, bind_point, pipeline);
+        // THE CONTRACT LANE FIRST (abi 21): `bind_pipeline` carries the bind point the BACKEND decided when it
+        // built the pipeline, so a pass whose pipeline is a contract object binds through the record series -
+        // and the raw call below is left for exactly ONE case: a pipeline the contract cannot name yet (the
+        // ray-tracing assembly, whose `pipeline_handles` entry is null). `io.pipeline_handles` is index-aligned
+        // with `io.pipelines` (see resolve_declaration), so one loop serves both.
+        for (std::size_t i = 0; i < io.pipelines.size(); ++i) {
+            deren::promise::rhi::pipeline* const contract = i < io.pipeline_handles.size() ? io.pipeline_handles[i] : nullptr;
+            if (contract != nullptr) {
+                if (io.list->bind_pipeline(*contract) != deren::promise::rhi::error::ok) {
+                    deren::utility::log("runtime: bind_pipeline refused a contract pipeline the pass declared - its record may miss its pipeline");
+                }
+                continue;
+            }
+            if (io.pipelines[i] != VK_NULL_HANDLE) {
+                vkCmdBindPipeline(commands, bind_point, io.pipelines[i]);
             }
         }
     }

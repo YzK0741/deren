@@ -701,6 +701,12 @@ namespace deren::vulkan {
             if (covered_by(declared, offsetof(rhi_pipeline_desc, debug_name), sizeof(rhi_pipeline_desc::debug_name))) {
                 options.debug_name = desc.debug_name;
             }
+            // THE COMPUTE SPELLING (appended): a caller that declares only the graphics prefix keeps an EMPTY
+            // `compute_code`, which the compute branch below refuses by name - an older caller cannot ask for a
+            // compute pipeline by accident, and a newer one is read exactly as far as it declared.
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, compute_code), sizeof(rhi_pipeline_desc::compute_code))) {
+                options.compute_code = desc.compute_code;
+            }
             return options;
         }
 
@@ -1429,6 +1435,16 @@ namespace deren::vulkan {
         rhi::pipeline_desc const desc = sanitize_pipeline_desc(declared_desc);
         char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed pipeline";
 
+        // ---- THE COMPUTE SPELLING IS ITS OWN PATH (abi 21) ---------------------------------------
+        // ONE stage, no attachment state: `first_stage == compute` is the whole difference the caller
+        // states, and everything the graphics path below derives from formats and blends is meaningless
+        // here. The branch is FIRST so the graphics field reads below cannot be reached with a compute
+        // descriptor (a compute pipeline whose `color_formats` names `unknown` would be refused for the
+        // wrong reason).
+        if (desc.first_stage == rhi::shader_stage::compute) {
+            return this->create_compute_pipeline(desc, what);
+        }
+
         // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
         // Color formats one to one; the `depth` ROLE resolves to the device's own depth attachment
         // format; `unknown` as the depth format means NO depth attachment (make_pipeline's
@@ -1493,6 +1509,77 @@ namespace deren::vulkan {
         auto* const answer = new owned_pipeline();
         answer->owned.emplace(std::move(pipeline.value()));
         answer->native_handle = answer->owned->get_pipeline();
+        return answer;
+    }
+
+    /// THE COMPUTE PIPELINE, in the shape the engine's raw builders had (pipelines.cppm's
+    /// `vkCreateComputePipelines` sites) - the same heap-native rules, moved to the side that owns them.
+    ///
+    /// TWO FACTS MAKE IT A SEPARATE PATH rather than a branch inside the graphics one:
+    ///
+    ///  * A COMPUTE PIPELINE HAS NO ATTACHMENT STATE. Everything the graphics path derives (the vertex-input
+    ///    interface, the colour formats, the blend attachments, the sample count, the depth test and bias) is
+    ///    absent: the module is built from `compute_code` and the create info carries one stage, one NULL
+    ///    layout and nothing else.
+    ///  * THE BIND POINT IS DECIDED HERE, ONCE. `owned_pipeline::bind_point` is what `bind_pipeline` (abi 20)
+    ///    hands the API, and the graphics path leaves it at its GRAPHICS default - a compute pipeline that
+    ///    forgot to set it would be bound to the wrong point with no error anywhere. (`create_pipeline`'s
+    ///    own note explains why the contract made the bind point the backend's business.)
+    rhi::pipeline* core::create_compute_pipeline(rhi::pipeline_desc const& desc, char const* const what) {
+        // THE ONE REFUSAL OF THIS PATH, and it is the ABI guard's own consequence: a caller that declared only
+        // the graphics prefix has no `compute_code`, so "compute without SPIR-V" is refused by name instead of
+        // being built from whatever the empty span points at.
+        if (desc.compute_code.empty()) {
+            deren::utility::log("rhi: create_pipeline {} refused: a compute pipeline names its SPIR-V in compute_code", what);
+            return nullptr;
+        }
+        std::optional<vk_shader_module> module = ::deren::vulkan::make_shader_module(
+            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.compute_code.data()), desc.compute_code.size()),
+            this->logical_device);
+        if (!module.has_value()) {
+            deren::utility::log("rhi: create_pipeline {} refused: vkCreateShaderModule failed", what);
+            return nullptr;
+        }
+        VkPipelineShaderStageCreateInfo const stage = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = module->get(),
+            .pName = "main", // every stage this renderer builds is entered at "main" (see the descriptor's note)
+            .pSpecializationInfo = nullptr,
+        };
+        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL: validation's rule is "both or neither" -
+        // "pCreateInfos[0].flags (VkPipelineCreateFlags2(0)) does not include
+        // VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT while layout is VK_NULL_HANDLE"
+        // (VUID-VkComputePipelineCreateInfo-None-11367). The bit lives past the classic 32-bit `flags` field,
+        // so it rides VkPipelineCreateFlags2CreateInfo - the shape the engine's raw builders used.
+        VkPipelineCreateFlags2CreateInfo const heap_flags = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
+        };
+        VkComputePipelineCreateInfo const info = {
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .pNext = &heap_flags,
+            .flags = 0,
+            .stage = stage,
+            .layout = VK_NULL_HANDLE, // heap-native stages: a layout would contradict them (see docs)
+            .basePipelineHandle = VK_NULL_HANDLE,
+            .basePipelineIndex = -1,
+        };
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (vkCreateComputePipelines(this->logical_device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
+            deren::utility::log("rhi: create_pipeline {} refused: vkCreateComputePipelines failed", what);
+            return nullptr;
+        }
+        auto* const answer = new owned_pipeline();
+        // THE MODULE DIES WITH THIS CALL, the pipeline does not: a VkShaderModule is only needed while the
+        // pipeline is being created, and holding one per pipeline would keep N modules alive for nothing. The
+        // RAII wrapper above destroys it when this function returns, whatever the path out.
+        answer->owned.emplace(pipeline, this->logical_device);
+        answer->native_handle = pipeline;
+        answer->bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
         return answer;
     }
 
@@ -2118,10 +2205,39 @@ namespace deren::vulkan {
                 stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
                 access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
                 return true;
+            case rhi::buffer_use::acceleration_structure_read:
+                // THE READER IS NOT A SHADER STAGE (abi 21): the acceleration-structure BUILD reads the vertex
+                // data a compute dispatch wrote. The access bit is the same SHADER_READ every consumer of
+                // shader-written data uses - what differs, and what no other role named, is the STAGE.
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_SHADER_READ_BIT;
+                return true;
             case rhi::buffer_use::undefined:
                 return false;
             }
             return false;
+        }
+
+        /// THE STAGE HINT, in one place (abi 21): the recipes name the stage their SHADER side runs at (the
+        /// storage-image recipes say COMPUTE_SHADER), and a site whose producer or consumer is another shader
+        /// stage replaces exactly those bits. THE NON-SHADER BITS AND THE ACCESS HALF ARE THE PAIR'S and stay:
+        /// a hint is about WHICH STAGE the engine ran, never about what the transition costs.
+        ///
+        /// A SIDE THAT NAMES NO SHADER STAGE IS RETURNED UNTOUCHED, which is what keeps a transfer side of a
+        /// pair (a copy's destination, say) exactly as the recipe spelled it.
+        [[nodiscard]] constexpr VkPipelineStageFlags2 with_stage_hint(VkPipelineStageFlags2 const mask, rhi::stage_hint const hint) noexcept {
+            constexpr VkPipelineStageFlags2 shader_stages = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT |
+                                                            VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            if (hint == rhi::stage_hint::none || (mask & shader_stages) == 0) {
+                return mask;
+            }
+            VkPipelineStageFlags2 const stage = hint == rhi::stage_hint::vertex     ? VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT
+                                                : hint == rhi::stage_hint::fragment ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+                                                : hint == rhi::stage_hint::compute  ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                                                : hint == rhi::stage_hint::mesh     ? (VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT)
+                                                                                    : VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            return (mask & ~shader_stages) | stage;
         }
 
         /// The subresource range a barrier covers: all-zero means "the whole image", which Vulkan
@@ -2210,8 +2326,20 @@ namespace deren::vulkan {
 
         std::array<VkImageMemoryBarrier2, 8> image_barriers = {};
         std::array<VkBufferMemoryBarrier2, 8> buffer_barriers = {};
+        std::array<VkMemoryBarrier2, 1> memory_barriers = {};
+        // THE TWO APPENDED FIELDS ARE READ ONLY AS FAR AS THE CALLER DECLARED (the `struct_size` rule the
+        // whole descriptor family lives by): an older caller's bytes decode to "the recipes' stages, no global
+        // barrier", which is exactly the behaviour it compiled against.
+        rhi::stage_hint const hint = covered_by(group.struct_size, offsetof(rhi::barrier_group, stage), sizeof(rhi::barrier_group::stage))
+                                         ? group.stage
+                                         : rhi::stage_hint::none;
+        bool const memory_used = covered_by(group.struct_size, offsetof(rhi::barrier_group, has_memory), sizeof(rhi::barrier_group::has_memory)) && group.has_memory;
+        rhi::memory_barrier const memory = memory_used && covered_by(group.struct_size, offsetof(rhi::barrier_group, memory), sizeof(rhi::barrier_group::memory))
+                                               ? group.memory
+                                               : rhi::memory_barrier{};
         std::uint32_t image_count = 0;
         std::uint32_t buffer_count = 0;
+        std::uint32_t memory_count = 0;
         for (rhi::image_barrier const& one : group.images) {
             if (image_count >= image_barriers.size()) {
                 return rhi::error::invalid_argument; // one group, eight images: far past every real site
@@ -2225,6 +2353,12 @@ namespace deren::vulkan {
             if (barrier.srcStageMask == 0 && barrier.srcAccessMask == 0 && barrier.dstStageMask == 0 && barrier.dstAccessMask == 0) {
                 return rhi::error::unsupported; // a pair nobody has defined - the same honest answer `use()` gives
             }
+            // THE STAGE HINT ON TOP OF THE PAIR (abi 21): the recipes name the stage their shader side runs at,
+            // and a site whose producer or consumer is ANOTHER shader stage replaces exactly those bits - the
+            // non-shader bits (TRANSFER) and the whole access/layout half stay the pair's. `none` is a no-op,
+            // which is why this is one line and not a second table.
+            barrier.srcStageMask = with_stage_hint(barrier.srcStageMask, hint);
+            barrier.dstStageMask = with_stage_hint(barrier.dstStageMask, hint);
             barrier.image = native;
             barrier.subresourceRange = subresource_of(aspect_for(format), one.range);
             image_barriers[image_count++] = barrier;
@@ -2258,12 +2392,32 @@ namespace deren::vulkan {
                 .size = one.size == 0 ? (owned->size_bytes - one.offset) : one.size,
             };
         }
+        // THE GLOBAL MEMORY BARRIER OF THE BATCH (abi 21), if the caller declared one: the same role-pair
+        // derivation the buffer loop uses, with NO operand - which is the whole reason the field exists. A
+        // pair the roles cannot spell is refused by name, exactly as a buffer pair is.
+        if (memory_used) {
+            VkPipelineStageFlags2 source_stage = 0;
+            VkAccessFlags2 source_access = 0;
+            VkPipelineStageFlags2 destination_stage = 0;
+            VkAccessFlags2 destination_access = 0;
+            if (!buffer_masks_for(memory.from, source_stage, source_access) || !buffer_masks_for(memory.to, destination_stage, destination_access)) {
+                return rhi::error::unsupported;
+            }
+            memory_barriers[memory_count++] = VkMemoryBarrier2{
+                .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = source_stage,
+                .srcAccessMask = source_access,
+                .dstStageMask = destination_stage,
+                .dstAccessMask = destination_access,
+            };
+        }
         VkDependencyInfo const dependency = {
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
             .pNext = nullptr,
             .dependencyFlags = 0,
-            .memoryBarrierCount = 0,
-            .pMemoryBarriers = nullptr,
+            .memoryBarrierCount = memory_count,
+            .pMemoryBarriers = memory_count != 0 ? memory_barriers.data() : nullptr,
             .bufferMemoryBarrierCount = buffer_count,
             .pBufferMemoryBarriers = buffer_barriers.data(),
             .imageMemoryBarrierCount = image_count,

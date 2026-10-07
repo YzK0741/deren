@@ -272,11 +272,14 @@ namespace {
         // of the device root out of the runtime into deren.vulkan.backend_loader, called by main.cpp -
         // which is why this test's subject (the loader) is now something the app uses rather than
         // something the runtime hides.
-        // ABI20 is the RECORDING FACE's merge: `command_list` is DELETED and every one of its verbs is
+        // ABI20 was the RECORDING FACE's merge: `command_list` was DELETED and every one of its verbs is
         // declared once on `command_buffer` itself, so the recording vtables moved without a new
-        // tier-1 type. ABI21 is the OWNING factory (`api_core::make_command_buffer`, the virtual whose
-        // deleter is the contract's own `release()`) and this line moves to 21u with it.
-        CHECK(rhi::abi_version == 20u);
+        // tier-1 type. ABI21 IS THAT plus the OWNING factory (`api_core::make_command_buffer`, the virtual
+        // whose deleter is the contract's own `release()`): the slot is appended to an existing tier-1
+        // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
+        // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
+        // do not move it.
+        CHECK(rhi::abi_version == 21u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

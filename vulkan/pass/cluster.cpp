@@ -118,13 +118,12 @@ namespace deren::vulkan::pass {
         // buffers - and it needs no bind to do it: the frame bound the heaps once, and the two indices its push
         // block carries pick the slot. A compute stage is not part of a rendering instance, so this still records
         // before vkCmdBeginRendering.
-        // THE PIPELINE BIND STAYS RAW (migration recipe §1.4): the compute assemblies are not contract
-        // pipelines until the pipeline migration (§8.2) lands, so the native comes from the contract's own
-        // escape and a face without one binds nothing rather than mis-casting.
-        VkCommandBuffer const native = pass::native_commands(this->built_against, *io.list);
-        if (native != VK_NULL_HANDLE) {
-            vkCmdBindPipeline(native, VK_PIPELINE_BIND_POINT_COMPUTE, io.pipelines[0]);
-        }
+        // NO BIND IS RECORDED HERE ANY MORE (abi 21): this pass NAMES its pipeline in `behaviour::pipelines`,
+        // so the RUNNER binds it before record() is called - and since the pipeline migration it binds it
+        // through the contract (`bind_pipeline`), which carries the compute bind point the backend decided. The
+        // guard above still asks whether the frame HAS the pipeline (a frame that cannot resolve it does not
+        // record the pass at all), and the raw `vkCmdBindPipeline` this spot used to issue was a second bind of
+        // the same object.
         io.list->dispatch((this->pass_frame.cluster_count + group_size - 1u) / group_size, 1, 1);
 
         // Hand the two buffers to the fragment stages that read them later in this submission (forward shading

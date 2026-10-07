@@ -12,7 +12,8 @@ module;
 #include <array>
 #include <cstdint>
 #include <span>
-#include <vulkan/vulkan.h>
+// NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (see
+// RECORDING_FACE_REFACTOR_STATUS section 8.5 for the sweep's remaining files and why they still need one).
 
 module deren.vulkan.pass.character_forward;
 

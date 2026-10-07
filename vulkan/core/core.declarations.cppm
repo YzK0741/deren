@@ -851,6 +851,13 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::sampler* create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::shader* create_shader(deren::promise::rhi::shader_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::pipeline* create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;
+        /**
+         * THE COMPUTE SPELLING OF `create_pipeline` (abi 21), split out because it shares NOTHING with the
+         * graphics path but the descriptor: one stage from `compute_code`, a NULL layout with the heap flag,
+         * and `owned_pipeline::bind_point = COMPUTE` - the bind point `bind_pipeline` reads, which the graphics
+         * path never has to set. See the definition for why the branch is not inline there.
+         */
+        [[nodiscard]] deren::promise::rhi::pipeline* create_compute_pipeline(deren::promise::rhi::pipeline_desc const& desc, char const* what);
         [[nodiscard]] deren::promise::rhi::query* create_query(deren::promise::rhi::query_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
         // ---- S2 batch 2: the recording surface's frame-domain views --------------------------------
