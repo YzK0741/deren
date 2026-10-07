@@ -121,7 +121,7 @@ namespace deren::vulkan {
         // commit (batch ③), and until it lands no pass may migrate - a partial mapping must never read as
         // a green coverage light.
         // ============================================================================================
-        constexpr std::array<image_use_pair, 20> image_use_pairs = {{
+        constexpr std::array<image_use_pair, 21> image_use_pairs = {{
             // ---- the fresh-target family: UNDEFINED as the old layout ----
             pair_of(rhi::image_use::undefined, rhi::image_use::color_attachment, deren::vulkan::color_attachment_transition),
             pair_of(rhi::image_use::undefined, rhi::image_use::depth_attachment, deren::vulkan::depth_attachment_transition),
@@ -149,12 +149,32 @@ namespace deren::vulkan {
             pair_of(rhi::image_use::depth_attachment, rhi::image_use::shader_read, deren::vulkan::shadow_map_sampling_transition),
             // ---- the transfer family ----
             pair_of(rhi::image_use::transfer_source, rhi::image_use::color_attachment, deren::vulkan::transfer_to_color_attachment_transition),
+            pair_of(rhi::image_use::transfer_source, rhi::image_use::shader_read, deren::vulkan::transfer_src_to_sampling_transition),
             pair_of(rhi::image_use::transfer_destination, rhi::image_use::shader_read, deren::vulkan::transfer_dst_to_sampling_transition),
         }};
-        static_assert(image_use_pairs.size() == 20,
-                      "batch 2's declaration table is exactly the twenty transcribed pairs (19 transitions + the "
-                      "color_attachment->color_attachment dependency) - a row added or removed without the count "
-                      "changing is a build failure, and every row must name the recipe it was measured from");
+        // ============================================================================================
+        // A COUNT ASSERTION MUST COME FROM THE CENSUS, NEVER FROM AN ENUMERATION. This assert said
+        // `size() == 20` when batch 2 landed, because 20 was the number in a hand-written list - and the
+        // measurement says 21 (`transfer_source -> shader_read` was missing, i.e.
+        // `transfer_src_to_sampling_transition`, which `vulkan/pass/megalights_temporal.cpp` uses). A green
+        // assertion was certifying a WRONG NUMBER, which is worse than no assertion: it made the gap look
+        // covered. The numbers below are the histogram output of `scripts/recording_face_census.py`, quoted
+        // so a reader can re-run it:
+        //
+        //     measured pairs: 21   role values: 10   combinations: 100   unsupported: 79
+        //
+        // and 21 + 79 = 100 is asserted, so the three cannot drift apart silently.
+        // ============================================================================================
+        inline constexpr std::size_t image_use_pair_count_from_census = 21;
+        inline constexpr std::size_t unsupported_pair_count_from_census = 79;
+        inline constexpr std::uint32_t image_use_value_count = 10; // the enum's values, contiguous 0..9
+        static_assert(image_use_pairs.size() == image_use_pair_count_from_census,
+                      "the declaration table must be exactly the pairs the CENSUS measured "
+                      "(scripts/recording_face_census.py: 'measured pairs: 21'); a hand count is not evidence");
+        static_assert(image_use_pair_count_from_census + unsupported_pair_count_from_census ==
+                          image_use_value_count * image_use_value_count,
+                      "21 measured pairs + 79 unsupported must be exactly the 100 role combinations the census "
+                      "reports - if the enum grows, both numbers are re-read from the same run");
 
         /// The barrier one (from, to) role pair needs: the TABLE's row, with the caller's image filled in.
         ///
@@ -209,6 +229,99 @@ namespace deren::vulkan {
                    a.subresourceRange.baseArrayLayer == b.subresourceRange.baseArrayLayer &&
                    a.subresourceRange.layerCount == b.subresourceRange.layerCount;
         }
+
+        // ============================================================================================
+        // BATCH 3: WHY A COMBINATION IS UNSUPPORTED - RULES, EACH WITH THE CENSUS NUMBER THAT BACKS IT,
+        // AND A GATE THAT FAILS THE BUILD (NAMING THE PAIR) WHEN A COMBINATION IS NEITHER IN THE TABLE NOR
+        // UNDER A RULE.
+        //
+        // The criterion, stated so the list can be AUDITED instead of trusted: the census measured which
+        // two ROLES meet in every recipe this renderer records (21 pairs over 10 role values). A combination
+        // is unsupported when that measurement shows the renderer never produces it, and every rule quotes
+        // the histogram number that shows it - so a rule that becomes false fails the asserts below instead
+        // of living on as a comfortable sentence.
+        //
+        //   1. NOTHING TRANSITIONS *INTO* undefined: `undefined as to: 0`. It is a starting state.
+        //   2. NOTHING READS OUT OF A PRESENTED IMAGE: `present as from: 0` - presentation hands the image
+        //      to the display engine; the frame acquires a fresh one instead of reading the old one back.
+        //   3. NOTHING READS OUT OF A DEPTH READ: `depth_read as from: 0`.
+        //   4. NOTHING READS OUT OF A READ-MODIFY-WRITE STATE: `shader_read_write as from: 0` - that role is
+        //      the destination of the one self barrier the table carries.
+        //   5. OF THE COMBINATIONS WHOSE BOTH ROLES DO APPEAR IN THE MEASUREMENT, ONLY THE MEASURED PAIRS
+        //      EXIST: the census's `measured pairs: 21` IS the list, and any other in-grid combination is a
+        //      transition this renderer never records (`color_attachment -> depth_read`, say).
+        //
+        // A rule with no checkable number is not written down - the rule set says less than it could, on
+        // purpose, and the next measurement adds the rest.
+        // ============================================================================================
+        [[nodiscard]] constexpr bool image_use_pair_is_in_table(rhi::image_use const from, rhi::image_use const to) noexcept {
+            for (image_use_pair const& row : image_use_pairs) {
+                if (row.from == from && row.to == to) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        /// nullptr when the table carries the pair; otherwise the census number that says why it cannot.
+        [[nodiscard]] constexpr char const* unsupported_reason(rhi::image_use const from, rhi::image_use const to) noexcept {
+            if (image_use_pair_is_in_table(from, to)) {
+                return nullptr;
+            }
+            if (to == rhi::image_use::undefined) {
+                return "nothing transitions INTO undefined (census: 'undefined as to: 0')";
+            }
+            if (from == rhi::image_use::present) {
+                return "nothing reads out of a presented image (census: 'present as from: 0')";
+            }
+            if (from == rhi::image_use::depth_read) {
+                return "nothing reads out of a depth read (census: 'depth_read as from: 0')";
+            }
+            if (from == rhi::image_use::shader_read_write) {
+                return "nothing reads out of a read-modify-write state (census: 'shader_read_write as from: 0')";
+            }
+            return "not among the pairs the census measured (census: 'measured pairs: 21')";
+        }
+
+        /// How many combinations the rules above leave unsupported - counted, not typed in.
+        [[nodiscard]] consteval std::size_t unsupported_combination_count() noexcept {
+            std::size_t count = 0;
+            for (std::uint32_t from = 0; from < image_use_value_count; ++from) {
+                for (std::uint32_t to = 0; to < image_use_value_count; ++to) {
+                    if (unsupported_reason(static_cast<rhi::image_use>(from), static_cast<rhi::image_use>(to)) != nullptr) {
+                        ++count;
+                    }
+                }
+            }
+            return count;
+        }
+        static_assert(unsupported_combination_count() == unsupported_pair_count_from_census,
+                      "the rules must leave exactly the census's 79 combinations unsupported "
+                      "(scripts/recording_face_census.py: 'unsupported by this measurement: 79')");
+
+        /// THE FIRST COMBINATION THAT IS NEITHER IN THE TABLE NOR UNDER A RULE, ENCODED as from * 10 + to
+        /// (the encoding is part of the diagnostic; 100 means "every combination is accounted for").
+        /// Instantiating the deliberately INCOMPLETE template below for that value is how a C++ build
+        /// PRINTS the offending pair - a static_assert can only carry one fixed sentence.
+        [[nodiscard]] consteval std::uint32_t first_uncovered_pair() noexcept {
+            for (std::uint32_t from = 0; from < image_use_value_count; ++from) {
+                for (std::uint32_t to = 0; to < image_use_value_count; ++to) {
+                    auto const f = static_cast<rhi::image_use>(from);
+                    auto const t = static_cast<rhi::image_use>(to);
+                    // exactly one of the two must speak: in the table, or under a rule - never both, never neither
+                    if (image_use_pair_is_in_table(f, t) == (unsupported_reason(f, t) != nullptr)) {
+                        return from * image_use_value_count + to;
+                    }
+                }
+            }
+            return image_use_value_count * image_use_value_count;
+        }
+        template <std::uint32_t EncodedPair>
+        struct image_use_pair_must_be_in_the_table_or_under_a_rule;
+        template <>
+        struct image_use_pair_must_be_in_the_table_or_under_a_rule<100> {};
+        // THE GATE: if some pair is uncovered this alias fails with the encoded pair in the diagnostic.
+        using image_use_coverage_gate = image_use_pair_must_be_in_the_table_or_under_a_rule<first_uncovered_pair()>;
 
         // ---- GATE A5, THE COMPILE-TIME HALF: THE DERIVED BARRIERS ARE THE SHIPPED RECIPES ----------
         // The two transitions this batch records must be the ones the renderer already had, and "the
