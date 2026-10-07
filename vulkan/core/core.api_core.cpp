@@ -106,6 +106,23 @@ namespace deren::vulkan {
                 barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
                 barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
                 barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            } else if (from == rhi::image_use::undefined && to == rhi::image_use::color_attachment) {
+                // A FRESH TARGET (the post chain's recipe, `color_attachment_transition`): the instance
+                // CLEARs it, so whatever it held is dead - and the pair is the ONE transition here whose
+                // old layout is genuinely UNDEFINED rather than the renderer's GENERAL invariant.
+                barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
+                barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
+                barrier.srcAccessMask = 0;
+                barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+            } else if (from == rhi::image_use::color_attachment && to == rhi::image_use::shader_read) {
+                // HAND A WRITTEN TARGET TO THE SAMPLERS (`hdr_sampling_transition`): what a pass wrote as
+                // a render target, the NEXT pass samples - and the read side is the SAMPLED read, not the
+                // storage read (the recipe's own access bit).
+                barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
+                barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
+                barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
             }
             return barrier;
         }
@@ -133,6 +150,14 @@ namespace deren::vulkan {
                       "A5: use(color_attachment, transfer_source) must land field-for-field on color_attachment_to_transfer_transition");
         static_assert(same_barrier(derived_transfer_to_attachment, deren::vulkan::transfer_to_color_attachment_transition),
                       "A5: use(transfer_source, color_attachment) must land field-for-field on transfer_to_color_attachment_transition");
+        // abi 20's two new pairs, proved against the same shipped recipes (the post chain's barriers,
+        // the pilot's own transitions)
+        constexpr VkImageMemoryBarrier2 derived_undefined_to_attachment = barrier_for(rhi::image_use::undefined, rhi::image_use::color_attachment);
+        constexpr VkImageMemoryBarrier2 derived_attachment_to_sampling = barrier_for(rhi::image_use::color_attachment, rhi::image_use::shader_read);
+        static_assert(same_barrier(derived_undefined_to_attachment, deren::vulkan::color_attachment_transition),
+                      "A5: use(undefined, color_attachment) must land field-for-field on color_attachment_transition");
+        static_assert(same_barrier(derived_attachment_to_sampling, deren::vulkan::hdr_sampling_transition),
+                      "A5: use(color_attachment, shader_read) must land field-for-field on hdr_sampling_transition");
 
         /// every field of one barrier on one line, for the shadow gate's run-time dump (A5 asks for
         /// BOTH sides in the log, not just for "equal or not")
@@ -1797,10 +1822,18 @@ namespace deren::vulkan {
             return rhi::error::not_ready;
         }
         // The verified image handles: registry membership first (the heap-write rule - the cast is
-        // only defined once provenance is known), then the native handle out of the owned object.
+        // only defined once provenance is known), then the native handle out of the owned object. THE
+        // ONE IMAGE THE REGISTRY DOES NOT HOLD is the frame's own swapchain image - a BORROWED view the
+        // core itself owns (the same object `use()` accepts by identity) - so the identity check is the
+        // second acceptance, with the format the swapchain was created with.
         auto const resolve_image = [&](rhi::image const* const resource, VkImage& native, VkFormat& format) -> rhi::error {
             if (resource == nullptr || resource->type() != rhi::interface_type::image) {
                 return rhi::error::invalid_argument;
+            }
+            if (static_cast<void const*>(resource) == static_cast<void const*>(&self->frame_image_view)) {
+                native = self->frame_image_view.handle();
+                format = self->swap_chain_image_format;
+                return rhi::error::ok;
             }
             std::lock_guard const lock(self->contract_images_mutex);
             if (!self->contract_images.contains(resource)) {

@@ -167,6 +167,11 @@ export namespace deren::promise::rhi {
         /// before anything has declared a use for it, which is what a barrier's `from` says at the top
         /// of a pass. A new VALUE, never a renumbering - the rule at `abi_version`.
         undefined = 2,
+        /// APPENDED with the record series (abi 20, plan §9.4): the state a pass hands a WRITTEN
+        /// target to the samplers in - the post chain's bloom levels read the level above them, and
+        /// the barrier that says so is a (color_attachment, shader_read) pair. The backend derives the
+        /// sampled-read access bit for it (the shipped recipe's own bit).
+        shader_read = 3,
     };
 
     /// One subresource of one image, tightly packed: what a copy reads.

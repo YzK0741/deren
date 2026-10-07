@@ -17,11 +17,14 @@ module;
 
 module deren.vulkan.pass.post;
 
+import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the draw
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
 import deren.utility;
 
 namespace deren::vulkan::pass {
+
+    namespace rhi = deren::promise::rhi;
 
     // =============================================================================================
     // THE COMPOSITE
@@ -195,37 +198,56 @@ namespace deren::vulkan::pass {
         }
         VkImage const target = io.targets[0].image;
         VkImageView const target_view = io.targets[0].view;
-        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE) {
-            return;
+        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE || io.list == nullptr || io.targets[0].image_handle == nullptr ||
+            io.targets[0].view_handle == nullptr) {
+            return; // the raw lanes this frame's publication left empty: the pass cannot record on either spelling
         }
         // The target becomes a colour attachment BEFORE the instance (a pipeline barrier may not be recorded
         // inside one) with UNDEFINED as its old layout: the instance CLEARs it, so whatever it held is dead - and
         // on the FXAA path the target is the LDR image, which the previous frame's FXAA pass left in a sampled
         // layout, which is exactly the claim UNDEFINED does not make.
-        VkImageMemoryBarrier2 to_attachment = deren::vulkan::color_attachment_transition;
-        to_attachment.image = target;
-        VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
-        vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
+        // THE PAIR RIDES THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
+        // (undefined, color_attachment) pair - the shipped recipe, proved field-for-field by the shadow gate.
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
+                                                .from = rhi::image_use::undefined,
+                                                .to = rhi::image_use::color_attachment,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the target in a state nobody declared
+        }
         // The push block the host filled, with the pass's own stage lane written last: `mode = 2` is what makes
         // post.frag composite instead of prefiltering or downsampling.
         post_push_constants push = {};
         std::memcpy(&push, io.push.data(), sizeof(push));
         push.mode = 2.0f;
-        VkClearValue clear = {};
-        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
+        // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (the
+        // helper the raw spelling used), zero clear colour, no depth - the composite's whole scope.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // the overlay records straight into the primary; no secondary contents
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
+        io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: the debug overlay composites a UI over the image
         // this draw just wrote and has no load op of its own, so it can be neither a pass nor outside the
         // instance (see composite_frame::after_draw - the pass leaves this empty when a resolve is the frame's
-        // last writer instead, which its own frame decided in prepare_frame).
+        // last writer instead, which its own frame decided in prepare_frame). The overlay records RAW (its
+        // third-party recorder is not a contract consumer), which is why io.cmd stays beside the list.
         if (this->pass_frame.after_draw.valid()) {
             this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
         }
-        vkCmdEndRendering(io.cmd);
+        io.list->end_rendering();
     }
 
     // =============================================================================================
@@ -286,29 +308,30 @@ namespace deren::vulkan::pass {
 
     void post_bloom_pass::record(resolved_io const& io) {
         if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
-            io.extent.width == 0 || io.extent.height == 0) {
+            io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].image_handle == nullptr ||
+            io.targets[0].view_handle == nullptr) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
-        }
-        VkImage const target = io.targets[0].image;
-        VkImageView const target_view = io.targets[0].view;
-        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE) {
-            return;
         }
         // THE INPUT FIRST, in the order the old chain moved things: the level this stage READS becomes a sample.
         // Only levels 1..3 declare one - level 0's input is the HDR target, which the frame loop moved before the
         // chain (it is the one owner of that transition, because the composite reads HDR too and because it is
-        // needed on the frames the bloom chain is skipped entirely).
-        if (!io.barrier_images.empty() && io.barrier_images[0].image != VK_NULL_HANDLE) {
-            VkImageMemoryBarrier2 to_sampling = deren::vulkan::hdr_sampling_transition;
-            to_sampling.image = io.barrier_images[0].image;
-            VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-            vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
+        // needed on the frames the bloom chain is skipped entirely). The pair rides the contract (abi 20): the
+        // backend derives the (color_attachment, shader_read) masks from the shipped recipe.
+        if (!io.barrier_images.empty() && io.barrier_images[0].image_handle != nullptr) {
+            if (io.list->barrier(rhi::image_barrier{.resource = io.barrier_images[0].image_handle,
+                                                    .from = rhi::image_use::color_attachment,
+                                                    .to = rhi::image_use::shader_read,
+                                                    .range = {}}) != rhi::error::ok) {
+                return;
+            }
         }
         // ... then the level this stage WRITES, with UNDEFINED as its old layout: the instance CLEARs it.
-        VkImageMemoryBarrier2 to_attachment = deren::vulkan::color_attachment_transition;
-        to_attachment.image = target;
-        VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
-        vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
+                                                .from = rhi::image_use::undefined,
+                                                .to = rhi::image_use::color_attachment,
+                                                .range = {}}) != rhi::error::ok) {
+            return;
+        }
         // The push block is composed HERE (S3): the frame's three settings (exposure, the bloom weight and the
         // bright-pass threshold - all of them lanes more than one pass pushes, which is why they are frame
         // settings), the struct's defaults for every lane this stage does not read - which is what the renderer
@@ -321,25 +344,36 @@ namespace deren::vulkan::pass {
             .bloom_threshold = settings.bloom_threshold,
             .mode = this->bloom_level == 0u ? 0.0f : 1.0f,
         };
-        VkClearValue clear = {};
-        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE);
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false,
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none);
         // THIS LEVEL'S SOURCE: the third lane says which one, and the HOST turns it into a heap slot (see
         // runtime::push_stage_block). Level 0 (the prefilter) and the composite read the HDR target, which is the
         // lane's 0; a downsample at level N reads the level above it, which is N.
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push), this->bloom_level);
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(io.cmd);
+        io.list->draw(3, 1, 0, 0);
+        io.list->end_rendering();
         // THE HAND-BACK, and it is the deepest level's because it has no successor to do it for it: the composite
         // samples ALL FOUR levels, so the last one has to be left in a sampled layout. The levels before it are
         // moved by the next level's input transition above - which is why this is one barrier and not four.
         if (this->bloom_level + 1u == render_resource::post_bloom_io.size()) {
-            VkImageMemoryBarrier2 hand_back = deren::vulkan::hdr_sampling_transition;
-            hand_back.image = target;
-            VkDependencyInfo const hand_back_dependency = make_image_dependency_info(1, &hand_back);
-            vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
+            static_cast<void>(io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
+                                                                  .from = rhi::image_use::color_attachment,
+                                                                  .to = rhi::image_use::shader_read,
+                                                                  .range = {}}));
         }
     }
 

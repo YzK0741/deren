@@ -167,6 +167,16 @@ export namespace deren::vulkan::pass {
          * declaration element as the view, so a pass still reaches nothing it did not declare.
          */
         VkImage image = VK_NULL_HANDLE;
+        /**
+         * THE CONTRACT HANDLES BEHIND THE RAW ONES (abi 20): the recording face's verbs take contract
+         * handles (`barrier`'s image, `begin_rendering`'s views, `bind_*`'s buffers), so the binding
+         * carries them BESIDE the raw spelling above - the raw lane stays for the passes that have not
+         * migrated and for the third-party recording that never will. Every lane is filled by the same
+         * publisher from the same source, so the two spellings cannot disagree.
+         */
+        deren::promise::rhi::image* image_handle = nullptr;
+        deren::promise::rhi::image_view* view_handle = nullptr;
+        deren::promise::rhi::buffer* buffer_handle = nullptr;
     };
 
     /**
@@ -212,6 +222,11 @@ export namespace deren::vulkan::pass {
         /// THE command buffer is handed out per frame, at recording time, and never stored: a pass records
         /// into what it is given, which is why it holds no device state between frames.
         VkCommandBuffer cmd = VK_NULL_HANDLE;
+        /// THE RECORDING VIEW (abi 20): the contract list the record series rides (`barrier`,
+        /// `begin_rendering`, `draw`, ...), the same object `begin_commands()` answers this frame. The raw
+        /// handle above stays for the third-party overlay's recording and the heap push endpoint, which the
+        /// record series deliberately does not carry (the heap face's push_data already takes the list).
+        deren::promise::rhi::command_list* list = nullptr;
         /// the storage `own` views
         std::array<resolved_binding, max_own_bindings> own_storage = {};
         /// the pass's own binding number -> the handles that binding's resource is (exactly one is set)
@@ -368,6 +383,10 @@ export namespace deren::vulkan::pass {
         /// THE command buffer, handed out here for the same reason `resolved_io::cmd` exists: a pass records
         /// into what it is given and stores no device state between frames
         VkCommandBuffer cmd = VK_NULL_HANDLE;
+        /// THE RECORDING VIEW (abi 20): the contract list the record series rides - the same frame list
+        /// `begin_commands()` answers, beside the raw handle above (which the third-party overlay's
+        /// recording and the heap push endpoint still take)
+        deren::promise::rhi::command_list* list = nullptr;
         /**
          * The extent of a resource element the behaviour named (`extent_rule::resource`), or {0,0} for an
          * element the owner does not have - only the owner knows its own images' sizes
@@ -1193,6 +1212,7 @@ export namespace deren::vulkan::pass {
         }
         out.frame = context.frame;
         out.cmd = context.cmd;
+        out.list = context.list;
         out.push = {}; // a push block is composed by the pass that pushes it
 
         // ---- the pass's own bindings, indexed by their own binding number ----

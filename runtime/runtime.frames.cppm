@@ -1935,10 +1935,11 @@ namespace deren::vulkan {
         // One buffer: the RAII wrapper holds a handle and the descriptor needs the VkBuffer behind it, so the
         // lookup goes through vma exactly where the renderer's own binding writes do.
         auto const buffer = [this, &table](render_resource::resource_id const id, uint32_t const instance, rhi::object_manager<rhi::buffer> const& owned) {
-            table.publish(id, 0, instance, pass::resolved_binding{.buffer = this->buffer_of(*owned)});
+            table.publish(id, 0, instance, pass::resolved_binding{.buffer = this->buffer_of(*owned), .buffer_handle = &*owned});
         };
         auto const image = [this](rhi::object_manager<rhi::image> const& owned) -> pass::resolved_binding {
-            return static_cast<bool>(owned) ? pass::resolved_binding{.image = static_cast<VkImage>(this->escape().native_image(*owned))}
+            return static_cast<bool>(owned) ? pass::resolved_binding{.image = static_cast<VkImage>(this->escape().native_image(*owned)),
+                                                                     .image_handle = &*owned}
                                             : pass::resolved_binding{};
         };
         // ONE ENGINE-OWNED PER-IMAGE FAMILY (③-D/E A1): the engine holds the generation's handles, so the
@@ -1954,7 +1955,9 @@ namespace deren::vulkan {
                 table.publish(id, element, static_cast<uint32_t>(instance),
                               pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*views[instance])),
                                                      .buffer = VK_NULL_HANDLE,
-                                                     .image = static_cast<VkImage>(this->escape().native_image(*images[instance]))});
+                                                     .image = static_cast<VkImage>(this->escape().native_image(*images[instance])),
+                                                     .image_handle = &*images[instance],
+                                                     .view_handle = &*views[instance]});
             }
         };
 
@@ -1975,7 +1978,9 @@ namespace deren::vulkan {
                     single(render_resource::resource_id::swapchain_image, 0, this->current_image_index,
                            pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->frame_swapchain_views[slot])),
                                                   .buffer = VK_NULL_HANDLE,
-                                                  .image = static_cast<VkImage>(this->escape().native_image(*frame_image))});
+                                                  .image = static_cast<VkImage>(this->escape().native_image(*frame_image)),
+                                                  .image_handle = frame_image,
+                                                  .view_handle = &*this->frame_swapchain_views[slot]});
                 }
             }
         }
@@ -2717,8 +2722,9 @@ namespace deren::vulkan {
             .resources = &this->frame_resources,
             .frame = this->pass_frame(),
             .cmd = this->frame_primary_handle(),
-            .extent_of = [](void* owner, render_resource::resource_id const id, uint32_t const element) { return static_cast<runtime*>(owner)->resolve_resource_extent(id, element); },
-            .pipeline = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->resolve_pipeline(name); },
+            .list = this->rhi_face().begin_commands(),
+            .extent_of = [](void* owner, render_resource::resource_id id, uint32_t element) { return static_cast<runtime*>(owner)->resolve_resource_extent(id, element); },
+            .pipeline = [](void* owner, std::string_view name) { return static_cast<runtime*>(owner)->resolve_pipeline(name); },
             .owner = this,
         };
     }
