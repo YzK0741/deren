@@ -324,10 +324,169 @@ namespace {
             return rhi::error::unsupported;
         }
 
+        // ---- the portable record series (abi 20): the ECHO verbs. Each call arrives, is counted and
+        // carries its shape into this object for the test to read (the same "make the crossing
+        // visible" shape the members below follow); nothing is faked and nothing is dropped, because
+        // a silent verb is exactly what the answering rule exists to refuse.
+        [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const& info) noexcept override {
+            this->begun_renderings += 1;
+            this->last_layer_count = info.layer_count;
+            this->last_secondary_contents = info.secondary_contents;
+            return rhi::error::ok;
+        }
+
+        void end_rendering() noexcept override {
+            this->ended_renderings += 1;
+        }
+
+        [[nodiscard]] rhi::error bind_pipeline(rhi::pipeline const& handle) noexcept override {
+            this->bound_pipelines += 1;
+            this->last_bound_pipeline = &handle;
+            return rhi::error::ok;
+        }
+
+        [[nodiscard]] rhi::error bind_vertex_buffer(rhi::buffer const& handle, std::uint64_t const offset) noexcept override {
+            this->last_bound_vertex = &handle;
+            this->last_vertex_offset = offset;
+            return rhi::error::ok;
+        }
+
+        [[nodiscard]] rhi::error bind_index_buffer(rhi::buffer const& handle, std::uint64_t const offset, rhi::index_type const type) noexcept override {
+            this->last_bound_index = &handle;
+            this->last_index_offset = offset;
+            this->last_index_type = type;
+            return rhi::error::ok;
+        }
+
+        void draw(std::uint32_t const vertex_count, std::uint32_t const instance_count, std::uint32_t const first_vertex, std::uint32_t const first_instance) noexcept override {
+            this->last_draw = {vertex_count, instance_count, first_vertex, first_instance};
+        }
+
+        void draw_indexed(std::uint32_t const index_count, std::uint32_t const instance_count, std::uint32_t const first_index, std::int32_t const vertex_offset, std::uint32_t const first_instance) noexcept override {
+            this->last_indexed_draw = {index_count, instance_count, first_index, vertex_offset, first_instance};
+        }
+
+        void dispatch(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept override {
+            this->last_dispatch = {groups_x, groups_y, groups_z};
+        }
+
+        void draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept override {
+            this->last_mesh_tasks = {groups_x, groups_y, groups_z};
+        }
+
+        [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const& handle, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) noexcept override {
+            this->last_indirect_mesh = {&handle, offset, count, stride};
+            return rhi::error::ok;
+        }
+
+        void set_viewport(rhi::viewport const& vp) noexcept override {
+            this->last_viewport = vp;
+        }
+
+        void set_scissor(rhi::rect const& scissor) noexcept override {
+            this->last_scissor = scissor;
+        }
+
+        void set_cull_mode(rhi::cull_mode const mode) noexcept override {
+            this->last_cull_mode = mode;
+        }
+
+        void set_depth_write(bool const enable) noexcept override {
+            this->last_depth_write = enable;
+        }
+
+        void set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) noexcept override {
+            this->last_depth_bias = {constant_factor, slope_factor, clamp};
+        }
+
+        [[nodiscard]] rhi::error barrier(rhi::barrier_group const& group) noexcept override {
+            this->barrier_groups += 1;
+            this->last_group_images = group.images.size();
+            this->last_group_buffers = group.buffers.size();
+            return rhi::error::ok;
+        }
+
+        [[nodiscard]] rhi::error barrier(rhi::image_barrier const& one) noexcept override {
+            this->single_barriers += 1;
+            this->last_single_barrier_to = one.to;
+            return rhi::error::ok;
+        }
+
+        [[nodiscard]] rhi::error copy_image(rhi::image_copy const& copy) noexcept override {
+            this->last_image_copy = &copy;
+            return rhi::error::ok;
+        }
+
+        [[nodiscard]] rhi::error copy_buffer(rhi::buffer& destination, rhi::buffer const& source, std::uint64_t const size, std::uint64_t const source_offset, std::uint64_t const destination_offset) noexcept override {
+            this->last_buffer_copy = {&destination, &source, size, source_offset, destination_offset};
+            return rhi::error::ok;
+        }
+
+        [[nodiscard]] rhi::error clear_color_image(rhi::image const& target, std::array<float, 4> const& color, rhi::subresource_range const& range) noexcept override {
+            this->last_cleared_image = &target;
+            this->last_clear_color = color;
+            this->last_clear_range = range;
+            return rhi::error::ok;
+        }
+
         rhi::image_use last_use_from = rhi::image_use::color_attachment;
         rhi::image_use last_use_to = rhi::image_use::color_attachment;
         std::string_view last_stage_name = {};
         std::uint32_t marks = 0;
+        // the record series' echo fields (abi 20)
+        std::uint32_t begun_renderings = 0;
+        std::uint32_t ended_renderings = 0;
+        std::uint32_t last_layer_count = 1;
+        bool last_secondary_contents = false;
+        std::uint32_t bound_pipelines = 0;
+        rhi::pipeline const* last_bound_pipeline = nullptr;
+        rhi::buffer const* last_bound_vertex = nullptr;
+        std::uint64_t last_vertex_offset = 0;
+        rhi::buffer const* last_bound_index = nullptr;
+        std::uint64_t last_index_offset = 0;
+        rhi::index_type last_index_type = rhi::index_type::uint16;
+        struct draw_call {
+            std::uint32_t a = 0, b = 0, c = 0, d = 0;
+        };
+        draw_call last_draw = {};
+        struct indexed_draw_call {
+            std::uint32_t a = 0, b = 0, c = 0;
+            std::int32_t d = 0;
+            std::uint32_t e = 0;
+        };
+        indexed_draw_call last_indexed_draw = {};
+        draw_call last_dispatch = {};
+        draw_call last_mesh_tasks = {};
+        struct indirect_mesh_call {
+            rhi::buffer const* buffer = nullptr;
+            std::uint64_t offset = 0;
+            std::uint32_t count = 0;
+            std::uint32_t stride = 0;
+        };
+        indirect_mesh_call last_indirect_mesh = {};
+        rhi::viewport last_viewport = {};
+        rhi::rect last_scissor = {};
+        rhi::cull_mode last_cull_mode = rhi::cull_mode::none;
+        bool last_depth_write = false;
+        struct depth_bias_call {
+            float constant = 0.0f, slope = 0.0f, clamp = 0.0f;
+        };
+        depth_bias_call last_depth_bias = {};
+        std::uint32_t barrier_groups = 0;
+        std::uint32_t last_group_images = 0;
+        std::uint32_t last_group_buffers = 0;
+        std::uint32_t single_barriers = 0;
+        rhi::image_use last_single_barrier_to = rhi::image_use::undefined;
+        rhi::image_copy const* last_image_copy = nullptr;
+        struct buffer_copy_call {
+            rhi::buffer* destination = nullptr;
+            rhi::buffer const* source = nullptr;
+            std::uint64_t size = 0, source_offset = 0, destination_offset = 0;
+        };
+        buffer_copy_call last_buffer_copy = {};
+        rhi::image const* last_cleared_image = nullptr;
+        std::array<float, 4> last_clear_color = {};
+        rhi::subresource_range last_clear_range = {};
     };
 
     /// THE PROBE'S OWNED COMMAND BUFFER (abi 15): the handle `create_command_buffer()` hands out,

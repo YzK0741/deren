@@ -311,6 +311,44 @@ export namespace deren::promise::rhi {
         bool secondary_contents = false;
     };
 
+    /// A viewport: what `set_viewport` states, in the vocabulary every graphics API shares.
+    /// FROZEN (plan §6): a by-value contract POD.
+    struct viewport {
+        float x = 0.0f;
+        float y = 0.0f;
+        float width = 0.0f;
+        float height = 0.0f;
+        float min_depth = 0.0f;
+        float max_depth = 1.0f;
+    };
+
+    /// The width of one index buffer element. APPENDED as its own enum (the plan's §2): two values,
+    /// because those are the two the renderer's index buffers are built from.
+    enum class index_type : std::uint32_t {
+        uint16 = 0,
+        uint32 = 1,
+    };
+
+    /// Which triangle winding a pipeline culls. APPENDED as its own enum: the four spellings every
+    /// graphics API names, because the renderer's 11 `set_cull_mode` sites use exactly these.
+    enum class cull_mode : std::uint32_t {
+        none = 0,
+        front = 1,
+        back = 2,
+        front_and_back = 3,
+    };
+
+    /// One image-to-image copy: the two handles and each side's region (extent, offsets, mip and
+    /// layers), relative to each image. FROZEN (plan §6). Both layouts are the images' CURRENT ones -
+    /// this renderer keeps every image in GENERAL (docs/unified_image_layouts.md), so the descriptor
+    /// carries no layout pair for the same reason `copy_image_to_buffer` does not.
+    struct image_copy {
+        image* source = nullptr;
+        image* destination = nullptr;
+        image_copy_region source_region = {};
+        image_copy_region destination_region = {};
+    };
+
     /// The format of an image, as far as the contract names it: the four 8-bit shapes a screen read-back
     /// can be unpacked from, plus `unknown` ("the backend cannot describe it"). Values are only ever
     /// APPENDED: the one decision the engine makes from a format is the BGRA/RGBA swizzle of a
@@ -875,6 +913,65 @@ export namespace deren::promise::rhi {
         /// text - a literal outliving the frame (the same rule as the creation descriptor's
         /// `window_title`); the backend stores the view and reports it verbatim.
         [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
+
+        // ---- the portable record series (abi 20) ------------------------------------------------
+        // THE RECORDING SURFACE'S OWN VOCABULARY (RECORDING_FACE_PLAN.md §2, as corrected by §9): the
+        // verbs this renderer's passes actually record, replacing 140 raw `vkCmd*` call sites in the
+        // engine's sources. Defined ONCE here, on the borrowed view; the owning `command_buffer`
+        // reaches the same series through `recording()` - a second declaration would be a second
+        // truth to keep in step. `push_data` is deliberately NOT here: the descriptor-heap face's
+        // `push_data(heap_push_info)` already takes the list and is the one heap verb that is a
+        // command-buffer operation, and a second spelling would be exactly the double declaration
+        // this block refuses.
+        //
+        // THE ANSWERING RULE, and the one place it deviates from the plan's sketch: a verb that
+        // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
+        // real, checkable refusal (`invalid_argument`), the same answer `use()` and
+        // `copy_image_to_buffer()` already give, and a barrier or a binding that was silently not
+        // recorded is the corruption this surface exists to make impossible. A verb that receives
+        // ONLY VALUES has nothing to refuse and answers `void` (the plan's sketch, unchanged): a
+        // wrong-state call on a non-recording buffer is the validation layer's catch, exactly as it
+        // is for the raw calls today. `not_ready` on an answering verb means this list is not
+        // currently recording; `unsupported` means a mechanism this backend cannot serve.
+        //
+        // EVERY DESCRIPTOR here is the plan's measured vocabulary: what the 140 sites name, nothing
+        // more. Layouts are the images' current ones (GENERAL - docs/unified_image_layouts.md); the
+        // host-visible mask pairs and the queue-family transfers stay in the escape bucket (the
+        // plan's §0 verdicts).
+
+        // render scope
+        [[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;
+        virtual void end_rendering() noexcept = 0;
+
+        // binding
+        [[nodiscard]] virtual error bind_pipeline(pipeline const& handle) = 0;
+        [[nodiscard]] virtual error bind_vertex_buffer(buffer const& handle, std::uint64_t offset) = 0;
+        [[nodiscard]] virtual error bind_index_buffer(buffer const& handle, std::uint64_t offset, index_type type) = 0;
+
+        // draw
+        virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept = 0;
+        virtual void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept = 0;
+
+        // compute + geometry
+        virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
+        virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
+        [[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
+
+        // dynamic state
+        virtual void set_viewport(viewport const& vp) noexcept = 0;
+        virtual void set_scissor(rect const& scissor) noexcept = 0;
+        virtual void set_cull_mode(cull_mode mode) noexcept = 0;
+        virtual void set_depth_write(bool enable) noexcept = 0;
+        virtual void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept = 0;
+
+        // synchronisation
+        [[nodiscard]] virtual error barrier(barrier_group const& group) = 0;
+        [[nodiscard]] virtual error barrier(image_barrier const& one) = 0;
+
+        // copy + clear
+        [[nodiscard]] virtual error copy_image(image_copy const& copy) = 0;
+        [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;
+        [[nodiscard]] virtual error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) = 0;
     };
 
     // ---- THE COMMAND BUFFER: THE OWNED RECORDING HANDLE (abi 15) ------------------------------------

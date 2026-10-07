@@ -1698,6 +1698,520 @@ namespace deren::vulkan {
         return rhi::error::ok;
     }
 
+    // ---- the portable record series (abi 20) ----------------------------------------------------
+    // THE TRANSLATION IS THE BACKEND'S ALONE (the plan's §1): every Vulkan structure below is built
+    // here, from the contract's vocabulary. The handles the descriptors carry are verified by
+    // interface identity and, for images, by the same registry the heap writes go through; the cast
+    // to `owned_*` is defined only after that check, which is the no-RTTI provenance rule the escape
+    // states as a caller premise. The readiness answer is uniform and cheap: a list with no buffer
+    // to record into (`native()` null) is `not_ready` - the frame list's answer when no frame is in
+    // flight, an owned list's never.
+
+    namespace {
+
+        /// The stage/access pair one buffer role needs. SMALL ON PURPOSE (four real sites): the
+        /// shader roles read and write through the shader stages, the transfer roles through the
+        /// transfer stage - the same derivation shape `barrier_for` gives the image roles.
+        [[nodiscard]] constexpr bool buffer_masks_for(rhi::buffer_use const use, VkPipelineStageFlags2& stage, VkAccessFlags2& access) noexcept {
+            switch (use) {
+            case rhi::buffer_use::shader_read:
+                stage = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                access = VK_ACCESS_2_SHADER_READ_BIT;
+                return true;
+            case rhi::buffer_use::shader_write:
+                stage = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
+                access = VK_ACCESS_2_SHADER_WRITE_BIT;
+                return true;
+            case rhi::buffer_use::transfer_source:
+                stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                access = VK_ACCESS_2_TRANSFER_READ_BIT;
+                return true;
+            case rhi::buffer_use::transfer_destination:
+                stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
+                access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
+                return true;
+            case rhi::buffer_use::undefined:
+                return false;
+            }
+            return false;
+        }
+
+        /// The subresource range a barrier covers: all-zero means "the whole image", which Vulkan
+        /// spells with the REMAINING sentinels.
+        [[nodiscard]] constexpr VkImageSubresourceRange subresource_of(VkImageAspectFlags const aspect, rhi::subresource_range const& range) noexcept {
+            return VkImageSubresourceRange{
+                .aspectMask = aspect,
+                .baseMipLevel = range.base_mip,
+                .levelCount = range.mip_count == 0 ? VK_REMAINING_MIP_LEVELS : range.mip_count,
+                .baseArrayLayer = range.base_layer,
+                .layerCount = range.layer_count == 0 ? VK_REMAINING_ARRAY_LAYERS : range.layer_count,
+            };
+        }
+
+        /// The aspect a barrier on THIS image covers: the depth formats' one bit, colour everywhere
+        /// else. The backend knows the resolved format - the caller never names an aspect, because
+        /// the format is the backend's own creation fact.
+        [[nodiscard]] constexpr VkImageAspectFlags aspect_for(VkFormat const format) noexcept {
+            switch (format) {
+            case VK_FORMAT_D16_UNORM:
+            case VK_FORMAT_X8_D24_UNORM_PACK32:
+            case VK_FORMAT_D32_SFLOAT:
+            case VK_FORMAT_D24_UNORM_S8_UINT:
+            case VK_FORMAT_D32_SFLOAT_S8_UINT:
+                return VK_IMAGE_ASPECT_DEPTH_BIT;
+            default:
+                return VK_IMAGE_ASPECT_COLOR_BIT;
+            }
+        }
+
+        // THE TRANSLATION TABLES' COMPILE-TIME WITNESS (the plan's §1 "table tests", in the shape the
+        // contract's own layout asserts take): the constexpr mappers above are pinned entry by entry,
+        // so a vocabulary change fails here instead of at a recording call site.
+        static_assert([] {
+            VkPipelineStageFlags2 stage = 0;
+            VkAccessFlags2 access = 0;
+            return buffer_masks_for(rhi::buffer_use::shader_read, stage, access) &&
+                   (stage & VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT) != 0 && access == VK_ACCESS_2_SHADER_READ_BIT;
+        }());
+        static_assert([] {
+            VkPipelineStageFlags2 stage = 0;
+            VkAccessFlags2 access = 0;
+            return buffer_masks_for(rhi::buffer_use::transfer_destination, stage, access) && stage == VK_PIPELINE_STAGE_2_TRANSFER_BIT &&
+                   access == VK_ACCESS_2_TRANSFER_WRITE_BIT;
+        }());
+        static_assert([] {
+            VkPipelineStageFlags2 stage = 0;
+            VkAccessFlags2 access = 0;
+            return !buffer_masks_for(rhi::buffer_use::undefined, stage, access); // the undefined role spells nothing
+        }());
+        static_assert(subresource_of(VK_IMAGE_ASPECT_COLOR_BIT, rhi::subresource_range{}).levelCount == VK_REMAINING_MIP_LEVELS &&
+                      subresource_of(VK_IMAGE_ASPECT_COLOR_BIT, rhi::subresource_range{}).layerCount == VK_REMAINING_ARRAY_LAYERS);
+        static_assert(subresource_of(VK_IMAGE_ASPECT_COLOR_BIT, rhi::subresource_range{.base_mip = 1, .mip_count = 3}).levelCount == 3);
+        static_assert(aspect_for(VK_FORMAT_D32_SFLOAT) == VK_IMAGE_ASPECT_DEPTH_BIT && aspect_for(VK_FORMAT_R8G8B8A8_UNORM) == VK_IMAGE_ASPECT_COLOR_BIT);
+    } // namespace
+
+    rhi::error core::frame_commands::barrier(rhi::barrier_group const& group) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        // The verified image handles: registry membership first (the heap-write rule - the cast is
+        // only defined once provenance is known), then the native handle out of the owned object.
+        auto const resolve_image = [&](rhi::image const* const resource, VkImage& native, VkFormat& format) -> rhi::error {
+            if (resource == nullptr || resource->type() != rhi::interface_type::image) {
+                return rhi::error::invalid_argument;
+            }
+            std::lock_guard const lock(self->contract_images_mutex);
+            if (!self->contract_images.contains(resource)) {
+                return rhi::error::invalid_argument;
+            }
+            auto const* const owned = static_cast<owned_image const*>(resource);
+            native = owned->native_handle;
+            format = owned->resolved_format;
+            return rhi::error::ok;
+        };
+
+        std::array<VkImageMemoryBarrier2, 8> image_barriers = {};
+        std::array<VkBufferMemoryBarrier2, 8> buffer_barriers = {};
+        std::uint32_t image_count = 0;
+        std::uint32_t buffer_count = 0;
+        for (rhi::image_barrier const& one : group.images) {
+            if (image_count >= image_barriers.size()) {
+                return rhi::error::invalid_argument; // one group, eight images: far past every real site
+            }
+            VkImage native = VK_NULL_HANDLE;
+            VkFormat format = VK_FORMAT_UNDEFINED;
+            if (rhi::error const checked = resolve_image(one.resource, native, format); checked != rhi::error::ok) {
+                return checked;
+            }
+            VkImageMemoryBarrier2 barrier = barrier_for(one.from, one.to);
+            if (barrier.srcStageMask == 0 && barrier.srcAccessMask == 0 && barrier.dstStageMask == 0 && barrier.dstAccessMask == 0) {
+                return rhi::error::unsupported; // a pair nobody has defined - the same honest answer `use()` gives
+            }
+            barrier.image = native;
+            barrier.subresourceRange = subresource_of(aspect_for(format), one.range);
+            image_barriers[image_count++] = barrier;
+        }
+        for (rhi::buffer_barrier const& one : group.buffers) {
+            if (buffer_count >= buffer_barriers.size()) {
+                return rhi::error::invalid_argument;
+            }
+            if (one.resource == nullptr || one.resource->type() != rhi::interface_type::buffer) {
+                return rhi::error::invalid_argument;
+            }
+            auto const* const owned = static_cast<owned_buffer const*>(one.resource);
+            VkPipelineStageFlags2 source_stage = 0;
+            VkAccessFlags2 source_access = 0;
+            VkPipelineStageFlags2 destination_stage = 0;
+            VkAccessFlags2 destination_access = 0;
+            if (!buffer_masks_for(one.from, source_stage, source_access) || !buffer_masks_for(one.to, destination_stage, destination_access)) {
+                return rhi::error::unsupported;
+            }
+            buffer_barriers[buffer_count++] = VkBufferMemoryBarrier2{
+                .sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = source_stage,
+                .srcAccessMask = source_access,
+                .dstStageMask = destination_stage,
+                .dstAccessMask = destination_access,
+                .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+                .buffer = owned->native,
+                .offset = one.offset,
+                .size = one.size == 0 ? (owned->size_bytes - one.offset) : one.size,
+            };
+        }
+        VkDependencyInfo const dependency = {
+            .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+            .pNext = nullptr,
+            .dependencyFlags = 0,
+            .memoryBarrierCount = 0,
+            .pMemoryBarriers = nullptr,
+            .bufferMemoryBarrierCount = buffer_count,
+            .pBufferMemoryBarriers = buffer_barriers.data(),
+            .imageMemoryBarrierCount = image_count,
+            .pImageMemoryBarriers = image_barriers.data(),
+        };
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::barrier(rhi::image_barrier const& one) {
+        // The single-image form is the group of one - the same derivation, the same refusals.
+        std::array<rhi::image_barrier, 1> const one_barriers = {one};
+        rhi::barrier_group const group{
+            .struct_size = sizeof(rhi::barrier_group),
+            .images = one_barriers,
+            .buffers = {},
+        };
+        return this->barrier(group);
+    }
+
+    rhi::error core::frame_commands::begin_rendering(rhi::rendering_info const& info) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (info.struct_size < sizeof(rhi::rendering_info)) {
+            return rhi::error::invalid_argument;
+        }
+        auto const resolve_view = [&](rhi::image_view const* const view) -> VkImageView {
+            if (view == nullptr || view->type() != rhi::interface_type::image_view) {
+                return VK_NULL_HANDLE;
+            }
+            return static_cast<owned_image_view const*>(view)->native_view;
+        };
+        std::array<VkRenderingAttachmentInfo, 4> attachments = {};
+        std::uint32_t color_count = 0;
+        for (rhi::color_attachment const& one : info.colors) {
+            if (color_count >= attachments.size()) {
+                return rhi::error::invalid_argument;
+            }
+            VkImageView const native_view = resolve_view(one.view);
+            if (native_view == VK_NULL_HANDLE) {
+                return rhi::error::invalid_argument;
+            }
+            attachments[color_count] = VkRenderingAttachmentInfo{
+                .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                .pNext = nullptr,
+                .imageView = native_view,
+                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+                .resolveMode = VK_RESOLVE_MODE_NONE,
+                .resolveImageView = VK_NULL_HANDLE,
+                .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .loadOp = one.load == rhi::load_op::clear       ? VK_ATTACHMENT_LOAD_OP_CLEAR
+                          : one.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                                                                : VK_ATTACHMENT_LOAD_OP_LOAD,
+                .storeOp = one.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
+                .clearValue = {.color = {{one.clear[0], one.clear[1], one.clear[2], one.clear[3]}}},
+            };
+            ++color_count;
+        }
+        VkRenderingAttachmentInfo depth_attachment = {};
+        bool const depth_used = info.has_depth;
+        if (depth_used) {
+            VkImageView const native_view = resolve_view(info.depth.view);
+            if (native_view == VK_NULL_HANDLE) {
+                return rhi::error::invalid_argument;
+            }
+            depth_attachment = VkRenderingAttachmentInfo{
+                .sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
+                .pNext = nullptr,
+                .imageView = native_view,
+                .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
+                .resolveMode = VK_RESOLVE_MODE_NONE,
+                .resolveImageView = VK_NULL_HANDLE,
+                .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+                .loadOp = info.depth.load == rhi::load_op::clear       ? VK_ATTACHMENT_LOAD_OP_CLEAR
+                          : info.depth.load == rhi::load_op::dont_care ? VK_ATTACHMENT_LOAD_OP_DONT_CARE
+                                                                       : VK_ATTACHMENT_LOAD_OP_LOAD,
+                .storeOp = info.depth.store == rhi::store_op::dont_care ? VK_ATTACHMENT_STORE_OP_DONT_CARE : VK_ATTACHMENT_STORE_OP_STORE,
+                .clearValue = {.depthStencil = {.depth = info.depth.clear_depth, .stencil = info.depth.clear_stencil}},
+            };
+        }
+        VkRenderingInfo const rendering = {
+            .sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
+            .pNext = nullptr,
+            .flags = info.secondary_contents ? VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT : 0u,
+            .renderArea = {.offset = {info.area.offset_x, info.area.offset_y}, .extent = {info.area.width, info.area.height}},
+            .layerCount = info.layer_count,
+            .viewMask = 0u, // no multi-view use anywhere in the renderer (the plan's §4 verdict)
+            .colorAttachmentCount = color_count,
+            .pColorAttachments = attachments.data(),
+            .pDepthAttachment = depth_used ? &depth_attachment : nullptr,
+            .pStencilAttachment = nullptr,
+        };
+        vkCmdBeginRendering(command_buffer, &rendering);
+        return rhi::error::ok;
+    }
+
+    void core::frame_commands::end_rendering() noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer != VK_NULL_HANDLE) {
+            vkCmdEndRendering(command_buffer);
+        }
+    }
+
+    rhi::error core::frame_commands::bind_pipeline(rhi::pipeline const& handle) {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (handle.type() != rhi::interface_type::pipeline) {
+            return rhi::error::invalid_argument;
+        }
+        auto const* const owned = static_cast<owned_pipeline const*>(&handle);
+        vkCmdBindPipeline(command_buffer, owned->bind_point, owned->native_handle);
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::bind_vertex_buffer(rhi::buffer const& handle, std::uint64_t const offset) {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (handle.type() != rhi::interface_type::buffer) {
+            return rhi::error::invalid_argument;
+        }
+        auto const* const owned = static_cast<owned_buffer const*>(&handle);
+        VkBuffer const native = owned->native;
+        std::uint64_t const offsets = offset;
+        vkCmdBindVertexBuffers(command_buffer, 0u, 1u, &native, &offsets);
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::bind_index_buffer(rhi::buffer const& handle, std::uint64_t const offset, rhi::index_type const type) {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (handle.type() != rhi::interface_type::buffer) {
+            return rhi::error::invalid_argument;
+        }
+        auto const* const owned = static_cast<owned_buffer const*>(&handle);
+        vkCmdBindIndexBuffer(command_buffer, owned->native, offset, type == rhi::index_type::uint32 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16);
+        return rhi::error::ok;
+    }
+
+    void core::frame_commands::draw(std::uint32_t const vertex_count, std::uint32_t const instance_count, std::uint32_t const first_vertex, std::uint32_t const first_instance) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer != VK_NULL_HANDLE) {
+            vkCmdDraw(command_buffer, vertex_count, instance_count, first_vertex, first_instance);
+        }
+    }
+
+    void core::frame_commands::draw_indexed(std::uint32_t const index_count, std::uint32_t const instance_count, std::uint32_t const first_index, std::int32_t const vertex_offset, std::uint32_t const first_instance) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer != VK_NULL_HANDLE) {
+            vkCmdDrawIndexed(command_buffer, index_count, instance_count, first_index, vertex_offset, first_instance);
+        }
+    }
+
+    void core::frame_commands::dispatch(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer != VK_NULL_HANDLE) {
+            vkCmdDispatch(command_buffer, groups_x, groups_y, groups_z);
+        }
+    }
+
+    void core::frame_commands::draw_mesh_tasks(std::uint32_t const groups_x, std::uint32_t const groups_y, std::uint32_t const groups_z) noexcept {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return;
+        }
+        if (self->mesh_dispatch != nullptr) {
+            self->mesh_dispatch(command_buffer, groups_x, groups_y, groups_z); // the extension command, resolved once at startup
+        }
+    }
+
+    rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (argument_buffer.type() != rhi::interface_type::buffer) {
+            return rhi::error::invalid_argument;
+        }
+        if (self->mesh_dispatch_indirect == nullptr) {
+            return rhi::error::unsupported; // no mesh-shader extension entry point on this device
+        }
+        auto const* const owned = static_cast<owned_buffer const*>(&argument_buffer);
+        self->mesh_dispatch_indirect(command_buffer, owned->native, offset, count, stride);
+        return rhi::error::ok;
+    }
+
+    void core::frame_commands::set_viewport(rhi::viewport const& vp) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return;
+        }
+        VkViewport const native = {.x = vp.x, .y = vp.y, .width = vp.width, .height = vp.height, .minDepth = vp.min_depth, .maxDepth = vp.max_depth};
+        vkCmdSetViewport(command_buffer, 0u, 1u, &native);
+    }
+
+    void core::frame_commands::set_scissor(rhi::rect const& scissor) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return;
+        }
+        VkRect2D const native = {.offset = {scissor.offset_x, scissor.offset_y}, .extent = {scissor.width, scissor.height}};
+        vkCmdSetScissor(command_buffer, 0u, 1u, &native);
+    }
+
+    void core::frame_commands::set_cull_mode(rhi::cull_mode const mode) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer != VK_NULL_HANDLE) {
+            VkCullModeFlags const native = mode == rhi::cull_mode::front  ? VK_CULL_MODE_FRONT_BIT
+                                           : mode == rhi::cull_mode::back ? VK_CULL_MODE_BACK_BIT
+                                           : mode == rhi::cull_mode::none ? VK_CULL_MODE_NONE
+                                                                          : VK_CULL_MODE_FRONT_AND_BACK;
+            vkCmdSetCullMode(command_buffer, native);
+        }
+    }
+
+    void core::frame_commands::set_depth_write(bool const enable) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer != VK_NULL_HANDLE) {
+            vkCmdSetDepthWriteEnable(command_buffer, enable ? VK_TRUE : VK_FALSE);
+        }
+    }
+
+    void core::frame_commands::set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer != VK_NULL_HANDLE) {
+            vkCmdSetDepthBias(command_buffer, clamp, slope_factor, constant_factor); // Vulkan's own argument order, spelled once here
+        }
+    }
+
+    rhi::error core::frame_commands::copy_image(rhi::image_copy const& copy) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        VkImage source_native = VK_NULL_HANDLE;
+        VkFormat source_format = VK_FORMAT_UNDEFINED;
+        VkImage destination_native = VK_NULL_HANDLE;
+        VkFormat destination_format = VK_FORMAT_UNDEFINED;
+        {
+            std::lock_guard const lock(self->contract_images_mutex);
+            if (copy.source == nullptr || copy.destination == nullptr || copy.source->type() != rhi::interface_type::image ||
+                copy.destination->type() != rhi::interface_type::image || !self->contract_images.contains(copy.source) ||
+                !self->contract_images.contains(copy.destination)) {
+                return rhi::error::invalid_argument;
+            }
+            auto const* const source_owned = static_cast<owned_image const*>(copy.source);
+            auto const* const destination_owned = static_cast<owned_image const*>(copy.destination);
+            source_native = source_owned->native_handle;
+            source_format = source_owned->resolved_format;
+            destination_native = destination_owned->native_handle;
+            destination_format = destination_owned->resolved_format;
+        }
+        auto const layer_of = [](rhi::image_copy_region const& region) {
+            return VkImageSubresourceLayers{VK_IMAGE_ASPECT_COLOR_BIT, region.mip_level, region.base_array_layer,
+                                            region.array_layer_count == 0 ? VK_REMAINING_ARRAY_LAYERS : region.array_layer_count};
+        };
+        VkImageCopy2 const regions = {
+            .sType = VK_STRUCTURE_TYPE_IMAGE_COPY_2,
+            .pNext = nullptr,
+            .srcSubresource = layer_of(copy.source_region),
+            .srcOffset = {static_cast<std::int32_t>(copy.source_region.offset_x), static_cast<std::int32_t>(copy.source_region.offset_y),
+                          static_cast<std::int32_t>(copy.source_region.offset_z)},
+            .dstSubresource = layer_of(copy.destination_region),
+            .dstOffset = {static_cast<std::int32_t>(copy.destination_region.offset_x), static_cast<std::int32_t>(copy.destination_region.offset_y),
+                          static_cast<std::int32_t>(copy.destination_region.offset_z)},
+            .extent = {copy.source_region.extent.width, copy.source_region.extent.height, copy.source_region.extent.depth},
+        };
+        (void)source_format; // both sides live in GENERAL; the aspects are colour (the copy sites' shape)
+        (void)destination_format;
+        VkCopyImageInfo2 const copy_info = {
+            .sType = VK_STRUCTURE_TYPE_COPY_IMAGE_INFO_2,
+            .pNext = nullptr,
+            .srcImage = source_native,
+            .srcImageLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .dstImage = destination_native,
+            .dstImageLayout = VK_IMAGE_LAYOUT_GENERAL,
+            .regionCount = 1,
+            .pRegions = &regions,
+        };
+        vkCmdCopyImage2(command_buffer, &copy_info);
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::copy_buffer(rhi::buffer& destination, rhi::buffer const& source, std::uint64_t const size, std::uint64_t const source_offset,
+                                                 std::uint64_t const destination_offset) {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (destination.type() != rhi::interface_type::buffer || source.type() != rhi::interface_type::buffer) {
+            return rhi::error::invalid_argument;
+        }
+        auto const* const destination_owned = static_cast<owned_buffer const*>(&destination);
+        auto const* const source_owned = static_cast<owned_buffer const*>(&source);
+        VkBufferCopy2 const regions = {
+            .sType = VK_STRUCTURE_TYPE_BUFFER_COPY_2,
+            .pNext = nullptr,
+            .srcOffset = source_offset,
+            .dstOffset = destination_offset,
+            .size = size,
+        };
+        VkCopyBufferInfo2 const copy_info = {
+            .sType = VK_STRUCTURE_TYPE_COPY_BUFFER_INFO_2,
+            .pNext = nullptr,
+            .srcBuffer = source_owned->native,
+            .dstBuffer = destination_owned->native,
+            .regionCount = 1,
+            .pRegions = &regions,
+        };
+        vkCmdCopyBuffer2(command_buffer, &copy_info);
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::clear_color_image(rhi::image const& target, std::array<float, 4> const& color, rhi::subresource_range const& range) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (target.type() != rhi::interface_type::image) {
+            return rhi::error::invalid_argument;
+        }
+        std::lock_guard const lock(self->contract_images_mutex);
+        if (!self->contract_images.contains(&target)) {
+            return rhi::error::invalid_argument;
+        }
+        auto const* const owned = static_cast<owned_image const*>(&target);
+        VkClearColorValue const clear = {.float32 = {color[0], color[1], color[2], color[3]}};
+        VkImageSubresourceRange const native_range = subresource_of(VK_IMAGE_ASPECT_COLOR_BIT, range);
+        vkCmdClearColorImage(command_buffer, owned->native_handle, VK_IMAGE_LAYOUT_GENERAL, &clear, 1, &native_range);
+        return rhi::error::ok;
+    }
+
     // ---- tier-2: device_address --------------------------------------------------------------------
 
     std::uint64_t core::buffer_address_view::buffer_address(rhi::buffer const& resource, std::uint64_t const offset) const noexcept {

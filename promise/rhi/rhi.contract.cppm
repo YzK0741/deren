@@ -203,7 +203,20 @@ export namespace deren::promise::rhi {
     /// protects. The same batch moves the loading and the acquisition of the device root out of the
     /// runtime into `deren.vulkan.backend_loader`, called by `main.cpp` (`runtime` now takes the
     /// `shared_ptr` and refuses an empty one), which is a construction-path change in the same breath.
-    inline constexpr std::uint32_t abi_version = 19u;
+    /// 19 -> 20 in the RECORDING FACE's verbs (RECORDING_FACE_PLAN.md §2/§6, step 1's verbs half -
+    /// the descriptors half landed unbumped a batch earlier): `command_list` APPENDED the portable
+    /// record series the engine's passes record with - begin_rendering/end_rendering,
+    /// bind_pipeline/bind_vertex_buffer/bind_index_buffer, draw/draw_indexed, dispatch/
+    /// draw_mesh_tasks/draw_mesh_tasks_indirect, the five dynamic-state verbs, barrier (group and
+    /// single-image), copy_image/copy_buffer/clear_color_image - and `viewport` / `index_type` /
+    /// `cull_mode` / `image_copy` are the small vocabulary those verbs take. Every verb is an APPEND
+    /// to an existing tier-1 vtable (the series is declared once on the borrowed view, which the
+    /// owning `command_buffer` reaches through `recording()`), which is the case the number exists
+    /// for; the descriptors the verbs take had already landed as plain PODs, so this bump is the
+    /// interface half and nothing else. `push_data` is deliberately NOT in the series: the
+    /// descriptor-heap face's `push_data(heap_push_info)` already takes the list and is the one heap
+    /// verb that is a command-buffer operation - a second spelling would declare the verb twice.
+    inline constexpr std::uint32_t abi_version = 20u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

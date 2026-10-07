@@ -67,7 +67,7 @@ int main(int const argc, char** const argv) {
     // below is that the contract's own constant is what every caller passes, checked where it is
     // refused (`check_core_contract` in tests/test_dynamic_link.cpp drives the mismatch case).
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
-    CHECK(rhi::abi_version == 19u);
+    CHECK(rhi::abi_version == 20u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");

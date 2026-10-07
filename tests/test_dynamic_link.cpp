@@ -123,6 +123,58 @@ namespace {
         [[nodiscard]] rhi::error mark_gpu_timing(std::uint32_t, std::string_view) noexcept override {
             return rhi::error::invalid_argument;
         }
+        // the record series (abi 20): the same everything-refused shape, so the stand-in stays a
+        // complete command_list as the interface grows
+        [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const&) override {
+            return rhi::error::invalid_argument;
+        }
+        void end_rendering() noexcept override {
+        }
+        [[nodiscard]] rhi::error bind_pipeline(rhi::pipeline const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error bind_vertex_buffer(rhi::buffer const&, std::uint64_t) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error bind_index_buffer(rhi::buffer const&, std::uint64_t, rhi::index_type) override {
+            return rhi::error::invalid_argument;
+        }
+        void draw(std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+        void draw_indexed(std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t) noexcept override {
+        }
+        void dispatch(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+        void draw_mesh_tasks(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+        [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return rhi::error::invalid_argument;
+        }
+        void set_viewport(rhi::viewport const&) noexcept override {
+        }
+        void set_scissor(rhi::rect const&) noexcept override {
+        }
+        void set_cull_mode(rhi::cull_mode) noexcept override {
+        }
+        void set_depth_write(bool) noexcept override {
+        }
+        void set_depth_bias(float, float, float) noexcept override {
+        }
+        [[nodiscard]] rhi::error barrier(rhi::barrier_group const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error barrier(rhi::image_barrier const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error copy_image(rhi::image_copy const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error copy_buffer(rhi::buffer&, rhi::buffer const&, std::uint64_t, std::uint64_t, std::uint64_t) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error clear_color_image(rhi::image const&, std::array<float, 4> const&, rhi::subresource_range const&) override {
+            return rhi::error::invalid_argument;
+        }
     };
 
     /**
@@ -223,7 +275,7 @@ namespace {
         // of the device root out of the runtime into deren.vulkan.backend_loader, called by main.cpp -
         // which is why this test's subject (the loader) is now something the app uses rather than
         // something the runtime hides.
-        CHECK(rhi::abi_version == 19u);
+        CHECK(rhi::abi_version == 20u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

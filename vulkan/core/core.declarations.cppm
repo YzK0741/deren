@@ -300,6 +300,29 @@ namespace deren::vulkan {
             // timing range and the marks ride the list rather than a raw slot index ----
             [[nodiscard]] deren::promise::rhi::error begin_gpu_timing() noexcept override;
             [[nodiscard]] deren::promise::rhi::error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept override;
+            // ---- the portable record series (abi 20): the recording surface's own vocabulary,
+            // translated here (the only place that reads Vulkan structures) and recorded into
+            // `native()` - the frame's slot buffer or an owned buffer's, per `target` ----
+            [[nodiscard]] deren::promise::rhi::error begin_rendering(deren::promise::rhi::rendering_info const& info) override;
+            void end_rendering() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error bind_pipeline(deren::promise::rhi::pipeline const& handle) override;
+            [[nodiscard]] deren::promise::rhi::error bind_vertex_buffer(deren::promise::rhi::buffer const& handle, std::uint64_t offset) override;
+            [[nodiscard]] deren::promise::rhi::error bind_index_buffer(deren::promise::rhi::buffer const& handle, std::uint64_t offset, deren::promise::rhi::index_type type) override;
+            void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept override;
+            void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept override;
+            void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
+            void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
+            void set_viewport(deren::promise::rhi::viewport const& vp) noexcept override;
+            void set_scissor(deren::promise::rhi::rect const& scissor) noexcept override;
+            void set_cull_mode(deren::promise::rhi::cull_mode mode) noexcept override;
+            void set_depth_write(bool enable) noexcept override;
+            void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept override;
+            [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::barrier_group const& group) override;
+            [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::image_barrier const& one) override;
+            [[nodiscard]] deren::promise::rhi::error copy_image(deren::promise::rhi::image_copy const& copy) override;
+            [[nodiscard]] deren::promise::rhi::error copy_buffer(deren::promise::rhi::buffer& destination, deren::promise::rhi::buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) override;
+            [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const& target, std::array<float, 4> const& color, deren::promise::rhi::subresource_range const& range) override;
         };
 
         /// A command buffer the caller OWNS, as the contract's `command_buffer` (abi 15).
@@ -556,6 +579,9 @@ namespace deren::vulkan {
             std::optional<deren::vulkan::vk_pipeline> owned;
             /// the `VkPipeline`, cached at creation for the escape's borrow
             VkPipeline native_handle = VK_NULL_HANDLE;
+            /// graphics or compute: the bind point `bind_pipeline` (abi 20) needs, decided at
+            /// creation from the descriptor's shape and never re-guessed per bind
+            VkPipelineBindPoint bind_point = VK_PIPELINE_BIND_POINT_GRAPHICS;
 
             /// `delete this`, whose destructor destroys the pipeline (RAII owner)
             void release() noexcept override;
