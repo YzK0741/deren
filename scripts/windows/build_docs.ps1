@@ -33,13 +33,49 @@ if (-not $doxygen) {
     exit 1
 }
 
-Write-Host "== doxygen: $($doxygen.Source) =="
-& $doxygen.Source 'Doxyfile'
-if ($LASTEXITCODE -ne 0) {
-    Write-Error "doxygen failed (exit $LASTEXITCODE)."
-    exit $LASTEXITCODE
+# DOXYGEN ALSO GENERATES THE GRAPHS THE MANUAL INCLUDES, and those images are the one flaky step in
+# this build. MEASURED (2026-10-07, twice in the lead's runs and once here): a build stops in pdflatex
+# with
+#     error: Problems running epstopdf. Check your TeX installation!
+#     !pdfTeX error: pdflatex.exe (file ./struct..._walker.pdf): xpdf: reading PDF image failed
+#     ==> Fatal error occurred, no output PDF file produced!
+# while the doxygen step itself was clean (0 warnings), and an immediate rerun of THIS SCRIPT succeeds
+# with the same sources. The truncated image is written by doxygen's epstopdf pass, so a copy left by
+# an earlier build can survive into the next one. TWO MEASURES, both cheap and both here:
+#   1. CLEAR THE GENERATED PDF CACHE BEFORE DOXYGEN - the graph images and the previous manual are
+#      derived state, and doxygen rewrites every image it needs; nothing else is touched (the `.tex`,
+#      the `.sty` and doxygen's other output are regenerated in place, and refman.pdf is the product).
+#   2. RETRY THE WHOLE DOXYGEN+LATEX SEQUENCE ONCE IF PDFLATEX DIES READING AN IMAGE (see the tail).
+#      Only that signature is retried: every other failure still stops the build on its first exit.
+# THE HTML OUTPUT IS CLEARED TOO, for the same "derived state" reason plus one measured effect: doxygen
+# rewrites every page it generates, but it does NOT remove pages a previous build left behind, and an
+# orphan page still links to the groups of ITS build. MEASURED right after the group rename: this tree's
+# docs/html still held classvulkan_1_1runtime*.html from an older build, and those two pages alone carried
+# 185 links to the retired group__vulkan__runtime.html - so the manual ON DISK could show a group that no
+# longer exists anywhere in the source. Clearing the output directory makes what is on disk exactly what
+# this run produced.
+Write-Host '== clearing the generated HTML (docs/html) =='
+if (Test-Path 'docs\html') {
+    Remove-Item 'docs\html' -Recurse -Force -ErrorAction SilentlyContinue
 }
-Write-Host 'html written to docs/html/index.html'
+
+Write-Host '== clearing the doxygen-generated PDF cache (docs/latex/*.pdf) =='
+$stalePdfs = Join-Path 'docs\latex' '*.pdf'
+if (Test-Path (Split-Path $stalePdfs)) {
+    Remove-Item $stalePdfs -ErrorAction SilentlyContinue
+}
+
+function Invoke-Doxygen {
+    Write-Host "== doxygen: $($doxygen.Source) =="
+    & $doxygen.Source 'Doxyfile'
+    if ($LASTEXITCODE -ne 0) {
+        Write-Error "doxygen failed (exit $LASTEXITCODE)."
+        exit $LASTEXITCODE
+    }
+    Write-Host 'html written to docs/html/index.html'
+}
+
+Invoke-Doxygen
 
 # ---------- 2. LaTeX manual -> refman.pdf ----------
 # put a TeX toolchain on PATH when it lives at a standard location
@@ -108,6 +144,9 @@ function Get-AuxFingerprint {
         }) -join ':'
 }
 
+# $script:RetryableLatexFlake is set (instead of exiting) when pdflatex died READING ONE OF THE
+# GENERATED IMAGE PDFs - the measured epstopdf/xpdf flake this script now handles (see the note above).
+$script:RetryableLatexFlake = $false
 function Invoke-Pdflatex {
     param([switch]$Draft)
     $cmdArgs = @('-interaction=nonstopmode', '-halt-on-error')
@@ -117,6 +156,11 @@ function Invoke-Pdflatex {
     if ($code -ne 0) {
         Write-Error 'pdflatex failed (see docs/latex/refman.log for the full transcript):'
         Show-LogTail 'latex_pass.log'
+        $imageRead = (Select-String -Path 'latex_pass.log' -Pattern 'xpdf: reading PDF image failed|Problems running epstopdf' -Quiet -ErrorAction SilentlyContinue)
+        if ($imageRead) {
+            $script:RetryableLatexFlake = $true
+            return
+        }
         exit $code
     }
 }
@@ -137,11 +181,13 @@ function Invoke-LatexManual {
     # only the LAST pass writes the PDF: the earlier ones run in -draftmode,
     # which still produces the .aux/.toc/.out/.idx state they exist to converge
     Invoke-Pdflatex -Draft
+    if ($script:RetryableLatexFlake) { return }
     Invoke-Makeindex
     $count = 0
     $fingerprint = Get-AuxFingerprint
     while (Test-RerunWanted) {
         Invoke-Pdflatex -Draft
+        if ($script:RetryableLatexFlake) { return }
         $count++
         $state = Get-AuxFingerprint
         if (($state -eq $fingerprint) -or ($count -ge 4)) { break }
@@ -181,6 +227,24 @@ if (Get-Command make -ErrorAction SilentlyContinue) {
 } elseif (Get-Command pdflatex -ErrorAction SilentlyContinue) {
     Write-Host '== latex via pdflatex (no make found, output suppressed) =='
     Invoke-LatexManual
+    if ($script:RetryableLatexFlake) {
+        # THE ONE RETRY, AND ONLY FOR THIS SIGNATURE: doxygen rewrites every graph image it needs, so
+        # re-running it is what replaces a truncated one. A second failure exits normally (and loudly).
+        Write-Host '== pdflatex could not read a generated image PDF; regenerating the graphs and retrying ONCE =='
+        Remove-Item (Join-Path '.' '*.pdf') -ErrorAction SilentlyContinue
+        Pop-Location
+        Invoke-Doxygen
+        Set-Location 'docs\latex'
+        foreach ($stale in 'refman.aux', 'refman.toc', 'refman.out') {
+            Remove-Item $stale -ErrorAction SilentlyContinue
+        }
+        $script:RetryableLatexFlake = $false
+        Invoke-LatexManual
+        if ($script:RetryableLatexFlake) {
+            Write-Error 'pdflatex failed twice reading generated image PDFs; this is not the known ephemeral flake - see docs/latex/refman.log.'
+            exit 1
+        }
+    }
 } else {
     Write-Error 'no LaTeX toolchain found. Install MiKTeX/TeX Live (or make), then rerun.'
     exit 1

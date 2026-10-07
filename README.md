@@ -126,6 +126,8 @@ Raw equivalent: `doxygen Doxyfile` (HTML only). `Doxyfile` names the project `de
 
 Output: `docs/html/` (open `docs/html/index.html`) and `docs/latex/` + `docs/latex/refman.pdf` (all gitignored). The LaTeX step needs a TeX distribution (`pdflatex`/`makeindex`; `make`, `latexmk`, or bare `pdflatex` all work — MiKTeX's per-user install under `%LOCALAPPDATA%` is found automatically). The non-ASCII characters the sources are allowed to keep are what the new `docs/latex_unicode.sty` is for: `Doxyfile` sets `LATEX_EXTRA_STYLESHEET` to it, and pdflatex stops on the first such character without it.
 
+**One step of that build is intermittent, and the script already handles it:** doxygen converts its dependency graphs with `epstopdf`, and occasionally the resulting image PDF is written truncated, so pdflatex stops with `Problems running epstopdf` / `xpdf: reading PDF image failed` and produces no manual. `build_docs.ps1` clears the generated `docs/latex/*.pdf` cache before doxygen, clears `docs/html` (a page an earlier build left behind still links to *its* build's groups), and — if pdflatex still dies reading an image — regenerates the graphs and retries the LaTeX step **once**; only that signature is retried, every other failure stops the build immediately. The POSIX script does not carry those measures yet, so on Linux/macOS an `epstopdf` failure means re-running it. Reruns are always safe: both outputs are derived state.
+
 Current development docs (newest first - the dynamic-backend migration and its record):
 
 - [dynamic runtime design (contract-only runtime, by-name-loaded backend)](docs/dynamic_runtime.md)
