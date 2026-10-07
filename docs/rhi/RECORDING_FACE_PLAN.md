@@ -12,20 +12,29 @@ imports a `deren_vulkan` module) but **not Vulkan-free in its sources**: 62 of i
 `#include <vulkan/...>`, and the passes record raw Vulkan themselves. Measured census:
 
 ```
-166 vkCmd* tokens / 25 spellings across runtime/** and vulkan/** (excluding the backend's core/),
-of which the engine's real per-verb call counts are (comments excluded):
+MEASURED CALL SITES (the sweep's convention, stated so the number is comparable - it is call
+sites, NOT tokens: a line counts when it is not a comment and contains kCmd<Name>():
 
- 53 vkCmdPipelineBarrier2      29 vkCmdBeginRendering        22 vkCmdEndRendering
- 16 vkCmdDrawMeshTasksEXT      13 vkCmdPushDataEXT          11 vkCmdSetCullMode
- 10 vkCmdDraw                  10 vkCmdBindPipeline          6 vkCmdDispatch
-  5 vkCmdDrawIndexed            4 vkCmdSetDepthWriteEnable    4 vkCmdCopyImage
-  4 vkCmdExecuteCommands        4 vkCmdBuildAccelerationStructuresKHR
-  3 vkCmdTraceRaysKHR           3 vkCmdBuildMicromapsEXT      3 vkCmdSetViewport
-  3 vkCmdSetScissor             3 vkCmdDrawMeshTasksIndirectEXT
-  2 vkCmdCopyImageToBuffer      2 vkCmdSetDepthBias           1 vkCmdBindVertexBuffers
-  1 vkCmdCopyBuffer             1 vkCmdClearColorImage        1 vkCmdWriteTimestamp
+  18 vkCmdBeginRendering
+  17 vkCmdEndRendering
+  11 vkCmdSetCullMode
+  10 vkCmdDraw
+   8 vkCmdBindPipeline
+   6 vkCmdDispatch
+   4 vkCmdExecuteCommands
+   3 vkCmdSetViewport
+   3 vkCmdSetScissor
+   2 vkCmdCopyImage
+   2 vkCmdSetDepthWriteEnable
+   1 vkCmdSetDepthBias
+   1 vkCmdCopyBuffer
+   1 vkCmdClearColorImage
+   1 vkCmdDrawMeshTasksIndirectEXT
 
-pipeline side: 12 vkCreateComputePipelines, 2 vkCreateGraphicsPipelines, 4 vkCreateShaderModule,
+and the pipeline side: 12 vkCreateComputePipelines, 2 vkCreateGraphicsPipelines,
+4 vkCreateShaderModule, 10 vkCmdBindPipeline. Engine files here means runtime/** plus vulkan/**
+excluding vulkan/core/** (the backend), extensions .cppm/.cpp/.hpp: 80 files, of which 62 include a
+Vulkan header.pipeline side: 12 vkCreateComputePipelines, 2 vkCreateGraphicsPipelines, 4 vkCreateShaderModule,
                10 vkCmdBindPipeline; vulkan/pipelines/pipelines.cppm is 76 KB with vk=294.
 
 escape use is concentrated: only 7 engine files use native_* at all
@@ -162,7 +171,7 @@ struct depth_attachment {
 
 struct rendering_info {
     std::uint32_t                     struct_size = sizeof(rendering_info);  // see section 6
-    rect                              area        = {};    // offset + extent (rect EXISTS)
+    rect                              area        = {};    // CREATED here: rect did NOT exist in the contract before this batch
     std::uint32_t                     layer_count = 1;     // 6 sites use a non-1 value
     std::span<color_attachment const> colors      = {};    // 1-2 entries per call
     depth_attachment                  depth       = {};
