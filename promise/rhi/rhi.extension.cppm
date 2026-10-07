@@ -204,6 +204,34 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error push_data(heap_push_info const& info) const noexcept = 0;
     };
 
+    /// ONE SHADER-BINDING-TABLE REGION: where a ray-tracing launch reads one table's records, how many bytes
+    /// that table spans, and how far apart consecutive records are.
+    ///
+    /// WHY THIS IS A GENERAL RHI TYPE RATHER THAN A BACKEND STRUCT: the three numbers are the whole of what a
+    /// launch must be told about a table, and every API in this family has a spelling of them - Vulkan's
+    /// `VkStridedDeviceAddressRegionKHR` is one, and it is the type this was promoted FROM (the engine's
+    /// ray-traced shadow pass held four of those as native members, which put a Vulkan type in a pass's own state
+    /// for no reason: the DATA is a device range, not a driver structure). A region is also the unit the CALLER
+    /// BUILDS - the records come from a pipeline's shader-group handles, which only the pipeline's creator can
+    /// read back - so it has to travel through the contract's vocabulary like every other descriptor.
+    ///
+    /// IT LIVES IN THIS PARTITION (not `:api_core`) because it is the vocabulary of an ABILITY's verb: the
+    /// `ray_tracing` interface below takes it, and `:extension` is what `:api_core` imports rather than the other
+    /// way round - the same reason `descriptor_type` and the heap write PODs are here.
+    ///
+    /// AN ALL-ZERO REGION (`address == 0`) IS THE "NO RECORDS" SPELLING, and it is the honest one for a table a
+    /// given pipeline has no shaders for: a caller of `ray_tracing::trace_rays` passes it rather than a null
+    /// pointer, and the backend decides what a launch does with it (Vulkan DEREFERENCES the region pointer, so
+    /// "empty table" is a zeroed region, never nullptr).
+    ///
+    /// FROZEN LIKE THE OTHER PODs ONCE SHIPPED (`image_copy_region`, `submit_info`): it is passed BY VALUE, so a
+    /// field addition moves `abi_version`.
+    struct shader_binding_table_region {
+        std::uint64_t address = 0; ///< device address of this region's first record (0 = no records)
+        std::uint64_t size = 0;    ///< bytes this region spans
+        std::uint64_t stride = 0;  ///< bytes between consecutive records (the device's own alignment asks for it)
+    };
+
     /// tier-2 ability: mesh and task shaders.
     struct mesh_shader : extension {
         static constexpr interface_type interface_id = interface_type::mesh_shader;
@@ -242,8 +270,20 @@ export namespace deren::promise::rhi {
         /// Record the build of `target` into `commands`.
         virtual void build_acceleration_structure(command_buffer& commands, acceleration_structure& target) = 0;
 
-        /// Record a trace of `width` x `height` pixels, `depth` rays deep.
-        virtual void trace_rays(command_buffer& commands, std::uint32_t width, std::uint32_t height, std::uint32_t depth) = 0;
+        /// Record a trace of `width` x `height` pixels, `depth` rays deep, reading the SHADER BINDING TABLE the
+        /// caller built: one region per table - ray generation, miss, hit - plus the callable table a shader may
+        /// invoke (`shader_binding_table_region{}`, i.e. `address == 0`, when it has no callable shaders).
+        ///
+        /// WHY THE REGIONS ARE PARAMETERS RATHER THAN THE BACKEND'S OWN STATE: the records in them are a
+        /// pipeline's shader-group HANDLES, which only the pipeline's creator can read back
+        /// (`vulkan_escape::shader_group_handles`, and the alignments come off the device). A backend cannot
+        /// invent them, so a launch verb without them cannot be served by anything - which is exactly what the
+        /// previous shape here was (`trace_rays(commands, width, height, depth)`), with NO implementer and NO
+        /// caller. THE SHAPE WAS REPLACED RATHER THAN APPENDED TO, and that is what moves `abi_version`: a
+        /// second overload would leave a verb nobody can carry out standing next to the one they can.
+        virtual void trace_rays(command_buffer& commands, shader_binding_table_region const& raygen, shader_binding_table_region const& miss,
+                                shader_binding_table_region const& hit, shader_binding_table_region const& callable, std::uint32_t width,
+                                std::uint32_t height, std::uint32_t depth) = 0;
 
         // Micromaps (3 mentions), RT pipeline creation (3) and shader group handles (1)
         // are the remaining entries in §5's row for this ability; they land with S1.

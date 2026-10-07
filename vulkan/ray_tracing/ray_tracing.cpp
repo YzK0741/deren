@@ -656,22 +656,24 @@ namespace deren::vulkan::ray_tracing {
                                                  .pImageMemoryBarriers = nullptr};
                 vkCmdPipelineBarrier2(command_buffer, &before);
                 build_micromaps(command_buffer, static_cast<uint32_t>(infos.size()), infos.data());
-                VkMemoryBarrier2 const micromaps_ready = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-                                                          .pNext = nullptr,
-                                                          .srcStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
-                                                          .srcAccessMask = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT,
-                                                          .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                                                          .dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT};
-                VkDependencyInfo const after = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                .pNext = nullptr,
-                                                .dependencyFlags = 0,
-                                                .memoryBarrierCount = 1,
-                                                .pMemoryBarriers = &micromaps_ready,
-                                                .bufferMemoryBarrierCount = 0,
-                                                .pBufferMemoryBarriers = nullptr,
-                                                .imageMemoryBarrierCount = 0,
-                                                .pImageMemoryBarriers = nullptr};
-                vkCmdPipelineBarrier2(command_buffer, &after);
+                // THE SECOND HALF RIDES THE CONTRACT (the micromap roles are values the `buffer_use` enum
+                // carries now): (micromap_write, micromap_read) is exactly this barrier's mask pair
+                // (MICROMAP_BUILD/MICROMAP_WRITE -> ACCELERATION_STRUCTURE_BUILD/MICROMAP_READ). The `before`
+                // barrier above STAYS RAW, and that is the split the enum's own note records: its source is
+                // HOST_WRITE, and the contract carries no host role (the host-visible barriers are the escape
+                // bucket's by the contract's own image_use census).
+                deren::promise::rhi::barrier_group const micromaps_ready{
+                    .struct_size = sizeof(deren::promise::rhi::barrier_group),
+                    .images = {},
+                    .buffers = {},
+                    .stage = deren::promise::rhi::stage_hint::none,
+                    .has_memory = true,
+                    .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::micromap_write,
+                                                                  .to = deren::promise::rhi::buffer_use::micromap_read},
+                };
+                if (commands.barrier(micromaps_ready) != deren::promise::rhi::error::ok) {
+                    deren::utility::log("ray tracing: the micromap build-ordering barrier was refused");
+                }
                 deren::utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
                                     this->micromap_resources.size(),
                                     micromap_triangles,

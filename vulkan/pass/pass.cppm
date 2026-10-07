@@ -380,13 +380,15 @@ export namespace deren::vulkan::pass {
      * @brief the RAW `VkCommandBuffer` behind a contract buffer, for the ONE thing the record series cannot
      *        spell at all: an ALLOCATED ENTRY POINT.
      *
-     * ITS USERS ARE THE FUNCTION-POINTER BUCKET (recording-face note §1.5): `vkCmdTraceRaysKHR` is resolved
-     * through `vkGetDeviceProcAddr` (the loader's import library does not export it), so a pass that launches
-     * rays holds a function pointer and an API command buffer - and no contract verb answers `trace_rays`,
-     * because the vocabulary was measured from the recording sites this renderer has and a ray-tracing launch
-     * is not one of them yet. `pass::native_commands()` is how such a site reaches the buffer WITHOUT the pass
-     * layer keeping a raw handle in step (the escape is the contract's own, documented answer for "the contract
-     * has no concept for this").
+     * ITS ONE REMAINING USER IS THE RAY-TRACING LAUNCH (recording-face note §1.5): `vkCmdTraceRaysKHR` is
+     * resolved through `vkGetDeviceProcAddr` (the loader's import library does not export it), so the pass that
+     * launches rays holds a function pointer and an API command buffer. THE VOCABULARY IS NO LONGER THE REASON:
+     * `ray_tracing::trace_rays` EXISTS with the shape a launch needs (four `shader_binding_table_region`s, abi
+     * 23), but this backend does not ANNOUNCE the `ray_tracing` ability - a set bit is a promise about service,
+     * and its three acceleration-structure verbs are served by the engine's own module through the escape - so a
+     * pass that traced rays could not call it yet. `pass::native_commands()` is how that site reaches the buffer
+     * WITHOUT the pass layer keeping a raw handle in step (the escape is the contract's own, documented answer
+     * for "the contract has no concept for this").
      *
      * IT ANSWERS NULL rather than casting a foreign pointer: a face that does not announce `vulkan_escape` (a
      * non-Vulkan backend) has no native command buffer at all, and the caller then records nothing instead of

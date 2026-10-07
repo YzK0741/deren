@@ -186,33 +186,45 @@ export namespace deren::vulkan::pass {
         /**
          * @brief the traceRays LAUNCH, through the contract buffer (recording face, migration recipe §1.4)
          *
-         * `vkCmdTraceRaysKHR` is an extension command the loader does not export and the record series has no
-         * verb for, so the launch is one of the escape sites: this wrapper takes the recording face's buffer and
-         * reaches the native through `pass::native_commands` (the contract's own documented answer), which
-         * answers null on a face without a native command buffer - and then nothing is recorded rather than a
-         * foreign pointer mis-cast. The wrapper exists so `record` names no native handle at all; the pipeline
-         * migration (§8.2) is where a contract `trace_rays` verb would replace it.
+         * THE CONTRACT NOW HAS THE VERB, AND THE BACKEND DOES NOT SERVE IT. `ray_tracing::trace_rays` takes
+         * exactly the four `shader_binding_table_region`s this wrapper passes (that is the shape this batch gave
+         * it - the previous one, `commands, width, height, depth`, could not describe a launch at all), but this
+         * backend does not ANNOUNCE the `ray_tracing` ability: a set bit is a promise about service, and its other
+         * three verbs (create/build/address of an acceleration structure) are served by the engine's own
+         * `vulkan/ray_tracing` module through the escape today. So the launch stays raw - the one site in this
+         * pass that names a native handle - and the reason belongs here rather than in a note: the day the
+         * ability is served, this wrapper becomes one call and `pass::native_commands` loses its last user.
+         *
+         * The native handle comes from `pass::native_commands` (the contract's own documented answer), which
+         * answers null on a face without one - and then nothing is recorded rather than a foreign pointer
+         * mis-cast.
          */
-        void trace_rays(deren::promise::rhi::command_buffer& commands, VkStridedDeviceAddressRegionKHR const* raygen, VkStridedDeviceAddressRegionKHR const* miss,
-                        VkStridedDeviceAddressRegionKHR const* hit, VkStridedDeviceAddressRegionKHR const* callable, uint32_t width, uint32_t height, uint32_t depth) noexcept;
+        void trace_rays(deren::promise::rhi::command_buffer& commands, deren::promise::rhi::shader_binding_table_region const& raygen,
+                        deren::promise::rhi::shader_binding_table_region const& miss, deren::promise::rhi::shader_binding_table_region const& hit,
+                        deren::promise::rhi::shader_binding_table_region const& callable, uint32_t width, uint32_t height, uint32_t depth) noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-        // The shader binding table's three regions, filled at create time from the pipeline's group handles. The
-        // BUFFER is the owner's (see pass_context::create_upload_buffer); what the pass keeps is where each
-        // region starts, which is the per-pipeline part.
+        // The shader binding table's regions, filled at create time from the pipeline's group handles. The BUFFER
+        // is the owner's (see pass_context::create_upload_buffer); what the pass keeps is where each region starts,
+        // which is the per-pipeline part.
+        //
+        // THEY ARE THE CONTRACT'S TYPE NOW (`rhi::shader_binding_table_region`): the three numbers are a DEVICE
+        // RANGE, not a driver structure, so a pass's own state has no business naming a Vulkan type for them - and
+        // the type is general enough for any backend's launch.
         /// the traceRays entry point, loaded through vkGetDeviceProcAddr at create time (an extension command
         /// is not exported by the loader's import library - see the acceleration-structure module's note); the
-        /// `trace_rays` wrapper above is the only caller, so no recording site names this pointer
+        /// `trace_rays` wrapper below is the only caller, so no recording site names this pointer
         PFN_vkCmdTraceRaysKHR trace_rays_fn = nullptr;
-        VkStridedDeviceAddressRegionKHR raygen_region = {};
-        VkStridedDeviceAddressRegionKHR miss_region = {};
-        VkStridedDeviceAddressRegionKHR hit_region = {};
-        /// The callable region, which this pipeline has no shaders for - and which must still be a VALID
-        /// pointer to an all-zero region: `vkCmdTraceRaysKHR` dereferences it, so passing nullptr is a
-        /// validation error and (measured) a driver access violation rather than "no callables".
-        VkStridedDeviceAddressRegionKHR callable_region = {};
+        deren::promise::rhi::shader_binding_table_region raygen_region = {};
+        deren::promise::rhi::shader_binding_table_region miss_region = {};
+        deren::promise::rhi::shader_binding_table_region hit_region = {};
+        /// The callable region, which this pipeline has no shaders for: AN ALL-ZERO REGION, which is the
+        /// contract's own "no records" spelling - and it must be a VALID pointer at the launch, because
+        /// `vkCmdTraceRaysKHR` dereferences it (passing nullptr is a validation error and, measured, a driver
+        /// access violation rather than "no callables").
+        deren::promise::rhi::shader_binding_table_region callable_region = {};
         /// whether the "tracing WxH rays per frame" line has been logged (it used to be the runtime's flag)
         bool logged = false;
     }; // namespace deren::vulkan::pass

@@ -1,6 +1,6 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: ten batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: eleven batches have LANDED AND ARE GREEN.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
@@ -10,11 +10,11 @@
 > it did not before the third batch, and the sixth batch's new escape slots are proven by it (the SBT
 > query travels through `api_basis` there, and the smoke run still builds its table).
 >
-> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 6**, **none of them
-> in `vulkan/pass/`** (the SIX left are the documented escape-bucket sites - see 2.15); the ESCAPE's
+> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 5**, **none of them
+> in `vulkan/pass/`** (the FIVE left are documented escape-bucket sites - see 2.15/2.16); the ESCAPE's
 > own demand, measured for the first time in the seventh batch: **105 -> 69 engine-side call sites**.
 > Engine files including a Vulkan header **62 -> 38**; abi
-> **20 -> 22**, pinned in both tests. (The call-site count is not monotone: the fifth batch's probe fix
+> **20 -> 23**, pinned in both tests. (The call-site count is not monotone: the fifth batch's probe fix
 > ADDED three dynamic-state calls - trap 12 - because honesty about an instrument means counting what it
 > measures.)
 >
@@ -246,6 +246,16 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | the numbers | `vkCmd*` call sites **35 -> 6** (3 spellings left: the probe's host-read barrier, `readback`'s buffer barrier + copy, and `ray_tracing.cpp`'s two remaining barriers - see below), engine-side escape calls **94 -> 69**, includes unchanged at 38. |
 | WHAT THE 6 ARE | the three DOCUMENTED escape-bucket sites (the probes' HOST_READ barrier, `ray_tracing`'s HOST_WRITE micromap barrier, and `readback`'s conservative buffer barrier + copy), plus the two `ray_tracing` micromap barriers whose roles (`micromap_write`/`micromap_read`) the contract's `buffer_use` does not spell - adding them is a vocabulary decision, not a migration. Everything else in the frame is contract. |
 
+### 2.16 What the ELEVENTH batch added (the SBT region becomes an RHI type; abi 23)
+
+| area | what landed |
+|---|---|
+| the contract's type | `shader_binding_table_region`: three numbers - the device address of a region's first record, the bytes it spans, and the stride between records. It lives in `:extension` (NOT `:api_core`) because it is the vocabulary of an ABILITY's verb and `:api_core` imports `:extension` rather than the reverse - the same reason `descriptor_type` and the heap write PODs are there. It is a FROZEN by-value POD, and `address == 0` is the "no records" spelling (Vulkan DEREFERENCES the region pointer, so an empty table is a zeroed region and never nullptr). |
+| the verb's SHAPE | `ray_tracing::trace_rays` now takes the four regions (raygen, miss, hit, callable) plus width/height/depth. THE OLD SHAPE WAS REPLACED, NOT APPENDED TO, and that is what moved `abi_version` 22 -> 23: it was `trace_rays(commands, width, height, depth)`, which cannot describe a launch at all, and it had NO implementer and NO caller - a second overload would have left a verb nobody can carry out standing next to the one they can. |
+| what the engine gained | `rt_shadow_pass`'s four region members are the CONTRACT type now (they were `VkStridedDeviceAddressRegionKHR`, which put a Vulkan type in a pass's own state for no reason - the data is a device range, not a driver structure), and the ONE conversion to the driver's struct happens at the launch, field for field. |
+| what did NOT change, and why | THE BACKEND STILL DOES NOT SERVE THE VERB: `core::abilities()` does not announce `ray_tracing`, and a set bit is a promise about service - its other three verbs (create/build/address of an acceleration structure) are served by the engine's own `vulkan/ray_tracing` module through the escape today. So the launch stays the ONE raw site in that pass and `pass::native_commands` keeps its single user; the pass's wrapper and `pass::native_commands`' own doc now say exactly that (the vocabulary is no longer the reason - the SERVICE is). Serving the ability is a design step (implement all four methods in the backend, i.e. move acceleration-structure creation out of the engine module), not a migration. |
+| micromap roles | `buffer_use` gained `micromap_write`/`micromap_read` (two VALUES - no abi change), mapped in the backend to MICROMAP_BUILD/MICROMAP_WRITE_EXT and ACCELERATION_STRUCTURE_BUILD/MICROMAP_READ_EXT, and `ray_tracing.cpp`'s SECOND micromap barrier rides the contract now (`vkCmd*` 6 -> 5). THE FIRST ONE STAYS RAW: its source is HOST_WRITE, and the enum carries no host role - the split the contract's own `image_use` census records ("the host-visible barrier sites stay in the escape bucket"). |
+
 ## 3. What was tried and reverted (do not repeat)
 
 A blanket "replace every native type in the pass layer with the contract type" was attempted and
@@ -470,7 +480,7 @@ interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragm
 ## 8. What is left (ranked, with the measurements each step needs)
 
 **THE PASS LAYER IS AT ZERO `vkCmd*` SITES, HAS NO DEVICE IN ITS CONTEXT, AND EVERY PIPELINE IT BINDS IS A
-CONTRACT OBJECT.** The census reads **6 sites in 3 files**, none of them a pass, and every one of them is
+CONTRACT OBJECT.** The census reads **5 sites in 3 files**, none of them a pass, and every one of them is
 a site this note NAMES as the escape bucket rather than an unmigrated call:
 `runtime/runtime.probes.cppm` (1 - the host-visible barrier the contract's own `image_use` census assigns
 to the escape bucket; the batch before that had 11 sites here), `vulkan/ray_tracing/ray_tracing.cpp`

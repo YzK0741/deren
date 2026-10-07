@@ -291,6 +291,19 @@ export namespace deren::promise::rhi {
         /// `acceleration_structure_read` named the reader alone; a pair needs both halves, and neither
         /// `shader_write` (a compute stage) nor `transfer_destination` says "a build wrote this".
         acceleration_structure_write,
+        /// APPENDED WITH THEIR MEASUREMENT (the SBT batch, values again - no abi change): the OPACITY MICROMAP
+        /// BUILD as a writer and the ACCELERATION-STRUCTURE BUILD as its reader. `vulkan/ray_tracing/ray_tracing.cpp`
+        /// records the spec's own ordering barrier between them, whose raw masks are
+        /// MICROMAP_BUILD_BIT_EXT/MICROMAP_WRITE_BIT_EXT -> ACCELERATION_STRUCTURE_BUILD_BIT_KHR/MICROMAP_READ_BIT_EXT.
+        /// Neither half is a shader stage and neither is a transfer, so no earlier role named them - the same
+        /// measurement rule that produced `acceleration_structure_read`/`acceleration_structure_write`.
+        ///
+        /// THE MICROMAP'S *OTHER* BARRIER STAYS IN THE ESCAPE BUCKET, and that is a deliberate split rather than an
+        /// omission: its SOURCE is HOST_WRITE, and this enum carries no host role (the contract's `image_use` census
+        /// lists the host-visible barriers as the escape bucket's, because a host write is not a stage the recording
+        /// series can order).
+        micromap_write,
+        micromap_read,
     };
 
     /// One buffer's transition. `size == 0` means "the whole buffer" (the plan's spelling).

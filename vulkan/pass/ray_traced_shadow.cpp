@@ -136,8 +136,10 @@ namespace deren::vulkan::pass {
             this->release_owned();
             return;
         }
-        // One REGION per group, each starting on a base-aligned offset and holding exactly one record: the order
-        // is the builder's (raygen, miss, hit), so `handles[group]` lands in region `group`.
+        // THE REGIONS ARE THE CONTRACT'S TYPE (`rhi::shader_binding_table_region`): three numbers per table - the
+        // address of its first record, the bytes it spans, and the stride between records. One region per group,
+        // each starting on a base-aligned offset and holding exactly one record: the order is the builder's
+        // (raygen, miss, hit), so `handles[group]` lands in region `group`.
         std::vector<uint8_t> table(static_cast<size_t>(group_count) * region_size, 0);
         for (uint32_t group = 0; group < group_count; ++group) {
             std::memcpy(table.data() + static_cast<size_t>(group) * region_size, handles.data() + static_cast<size_t>(group) * handle_size, handle_size);
@@ -149,7 +151,7 @@ namespace deren::vulkan::pass {
             this->release_owned();
             return;
         }
-        auto const region = [region_size](VkDeviceAddress const at) { return VkStridedDeviceAddressRegionKHR{.deviceAddress = at, .stride = region_size, .size = region_size}; };
+        auto const region = [region_size](VkDeviceAddress const at) { return rhi::shader_binding_table_region{.address = at, .size = region_size, .stride = region_size}; };
         this->raygen_region = region(address);
         this->miss_region = region(address + region_size);
         this->hit_region = region(address + 2u * region_size);
@@ -165,25 +167,36 @@ namespace deren::vulkan::pass {
         // The one-shot log line stays set, because "this pass traces rays" does not become untrue on a resize.
     }
 
-    void rt_shadow_pass::trace_rays(deren::promise::rhi::command_buffer& commands, VkStridedDeviceAddressRegionKHR const* const raygen, VkStridedDeviceAddressRegionKHR const* const miss,
-                                    VkStridedDeviceAddressRegionKHR const* const hit, VkStridedDeviceAddressRegionKHR const* const callable, uint32_t const width, uint32_t const height,
+    void rt_shadow_pass::trace_rays(deren::promise::rhi::command_buffer& commands, deren::promise::rhi::shader_binding_table_region const& raygen,
+                                    deren::promise::rhi::shader_binding_table_region const& miss, deren::promise::rhi::shader_binding_table_region const& hit,
+                                    deren::promise::rhi::shader_binding_table_region const& callable, uint32_t const width, uint32_t const height,
                                     uint32_t const depth) noexcept {
         // THE PASS'S OWN RAW ENTRY POINT, reached through the contract's own escape (`pass::native_commands`):
-        // `vkCmdTraceRaysKHR` is resolved through vkGetDeviceProcAddr and the record series has no `trace_rays`
-        // verb yet, so this is one of the sites that stays raw - reported for §8.2. A face that answers no
-        // native command buffer records nothing rather than mis-casting a foreign pointer.
+        // `vkCmdTraceRaysKHR` is an ALLOCATED ENTRY POINT, and the contract's `ray_tracing::trace_rays` verb -
+        // which now takes exactly these four regions (see `shader_binding_table_region`) - is DECLARED but NOT
+        // SERVED: this backend does not announce the ability (`core::abilities` says so, and a set bit is a
+        // promise about service). So the launch stays raw, and the ONE conversion from the contract's region to
+        // the driver's structure happens here, field for field. A face that answers no native command buffer
+        // records nothing rather than mis-casting a foreign pointer.
         VkCommandBuffer const native = pass::native_commands(this->built_against, commands);
         if (native == VK_NULL_HANDLE || this->trace_rays_fn == nullptr) {
             return;
         }
-        this->trace_rays_fn(native, raygen, miss, hit, callable, width, height, depth);
+        auto const as_native = [](deren::promise::rhi::shader_binding_table_region const& region) {
+            return VkStridedDeviceAddressRegionKHR{.deviceAddress = region.address, .stride = region.stride, .size = region.size};
+        };
+        VkStridedDeviceAddressRegionKHR const native_raygen = as_native(raygen);
+        VkStridedDeviceAddressRegionKHR const native_miss = as_native(miss);
+        VkStridedDeviceAddressRegionKHR const native_hit = as_native(hit);
+        VkStridedDeviceAddressRegionKHR const native_callable = as_native(callable);
+        this->trace_rays_fn(native, &native_raygen, &native_miss, &native_hit, &native_callable, width, height, depth);
     }
 
     void rt_shadow_pass::record(resolved_io const& io) {
         if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::rt_shadow_barriers.size() ||
             io.pipelines.empty() || io.pipelines[0] == nullptr || io.list == nullptr ||
             io.barrier_images[barrier_visibility].image_handle == nullptr ||
-            this->hit_region.deviceAddress == 0 ||
+            this->hit_region.address == 0 ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
@@ -221,8 +234,9 @@ namespace deren::vulkan::pass {
         [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         // THE LAUNCH DIMS ARE THE EXTENT: one invocation per pixel of the visibility image, which is what the
         // compute form got from its dispatch and its bounds check. The launch itself is the pass's wrapper: the
-        // contract buffer in, the native out of the escape (see `trace_rays` above).
-        this->trace_rays(*io.cmd, &this->raygen_region, &this->miss_region, &this->hit_region, &this->callable_region, io.extent.width, io.extent.height, 1);
+        // contract buffer in, the native entry point out of the escape (see `trace_rays` above), and the REGIONS
+        // are the contract's own type now (see the members).
+        this->trace_rays(*io.cmd, this->raygen_region, this->miss_region, this->hit_region, this->callable_region, io.extent.width, io.extent.height, 1);
 
         // ... and the hand-off to the lighting stage, with the SAME hint and for the SAME reason: the recipe
         // (shader_write, shader_read) is `general_to_sampling_transition`, and its SOURCE stage is the

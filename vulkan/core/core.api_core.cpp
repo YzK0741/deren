@@ -2390,6 +2390,16 @@ namespace deren::vulkan {
                 stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
                 access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
                 return true;
+            case rhi::buffer_use::micromap_write:
+                // THE MICROMAP BUILD AS A WRITER (the appended value, and the spec's own pair): the opacity
+                // micromap a build wrote must finish before the acceleration-structure build reads it.
+                stage = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
+                access = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
+                return true;
+            case rhi::buffer_use::micromap_read:
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_MICROMAP_READ_BIT_EXT;
+                return true;
             case rhi::buffer_use::undefined:
                 return false;
             }

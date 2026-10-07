@@ -237,7 +237,14 @@ export namespace deren::promise::rhi {
     /// which is a tier-2 interface growing, the same shape as 5 -> 6 and 7 -> 8 above. The new `api_basis` type
     /// is an EMPTY, VIRTUAL-FREE tag struct (`s_type` only) that no boundary crosses by value and no interface
     /// gets a slot for, so the type alone moves nothing; the three appends are the whole reason for the number.
-    inline constexpr std::uint32_t abi_version = 22u;
+    /// 22 -> 23 in the SHADER-BINDING-TABLE batch: the `ray_tracing` ability's `trace_rays` slot CHANGED SHAPE
+    /// rather than being appended to - it takes four `shader_binding_table_region` parameters now, because the
+    /// shape it had (`commands, width, height, depth`) could not describe a launch at all and had no implementer
+    /// and no caller. That is the case the number exists for: a caller compiled against the old spelling would
+    /// pass three integers where the callee reads four regions. The new `shader_binding_table_region` type is a
+    /// plain by-value POD (adding a TYPE moves nothing on its own - it is the slot it appears in), and it is
+    /// FROZEN once shipped, like `image_copy_region`.
+    inline constexpr std::uint32_t abi_version = 23u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
