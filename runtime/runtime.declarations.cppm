@@ -2935,7 +2935,7 @@ namespace deren::vulkan {
          *  @note the only caller left is the HDR target's transition before the post chain - the one transition the
          *        chain's passes deliberately do NOT own (see render_resource::post_composite_io). The
          *        colour-attachment twin this pair used to have is gone with the recorders that used it. */
-        void barrier_image_to_sampling(VkCommandBuffer command_buffer, VkImage image);
+        void barrier_image_to_sampling();
         /**
          * @brief record one segment of the main pass (see the doc block above record_opaque_scene)
          * @param gbuffer_pass true = the leaves bind the G-buffer pipeline (the opaque instance of

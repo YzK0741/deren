@@ -545,27 +545,32 @@ namespace deren::vulkan {
         // the analytic answer and the environment agree by construction), and the unloaded-IBL path
         // uses it as the type-correct CUBE placeholder (see write_ibl_bindings) - a descriptor pointing
         // at an image nothing ever initialized is worse than one pointing at a neutral value.
-        // THE CUBE IS THE ENGINE'S OWN (③-D/E A1.6): the handle comes through the contract's escape and the
-        // guard is the manager's validity - a fixed-size engine handle cannot answer "how many images do I
-        // hold", so the vector-length test that stood here has no subject any more.
+        // THE CUBE IS THE ENGINE'S OWN (③-D/E A1.6): the handle is the contract's, and the guard is the
+        // manager's validity - a fixed-size engine handle cannot answer "how many images do I hold", so the
+        // vector-length test that stood here has no subject any more.
         if (!this->furnace_cube_ready && static_cast<bool>(this->furnace_cube_image)) {
-            VkImage const furnace_native = static_cast<VkImage>(this->escape().native_image(*this->furnace_cube_image));
-            VkImageMemoryBarrier2 to_transfer = deren::vulkan::undefined_to_transfer_dst_transition;
-            to_transfer.image = furnace_native;
-            to_transfer.subresourceRange.layerCount = 6; // all six faces, not the one the constant defaults to
-            VkDependencyInfo const to_transfer_dependency = make_image_dependency_info(1, &to_transfer);
-            vkCmdPipelineBarrier2(command_buffer, &to_transfer_dependency);
-
-            VkClearColorValue const level = {{1.0f, 1.0f, 1.0f, 1.0f}};
-            VkImageSubresourceRange const faces = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 6};
-            vkCmdClearColorImage(command_buffer, furnace_native, VK_IMAGE_LAYOUT_GENERAL, &level, 1, &faces);
-
-            VkImageMemoryBarrier2 to_sampling = deren::vulkan::transfer_dst_to_sampling_transition;
-            to_sampling.image = furnace_native;
-            to_sampling.subresourceRange.layerCount = 6;
-            VkDependencyInfo const to_sampling_dependency = make_image_dependency_info(1, &to_sampling);
-            vkCmdPipelineBarrier2(command_buffer, &to_sampling_dependency);
-
+            if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
+                // THE THREE STEPS RECORD THROUGH THE CONTRACT (undefined -> transfer_destination, the clear over
+                // all six faces, transfer_destination -> shader_read): the layer count is 6 rather than the
+                // recipes' single layer, and the handle is the CONTRACT image the escape used to derive a native
+                // one from.
+                rhi::subresource_range const six_faces{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 6u};
+                bool const to_transfer = frame_commands->barrier(rhi::image_barrier{.resource = this->furnace_cube_image.get(),
+                                                                                    .from = rhi::image_use::undefined,
+                                                                                    .to = rhi::image_use::transfer_destination,
+                                                                                    .range = six_faces}) == rhi::error::ok;
+                bool const cleared = to_transfer && frame_commands->clear_color_image(*this->furnace_cube_image, std::array<float, 4>{1.0f, 1.0f, 1.0f, 1.0f}, six_faces) == rhi::error::ok;
+                bool const to_sampling = cleared && frame_commands->barrier(rhi::image_barrier{.resource = this->furnace_cube_image.get(),
+                                                                                               .from = rhi::image_use::transfer_destination,
+                                                                                               .to = rhi::image_use::shader_read,
+                                                                                               .range = six_faces}) == rhi::error::ok;
+                if (!to_sampling) {
+                    // NAMED AND NOT FATAL, exactly like the raw sequence this replaced: the cube keeps its
+                    // DESCRIPTOR (write_ibl_bindings republishes the same address every frame), so a refusal
+                    // leaves a stale environment rather than skipping the frame.
+                    deren::utility::log("runtime: the furnace cube's clear was refused through the contract; the environment cube stays as it was");
+                }
+            }
             this->furnace_cube_ready = true;
         }
         // Debug overlay: begin a fresh ImGui frame once per rendered frame (after the acquire,
@@ -875,14 +880,17 @@ namespace deren::vulkan {
             ray_tracing::build_inputs const inputs = this->make_structure_inputs();
             // structures_frame_slot, not frame_slot: the outer frame_slot is in scope; MSVC /W4 C4456, an error under /WX.
             uint32_t const structures_frame_slot = this->frame_ring().position();
-            if (auto const built = this->structures.build(command_buffer, inputs); !built) {
+            // THE CONTRACT BUFFER IS WHAT THE STRUCTURE SET RECORDS THROUGH (the tenth batch): its two
+            // build-ordering barriers are the contract's role pairs now, so it takes the contract buffer and
+            // derives the native handle it still needs for the allocated build entry points itself.
+            if (auto const built = this->structures.build(*this->frame_command_buffer(), inputs); !built) {
                 deren::utility::log("ray-traced shadows disabled: {}", built.error().message);
             }
             // ... and the top level structure, which is rebuilt EVERY frame: the instance set is culled per
             // frame and a caster's world matrix can change (animation, a moved node), so the instance list
             // is frame data like any other. On the frame that builds the bottom levels it runs right after them;
             // from the next frame on it is the structure a shadow ray will traverse.
-            if (auto const updated = this->structures.update(command_buffer, structures_frame_slot, inputs); !updated) {
+            if (auto const updated = this->structures.update(*this->frame_command_buffer(), structures_frame_slot, inputs); !updated) {
                 deren::utility::log("runtime: {}", updated.error().message);
                 if (updated.error().disable_skin_bake) {
                     this->rt_skin_bake = false;
@@ -932,7 +940,6 @@ namespace deren::vulkan {
         if (features.shadow && !shadow_reuse) {
             deren::vulkan::profiling::cpu_phase_timer const shadow_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::shadow}; // the sub-phase of scene that records every cascade
             if (static_cast<bool>(this->shadow_images[static_cast<std::size_t>(frame_slot)])) {
-                VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(*this->shadow_images[static_cast<std::size_t>(frame_slot)]));
                 // Secondary: inherit only the depth attachment (dynamic rendering 1.3). The
                 // shadow map is single-sampled; viewMask 0 = no multiview. The rendering
                 // inheritance struct hangs off VkCommandBufferInheritanceInfo::pNext (NOT the
@@ -958,11 +965,14 @@ namespace deren::vulkan {
                 // shrank cascade count left behind are covered by the same range - the descriptor's array view spans
                 // every allocated layer, so "one barrier, whole array" is the invariant. That count is the IMAGE's,
                 // which is why this is the host's and not the pass's.
-                std::array<VkImageMemoryBarrier2, 1> shadow_read_barrier = {shadow_map_sampling_transition};
-                shadow_read_barrier[0].image = shadow_native;
-                shadow_read_barrier[0].subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, this->shadow_allocated_layers};
-                VkDependencyInfo const shadow_read_dependency = make_image_dependency_info(1, shadow_read_barrier.data());
-                vkCmdPipelineBarrier2(command_buffer, &shadow_read_dependency);
+                if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
+                    // depth_attachment -> depth_read, over every layer the image owns (the range the raw
+                    // barrier retargeted); what stays here is the host's count, not a mask pair.
+                    (void)frame_commands->barrier(rhi::image_barrier{.resource = this->shadow_images[static_cast<std::size_t>(frame_slot)].get(),
+                                                                     .from = rhi::image_use::depth_attachment,
+                                                                     .to = rhi::image_use::depth_read,
+                                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = this->shadow_allocated_layers}});
+                }
                 this->shadow_rendered_version[frame_slot] = this->shadow_content_version;
                 this->shadow_rendered_models[frame_slot] = geometry_signature;
             }
@@ -980,18 +990,18 @@ namespace deren::vulkan {
             // collapsed every layout to GENERAL, which is what the driver expects now). Contents do not
             // matter (the shader returns "fully lit"), hence UNDEFINED as the old layout.
             if (static_cast<bool>(this->shadow_images[static_cast<std::size_t>(frame_slot)])) {
-                VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(*this->shadow_images[static_cast<std::size_t>(frame_slot)]));
-                VkImageMemoryBarrier2 shadow_read_barrier = deren::vulkan::undefined_to_depth_sampling_transition;
-                shadow_read_barrier.image = shadow_native;
-                // Every layer the image OWNS, not just layer 0: the constant's range is single-layer
-                // and the whole array view the descriptor covers must be sampleable. The count is
-                // shadow_allocated_layers - the layer count the image was actually created with - and
-                // NOT max_shadow_cascades: the two differ whenever fewer cascades are active than
-                // were ever allocated (the default is three), and a subresource range reaching past
-                // the image's own layer count is a VUID on every shadow-off frame.
-                shadow_read_barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, 0, this->shadow_allocated_layers};
-                VkDependencyInfo const shadow_read_dependency = make_image_dependency_info(1, &shadow_read_barrier);
-                vkCmdPipelineBarrier2(command_buffer, &shadow_read_dependency);
+                if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
+                    // undefined -> depth_read. Every layer the image OWNS, not just layer 0: the constant's
+                    // range is single-layer and the whole array view the descriptor covers must be sampleable.
+                    // The count is shadow_allocated_layers - the layer count the image was actually created
+                    // with - and NOT max_shadow_cascades: the two differ whenever fewer cascades are active
+                    // than were ever allocated, and a range reaching past the image's own layer count is a
+                    // VUID on every shadow-off frame.
+                    (void)frame_commands->barrier(rhi::image_barrier{.resource = this->shadow_images[static_cast<std::size_t>(frame_slot)].get(),
+                                                                     .from = rhi::image_use::undefined,
+                                                                     .to = rhi::image_use::depth_read,
+                                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = this->shadow_allocated_layers}});
+                }
             }
         }
 
@@ -1095,14 +1105,17 @@ namespace deren::vulkan {
         // recorded the scene segments here - with a pipeline that does not exist, which validation would have
         // refused; drawing nothing is both shorter and true.)
         this->begin_rendering(command_buffer, this->current_image_index, 0);
-        vkCmdEndRendering(command_buffer);
+        if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
+            frame_commands->end_rendering(); // the matching half of the empty instance above
+        }
     }
 
     // Move the scene pass's attachments into their render layouts; see the declaration for why this
     // cannot be left to a render pass.
     void runtime::record_scene_attachments(VkCommandBuffer const command_buffer) {
+        static_cast<void>(command_buffer); // the contract buffer records the batch; the raw handle is kept for the call shape
         // (no `core&` alias here any more: every handle this function moves is an ENGINE-owned one now -
-        // ③-D/E A1.4 - and comes through the contract's escape)
+        // ③-D/E A1.4 - and it is the CONTRACT image, so no native derivation happens here any more)
         // Dynamic rendering has no automatic attachment transitions (a render pass would do them
         // implicitly): move every attachment into its render layout before vkCmdBeginRendering. The
         // set is the G-buffer mode's three single-sampled surface targets, the motion-vector target
@@ -1113,28 +1126,41 @@ namespace deren::vulkan {
         // room for every pass attachment plus the depth. Sizing this for the old three-target
         // G-buffer was a stack overflow the moment the emissive attachment arrived - validation
         // reported the fifth barrier as garbage.
-        std::array<VkImageMemoryBarrier2, deren::vulkan::gbuffer_pass_attachment_count + 1> attachment_barriers = {};
+        //
+        // EVERY TRANSITION BELOW RIDES THE CONTRACT (the raw array and its one vkCmdPipelineBarrier2 are
+        // gone): each site's recipe is its (from, to) role pair, one batch carries them all, and a refused
+        // transition is named rather than dropped silently.
+        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
+        if (frame_commands == nullptr) {
+            return; // no frame is in flight: there is no recording buffer to move the attachments on
+        }
+        std::array<rhi::image_barrier, deren::vulkan::gbuffer_pass_attachment_count + 1> attachment_barriers = {};
         uint32_t barrier_count = 0;
-        auto const add_render_barrier = [&attachment_barriers, &barrier_count](VkImageMemoryBarrier2 const& transition, VkImage const image) {
-            VkImageMemoryBarrier2& barrier = attachment_barriers[barrier_count++];
-            barrier = transition; // copy the role default, then retarget it
-            barrier.image = image;
+        auto const add_render_barrier = [&attachment_barriers, &barrier_count](rhi::image_use const from, rhi::image_use const to, rhi::image* const image) {
+            attachment_barriers[barrier_count] = rhi::image_barrier{.resource = image,
+                                                                    .from = from,
+                                                                    .to = to,
+                                                                    .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
+            ++barrier_count;
         };
 
         {
-            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every handle below comes through the
-            // contract's escape, exactly like the scene-colour target's (which scene_target_image answers for
-            // both of its branches now).
+            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every handle below is the CONTRACT image
+            // the escape used to derive a native one from, exactly like the scene-colour target's (which
+            // scene_target_image answers for both of its branches now).
             for (uint32_t target = 0; target < deren::vulkan::render_layout::gbuffer_target_count; ++target) {
-                add_render_barrier(color_attachment_transition, static_cast<VkImage>(this->escape().native_image(*this->gbuffer_images[target][this->current_image_index])));
+                add_render_barrier(rhi::image_use::undefined, rhi::image_use::color_attachment, this->gbuffer_images[target][this->current_image_index].get());
             }
-            add_render_barrier(color_attachment_transition, static_cast<VkImage>(this->escape().native_image(*this->velocity_images[this->current_image_index])));
-            add_render_barrier(depth_attachment_transition, static_cast<VkImage>(this->escape().native_image(*this->gbuffer_depth_images[this->current_image_index])));
+            add_render_barrier(rhi::image_use::undefined, rhi::image_use::color_attachment, this->velocity_images[this->current_image_index].get());
+            add_render_barrier(rhi::image_use::undefined, rhi::image_use::depth_attachment, this->gbuffer_depth_images[this->current_image_index].get());
             // The scene-color target enters the pass as an attachment too (the emissive accumulation
             // target) - the HDR image normally, scene_color when the TAA resolve owns the HDR target
-            // this frame (see scene_target_image). It is cleared by the instance below, so UNDEFINED as
-            // the old layout is correct whatever it held before.
-            add_render_barrier(color_attachment_transition, this->scene_target_image(this->current_image_index));
+            // this frame (see scene_target_image). The CONTRACT handle is the same choice
+            // scene_target_image() makes, without the native derivation; it is cleared by the instance
+            // below, so UNDEFINED as the old layout is correct whatever it held before.
+            add_render_barrier(rhi::image_use::undefined,
+                               rhi::image_use::color_attachment,
+                               this->taa_active() ? this->scene_color_images[this->current_image_index].get() : this->hdr_images[this->current_image_index].get());
             // this instance writes the G-buffer depth, so it is in the attachment layout from here on:
             // the stage that samples it later calls ensure_gbuffer_depth_sampled() (see the accessor).
             // The flag vector is per swapchain image and sized with the generation; the guard is a
@@ -1158,8 +1184,11 @@ namespace deren::vulkan {
             }
         }
 
-        VkDependencyInfo const dependency_info = make_image_dependency_info(barrier_count, attachment_barriers.data());
-        vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+        // ONE batch, the shape the raw vkCmdPipelineBarrier2 had: the raw code's single call carried the
+        // per-image barriers, so a refused batch leaves every attachment in the state the frame declared.
+        if (frame_commands->barrier(rhi::barrier_group{.images = std::span(attachment_barriers.data(), barrier_count)}) != rhi::error::ok) {
+            deren::utility::log("runtime: the scene attachment batch was refused through the contract; the scene pass may read an undeclared state");
+        }
     }
 
     // Resync the cached viewport/scissor of every pipeline that draws this frame.
@@ -1318,8 +1347,13 @@ namespace deren::vulkan {
         // pours straight through a wall the camera sees as solid - the classic "the wall behind the
         // camera is transparent" leak. See render_environment::two_sided.
         env.two_sided = true;
-        env.set_cull_mode_fn = [this](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
-            vkCmdSetCullMode(this->native_handle(*session), mode);
+        // THE RECEIVED VkCullModeFlags MAPS ONTO THE CONTRACT'S ENUM: NONE -> none, FRONT_BIT -> front,
+        // BACK_BIT -> back and FRONT_AND_BACK -> front_and_back (the contract spells all four).
+        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
+            session->set_cull_mode(mode == VK_CULL_MODE_NONE        ? rhi::cull_mode::none
+                                   : mode == VK_CULL_MODE_FRONT_BIT ? rhi::cull_mode::front
+                                   : mode == VK_CULL_MODE_BACK_BIT  ? rhi::cull_mode::back
+                                                                    : rhi::cull_mode::front_and_back);
         };
         // The shadow session's endpoint (see render_environment::push_block). `this` is const here because the
         // method is; the endpoint only records into the command buffer, so the cast is a formality.
@@ -1467,6 +1501,7 @@ namespace deren::vulkan {
     // the same move the ray-traced shadow stage's identical pair made, and the same command-stream position.
 
     void runtime::clear_scene_color_for_missing_gbuffer(VkCommandBuffer const command_buffer) {
+        static_cast<void>(command_buffer); // the contract buffer records the clear; the raw handle is kept for the call shape
         // The deferred lighting pass did not record - its pipeline is missing (a startup failure), or its target
         // is not in this frame's resource table. The pass cannot do this itself, because a pass records nothing
         // when its declaration does not resolve - so the frame's answer lives here: clear
@@ -1475,22 +1510,29 @@ namespace deren::vulkan {
         // is worse than a log line. (The log line's wording is historical: the missing thing used to be a
         // descriptor set, and the frame's answer to a missing one was this same clear.)
         // THE SCENE-COLOUR TARGET IS THE ENGINE'S OWN (③-D/E A1.4): the guard is the CONTRACT's bound plus the
-        // manager's validity, and both handles come through the contract's escape.
+        // manager's validity, and the handle the clear below takes is the CONTRACT image itself.
         uint32_t const index = this->current_image_index;
         if (index >= rhi::max_swapchain_images || !static_cast<bool>(this->scene_color_images[index])) {
             return;
         }
         deren::utility::log("runtime: deferred lighting has no descriptor set - clearing the scene target");
-        std::array<VkImageMemoryBarrier2, 1> clear_barrier = {deren::vulkan::color_attachment_transition};
-        clear_barrier[0].image = static_cast<VkImage>(this->escape().native_image(*this->scene_color_images[index]));
-        VkDependencyInfo const clear_dependency = make_image_dependency_info(1, clear_barrier.data());
-        vkCmdPipelineBarrier2(command_buffer, &clear_dependency);
-        VkClearValue clear = {};
-        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(
-            static_cast<VkImageView>(this->escape().native_image_view(*this->scene_color_image_views[index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->render_extent()}, true, &attachment, nullptr);
-        vkCmdBeginRendering(command_buffer, &rendering_info);
-        vkCmdEndRendering(command_buffer);
+        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
+        if (frame_commands == nullptr) {
+            return; // no frame is in flight: there is no recording buffer to clear through
+        }
+        // undefined -> color_attachment (the recipe the raw transition copied), then the clear itself: both
+        // go through the contract, the clear replacing the hand-built attachment + begin/end pair.
+        rhi::subresource_range const one_layer{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
+        if (frame_commands->barrier(rhi::image_barrier{.resource = this->scene_color_images[index].get(),
+                                                       .from = rhi::image_use::undefined,
+                                                       .to = rhi::image_use::color_attachment,
+                                                       .range = one_layer}) != rhi::error::ok) {
+            deren::utility::log("runtime: the fallback scene-target transition was refused through the contract");
+            return;
+        }
+        if (frame_commands->clear_color_image(*this->scene_color_images[index], std::array<float, 4>{}, one_layer) != rhi::error::ok) {
+            deren::utility::log("runtime: the fallback scene-target clear was refused through the contract");
+        }
     }
 
     // The G-buffer declarations' SAMPLERS: what is left of make_gbuffer_debug_pipeline in the renderer, because the
@@ -1605,10 +1647,17 @@ namespace deren::vulkan {
         // The G-buffer pass left it in GENERAL: publish the attachment
         // write and flip it to the layout the sampling descriptors declare. One barrier per frame,
         // whichever of the three sampling stages gets here first.
-        VkImageMemoryBarrier2 barrier = deren::vulkan::shadow_map_sampling_transition;
-        barrier.image = static_cast<VkImage>(this->escape().native_image(*this->gbuffer_depth_images[image_index]));
-        VkDependencyInfo const dependency = make_image_dependency_info(1, &barrier);
-        vkCmdPipelineBarrier2(this->native_frame_commands(command_buffer), &dependency);
+        //
+        // depth_attachment -> depth_read, recorded on the contract buffer the frame's recording face
+        // speaks (the same buffer the raw spelling derived its native handle from). A REFUSED barrier
+        // leaves the flag armed: the next sampling stage retries rather than claiming a state nobody
+        // declared, which is why the flag flips only on `ok`.
+        if (command_buffer->barrier(rhi::image_barrier{.resource = this->gbuffer_depth_images[image_index].get(),
+                                                       .from = rhi::image_use::depth_attachment,
+                                                       .to = rhi::image_use::depth_read,
+                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}}) != rhi::error::ok) {
+            return false;
+        }
         this->gbuffer_depth_written[image_index] = false;
         return true;
     }
@@ -1620,13 +1669,18 @@ namespace deren::vulkan {
         if (image_index >= this->gbuffer_targets_written.size() || !this->gbuffer_targets_written[image_index]) {
             return false;
         }
-        std::array<VkImageMemoryBarrier2, deren::vulkan::render_layout::gbuffer_target_count> barriers = {};
+        // color_attachment -> shader_read for every stored surface target, in ONE contract batch (what the
+        // raw vkCmdPipelineBarrier2 carried).
+        std::array<rhi::image_barrier, deren::vulkan::render_layout::gbuffer_target_count> barriers = {};
         for (uint32_t target = 0; target < deren::vulkan::render_layout::gbuffer_target_count; ++target) {
-            barriers[target] = deren::vulkan::hdr_sampling_transition; // COLOR_ATTACHMENT -> SHADER_READ
-            barriers[target].image = static_cast<VkImage>(this->escape().native_image(*this->gbuffer_images[target][image_index]));
+            barriers[target] = rhi::image_barrier{.resource = this->gbuffer_images[target][image_index].get(),
+                                                  .from = rhi::image_use::color_attachment,
+                                                  .to = rhi::image_use::shader_read,
+                                                  .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
         }
-        VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
-        vkCmdPipelineBarrier2(this->native_frame_commands(command_buffer), &dependency);
+        if (command_buffer->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
+            return false; // the flag stays armed so a later sampler retries (see ensure_gbuffer_depth_sampled)
+        }
         this->gbuffer_targets_written[image_index] = false;
         return true;
     }
@@ -1637,10 +1691,13 @@ namespace deren::vulkan {
         if (image_index >= this->velocity_written.size() || !this->velocity_written[image_index]) {
             return false;
         }
-        VkImageMemoryBarrier2 barrier = deren::vulkan::hdr_sampling_transition; // COLOR_ATTACHMENT -> SHADER_READ
-        barrier.image = static_cast<VkImage>(this->escape().native_image(*this->velocity_images[image_index]));
-        VkDependencyInfo const dependency = make_image_dependency_info(1, &barrier);
-        vkCmdPipelineBarrier2(this->native_frame_commands(command_buffer), &dependency);
+        // color_attachment -> shader_read (what hdr_sampling_transition spelled).
+        if (command_buffer->barrier(rhi::image_barrier{.resource = this->velocity_images[image_index].get(),
+                                                       .from = rhi::image_use::color_attachment,
+                                                       .to = rhi::image_use::shader_read,
+                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}}) != rhi::error::ok) {
+            return false; // the flag stays armed so a later sampler retries (see ensure_gbuffer_depth_sampled)
+        }
         this->velocity_written[image_index] = false;
         return true;
     }
@@ -2427,8 +2484,11 @@ namespace deren::vulkan {
         };
         // single-sided materials keep back-face culling here (the shadow pass overrides it with env.two_sided;
         // the main pass must not, or double-sided handling would cost fill rate)
-        env.set_cull_mode_fn = [&self](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
-            vkCmdSetCullMode(self.native_handle(*session), mode);
+        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
+            session->set_cull_mode(mode == VK_CULL_MODE_NONE        ? rhi::cull_mode::none
+                                   : mode == VK_CULL_MODE_FRONT_BIT ? rhi::cull_mode::front
+                                   : mode == VK_CULL_MODE_BACK_BIT  ? rhi::cull_mode::back
+                                                                    : rhi::cull_mode::front_and_back);
         };
         // THE HEAP PUSH (see render_environment::push_block): every draw in this session sends its block through
         // the same endpoint a converted pass uses; that endpoint is what appends the two heap indices, which is
@@ -3127,10 +3187,11 @@ namespace deren::vulkan {
                 // a statically-used binding's image to be in the layout the descriptor declares whether
                 // or not the value is used. UNDEFINED as the old layout asserts nothing - the same
                 // answer the GI image's off path gives.
-                VkImageMemoryBarrier2 to_sampling = deren::vulkan::undefined_to_sampling_transition;
-                to_sampling.image = static_cast<VkImage>(this->escape().native_image(*this->rt_shadow_images[this->frame_ring().position()]));
-                VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-                vkCmdPipelineBarrier2(command_buffer, &sampling_dependency);
+                // undefined -> shader_read (the recipe the raw transition copied), over the whole image.
+                (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rt_shadow_images[this->frame_ring().position()].get(),
+                                                                               .from = rhi::image_use::undefined,
+                                                                               .to = rhi::image_use::shader_read,
+                                                                               .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
             }
             // GPU timing: the ray-traced shadow pass ends here (before the lighting stage reads its
             // output). It gets its own interval because it sits between the G-buffer pass and the
@@ -3173,10 +3234,11 @@ namespace deren::vulkan {
                 // change failed exactly so). UNDEFINED as the old layout asserts nothing - it discards contents
                 // rather than claiming a layout - so the transition is valid whether the image is untouched or
                 // already readable. The same answer the GI image's and the shadow map's spare layers' off paths give.
-                VkImageMemoryBarrier2 to_sampling = deren::vulkan::undefined_to_sampling_transition;
-                to_sampling.image = static_cast<VkImage>(this->escape().native_image(*this->ml_resolve_images[this->current_image_index]));
-                VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-                vkCmdPipelineBarrier2(command_buffer, &sampling_dependency);
+                // undefined -> shader_read (the recipe the raw transition copied), over the whole image.
+                (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->ml_resolve_images[this->current_image_index].get(),
+                                                                               .from = rhi::image_use::undefined,
+                                                                               .to = rhi::image_use::shader_read,
+                                                                               .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
             }
             // THE LIGHTING STAGE IS A PASS (deren.vulkan.pass.deferred), and what the frame still owes it is one answer
             // plus the stage's own frame-order duty: it is a
@@ -3280,10 +3342,11 @@ namespace deren::vulkan {
         if (this->gbuffer_pass_active() && !this->deferred_lit_active()) {
             // The HDR target becomes a colour attachment BEFORE the stage: the G-buffer pass wrote its own targets,
             // so this image was never an attachment this frame, and the pass's instance CLEARs it.
-            std::array<VkImageMemoryBarrier2, 1> hdr_barrier = {deren::vulkan::color_attachment_transition};
-            hdr_barrier[0].image = static_cast<VkImage>(this->escape().native_image(*this->hdr_images[this->current_image_index]));
-            VkDependencyInfo const hdr_dependency = make_image_dependency_info(1, hdr_barrier.data());
-            vkCmdPipelineBarrier2(command_buffer, &hdr_dependency);
+            // undefined -> color_attachment, on the contract buffer (what the raw transition spelled).
+            (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->hdr_images[this->current_image_index].get(),
+                                                                           .from = rhi::image_use::undefined,
+                                                                           .to = rhi::image_use::color_attachment,
+                                                                           .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
             // THIS STAGE'S FRAME-ORDER DUTY, the same shape as the lighting stage's above and for the same reason:
             // the debug view runs INSTEAD of the lighting stage, so it is the stage that hands the stored surface
             // and the motion vectors to samplers this frame - and both halves are the chain OWNER's now (the
@@ -3301,14 +3364,20 @@ namespace deren::vulkan {
         this->gpu_mark(gpu_mark_id::main_end);
     }
 
-    void runtime::barrier_image_to_sampling(VkCommandBuffer const command_buffer, VkImage const image) {
+    void runtime::barrier_image_to_sampling() {
         // A pipeline barrier may not be recorded inside a dynamic rendering instance
         // (VUID-vkCmdPipelineBarrier2-None-09553), which is why every caller of this runs BEFORE its
         // vkCmdBeginRendering.
-        std::array<VkImageMemoryBarrier2, 1> barriers = {deren::vulkan::hdr_sampling_transition};
-        barriers[0].image = image;
-        VkDependencyInfo const dependency_info = make_image_dependency_info(1, barriers.data());
-        vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+        // THE TRANSITION RIDES THE CONTRACT, AND IT NEEDS NO ARGUMENT: the one image this function ever moves is
+        // the frame's HDR target for the acquired image (`hdr_images[current_image_index]`, the image both call
+        // sites passed), so the contract handle comes from that member and the recipe is the
+        // (color_attachment, shader_read) pair `hdr_sampling_transition` spells. The raw `VkCommandBuffer` and
+        // `VkImage` parameters this used to take are GONE rather than ignored: a signature that promises two
+        // arguments and reads neither is a lie the next reader has to check.
+        (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->hdr_images[this->current_image_index].get(),
+                                                                       .from = rhi::image_use::color_attachment,
+                                                                       .to = rhi::image_use::shader_read,
+                                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
     }
 
     void runtime::record_overlay_if_enabled(VkCommandBuffer const command_buffer) {
@@ -3390,6 +3459,7 @@ namespace deren::vulkan {
     // happen even on a frame the pass cannot draw, because the post chain samples that image.
 
     void runtime::clear_hdr_for_missing_gbuffer_set(VkCommandBuffer const command_buffer) {
+        static_cast<void>(command_buffer); // the contract buffer records the clear; the raw handle is kept for the call shape
         // The debug view did not record - its pipeline is missing (a startup failure), or the frame has no target
         // for it. The pass cannot do this itself, because a pass records nothing when its declaration does not
         // resolve - so the frame's
@@ -3398,23 +3468,30 @@ namespace deren::vulkan {
         // historical: the missing thing used to be a descriptor set, and the frame's answer to a missing one was
         // this same clear.)
         // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3) now, so the guard is the CONTRACT's bound plus the
-        // manager's validity rather than a backend vector's length, and both handles come through the
-        // contract's escape.
+        // manager's validity rather than a backend vector's length, and the handle the clear below takes is
+        // the CONTRACT image itself.
         uint32_t const index = this->current_image_index;
         if (index >= rhi::max_swapchain_images || !static_cast<bool>(this->hdr_images[index])) {
             return;
         }
         deren::utility::log("runtime: gbuffer debug pass has no descriptor set - showing a cleared frame");
-        std::array<VkImageMemoryBarrier2, 1> clear_barrier = {deren::vulkan::color_attachment_transition};
-        clear_barrier[0].image = static_cast<VkImage>(this->escape().native_image(*this->hdr_images[index]));
-        VkDependencyInfo const clear_dependency = make_image_dependency_info(1, clear_barrier.data());
-        vkCmdPipelineBarrier2(command_buffer, &clear_dependency);
-        VkClearValue clear = {};
-        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(
-            static_cast<VkImageView>(this->escape().native_image_view(*this->hdr_image_views[index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->render_extent()}, true, &attachment, nullptr);
-        vkCmdBeginRendering(command_buffer, &rendering_info);
-        vkCmdEndRendering(command_buffer);
+        // undefined -> color_attachment (the recipe the raw transition copied) and the clear itself: both
+        // ride the contract, and the clear replaces the hand-built attachment + begin/end pair.
+        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
+        if (frame_commands == nullptr) {
+            return; // no frame is in flight: there is no recording buffer to clear through
+        }
+        rhi::subresource_range const one_layer{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u};
+        if (frame_commands->barrier(rhi::image_barrier{.resource = this->hdr_images[index].get(),
+                                                       .from = rhi::image_use::undefined,
+                                                       .to = rhi::image_use::color_attachment,
+                                                       .range = one_layer}) != rhi::error::ok) {
+            deren::utility::log("runtime: the fallback HDR-target transition was refused through the contract");
+            return;
+        }
+        if (frame_commands->clear_color_image(*this->hdr_images[index], std::array<float, 4>{}, one_layer) != rhi::error::ok) {
+            deren::utility::log("runtime: the fallback HDR-target clear was refused through the contract");
+        }
     }
     bool runtime::record_post_process(VkCommandBuffer const command_buffer) {
         // (no `core&` alias here any more: the last backend-owned read in this function was the bloom chain's
@@ -3430,7 +3507,7 @@ namespace deren::vulkan {
         std::size_t const index = this->current_image_index;
 
         // HDR scene target -> fragment-shader read (the prefilter and the composite both read it)
-        this->barrier_image_to_sampling(command_buffer, static_cast<VkImage>(this->escape().native_image(*this->hdr_images[index])));
+        this->barrier_image_to_sampling();
 
         // The composite's GI upsample also samples the G-buffer depth and normal, and the stage that
         // normally publishes those two is the deferred lighting stage (or the debug view) - both part
@@ -3440,13 +3517,18 @@ namespace deren::vulkan {
         // layout is honest here - there is no content to preserve - and the GI weight is 0 on such a
         // frame, so the taps' values cannot influence the image.
         if (!this->gbuffer_pass_active()) {
-            std::array<VkImageMemoryBarrier2, 2> gbuffer_barriers = {};
-            gbuffer_barriers[0] = deren::vulkan::undefined_to_depth_sampling_transition; // DEPTH aspect
-            gbuffer_barriers[0].image = static_cast<VkImage>(this->escape().native_image(*this->gbuffer_depth_images[index]));
-            gbuffer_barriers[1] = deren::vulkan::undefined_to_sampling_transition;
-            gbuffer_barriers[1].image = static_cast<VkImage>(this->escape().native_image(*this->gbuffer_images[1][index])); // the world normal
-            VkDependencyInfo const gbuffer_dependency = make_image_dependency_info(static_cast<uint32_t>(gbuffer_barriers.size()), gbuffer_barriers.data());
-            vkCmdPipelineBarrier2(command_buffer, &gbuffer_dependency);
+            // undefined -> depth_read for the depth, undefined -> shader_read for the world normal (the two
+            // recipes the raw barriers copied), in ONE contract batch on the frame's recording buffer.
+            std::array<rhi::image_barrier, 2> gbuffer_barriers = {};
+            gbuffer_barriers[0] = rhi::image_barrier{.resource = this->gbuffer_depth_images[index].get(),
+                                                     .from = rhi::image_use::undefined,
+                                                     .to = rhi::image_use::depth_read,
+                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
+            gbuffer_barriers[1] = rhi::image_barrier{.resource = this->gbuffer_images[1][index].get(), // the world normal
+                                                     .from = rhi::image_use::undefined,
+                                                     .to = rhi::image_use::shader_read,
+                                                     .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
+            (void)this->frame_command_buffer()->barrier(rhi::barrier_group{.images = gbuffer_barriers});
         }
 
         // Screen-space GI runs HERE, and the position is the whole reason it cannot feed back: `hdr`
@@ -3489,11 +3571,13 @@ namespace deren::vulkan {
             // descriptor set takes it too.
             // the level count comes from the shared module now (③-D/E A1.5): the engine sizes its own bloom
             // arrays by it, so the backend's alias is no longer the only spelling of it
+            // EVERY LEVEL IS ONE undefined -> shader_read TRANSITION (the recipe the raw barrier copied), on
+            // the frame's recording buffer.
             for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
-                std::array<VkImageMemoryBarrier2, 1> barriers = {deren::vulkan::undefined_to_sampling_transition};
-                barriers[0].image = static_cast<VkImage>(this->escape().native_image(*this->bloom_images[level][index]));
-                VkDependencyInfo const dependency_info = make_image_dependency_info(1, barriers.data());
-                vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+                (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->bloom_images[level][index].get(),
+                                                                               .from = rhi::image_use::undefined,
+                                                                               .to = rhi::image_use::shader_read,
+                                                                               .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
             }
         }
         // GPU timing: the bloom chain ends here (a disabled chain is just the layout fixups above, so its interval
@@ -3637,7 +3721,6 @@ namespace deren::vulkan {
         // it ran. When it was skipped the image never entered GENERAL, and claiming
         // that old layout would be a lie (validation: "oldLayout is not matching with the current
         // layout"): transition from UNDEFINED instead - the frame has no content to preserve anyway.
-        VkImageMemoryBarrier2 present_barrier = post_wrote_swapchain ? present_transition : deren::vulkan::undefined_to_present_transition;
         // THE PER-IMAGE INDEX IS CHECKED BEFORE IT IS USED (③-D/E item A1: the contract's
         // `rhi::max_swapchain_images` promise). Every per-image array in this renderer is sized by that
         // constant, and the engine only ever indexes with the index the ACQUIRE answered - so an index at or
@@ -3651,10 +3734,13 @@ namespace deren::vulkan {
                                   this->current_image_index,
                                   rhi::max_swapchain_images);
         }
-        present_barrier.image = static_cast<VkImage>(this->escape().native_image(*this->rhi_face().frame_image()));
-
-        VkDependencyInfo const dependency_info = make_image_dependency_info(1, &present_barrier);
-        vkCmdPipelineBarrier2(command_buffer, &dependency_info);
+        // color_attachment -> present when the post chain wrote the swapchain, undefined -> present when it
+        // was skipped (the two recipes the raw presentation barrier chose between). The image is the frame's
+        // OWN contract handle (`frame_image()`), which the backend's registry accepts by identity.
+        (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->rhi_face().frame_image(),
+                                                                       .from = post_wrote_swapchain ? rhi::image_use::color_attachment : rhi::image_use::undefined,
+                                                                       .to = rhi::image_use::present,
+                                                                       .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
         // GPU timing: last mark of the frame. The interval it closes is everything after the FXAA
         // (or composite) pass - the screenshot read-back copy and the present barrier.
         this->gpu_mark(gpu_mark_id::frame_end);

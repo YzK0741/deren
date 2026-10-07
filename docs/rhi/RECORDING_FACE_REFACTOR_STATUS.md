@@ -1,6 +1,6 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: nine batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: ten batches have LANDED AND ARE GREEN.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
@@ -10,9 +10,10 @@
 > it did not before the third batch, and the sixth batch's new escape slots are proven by it (the SBT
 > query travels through `api_basis` there, and the smoke run still builds its table).
 >
-> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 35**, **none of them
-> in `vulkan/pass/`**; the ESCAPE's own demand, measured for the first time in the seventh batch:
-> **105 -> 94 engine-side call sites**. Engine files including a Vulkan header **62 -> 38**; abi
+> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 6**, **none of them
+> in `vulkan/pass/`** (the SIX left are the documented escape-bucket sites - see 2.15); the ESCAPE's
+> own demand, measured for the first time in the seventh batch: **105 -> 69 engine-side call sites**.
+> Engine files including a Vulkan header **62 -> 38**; abi
 > **20 -> 22**, pinned in both tests. (The call-site count is not monotone: the fifth batch's probe fix
 > ADDED three dynamic-state calls - trap 12 - because honesty about an instrument means counting what it
 > measures.)
@@ -231,6 +232,19 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | the moved state sites | `runtime.cpp` (3 sites), `runtime.frames.cppm` (2) and the two post-ish passes (`toon_screen_rim.cpp`, `goo_rim.cpp`) assign the contract PODs to the cached state instead of `VkViewport`/`VkRect2D`. |
 | the numbers | `vkCmd*` **41 -> 35** (7 distinct spellings left, all in the frame loop's barrier/clear/rendering sites and `readback`); engine-side escape calls **101 -> 94**; `vulkan/pipelines/pipelines.cppm` now names NO Vulkan type, macro or entry point, so it dropped its include: engine files with a Vulkan header **39 -> 38**. |
 | WHAT REMAINS IN THE FRAME LOOP | the ~20 `vkCmdPipelineBarrier2` sites (hand-written stage/access mask pairs, which need a mask -> `image_use`/`buffer_use` role translation per site - the contract's own `image_use` census was DERIVED from exactly those recipes, so the mapping is documented but per-site), plus `vkCmdBeginRendering`/`vkCmdEndRendering` (`runtime.cpp` 2 + the frame loop 2), one `vkCmdClearColorImage` (the furnace clear), one raw `vkCmdSetCullMode` in each environment's cull callback (the `render_environment` setter still speaks `VkCullModeFlags` - converting it touches the passes' env too), and `readback.cpp`'s one-shot copy + its buffer barrier. |
+
+### 2.15 What the TENTH batch added (the frame loop's barriers - `vkCmd*` 35 -> 6)
+
+| area | what landed |
+|---|---|
+| the frame loop's barriers | ALL 17 hand-built `VkImageMemoryBarrier2` + `vkCmdPipelineBarrier2` sites in `runtime/runtime.frames.cppm` became CONTRACT calls, each one recipe -> one role pair: `undefined_to_transfer_dst_transition` -> (undefined, transfer_destination), `transfer_dst_to_sampling_transition` -> (transfer_destination, shader_read), `shadow_map_sampling_transition` -> (depth_attachment, depth_read), `undefined_to_depth_sampling_transition` -> (undefined, depth_read), `color_attachment_transition` -> (undefined, color_attachment), `hdr_sampling_transition` -> (color_attachment, shader_read), `undefined_to_sampling_transition` -> (undefined, shader_read), `present_transition` -> (color_attachment, present). The multi-image sites (`record_scene_attachments`, `ensure_gbuffer_targets_sampled`, the post G-buffer off batch) are ONE `barrier_group`, the shape the raw call had. Every `escape().native_image(...)` that fed them is gone: the resources are the CONTRACT images. |
+| clears, scopes, cull | the furnace cube's clear is `clear_color_image(*furnace_cube_image, {1,1,1,1}, 6 layers)`; both missing-set fallbacks clear through the same verb (their hand-built attachment + begin/end pairs are deleted); `runtime.cpp`'s two `vkCmdBeginRendering` pairs are `begin_rendering(rendering_info)` built from the contract views; `record_scene`'s empty instance closes with `end_rendering()`; both environment cull callbacks map `VkCullModeFlags` -> `rhi::cull_mode`. |
+| `ray_tracing.cpp` | `structure_set::build`/`update` TAKE THE CONTRACT BUFFER now (`rhi::command_buffer& commands`), deriving the native handle ONCE for the allocated build entry points - which is what lets the two build-ordering memory barriers ride the contract: the mask-bake one reuses the pair `compute_skin.cpp` established, and the top-level one needed a NEW APPENDED VALUE, `buffer_use::acceleration_structure_write` (a value, so no abi bump; the backend's `buffer_masks_for` maps it to AS_BUILD + `ACCELERATION_STRUCTURE_WRITE_KHR`). The frame loop's two call sites pass `*frame_command_buffer()`. |
+| `readback.cpp` | LEFT RAW, and that is a decision with a reason: `readback::read(VkBuffer, ...)` is a raw-handle utility BY DESIGN (raw fence, raw submit, `native_buffer_of`), its barrier's source is the deliberately conservative ALL_COMMANDS/MEMORY_WRITE pair that the contract's buffer roles cannot spell (`undefined` would emit a weaker source), and `copy_buffer` needs the SOURCE as a contract `buffer` its API does not take. |
+| dead parameters | `barrier_image_to_sampling(VkCommandBuffer, VkImage)` became `barrier_image_to_sampling()`: it reads the frame's HDR image from its own state, and the two parameters were already ignored inside (`static_cast<void>`). A signature that promises arguments and reads none is a lie the next reader has to check. |
+| ONE BEHAVIOUR CHANGE, DECLARED | the `ensure_*` helpers no longer consume their "written" flag when a barrier is REFUSED (the contract call can fail by name; the raw call could not) - a later sampler retries instead of the frame silently keeping an unpublished image. Every other refusal is logged. |
+| the numbers | `vkCmd*` call sites **35 -> 6** (3 spellings left: the probe's host-read barrier, `readback`'s buffer barrier + copy, and `ray_tracing.cpp`'s two remaining barriers - see below), engine-side escape calls **94 -> 69**, includes unchanged at 38. |
+| WHAT THE 6 ARE | the three DOCUMENTED escape-bucket sites (the probes' HOST_READ barrier, `ray_tracing`'s HOST_WRITE micromap barrier, and `readback`'s conservative buffer barrier + copy), plus the two `ray_tracing` micromap barriers whose roles (`micromap_write`/`micromap_read`) the contract's `buffer_use` does not spell - adding them is a vocabulary decision, not a migration. Everything else in the frame is contract. |
 
 ## 3. What was tried and reverted (do not repeat)
 
@@ -456,13 +470,13 @@ interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragm
 ## 8. What is left (ranked, with the measurements each step needs)
 
 **THE PASS LAYER IS AT ZERO `vkCmd*` SITES, HAS NO DEVICE IN ITS CONTEXT, AND EVERY PIPELINE IT BINDS IS A
-CONTRACT OBJECT.** The census reads **35 sites in 5 files**, none of them a pass:
-`runtime/runtime.frames.cppm` (29 - the frame loop's own barriers, the furnace clear, the two rendering
-scopes and the shadow hand-back; the RUNNER's own viewport/scissor and depth-write are contract verbs as
-of the ninth batch), `runtime/runtime.probes.cppm` (1 - the ONE host-visible barrier the contract's own
-`image_use` note assigns to the escape bucket; the batch before that had 11 here),
-`vulkan/ray_tracing/ray_tracing.cpp` (4 - the structure set's barriers, out of the pass layer by design)
-and `readback.cpp` (2 - its one-shot copy and its buffer barrier). The include count is **38** (the
+CONTRACT OBJECT.** The census reads **6 sites in 3 files**, none of them a pass, and every one of them is
+a site this note NAMES as the escape bucket rather than an unmigrated call:
+`runtime/runtime.probes.cppm` (1 - the host-visible barrier the contract's own `image_use` census assigns
+to the escape bucket; the batch before that had 11 sites here), `vulkan/ray_tracing/ray_tracing.cpp`
+(3 - the HOST_WRITE micromap barrier, the micromap write -> read barrier whose roles `buffer_use` does not
+spell, and a build entry-point resolution), and `readback.cpp` (2 - its conservative buffer barrier and
+its copy; the class is a raw-handle utility by design - see 2.15). The include count is **38** (the
 census's own scope: `runtime/**` + `vulkan/**` MINUS `vulkan/core/**`).
 
 DONE IN THE SECOND, THIRD AND FOURTH BATCHES (all gated, see section 6):

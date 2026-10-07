@@ -284,6 +284,13 @@ export namespace deren::promise::rhi {
         /// measured site is `vulkan/pass/compute_skin.cpp`'s build-ordering barrier, whose raw masks were
         /// COMPUTE_SHADER/SHADER_WRITE -> ACCELERATION_STRUCTURE_BUILD/SHADER_READ.
         acceleration_structure_read,
+        /// APPENDED WITH ITS MEASUREMENT (the ninth/tenth batch, adding a VALUE - no abi change): the
+        /// ACCELERATION-STRUCTURE BUILD as a WRITER. `vulkan/ray_tracing/ray_tracing.cpp`'s build-ordering barrier
+        /// waits for every bottom level one build wrote before the next build reads them, and its raw masks were
+        /// ACCELERATION_STRUCTURE_BUILD/ACCELERATION_STRUCTURE_WRITE_KHR -> the same stage/ACCELERATION_STRUCTURE_READ.
+        /// `acceleration_structure_read` named the reader alone; a pair needs both halves, and neither
+        /// `shader_write` (a compute stage) nor `transfer_destination` says "a build wrote this".
+        acceleration_structure_write,
     };
 
     /// One buffer's transition. `size == 0` means "the whole buffer" (the plan's spelling).

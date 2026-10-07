@@ -176,7 +176,7 @@ export namespace deren::vulkan::ray_tracing {
          * @note a second call does nothing: a device that refused the build is not asked again, and a build that
          *       succeeded is not repeated (the geometry is the primitive's own memory)
          */
-        [[nodiscard]] std::expected<void, failure> build(VkCommandBuffer command_buffer, build_inputs const& inputs);
+        [[nodiscard]] std::expected<void, failure> build(rhi::command_buffer& commands, build_inputs const& inputs);
         /**
          * @brief re-skin and REFIT the skinned structures, then rebuild this slot's instance list and structure
          *
@@ -184,7 +184,7 @@ export namespace deren::vulkan::ray_tracing {
          * would be rewritten by the frame being recorded while the previous one still reads it), and the caller
          * is what paces frames.
          */
-        [[nodiscard]] std::expected<void, failure> update(VkCommandBuffer command_buffer, uint32_t frame_slot, build_inputs const& inputs);
+        [[nodiscard]] std::expected<void, failure> update(rhi::command_buffer& commands, uint32_t frame_slot, build_inputs const& inputs);
 
         /// @brief whether a build was attempted, success or failure (there is no retry - see build)
         [[nodiscard]] bool attempted() const noexcept;

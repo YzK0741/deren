@@ -2383,6 +2383,13 @@ namespace deren::vulkan {
                 stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
                 access = VK_ACCESS_2_SHADER_READ_BIT;
                 return true;
+            case rhi::buffer_use::acceleration_structure_write:
+                // THE WRITER IS NOT A SHADER STAGE EITHER (the appended value): a bottom level the BUILD wrote
+                // must finish before the next build reads it (ray_tracing.cpp's build-ordering barrier). The
+                // access bit is the extension's own ACCELERATION_STRUCTURE_WRITE_KHR.
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+                return true;
             case rhi::buffer_use::undefined:
                 return false;
             }

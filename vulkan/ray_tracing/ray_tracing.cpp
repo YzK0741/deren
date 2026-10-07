@@ -45,6 +45,15 @@ namespace deren::vulkan::ray_tracing {
             return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
         }
 
+        /// THE NATIVE COMMAND BUFFER BEHIND A CONTRACT ONE (the tenth batch): the structure set records through
+        /// the contract's record series now (`barrier` above all), but the acceleration-structure and micromap
+        /// BUILD commands are ALLOCATED ENTRY POINTS the contract has no verb for - so this is derived once per
+        /// call and fed to them, the documented escape bucket. Null when the face announces no escape.
+        VkCommandBuffer native_commands_of(rhi::api_core& face, rhi::command_buffer& commands) {
+            auto* const escape = escape_of(face);
+            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkCommandBuffer>(escape->native_command_buffer(commands));
+        }
+
         /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
         /// the address could not be answered (the flag was not set, or the ability is not announced).
         VkDeviceAddress buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
@@ -348,7 +357,7 @@ namespace deren::vulkan::ray_tracing {
         return source;
     }
 
-    std::expected<void, failure> structure_set::build(VkCommandBuffer const command_buffer, build_inputs const& inputs) {
+    std::expected<void, failure> structure_set::build(rhi::command_buffer& commands, build_inputs const& inputs) {
         // BUILT ONCE, SUCCESS OR FAILURE: a device that refused the build is not asked again, and no log repeats.
         if (this->build_attempted) {
             return {};
@@ -356,6 +365,10 @@ namespace deren::vulkan::ray_tracing {
         this->build_attempted = true;
 
         rhi::api_core& vk = *this->contract;
+        // THE CONTRACT BUFFER IS WHAT THIS FUNCTION TAKES (the tenth batch); the native handle is derived ONCE,
+        // here, for the allocated build entry points the contract has no verb for - and the record series'
+        // BARRIERS go through the contract buffer itself.
+        VkCommandBuffer const command_buffer = native_commands_of(vk, commands);
         auto const start = std::chrono::steady_clock::now();
         this->bottom.emplace(vk);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
@@ -579,22 +592,23 @@ namespace deren::vulkan::ray_tracing {
         // WRITE is not visible to an acceleration structure build without it, and the symptom would be a structure
         // built from an empty buffer - i.e. geometry that stops casting.
         if (mask_bakes_recorded) {
-            VkMemoryBarrier2 bake_order = {};
-            bake_order.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            bake_order.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            bake_order.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-            bake_order.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-            bake_order.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            VkDependencyInfo const bake_dependency = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                      .pNext = nullptr,
-                                                      .dependencyFlags = 0,
-                                                      .memoryBarrierCount = 1,
-                                                      .pMemoryBarriers = &bake_order,
-                                                      .bufferMemoryBarrierCount = 0,
-                                                      .pBufferMemoryBarriers = nullptr,
-                                                      .imageMemoryBarrierCount = 0,
-                                                      .pImageMemoryBarriers = nullptr};
-            vkCmdPipelineBarrier2(command_buffer, &bake_dependency);
+            // THE BUILD ORDERING RIDES THE CONTRACT NOW (the tenth batch): the pair is the measurement, and it
+            // is the SAME pair `vulkan/pass/compute_skin.cpp` records - (shader_write, acceleration_structure_read)
+            // is exactly the raw masks this replaced (COMPUTE_SHADER/SHADER_WRITE ->
+            // ACCELERATION_STRUCTURE_BUILD/SHADER_READ). `command_buffer` is the contract buffer this build
+            // records into, so the memory barrier is a `barrier_group` with `has_memory`.
+            deren::promise::rhi::barrier_group const bake_order{
+                .struct_size = sizeof(deren::promise::rhi::barrier_group),
+                .images = {},
+                .buffers = {},
+                .stage = deren::promise::rhi::stage_hint::none,
+                .has_memory = true,
+                .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::shader_write,
+                                                              .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+            };
+            if (commands.barrier(bake_order) != deren::promise::rhi::error::ok) {
+                deren::utility::log("ray tracing: the mask bake's build-ordering barrier was refused");
+            }
         }
 
         // ---- THE MICROMAP BUILDS, recorded here because the structure builds below READ them ----
@@ -702,11 +716,15 @@ namespace deren::vulkan::ray_tracing {
         return {};
     }
 
-    std::expected<void, failure> structure_set::update(VkCommandBuffer const command_buffer, uint32_t const frame_slot, build_inputs const& inputs) {
+    std::expected<void, failure> structure_set::update(rhi::command_buffer& commands, uint32_t const frame_slot, build_inputs const& inputs) {
         if (!this->ready()) {
             return {}; // nothing was built (or the build failed): there is nothing to refit or to instance
         }
         rhi::api_core& vk = *this->contract;
+        // THE CONTRACT BUFFER IS THIS FUNCTION'S PARAMETER (the tenth batch): the native handle is derived ONCE
+        // for the allocated refit entry points, and the record-series calls (the build ordering above all) go
+        // through the contract buffer.
+        VkCommandBuffer const command_buffer = native_commands_of(vk, commands);
         auto& levels = *this->bottom;
         auto& top = *this->top_level;
 
@@ -773,22 +791,22 @@ namespace deren::vulkan::ray_tracing {
         // build's reads against writes the first one has not published. It costs a no-op on every later frame
         // (nothing wrote a bottom level in this buffer), which is cheaper than a flag that would have to track
         // "which frame built them".
-        VkMemoryBarrier2 build_order = {};
-        build_order.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        build_order.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        build_order.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-        build_order.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        build_order.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-        VkDependencyInfo const build_order_info = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                   .pNext = nullptr,
-                                                   .dependencyFlags = 0,
-                                                   .memoryBarrierCount = 1,
-                                                   .pMemoryBarriers = &build_order,
-                                                   .bufferMemoryBarrierCount = 0,
-                                                   .pBufferMemoryBarriers = nullptr,
-                                                   .imageMemoryBarrierCount = 0,
-                                                   .pImageMemoryBarriers = nullptr};
-        vkCmdPipelineBarrier2(command_buffer, &build_order_info);
+        // THE CONTRACT'S PAIR, AND THE VALUE IT NEEDED: (acceleration_structure_write,
+        // acceleration_structure_read) is the measured mask pair (ACCELERATION_STRUCTURE_BUILD with the
+        // extension's WRITE access -> the same stage with the READ access). `acceleration_structure_read` named
+        // the reader already; the WRITER is the value appended with this site.
+        deren::promise::rhi::barrier_group const build_order{
+            .struct_size = sizeof(deren::promise::rhi::barrier_group),
+            .images = {},
+            .buffers = {},
+            .stage = deren::promise::rhi::stage_hint::none,
+            .has_memory = true,
+            .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::acceleration_structure_write,
+                                                          .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+        };
+        if (commands.barrier(build_order) != deren::promise::rhi::error::ok) {
+            deren::utility::log("ray tracing: the top-level build-ordering barrier was refused");
+        }
 
         if (auto const built = top.record_build(command_buffer); !built) {
             return std::unexpected(failure{.message = built.error()});

@@ -135,56 +135,99 @@ namespace deren::vulkan {
         // single-sampled targets + the motion-vector target + the G-buffer's own 1x depth image, and
         // adds the emissive into the scene color target. The lighting stage then shades it into the
         // image the post chain reads (scene_target_view).
+        //
+        // THE SCOPE RIDES THE CONTRACT NOW (no vkCmdBeginRendering here): the attachments are the
+        // CONTRACT views the engine owns, the load/store/clear roles are what the raw helpers spelled,
+        // and the matching close is `command_buffer->end_rendering()` in the caller
+        // (`record_scene`'s empty-instance path); the native parameter is kept for the call shape.
+        static_cast<void>(command_buffer);
+        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
+        if (frame_commands == nullptr) {
+            return; // no frame is in flight: there is no recording buffer to open an instance on
+        }
         if (this->gbuffer_pass_active()) {
-            std::array<VkRenderingAttachmentInfo, deren::vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
-            VkClearValue clear = {}; // the surface + motion targets clear to zero: no geometry, no motion
-            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every view below comes through the
-            // contract's escape, and the depth is the engine's `depth`-ROLE image.
+            std::array<rhi::color_attachment, deren::vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
+            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every view below is the CONTRACT
+            // view, and the depth is the engine's `depth`-ROLE image.
             for (uint32_t target = 0; target < deren::vulkan::render_layout::gbuffer_target_count; ++target) {
-                gbuffer_attachments[target] = make_color_attachment_info(
-                    static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_image_views[target][image_index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+                gbuffer_attachments[target] = rhi::color_attachment{.view = this->gbuffer_image_views[target][image_index].get(),
+                                                                    .load = rhi::load_op::clear, // make_color_attachment_info's loadOp
+                                                                    .store = rhi::store_op::store,
+                                                                    .clear = {}}; // the surface + motion targets clear to zero: no geometry, no motion
             }
-            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count] = make_color_attachment_info(
-                static_cast<VkImageView>(this->escape().native_image_view(*this->velocity_image_views[image_index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count] = rhi::color_attachment{.view = this->velocity_image_views[image_index].get(),
+                                                                                                            .load = rhi::load_op::clear,
+                                                                                                            .store = rhi::store_op::store,
+                                                                                                            .clear = {}};
             // the last attachment is the scene color, CLEARed to zero: it accumulates only the
             // emissive here. The lighting stage then adds the lighting (and the sky, for pixels no
             // geometry wrote) on top, so a lit pixel is emissive + lighting and a background pixel is
             // sky - with no background pass anywhere. Under TAA the scene color is the resolve's input
             // image, and the resolve writes the HDR target the post chain reads (see
             // runtime::scene_target_view).
-            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count + 1] = make_color_attachment_info(this->scene_target_view(image_index), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count + 1] =
+                rhi::color_attachment{.view = this->taa_active() ? this->scene_color_image_views[image_index].get() : this->hdr_image_views[image_index].get(),
+                                      .load = rhi::load_op::clear,
+                                      .store = rhi::store_op::store,
+                                      .clear = {}};
             // the G-buffer depth clears to the far plane (1.0) - but unlike the old forward path's
             // main depth, its contents must SURVIVE the instance: the lighting stage, the transparent
             // pass, the TAA resolve and the debug view all read this image later in the same
             // submission (the G-buffer depth heap slot, which all four of them read). STORE_OP_DONT_CARE would
             // leave the contents undefined, which is exactly what those four read.
-            VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(
-                static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_depth_image_views[image_index])), VK_ATTACHMENT_STORE_OP_STORE);
-            VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, this->render_extent()}, gbuffer_attachments.data(), static_cast<uint32_t>(gbuffer_attachments.size()), &depth_attachment);
-            vkCmdBeginRendering(command_buffer, &rendering_info);
+            rhi::depth_attachment const depth_attachment = {.view = this->gbuffer_depth_image_views[image_index].get(),
+                                                            .load = rhi::load_op::clear, // make_depth_attachment_info's loadOp
+                                                            .store = rhi::store_op::store,
+                                                            .read_only = false,
+                                                            .has_stencil = false,
+                                                            .clear_depth = 1.0f,
+                                                            .clear_stencil = 0};
+            rhi::rendering_info const rendering_info{
+                .struct_size = sizeof(rhi::rendering_info),
+                .area = {.offset_x = 0, .offset_y = 0, .width = this->render_extent().width, .height = this->render_extent().height},
+                .layer_count = 1, // the raw make_rendering_info's layerCount, which is 1 at every site in this engine
+                .colors = gbuffer_attachments,
+                .depth = depth_attachment,
+                .has_depth = true,
+                .secondary_contents = (flags & VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT) != 0, // the one flag bit the raw call passed
+            };
+            (void)frame_commands->begin_rendering(rendering_info);
             return;
         }
 
         // No G-buffer pipeline: no scene can be drawn. Open an empty instance anyway, so every frame
-        // still has a matching vkCmdEndRendering and the post chain samples a defined target.
-        // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3): the view comes through the contract's escape.
-        VkClearValue clear_color = {};
-        clear_color.color = {{this->background_color.r, this->background_color.g, this->background_color.b, 1.0f}};
-        VkImageView const hdr_view = image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
-                                         ? static_cast<VkImageView>(this->escape().native_image_view(*this->hdr_image_views[image_index]))
-                                         : VK_NULL_HANDLE;
-        VkRenderingAttachmentInfo const color_attachment = make_color_attachment_info(
-            hdr_view,
-            clear_color,
-            VK_RESOLVE_MODE_NONE,
-            VK_NULL_HANDLE);
+        // still has a matching end and the post chain samples a defined target.
+        // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3): the view is the CONTRACT view.
+        rhi::image_view* const hdr_view = image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
+                                              ? this->hdr_image_views[image_index].get()
+                                              : nullptr;
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = hdr_view,
+                                  .load = rhi::load_op::clear, // make_color_attachment_info's loadOp
+                                  .store = rhi::store_op::store,
+                                  .clear = {this->background_color.r, this->background_color.g, this->background_color.b, 1.0f}},
+        };
 
         // depth clears to the far plane (1.0): make_depth_attachment_info. DONT_CARE is correct here -
         // nothing samples this depth (the G-buffer depth above is the one that is read back).
-        VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_depth_image_views[image_index])), VK_ATTACHMENT_STORE_OP_DONT_CARE);
+        rhi::depth_attachment const depth_attachment = {.view = this->gbuffer_depth_image_views[image_index].get(),
+                                                        .load = rhi::load_op::clear,       // make_depth_attachment_info's loadOp
+                                                        .store = rhi::store_op::dont_care, // VK_ATTACHMENT_STORE_OP_DONT_CARE
+                                                        .read_only = false,
+                                                        .has_stencil = false,
+                                                        .clear_depth = 1.0f,
+                                                        .clear_stencil = 0};
 
-        VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, this->render_extent()}, true, &color_attachment, &depth_attachment);
-        vkCmdBeginRendering(command_buffer, &rendering_info);
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = this->render_extent().width, .height = this->render_extent().height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = depth_attachment,
+            .has_depth = true,
+            .secondary_contents = (flags & VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT) != 0,
+        };
+        (void)frame_commands->begin_rendering(rendering_info);
     }
 
     frame_status runtime::poll_events() {
