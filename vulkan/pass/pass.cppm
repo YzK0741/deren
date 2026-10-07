@@ -1009,7 +1009,9 @@ export namespace deren::vulkan::pass {
          * @param views one view per instance, in instance order (an empty span publishes nothing)
          * @param images the images behind them, in the same order (a buffer family passes an empty span)
          */
-        void publish_family(render_resource::resource_id const id, uint32_t const element, std::span<VkImageView const> views, std::span<VkImage const> images) noexcept {
+        void publish_family(render_resource::resource_id const id, uint32_t const element, std::span<VkImageView const> views,
+                            std::span<VkImage const> images, std::span<deren::promise::rhi::image* const> image_handles = {},
+                            std::span<deren::promise::rhi::image_view* const> view_handles = {}) noexcept {
             if (views.empty() && images.empty()) {
                 return;
             }
@@ -1017,10 +1019,12 @@ export namespace deren::vulkan::pass {
                 if (f.id == id && f.element == element) {
                     f.views = views;
                     f.images = images;
+                    f.image_handles = image_handles;
+                    f.view_handles = view_handles;
                     return;
                 }
             }
-            this->families.push_back(family_entry{.id = id, .element = element, .views = views, .images = images});
+            this->families.push_back(family_entry{.id = id, .element = element, .views = views, .images = images, .image_handles = image_handles, .view_handles = view_handles});
         }
 
         /**
@@ -1060,7 +1064,13 @@ export namespace deren::vulkan::pass {
             for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element && instance < f.views.size()) {
                     VkImage const image = instance < f.images.size() ? f.images[instance] : VK_NULL_HANDLE;
-                    return resolved_binding{.view = f.views[instance], .buffer = VK_NULL_HANDLE, .image = image};
+                    // THE CONTRACT HANDLES RIDE ALONG when the owner published them; a family whose owner has
+                    // not (yet) passes nullptrs, which is the state the resolve-side check reports.
+                    return resolved_binding{.view = f.views[instance],
+                                            .buffer = VK_NULL_HANDLE,
+                                            .image = image,
+                                            .image_handle = instance < f.image_handles.size() ? f.image_handles[instance] : nullptr,
+                                            .view_handle = instance < f.view_handles.size() ? f.view_handles[instance] : nullptr};
                 }
             }
             return {};
@@ -1111,11 +1121,24 @@ export namespace deren::vulkan::pass {
             resolved_binding binding = {};
         };
         /// one family element, held as the run of views and images the owner already has (see publish_family)
+        ///
+        /// THE CONTRACT HANDLES ARE CARRIED HERE TOO, beside the native ones. The `entries` path already
+        /// publishes them for the resources a frame publishes one by one, and the per-instance
+        /// `owned_family` publisher fills them as well - but a family registered by the SPAN path used to
+        /// reach `find()`'s family fallback with NATIVE handles only, so a pass that resolved such a
+        /// binding got a null contract handle and every recording verb refused it (the failure that
+        /// `vulkan/pass/taa.cpp` was the first to hit: a refused barrier, a silent early return, and a
+        /// frame rendered without that pass). The columns are EMPTY until the owner passes its handles:
+        /// empty means "the owner has not published them", which the resolve-side check reports.
         struct family_entry {
             render_resource::resource_id id = render_resource::resource_id::none;
             uint32_t element = 0;
             std::span<VkImageView const> views = {};
             std::span<VkImage const> images = {};
+            /// one contract image per instance, in the same order as `images` (empty = not published yet)
+            std::span<deren::promise::rhi::image* const> image_handles = {};
+            /// one contract view per instance, in the same order as `views` (empty = not published yet)
+            std::span<deren::promise::rhi::image_view* const> view_handles = {};
         };
         /// A vector rather than a map: the table holds what one frame's chain can NAME, it is filled once per
         /// frame in one pass, and the lookups happen during resolution - so the smallest container that works is
