@@ -245,6 +245,26 @@ every batch.
   stops immediately.
 - Do not leave stray `*.log` files in the repo root (they make the tree dirty). Put build logs in
   `%TEMP%`.
+- **PROVING A COMPILE-TIME GATE MUST BE DONE BY MUTATION, WITH A `-fsyntax-only` CHECK.** A static
+  assertion that has never been made to fail is not evidence of anything: the first version of the
+  coverage gate in `vulkan/core/core.api_core.cpp` stayed GREEN while a real pair was missing (a
+  value-initialised dummy row kept every count intact, and a short-circuited predicate made the
+  "name the pair" check a tautology). To repeat that experiment cheaply, and to keep it immune to the
+  PCM flake above (a full mutated build hit `unable to open output file '...pcm'` eight times in a row
+  and never reached the asserts - concurrent builders map the same `.pcm`):
+
+  ```
+  cd build-release-dyn-clang64
+  ninja -t commands CMakeFiles/deren_vulkan.dir/vulkan/core/core.api_core.cpp.obj | Select-Object -Last 1
+  # take that line, drop `-o <obj>` and `-c`, add `-fsyntax-only`, and RUN IT FROM THE BUILD DIRECTORY
+  ```
+
+  This build tree exports no `compile_commands.json`, so ninja's own database is the source of the
+  compile line. It must run FROM THE BUILD DIRECTORY: the line carries a relative
+  `@...core.api_core.cpp.obj.modmap` response file, so the repository root fails with "no such file or
+  directory". The check writes no BMI, which is exactly why the flake cannot reach it.
+  **The procedure: baseline exits 0, delete one row, the check FAILS naming the problem, restore the row
+  and exit 0 again - with `git status` clean afterwards.**
 - One builder at a time. `git add` explicit paths.
 - Report per batch: the six readings, the two sweep numbers (section 7), and anything not verified.
 
