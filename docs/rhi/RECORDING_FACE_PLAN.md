@@ -247,3 +247,67 @@ every batch.
   `%TEMP%`.
 - One builder at a time. `git add` explicit paths.
 - Report per batch: the six readings, the two sweep numbers (section 7), and anything not verified.
+
+## 9. Corrections after the first implementation report (supersede section 0/2/3 where they disagree)
+
+These came from the localization report written before any code was touched. Read this section as the
+authoritative numbers; sections 0, 2 and 3 were written from an earlier census whose SCRIPT had a bug.
+
+**9.1 The census script under-counted, and the barrier verb was the casualty.** The convention
+("a line counts when it is not a comment and contains `vkCmd<Name>(`") is right, but the first script
+reported `vkCmdPipelineBarrier2` as ZERO engine call sites while 52 real ones exist in the same files
+it scanned - e.g. `vulkan/pass/post.cpp:208 vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);`,
+`upscale.cpp:175`, `taa.cpp`, ... The corrected baseline under the stated convention:
+
+```
+call sites, not tokens (comments excluded), engine files = runtime/** + vulkan/** minus vulkan/core/:
+  88 sites over 15 spellings (begin_rendering 18, end_rendering 17, set_cull_mode 11, draw 10,
+  bind_pipeline 8, dispatch 6, execute_commands 4, set_viewport 3, set_scissor 3, copy_image 2,
+  set_depth_write 2, set_depth_bias 1, copy_buffer 1, clear_color_image 1, mesh_tasks_indirect 1)
++ 52 vkCmdPipelineBarrier2 sites that script missed
+= 140 call sites over 16 spellings, and barrier is still the single largest verb.
+```
+
+`vkCmdPipelineBarrier2` distribution (code sites): `runtime/runtime.frames.cppm` 17 (lines 544, 554,
+952, 981, 1128, 1429, 1553, 1571, 1585, 2999, 3045, 3152, 3177, 3273, 3311, 3358, 3519),
+`pass/post.cpp` 4, `pass/taa.cpp` 4, `ray_tracing/ray_tracing.cpp` 4, `megalights_temporal.cpp` 3,
+`runtime/runtime.probes.cppm` 2, `character_forward.cpp` 2, `fxaa.cpp` 2, `megalights_trace.cpp` 2,
+`ray_traced_shadow.cpp` 2, `transparent.cpp` 2, `upscale.cpp` 2, and one each in cluster,
+compute_skin, deferred, geometry_buffer_debug, shadow, readback.
+Engine files 80, of which 62 include a Vulkan header (unchanged).
+
+**9.2 Verbs whose engine call sites are ZERO because a helper or a function pointer carries them.**
+These are NOT "already migrated"; their migration face is the helper's call count, not a `vkCmd*`
+count. Do not size the batch from the verb name.
+
+| verb | engine path | the number that matters |
+|---|---|---|
+| `vkCmdPushDataEXT` | `pass::resolved_io::push_endpoint` -> `runtime::push_stage_block` -> backend `cmd_push_data`; the only real call is in `descriptor_heap.cppm:332` | `push_stage_block` 9 sites, `push_block` 39 (18 are declarations), `push_endpoint` 3 |
+| `vkCmdDrawMeshTasksEXT` / `...IndirectEXT` | resolved by name with `vkGetDeviceProcAddr` (`runtime.constructor.cppm:509`, `runtime.probes.cppm:164`) and dispatched through the cached pointer in `vulkan/primitive/primitive.cpp` | `mesh_dispatch` 4 sites in primitive.cpp, `draw_mesh_tasks` helper 8 |
+| `vkCmdTraceRaysKHR`, `vkCmdBuildAccelerationStructuresKHR`, `vkCmdBuildMicromapsEXT` | same function-pointer pattern in `vulkan/ray_tracing/ray_tracing.cpp` | names appear as string literals (2/2/1), no `(` call sites |
+| `vkCmdBindVertexBuffers`, `vkCmdDrawIndexed` | lambdas in `vulkan/primitive/primitive.cpp` and `vulkan/acceleration_structure/acceleration_structure.cpp` | `vertex_buffer` 11 sites |
+
+**9.3 Two rows of section 2 are not migrations at all.** `write_timestamp`: no engine-side call site
+exists - the gpu_timing face (`begin_gpu_timing`/`mark_gpu_timing`, abi 14) already owns it, so DELETE
+the row. `copy_image_to_buffer`: already a contract verb (abi 16) - the row is a cross-reference, not
+work.
+
+**9.4 `image_use`: the role list is now measured (section 3 only had `buffer_use`).** Every
+`VkImageMemoryBarrier2` construction site names only three layouts: `VK_IMAGE_LAYOUT_GENERAL` 36
+times, `UNDEFINED` 8, `PRESENT_SRC_KHR` 2 - i.e. under the mandatory
+`VK_KHR_unified_image_layouts` the transitions are about ACCESS, not layout, which is exactly what a
+"use -> use" pair encodes. The roles the engine therefore needs:
+
+```
+undefined (EXISTS) / color_attachment (EXISTS) / transfer_source (EXISTS) /
+shader_read (APPENDED) / shader_write (APPENDED) / transfer_destination (EXISTS or APPENDED) /
+present (APPENDED - KEEP IT SEPARATE: its 2 sites are the only GENERAL -> PRESENT_SRC transition
+         in the tree, and collapsing it into another role would hide a real, checkable layout change
+         that the backend must map to VK_IMAGE_LAYOUT_PRESENT_SRC_KHR)
+```
+
+Existing enumerators keep their numbers; only APPENDED values are added (the rule at `abi_version`).
+
+**9.5 Single image/buffer barrier counts.** `VkBufferMemoryBarrier2` has only 4 tokens in total
+(`pass/cluster.cpp` 2, `readback.cpp` 1) against 70 `VkImageMemoryBarrier2` tokens - so `buffer_use`
+stays the small appended enum in section 3, and buffer barriers can migrate after the image ones.
