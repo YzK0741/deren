@@ -216,6 +216,13 @@ export namespace deren::promise::rhi {
     /// interface half and nothing else. `push_data` is deliberately NOT in the series: the
     /// descriptor-heap face's `push_data(heap_push_info)` already takes the list and is the one heap
     /// verb that is a command-buffer operation - a second spelling would declare the verb twice.
+    /// NOT BUMPED AGAIN BY THE OWNER'S CONVENIENCE ENTRY POINTS (added after this line, unchanged number):
+    /// `command_buffer` gained NON-VIRTUAL inline forwarders for the series - `buffer->draw(...)`,
+    /// `buffer->barrier(...)` and the rest - each delegating to the same `recording()` object the note
+    /// above names. The series is still declared ONCE (on the borrowed view, where the pure virtuals and
+    /// their implementations live); an owner-side entry point that is not virtual appends NO vtable slot,
+    /// no dispatch crosses the boundary through it, and `command_buffer`'s shape and implementers are
+    /// untouched. The number moves for an APPENDED tier-1 slot, which this is not.
     inline constexpr std::uint32_t abi_version = 20u;
 
     /// Why a promise entry point could not do what it was asked.

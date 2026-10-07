@@ -1140,6 +1140,104 @@ export namespace deren::promise::rhi {
         /// holds no reference. The backend owns the compatibility rules (inheritance, layouts) and
         /// reports what it cannot serve.
         [[nodiscard]] virtual error execute(command_buffer& secondary) = 0;
+
+        // ---- THE RECORDING SERIES, REACHED FROM THE OWNER: NON-VIRTUAL CONVENIENCE ENTRY POINTS --------
+        // WHY THEY EXIST: the engine holds `rhi::command_buffer*` for the frame and for its secondary and
+        // per-slot buffers, and until now a recording call site on such a handle had to spell
+        // `handle->recording()->draw(...)`. A caller holding the OWNER can now call the verb directly -
+        // `buffer->barrier(...)` / `->draw(...)` / `->begin_rendering(...)` / `->set_cull_mode(...)` -
+        // and the borrowed view stays what it was.
+        //
+        // THE SERIES IS STILL DECLARED ONCE (the rule `rhi.contract.cppm`'s abi note states and the
+        // series' own note repeats): these are NON-VIRTUAL inline forwarders to the SAME `recording()`
+        // object, so there is one spelling of each verb, one implementation (the backend's
+        // `command_list`), and no second truth to keep in step. Nothing here is overridable.
+        //
+        // AND THAT IS WHY THE ABI NUMBER DOES NOT MOVE: `rhi.contract.cppm`'s note says the number exists
+        // for an APPEND to a tier-1 VTABLE, and a non-virtual member appends no slot - no dispatch
+        // crosses the boundary through these entry points, they inline into the caller and dispatch
+        // through the `recording()` virtual the contract already had (abi 15). `command_buffer` remains
+        // abstract exactly as it was, so no implementer changes either.
+        //
+        // THE FOUR FRAME-SCOPED VERBS ARE INCLUDED ON PURPOSE (`use`, `copy_image_to_buffer` and the
+        // timing pair): they are live call sites on the frame's borrowed view, and the frame's own
+        // `command_buffer` IS that list's owner, so forwarding them is what keeps a call site that moves
+        // its receiver to the owner from changing at all. On any OTHER buffer they answer the `not_ready`
+        // their own notes already promise. `push_data` is deliberately absent (it is the descriptor-heap
+        // face's verb, which already takes the list - a second spelling would declare it twice), and
+        // `execute` is not a `command_list` verb at all: it is this type's own virtual above.
+        [[nodiscard]] error use(image const& resource, image_use from, image_use to) noexcept {
+            return this->recording()->use(resource, from, to);
+        }
+        [[nodiscard]] error copy_image_to_buffer(buffer& destination, image const& source, image_copy_region const& region) noexcept {
+            return this->recording()->copy_image_to_buffer(destination, source, region);
+        }
+        [[nodiscard]] error begin_gpu_timing() noexcept {
+            return this->recording()->begin_gpu_timing();
+        }
+        [[nodiscard]] error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept {
+            return this->recording()->mark_gpu_timing(mark_index, stage_name);
+        }
+        [[nodiscard]] error begin_rendering(rendering_info const& info) {
+            return this->recording()->begin_rendering(info);
+        }
+        void end_rendering() noexcept {
+            this->recording()->end_rendering();
+        }
+        [[nodiscard]] error bind_pipeline(pipeline const& handle) {
+            return this->recording()->bind_pipeline(handle);
+        }
+        [[nodiscard]] error bind_vertex_buffer(buffer const& handle, std::uint64_t offset) {
+            return this->recording()->bind_vertex_buffer(handle, offset);
+        }
+        [[nodiscard]] error bind_index_buffer(buffer const& handle, std::uint64_t offset, index_type type) {
+            return this->recording()->bind_index_buffer(handle, offset, type);
+        }
+        void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept {
+            this->recording()->draw(vertex_count, instance_count, first_vertex, first_instance);
+        }
+        void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept {
+            this->recording()->draw_indexed(index_count, instance_count, first_index, vertex_offset, first_instance);
+        }
+        void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept {
+            this->recording()->dispatch(groups_x, groups_y, groups_z);
+        }
+        void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept {
+            this->recording()->draw_mesh_tasks(groups_x, groups_y, groups_z);
+        }
+        [[nodiscard]] error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) {
+            return this->recording()->draw_mesh_tasks_indirect(argument_buffer, offset, count, stride);
+        }
+        void set_viewport(viewport const& vp) noexcept {
+            this->recording()->set_viewport(vp);
+        }
+        void set_scissor(rect const& scissor) noexcept {
+            this->recording()->set_scissor(scissor);
+        }
+        void set_cull_mode(cull_mode mode) noexcept {
+            this->recording()->set_cull_mode(mode);
+        }
+        void set_depth_write(bool enable) noexcept {
+            this->recording()->set_depth_write(enable);
+        }
+        void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept {
+            this->recording()->set_depth_bias(constant_factor, slope_factor, clamp);
+        }
+        [[nodiscard]] error barrier(barrier_group const& group) {
+            return this->recording()->barrier(group);
+        }
+        [[nodiscard]] error barrier(image_barrier const& one) {
+            return this->recording()->barrier(one);
+        }
+        [[nodiscard]] error copy_image(image_copy const& copy) {
+            return this->recording()->copy_image(copy);
+        }
+        [[nodiscard]] error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) {
+            return this->recording()->copy_buffer(destination, source, size, source_offset, destination_offset);
+        }
+        [[nodiscard]] error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) {
+            return this->recording()->clear_color_image(target, color, range);
+        }
     };
 
     /// What starting a frame hands back.
