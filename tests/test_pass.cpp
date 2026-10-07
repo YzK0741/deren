@@ -161,7 +161,6 @@ namespace {
     /// fake handles, so a resolved pass can be told apart from an unresolved one without a device
     /// (not `constexpr`: a handle comes from `reinterpret_cast`, which is not a constant expression)
     std::shared_ptr<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
-    VkDevice const fake_device = reinterpret_cast<VkDevice>(0xDD);
     VkSampler const fake_shadow_sampler = reinterpret_cast<VkSampler>(0x22);
     std::array<deren::promise::rhi::pipeline*, 4> const fake_pipelines = {
         reinterpret_cast<deren::promise::rhi::pipeline*>(0x1), reinterpret_cast<deren::promise::rhi::pipeline*>(0x2), reinterpret_cast<deren::promise::rhi::pipeline*>(0x3), reinterpret_cast<deren::promise::rhi::pipeline*>(0x4)};
@@ -180,7 +179,7 @@ namespace {
         std::string_view failing_pass = {}; // resolve returns false for this pass's name
         std::array<vp::resolved_binding, 9> own = {};
         /// what a pass was handed at create time, recorded so the create interface can be asserted
-        VkDevice created_with_device = VK_NULL_HANDLE;
+        /// (THE DEVICE IS GONE FROM THE CONTEXT, abi 21: the builders are contract factories that take the face)
         VkSampler created_with_sampler = VK_NULL_HANDLE;
         /// WHAT THE RESOLVER CAN READ OFF THE DECLARATION, recorded here because the extent rule is applied by
         /// the HOST (see host_resolve): a rule that names a resource and one of its elements is only usable if
@@ -266,7 +265,6 @@ namespace {
 
     vp::pass_context make_context() {
         return vp::pass_context{
-            .device = fake_device,
             .samplers = {.shadow = fake_shadow_sampler},
             .shader = fake_shader,
             // the two session-stable formats in the CONTRACT's spelling (abi 20's face): the pass layer no
@@ -323,7 +321,8 @@ namespace {
         bool is_ready = true;
         void create(vp::pass_context const& context) override {
             state_ptr->log.emplace_back(std::string("create:") + std::string(io_decl.name));
-            state_ptr->created_with_device = context.device;
+            // WHAT THE CONTEXT CARRIES NOW (abi 21): the contract face and the two session-stable formats - and
+            // no device at all, because every pipeline builder takes the face alone.
             state_ptr->created_with_sampler = context.samplers.of(rr::sampler_hint::shadow);
         }
         void on_swapchain_recreated(vp::pass_host const&) override {
@@ -498,7 +497,6 @@ int32_t main() {
         vp::pass_context const context = make_context();
         // a pass is built from the CONTEXT alone: no frame, no runner, no runtime - the property that makes a
         // pass constructible outside this renderer
-        CHECK(context.device == fake_device);
         CHECK(context.samplers.of(rr::sampler_hint::shadow) == fake_shadow_sampler);
         // ... and it carries NO set layout and NO pipeline layout: every stage is heap-native, so a pass builds
         // its pipeline with a null layout and reaches its descriptors through the frame's heap. The context is
@@ -514,17 +512,15 @@ int32_t main() {
         CHECK(context.depth_format == deren::promise::rhi::image_format::depth);
     }
 
-    // ---- what a pass is given at CREATE time: a device, the five samplers, and two lookups - and nothing that
+    // ---- what a pass is given at CREATE time: the contract face, the five samplers, and two lookups - and nothing
     //      allocates or runs a frame ----
     {
         std::array<frame_pass*, 1> passes = {&probe};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
-        state.created_with_device = VK_NULL_HANDLE;
         state.created_with_sampler = VK_NULL_HANDLE;
         run_report const built = create_stage(st, make_context());
         CHECK(built.created == 1);
-        CHECK(state.created_with_device == fake_device);
         CHECK(state.created_with_sampler == fake_shadow_sampler); // chosen by hint, never named by the pass
     }
 

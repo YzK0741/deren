@@ -61,7 +61,7 @@ namespace deren::vulkan {
         if (!contract_heap_ready(vk) || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
-        auto const built = pipelines::build_heap_probe(vk, runtime_detail::native_device_of(vk), spirv);
+        auto const built = pipelines::build_heap_probe(vk, spirv);
         if (!built.has_value()) {
             deren::utility::log("descriptor heap: the heap-native probe's pipeline was refused: {}", built.error());
             return;
@@ -154,7 +154,7 @@ namespace deren::vulkan {
             return;
         }
         constexpr VkFormat probe_format = VK_FORMAT_R8G8B8A8_UNORM;
-        auto const built = pipelines::build_heap_probe_graphics(vk, runtime_detail::native_device_of(vk), contract_image_format(probe_format), vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
+        auto const built = pipelines::build_heap_probe_graphics(vk, contract_image_format(probe_format), vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
         // vkCmdDrawMeshTasksEXT IS AN EXTENSION ENTRY POINT and is loaded the way this project loads every other
         // one (see acceleration_structure.cpp): the loader's import library does not export it, so it arrives
         // through vkGetDeviceProcAddr - and a null there is the honest "this device cannot run this probe"
@@ -244,6 +244,23 @@ namespace deren::vulkan {
                                            .pDepthAttachment = nullptr,
                                            .pStencilAttachment = nullptr};
         vkCmdBeginRendering(command_buffer, &rendering);
+        // THE DYNAMIC STATE THE CONTRACT'S GRAPHICS PIPELINES DECLARE (abi 21), and the probe did not need it
+        // before: the raw `vkCreateGraphicsPipelines` path this builder used to take baked the probe's 4x4
+        // viewport, its scissor and `CULL_MODE_NONE` into the pipeline as STATIC state. `make_graphics_pipeline`
+        // goes through `create_pipeline`, which declares viewport, scissor and cull mode DYNAMIC for every
+        // graphics recipe - the render_environment states them per draw, and the probe is not exempt. Without
+        // these three the draw is a VUID per frame ("Dynamic viewport(s) ... were not provided"), which is
+        // exactly what the 14-hash render gate reported as 0/14 the first time this migration ran.
+        VkViewport const probe_viewport = {.x = 0.0f,
+                                           .y = 0.0f,
+                                           .width = static_cast<float>(pipelines::heap_probe_extent),
+                                           .height = static_cast<float>(pipelines::heap_probe_extent),
+                                           .minDepth = 0.0f,
+                                           .maxDepth = 1.0f};
+        VkRect2D const probe_scissor = {.offset = {0, 0}, .extent = {pipelines::heap_probe_extent, pipelines::heap_probe_extent}};
+        vkCmdSetViewport(command_buffer, 0u, 1u, &probe_viewport);
+        vkCmdSetScissor(command_buffer, 0u, 1u, &probe_scissor);
+        vkCmdSetCullMode(command_buffer, VK_CULL_MODE_NONE); // the probe's subject is the fragment stage reading the heap
         // The slot, THROUGH PUSH DATA: the pipeline has no layout (the flag requires that), so this is the only
         // way a parameter reaches the fragment stage - and running the probe with a wrong value here is the
         // negative proof (see the caller).

@@ -100,7 +100,7 @@ namespace deren::vulkan::pass {
             deren::utility::log("stochastic punctual lighting disabled: the owner has no {}", shader_name);
             return;
         }
-        auto built = pipelines::build_megalights_trace(*context.face, context.device, spirv);
+        auto built = pipelines::build_megalights_trace(*context.face, spirv);
         if (!built) {
             deren::utility::log("stochastic punctual lighting disabled: {}", built.error());
             this->release_owned();

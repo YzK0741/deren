@@ -407,6 +407,29 @@ export namespace deren::vulkan::pass {
     }
 
     /**
+     * @brief the LOGICAL DEVICE behind a contract face, for the same escape bucket the entry points come from.
+     *
+     * WHY A PASS NEEDS THIS AT ALL (abi 21): the pass layer no longer takes a `VkDevice` in its context - the
+     * pipeline builders are contract factories and not one of them read it - but TWO FACTS still need the device
+     * itself, both of them ALLOCATED ENTRY POINTS rather than objects: `vkGetRayTracingShaderGroupHandlesKHR`
+     * (whoever bakes a shader-binding table) and the `vkGetDeviceProcAddr` that resolves an extension command
+     * (`vkCmdTraceRaysKHR`, `vkCmdDrawMeshTasksEXT`). Both are the documented escape, exactly like
+     * `native_commands` above, and the ANSWER IS NULL on a face that does not announce `vulkan_escape` - a
+     * caller then resolves no entry point and records nothing, rather than mis-casting.
+     */
+    [[nodiscard]] inline VkDevice native_device(deren::promise::rhi::api_core* const face) noexcept {
+        if (face == nullptr) {
+            return VK_NULL_HANDLE;
+        }
+        auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
+            face->query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
+        if (escape == nullptr) {
+            return VK_NULL_HANDLE;
+        }
+        return static_cast<VkDevice>(escape->native_device());
+    }
+
+    /**
      * @brief whether a CONTRACT format's attachment write path encodes linear -> sRGB in HARDWARE.
      *
      * THE PASS LAYER HOLDS NO `VkFormat`, which is why this exists rather than the callers reaching for
@@ -482,13 +505,14 @@ export namespace deren::vulkan::pass {
      * thing that creates an IMAGE, so a pass cannot take over an image family through this struct.
      */
     struct pass_context {
-        /// the device a pass builds its own objects on: filled from the filtered core view. It stays until
-        /// the pipeline builders take rhi::api_core alone (they are the last users); the pass FILES no
-        /// longer keep one of their own.
-        VkDevice device = VK_NULL_HANDLE;
         /// THE CONTRACT FACE (abi 8): what a pass's own create step builds its pipelines through -
-        /// `rhi::api_core&` of the same backend `device` belongs to, so a call through it emits no
+        /// `rhi::api_core&` of the backend the pass was created against, so a call through it emits no
         /// backend symbol. Null only before the owner fills it.
+        ///
+        /// THERE IS NO `VkDevice` HERE ANY MORE (abi 21): every pipeline builder is a contract factory that
+        /// takes this face alone, and the one fact the pass layer still needs a device FOR - an allocated entry
+        /// point (`vkGetDeviceProcAddr` for `vkCmdTraceRaysKHR`, the SBT handle query) - is reached through the
+        /// escape, exactly as the raw command buffer is: see `pass::native_device` beside `pass::native_commands`.
         deren::promise::rhi::api_core* face = nullptr;
         /// the swapchain's format in the contract's spelling (the passes that render into it name it
         /// through the pipeline descriptors now)

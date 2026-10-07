@@ -2364,9 +2364,12 @@ namespace deren::vulkan {
             /// which swapchain image this frame is recording (the per-image rules below take it, and a stage
             /// preamble that is gated on an image's own state needs it)
             uint32_t image_index = 0;
-            // ---- the frame's TOOLKIT: the device-level facts a family, a push block or a barrier needs, so that
-            //      an owner can do what the renderer's own resolvers used to do without reaching into it ----
-            VkDevice device = VK_NULL_HANDLE;
+            // ---- the frame's TOOLKIT: the facts a family, a push block or a barrier needs, so that an owner can
+            //      do what the renderer's own resolvers used to do without reaching into it ----
+            // NO DEVICE LANE (abi 21): a family builds its pipelines through the CONTRACT (`rhi::api_core`, the
+            // context's `face`), and the one thing an owner still needs a device FOR - an allocated entry point,
+            // like the probes' own vkCmdDrawMeshTasksEXT - it resolves through `native_device_of(face)` itself.
+            // The field that stood here had no reader left.
             /// the six shared samplers a declaration chooses between by hint (see render_resource::shared)
             render_resource::shared::sampler_set samplers = {};
             /// THIS FRAME'S RESOURCES, in the declaration's own vocabulary: what a pass's declaration names, and

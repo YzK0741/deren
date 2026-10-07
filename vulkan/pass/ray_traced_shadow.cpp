@@ -88,7 +88,7 @@ namespace deren::vulkan::pass {
         }
         // Everything this pass reads is a heap slot the shaders name themselves (the scene buffers, the
         // G-buffer images, the acceleration structure), so the pipeline is all it builds.
-        auto built = pipelines::build_rt_shadow_ray_tracing(*context.face, context.device, raygen, closest_hit, miss, any_hit);
+        auto built = pipelines::build_rt_shadow_ray_tracing(*context.face, raygen, closest_hit, miss, any_hit);
         if (!built) {
             deren::utility::log("ray-traced shadows unavailable: {}", built.error());
             this->release_owned();
@@ -99,9 +99,19 @@ namespace deren::vulkan::pass {
         // ---- THE SHADER BINDING TABLE, the half of a ray-tracing pipeline that belongs to its CALLER: the
         //      group handles are per-pipeline data, and the STRIDE is a property of the device rather than a
         //      constant. Here a handle is 32 bytes while a region's address must be 64-byte aligned, so using the
-        //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit. ----
-        auto const get_group_handles = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(context.device, "vkGetRayTracingShaderGroupHandlesKHR"));
-        this->trace_rays_fn = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(context.device, "vkCmdTraceRaysKHR"));
+        //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit.
+        //      THE DEVICE COMES FROM THE ESCAPE (abi 21), because both facts below are ALLOCATED ENTRY POINTS
+        //      rather than objects: `pass::native_device` is the contract's own documented answer (the same one
+        //      `pass::native_commands` gives for the launch), and the pass_context has no device to hand over any
+        //      more - the pipeline builders are contract factories and not one of them read it.
+        VkDevice const device = pass::native_device(context.face);
+        if (device == VK_NULL_HANDLE) {
+            deren::utility::log("ray-traced shadows unavailable: the face publishes no native device to resolve the trace entry points on");
+            this->release_owned();
+            return;
+        }
+        auto const get_group_handles = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(device, "vkGetRayTracingShaderGroupHandlesKHR"));
+        this->trace_rays_fn = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(device, "vkCmdTraceRaysKHR"));
         if (get_group_handles == nullptr || this->trace_rays_fn == nullptr) {
             deren::utility::log("ray-traced shadows unavailable: the device did not publish the traceRays entry points");
             this->release_owned();
@@ -118,7 +128,7 @@ namespace deren::vulkan::pass {
         uint32_t const region_size = ((handle_size + base_alignment - 1u) / base_alignment) * base_alignment;
         uint32_t const group_count = built->group_count;
         std::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
-        if (get_group_handles(context.device, this->pass_pipeline->get_pipeline(), 0, group_count, handles.size(), handles.data()) != VK_SUCCESS) {
+        if (get_group_handles(device, this->pass_pipeline->get_pipeline(), 0, group_count, handles.size(), handles.data()) != VK_SUCCESS) {
             deren::utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
             this->release_owned();
             return;

@@ -93,7 +93,7 @@ namespace deren::vulkan::pass {
             deren::utility::log("taa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
-        auto built = pipelines::build_taa(*context.face, context.device, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_taa(*context.face, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("taa disabled: {}", built.error());
             this->release_owned();

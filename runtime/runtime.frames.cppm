@@ -1862,7 +1862,8 @@ namespace deren::vulkan {
         // this struct is how a per-pass entry point per job appears, which is what the pass filter exists to
         // remove - so there is one builder now, and everything that constructs a pass uses it.
         return pass::pass_context{
-            .device = runtime_detail::native_device_of(this->rhi_face()),
+            // NO DEVICE LANE (abi 21): the builders are contract factories and take `face` alone; the pass layer
+            // reaches a native device through the escape when it needs an allocated entry point (pass::native_device).
             .face = &this->rhi_face(),
             .swap_chain_format = contract_image_format(this->swap_chain_image_format),
             .samplers = this->shared_samplers(),
@@ -2656,7 +2657,6 @@ namespace deren::vulkan {
             .owner = this,
             .cmd = std::move(command_buffer),
             .image_index = static_cast<uint32_t>(this->current_image_index),
-            .device = runtime_detail::native_device_of(this->rhi_face()),
             .samplers = this->shared_samplers(),
             .table = &this->frame_resources,
             .frame = this->pass_frame(),

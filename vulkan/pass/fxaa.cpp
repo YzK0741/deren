@@ -70,7 +70,7 @@ namespace deren::vulkan::pass {
             return;
         }
         // The surface's format is the pipeline's declared colour format (the filter writes the swapchain).
-        auto built = pipelines::build_fxaa_owned(*context.face, context.device, context.swap_chain_format, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_fxaa_owned(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("fxaa disabled: {}", built.error());
             this->release_owned();

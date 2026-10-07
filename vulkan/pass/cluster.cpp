@@ -85,7 +85,7 @@ namespace deren::vulkan::pass {
         }
         // NO SET LAYOUT IS ASKED FOR: the pipeline is heap-native (a null layout plus the heap flag), so the
         // pass's descriptors come from the frame's bound heap and not from a set handed over by the owner.
-        auto built = pipelines::build_cluster(*context.face, context.device, spirv);
+        auto built = pipelines::build_cluster(*context.face, spirv);
         if (!built) {
             deren::utility::log("clustered lights disabled: {}", built.error());
             this->release_owned();

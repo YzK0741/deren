@@ -71,7 +71,7 @@ namespace deren::vulkan::pass {
             return;
         }
         // The surface's format is the pipeline's declared colour format (the resolve writes the swapchain).
-        auto built = pipelines::build_upscale_owned(*context.face, context.device, context.swap_chain_format, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_upscale_owned(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("upscale disabled: {}", built.error());
             this->release_owned();
