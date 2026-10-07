@@ -145,7 +145,7 @@ namespace deren::vulkan {
      * @return the owning handle, or an EMPTY `shared_ptr` when the backend could not be loaded, does not
      *         export its entry point, or REFUSED the creation (the diagnosis is reported before the
      *         return; `abi_mismatch` means the caller's `rhi::abi_version` is not the backend's)
-     * @ingroup runtime
+     * @ingroup vulkan_runtime
      *
      * The handshake is inside: `rhi::abi_version` travels as the entry's first argument and the
      * `error_info` the backend fills carries its own number on a mismatch. The `api_core` that comes

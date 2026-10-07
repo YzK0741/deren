@@ -1052,13 +1052,30 @@ WARN_LOGFILE           =
 # THE ORDER OF THE `./docs/*.md` LINES BELOW IS THE ORDER OF THE MANUAL'S CHAPTERS. Doxygen emits the
 # markdown pages of refman.pdf in INPUT order (MEASURED: before this reordering the PDF's front pages
 # followed the alphabetical-ish order this list happened to be in, so the manual opened on `shaders.md`
-# with no reading path). They are therefore listed as a reading path - front page, conventions, the
-# shader/pass spine, the frontier subsystems, the usage guide, and last the migration record that
-# explains why the code is shaped the way it is - and `docs/mainpage.md` carries the same order as a
-# \subpage table. Reordering here reorders the PDF; test_docs only checks set membership, not order.
+# with no reading path). They are therefore listed as a reading path, and `docs/mainpage.md` carries the
+# same order as a \subpage table:
+#
+#     front page -> conventions -> dynamic_runtime -> the shader/pass spine -> the frontier subsystems
+#     -> the usage guide -> the migration record that explains why the code is shaped this way.
+#
+# WHY `dynamic_runtime.md` IS SECOND rather than last (it used to be the final line): it is the CURRENT
+# development record - the dynamic-backend migration's shape, its gates and its open items - and a reader
+# who opens the manual to find out how this renderer is put together needs it before the subsystem
+# chapters, not after them. It sits next to `conventions.md` because both answer "how is this project
+# organised now": one for the code's rules, one for its runtime. The MIGRATION record proper
+# (migration_tradeoffs and the heap/handover chapters) stays at the end, where history belongs.
+# Reordering here reorders the PDF; test_docs only checks set membership, not order.
+#
+# `./runtime` IS INPUT TOO, and that is a fix rather than a new chapter: the runtime module lives at the
+# repository root since S5 and carries the `@defgroup vulkan_runtime` definition plus the facade's own
+# API documentation. Without this line doxygen never read those files, so the manual documented the
+# renderer only through `docs/dynamic_runtime.md` AND every `@ingroup vulkan_runtime` in a scanned file
+# (vulkan/render_environment/render_environment.cppm) warned that the group did not exist - the group
+# was defined in a file the INPUT list did not name.
 
 INPUT                  = ./shaders \
 				./vulkan \
+				./runtime \
 				./utility \
 				./promise \
 				./gltf_loader \
@@ -1068,6 +1085,7 @@ INPUT                  = ./shaders \
 				./vstd \
 				./docs/mainpage.md \
 				./docs/conventions.md \
+				./docs/dynamic_runtime.md \
 				./docs/shaders.md \
 				./docs/pass_io_design.md \
 				./docs/runtime_split.md \
@@ -1081,8 +1099,7 @@ INPUT                  = ./shaders \
 				./docs/migration_tradeoffs.md \
 				./docs/compiler_tolerance.md \
 				./docs/unified_image_layouts.md \
-				./docs/host_image_copy.md \
-				./docs/dynamic_runtime.md
+				./docs/host_image_copy.md
 
 # This tag can be used to specify the character encoding of the source files
 # that Doxygen parses. Internally Doxygen uses the UTF-8 encoding. Doxygen uses

@@ -76,26 +76,29 @@ usually meets them. Each one links to the page or module that holds the detail.
 
 ## How to read this manual
 
-The pages are ordered as a reading path, not alphabetically: conventions and the shader
-contract first, then the frame structure, then the frontier subsystems, then the usage
-guide, and finally the migration history - which is where the reasons for the current shape
-of the code live.
+The pages are ordered as a reading path, not alphabetically: the conventions and the CURRENT runtime
+record first (how the project is organised and how the renderer it is built around works today), then
+the shader contract, the frame structure, the frontier subsystems, the usage guide, and finally the
+migration history - which is where the reasons for the current shape of the code live.
 
 | # | Document | What it answers |
 |---|----------|-----------------|
 | 1 | \subpage md_docs_2conventions "Conventions" | Naming, file layout and the code rules the rest of the manual assumes. |
-| 2 | \subpage md_docs_2shaders "Shaders" | How shaders are written and bound: the pass chain, the shared scene set, the slot conventions. |
-| 3 | \subpage md_docs_2pass__io__design "Pass I/O design" | The declared contract a pass states about what it reads and writes, and how it is resolved. |
-| 4 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
-| 5 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
-| 6 | \subpage md_docs_2megalights "Megalights" | Stochastic many-light sampling and its temporal reuse. |
-| 7 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
-| 8 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
-| 9 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
-| 10 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
-| 11 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
-| 12 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
-| 13 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
+| 2 | \subpage md_docs_2dynamic__runtime "Dynamic runtime" | The dynamic-backend migration: the runtime's shape, the loader, the gates and what is still open. |
+| 3 | \subpage md_docs_2shaders "Shaders" | How shaders are written and bound: the pass chain, the shared scene set, the slot conventions. |
+| 4 | \subpage md_docs_2pass__io__design "Pass I/O design" | The declared contract a pass states about what it reads and writes, and how it is resolved. |
+| 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
+| 6 | \subpage md_docs_2mesh__shaders "Mesh shaders" | The mesh-shader geometry path: what it replaced, what it measured. |
+| 7 | \subpage md_docs_2megalights "Megalights" | Stochastic many-light sampling and its temporal reuse. |
+| 8 | \subpage md_docs_2deformation__motion__vectors "Deformation motion vectors" | Why a deforming mesh needs more than a camera motion vector, and what was stored. |
+| 9 | \subpage md_docs_2gltf__loader__usage "glTF loader usage" | Loading models, animations, skins, morph targets and punctual lights. |
+| 10 | \subpage md_docs_2slang__migration "Slang migration" | Moving the shaders to Slang and compiling to SPIR-V. |
+| 11 | \subpage md_docs_2descriptor__heap__migration "Descriptor heap migration" | Replacing descriptor sets with a renderer-managed heap. |
+| 12 | \subpage md_docs_2descriptor__heap__handover "Descriptor heap handover" | How the heap is handed to the passes, and the constraints that imposes. |
+| 13 | \subpage md_docs_2migration__tradeoffs "Migration tradeoffs" | What each of those migrations cost, and what was given up for it. |
+| 14 | \subpage md_docs_2compiler__tolerance "Compiler tolerance" | What the build needs from a toolchain, what a second one (GCC) measured, and what still stops it. |
+| 15 | \subpage md_docs_2unified__image__layouts "Unified image layouts" | One layout vocabulary for render targets, uploads and read-back. |
+| 16 | \subpage md_docs_2host__image__copy "Host image copy" | The VK_EXT_host_image_copy path: a texture uploaded without a staging buffer. |
 
 Three shorter paths, if you are not reading front to back:
 

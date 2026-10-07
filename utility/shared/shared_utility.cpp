@@ -84,48 +84,62 @@ namespace deren::utility {
             std::ofstream fresh_log("debug.log", std::ios::out | std::ios::trunc);
             fresh_log.close();
         }
+    } // namespace
 
-        /**
-         * @brief the process's one log sink: a queue, its worker, and the file handle
-         *
-         * ASYNCHRONOUS BY CONSTRUCTION, and the two condition variables are load-bearing:
-         * `queue_cv` wakes the worker, `drained_cv` wakes `wait_all()` - which `panic()` calls
-         * before `std::terminate()`, so the message that must never be lost is the one that is
-         * flushed here rather than at static-destruction time.
-         */
-        class log_sink { // NOLINT
-            std::mutex queue_mutex = {};
-            std::condition_variable queue_cv = {};
-            std::condition_variable drained_cv = {}; // notifies when the queue has been drained
-            std::queue<std::string> messages = {};
-            std::size_t pending = 0; // messages pending write (queued + currently being written)
-            std::thread worker = {};
-            std::atomic<bool> running = true;
-            // Whether write() still enqueues. Cleared by the destructor BEFORE it signals the worker
-            // to drain and exit, and read under queue_mutex - so a write that arrives during (or
-            // after) teardown is dropped rather than queued for a worker that is already gone. That
-            // matters because wait_all() would then block forever on a pending count nothing will
-            // ever decrement, and panic() calls wait_all() - i.e. the one path that must not hang is
-            // the one that would.
-            bool accepting = true;
-            std::ofstream file = {}; // Release builds write to debug.log
+    // --------------------------------------------------------------------------------------------
+    // WHY `log_sink` IS NOT IN THE ANONYMOUS NAMESPACE ABOVE although it is just as private: Doxygen
+    // does NOT extract the members of an anonymous namespace (Doxyfile: EXTRACT_ANON_NSPACES = NO, the
+    // doxygen default), so every doc block in that class was a DANGLING documentation block and the
+    // manual build reported five warnings - "documented symbol 'deren::utility::log_sink::log_sink' was not
+    // declared or defined" for the constructor, the destructor, `worker_loop`, `write` and `wait_all`.
+    // The class is still NOT exported (it is not in the module interface and nothing outside this image
+    // can name it); what changed is only that it has a name Doxygen can see, so the sink stays DOCUMENTED
+    // instead of the comments being deleted to silence a warning. The helpers that need no documentation
+    // stay in the anonymous namespace above, and the two that follow (instance / write_text) keep theirs.
+    // --------------------------------------------------------------------------------------------
 
-        public:
-            log_sink();
-            ~log_sink();
-            void worker_loop() noexcept;
+    /**
+     * @brief the process's one log sink: a queue, its worker, and the file handle
+     *
+     * ASYNCHRONOUS BY CONSTRUCTION, and the two condition variables are load-bearing:
+     * `queue_cv` wakes the worker, `drained_cv` wakes `wait_all()` - which `panic()` calls
+     * before `std::terminate()`, so the message that must never be lost is the one that is
+     * flushed here rather than at static-destruction time.
+     */
+    class log_sink { // NOLINT
+        std::mutex queue_mutex = {};
+        std::condition_variable queue_cv = {};
+        std::condition_variable drained_cv = {}; // notifies when the queue has been drained
+        std::queue<std::string> messages = {};
+        std::size_t pending = 0; // messages pending write (queued + currently being written)
+        std::thread worker = {};
+        std::atomic<bool> running = true;
+        // Whether write() still enqueues. Cleared by the destructor BEFORE it signals the worker
+        // to drain and exit, and read under queue_mutex - so a write that arrives during (or
+        // after) teardown is dropped rather than queued for a worker that is already gone. That
+        // matters because wait_all() would then block forever on a pending count nothing will
+        // ever decrement, and panic() calls wait_all() - i.e. the one path that must not hang is
+        // the one that would.
+        bool accepting = true;
+        std::ofstream file = {}; // Release builds write to debug.log
 
-            log_sink(log_sink const&) = delete;
-            log_sink& operator=(log_sink const&) = delete;
+    public:
+        log_sink();
+        ~log_sink();
+        void worker_loop() noexcept;
 
-            /// Queue one line. TAKES A VIEW, and the copy the queue stores is made on THIS side - which
-            /// is what lets a caller hand over its own temporary string without either side owning the
-            /// other's allocation. That is a design choice rather than a rule (this module's interface
-            /// may carry STL: see shared_utility.cppm), and it is the shape the three doors settled on.
-            void write(std::string_view text);
-            void wait_all();
-        };
+        log_sink(log_sink const&) = delete;
+        log_sink& operator=(log_sink const&) = delete;
 
+        /// Queue one line. TAKES A VIEW, and the copy the queue stores is made on THIS side - which
+        /// is what lets a caller hand over its own temporary string without either side owning the
+        /// other's allocation. That is a design choice rather than a rule (this module's interface
+        /// may carry STL: see shared_utility.cppm), and it is the shape the three doors settled on.
+        void write(std::string_view text);
+        void wait_all();
+    };
+
+    namespace {
         log_sink& instance() noexcept {
             static log_sink sink;
             return sink;
