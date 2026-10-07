@@ -163,6 +163,10 @@ export namespace deren::promise::rhi {
     enum class image_use : std::uint32_t {
         color_attachment = 0, ///< written as a render target (and read back as one)
         transfer_source = 1,  ///< read by a copy out of the image
+        /// APPENDED for the recording face (RECORDING_FACE_PLAN.md §3): the state an image is in
+        /// before anything has declared a use for it, which is what a barrier's `from` says at the top
+        /// of a pass. A new VALUE, never a renumbering - the rule at `abi_version`.
+        undefined = 2,
     };
 
     /// One subresource of one image, tightly packed: what a copy reads.
@@ -174,6 +178,137 @@ export namespace deren::promise::rhi {
         std::uint32_t offset_x = 0;
         std::uint32_t offset_y = 0;
         std::uint32_t offset_z = 0;
+    };
+
+    // ================================================================================================
+    // THE RECORDING FACE'S DESCRIPTORS (RECORDING_FACE_PLAN.md §3, §4, §6). They are plain contract
+    // PODs: ADDING THEM CHANGES NO INTERFACE, so no abi bump follows from this block - the verbs that
+    // take them are the interface change (plan §6's last bullet) and land with the backend that
+    // translates them.
+    //
+    // WHAT THE VOCABULARY DELIBERATELY DOES NOT CARRY, each one the plan's measured verdict rather
+    // than an omission: no HOST-ACCESS masks (the two host-visible barrier sites stay in the escape
+    // bucket, runtime.probes.cppm / ray_tracing.cpp), no QUEUE-FAMILY ownership-transfer field (there
+    // is no cross-queue submission; the 46 VK_QUEUE_FAMILY_* tokens are IGNORED initialisations), no
+    // `resolve`/`resolveMode` and no `viewMask` (no path resolves MSAA in a rendering scope and none
+    // uses multi-view - and both can be APPENDED later because `rendering_info` carries `struct_size`),
+    // and no `stage_hint` (add it only if a migrated site demonstrably needs a wider mask).
+    // ================================================================================================
+
+    /// A region of a 2D target: what `set_scissor` and a rendering scope's area are made of.
+    ///
+    /// IT DID NOT EXIST WHEN THE PLAN WAS WRITTEN (the plan cites it as "rect EXISTS"); the engine's
+    /// sources name `VkRect2D` in nine places and the contract had no spelling for it at all, so the
+    /// vocabulary is created here rather than the plan's premise being assumed. Signed offsets because
+    /// a scissor may be placed at a negative origin (Vulkan clamps it), unsigned extent because a
+    /// zero-width scissor is a legitimate "record nothing" and must be expressible.
+    struct rect {
+        std::int32_t offset_x = 0;
+        std::int32_t offset_y = 0;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+    };
+
+    /// One image's subresources: which mips and array layers a barrier covers.
+    /// ALL-ZERO means "the whole image" (the plan's spelling), which is what almost every site wants.
+    /// FROZEN (plan §6): a by-value contract POD, so a new field would be an abi change; the two
+    /// growable descriptors below are the ones that carry `struct_size` instead.
+    struct subresource_range {
+        std::uint32_t base_mip = 0;
+        std::uint32_t mip_count = 0;
+        std::uint32_t base_layer = 0;
+        std::uint32_t layer_count = 0;
+    };
+
+    /// One image's transition, in the vocabulary `command_list::use()` already speaks: THE PAIR is the
+    /// information (the caller knows what it recorded, the backend knows what the pair costs), which is
+    /// why this is not a single "new state". `resource` is a contract handle, not a native one.
+    struct image_barrier {
+        image* resource = nullptr;
+        image_use from = image_use::undefined;
+        image_use to = image_use::undefined;
+        subresource_range range = {};
+    };
+
+    /// Which role a BUFFER is used in. APPENDED as a type of its own (the plan's §3), and SMALL ON
+    /// PURPOSE: the engine has four buffer barrier sites, so the roles are the four the renderer
+    /// actually names plus `undefined`. Not merged with `image_use`: a buffer is never a colour
+    /// attachment and an image is never a vertex source, and one enum would invite both.
+    enum class buffer_use : std::uint32_t {
+        undefined = 0,
+        shader_read,
+        shader_write,
+        transfer_source,
+        transfer_destination,
+    };
+
+    /// One buffer's transition. `size == 0` means "the whole buffer" (the plan's spelling).
+    struct buffer_barrier {
+        buffer* resource = nullptr;
+        buffer_use from = buffer_use::undefined;
+        buffer_use to = buffer_use::undefined;
+        std::uint64_t offset = 0;
+        std::uint64_t size = 0;
+    };
+
+    /// A batch of transitions recorded together - what `vkCmdPipelineBarrier2` receives as two arrays.
+    ///
+    /// GROWS BY `struct_size` (plan §6): it is its FIRST member, and the backend reads a field only when
+    /// the caller's declared size covers it (the `covered_by` rule `sanitize_sampler_desc` already uses),
+    /// so a later addition is additive rather than an abi break. The two spans are BORROWED for the call
+    /// only, the same rule every other array in this contract follows.
+    struct barrier_group {
+        std::uint32_t struct_size = sizeof(barrier_group);
+        std::span<image_barrier const> images = {};
+        std::span<buffer_barrier const> buffers = {};
+    };
+
+    /// What a rendering scope does with an attachment it does not need to keep.
+    enum class load_op : std::uint32_t {
+        load = 0, ///< keep what is there (three sites CLEAR, the rest LOAD - the plan's census)
+        clear,
+        dont_care,
+    };
+
+    /// What a rendering scope leaves behind in an attachment.
+    enum class store_op : std::uint32_t {
+        store = 0,
+        dont_care,
+    };
+
+    /// One colour attachment of a rendering scope. The view, not the image: the engine's attachments
+    /// are views (a mip, a layer, a swizzle), and the plan's census found 1-2 per call.
+    struct color_attachment {
+        image_view* view = nullptr;
+        load_op load = load_op::load;
+        store_op store = store_op::store;
+        /// read only when `load == load_op::clear`; the required RGBA order is the caller's.
+        float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    };
+
+    /// The depth (and optional stencil) attachment of a rendering scope.
+    struct depth_attachment {
+        image_view* view = nullptr;
+        load_op load = load_op::load;
+        store_op store = store_op::store;
+        bool read_only = false; ///< depth read vs depth+stencil attachment (a shadow map's two phases)
+        bool has_stencil = false;
+        float clear_depth = 1.0f;
+        std::uint32_t clear_stencil = 0;
+    };
+
+    /// A rendering scope: what `vkCmdBeginRendering` describes, once per begin (29) / end (22).
+    ///
+    /// GROWS BY `struct_size` (plan §6), the same rule as `barrier_group`. `secondary_contents` says the
+    /// scope will run secondary command buffers (six sites do), and `layer_count` is 6 sites' non-1 case.
+    struct rendering_info {
+        std::uint32_t struct_size = sizeof(rendering_info);
+        rect area = {};
+        std::uint32_t layer_count = 1;
+        std::span<color_attachment const> colors = {};
+        depth_attachment depth = {};
+        bool has_depth = false;
+        bool secondary_contents = false;
     };
 
     /// The format of an image, as far as the contract names it: the four 8-bit shapes a screen read-back
