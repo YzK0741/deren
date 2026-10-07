@@ -99,8 +99,8 @@ namespace deren::vulkan::pass {
             this->release_owned();
             return;
         }
-        built->viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f}; // the runner resyncs it from io.extent
-        built->scissor = {{0, 0}, {1u, 1u}};
+        built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = 1.0f, .height = 1.0f, .min_depth = 0.0f, .max_depth = 1.0f}; // the runner resyncs it from io.extent
+        built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = 1u, .height = 1u};
         this->pass_pipeline = std::move(*built);
         deren::utility::log("SUCCESS: goo rim pipeline created (the rewritten toon chain's rim, recomposed from the G-buffer)");
     }

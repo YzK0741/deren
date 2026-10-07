@@ -1,6 +1,6 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: eight batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: nine batches have LANDED AND ARE GREEN.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
@@ -10,9 +10,9 @@
 > it did not before the third batch, and the sixth batch's new escape slots are proven by it (the SBT
 > query travels through `api_basis` there, and the smoke run still builds its table).
 >
-> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 41**, **none of them
+> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 35**, **none of them
 > in `vulkan/pass/`**; the ESCAPE's own demand, measured for the first time in the seventh batch:
-> **105 -> 101 engine-side call sites**. Engine files including a Vulkan header **62 -> 39**; abi
+> **105 -> 94 engine-side call sites**. Engine files including a Vulkan header **62 -> 38**; abi
 > **20 -> 22**, pinned in both tests. (The call-site count is not monotone: the fifth batch's probe fix
 > ADDED three dynamic-state calls - trap 12 - because honesty about an instrument means counting what it
 > measures.)
@@ -220,6 +220,17 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | dead code | `pipelines::pipeline_handle::get_pipeline()` DELETED - its last two readers were the probes, which now bind the CONTRACT object. `native` stays: `begin_pipeline` (the runner's raw path for the geometry pipelines, a frame-sweep site) still reads it. |
 | the shadow cascade | its push moved to `descriptor_heap::push_data` with the CONTRACT secondary, so `record_shadow_cascade` no longer derives a native handle at all - and that conversion is what turned the `heap_commands` bug from a latent trap into a caught one. |
 | ONE ENVIRONMENTAL RED HERRING, RECORDED | the first full gate run came back 12/14 with two scenarios panicking on `Failed to create image: -2` (out of device memory) - with the build itself reporting `LLVM ERROR: out of memory` in the same window. Attribution, not assumption: the SAME revision at HEAD failed the same way, and the scenario passed when run alone after the pressure cleared (the final full run is 14/14). NO code in this batch is implicated; the lesson is that a host under memory pressure can fail a scenario in a way no diff explains, so attribute before bisecting. |
+
+### 2.14 What the NINTH batch added (the runner's raster bind, and the last native pipeline lane)
+
+| area | what landed |
+|---|---|
+| `pipeline_handle` | its `native` field, its `get_pipeline()` accessor and the EIGHT `vulkan_escape::native_pipeline()` reads that filled it are DELETED: the runner's raster bind was the last reader. The constructor is `(rhi::pipeline*)` alone, and the cached dynamic state is the CONTRACT's vocabulary now (`rhi::viewport` / `rhi::rect`). |
+| `begin_pipeline` | takes `rhi::command_buffer&` and states the bind + the two pieces of state as the record series' verbs (`bind_pipeline` / `set_viewport` / `set_scissor`). The runner's `env.bind` lambda no longer derives a native handle at all - the session it is given IS the contract buffer. |
+| the runner's resync and depth-write | the per-pass `resync_viewport` block states `rhi::viewport`/`rhi::rect` and calls the two verbs on `io.cmd` (its `VkCommandBuffer` derivation is gone with the last raw `vkCmdSetViewport`/`vkCmdSetScissor`), and the transparent session's `set_depth_write_fn` is `command_buffer::set_depth_write` instead of `vkCmdSetDepthWriteEnable`. |
+| the moved state sites | `runtime.cpp` (3 sites), `runtime.frames.cppm` (2) and the two post-ish passes (`toon_screen_rim.cpp`, `goo_rim.cpp`) assign the contract PODs to the cached state instead of `VkViewport`/`VkRect2D`. |
+| the numbers | `vkCmd*` **41 -> 35** (7 distinct spellings left, all in the frame loop's barrier/clear/rendering sites and `readback`); engine-side escape calls **101 -> 94**; `vulkan/pipelines/pipelines.cppm` now names NO Vulkan type, macro or entry point, so it dropped its include: engine files with a Vulkan header **39 -> 38**. |
+| WHAT REMAINS IN THE FRAME LOOP | the ~20 `vkCmdPipelineBarrier2` sites (hand-written stage/access mask pairs, which need a mask -> `image_use`/`buffer_use` role translation per site - the contract's own `image_use` census was DERIVED from exactly those recipes, so the mapping is documented but per-site), plus `vkCmdBeginRendering`/`vkCmdEndRendering` (`runtime.cpp` 2 + the frame loop 2), one `vkCmdClearColorImage` (the furnace clear), one raw `vkCmdSetCullMode` in each environment's cull callback (the `render_environment` setter still speaks `VkCullModeFlags` - converting it touches the passes' env too), and `readback.cpp`'s one-shot copy + its buffer barrier. |
 
 ## 3. What was tried and reverted (do not repeat)
 
@@ -445,14 +456,14 @@ interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragm
 ## 8. What is left (ranked, with the measurements each step needs)
 
 **THE PASS LAYER IS AT ZERO `vkCmd*` SITES, HAS NO DEVICE IN ITS CONTEXT, AND EVERY PIPELINE IT BINDS IS A
-CONTRACT OBJECT.** The census reads **41 sites in 6 files**, none of them a pass:
-`runtime/runtime.frames.cppm` (29 - the frame loop's own open/close, its barriers, the furnace clear and
-the shadow hand-back), `runtime/runtime.probes.cppm` (1 - the ONE host-visible barrier the contract's own
-`image_use` note assigns to the escape bucket; the batch before this one had 11 here),
-`vulkan/ray_tracing/ray_tracing.cpp` (4 - the structure set's barriers, out of the pass layer by design),
-`runtime/runtime.cpp` (3 - the resolved mesh entry points), `pipelines.cppm` (3 - `begin_pipeline`'s bind +
-viewport + scissor) and `readback.cpp` (2 - its one-shot copy). The include count is **39** (the census's
-own scope: `runtime/**` + `vulkan/**` MINUS `vulkan/core/**`).
+CONTRACT OBJECT.** The census reads **35 sites in 5 files**, none of them a pass:
+`runtime/runtime.frames.cppm` (29 - the frame loop's own barriers, the furnace clear, the two rendering
+scopes and the shadow hand-back; the RUNNER's own viewport/scissor and depth-write are contract verbs as
+of the ninth batch), `runtime/runtime.probes.cppm` (1 - the ONE host-visible barrier the contract's own
+`image_use` note assigns to the escape bucket; the batch before that had 11 here),
+`vulkan/ray_tracing/ray_tracing.cpp` (4 - the structure set's barriers, out of the pass layer by design)
+and `readback.cpp` (2 - its one-shot copy and its buffer barrier). The include count is **38** (the
+census's own scope: `runtime/**` + `vulkan/**` MINUS `vulkan/core/**`).
 
 DONE IN THE SECOND, THIRD AND FOURTH BATCHES (all gated, see section 6):
 

@@ -575,8 +575,8 @@ namespace deren::vulkan {
             if (built) {
                 // the two cached values every named pipeline needs (begin_pipeline re-emits them, and
                 // update_pass_geometry resyncs every registered pipeline once per frame)
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->render_extent()};
+                built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(this->render_extent().width), .height = static_cast<float>(this->render_extent().height), .min_depth = 0.0f, .max_depth = 1.0f};
+                built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (this->render_extent()).width, .height = (this->render_extent()).height};
                 mesh_result = std::move(*built);
             } else {
                 // NO FALLBACK LEFT (docs/mesh_shaders.md step 4): the caller sees this as the pipeline's failure
@@ -602,8 +602,8 @@ namespace deren::vulkan {
                                                            std::span<rhi::blend_mode const>(blend_attachments),
                                                            rhi::shader_stage::mesh);
             if (built) {
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->render_extent()};
+                built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(this->render_extent().width), .height = static_cast<float>(this->render_extent().height), .min_depth = 0.0f, .max_depth = 1.0f};
+                built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (this->render_extent()).width, .height = (this->render_extent()).height};
                 meshlet_result = std::move(*built);
             } else {
                 deren::utility::log("pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
@@ -653,8 +653,8 @@ namespace deren::vulkan {
                                                        what);
         if (built) {
             // the fullscreen viewport/scissor default the frame path re-syncs on every swapchain recreation
-            built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
-            built->scissor = {{0, 0}, this->render_extent()};
+            built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(this->render_extent().width), .height = static_cast<float>(this->render_extent().height), .min_depth = 0.0f, .max_depth = 1.0f};
+            built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (this->render_extent()).width, .height = (this->render_extent()).height};
         }
         // 工厂的错误文本属于 built；返回拥有文本的 string，避免 string_view 随局部对象失效。
         return built;

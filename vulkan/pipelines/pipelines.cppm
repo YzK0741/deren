@@ -32,7 +32,6 @@ module;
 #include <optional>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pipelines;
 
@@ -58,36 +57,39 @@ namespace deren::vulkan::pipelines {
     /// AN ENGINE-HELD PIPELINE (abi 8): a CONTRACT pipeline (every pipeline this renderer builds since abi 21),
     /// created through `create_pipeline` and released inside the backend when this dies.
     ///
-    /// THE RAW LANE IS GONE (abi 21): this type used to be able to own a `VkPipeline` the engine created itself
-    /// - for the compute and ray-tracing assemblies - and destroy it with `vkDestroyPipeline`. The contract's
-    /// factory creates all of them now, so `native` is an ESCAPE READ (`vulkan_escape::native_pipeline`) with ONE
-    /// reader left: `begin_pipeline`, the runner's raw path for the geometry pipelines (a frame-sweep site - see
-    /// the note). `get_pipeline()` had no reader once the two probes recorded through the contract, and is gone.
+    /// THE RAW LANE IS GONE (this batch): the type first gave up OWNING a raw `VkPipeline` (abi 21), and now it
+    /// gives up CARRYING one: its last reader was `begin_pipeline` - the runner's raster bind of the geometry
+    /// pipelines - and that verb takes the CONTRACT command buffer now, so `native`, its `get_pipeline()`
+    /// accessor and the eight `vulkan_escape::native_pipeline()` reads that filled it are deleted. The stored
+    /// dynamic state speaks the CONTRACT's vocabulary too (`rhi::viewport` / `rhi::rect`), which is what lets the
+    /// bind and the state be stated as the record series' own verbs.
     export struct pipeline_handle {
         /// SET FOR EVERY PIPELINE THIS RENDERER BUILDS: its release() runs inside the backend.
         rhi::pipeline* contract = nullptr;
-        VkPipeline native = VK_NULL_HANDLE;
-        /// the per-pipeline dynamic state `vk_pipeline` carried: the runner sets these and
-        /// `begin_pipeline` re-emits them per draw
-        VkViewport viewport = {};
-        VkRect2D scissor = {};
+        /// the per-pipeline dynamic state the runner caches per frame extent and `begin_pipeline` re-emits
+        rhi::viewport viewport = {};
+        rhi::rect scissor = {};
 
         // EVERY SPECIAL MEMBER IS OUT-OF-LINE, in this module: an importer TU that generated the
         // destructor's body itself crashed clang 22's codegen (EmitBuiltinNewDeleteCall under
         // EmitDeferred, measured this session) - with the bodies defined HERE the importer only
         // calls them, which is both the workaround and the better shape for a module type.
         pipeline_handle() noexcept;
-        pipeline_handle(rhi::pipeline* owned, VkPipeline raw) noexcept;
+        pipeline_handle(rhi::pipeline* owned) noexcept;
         pipeline_handle(pipeline_handle&& other) noexcept;
         pipeline_handle& operator=(pipeline_handle&& other) noexcept;
         pipeline_handle(pipeline_handle const&) = delete;
         pipeline_handle& operator=(pipeline_handle const&) = delete;
         ~pipeline_handle() noexcept;
-        /// bind + re-emit the stored dynamic state - `vk_pipeline::begin_pipeline`'s exact behavior
-        void begin_pipeline(VkCommandBuffer command_buffer) const noexcept {
-            vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->native);
-            vkCmdSetViewport(command_buffer, 0u, 1u, &this->viewport);
-            vkCmdSetScissor(command_buffer, 0u, 1u, &this->scissor);
+        /// bind + re-emit the stored dynamic state, through the record series: the three verbs the raw shape
+        /// spelled, and the reason a caller no longer needs the pipeline's native handle.
+        void begin_pipeline(deren::promise::rhi::command_buffer& commands) const noexcept {
+            if (this->contract == nullptr) {
+                return; // nothing was built: a bind of nothing is worse than a skipped one
+            }
+            (void)commands.bind_pipeline(*this->contract);
+            commands.set_viewport(this->viewport);
+            commands.set_scissor(this->scissor);
         }
 
     private:
@@ -129,8 +131,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return std::unexpected(std::string(what) + ": the contract's pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        return pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        return pipeline_handle(built);
     }
 
     /// what build_post() creates: the chain's two composites
@@ -358,8 +359,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return fail("mask bake: the contract's compute pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        out.trace = pipeline_handle(built);
         return out;
     }
 
@@ -378,8 +378,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return fail("compute skin: the contract's compute pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        out.trace = pipeline_handle(built);
         return out;
     }
 
@@ -400,8 +399,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return fail("cluster: the contract's compute pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        out.trace = pipeline_handle(built);
         return out;
     }
 
@@ -418,8 +416,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return fail("heap probe: the contract's compute pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        out.trace = pipeline_handle(built);
         return out;
     }
 
@@ -472,8 +469,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return fail("rt shadow: the contract's compute pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        out.trace = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        out.trace = pipeline_handle(built);
         return out;
     }
     /**
@@ -538,8 +534,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return fail("rt shadow: the contract's ray-tracing pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        out.pipeline = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        out.pipeline = pipeline_handle(built);
         out.group_count = static_cast<uint32_t>(groups.size());
         return out;
     }
@@ -574,8 +569,7 @@ namespace deren::vulkan::pipelines {
         if (built == nullptr) {
             return fail("temporal resolve: the contract's compute pipeline factory refused the descriptor");
         }
-        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        out.resolve = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
+        out.resolve = pipeline_handle(built);
         return out;
     }
 
@@ -683,33 +677,27 @@ namespace deren::vulkan::pipelines {
     }
 
     pipeline_handle::pipeline_handle() noexcept
-        : contract(nullptr)
-        , native(VK_NULL_HANDLE) {
+        : contract(nullptr) {
     }
 
-    pipeline_handle::pipeline_handle(rhi::pipeline* owned, VkPipeline raw) noexcept
-        : contract(owned)
-        , native(raw) {
+    pipeline_handle::pipeline_handle(rhi::pipeline* owned) noexcept
+        : contract(owned) {
     }
 
     pipeline_handle::pipeline_handle(pipeline_handle&& other) noexcept
         : contract(other.contract)
-        , native(other.native)
         , viewport(other.viewport)
         , scissor(other.scissor) {
         other.contract = nullptr;
-        other.native = VK_NULL_HANDLE;
     }
 
     pipeline_handle& pipeline_handle::operator=(pipeline_handle&& other) noexcept {
         if (this != &other) {
             this->release_owned();
             this->contract = other.contract;
-            this->native = other.native;
             this->viewport = other.viewport;
             this->scissor = other.scissor;
             other.contract = nullptr;
-            other.native = VK_NULL_HANDLE;
         }
         return *this;
     }
@@ -726,7 +714,6 @@ namespace deren::vulkan::pipelines {
             release_contract_pipeline(this->contract);
         }
         this->contract = nullptr;
-        this->native = VK_NULL_HANDLE;
     }
 
 } // namespace deren::vulkan::pipelines

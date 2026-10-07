@@ -1179,15 +1179,18 @@ namespace deren::vulkan {
         // leave a scene pipeline and a fullscreen pipeline disagreeing about how big a pixel is.
         // (abi 14: the extent is THIS object's own number now, computed from the contract's swapchain
         // extent - see runtime::refresh_frame_extents.)
-        VkViewport const full_viewport = {
-            0.0f,
-            0.0f,
-            static_cast<float>(this->render_extent().width),
-            static_cast<float>(this->render_extent().height),
-            0.0f,
-            1.0f,
+        // THE CACHED DYNAMIC STATE SPEAKS THE CONTRACT'S VOCABULARY (this batch): `pipeline_handle` stores
+        // `rhi::viewport` / `rhi::rect` and `begin_pipeline` re-emits them through the record series, so these
+        // two locals are the contract's PODs rather than `VkViewport`/`VkRect2D`.
+        rhi::viewport const full_viewport = {
+            .x = 0.0f,
+            .y = 0.0f,
+            .width = static_cast<float>(this->render_extent().width),
+            .height = static_cast<float>(this->render_extent().height),
+            .min_depth = 0.0f,
+            .max_depth = 1.0f,
         };
-        VkRect2D const full_scissor = {{0, 0}, this->render_extent()};
+        rhi::rect const full_scissor = {.offset_x = 0, .offset_y = 0, .width = this->render_extent().width, .height = this->render_extent().height};
         {
             // unique lock: mutating every cached pipeline's viewport/scissor while parallel
             // recording workers may read them through their environments
@@ -1421,8 +1424,8 @@ namespace deren::vulkan {
                                                            rhi::depth_compare::less_or_equal, "G-buffer");
             if (built) {
                 VkExtent2D const extent = this->render_extent();
-                built->viewport = {0.0f, 0.0f, static_cast<float>(extent.width), static_cast<float>(extent.height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, extent};
+                built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(extent.width), .height = static_cast<float>(extent.height), .min_depth = 0.0f, .max_depth = 1.0f};
+                built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (extent).width, .height = (extent).height};
             }
             return built;
         };
@@ -2334,25 +2337,24 @@ namespace deren::vulkan {
             gbuffer_meshlet = gbuffer && self.gbuffer_pipeline_meshlet.has_value();
         }
         env.bind = [&self, &env, gbuffer, gbuffer_mesh, gbuffer_meshlet](std::shared_ptr<rhi::command_buffer> const& session, std::string_view const name) {
-            // THE SESSION'S RAW HANDLE, derived here through the runtime's own escape: the injected binder
-            // still records `vkCmdBindPipeline` and the stored viewport/scissor (the pipelines are raw
-            // `VkPipeline` builders until §8.2 lands), while the recording face itself is the contract's.
-            VkCommandBuffer const cb = self.native_handle(*session);
+            // NO NATIVE HANDLE IS DERIVED HERE ANY MORE (this batch): the bind and the stored viewport/scissor are
+            // the record series' own verbs (`pipeline_handle::begin_pipeline`), and the session IS the contract
+            // buffer they take.
             if (gbuffer) {
                 if (name == gbuffer_pipeline_name) {
                     if (gbuffer_meshlet) {
                         // ONE WORKGROUP PER MESHLET, each culled against the camera before it emits anything
                         // (docs/mesh_shaders.md step 3): the lanes carry the primitive's meshlet run, which is
                         // why the session flag travels with the bind rather than being decided up front.
-                        self.gbuffer_pipeline_meshlet->begin_pipeline(cb);
+                        self.gbuffer_pipeline_meshlet->begin_pipeline(*session);
                         env.mesh_stage = true;
                         env.meshlets = true;
                     } else if (gbuffer_mesh) {
-                        self.gbuffer_pipeline_mesh->begin_pipeline(cb);
+                        self.gbuffer_pipeline_mesh->begin_pipeline(*session);
                         env.mesh_stage = true;
                         env.meshlets = false;
                     } else {
-                        self.gbuffer_pipeline->begin_pipeline(cb);
+                        self.gbuffer_pipeline->begin_pipeline(*session);
                         env.mesh_stage = false;
                         env.meshlets = false;
                     }
@@ -2370,7 +2372,7 @@ namespace deren::vulkan {
             // flags follow the bind, which is what makes a session that mixes the forms correct rather than merely
             // likely.
             if (auto const meshlet = self.meshlet_pipelines.find(name); meshlet != self.meshlet_pipelines.end()) {
-                meshlet->second.begin_pipeline(cb);
+                meshlet->second.begin_pipeline(*session);
                 env.mesh_stage = true;
                 env.meshlets = true;
                 static std::array<std::string_view, 8> logged_meshlet = {};
@@ -2386,7 +2388,7 @@ namespace deren::vulkan {
                 return;
             }
             if (auto const mesh = self.mesh_pipelines.find(name); mesh != self.mesh_pipelines.end()) {
-                mesh->second.begin_pipeline(cb);
+                mesh->second.begin_pipeline(*session);
                 env.mesh_stage = true;
                 // the meshlet form is the answer above; a session that lands here draws one workgroup per 85
                 // triangles, so the flag that says "the lanes carry a meshlet run" has to be cleared, not left over
@@ -2413,15 +2415,15 @@ namespace deren::vulkan {
             env.mesh_stage = false;
             env.meshlets = false;
             if (auto const it = self.pipelines.find(name); it != self.pipelines.end()) {
-                it->second.begin_pipeline(cb); // a non-geometry named pipeline (none today: kept for the registry's sake)
+                it->second.begin_pipeline(*session); // a non-geometry named pipeline (none today: kept for the registry's sake)
             } else {
                 deren::utility::log("runtime: main pass references unknown pipeline '{}' - draw skipped", name);
             }
         };
 
         // transparent leaves toggle depth writes off via this (core dynamic state, 1.3)
-        env.set_depth_write_fn = [&self](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const enabled) {
-            vkCmdSetDepthWriteEnable(self.native_handle(*session), enabled);
+        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const enabled) {
+            session->set_depth_write(enabled != VK_FALSE); // the contract's verb; the raw flag converts at the boundary
         };
         // single-sided materials keep back-face culling here (the shadow pass overrides it with env.two_sided;
         // the main pass must not, or double-sided handling would cost fill rate)
@@ -3003,18 +3005,18 @@ namespace deren::vulkan {
         // this function no longer has a "not a compute pass" branch: the three graphics kinds differ in how
         // many draws they issue, and only the pass knows that.
         pass::behaviour const& behaviour = pass.behaviour();
-        // THE FRAME LOOP'S OWN RAW STEPS, and they stay raw (the §8.4 frame-level sweep owns them - they are
-        // not a pass's recording): what changed here is only which native handle they take. `io.cmd` is the
-        // frame's contract buffer now, so the one derivation every other frame-loop site uses answers the
-        // handle these three commands need.
-        VkCommandBuffer const commands = this->native_frame_commands(io.cmd);
+        // THE RUNNER'S LAST RAW STEP IS GONE (this batch): the viewport/scissor resync below is the record
+        // series' own verbs on `io.cmd`, which is the frame's contract buffer - so this function derives no
+        // native handle at all any more, and the three `vkCmd*` calls it used to make are two contract verbs.
         if (behaviour.resync_viewport) {
             // io.extent is the extent the declaration's rule produced (the frame's, half of it, or a
             // resource's), so a fullscreen pass gets a viewport that matches the target it declared.
-            VkViewport const viewport = {0.0f, 0.0f, static_cast<float>(io.extent.width), static_cast<float>(io.extent.height), 0.0f, 1.0f};
-            VkRect2D const scissor = {{0, 0}, {io.extent.width, io.extent.height}};
-            vkCmdSetViewport(commands, 0, 1, &viewport);
-            vkCmdSetScissor(commands, 0, 1, &scissor);
+            // BOTH HALVES ARE THE CONTRACT'S NOW (this batch): the two values are the contract's PODs and the two
+            // commands are the record series' verbs on the frame's own buffer.
+            rhi::viewport const viewport = {.x = 0.0f, .y = 0.0f, .width = static_cast<float>(io.extent.width), .height = static_cast<float>(io.extent.height), .min_depth = 0.0f, .max_depth = 1.0f};
+            rhi::rect const scissor = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height};
+            io.cmd->set_viewport(viewport);
+            io.cmd->set_scissor(scissor);
         }
         // THE CONTRACT, ONE LANE (abi 21): every pipeline a pass resolves is the contract object
         // `command_buffer::bind_pipeline` takes - the graphics recipes, the compute assemblies and the
