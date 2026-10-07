@@ -106,8 +106,6 @@ export namespace deren::vulkan::pass {
         /// @brief whether the job built what it records with (the renderer's gate for skinning at all)
         [[nodiscard]] bool ready() const noexcept;
 
-        [[nodiscard]] VkPipeline pipeline() const noexcept;
-
     private:
         static constexpr std::string_view shader_name = "compute_skin.comp.spv";
         static constexpr uint32_t group_size = 64; // `compute_skin.comp`'s local_size_x

@@ -472,7 +472,11 @@ namespace deren::vulkan {
         // materials sharing one glTF image (same decoded pixels, different byte copies) all point at
         // the same array slot instead of uploading a copy per material - the loader hands each
         // material its own byte copy, so a pointer key would never match.
-        std::vector<VkImageView> texture_array_views = {};
+        //
+        // `texture_array_views` (a parallel std::vector<VkImageView>) STOOD HERE AND IS GONE: nothing ever read
+        // an element of it - every use was `.size()`, which is `owned_texture_views.size()` - and its two pushes
+        // were the only `native_image_view` reads in the file. A contract handle that is only ever counted is a
+        // native cache nobody needed; the contract views beside it are what every consumer takes.
         std::vector<rhi::object_manager<rhi::image_view>> owned_texture_views = {};
         std::vector<rhi::object_manager<rhi::image>> owned_textures = {};
         uint32_t white_texture_index = 0;

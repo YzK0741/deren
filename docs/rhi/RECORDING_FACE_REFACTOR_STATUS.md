@@ -1,6 +1,6 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: six batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: seven batches have LANDED AND ARE GREEN.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
@@ -11,10 +11,11 @@
 > query travels through `api_basis` there, and the smoke run still builds its table).
 >
 > THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 51**, **none of them
-> in `vulkan/pass/`** (the pass layer is at zero, including the job passes and the ray-traced shadow);
-> engine files including a Vulkan header **62 -> 40**; abi **20 -> 22**, pinned in both tests. (The
-> site count's last move was +3 rather than down: the fifth batch's probe fix ADDS three dynamic-state
-> calls - see trap 12 - and honesty about an instrument means counting what it measures.)
+> in `vulkan/pass/`**; and the ESCAPE's own demand, measured for the first time in the seventh batch:
+> **105 -> 102 engine-side call sites** (its five classes are in 2.12). Engine files including a Vulkan
+> header **62 -> 39**; abi **20 -> 22**, pinned in both tests. (The call-site count's last move was +3
+> rather than down: the fifth batch's probe fix ADDS three dynamic-state calls - trap 12 - and honesty
+> about an instrument means counting what it measures.)
 >
 > THIS NOTE IS THE COMMIT-MESSAGE-LENGTH VERSION of all six batches: section 2 is what changed,
 > section 5 is the failure class the first batch closed, section 8 is what is left AND the measurement
@@ -191,6 +192,22 @@ type is GONE, and the retired `interface_type` enumerator (`rhi.contract.cppm:37
 | the backend | `core` gained `basis_token` (an empty struct whose whole content is its tag) + `get_basis()` + `owns_basis()` (a TAG check, because this build is `-fno-rtti`), and `frame_escape` implements the three slots: `device_proc` resolves through `vkGetDeviceProcAddr` on `logical_device`, `shader_group_handles` through `vkGetRayTracingShaderGroupHandlesKHR` on the pipeline's native handle. The handle itself never leaves the backend. |
 | the pass layer | `pass::native_device(face)` (a `VkDevice` returned into pass code) is REPLACED by `pass::device_basis(face)` + `pass::device_proc(...)` + `pass::shader_group_handles(...)`, and `ray_traced_shadow.cpp` now names **no `VkDevice`, no `VK_SUCCESS` and no `vkGetDeviceProcAddr` at all** - it holds the launch function pointer and the SBT regions, which is exactly the part that stays native. |
 | the probe | `tests/probe_backend.cpp`'s device-less `probe_escape` answers `nullptr` / `false` to the three new slots - the honest answer for a probe with no device, and the same answer that makes an engine path take its documented "unavailable" branch. |
+
+### 2.12 What the SEVENTH batch added (the escape's first real shrink, and what actually blocks it)
+
+The batch started from a MEASUREMENT of the escape's remaining demand: **105 engine-side call sites**
+(`runtime/**` + `vulkan/**` outside the backend; the probe/spike fakes use it deliberately and are not
+demand), in five classes. This batch took the part that the contract ALREADY had a shape for.
+
+| area | what landed |
+|---|---|
+| the contract was already ready | `heap_image_write_info` has always been contract-spelled (`image const* resource` + `image_view_desc const* view` + `descriptor_type`), and the engine already had a CONTRACT overload `contract_write_heap_image(face, offset, rhi::image const&, rhi::image_view_desc const&, descriptor_type)` beside the transitional native one. Four IBL writes were already using it. |
+| the white fallback texture | its heap write went through the CONTRACT overload (`*owned_textures.back()` + `image_view_desc{}` + `sampled_image`), so the hand-built `VkImageViewCreateInfo` and the `native_image()` read that fed it are gone. **The render gate matched 14/14 byte-for-byte afterwards**, which is the proof that `image_view_desc{}` (all remaining layers/mips) and the hand-written struct described the same view. |
+| DEAD NATIVE CACHE | `runtime::texture_array_views` (`std::vector<VkImageView>`) is DELETED: nothing ever read an element - every use was `.size()` (which is `owned_texture_views.size()`) - and its two pushes were the file's only `native_image_view()` reads. The indices that were counted off it are now counted off the contract vector (`size() - 1` where the push follows, with the ordering note where each is computed). |
+| dead accessors | `mask_bake_job::pipeline()` and `compute_skin_job::pipeline()` (raw `VkPipeline`, **no callers**) are DELETED, the same shape `frame_pass::pipeline()` had before batch 4. |
+| the include sweep | `vulkan/pass/compute_skin.cpp` now names NO Vulkan type, macro or entry point at all and dropped its include: engine files with a Vulkan header **40 -> 39**. |
+| the numbers | engine-side escape call sites **105 -> 102**; the heap/recording class **68 -> 65**. |
+| WHAT BLOCKED THE REST (measured, not guessed) | (1) `pipelines::pipeline_handle::native` still has TWO readers - the two PROBES' raw `vkCmdBindPipeline`, because a probe records into its own raw pool/command buffer, so `command_buffer::bind_pipeline` cannot be called there yet; retiring that lane is the probes' rewrite. (2) The probe's `vkCmdDrawMeshTasksEXT` -> `mesh_shader::dispatch_mesh` is blocked by the same fact: `dispatch_mesh(command_buffer&, ...)` needs a contract command buffer, which the probe does not have. (3) The remaining 65 heap/recording sites hang off the FRAME RESOURCE TABLE's raw lanes (`resolved_binding::view/image`), which is the frame sweep. (4) RT's launch needs SBT REGIONS the contract's `trace_rays(commands, w, h, depth)` does not carry - a genuine contract GAP, not a migration. |
 
 ## 3. What was tried and reverted (do not repeat)
 
@@ -422,7 +439,7 @@ the shadow hand-back), `runtime/runtime.probes.cppm` (11 - the probe's own path,
 state trap 12 found), `vulkan/ray_tracing/ray_tracing.cpp` (4 - the structure set's barriers, out of the
 pass layer by design), `runtime/runtime.cpp` (3 - the resolved mesh entry points), `pipelines.cppm` (3 -
 `begin_pipeline`'s bind + viewport + scissor) and `readback.cpp` (2 - its one-shot copy). The include
-count is **40** (the census's own scope: `runtime/**` + `vulkan/**` MINUS `vulkan/core/**`; the fifth
+count is **39** (the census's own scope: `runtime/**` + `vulkan/**` MINUS `vulkan/core/**`; the fifth
 batch also dropped a dead one in `vulkan/core/filter/filters.cpp`, which that scope does not count).
 
 DONE IN THE SECOND, THIRD AND FOURTH BATCHES (all gated, see section 6):
@@ -458,6 +475,14 @@ DONE IN THE SECOND, THIRD AND FOURTH BATCHES (all gated, see section 6):
    (the last raw builder) is a contract factory; `make_shader_module_raw`, `shader_module_handle`,
    `release_contract_shader`, `pipeline_handle::raw_device` / its raw constructor / `destroy_raw` are
    deleted. One pass still needs a device, and it reaches it the escape's way (`pass::native_device`).
+7. **The basic handle travels as a tagged token** (sixth batch): `api_basis` (`s_type` only, no
+   interface), `vulkan_escape` +3 slots (abi 22), and `ray_traced_shadow.cpp` names no
+   `VkDevice`/`VK_SUCCESS`/`vkGetDeviceProcAddr` any more.
+8. **The escape's demand is measured and shrinking** (seventh batch): 105 -> 102 engine-side call sites,
+   the heap/recording class 68 -> 65, one dead native cache and two dead accessors deleted, and the
+   contract ALREADY carried the shapes for all of it (`heap_image_write_info` + the heap verbs) - what
+   blocks the rest is the frame resource table's raw lanes and the probes' raw command buffers, not the
+   contract (see 2.12's "what blocked the rest").
 
 WHAT REMAINS:
 

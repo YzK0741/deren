@@ -12,7 +12,6 @@ module;
 #include <string>
 #include <utility>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.compute_skin;
 
@@ -31,10 +30,6 @@ namespace deren::vulkan::pass {
 
     bool compute_skin_job::ready() const noexcept {
         return this->pass_pipeline.has_value();
-    }
-
-    VkPipeline compute_skin_job::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     std::expected<void, std::string> compute_skin_job::create(pass_context const& context) {

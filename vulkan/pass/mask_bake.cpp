@@ -32,10 +32,6 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline mask_bake_job::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
-    }
-
     std::expected<void, std::string> mask_bake_job::create(pass_context const& context) {
         if (context.face == nullptr) {
             return std::unexpected(std::string("mask bake: no device"));

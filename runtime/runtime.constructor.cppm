@@ -712,8 +712,11 @@ namespace deren::vulkan {
         if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
             deren::utility::panic("failed to create the white fallback texture");
         }
-        this->white_texture_index = static_cast<uint32_t>(this->texture_array_views.size());
-        this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
+        // NO NATIVE VIEW CACHE (the `texture_array_views` vector that stood here is GONE): its elements were
+        // never read - every use was `.size()`, which is `owned_texture_views.size()`, and the two pushes were
+        // the only readers of the escape's `native_image_view` in this file. The heap write below is the
+        // contract's own, so nothing ever needed the raw handle.
+        this->white_texture_index = static_cast<uint32_t>(this->owned_texture_views.size() - 1);
 
         // THE WHITE ELEMENT NEEDS ITS OWN HEAP DESCRIPTOR HERE, and its absence was a class of black frames.
         // Every texture that reaches the bindless array through register_material has its heap slot written
@@ -728,20 +731,15 @@ namespace deren::vulkan {
         // @note deren::vulkan::render_layout::heap_slot_offset() is defined below this constructor, so the arithmetic is spelled out: a slot
         //       number is already absolute and the stride is the one every heap array agrees on.
         if (contract_heap_ready(this->rhi_face())) {
-            VkImage const white_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
-            {
-                VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                                                         .pNext = nullptr,
-                                                         .flags = 0,
-                                                         .image = white_native,
-                                                         .viewType = VK_IMAGE_VIEW_TYPE_2D,
-                                                         .format = VK_FORMAT_R8G8B8A8_UNORM,
-                                                         .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-                                                         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
-                VkDeviceSize const white_offset = static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index) * deren::vulkan::render_layout::heap_slot_stride;
-                if (!contract_write_heap_image(this->rhi_face(), white_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
-                    deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index);
-                }
+            // THE DESCRIPTOR IS THE CONTRACT'S (item d of the escape-shrink plan): the image AND its view are
+            // the contract objects created six lines above (`owned_textures.back()` / `owned_texture_views.back()`),
+            // so the descriptor is an `image_view_desc` - all remaining layers and mips, which is the view those
+            // lines made. The hand-built `VkImageViewCreateInfo` and the `native_image` read that fed it are gone
+            // with it: this was the last escape use in this function.
+            rhi::image_view_desc const white_heap_view{};
+            VkDeviceSize const white_offset = static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index) * deren::vulkan::render_layout::heap_slot_stride;
+            if (!contract_write_heap_image(this->rhi_face(), white_offset, *this->owned_textures.back(), white_heap_view, rhi::descriptor_type::sampled_image)) {
+                deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index);
             }
         }
 
@@ -2233,7 +2231,7 @@ namespace deren::vulkan {
                 texture_indices[i] = cached->second; // shared texture: reuse its slot
                 continue;
             }
-            if (this->texture_array_views.size() >= runtime_detail::scene_texture_capacity) {
+            if (this->owned_texture_views.size() >= runtime_detail::scene_texture_capacity) {
                 // Array full (pathological scene with > scene_texture_capacity distinct images):
                 // degrade this texture slot to the white element instead of crashing - the
                 // material still renders untextured. Same policy as the material-table overflow
@@ -2263,8 +2261,10 @@ namespace deren::vulkan {
             if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
                 deren::utility::panic("failed to create material texture");
             }
-            uint32_t const index = static_cast<uint32_t>(this->texture_array_views.size());
-            this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
+            // THE INDEX IS THE VIEW JUST APPENDED (see where the white element sets `white_texture_index` the
+            // same way): the native cache that used to be counted here held the same views in the same order, so
+            // its `size()` - taken before its own push - was this index.
+            uint32_t const index = static_cast<uint32_t>(this->owned_texture_views.size() - 1);
             this->texture_slot_cache.emplace(key, index);
             texture_indices[i] = index;
 
@@ -2556,7 +2556,7 @@ namespace deren::vulkan {
                             toon_lanes_extra2.x,
                             toon_lanes_extra2.y,
                             toon_lanes_extra2.z,
-                            this->texture_array_views.size());
+                            this->owned_texture_views.size());
         // ... AND THE SPECULAR STRENGTH, WHICH IS THE ONE LANE WHOSE "NOTHING STATED" IS A SENTINEL RATHER THAN
         // THE TABLE'S NEUTRAL (`-1`, see `toon_colour_lane::specular_strength`), so a log line is the only place
         // the difference between "the asset said 0.0" and "no source spoke" is visible at all: both reach the
