@@ -3087,6 +3087,63 @@ namespace deren::vulkan {
         return reinterpret_cast<void*>(owned->native_handle);
     }
 
+    // ---- abi 22: the BASIC-HANDLE basis ------------------------------------------------------------
+    //
+    // THE TOKEN CARRIES THE TAG AND NOTHING ELSE (see `api_basis`): what a caller passes is "the device this
+    // work belongs to", and the two escape methods below take it back and read the device from THIS core's own
+    // state. That is the whole reason the base has no interface - the handle never travels in it, so nothing
+    // about it can go stale, and an implementer of the contract owes the type nothing at all.
+    rhi::api_basis* core::get_basis() noexcept {
+        return &this->basis_object;
+    }
+
+    bool core::owns_basis(rhi::api_basis const& basis) const noexcept {
+        // THE CHECK IS THE TAG, NOT A dynamic_cast: this build is `-fno-rtti`, and the tag is the stronger
+        // question anyway (it says "a Vulkan device basis", which is exactly what the methods below need to
+        // know). A token from a NON-Vulkan backend is refused here; a token from another Vulkan core in the same
+        // process is indistinguishable by tag and is resolved against THIS core's device - the engine obtains
+        // the token from the face it is recording with, so a mixed-core call would be a caller bug, and the
+        // failure it can produce is bounded: a device proc resolved on the wrong device, not a mis-cast.
+        return basis.s_type == rhi::structure_type::vulkan_device_basis;
+    }
+
+    rhi::api_basis* core::frame_escape::get_basis() const noexcept {
+        return this->owner != nullptr ? this->owner->get_basis() : nullptr;
+    }
+
+    void* core::frame_escape::device_proc(rhi::api_basis& basis, char const* const name) const noexcept {
+        core* const self = this->owner;
+        if (self == nullptr || name == nullptr || !self->owns_basis(basis) || self->logical_device == VK_NULL_HANDLE) {
+            return nullptr;
+        }
+        // THE DEVICE IS THIS CORE'S OWN, and it is resolved HERE rather than at the caller: an extension command
+        // is not exported by the loader's import library, so the address has to come from the device
+        // (`vkGetDeviceProcAddr`), which is what the engine cannot do without naming a `VkDevice` - the whole
+        // reason this slot exists. Null is the honest answer for a device that does not publish the name.
+        return reinterpret_cast<void*>(vkGetDeviceProcAddr(self->logical_device, name));
+    }
+
+    bool core::frame_escape::shader_group_handles(rhi::api_basis& basis, rhi::pipeline const& resource, std::uint32_t const first_group, std::uint32_t const group_count,
+                                                  std::span<std::uint8_t> const out) const noexcept {
+        core* const self = this->owner;
+        if (self == nullptr || !self->owns_basis(basis) || self->logical_device == VK_NULL_HANDLE) {
+            return false;
+        }
+        void* const native = this->native_pipeline(resource);
+        if (native == nullptr || out.empty()) {
+            return false;
+        }
+        auto const query = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(self->logical_device, "vkGetRayTracingShaderGroupHandlesKHR"));
+        if (query == nullptr) {
+            return false;
+        }
+        // `out.size()` IS THE QUERY'S dataSize, exactly as Vulkan wants it: the CALLER sized the destination from
+        // the device's own handle size (the pass reads it off `ray_tracing_properties`), so this side needs no
+        // second opinion about the layout - and a caller that sized it wrong gets a failed call rather than a
+        // truncated write.
+        return query(self->logical_device, static_cast<VkPipeline>(native), first_group, group_count, out.size(), out.data()) == VK_SUCCESS;
+    }
+
     // ---- tier-2 host_image_copy (③-D/E step 2) ------------------------------------------------------
     rhi::error core::frame_host_copy::copy_image_to_memory(rhi::image const& source, std::span<std::byte> destination,
                                                            rhi::image_copy_region const& region) noexcept {

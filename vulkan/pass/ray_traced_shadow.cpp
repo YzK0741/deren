@@ -100,19 +100,20 @@ namespace deren::vulkan::pass {
         //      group handles are per-pipeline data, and the STRIDE is a property of the device rather than a
         //      constant. Here a handle is 32 bytes while a region's address must be 64-byte aligned, so using the
         //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit.
-        //      THE DEVICE COMES FROM THE ESCAPE (abi 21), because both facts below are ALLOCATED ENTRY POINTS
-        //      rather than objects: `pass::native_device` is the contract's own documented answer (the same one
-        //      `pass::native_commands` gives for the launch), and the pass_context has no device to hand over any
-        //      more - the pipeline builders are contract factories and not one of them read it.
-        VkDevice const device = pass::native_device(context.face);
-        if (device == VK_NULL_HANDLE) {
-            deren::utility::log("ray-traced shadows unavailable: the face publishes no native device to resolve the trace entry points on");
+        //      THE DEVICE TRAVELS AS `api_basis` (abi 22), the contract's tagged, interface-free token: both facts
+        //      below are ALLOCATED ENTRY POINTS rather than objects, so they go through the escape - and the pass
+        //      never names a `VkDevice` at all. `pass::device_basis` is the token, `pass::device_proc` resolves an
+        //      entry point, `pass::shader_group_handles` asks the device for the SBT's own handles.
+        deren::promise::rhi::api_basis* const basis = pass::device_basis(context.face);
+        if (basis == nullptr) {
+            deren::utility::log("ray-traced shadows unavailable: the face publishes no basis to resolve the trace entry points on");
             this->release_owned();
             return;
         }
-        auto const get_group_handles = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(device, "vkGetRayTracingShaderGroupHandlesKHR"));
-        this->trace_rays_fn = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(device, "vkCmdTraceRaysKHR"));
-        if (get_group_handles == nullptr || this->trace_rays_fn == nullptr) {
+        // The LAUNCH entry point is resolved here and kept as a function pointer (it is what `record` calls);
+        // the group-handle query is asked where it is used, through the same basis.
+        this->trace_rays_fn = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(pass::device_proc(context.face, *basis, "vkCmdTraceRaysKHR"));
+        if (this->trace_rays_fn == nullptr) {
             deren::utility::log("ray-traced shadows unavailable: the device did not publish the traceRays entry points");
             this->release_owned();
             return;
@@ -128,7 +129,9 @@ namespace deren::vulkan::pass {
         uint32_t const region_size = ((handle_size + base_alignment - 1u) / base_alignment) * base_alignment;
         uint32_t const group_count = built->group_count;
         std::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
-        if (get_group_handles(device, this->pass_pipeline->get_pipeline(), 0, group_count, handles.size(), handles.data()) != VK_SUCCESS) {
+        // THE SBT QUERY, through the basis (abi 22): `out.size()` is the query's dataSize, and the pipeline is
+        // the CONTRACT object the backend turns into its own native handle - so this file names neither.
+        if (!pass::shader_group_handles(context.face, *basis, *this->pass_pipeline->contract, 0, group_count, std::span<std::uint8_t>(handles))) {
             deren::utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
             this->release_owned();
             return;

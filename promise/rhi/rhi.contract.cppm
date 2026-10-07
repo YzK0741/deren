@@ -232,7 +232,12 @@ export namespace deren::promise::rhi {
     /// `pipeline_desc::compute_code`, `barrier_group`'s stage hint and its global memory barrier, and the
     /// appended `buffer_use` VALUE the last of those needed - the first two are guarded by `struct_size`,
     /// and adding a value never renumbers anything (the rule stated above).
-    inline constexpr std::uint32_t abi_version = 21u;
+    /// 21 -> 22 in the BASIC-HANDLE batch: `vulkan_escape` APPENDED three slots - `get_basis()`,
+    /// `device_proc(api_basis&, char const*)` and `shader_group_handles(api_basis&, pipeline const&, ...)` -
+    /// which is a tier-2 interface growing, the same shape as 5 -> 6 and 7 -> 8 above. The new `api_basis` type
+    /// is an EMPTY, VIRTUAL-FREE tag struct (`s_type` only) that no boundary crosses by value and no interface
+    /// gets a slot for, so the type alone moves nothing; the three appends are the whole reason for the number.
+    inline constexpr std::uint32_t abi_version = 22u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -419,6 +424,10 @@ export namespace deren::promise::rhi {
         /// `vulkan_command_buffer_inheritance_info`) - a value, not a vtable, so appending it does not
         /// move `abi_version` (the same rule the appended `error` values follow)
         vulkan_command_buffer_inheritance = 0x10002,
+        /// appended in abi 22: the BASIS a Vulkan backend hands out (see `api_basis`) - the tag that says "the
+        /// basic handles this token stands for belong to a Vulkan logical device". Appending a VALUE moves no
+        /// `abi_version`; the three `vulkan_escape` slots that USE it are what moved the number 21 -> 22.
+        vulkan_device_basis = 0x10003,
     };
 
     /// next只借用到同步调用结束；当前只接受明确支持的一层后端参数，不静默丢链。

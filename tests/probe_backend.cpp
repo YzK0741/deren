@@ -241,6 +241,20 @@ namespace {
         [[nodiscard]] std::uint32_t native_swapchain_image_format() const noexcept override {
             return static_cast<std::uint32_t>(probe_image_format);
         }
+        /// abi 22's BASIC-HANDLE slots, answered the way a DEVICE-LESS probe must: it has no basis to hand out
+        /// (null), and the two methods that take one refuse everything - `device_proc` resolves no entry point
+        /// and `shader_group_handles` writes no handle. A pass that reaches them through this face therefore
+        /// takes its own documented "unavailable" path instead of recording against a device that is not there,
+        /// which is exactly what the probe is for: the boundary, witnessed with no GPU behind it.
+        [[nodiscard]] rhi::api_basis* get_basis() const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] void* device_proc(rhi::api_basis&, char const*) const noexcept override {
+            return nullptr;
+        }
+        [[nodiscard]] bool shader_group_handles(rhi::api_basis&, rhi::pipeline const&, std::uint32_t, std::uint32_t, std::span<std::uint8_t>) const noexcept override {
+            return false;
+        }
 
         /// B8G8R8A8_UNORM, as the contract's `std::uint32_t` spelling of a VkFormat.
         static constexpr int probe_image_format = 44;

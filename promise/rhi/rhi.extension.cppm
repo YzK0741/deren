@@ -432,6 +432,39 @@ export namespace deren::promise::rhi {
     /// Vulkan backend that did not announce this bit would make the engine fail at startup by name.
     /// Once the passes record through the contract, the escape shrinks to the few calls the contract has
     /// no concept for.
+    /**
+     * @brief THE BASIS OF A BACKEND: the token that carries a BASIC HANDLE (a device above all) through the
+     *        engine without naming it - `core::get_basis()` answers one, and a method that needs a basic handle
+     *        takes `api_basis&` and passes it back to the backend that owns it.
+     *
+     * NO INTERFACE AT ALL, AND THAT IS THE POINT: there is no virtual, no ownership, no data beyond the TAG -
+     * an implementer owes this type NOTHING (a backend derives an empty struct, sets `s_type`, and is done).
+     * The fact being passed is "which device owns this work", and the contract deliberately does not name
+     * `VkDevice`: it is a dispatchable pointer whose type belongs to the backend. `void*` was the previous
+     * carrier, and it costs nothing and checks nothing; a TAGGED token is the improvement - the receiver asks
+     * the same question every other tagged structure in this contract is asked (`structure_header`'s `s_type`
+     * convention, one level up in the skeleton rather than in a pNext chain).
+     *
+     * WHY NOT A VIRTUAL: this build is `-fno-rtti`, and a virtual would buy nothing that the tag does not -
+     * the callee is the BACKEND, which already knows what it handed out and only has to check that the token is
+     * the one it expects. An empty base + `s_type` is also the only shape that keeps the contract free of a
+     * vtable it would then have to keep stable across releases.
+     *
+     * IT IS NOT A BASE OF `api_core` AND NOT A BASE OF THE BACKEND'S OWN TYPE (the ruling this was built
+     * under): the backend COMPOSES one and hands it out by name, so a signature that takes the contract does
+     * not also take "the thing handles hang off". The handle itself never travels IN the token (that would make
+     * it the native type leaking through the contract again) - the backend reads it from its own state.
+     *
+     * `struct_size` AND `next` ARE DELIBERATELY ABSENT, unlike `structure_header`: nothing crosses a boundary
+     * by value here (the token is passed by reference between engine and backend), so there is no caller/callee
+     * layout to guard, and there is no chain to walk.
+     */
+    struct api_basis {
+        /// WHICH KIND OF BASIS THIS IS - the tag a receiver checks (`structure_type::vulkan_device_basis` for
+        /// the Vulkan backend's logical device). The only content this type has.
+        structure_type s_type = structure_type::unknown;
+    };
+
     struct vulkan_escape : extension {
         static constexpr interface_type interface_id = interface_type::vulkan_escape;
         static constexpr extension_kind extension_id = extension_kind::vulkan_escape;
@@ -528,6 +561,33 @@ export namespace deren::promise::rhi {
         /// APPENDED IN ABI 17 with the contract-only runtime's merged slice (③-D/E step 2): a virtual on
         /// an existing tier-2 interface, which is the case the abi number exists for.
         [[nodiscard]] virtual std::uint32_t native_swapchain_image_format() const noexcept = 0;
+
+        /// THE BASIS THIS ESCAPE HANDS OUT (abi 22), as the contract's tagged `api_basis` - see its own note for
+        /// why the base carries no handle and no interface. A caller that has to pass "the device this work
+        /// belongs to" passes THIS, and the two methods below take it back. Null before the device exists.
+        [[nodiscard]] virtual api_basis* get_basis() const noexcept = 0;
+
+        /// RESOLVE AN ALLOCATED ENTRY POINT against the basis's device - an extension command the loader's
+        /// import library does not export (`vkCmdTraceRaysKHR`, `vkCmdDrawMeshTasksEXT`, ...), which is why the
+        /// engine must ask the device for its address rather than call it. nullptr when the basis carries the
+        /// wrong tag, or the device does not publish the name.
+        ///
+        /// WHY THE BASIS IS A PARAMETER RATHER THAN IMPLICIT IN `this`: a resolution is a fact about a DEVICE,
+        /// and the token says which one. The backend checks the token's TAG and then reads the device from its
+        /// own state - the difference between this and a `char const*`-keyed global lookup.
+        [[nodiscard]] virtual void* device_proc(api_basis& basis, char const* name) const noexcept = 0;
+
+        /// THE SHADER-BINDING-TABLE GROUPS of a ray-tracing `pipeline`: `group_count` handles starting at
+        /// `first_group`, written into `out` (the device-side query `vkGetRayTracingShaderGroupHandlesKHR`).
+        /// false when the basis carries the wrong tag, the pipeline has no native handle, or the query failed.
+        ///
+        /// APPENDED IN ABI 22 WITH `get_basis` AND `device_proc`, and it is the SBT half of the same escape
+        /// bucket: the group handles are per-pipeline DEVICE data whose layout (size, alignment, the regions a
+        /// launch is given) is exactly what the contract has no vocabulary for. `pass::shader_group_handles` is
+        /// the pass-layer spelling of this call, and it is what let `ray_traced_shadow.cpp` stop naming a
+        /// `VkDevice` (it still names the REGIONS: that is the launch, and it stays native).
+        [[nodiscard]] virtual bool shader_group_handles(api_basis& basis, pipeline const& resource, std::uint32_t first_group, std::uint32_t group_count,
+                                                        std::span<std::uint8_t> out) const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

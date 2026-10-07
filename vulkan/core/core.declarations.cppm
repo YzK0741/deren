@@ -648,6 +648,15 @@ namespace deren::vulkan {
             /// exists (see the contract's own note on this accessor). `VK_FORMAT_UNDEFINED` when this
             /// core has no swapchain format yet.
             [[nodiscard]] std::uint32_t native_swapchain_image_format() const noexcept override;
+
+            /// abi 22's BASIC-HANDLE slots: the tagged basis token this backend hands out, the entry-point
+            /// resolution that takes it back, and the shader-binding-table handle query. All three check the
+            /// token's TAG (`core::owns_basis`) before reading this core's device - this build is `-fno-rtti`,
+            /// so a foreign token is refused rather than cast (see `api_basis`).
+            [[nodiscard]] deren::promise::rhi::api_basis* get_basis() const noexcept override;
+            [[nodiscard]] void* device_proc(deren::promise::rhi::api_basis& basis, char const* name) const noexcept override;
+            [[nodiscard]] bool shader_group_handles(deren::promise::rhi::api_basis& basis, deren::promise::rhi::pipeline const& resource, std::uint32_t first_group,
+                                                    std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept override;
         };
 
         /// tier-2 `host_image_copy`: the implementation-side copy out of an image into the app's own
@@ -746,6 +755,16 @@ namespace deren::vulkan {
         [[nodiscard]] VkCommandBuffer frame_command_buffer() const noexcept;
 
         VkInstance instance = VK_NULL_HANDLE;
+        // THE BASIS TOKEN (abi 22): empty by design except for its TAG, handed out by `get_basis()` and checked
+        // by tag in `owns_basis()`. It lives beside the handles rather than carrying one, and it is declared
+        // HERE because a data member's type must be complete where the member is declared - the public accessors
+        // are further down, where the rest of the contract's surface is.
+        struct basis_token final : deren::promise::rhi::api_basis {
+            basis_token() noexcept {
+                this->s_type = deren::promise::rhi::structure_type::vulkan_device_basis;
+            }
+        };
+        basis_token basis_object = {};
         // called logical_device, not device: the structured binding of that name in core.constructor.cppm
         // would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         VkDevice logical_device = VK_NULL_HANDLE;
@@ -845,6 +864,22 @@ namespace deren::vulkan {
         [[nodiscard]] std::uint32_t api_version() const noexcept override;
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
+
+        /// THE BASIS TOKEN THIS CORE HANDS OUT (abi 22): the empty, tagged `basis_token` declared beside the
+        /// members below (a data member's type must be complete where it is declared, so the type lives there).
+        /// @brief the basis a caller passes back to a method that needs a basic handle (the device above all)
+        ///
+        /// A MEMBER, NOT A BASE, AND NOT A BASE OF `core` ITSELF - that is the ruling this was built under: the
+        /// object that owns the handles stays `core`, and a signature that takes the contract does not also
+        /// take "the thing handles hang off". The token carries NO handle (the device stays in `logical_device`),
+        /// so a caller cannot read one out of it; the backend checks its TAG in `owns_basis()` and reads the
+        /// device from its own state. Not null: this is a member, so it lives as long as the core does.
+        [[nodiscard]] deren::promise::rhi::api_basis* get_basis() noexcept;
+        /// @brief whether @p basis is a basis THIS backend serves - the tag check (`vulkan_device_basis`), which
+        ///        is what `-fno-rtti` leaves instead of a `dynamic_cast`, and the reason a foreign token is
+        ///        refused rather than mis-read
+        [[nodiscard]] bool owns_basis(deren::promise::rhi::api_basis const& basis) const noexcept;
+
         [[nodiscard]] deren::promise::rhi::swapchain* create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::buffer* create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::image* create_image(deren::promise::rhi::image_desc const& desc) override;

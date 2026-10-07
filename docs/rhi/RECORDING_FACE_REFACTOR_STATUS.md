@@ -1,21 +1,22 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: five batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: six batches have LANDED AND ARE GREEN.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
 >
 > PLUS ONE GATE THAT IS NOT IN THE LIST, because no scenario reaches it: the ray-traced shadow path is
 > smoked by hand (`[render] rt_shadows = true`, 40 frames, validation on) and it reports **0 VUIDs** -
-> it did not before the third batch, which is how two real defects in it were found (section 2.8).
+> it did not before the third batch, and the sixth batch's new escape slots are proven by it (the SBT
+> query travels through `api_basis` there, and the smoke run still builds its table).
 >
 > THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 51**, **none of them
 > in `vulkan/pass/`** (the pass layer is at zero, including the job passes and the ray-traced shadow);
-> engine files including a Vulkan header **62 -> 40**; abi **20 -> 21**, pinned in both tests. (The
-> count's last move was +3, not down: the fifth batch's probe fix ADDS three dynamic-state calls - see
-> trap 12 - and honesty about an instrument means counting what it measures.)
+> engine files including a Vulkan header **62 -> 40**; abi **20 -> 22**, pinned in both tests. (The
+> site count's last move was +3 rather than down: the fifth batch's probe fix ADDS three dynamic-state
+> calls - see trap 12 - and honesty about an instrument means counting what it measures.)
 >
-> THIS NOTE IS THE COMMIT-MESSAGE-LENGTH VERSION of all five batches: section 2 is what changed,
+> THIS NOTE IS THE COMMIT-MESSAGE-LENGTH VERSION of all six batches: section 2 is what changed,
 > section 5 is the failure class the first batch closed, section 8 is what is left AND the measurement
 > that ranks it. Sections 1, 3, 4 and 7 are the parts that stay true for the next batch.
 >
@@ -180,6 +181,16 @@ type is GONE, and the retired `interface_type` enumerator (`rhi.contract.cppm:37
 | the device lane | `pass_context::device` and `VkDevice` on ~26 builder declarations/definitions are gone (the WHOLE batch of builders takes `rhi::api_core&` alone - not one of them read the device any more). `frame_services::device` went with it (no reader). The 17 pass call sites and both probe callers dropped the argument. |
 | where a device is still needed | exactly ONE pass: the ray-traced shadow, for two ALLOCATED ENTRY POINTS (`vkGetDeviceProcAddr` for `vkCmdTraceRaysKHR` and for the SBT handle query). It reaches them through the escape via the new `pass::native_device(face)`, the sibling of `pass::native_commands` - the contract's own documented answer, and the reason `pass_context` needs no device at all. |
 | THE BUG THIS BATCH EXPOSED | the probe's own draw path lost three dynamic-state calls the contract's graphics pipelines REQUIRE: the raw builder had baked the 4x4 viewport, the scissor and `CULL_MODE_NONE` in as STATIC state, while `create_pipeline`'s graphics recipe declares all three DYNAMIC (the render_environment states them per draw). Render gate: **0 matched / 14 mismatched** and 66 VUIDs (`Dynamic viewport(s) ... were not provided`, the same for scissor, and `VK_DYNAMIC_STATE_CULL_MODE ... never called vkCmdSetCullMode`). Three `vkCmd*` calls in the probe fixed it - and that is why the batch's call-site count went 48 -> 51 (see trap 12). |
+
+### 2.11 What the SIXTH batch added (`api_basis`: the basic handle travels as a tagged token, abi 22)
+
+| area | what landed |
+|---|---|
+| the contract's token | `rhi::api_basis`: **no interface at all** - no virtual, no ownership, no data beyond `s_type`. It is NOT a base of `api_core` and NOT a base of the backend's own type; a backend COMPOSES one and hands it out. `structure_type` gained the appended VALUE `vulkan_device_basis` (a value moves no abi; the three escape slots below are what moved it). |
+| `vulkan_escape` (abi 22) | three APPENDED slots: `get_basis()` (the token), `device_proc(api_basis&, char const*)` (resolve an allocated entry point against the token's device), `shader_group_handles(api_basis&, pipeline const&, first, count, out)` (the SBT query - the one device fact a pass cannot ask the contract for). All three answer null/false rather than reading a foreign token. |
+| the backend | `core` gained `basis_token` (an empty struct whose whole content is its tag) + `get_basis()` + `owns_basis()` (a TAG check, because this build is `-fno-rtti`), and `frame_escape` implements the three slots: `device_proc` resolves through `vkGetDeviceProcAddr` on `logical_device`, `shader_group_handles` through `vkGetRayTracingShaderGroupHandlesKHR` on the pipeline's native handle. The handle itself never leaves the backend. |
+| the pass layer | `pass::native_device(face)` (a `VkDevice` returned into pass code) is REPLACED by `pass::device_basis(face)` + `pass::device_proc(...)` + `pass::shader_group_handles(...)`, and `ray_traced_shadow.cpp` now names **no `VkDevice`, no `VK_SUCCESS` and no `vkGetDeviceProcAddr` at all** - it holds the launch function pointer and the SBT regions, which is exactly the part that stays native. |
+| the probe | `tests/probe_backend.cpp`'s device-less `probe_escape` answers `nullptr` / `false` to the three new slots - the honest answer for a probe with no device, and the same answer that makes an engine path take its documented "unavailable" branch. |
 
 ## 3. What was tried and reverted (do not repeat)
 
@@ -392,6 +403,15 @@ interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragm
     declares, and for every draw site the new pipeline serves, make sure the three (or n) are set. It is
     the same trap as 11 one level up: the factory's contract with its callers is state, not just
     formats.
+13. **A basic handle travels as a TAGGED, INTERFACE-FREE token - not as `void*`, not as the native type.**
+    The ruling (sixth batch): an empty `api_basis` whose only content is `s_type`
+    (`structure_type::vulkan_device_basis`), COMPOSED by the backend and handed out by `core::get_basis()` -
+    not a base of `api_core`, and not a base of the backend's own type, so a signature that takes the contract
+    does not also take "the thing handles hang off". Two consequences worth keeping: (a) the token carries NO
+    handle, so nothing in it can go stale and an implementer owes the type nothing (no virtual, no ownership,
+    no interface); (b) the check is the TAG, because `-fno-rtti` means no `dynamic_cast` - and the tag is the
+    stronger question anyway, since a receiver wants to know "does this stand for a Vulkan device", not "what
+    is its most-derived type". `void*` would have accepted the same call and checked nothing.
 
 ## 8. What is left (ranked, with the measurements each step needs)
 
@@ -447,15 +467,16 @@ WHAT REMAINS:
    `ray_tracing.cpp`'s structure barriers, `pipelines.cppm`'s `begin_pipeline`, and the push (the
    descriptor-heap push has no contract verb yet, so `contract_push_heap_data` is the escape-bucket
    remainder). The bind is DONE, so what is left there is state and barriers, not pipelines.
-2. **THE RAY-TRACED SHADOW'S NATIVE FACTS ARE PERMANENT, AND THAT IS A DECISION RATHER THAN A LEAK.**
-   `ray_traced_shadow.cpp` names `VkDevice`, `VkBuffer`, `vkCmdTraceRaysKHR`'s
-   `VkStridedDeviceAddressRegionKHR`, `VK_SUCCESS` and a raw command buffer, and all five are ALLOCATED
-   ENTRY POINTS plus the SBT's own layout: `vkGetRayTracingShaderGroupHandlesKHR` (device + native
-   pipeline handle), the resolved `vkCmdTraceRaysKHR`, and the region strides the driver publishes. The
-   contract has no SBT spelling, and inventing one is a VOCABULARY step (`pipeline::shader_group_handles`
-   + `command_buffer::trace_rays(regions)`) with its own design questions - not a migration. Until that
-   step is taken deliberately, this file belongs to the escape bucket, exactly like `pass::native_commands`
-   and `pass::native_device`, and it should NOT be listed as "left to clean up".
+2. **THE RAY-TRACED SHADOW'S REMAINING NATIVE FACTS ARE THE LAUNCH, AND THAT IS A DECISION RATHER THAN A
+   LEAK.** `ray_traced_shadow.cpp` still names `VkBuffer`, `VkCommandBuffer`, `VkDeviceAddress`,
+   `VkStridedDeviceAddressRegionKHR` and the SBT usage bit - the REGIONS a `vkCmdTraceRaysKHR` launch is
+   given and the table they live in. The DEVICE half is gone (sixth batch): `api_basis` carries it,
+   `pass::device_proc` resolves the entry point, `pass::shader_group_handles` reads the group handles, and the
+   file names no `VkDevice`/`VK_SUCCESS`/`vkGetDeviceProcAddr` at all. Putting the REGIONS behind the contract
+   is a VOCABULARY step (`command_buffer::trace_rays(regions)`) rather than a migration, with its own design
+   questions; until it is taken deliberately, this file's remaining natives are the escape bucket, exactly
+   like `pass::native_commands` / `pass::native_device` / `pass::device_basis`, and they should NOT be listed
+   as "left to clean up".
 3. **The include sweep, continued - and it is a SECOND MIGRATION, not a delete pass.** Of the 40 engine
    files (the census's scope) that still include a Vulkan header, the blockers are:
 
