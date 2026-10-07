@@ -129,6 +129,10 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
+    deren::promise::rhi::pipeline* toon_screen_rim_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
+    }
+
     void toon_screen_rim_pass::set_shape(float const width, float const scale, float const strength) noexcept {
         this->rim_width = width;
         this->rim_scale = scale;

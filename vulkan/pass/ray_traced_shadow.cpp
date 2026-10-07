@@ -64,6 +64,10 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
+    deren::promise::rhi::pipeline* rt_shadow_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
+    }
+
     void rt_shadow_pass::create(pass_context const& context) {
         if (context.face == nullptr) {
             return;

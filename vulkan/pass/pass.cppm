@@ -810,6 +810,24 @@ export namespace deren::vulkan::pass {
             return VK_NULL_HANDLE;
         }
         /**
+         * @brief THE CONTRACT LANE OF THE SAME PIPELINE `pipeline()` returns (abi 21)
+         *
+         * TWO ACCESSORS FOR ONE OBJECT, and the reason is the same one `resolved_binding` carries two lane sets
+         * for: `pipeline()` is what the raw handle is needed for (`frame_pass::pipeline()` predates the record
+         * series, and the include sweep is what will retire it), while `command_buffer::bind_pipeline` - the verb
+         * the RUNNER binds a declared pipeline with - takes the CONTRACT object. A pass that owns a pipeline built
+         * through `api_core::create_pipeline` has both, and they MUST be the same object: `resolve_declaration`
+         * publishes both into `resolved_io` in the same breath, so a pass that answers one and not the other is
+         * the exact bug that left a frame with no pipeline bound (the runner has no raw fallback any more - see
+         * `apply_pass_behaviour`, and the frame-level VUID it produced).
+         *
+         * THE DEFAULT IS NULL, like `pipeline()`'s: a pass that owns nothing answers nothing, and a pass that
+         * owns a pipeline overrides BOTH.
+         */
+        [[nodiscard]] virtual deren::promise::rhi::pipeline* pipeline_handle() const noexcept {
+            return nullptr;
+        }
+        /**
          * @brief a pipeline this pass owns under the NAME another pass's `behaviour::pipelines` declares
          *
          * WHY THIS EXISTS: a chain's stages can SHARE one pipeline. The post chain's four bloom levels record with
@@ -1261,7 +1279,15 @@ export namespace deren::vulkan::pass {
             return false;
         }
         for (std::size_t i = 0; i < names.size(); ++i) {
-            owned_pipeline const found = context.pipeline(context.owner, names[i]);
+            // THE PASS'S OWN ANSWER FIRST, which is what makes `frame_pass::named_pipeline` REAL: a chain's
+            // stages may share one pipeline (the post chain's four bloom levels record with the composite's R16F
+            // variant), and only a pass of that chain can say which object a name is. It was declared and
+            // overridden but never consulted before this batch - so a shared pipeline resolved to nothing, and
+            // the lane that mattered (`pipeline_handles`) was empty even when the runtime had a raw one.
+            owned_pipeline found = pass.named_pipeline(names[i]);
+            if (found.pipeline == VK_NULL_HANDLE) {
+                found = context.pipeline != nullptr ? context.pipeline(context.owner, names[i]) : owned_pipeline{};
+            }
             if (found.pipeline == VK_NULL_HANDLE) {
                 return false; // the frame cannot bind a pipeline the pass declared: do not record it
             }
@@ -1402,9 +1428,15 @@ export namespace deren::vulkan::pass {
         out.barrier_buffers = std::span<resolved_binding const>(out.barrier_buffer_storage.data(), declaration.barrier_buffers.size());
 
         // ---- the pipelines: the pass's OWN first, then the names the behaviour declares ----
+        // BOTH LANES ARE FILLED, ALWAYS: `pipeline()` is the raw handle the framework's own accessor answers and
+        // `pipeline_handle()` is the contract object the runner BINDS with (abi 21). A publication that filled
+        // only the raw one is what produced a frame with no pipeline bound, so the two are written together
+        // here and in `declaration_pipelines_ok`.
         if (pass.pipeline() != VK_NULL_HANDLE) {
             out.pipeline_storage[0] = pass.pipeline();
+            out.pipeline_handle_storage[0] = pass.pipeline_handle();
             out.pipelines = std::span<VkPipeline const>(out.pipeline_storage.data(), 1);
+            out.pipeline_handles = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_handle_storage.data(), 1);
         } else if (!declaration_pipelines_ok(pass, context, out)) {
             return false;
         }

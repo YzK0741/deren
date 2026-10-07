@@ -82,6 +82,7 @@ export namespace deren::vulkan::pass {
             return this->pipeline_ready();
         }
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief build this pass's frame from the published facts (see frame_pass::prepare_frame)
         void prepare_frame(frame_facts const& facts) noexcept override;

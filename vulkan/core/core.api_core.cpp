@@ -707,6 +707,17 @@ namespace deren::vulkan {
             if (covered_by(declared, offsetof(rhi_pipeline_desc, compute_code), sizeof(rhi_pipeline_desc::compute_code))) {
                 options.compute_code = desc.compute_code;
             }
+            // THE RAY-TRACING SPELLING (appended with it): same rule - an older caller's prefix keeps the three
+            // fields empty, which is "not a ray-tracing pipeline" rather than a mis-read.
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, ray_tracing_stages), sizeof(rhi_pipeline_desc::ray_tracing_stages))) {
+                options.ray_tracing_stages = desc.ray_tracing_stages;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, ray_tracing_groups), sizeof(rhi_pipeline_desc::ray_tracing_groups))) {
+                options.ray_tracing_groups = desc.ray_tracing_groups;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, max_ray_recursion), sizeof(rhi_pipeline_desc::max_ray_recursion))) {
+                options.max_ray_recursion = desc.max_ray_recursion;
+            }
             return options;
         }
 
@@ -1415,6 +1426,24 @@ namespace deren::vulkan {
         case rhi::shader_stage::compute:
             stage = VK_SHADER_STAGE_COMPUTE_BIT;
             break;
+        // THE RAY-TRACING STAGES (appended with the ray-tracing pipeline spelling, abi 21): the module is
+        // stage-less, so this mapping is only what a caller's stage value MEANS - but a switch that silently
+        // fell through to the vertex default would be a wrong answer at the one place the contract states it.
+        case rhi::shader_stage::ray_generation:
+            stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+            break;
+        case rhi::shader_stage::miss:
+            stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+            break;
+        case rhi::shader_stage::closest_hit:
+            stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+            break;
+        case rhi::shader_stage::any_hit:
+            stage = VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+            break;
+        case rhi::shader_stage::intersection:
+            stage = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+            break;
         }
         (void)stage; // the module itself is stage-less; the stage rides the pipeline's stage info
 
@@ -1443,6 +1472,13 @@ namespace deren::vulkan {
         // wrong reason).
         if (desc.first_stage == rhi::shader_stage::compute) {
             return this->create_compute_pipeline(desc, what);
+        }
+        // ---- AND THE RAY-TRACING SPELLING (abi 21) ------------------------------------------------
+        // The switch is the STAGES, not a first stage: a ray-tracing pipeline is the only kind built from
+        // several named entry points and a group table (see the descriptor's own note), so their presence is
+        // what says which path this is.
+        if (!desc.ray_tracing_stages.empty()) {
+            return this->create_ray_tracing_pipeline(desc, what);
         }
 
         // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
@@ -1580,6 +1616,128 @@ namespace deren::vulkan {
         answer->owned.emplace(pipeline, this->logical_device);
         answer->native_handle = pipeline;
         answer->bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+        return answer;
+    }
+
+    /// THE RAY-TRACING PIPELINE, in the shape the engine's raw builder had (pipelines.cppm's
+    /// `vkCreateRayTracingPipelinesKHR` site) - the same heap-native rules, on the side that owns them.
+    ///
+    /// THREE THINGS MAKE IT ITS OWN PATH: it is built from SEVERAL named entry points (one module each), its
+    /// executor is a GROUP TABLE rather than a single stage (the group indices are positions in the stage
+    /// list), and its entry point is not exported by the loader's import library - so it is resolved through
+    /// `vkGetDeviceProcAddr` here, where the device is, rather than at the caller.
+    ///
+    /// THE SHADER BINDING TABLE IS NOT THIS FUNCTION'S: the group HANDLES are read back by the caller after
+    /// creation, and the regions are the caller's memory with the device's stride rules (see the pass that
+    /// fills one). What this returns is the pipeline, with `bind_point` set to the ray-tracing one - which is
+    /// what makes `bind_pipeline` work for it like any other pipeline.
+    rhi::pipeline* core::create_ray_tracing_pipeline(rhi::pipeline_desc const& desc, char const* const what) {
+        if (desc.ray_tracing_groups.empty()) {
+            deren::utility::log("rhi: create_pipeline {} refused: a ray-tracing pipeline names the groups its shader binding table is built from", what);
+            return nullptr;
+        }
+        // THE ENTRY POINT IS RESOLVED, never linked: the import library exports no extension command, so a
+        // direct call would be an undefined symbol rather than a missing feature. A device that announces no
+        // ray-tracing pipeline answers null here, which is this path's refusal by name.
+        auto const create_ray_tracing = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(vkGetDeviceProcAddr(this->logical_device, "vkCreateRayTracingPipelinesKHR"));
+        if (create_ray_tracing == nullptr) {
+            deren::utility::log("rhi: create_pipeline {} refused: the device did not publish vkCreateRayTracingPipelinesKHR", what);
+            return nullptr;
+        }
+        auto const native_stage_kind = [](rhi::shader_stage const stage) -> std::optional<VkShaderStageFlagBits> {
+            switch (stage) {
+            case rhi::shader_stage::ray_generation:
+                return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+            case rhi::shader_stage::miss:
+                return VK_SHADER_STAGE_MISS_BIT_KHR;
+            case rhi::shader_stage::closest_hit:
+                return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+            case rhi::shader_stage::any_hit:
+                return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+            case rhi::shader_stage::intersection:
+                return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+            default:
+                return std::nullopt; // a graphics/compute stage is not a ray-tracing stage, and guessing is worse
+            }
+        };
+        // ONE MODULE PER STAGE, each destroyed when this function returns (a module is needed only while the
+        // pipeline is created): the RAII wrappers below cover every path out, refusals included.
+        std::vector<std::optional<vk_shader_module>> modules(desc.ray_tracing_stages.size());
+        std::vector<VkPipelineShaderStageCreateInfo> stages;
+        stages.reserve(desc.ray_tracing_stages.size());
+        for (std::size_t index = 0; index < desc.ray_tracing_stages.size(); ++index) {
+            rhi::ray_tracing_stage const& declared = desc.ray_tracing_stages[index];
+            std::optional<VkShaderStageFlagBits> const kind = native_stage_kind(declared.stage);
+            if (!kind.has_value()) {
+                deren::utility::log("rhi: create_pipeline {} refused: ray-tracing stage {} is not a ray-tracing entry point", what, index);
+                return nullptr;
+            }
+            if (declared.code.empty()) {
+                deren::utility::log("rhi: create_pipeline {} refused: ray-tracing stage {} carries no SPIR-V", what, index);
+                return nullptr;
+            }
+            modules[index] = ::deren::vulkan::make_shader_module(
+                std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(declared.code.data()), declared.code.size()), this->logical_device);
+            if (!modules[index].has_value()) {
+                deren::utility::log("rhi: create_pipeline {} refused: vkCreateShaderModule failed for ray-tracing stage {}", what, index);
+                return nullptr;
+            }
+            stages.push_back(VkPipelineShaderStageCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                             .pNext = nullptr,
+                                                             .flags = 0,
+                                                             .stage = kind.value(),
+                                                             .module = modules[index]->get(),
+                                                             .pName = "main", // every entry point this renderer builds is "main"
+                                                             .pSpecializationInfo = nullptr});
+        }
+        // THE GROUP TABLE, with the kind following from WHICH SLOTS ARE FILLED (the descriptor's own rule):
+        // any hit slot makes it a hit group, and `triangles` says whether its geometry is triangles. This is the
+        // one place the two spellings meet, and it is a translation rather than a second vocabulary.
+        std::vector<VkRayTracingShaderGroupCreateInfoKHR> groups;
+        groups.reserve(desc.ray_tracing_groups.size());
+        for (rhi::ray_tracing_group const& group : desc.ray_tracing_groups) {
+            bool const hit_group = group.closest_hit != rhi::shader_group_none || group.any_hit != rhi::shader_group_none || group.intersection != rhi::shader_group_none;
+            groups.push_back(VkRayTracingShaderGroupCreateInfoKHR{.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+                                                                  .pNext = nullptr,
+                                                                  .type = !hit_group        ? VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR
+                                                                          : group.triangles ? VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR
+                                                                                            : VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR,
+                                                                  .generalShader = group.general,
+                                                                  .closestHitShader = group.closest_hit,
+                                                                  .anyHitShader = group.any_hit,
+                                                                  .intersectionShader = group.intersection,
+                                                                  .pShaderGroupCaptureReplayHandle = nullptr});
+        }
+        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL (VUID-VkRayTracingPipelineCreateInfoKHR-...):
+        // the same "both or neither" rule the compute path states, through the same flags2 structure.
+        VkPipelineCreateFlags2CreateInfo const heap_flags = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
+        };
+        VkRayTracingPipelineCreateInfoKHR const info = {.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
+                                                        .pNext = &heap_flags,
+                                                        .flags = 0,
+                                                        .stageCount = static_cast<std::uint32_t>(stages.size()),
+                                                        .pStages = stages.data(),
+                                                        .groupCount = static_cast<std::uint32_t>(groups.size()),
+                                                        .pGroups = groups.data(),
+                                                        .maxPipelineRayRecursionDepth = desc.max_ray_recursion == 0u ? 1u : desc.max_ray_recursion,
+                                                        .pLibraryInfo = nullptr,
+                                                        .pLibraryInterface = nullptr,
+                                                        .pDynamicState = nullptr,
+                                                        .layout = VK_NULL_HANDLE, // heap-native stages: a layout would contradict them
+                                                        .basePipelineHandle = VK_NULL_HANDLE,
+                                                        .basePipelineIndex = -1};
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (create_ray_tracing(this->logical_device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
+            deren::utility::log("rhi: create_pipeline {} refused: vkCreateRayTracingPipelinesKHR failed", what);
+            return nullptr;
+        }
+        auto* const answer = new owned_pipeline();
+        answer->owned.emplace(pipeline, this->logical_device);
+        answer->native_handle = pipeline;
+        answer->bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
         return answer;
     }
 

@@ -93,6 +93,7 @@ export namespace deren::vulkan::pass {
         }
         /// @brief the pipeline the runner binds before this pass records
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief the compile-time bound on samples per pixel, which is the shader's own constant
         static constexpr uint32_t max_samples = 4;

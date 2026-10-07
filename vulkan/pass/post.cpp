@@ -105,10 +105,18 @@ namespace deren::vulkan::pass {
         return this->composite_pipeline();
     }
 
+    deren::promise::rhi::pipeline* post_composite_pass::pipeline_handle() const noexcept {
+        // THE CONTRACT LANE OF THE SAME VARIANT `pipeline()` ANSWERS - the `composite` one; the HDR variant is
+        // published by NAME (see named_pipeline below), never by this accessor.
+        return this->composite.has_value() ? this->composite->contract : nullptr;
+    }
+
     owned_pipeline post_composite_pass::named_pipeline(std::string_view const name) const noexcept {
         // THE ONE NAME THIS PASS PUBLISHES TO ITS SIBLINGS: the bloom levels' `post_hdr` (see the class note and
         // frame_pass::named_pipeline). Its own name is answered by `pipeline()` above.
-        return name == bloom_pipeline_name ? owned_pipeline{.pipeline = this->hdr_pipeline()} : owned_pipeline{};
+        // BOTH LANES ARE FILLED: `declaration_pipelines_ok` asks THIS first and publishes the pair it returns, so a
+        // raw-only answer here is exactly the "resolved but unbound" frame the two-lane rule exists to prevent.
+        return name == bloom_pipeline_name ? owned_pipeline{.pipeline = this->hdr_pipeline(), .contract = this->hdr.has_value() ? this->hdr->contract : nullptr} : owned_pipeline{};
     }
 
     VkPipeline post_composite_pass::composite_pipeline() const noexcept {
@@ -165,6 +173,8 @@ namespace deren::vulkan::pass {
         }
         out.target_storage[0] = target;
         out.pipeline_storage[0] = this->hdr_pipeline();
+        out.pipeline_handle_storage[0] = this->hdr.has_value() ? this->hdr->contract : nullptr;
+        out.pipeline_handles = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_handle_storage.data(), 1);
         return this->fill_push(out, true);
     }
 

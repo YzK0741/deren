@@ -52,6 +52,10 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
+    deren::promise::rhi::pipeline* taa_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
+    }
+
     bool taa_pass::wrote_history() const noexcept {
         return this->history_written;
     }

@@ -61,6 +61,10 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
+    deren::promise::rhi::pipeline* megalights_trace_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
+    }
+
     void megalights_trace_pass::set_light_angle(float const radians) noexcept {
         // The angle is the emitter's half-size: past a tenth of a radian the "small emitter" the BRDF's
         // representative-point approximation assumes stops being small, so the clamp is where that approximation is

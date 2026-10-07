@@ -112,6 +112,7 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override;
         /// @brief the pipeline the runner binds before this pass records
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief the compile-time bound on how many frames the running mean may average
         static constexpr float max_frames_limit = 64.0f;

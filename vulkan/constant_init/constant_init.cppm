@@ -200,6 +200,70 @@ export namespace deren::vulkan {
                 .subresourceRange = {aspect_mask, 0, level_count, 0, layer_count}};
     }
 
+    // ---- Device query chains (properties / features) ----
+    //
+    // WHY THESE LIVE HERE, and it is a MEASURED reason rather than tidiness: every structure a query chain
+    // carries must be TOLD which type it is, and `= {}` writes that field as ZERO - which IS
+    // `VK_STRUCTURE_TYPE_APPLICATION_INFO` (value 0). A chained member nobody `sType`d is therefore read as an
+    // APPLICATION_INFO, and validation says so: "pNext chain includes a structure with unexpected
+    // VkStructureType VK_STRUCTURE_TYPE_APPLICATION_INFO" (VUID-VkPhysicalDeviceProperties2-pNext-pNext),
+    // measured on the acceleration-structure module's property query before
+    // `make_acceleration_structure_properties()` was the only way to build it. This module's own header already
+    // states the rule ("the engine never hand-fills these structs at call sites"); these factories are what makes
+    // the rule hold for a query chain, where the WHOLE POINT is a list of tagged members.
+    //
+    // THE HEAD AND THE MEMBER ARE TWO CALLS, deliberately: a head takes the member's address and cannot be
+    // built before it exists, so `make_properties_2(&member)` is the shape a caller writes - and neither call
+    // can forget its own sType, because neither call site names one.
+
+    /**
+     * @brief the HEAD of a `VkPhysicalDeviceProperties2` chain
+     * @param next the first chained property structure (borrowed for the call; null = no chain)
+     */
+    constexpr VkPhysicalDeviceProperties2 make_properties_2(void* const next = nullptr) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2, .pNext = next, .properties = {}};
+    }
+
+    /**
+     * @brief the HEAD of a `VkPhysicalDeviceFeatures2` chain (the same shape, the query's other half)
+     * @param next the first chained feature structure (borrowed for the call; null = no chain)
+     */
+    constexpr VkPhysicalDeviceFeatures2 make_features_2(void* const next = nullptr) noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2, .pNext = next, .features = {}};
+    }
+
+    // THE FOUR CHAINED BLOCKS BELOW ARE QUERY OUTPUTS, so only the tagged fields are named and the warning that
+    // wants every member spelled is turned off for them - the SAME exception, with the same reason, that
+    // `deren.vulkan.core:init_utils` takes for its own property chain: the other fields are the DEVICE's answer,
+    // written by the driver, and listing them as zeroes here would be a caller claiming to fill them. The sType
+    // and pNext are OURS, and they are the two the type system cannot check.
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
+#endif
+    /// @brief the acceleration-structure property block (query only; zeroed fields = "the device did not answer")
+    constexpr VkPhysicalDeviceAccelerationStructurePropertiesKHR make_acceleration_structure_properties() noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_ACCELERATION_STRUCTURE_PROPERTIES_KHR, .pNext = nullptr};
+    }
+
+    /// @brief the shader-binding-table numbers a ray-tracing pipeline is built against (query only)
+    constexpr VkPhysicalDeviceRayTracingPipelinePropertiesKHR make_ray_tracing_pipeline_properties() noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR, .pNext = nullptr};
+    }
+
+    /// @brief the ray-query feature block (one bool, and it is the renderer's own gate for the traced path)
+    constexpr VkPhysicalDeviceRayQueryFeaturesKHR make_ray_query_features() noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR, .pNext = nullptr};
+    }
+
+    /// @brief the mesh-shader feature block (the other ability the renderer gates a whole path on)
+    constexpr VkPhysicalDeviceMeshShaderFeaturesEXT make_mesh_shader_features() noexcept {
+        return {.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT, .pNext = nullptr};
+    }
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+
     // ---- Command buffer / submit infos ----
 
     /**

@@ -858,6 +858,13 @@ namespace deren::vulkan {
          * path never has to set. See the definition for why the branch is not inline there.
          */
         [[nodiscard]] deren::promise::rhi::pipeline* create_compute_pipeline(deren::promise::rhi::pipeline_desc const& desc, char const* what);
+        /**
+         * THE RAY-TRACING SPELLING OF `create_pipeline` (abi 21): several named entry points, one module each,
+         * a group table whose indices are positions in the stage list, and the entry point resolved through
+         * `vkGetDeviceProcAddr` (the loader exports no extension command). See the definition for the
+         * `bind_point` it sets - the ray-tracing one, which is what makes `bind_pipeline` work for it.
+         */
+        [[nodiscard]] deren::promise::rhi::pipeline* create_ray_tracing_pipeline(deren::promise::rhi::pipeline_desc const& desc, char const* what);
         [[nodiscard]] deren::promise::rhi::query* create_query(deren::promise::rhi::query_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
         // ---- S2 batch 2: the recording surface's frame-domain views --------------------------------

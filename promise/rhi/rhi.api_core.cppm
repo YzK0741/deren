@@ -720,6 +720,16 @@ export namespace deren::promise::rhi {
         mesh = 1, ///< the stage that REPLACES the vertex stage (docs/mesh_shaders.md)
         fragment = 2,
         compute = 3,
+        /// THE RAY-TRACING STAGES, APPENDED (abi 21 - adding VALUES is explicitly not an abi change, see
+        /// `abi_version`). They name the five entry points a ray-tracing pipeline is built from, and they exist
+        /// so a ray-tracing shader module is NOT mislabeled as a compute one: the module itself is stage-less,
+        /// but the pipeline's stage info is what the group table indexes, and a caller that cannot say
+        /// "raygen" cannot build a group table at all.
+        ray_generation = 4,
+        miss = 5,
+        closest_hit = 6,
+        any_hit = 7,
+        intersection = 8,
     };
 
     /// How a shader is created: its stage and its SPIR-V. Same append-only `struct_size` guard.
@@ -747,7 +757,43 @@ export namespace deren::promise::rhi {
         equal = 1,
     };
 
-    /// How a graphics pipeline is created - `make_pipeline`'s parameters in the contract's vocabulary.
+    /// ONE STAGE OF A RAY-TRACING PIPELINE (appended with the ray-tracing spelling, abi 21).
+    ///
+    /// A ray-tracing pipeline is built from several entry points at once, and its GROUPS index this list - so
+    /// the stage kind and the code travel together, and the ORDER here is what `ray_tracing_group`'s indices
+    /// mean. `debug_name` is the backend's log text for a stage it refuses, exactly as it is for a shader.
+    struct ray_tracing_stage {
+        shader_stage stage = shader_stage::ray_generation;
+        std::span<std::byte const> code;
+        char const* debug_name = nullptr;
+    };
+
+    /// "THIS GROUP SLOT NAMES NO STAGE", the spelling a `ray_tracing_group` uses for the slots it leaves empty
+    /// (`VK_SHADER_UNUSED_KHR` in the API's own vocabulary, as a value so the descriptor stays portable).
+    inline constexpr std::uint32_t shader_group_none = 0xFFFFFFFFu;
+
+    /// ONE SHADER GROUP of a ray-tracing pipeline: the STAGE INDICES it binds, in the order
+    /// `ray_tracing_stages` lists them.
+    ///
+    /// A GENERAL group names ONE shader (`general`: a raygen, a miss or an intersection entry); a HIT group
+    /// names up to three (`closest_hit`, `any_hit`, `intersection`) and its geometry kind. WHICH KIND a group is
+    /// follows from which slots are filled, which is the rule the API's own group type states - so the
+    /// descriptor does not carry a group-type enumerator that could disagree with the slots.
+    ///
+    /// THE GROUP ORDER IS THE CALLER'S SHADER BINDING TABLE ORDER: the caller fills its SBT regions in exactly
+    /// this order (see `pass::rt_shadow_pass`), which is why the count travels back with the pipeline.
+    struct ray_tracing_group {
+        std::uint32_t general = shader_group_none;
+        std::uint32_t closest_hit = shader_group_none;
+        std::uint32_t any_hit = shader_group_none;
+        std::uint32_t intersection = shader_group_none;
+        /// whether a HIT group's geometry is TRIANGLES (the only kind this renderer traces); ignored by a
+        /// general group. It exists because the API makes the caller state it, and this renderer's answer is
+        /// the same at every site.
+        bool triangles = true;
+    };
+
+    /// How a pipeline is created - `make_pipeline`'s parameters in the contract's vocabulary.
     /// The COLOR and DEPTH formats are contract formats (a named value, or the `depth` ROLE for the
     /// depth attachment; `unknown` as the depth format means the pipeline has NO depth attachment).
     /// The blend modes are per color attachment in attachment order; EMPTY means every target is
@@ -789,6 +835,24 @@ export namespace deren::promise::rhi {
          * caller decision, so the contract does not spell it.
          */
         std::span<std::byte const> compute_code;
+        /**
+         * THE RAY-TRACING SPELLING (APPENDED in the same batch, `struct_size`-guarded).
+         *
+         * NON-EMPTY `ray_tracing_stages` IS THE WHOLE SWITCH: a ray-tracing pipeline is the only kind built
+         * from SEVERAL named entry points and a GROUP TABLE, so the presence of the stages is what says which
+         * of the three paths `create_pipeline` takes (graphics, compute, ray tracing) - the colour, depth,
+         * compute and blend fields are ignored, exactly as the compute spelling ignores the attachment state.
+         *
+         * WHAT IS NOT HERE: the SHADER BINDING TABLE. Its handles are per-pipeline data read back after
+         * creation, and its regions are the CALLER's memory with the device's own stride rules - both are the
+         * caller's side of the boundary (see the pass that fills one), and a descriptor carrying them would be
+         * promising a lifetime this contract cannot state.
+         */
+        std::span<ray_tracing_stage const> ray_tracing_stages;
+        /// ONE GROUP PER SHADER BINDING TABLE REGION, in the caller's order; empty = not a ray-tracing pipeline.
+        std::span<ray_tracing_group const> ray_tracing_groups;
+        /// the pipeline's ray recursion depth (`maxPipelineRayRecursionDepth`); 1 = "a ray may hit once".
+        std::uint32_t max_ray_recursion = 1u;
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).

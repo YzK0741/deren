@@ -106,6 +106,7 @@ export namespace deren::vulkan::pass {
         }
         /// @brief the pipeline the runner binds before this pass records
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /**
          * @brief the SSAO parameters, which are THIS pass's: the values only it reads

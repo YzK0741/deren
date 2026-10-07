@@ -664,115 +664,46 @@ namespace deren::vulkan::pipelines {
      * Recursion depth is 1: the shadow ray answers a yes/no question and the traversal terminates on the first
      * hit (`gl_RayFlagsTerminateOnFirstHitEXT` in the raygen), so there is nothing for a second level to do.
      */
-    export std::expected<ray_tracing_pipeline_owned, std::string> build_rt_shadow_ray_tracing(rhi::api_core& face, VkDevice device,
+    export std::expected<ray_tracing_pipeline_owned, std::string> build_rt_shadow_ray_tracing(rhi::api_core& face, [[maybe_unused]] VkDevice const /*device*/,
                                                                                               std::span<uint8_t const> raygen_code,
                                                                                               std::span<uint8_t const> closest_hit_code, std::span<uint8_t const> miss_code,
                                                                                               std::span<uint8_t const> any_hit_code) {
         using fail = std::unexpected<std::string>;
         ray_tracing_pipeline_owned out;
 
-        std::expected<shader_module_handle, std::string> const raygen = make_shader_module_raw(face, raygen_code, rhi::shader_stage::compute, "rt raygen");
-        std::expected<shader_module_handle, std::string> const closest_hit = make_shader_module_raw(face, closest_hit_code, rhi::shader_stage::compute, "rt closest hit");
-        std::expected<shader_module_handle, std::string> const miss = make_shader_module_raw(face, miss_code, rhi::shader_stage::compute, "rt miss");
-        std::expected<shader_module_handle, std::string> const any_hit = make_shader_module_raw(face, any_hit_code, rhi::shader_stage::compute, "rt any hit");
-        if (!raygen.has_value() || !closest_hit.has_value() || !miss.has_value() || !any_hit.has_value()) {
-            return fail("rt shadow: shader module creation failed");
-        }
-
-        VkPipelineShaderStageCreateInfo const raygen_stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                              .pNext = nullptr,
-                                                              .flags = 0,
-                                                              .stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR,
-                                                              .module = raygen->get(),
-                                                              .pName = "main",
-                                                              .pSpecializationInfo = nullptr};
-        VkPipelineShaderStageCreateInfo const closest_hit_stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                                   .pNext = nullptr,
-                                                                   .flags = 0,
-                                                                   .stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR,
-                                                                   .module = closest_hit->get(),
-                                                                   .pName = "main",
-                                                                   .pSpecializationInfo = nullptr};
-        VkPipelineShaderStageCreateInfo const miss_stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                            .pNext = nullptr,
-                                                            .flags = 0,
-                                                            .stage = VK_SHADER_STAGE_MISS_BIT_KHR,
-                                                            .module = miss->get(),
-                                                            .pName = "main",
-                                                            .pSpecializationInfo = nullptr};
-        VkPipelineShaderStageCreateInfo const any_hit_stage = {.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                               .pNext = nullptr,
-                                                               .flags = 0,
-                                                               .stage = VK_SHADER_STAGE_ANY_HIT_BIT_KHR,
-                                                               .module = any_hit->get(),
-                                                               .pName = "main",
-                                                               .pSpecializationInfo = nullptr};
-        // FOUR STAGES, THREE GROUPS: the any-hit shader sits at index 3 and is named by the hit group below rather
-        // than becoming a group of its own, which is what keeps the caller's shader binding table regions and
-        // their addressing unchanged by this step.
-        std::array<VkPipelineShaderStageCreateInfo, 4> const stages = {raygen_stage, miss_stage, closest_hit_stage, any_hit_stage};
-
-        // THE GROUP ORDER IS THE SBT'S ORDER: group 0 is the raygen, group 1 the miss shader, group 2 the hit
-        // group. The caller's regions follow exactly this order, which is why the count is returned with them.
-        // The hit group names BOTH of its stages: the closest-hit shader answers the ray and the any-hit shader
-        // is the one that may refuse the intersection first, which is the whole reason this pipeline exists.
-        VkRayTracingShaderGroupCreateInfoKHR const raygen_group = {.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
-                                                                   .pNext = nullptr,
-                                                                   .type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
-                                                                   .generalShader = 0,
-                                                                   .closestHitShader = VK_SHADER_UNUSED_KHR,
-                                                                   .anyHitShader = VK_SHADER_UNUSED_KHR,
-                                                                   .intersectionShader = VK_SHADER_UNUSED_KHR,
-                                                                   .pShaderGroupCaptureReplayHandle = nullptr};
-        VkRayTracingShaderGroupCreateInfoKHR const miss_group = {.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
-                                                                 .pNext = nullptr,
-                                                                 .type = VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR,
-                                                                 .generalShader = 1,
-                                                                 .closestHitShader = VK_SHADER_UNUSED_KHR,
-                                                                 .anyHitShader = VK_SHADER_UNUSED_KHR,
-                                                                 .intersectionShader = VK_SHADER_UNUSED_KHR,
-                                                                 .pShaderGroupCaptureReplayHandle = nullptr};
-        VkRayTracingShaderGroupCreateInfoKHR const hit_group = {.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
-                                                                .pNext = nullptr,
-                                                                .type = VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR,
-                                                                .generalShader = VK_SHADER_UNUSED_KHR,
-                                                                .closestHitShader = 2,
-                                                                .anyHitShader = 3, // the ANY-HIT stage of this same group: see shaders/rt_shadow.rahit
-                                                                .intersectionShader = VK_SHADER_UNUSED_KHR,
-                                                                .pShaderGroupCaptureReplayHandle = nullptr};
-        std::array<VkRayTracingShaderGroupCreateInfoKHR, 3> const groups = {raygen_group, miss_group, hit_group};
-
-        VkPipelineCreateFlags2CreateInfo const rt_heap_flags = {
-            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
-            .pNext = nullptr,
-            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
+        // THE PIPELINE IS A CONTRACT OBJECT NOW (abi 21): the ray-tracing rules - the entry-point resolution
+        // (the loader exports no extension command), the heap flag, the group TYPE derived from which slots a
+        // group fills, and the ray-tracing bind point - live in the backend (`core::create_ray_tracing_pipeline`),
+        // which is the side that owns them. What stays here is the pipeline's SHAPE, which is this pass's.
+        std::array<rhi::ray_tracing_stage, 4> const stages = {
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::ray_generation, .code = std::as_bytes(raygen_code), .debug_name = "rt shadow raygen"},
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::miss, .code = std::as_bytes(miss_code), .debug_name = "rt shadow miss"},
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::closest_hit, .code = std::as_bytes(closest_hit_code), .debug_name = "rt shadow closest hit"},
+            rhi::ray_tracing_stage{.stage = rhi::shader_stage::any_hit, .code = std::as_bytes(any_hit_code), .debug_name = "rt shadow any hit"},
         };
-        VkRayTracingPipelineCreateInfoKHR const pipeline_info = {.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
-                                                                 .pNext = &rt_heap_flags,
-                                                                 .flags = 0,
-                                                                 .stageCount = static_cast<uint32_t>(stages.size()),
-                                                                 .pStages = stages.data(),
-                                                                 .groupCount = static_cast<uint32_t>(groups.size()),
-                                                                 .pGroups = groups.data(),
-                                                                 .maxPipelineRayRecursionDepth = 1,
-                                                                 .pLibraryInfo = nullptr,
-                                                                 .pLibraryInterface = nullptr,
-                                                                 .pDynamicState = nullptr,
-                                                                 .layout = VK_NULL_HANDLE, // heap-native stages: a layout would contradict them
-                                                                 .basePipelineHandle = VK_NULL_HANDLE,
-                                                                 .basePipelineIndex = -1};
-        // THE EXTENSION ENTRY POINT COMES FROM THE DEVICE, not from the link line: `vulkan-1`'s import library
-        // does not export an extension command (the acceleration-structure module loads its five the same way),
-        // so a direct call is an undefined symbol at link time rather than a missing feature at runtime.
-        auto const create_ray_tracing = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(vkGetDeviceProcAddr(device, "vkCreateRayTracingPipelinesKHR"));
-        if (create_ray_tracing == nullptr) {
-            return fail("rt shadow: the device did not publish vkCreateRayTracingPipelinesKHR");
+        // THE GROUP ORDER IS THE SHADER BINDING TABLE'S ORDER, and the migration did not move it: group 0 is
+        // the raygen, group 1 the miss shader, and group 2 is the hit group that names BOTH the closest-hit
+        // stage (index 2) and the any-hit stage (index 3) - the any-hit shader is what lets an alphaMode MASK
+        // surface refuse the intersection, which is why this pipeline exists at all. The count travels back
+        // with the pipeline because the caller's regions follow exactly this order.
+        std::array<rhi::ray_tracing_group, 3> const groups = {
+            rhi::ray_tracing_group{.general = 0},
+            rhi::ray_tracing_group{.general = 1},
+            rhi::ray_tracing_group{.closest_hit = 2, .any_hit = 3, .triangles = true},
+        };
+        rhi::pipeline_desc desc{};
+        desc.ray_tracing_stages = stages;
+        desc.ray_tracing_groups = groups;
+        // RECURSION DEPTH 1 (the header's own note): the shadow ray answers a yes/no question and terminates on
+        // the first hit, so there is nothing for a second level to do.
+        desc.max_ray_recursion = 1u;
+        desc.debug_name = "rt shadow";
+        rhi::pipeline* const built = face.create_pipeline(desc);
+        if (built == nullptr) {
+            return fail("rt shadow: the contract's ray-tracing pipeline factory refused the descriptor");
         }
-        VkPipeline pipeline = VK_NULL_HANDLE;
-        if (create_ray_tracing(device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &pipeline_info, nullptr, &pipeline) != VK_SUCCESS) {
-            return fail("rt shadow: vkCreateRayTracingPipelinesKHR failed");
-        }
-        out.pipeline = pipeline_handle(pipeline, device);
+        auto& natives = *static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        out.pipeline = pipeline_handle(built, static_cast<VkPipeline>(natives.native_pipeline(*built)));
         out.group_count = static_cast<uint32_t>(groups.size());
         return out;
     }

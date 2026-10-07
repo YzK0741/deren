@@ -88,6 +88,10 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
+    deren::promise::rhi::pipeline* gbuffer_debug_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
+    }
+
     void gbuffer_debug_pass::set_channel(int32_t const channel) noexcept {
         // The clamp came with the parameter: the count is the declaration's own `gbuffer_channel_count`, and a
         // channel outside it would index the shader's switch by a value it does not know.

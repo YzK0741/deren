@@ -15,6 +15,11 @@ module;
 module deren.vulkan.acceleration_structure;
 
 import deren.utility;
+// THE DEVICE-QUERY CHAIN FACTORIES (make_properties_2 / make_acceleration_structure_properties): the module
+// interface names none of them, so the implementation unit imports constant_init itself. The structures a query
+// chain carries are built where their sType is known, never by hand - see that module's device-query section
+// and RECORDING_FACE_REFACTOR_STATUS section 7 trap 8.
+import deren.vulkan.constant_init;
 
 namespace deren::vulkan::acceleration_structure {
     namespace rhi = deren::promise::rhi;
@@ -65,9 +70,16 @@ namespace deren::vulkan::acceleration_structure {
         device_facts facts_of(rhi::api_core& face) {
             device_facts facts = {};
             facts.device = device_of(face);
-            VkPhysicalDeviceProperties2 properties = {};
-            properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            properties.pNext = &facts.acceleration_structure_properties;
+            // THE CHAINED STRUCTURE IS BUILT BY constant_init, and that is what makes the sType impossible to
+            // forget: `device_facts facts = {}` zero-initialises the member, and `sType = 0` IS
+            // `VK_STRUCTURE_TYPE_APPLICATION_INFO` - so a hand-built member chained into
+            // `VkPhysicalDeviceProperties2::pNext` is read as an APPLICATION_INFO
+            // (VUID-VkPhysicalDeviceProperties2-pNext-pNext, which this site produced before the factory
+            // existed). The same trap the recording-face note records for `.header = {}` in a command-buffer
+            // chain (RECORDING_FACE_REFACTOR_STATUS section 7, trap 8): an explicit `= {}` is not "use the
+            // default member initializer", and for a TAGGED structure that difference is the whole contract.
+            facts.acceleration_structure_properties = deren::vulkan::make_acceleration_structure_properties();
+            VkPhysicalDeviceProperties2 properties = deren::vulkan::make_properties_2(&facts.acceleration_structure_properties);
             auto* const escape = escape_of(face);
             if (escape != nullptr) {
                 vkGetPhysicalDeviceProperties2(reinterpret_cast<VkPhysicalDevice>(escape->native_physical_device()), &properties);

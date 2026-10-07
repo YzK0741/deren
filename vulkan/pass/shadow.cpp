@@ -131,6 +131,18 @@ namespace deren::vulkan::pass {
         return VK_NULL_HANDLE; // no mesh form, no shadow map: the vertex form is gone (see create)
     }
 
+    deren::promise::rhi::pipeline* shadow_pass::pipeline_handle() const noexcept {
+        // THE SAME PREFERENCE, and it must answer the SAME object: whichever form `pipeline()` picked is the one
+        // the runner binds, and a second rule here would bind a pipeline this pass does not draw with.
+        if (this->meshlet_pipeline.has_value()) {
+            return this->meshlet_pipeline->contract;
+        }
+        if (this->mesh_pipeline.has_value()) {
+            return this->mesh_pipeline->contract;
+        }
+        return nullptr;
+    }
+
     void shadow_pass::set_frame(shadow_frame const& frame) noexcept {
         this->pass_frame = frame;
     }

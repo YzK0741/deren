@@ -329,11 +329,12 @@ namespace deren::vulkan {
             // THE SHADER-BINDING-TABLE NUMBERS: the alignment facts a pass cannot query itself (it has no
             // physical device), read off the same chain `VkPhysicalDeviceProperties2` carries. Zeroed on a
             // device without the extension - which the pass reads as "build no table".
-            VkPhysicalDeviceRayTracingPipelinePropertiesKHR properties = {};
-            properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
-            VkPhysicalDeviceProperties2 query = {};
-            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            query.pNext = &properties;
+            // BOTH STRUCTURES ARE BUILT BY constant_init, so neither call site names an `sType`: a chain member
+            // whose type is written by hand is the bug class where `= {}` leaves sType ZERO - and zero IS
+            // VK_STRUCTURE_TYPE_APPLICATION_INFO (see constant_init's device-query section, and the note's
+            // section 7 trap 8).
+            VkPhysicalDeviceRayTracingPipelinePropertiesKHR properties = deren::vulkan::make_ray_tracing_pipeline_properties();
+            VkPhysicalDeviceProperties2 query = deren::vulkan::make_properties_2(&properties);
             VkPhysicalDevice const physical = native_physical_device_of(face);
             if (physical != VK_NULL_HANDLE) {
                 vkGetPhysicalDeviceProperties2(physical, &query);
@@ -349,11 +350,8 @@ namespace deren::vulkan {
             if (escape == nullptr || !device_extension_enabled(*escape, VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
                 return false;
             }
-            VkPhysicalDeviceRayQueryFeaturesKHR features = {};
-            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
-            VkPhysicalDeviceFeatures2 query = {};
-            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-            query.pNext = &features;
+            VkPhysicalDeviceRayQueryFeaturesKHR features = deren::vulkan::make_ray_query_features();
+            VkPhysicalDeviceFeatures2 query = deren::vulkan::make_features_2(&features);
             VkPhysicalDevice const physical = native_physical_device_of(face);
             if (physical != VK_NULL_HANDLE) {
                 vkGetPhysicalDeviceFeatures2(physical, &query);
@@ -367,11 +365,8 @@ namespace deren::vulkan {
             if (escape == nullptr || !device_extension_enabled(*escape, VK_EXT_MESH_SHADER_EXTENSION_NAME)) {
                 return false;
             }
-            VkPhysicalDeviceMeshShaderFeaturesEXT features = {};
-            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
-            VkPhysicalDeviceFeatures2 query = {};
-            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-            query.pNext = &features;
+            VkPhysicalDeviceMeshShaderFeaturesEXT features = deren::vulkan::make_mesh_shader_features();
+            VkPhysicalDeviceFeatures2 query = deren::vulkan::make_features_2(&features);
             VkPhysicalDevice const physical = native_physical_device_of(face);
             if (physical != VK_NULL_HANDLE) {
                 vkGetPhysicalDeviceFeatures2(physical, &query);

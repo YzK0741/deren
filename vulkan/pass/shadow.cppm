@@ -116,6 +116,8 @@ export namespace deren::vulkan::pass {
         }
         /// @brief the pipeline the runner binds before this pass records
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        /// @brief the contract lane of the SAME object `pipeline()` prefers: the MESHLET form when it exists, the MESH form otherwise
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         void set_frame(shadow_frame const& frame) noexcept;
 

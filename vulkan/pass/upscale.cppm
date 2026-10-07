@@ -152,6 +152,7 @@ export namespace deren::vulkan::pass {
         }
         /// @brief the pipeline the runner binds before this pass records
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief install the host's overlay hook (this pass is the frame's last writer whenever it runs)
         void set_overlay(draw_callback overlay) noexcept;

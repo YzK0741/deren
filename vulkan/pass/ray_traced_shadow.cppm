@@ -155,6 +155,7 @@ export namespace deren::vulkan::pass {
         }
         /// @brief the pipeline the runner binds before this pass records
         [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
     private:
         // THREE GROUPS but FOUR stages: the shader binding table's order is raygen, miss, hit - the any-hit

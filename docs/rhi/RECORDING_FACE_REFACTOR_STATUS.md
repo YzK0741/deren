@@ -1,19 +1,23 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: two batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: three batches have LANDED AND ARE GREEN.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
 >
-> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 54**, **none of them
+> PLUS ONE GATE THAT IS NOT IN THE LIST, because no scenario reaches it: the ray-traced shadow path is
+> smoked by hand (`[render] rt_shadows = true`, 40 frames, validation on) and it reports **0 VUIDs** -
+> it did not before the third batch, which is how two real defects in it were found (section 2.8).
+>
+> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 53**, **none of them
 > in `vulkan/pass/`** (the pass layer is at zero, including the job passes and the ray-traced shadow);
 > engine files including a Vulkan header **62 -> 58**; abi **20 -> 21**, pinned in both tests.
 >
-> THIS NOTE IS THE COMMIT-MESSAGE-LENGTH VERSION of both batches: section 2 is what changed, section 5
-> is the failure class the first batch closed (including four bugs the compiler could not have found),
-> section 8 is what is left AND the measurement that ranks it (the include sweep is a second migration,
-> not a delete pass - the table in 8.4 says which token blocks which file). Sections 1, 3, 4 and 7 are
-> the parts that stay true for the next batch.
+> THIS NOTE IS THE COMMIT-MESSAGE-LENGTH VERSION of all three batches: section 2 is what changed,
+> section 5 is the failure class the first batch closed (including four bugs the compiler could not have
+> found), section 8 is what is left AND the measurement that ranks it (the include sweep is a second
+> migration, not a delete pass - the table in 8.4 says which token blocks which file). Sections 1, 3, 4
+> and 7 are the parts that stay true for the next batch.
 >
 > Reading order for someone picking this up: section 1 (why), section 2 (what changed, per file),
 > section 4 (the recipes the migrated files follow), section 5 (what was wrong and how it was found),
@@ -143,6 +147,20 @@ type is GONE, and the retired `interface_type` enumerator (`rhi.contract.cppm:37
 | the bind sites | the RUNNER binds through `bind_pipeline` wherever a contract handle exists and keeps the raw bind only for the ray-tracing assembly; `cluster.cpp` no longer binds at all (it declares its pipeline and the runner binds it); `mask_bake.cpp` / `compute_skin.cpp` bind their own pipelines through the contract (contract-only: a job whose pipeline has no handle is a wiring bug and is reported). |
 | the two measured sites | `ray_traced_shadow.cpp`'s two barriers are `barrier_group{... .stage = stage_hint::ray_tracing}`; `compute_skin.cpp`'s build-ordering barrier is `barrier_group{.has_memory = true, .memory = {shader_write -> acceleration_structure_read}}`. `pass::native_commands()` keeps ONE user class: the resolved ray-tracing launch entry point. |
 | the include sweep | the four files that named no native type at all (`frame_constants.cppm`, `character_forward.cpp`, `render_start_demo.cpp/.cppm`) dropped `#include <vulkan/vulkan.h>`: 62 -> 58 engine files. Section 8.4 explains why the rest is a migration rather than a delete pass. |
+
+| the include sweep | the four files that named no native type at all (`frame_constants.cppm`, `character_forward.cpp`, `render_start_demo.cpp/.cppm`) dropped `#include <vulkan/vulkan.h>`: 62 -> 58 engine files. Section 8.4 explains why the rest is a migration rather than a delete pass. |
+
+### 2.8 What the THIRD batch added (the ray-tracing pipeline, the lane audit, constant_init)
+
+| area | what landed |
+|---|---|
+| the contract | `shader_stage` gained the five ray-tracing VALUES (`ray_generation`, `miss`, `closest_hit`, `any_hit`, `intersection` - appending a value is not an abi change); new `ray_tracing_stage` (stage + SPIR-V + name), `ray_tracing_group` (the stage INDICES a general/hit group binds, `shader_group_none` for the empty slots, `triangles` for a hit group's geometry) and `shader_group_none`; `pipeline_desc` gained `ray_tracing_stages` / `ray_tracing_groups` / `max_ray_recursion`, where NON-EMPTY stages is the whole switch that selects the third path. |
+| the backend | `core::create_ray_tracing_pipeline`: one module per stage, the group-type DERIVED from which slots are filled, the heap flag, the entry point resolved through `vkGetDeviceProcAddr` (the loader exports no extension command), `bind_point = RAY_TRACING_KHR`. `create_shader`'s stage switch learned the five new values (a switch that fell through to the vertex default would have been a lie). |
+| `pipelines.cppm` | `build_rt_shadow_ray_tracing` became a contract factory: the stages in the SBT's own order (raygen, miss, closest hit, any hit) and the three groups (0 = general raygen, 1 = general miss, 2 = triangles hit naming stages 2 and 3), with the count still returned to the caller. `vkCreateRayTracingPipelinesKHR` and every `VkRayTracing*` struct left the file. |
+| the runner | the raw-bind FALLBACK IS GONE: every pipeline this renderer builds is a contract pipeline now, so `apply_pass_behaviour` binds only through `bind_pipeline`, and a declared pipeline with no contract handle is a named log rather than an unbound draw. |
+| the lane audit (the bug this batch found) | `resolve_declaration`'s "the pass's OWN pipeline" branch filled only the RAW lane, so EVERY pass that owns its pipeline (deferred, cluster, taa, fxaa, upscale, post, goo_rim, the debug view, the two megalights stages, shadow, rt_shadow) published a null contract lane. The runner's fallback had hidden it; deleting the fallback turned it into `vkCmdDraw(): a valid GRAPHICS pipeline must be bound` (5+ VUIDs in a 40-frame run). The fix is a new `frame_pass::pipeline_handle()` (the contract lane of the same object `pipeline()` answers) overridden by those 13 passes, plus `post_composite_pass::named_pipeline` and `post_composite_pass::resolve` filling their contract lanes - and `declaration_pipelines_ok` now ASKS `named_pipeline` FIRST, which is what makes that accessor real (it was declared, overridden and never called). |
+| `constant_init` | a DEVICE-QUERY section: `make_properties_2(next)` / `make_features_2(next)` (the two chain heads) and the four chained blocks (`make_acceleration_structure_properties`, `make_ray_tracing_pipeline_properties`, `make_ray_query_features`, `make_mesh_shader_features`), used by the acceleration-structure module and the runtime's three device queries. The project's own rule is "the engine never hand-fills these structs at call sites"; a query chain is where that rule pays for itself, because the whole chain is tagged members. |
+| the second real bug | `vulkan/acceleration_structure/acceleration_structure.cpp`'s property query chained a `= {}` struct whose `sType` was never set - and `VK_STRUCTURE_TYPE_APPLICATION_INFO` IS ZERO, so validation reported an APPLICATION_INFO in the pNext chain (2 VUIDs). It is trap 8's second measurement, and it was invisible until this batch because NO gate enables `rt_shadows` (section 6's smoke run is what found it). |
 
 ## 3. What was tried and reverted (do not repeat)
 
@@ -313,6 +331,15 @@ interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragm
    takes THAT type's defaults (bug 2). For a tagged structure whose NSDI names the `s_type`, either omit
    the member or spell the whole value; `T X = {}` on the aggregate is the safe form, and a refusal is
    named by `validate_structure` rather than silently dropped.
+   THE SECOND MEASUREMENT OF THE SAME TRAP (third batch): a structure chained into a query's `pNext` had
+   `sType` left at ZERO by its `= {}`, and **`VK_STRUCTURE_TYPE_APPLICATION_INFO` IS ZERO** - so the
+   driver read an APPLICATION_INFO where an acceleration-structure property block was meant, and
+   validation said exactly that (`VUID-VkPhysicalDeviceProperties2-pNext-pNext`, twice). The FIX PATTERN
+   is the project's own convention, not a repaired line: the chain head and its members are built by
+   `constant_init` factories (`make_properties_2` / `make_features_2` / `make_acceleration_structure_properties`
+   / `make_ray_tracing_pipeline_properties` / `make_ray_query_features` / `make_mesh_shader_features`), so
+   NO CALL SITE NAMES AN `sType` and none can forget one. When a tagged struct is built by hand anywhere,
+   that is the bug this section is about - measured twice now, on two different chains.
 9. **A gate that counts "record() was called" is not a gate that the frame was recorded.** The
    renderer's `run_report` said `recorded = 1` while the scene's scope was refused whole (bug 3). The
    only instrument that caught it was the 14-hash render gate; when a frame comes back UNIFORM with
@@ -324,25 +351,25 @@ interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragm
 
 ## 8. What is left (ranked, with the measurements each step needs)
 
-**THE PASS LAYER IS AT ZERO `vkCmd*` SITES**, and that is the headline of the second batch: no
-`vulkan/pass/*` file calls a `vkCmd*` any more, including the job passes and the ray-traced shadow.
-The census reads **54 sites in 6 files**, none of them a pass:
+**THE PASS LAYER IS AT ZERO `vkCmd*` SITES, AND EVERY PIPELINE IT BINDS IS A CONTRACT PIPELINE.** The
+census reads **53 sites in 6 files**, none of them a pass:
 `runtime/runtime.frames.cppm` (34 - the frame loop's own open/close, its barriers, the furnace clear,
 the pass-runner viewport/scissor and the shadow hand-back), `runtime/runtime.probes.cppm` (8 - the
 probe's own path), `vulkan/ray_tracing/ray_tracing.cpp` (4 - the structure set's barriers, out of the
 pass layer by design), `runtime/runtime.cpp` (3 - the resolved mesh entry points), `pipelines.cppm`
 (3 - `begin_pipeline`'s bind + viewport + scissor) and `readback.cpp` (2 - its one-shot copy). The
-include count is **58** (62 at the start of this batch; 4 were dead).
+include count is **58**.
 
-DONE IN THE SECOND BATCH (all gated, see section 6):
+DONE IN THE SECOND AND THIRD BATCHES (all gated, see section 6):
 
-1. **The pipeline migration.** `pipeline_desc` gained the appended `compute_code` spelling and
-   `create_pipeline` the `create_compute_pipeline` branch (heap flag, NULL layout, entry point "main",
-   `bind_point = COMPUTE`); the six `vkCreateComputePipelines` builders became contract pipelines;
-   `pass::owned_pipeline`/`resolved_io` carry `rhi::pipeline*` beside the raw handle, the runner binds
-   through `bind_pipeline` wherever a contract handle exists, and `cluster.cpp` / `mask_bake.cpp` /
-   `compute_skin.cpp` bind their own pipelines through it. `pass::native_commands()` survives with
-   exactly ONE user class: the function-pointer entries (the ray-tracing launch), which no verb spells.
+1. **The pipeline migration, both halves.** Compute: `pipeline_desc::compute_code` +
+   `create_compute_pipeline` (heap flag, NULL layout, `bind_point = COMPUTE`), the six
+   `vkCreateComputePipelines` builders turned into contract factories. Ray tracing:
+   `ray_tracing_stages`/`ray_tracing_groups`/`max_ray_recursion` + `create_ray_tracing_pipeline` (one
+   module per stage, the group type derived from the slots, the entry point resolved through
+   `vkGetDeviceProcAddr`, `bind_point = RAY_TRACING_KHR`). The runner's raw bind FALLBACK IS GONE, and
+   `pass::native_commands()` survives with exactly ONE user class: the resolved launch entry points
+   (`vkCmdTraceRaysKHR`), which no contract verb spells.
 2. **The two vocabulary gaps, each with its measurement.** `barrier_group::stage` (`stage_hint`) is how
    the ray-traced shadow's two barriers name the stage that actually RAN; `barrier_group::has_memory` +
    `memory_barrier` (and the appended `buffer_use::acceleration_structure_read`) is how the skinning
@@ -351,34 +378,45 @@ DONE IN THE SECOND BATCH (all gated, see section 6):
    the old layout would have had its pointer's low half read as a size.
 3. **abi 21 is pinned**: the contract's constant and both test pins (`test_dynamic_link.cpp`,
    `test_runtime_dyn.cpp`) moved together, and the constant's own note records what moved (the appended
-   `make_command_buffer` vtable slot) and what did NOT (every POD of this batch).
+   `make_command_buffer` vtable slot) and what did NOT (every POD of these batches).
+4. **The lane audit.** `frame_pass::pipeline_handle()` (the contract lane of the pipeline `pipeline()`
+   answers) is overridden by every pass that owns one; `resolve_declaration` publishes both lanes from
+   both of its branches; `declaration_pipelines_ok` asks `named_pipeline` first (which is what makes
+   that accessor real rather than dead). The measurement that found it: the runner's fallback removal
+   turned a raw-only publication into `vkCmdDraw ... a valid GRAPHICS pipeline must be bound`.
 
 WHAT REMAINS:
 
-1. **The frame-level sweep** (`runtime.frames.cppm` LAST, and the other five files first): the frame
-   loop's own raw steps still want the record series - viewport/scissor, the bind fallback, the
-   clear-color, the furnace/`clear_hdr` barriers, the shadow hand-back - and the RUNNER is the only
-   place a `VkPipeline` bind can still happen (for the ray-tracing assembly).
-2. **A ray-tracing pipeline spelling**, which is what keeps item 1's bind fallback and the raw
-   `owned_pipeline::pipeline` lane alive: the contract has no `pipeline_desc` form for a ray-tracing
-   pipeline (shader groups, SBT layout, `vkCreateRayTracingPipelinesKHR`), and until it does,
-   `pipelines.cppm` builds that one pipeline raw through the escape - the note's §1.5 escape bucket.
-3. **`pass_context::device` and the pipeline builders' `VkDevice` parameter** (the builders kept it,
-   `[[maybe_unused]]`, in this batch), plus `native_device_of(...)` in `runtime.frames.cppm` /
-   `runtime.cpp`: the same step, and it is the one that lets the job passes drop their Vulkan include.
+1. **The frame-level sweep** (`runtime.frames.cppm` LAST, the other five files first): the frame loop's
+   own raw steps still want the record series - the runner's viewport/scissor, the `clear_hdr` clear,
+   the furnace/`clear_hdr` barriers, the shadow hand-back, `readback.cpp`'s one-shot copy,
+   `ray_tracing.cpp`'s structure barriers. The bind is DONE (item 1 above), so what is left there is
+   state and barriers, not pipelines.
+2. **`pass_context::device` and the pipeline builders' `VkDevice` parameter** (the builders kept it,
+   `[[maybe_unused]]`), plus `native_device_of(...)` in `runtime.frames.cppm` / `runtime.cpp`: the same
+   step, and it is the one that lets the job passes drop their Vulkan include.
+3. **Retire `frame_pass::pipeline()` (the raw lane), which is what the include sweep actually waits
+   for.** It is the LAST reason 12 pass files name `VkPipeline`, and it can go now that every pipeline
+   has a contract handle: `resolve_declaration` would publish `pipeline_handles` only, and
+   `owned_pipeline::pipeline` would be deleted. It is a mechanical batch with a wide blast radius
+   (13 pass pairs + the framework), so it belongs on its own and next.
 4. **The include sweep is a SECOND MIGRATION, not a delete pass**, and the measurement says so. Of the
    58 files that still include a Vulkan header, the blockers are:
 
    | blocking token(s) | files | what it would take |
    |---|---|---|
-   | `VkPipeline` only | 12 | `frame_pass::pipeline()` / `named_pipeline()` and `owned_pipeline::pipeline` becoming contract handles - which waits for item 2, because the ray-tracing assembly has no contract pipeline |
-   | `VkPipeline` + one more (`VkImage`, `VkImageView`, `VkDeviceAddress`, `VkExtent2D`, `VkFormat`, `VkStridedDeviceAddressRegionKHR`, ...) | ~20 | the same, plus the raw lanes of `resolved_binding` / the frame structs |
+   | `VkPipeline` only | 12 | item 3 (retire `frame_pass::pipeline()` + `owned_pipeline::pipeline`) |
+   | `VkPipeline` + one more (`VkImage`, `VkImageView`, `VkDeviceAddress`, `VkExtent2D`, `VkFormat`, `VkStridedDeviceAddressRegionKHR`, ...) | ~20 | item 3, plus the raw lanes of `resolved_binding` / the frame structs |
    | `VkFormat` / `VK_SAMPLE_COUNT_1_BIT` / `VK_INDEX_TYPE_UINT16` only | 3 | the secondary inheritance's native formats (`vulkan_command_buffer_inheritance_info` is native by design) and the few enum spellings a frame struct still carries |
-   | `VkDevice` / `VkDeviceAddress` / scratch handles in `pass_context` and the jobs | ~10 | item 3 |
+   | `VkDevice` / `VkDeviceAddress` / scratch handles in `pass_context` and the jobs | ~10 | item 2 |
    | the backend-facing modules (`render_layout`, `bindings`, `init_utils`, `render_resource/shared`) | ~8 | they DESCRIBE the device layout; several of them are legitimately in the escape bucket |
 
-   So the target (<= 7) is reachable only after items 1-3, and the honest order is: item 2 (the RT
-   pipeline spelling) -> item 1 (the frame sweep) -> item 3 (`pass_context::device`) -> then delete
-   includes file by file, `runtime.frames.cppm` last, re-running section 6's gates after each batch.
+   So the target (<= 7) is reachable only after items 1-3, and the honest order is: item 3 (the raw
+   pipeline lane) -> item 1 (the frame sweep) -> item 2 (`pass_context::device`) -> then delete includes
+   file by file, `runtime.frames.cppm` last, re-running section 6's gates after each batch.
+5. **One VUID-free smoke run per ungated path, every time.** The ray-traced path is not in the fourteen
+   scenarios, and BOTH of the third batch's real defects were found by a hand smoke run with
+   `[render] rt_shadows = true`. Any path the capture gate cannot reach (ray tracing, bloom, the
+   megalights demo) deserves the same 40-frame run with validation on before a batch is called green.
 
 
