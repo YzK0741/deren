@@ -826,3 +826,62 @@ pwsh -File scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-cl
 
 `error: unable to open output file '…pcm'`（Windows 1224，`ERROR_USER_MAPPED_FILE`）**只此一条可重试**；
 其余任何 error 立即停。它的级联是 `llvm-ar: … No such file or directory` + `FAILED: libX.a`，那不是第二个故障。
+
+---
+
+## 20 录制面（RECORDING_FACE_PLAN）：abi 20 动词 + post 链 pilot **已落地**（2026-10-07，`wip/recording-face` 分支）
+
+> 计划在 `docs/rhi/RECORDING_FACE_PLAN.md`（§9 是修过普查脚本后的权威数字）。分支按计划 §8：
+> wip 上自由提交、master 保持绿、**不 push**（Lead 验收后合）。两笔提交：`f8bbf8a`（动词）、`0b8d8b3`（pilot）。
+
+### 20.1 abi 20：录制动词系列上契约（f8bbf8a）
+
+- `command_list` 追加 **17 个动词**（begin/end_rendering、bind_pipeline/vertex/index、draw/draw_indexed、
+  dispatch/draw_mesh_tasks/draw_mesh_tasks_indirect、五个动态状态、barrier 两形、copy_image/copy_buffer/
+  clear_color_image）+ `viewport`/`index_type`/`cull_mode`/`image_copy` 小词汇。**只在借用视图上声明一次**，
+  `command_buffer` 经 `recording()` 到达；`push_data` 刻意不在系列里（heap 面已带 list，二次声明即两个真相）。
+- **对计划草图的一处有意识偏离**（已写进契约注释与提交）：**收句柄的动词答 `error`**（"后端没交出去的句柄"
+  是可查的拒绝；静默不录 barrier 正是这个面要杜绝的腐蚀），**纯值动词保持 `void`**。
+- 后端翻译齐备：`frame_commands` 上 17 个覆写；constexpr 映射函数带**编译期表断言**；
+  `owned_pipeline` 增 `bind_point`（创建时定死）；probe echo 覆写、两个 foreign_list 桩补齐、abi 钉值 20。
+
+### 20.2 pilot：post 链 12 站点全迁（0b8d8b3）
+
+- **框架侧通道**：`resolved_binding` 增 `image_handle/view_handle/buffer_handle`（与 raw 通道同源同填）；
+  `resolved_io`/`resolve_context` 增 `list`（= `begin_commands()`）；引擎四个发布点全部填充。
+- **post.cpp**：composite + 四级 bloom 的 6 barrier、2 对 begin/end、cull、draw 全走契约；push 端点与
+  overlay 的 after_draw 留在 `io.cmd`（heap push 是 heap 面的动词；overlay 录制器是第三方）。
+- `barrier_for` 补两对（`undefined→color_attachment`、`color_attachment→shader_read`），**影子门
+  static_assert 逐字段对齐既有配方**；`image_use` 追加 `shader_read`（§9.4 清单里本批需要的那个值）。
+
+### 20.3 pilot 抓到的真 bug（迁移路线的第一次端到端证明）
+
+第一跑渲染门 **0/14 全挂**（目标图卡 UNDEFINED，验证器逐图报错）。插桩定位：composite 无 FXAA 路径
+**直写 swapchain 图**——借用视图、不在后端 owned 登记表里，barrier 被拒、pass 静默早退。
+修复：后端 barrier **按身份接受帧图**（与 `use()` 同款），swapchain 图的发布补契约句柄。
+第二跑 **matched 14 / mismatched 0**：契约录制面产出**逐字节相同**的帧。
+
+### 20.4 门读数（两笔提交各自过全门后，最终读数）
+
+构建 0（PCM 偶发按 §18.7 重试）｜ctest **19/19**｜格式 0｜边界 **0/0** + import 0｜尖刺 **95/0** 自行退出｜
+脚手架 `test_runtime_dyn` **10/0**｜渲染门 `-Compare frozen` **exit 0，matched 14 / mismatched 0**。
+
+**两个清扫数字（计划 §9.1 的口径，跑 `python scripts/recording_face_census.py`）**：`vkCmd*` 调用点
+**140 → 128**（16 种拼写），其中 `post` 链迁走 12 处：barrier **52 → 48**、begin **18 → 16**、
+end **17 → 15**、cull **11 → 9**、draw **10 → 8** —— 与计划 §9.1 的基线及 post 的站点数**逐项吻合**；
+含 Vulkan 头的引擎文件 **62 → 62**（`post.cpp` 仍留 `<vulkan/vulkan.h>`，overlay 的第三方录制器与
+raw 通道守卫还用着）。普查**做成了脚本**而不是一次性 grep：第一次普查的脚本把 52 处 barrier 数成 0，
+口径必须可重复，否则每一批的读数都不可比。
+
+### 20.5 本会话新增坑（承接 §5/§18.7）
+
+1. **Bash heredoc 编辑再次静默丢失**（本会话又复现一次，报 ok 未落盘）——一律用编辑工具 + 即时 grep 计数验证。
+2. **可疑/伪造的工具输出出现两次**（报了不存在的文件与行号）——纪律：任何报错先 `ls`/`sed`/`grep`
+   核实真实状态再动手，本会话该纪律至少避免了两次返工。
+3. **PCM 偶发频率显著升高**（几乎每次构建重试 1-3 次）；**渲染门后台跑会内部触发构建**，与前台构建撞树
+   同样触发该偶发——跑门时不要再并行构建（§8"一次一个构建者"的引申）。
+
+### 20.6 下一步（计划 §1 顺序）
+
+fxaa/upscale/taa（与 post 同形，最快）→ 其余 pass 一笔一提交 → `runtime.frames.cppm`（17 barrier，最大块）
+最后 → pipeline 提取（§5）→ 逐文件删 `#include <vulkan/...>`（目标 62 → ≤7，扫描每批报告）。
