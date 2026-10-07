@@ -66,13 +66,104 @@ namespace deren::vulkan {
 
     namespace {
 
-        /// The barrier one (from, to) role pair needs.
+        /// ONE ROW OF THE DECLARATION TABLE: which pair, and the fields the pair's barrier carries.
+        ///
+        /// THE FIELDS ARE COPIED FROM THE RENDERER'S OWN RECIPE CONSTANT, never transcribed - see
+        /// `pair_of` below. Transcribing a mask into this table would create a SECOND truth beside
+        /// `vulkan/constant_init/constant_init.cppm`, and the whole point of this face is that the pair
+        /// (the contract's vocabulary) derives the recipe, not that the two agree by review.
+        struct image_use_pair {
+            rhi::image_use from = rhi::image_use::undefined;
+            rhi::image_use to = rhi::image_use::undefined;
+            VkImageLayout old_layout = VK_IMAGE_LAYOUT_GENERAL;
+            VkImageLayout new_layout = VK_IMAGE_LAYOUT_GENERAL;
+            VkPipelineStageFlags2 src_stage = 0;
+            VkAccessFlags2 src_access = 0;
+            VkPipelineStageFlags2 dst_stage = 0;
+            VkAccessFlags2 dst_access = 0;
+        };
+
+        /// A pair's row, taking every field from @p recipe (the shipped constant). The pair is the
+        /// DECLARATION; the recipe is the FACT, and this function is the only place they meet.
+        [[nodiscard]] constexpr image_use_pair pair_of(rhi::image_use const from, rhi::image_use const to,
+                                                       VkImageMemoryBarrier2 const& recipe) noexcept {
+            return image_use_pair{
+                .from = from,
+                .to = to,
+                .old_layout = recipe.oldLayout,
+                .new_layout = recipe.newLayout,
+                .src_stage = recipe.srcStageMask,
+                .src_access = recipe.srcAccessMask,
+                .dst_stage = recipe.dstStageMask,
+                .dst_access = recipe.dstAccessMask,
+            };
+        }
+
+        // ============================================================================================
+        // THE DECLARATION TABLE (recording face, batch ②). ONE table, and `barrier_for` is its lookup:
+        // the pair-to-mask mapping exists exactly once, and the shadow gate's asserts below prove each
+        // row against the same constant it was built from.
+        //
+        // THE SEMANTICS LIVE IN THE MASKS, NOT THE LAYOUTS. This renderer keeps every image in GENERAL
+        // (`docs/unified_image_layouts.md`), so `oldLayout`/`newLayout` are GENERAL on both sides of
+        // almost every row - `undefined_to_*` is the exception (its old layout really is UNDEFINED) and
+        // the `present` rows are the other (their NEW layout is PRESENT_SRC_KHR). A later reader who
+        // tries to fix a bug by changing a LAYOUT here will change the wrong thing: the fact is the
+        // pair, and the pair's meaning is its stage/access masks.
+        //
+        // THE DEPENDENCY ROW (`color_attachment -> color_attachment`) IS NOT A TRANSITION: it changes no
+        // layout and orders one pass's colour-attachment STORE before the next instance's LOAD
+        // (`deferred.cpp`'s `color_attachment_dependency`). Its masks come from that constant like every
+        // other row's, because re-spelling them would be the second truth this table exists to avoid.
+        //
+        // WHAT THIS BATCH DOES *NOT* CLAIM: that every `image_use` combination is covered. This table is
+        // "these twenty pairs are transcribed"; the coverage assertion over ALL combinations is the next
+        // commit (batch ③), and until it lands no pass may migrate - a partial mapping must never read as
+        // a green coverage light.
+        // ============================================================================================
+        constexpr std::array<image_use_pair, 20> image_use_pairs = {{
+            // ---- the fresh-target family: UNDEFINED as the old layout ----
+            pair_of(rhi::image_use::undefined, rhi::image_use::color_attachment, deren::vulkan::color_attachment_transition),
+            pair_of(rhi::image_use::undefined, rhi::image_use::depth_attachment, deren::vulkan::depth_attachment_transition),
+            pair_of(rhi::image_use::undefined, rhi::image_use::shader_read, deren::vulkan::undefined_to_sampling_transition),
+            pair_of(rhi::image_use::undefined, rhi::image_use::depth_read, deren::vulkan::undefined_to_depth_sampling_transition),
+            pair_of(rhi::image_use::undefined, rhi::image_use::shader_write, deren::vulkan::undefined_to_general_transition),
+            pair_of(rhi::image_use::undefined, rhi::image_use::transfer_destination, deren::vulkan::undefined_to_transfer_dst_transition),
+            pair_of(rhi::image_use::undefined, rhi::image_use::present, deren::vulkan::undefined_to_present_transition),
+            // ---- hand a written target to its next consumer ----
+            pair_of(rhi::image_use::color_attachment, rhi::image_use::shader_read, deren::vulkan::hdr_sampling_transition),
+            pair_of(rhi::image_use::color_attachment, rhi::image_use::transfer_source, deren::vulkan::color_attachment_to_transfer_transition),
+            pair_of(rhi::image_use::color_attachment, rhi::image_use::present, deren::vulkan::present_transition),
+            // THE DEPENDENCY (no layout change, store -> load inside one frame): see the note above
+            pair_of(rhi::image_use::color_attachment, rhi::image_use::color_attachment, deren::vulkan::color_attachment_dependency),
+            // ---- the shader-written family ----
+            pair_of(rhi::image_use::shader_write, rhi::image_use::shader_read, deren::vulkan::general_to_sampling_transition),
+            pair_of(rhi::image_use::shader_write, rhi::image_use::transfer_source, deren::vulkan::general_to_transfer_src_transition),
+            // a read-modify-write self barrier: the destination needs BOTH access bits, which is why the
+            // pair carries its own role (`shader_read_write`) instead of one of its halves
+            pair_of(rhi::image_use::shader_write, rhi::image_use::shader_read_write, deren::vulkan::compute_storage_transition),
+            // ---- the sampled family ----
+            pair_of(rhi::image_use::shader_read, rhi::image_use::shader_write, deren::vulkan::sampling_to_general_transition),
+            pair_of(rhi::image_use::shader_read, rhi::image_use::transfer_destination, deren::vulkan::sampling_to_transfer_dst_transition),
+            pair_of(rhi::image_use::shader_read, rhi::image_use::depth_attachment, deren::vulkan::sampling_to_depth_attachment_transition),
+            pair_of(rhi::image_use::depth_attachment, rhi::image_use::shader_read, deren::vulkan::shadow_map_sampling_transition),
+            // ---- the transfer family ----
+            pair_of(rhi::image_use::transfer_source, rhi::image_use::color_attachment, deren::vulkan::transfer_to_color_attachment_transition),
+            pair_of(rhi::image_use::transfer_destination, rhi::image_use::shader_read, deren::vulkan::transfer_dst_to_sampling_transition),
+        }};
+        static_assert(image_use_pairs.size() == 20,
+                      "batch 2's declaration table is exactly the twenty transcribed pairs (19 transitions + the "
+                      "color_attachment->color_attachment dependency) - a row added or removed without the count "
+                      "changing is a build failure, and every row must name the recipe it was measured from");
+
+        /// The barrier one (from, to) role pair needs: the TABLE's row, with the caller's image filled in.
         ///
         /// THE DERIVATION FROM THE PAIR IS THE POINT of the shadow gate: it is spelled here in the
-        /// contract's vocabulary (two roles), and the asserts below prove that it lands, field by
-        /// field, on the renderer's own recipe constant for the same transition. A pair this backend
-        /// cannot spell has no stages and no accesses at all, which is the honest answer for a
-        /// transition nobody has defined yet - `use()` reports it once instead of recording nonsense.
+        /// contract's vocabulary (two roles), and the table's rows come from the renderer's own recipes -
+        /// so a pair that is transcribed cannot drift from the recipe it was measured from, and the
+        /// asserts below keep proving it field for field. A pair NO ROW CARRIES has no stages and no
+        /// accesses at all, which is the honest answer for a transition nobody has defined yet -
+        /// `use()` reports it once instead of recording nonsense.
         [[nodiscard]] constexpr VkImageMemoryBarrier2 barrier_for(rhi::image_use const from, rhi::image_use const to) noexcept {
             VkImageMemoryBarrier2 barrier = {
                 .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
@@ -83,7 +174,7 @@ namespace deren::vulkan {
                 .dstAccessMask = 0,
                 // EVERY IMAGE IN THIS RENDERER LIVES IN GENERAL: the layouts are an invariant, not a
                 // parameter (docs/unified_image_layouts.md), which is exactly why the contract carries
-                // no layout and why both sides of every transition here spell GENERAL.
+                // no layout. The rows that differ (UNDEFINED as `from`, PRESENT_SRC as `to`) override it.
                 .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
                 .newLayout = VK_IMAGE_LAYOUT_GENERAL,
                 .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
@@ -93,36 +184,16 @@ namespace deren::vulkan {
                 // the hand-written recipes carry.
                 .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
             };
-            if (from == rhi::image_use::color_attachment && to == rhi::image_use::transfer_source) {
-                // what the frame wrote as a render target is about to be read by a transfer
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-            } else if (from == rhi::image_use::transfer_source && to == rhi::image_use::color_attachment) {
-                // the mirror: the copy is done and the frame gets its render target back (the present
-                // transition that follows assumes GENERAL, see constant_init's present_transition)
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_TRANSFER_READ_BIT;
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-            } else if (from == rhi::image_use::undefined && to == rhi::image_use::color_attachment) {
-                // A FRESH TARGET (the post chain's recipe, `color_attachment_transition`): the instance
-                // CLEARs it, so whatever it held is dead - and the pair is the ONE transition here whose
-                // old layout is genuinely UNDEFINED rather than the renderer's GENERAL invariant.
-                barrier.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-                barrier.srcAccessMask = 0;
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-            } else if (from == rhi::image_use::color_attachment && to == rhi::image_use::shader_read) {
-                // HAND A WRITTEN TARGET TO THE SAMPLERS (`hdr_sampling_transition`): what a pass wrote as
-                // a render target, the NEXT pass samples - and the read side is the SAMPLED read, not the
-                // storage read (the recipe's own access bit).
-                barrier.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-                barrier.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-                barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-                barrier.dstAccessMask = VK_ACCESS_2_SHADER_SAMPLED_READ_BIT;
+            for (image_use_pair const& row : image_use_pairs) {
+                if (row.from == from && row.to == to) {
+                    barrier.oldLayout = row.old_layout;
+                    barrier.newLayout = row.new_layout;
+                    barrier.srcStageMask = row.src_stage;
+                    barrier.srcAccessMask = row.src_access;
+                    barrier.dstStageMask = row.dst_stage;
+                    barrier.dstAccessMask = row.dst_access;
+                    break;
+                }
             }
             return barrier;
         }
