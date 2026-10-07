@@ -54,13 +54,13 @@ namespace deren::vulkan::pass {
     }
 
     void fxaa_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -160,7 +160,7 @@ namespace deren::vulkan::pass {
             // Same meaning as in the composite: 0 = the swapchain attachment encodes to display values in
             // hardware, so FXAA must hand it LINEAR values; 1 = the target is a UNORM format and FXAA's own
             // display-encoded result is what should be stored.
-            .encode_gamma = deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
+            .encode_gamma = is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f,
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -184,13 +184,13 @@ namespace deren::vulkan::pass {
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // The post chain's source is a heap slot now (see shaders/post.slang): the third push lane names it, and
         // the frame bound the heaps for this command buffer, so there is no set to bind here.
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it runs,
         // so the overlay belongs here - drawing it in the composite's instance instead would let the edge filter
         // blur the UI text into mush (see fxaa_frame::after_draw, and the composite's frame for the other case).
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
     }

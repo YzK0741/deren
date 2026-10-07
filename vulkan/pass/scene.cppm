@@ -38,12 +38,14 @@ module;
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory> // std::shared_ptr: a frame's session target is the contract handle (see make_environment)
 #include <span>
 #include <string_view>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.scene;
 
+import deren.promise.rhi; // the contract command buffer the frame's secondaries are
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
@@ -58,7 +60,10 @@ export namespace deren::vulkan::pass {
     ///       pool now (one per buffer, which is what keeps concurrent recording threads off a shared
     ///       pool), and no pass ever read the pool this struct used to carry.
     struct segment_buffer {
-        VkCommandBuffer buffer = VK_NULL_HANDLE;
+        /// THE CONTRACT HANDLE (abi 20), BORROWED: the frame loop owns the segment buffers (they are its
+        /// per-slot `object_manager<command_buffer>` entries), and the pass only records into them - so this
+        /// is a raw pointer, never a shared pointer, and the pass must not release it.
+        deren::promise::rhi::command_buffer* buffer = nullptr;
     };
 
     /**
@@ -82,7 +87,7 @@ export namespace deren::vulkan::pass {
          * the previous segment's state would skip a bind it needs. The renderer builds it because the registry
          * is its, and `gbuffer` says which pass's default a leaf with default semantics wants.
          */
-        render_environment (*make_environment)(void* owner, VkCommandBuffer command_buffer, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
         /// record the segments in parallel through the renderer's task pool (same reason as above)
         void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
         void* owner = nullptr;
@@ -96,6 +101,12 @@ export namespace deren::vulkan::pass {
          * (VUID-vkCmdDrawIndexed-None-11308). A CALLBACK RATHER THAN THE HEAP, for the reason `make_environment`
          * and `push_block` are: the heap is the renderer's, and a pass that held it could take over an image
          * family.
+         *
+         * THE PASS DOES NOT CALL IT ANY MORE (abi 20): a secondary is begun through the contract now, whose
+         * `command_buffer_begin_info::next` carries the attachment inheritance only - the BACKEND derives the
+         * descriptor-heap inheritance from its own bound heaps, so chaining the two bind infos here would be a
+         * second truth (and a chain the tagged mechanism refuses). The field stays until the frame's publisher
+         * stops filling it.
          */
         void (*fill_heap_bind)(void* owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) = nullptr;
         /// the attachments a SECONDARY must inherit (dynamic rendering): formats in attachment order + depth
@@ -149,9 +160,9 @@ export namespace deren::vulkan::pass {
         };
 
         /// begin one secondary with the instance's attachment inheritance, or report that it could not
-        [[nodiscard]] bool begin_segment(VkCommandBuffer command_buffer) const;
+        [[nodiscard]] bool begin_segment(deren::promise::rhi::command_buffer& command_buffer) const;
         /// one segment's content: every leaf of that segment through its draw path (the heaps are already bound)
-        void record_segment(VkCommandBuffer command_buffer, std::span<primitive const* const> leaves) const;
+        void record_segment(deren::promise::rhi::command_buffer& command_buffer, std::span<primitive const* const> leaves) const;
 
         // called pass_frame, not frame: set_frame()'s frame parameter in scene.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).

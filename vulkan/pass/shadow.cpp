@@ -56,10 +56,10 @@ namespace deren::vulkan::pass {
         if (context.device == VK_NULL_HANDLE || context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->mesh_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -136,7 +136,7 @@ namespace deren::vulkan::pass {
     }
 
     void shadow_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty()) {
+        if (!this->pipeline_ready() || io.targets.empty() || io.list == nullptr) {
             return;
         }
         if (this->pass_frame.record_cascade == nullptr || this->pass_frame.run_tasks == nullptr || this->pass_frame.map_size == 0u) {
@@ -165,11 +165,13 @@ namespace deren::vulkan::pass {
         std::vector<bool> recorded(layers, false);
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
             tasks.emplace_back([this, cascade, pipeline, mesh_stage, meshlets, &recorded] {
-                VkCommandBuffer const secondary = this->pass_frame.cascades[cascade];
-                if (secondary == VK_NULL_HANDLE) {
+                // THE CASCADE'S SECONDARY IS A CONTRACT HANDLE NOW (abi 20), BORROWED from the frame: the
+                // callback begins and ends it through the contract, so no raw handle is named here at all.
+                rhi::command_buffer* const secondary = this->pass_frame.cascades[cascade];
+                if (secondary == nullptr) {
                     return;
                 }
-                recorded[cascade] = this->pass_frame.record_cascade(this->pass_frame.owner, secondary, cascade, pipeline, mesh_stage, meshlets);
+                recorded[cascade] = this->pass_frame.record_cascade(this->pass_frame.owner, *secondary, cascade, pipeline, mesh_stage, meshlets);
             });
         }
         this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
@@ -177,32 +179,56 @@ namespace deren::vulkan::pass {
         // ---- ONE INSTANCE PER CASCADE, in the primary ----
         VkExtent2D const map_extent = {this->pass_frame.map_size, this->pass_frame.map_size};
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
-            VkImageView const layer_view = io.targets[cascade].view;
-            VkImage const layer_image = io.targets[cascade].image;
-            if (layer_view == VK_NULL_HANDLE || layer_image == VK_NULL_HANDLE) {
+            rhi::image_view* const layer_view = io.targets[cascade].view_handle;
+            rhi::image* const layer_image = io.targets[cascade].image_handle;
+            if (layer_view == nullptr || layer_image == nullptr) {
                 continue;
             }
-            // THIS layer to a renderable depth attachment: one barrier per layer, because the transition constant's
+            // THIS layer to a renderable depth attachment: one barrier per layer, because the transition's
             // subresource range is single-layer and each layer is its own attachment here. Its loadOp CLEAR discards
             // the previous frame's contents, so UNDEFINED as the old layout is valid.
-            VkImageMemoryBarrier2 layer_barrier = deren::vulkan::depth_attachment_transition;
-            layer_barrier.image = layer_image;
-            layer_barrier.subresourceRange = {VK_IMAGE_ASPECT_DEPTH_BIT, 0, 1, cascade, 1};
-            VkDependencyInfo const layer_dependency = make_image_dependency_info(1, &layer_barrier);
-            vkCmdPipelineBarrier2(io.cmd, &layer_dependency);
+            // THE PAIR RIDES THE CONTRACT (abi 20): undefined -> depth_attachment is the shipped
+            // `depth_attachment_transition`, and the layer it covers is the contract range's base_layer - the raw
+            // constant's single-mip, single-layer range retargeted at `cascade`, field for field.
+            if (io.list->barrier(rhi::image_barrier{.resource = layer_image,
+                                                    .from = rhi::image_use::undefined,
+                                                    .to = rhi::image_use::depth_attachment,
+                                                    .range = {.base_mip = 0, .mip_count = 1, .base_layer = cascade, .layer_count = 1}}) != rhi::error::ok) {
+                return; // a refused barrier would leave the layer in a state nobody declared
+            }
             // Depth-only rendering into this cascade (no colour attachment), with loadOp CLEAR (the far plane) and
             // storeOp STORE - the map has to survive for the shading stages that sample it.
-            VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(layer_view, VK_ATTACHMENT_STORE_OP_STORE);
-            VkRenderingInfo const rendering_info = make_rendering_info(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT, {{0, 0}, map_extent}, false, nullptr, &depth_attachment);
-            vkCmdBeginRendering(io.cmd, &rendering_info);
+            // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one depth attachment, no colour one, and the raw call's
+            // flags word is the `secondary_contents` bit.
+            rhi::depth_attachment const depth_attachment = {.view = layer_view,
+                                                            .load = rhi::load_op::clear, // make_depth_attachment_info's loadOp
+                                                            .store = rhi::store_op::store,
+                                                            .read_only = false,
+                                                            .has_stencil = false,
+                                                            .clear_depth = 1.0f,
+                                                            .clear_stencil = 0};
+            rhi::rendering_info const rendering_info{
+                .struct_size = sizeof(rhi::rendering_info),
+                .area = {.offset_x = 0, .offset_y = 0, .width = map_extent.width, .height = map_extent.height},
+                .layer_count = 1, // the raw make_rendering_info's layerCount, which is 1 at every site in this engine
+                .colors = {},
+                .depth = depth_attachment,
+                .has_depth = true,
+                .secondary_contents = true, // the raw call passed VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
+            };
+            if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+                return; // a refused scope would leave the cascade in a state nobody declared
+            }
             // Never execute a secondary whose begin failed - executing an unrecorded command buffer is a VUID and can
             // wedge the frame slot, which is what the recorded flags are for (a null buffer or a log line from the
             // callback leaves its flag false).
             if (recorded[cascade]) {
-                VkCommandBuffer const secondary = this->pass_frame.cascades[cascade];
-                vkCmdExecuteCommands(io.cmd, 1, &secondary);
+                rhi::command_buffer* const secondary = this->pass_frame.cascades[cascade];
+                if (io.list->execute(*secondary) != rhi::error::ok) {
+                    deren::utility::log("shadow pass: executing cascade {}'s secondary was refused - the cascade records nothing this frame", cascade);
+                }
             }
-            vkCmdEndRendering(io.cmd);
+            io.list->end_rendering();
         }
     }
 

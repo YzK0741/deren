@@ -17,6 +17,7 @@
 #include <vector>
 #include <vulkan/vulkan.h>
 
+import deren.promise.rhi;
 import deren.vulkan.pass;
 import deren.vulkan.pass.chain;
 import deren.vulkan.render_resource;
@@ -47,9 +48,119 @@ namespace {
         };
     }
 
+    /// THE COMMAND BUFFER'S STAND-IN (the merged recording face): `resolved_io::cmd` is a
+    /// `std::shared_ptr<rhi::command_buffer>` now, and the one thing this test asserts about it is
+    /// IDENTITY - the host hands the frame's buffer down and the pass reads back what it was given -
+    /// so the stand-in exists to BE that object and records nothing. It is not a device, and every
+    /// verb that would need one is a no-op; the two timing verbs answer `unsupported`, the honest
+    /// answer for an object that cannot timestamp (the probe backend's own rule).
+    struct contract_command_buffer final : deren::promise::rhi::command_buffer {
+        void release() noexcept override {
+        }
+
+        [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer&) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error use(deren::promise::rhi::image const&, deren::promise::rhi::image_use, deren::promise::rhi::image_use) noexcept override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error copy_image_to_buffer(deren::promise::rhi::buffer&, deren::promise::rhi::image const&,
+                                                                      deren::promise::rhi::image_copy_region const&) noexcept override {
+            return deren::promise::rhi::error::unsupported;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error begin_gpu_timing() noexcept override {
+            return deren::promise::rhi::error::unsupported;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error mark_gpu_timing(std::uint32_t, std::string_view) noexcept override {
+            return deren::promise::rhi::error::unsupported;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error begin_rendering(deren::promise::rhi::rendering_info const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        void end_rendering() noexcept override {
+        }
+
+        [[nodiscard]] deren::promise::rhi::error bind_pipeline(deren::promise::rhi::pipeline const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error bind_vertex_buffer(deren::promise::rhi::buffer const&, std::uint64_t) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error bind_index_buffer(deren::promise::rhi::buffer const&, std::uint64_t, deren::promise::rhi::index_type) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        void draw(std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+
+        void draw_indexed(std::uint32_t, std::uint32_t, std::uint32_t, std::int32_t, std::uint32_t) noexcept override {
+        }
+
+        void dispatch(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+
+        void draw_mesh_tasks(std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
+
+        [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        void set_viewport(deren::promise::rhi::viewport const&) noexcept override {
+        }
+
+        void set_scissor(deren::promise::rhi::rect const&) noexcept override {
+        }
+
+        void set_cull_mode(deren::promise::rhi::cull_mode) noexcept override {
+        }
+
+        void set_depth_write(bool) noexcept override {
+        }
+
+        void set_depth_bias(float, float, float) noexcept override {
+        }
+
+        [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::barrier_group const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error barrier(deren::promise::rhi::image_barrier const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error copy_image(deren::promise::rhi::image_copy const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error copy_buffer(deren::promise::rhi::buffer&, deren::promise::rhi::buffer const&, std::uint64_t, std::uint64_t, std::uint64_t) override {
+            return deren::promise::rhi::error::ok;
+        }
+
+        [[nodiscard]] deren::promise::rhi::error clear_color_image(deren::promise::rhi::image const&, std::array<float, 4> const&, deren::promise::rhi::subresource_range const&) override {
+            return deren::promise::rhi::error::ok;
+        }
+    };
+
     /// fake handles, so a resolved pass can be told apart from an unresolved one without a device
     /// (not `constexpr`: a handle comes from `reinterpret_cast`, which is not a constant expression)
-    VkCommandBuffer const fake_cmd = reinterpret_cast<VkCommandBuffer>(0xC0);
+    std::shared_ptr<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
     VkDevice const fake_device = reinterpret_cast<VkDevice>(0xDD);
     VkSampler const fake_shadow_sampler = reinterpret_cast<VkSampler>(0x22);
     std::array<VkPipeline, 4> const fake_pipelines = {
@@ -115,7 +226,7 @@ namespace {
         for (std::size_t k = 0; k < pass.io().bindings.size() && k < out.own_per_image.size(); ++k) {
             out.own_per_image[k] = std::span<VkImageView const>(fake_per_image.data(), fake_per_image.size());
         }
-        out.extent = behaviour.extent == vp::extent_rule::half ? VkExtent2D{state.frame.extent.width / 2u, state.frame.extent.height / 2u} : state.frame.extent;
+        out.extent = behaviour.extent == vp::extent_rule::half ? deren::promise::rhi::image_extent{state.frame.extent.width / 2u, state.frame.extent.height / 2u} : state.frame.extent;
         return true;
     }
 
@@ -158,8 +269,10 @@ namespace {
             .device = fake_device,
             .samplers = {.shadow = fake_shadow_sampler},
             .shader = fake_shader,
-            .swap_chain_image_format = VK_FORMAT_B8G8R8A8_SRGB,
-            .depth_format = VK_FORMAT_D32_SFLOAT,
+            // the two session-stable formats in the CONTRACT's spelling (abi 20's face): the pass layer no
+            // longer names a VkFormat, and these are the values the runtime hands over for the two it fills
+            .swap_chain_image_format = deren::promise::rhi::image_format::bgra8_srgb,
+            .depth_format = deren::promise::rhi::image_format::depth,
             .owner = nullptr,
         };
     }
@@ -233,10 +346,10 @@ namespace {
             last_per_image_length = io.own_per_image.empty() ? 0 : io.own_per_image[0].size();
         }
 
-        VkCommandBuffer last_cmd = VK_NULL_HANDLE;
+        std::shared_ptr<deren::promise::rhi::command_buffer> last_cmd = {};
         std::size_t last_pipelines = 0;
         std::size_t last_push_size = 0;
-        VkExtent2D last_extent = {0, 0};
+        deren::promise::rhi::image_extent last_extent = {};
         uint32_t last_image_index = 0;
         uint32_t last_slot = 0;
         uint32_t last_image_count = 0;
@@ -395,10 +508,10 @@ int32_t main() {
         // ... and the SURFACE's format, which a pipeline that renders into the swapchain must be created with:
         // a session-stable device fact the host hands over rather than one a pass could guess (the extent, which
         // DOES change, is deliberately not here - a pass that bakes one rebuilds in on_swapchain_recreated)
-        CHECK(context.swap_chain_image_format == VK_FORMAT_B8G8R8A8_SRGB);
+        CHECK(context.swap_chain_image_format == deren::promise::rhi::image_format::bgra8_srgb);
         // ... and the DEPTH format, the second session-stable format - the shadow pass's pipeline has a depth
         // attachment and no colour one, so the surface's format is the wrong fact for it
-        CHECK(context.depth_format == VK_FORMAT_D32_SFLOAT);
+        CHECK(context.depth_format == deren::promise::rhi::image_format::depth);
     }
 
     // ---- what a pass is given at CREATE time: a device, the five samplers, and two lookups - and nothing that
@@ -670,7 +783,7 @@ int32_t main() {
         /// the owner side of a resolve_context: a table plus the lookups the framework declares
         struct resolver_owner {
             vp::resource_table table;
-            VkExtent2D resource_extent = {7, 9};
+            deren::promise::rhi::image_extent resource_extent = {7, 9};
             VkPipeline pipeline = reinterpret_cast<VkPipeline>(0x77);
             std::string_view unknown_pipeline = {};
         };

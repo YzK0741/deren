@@ -35,6 +35,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.geometry_buffer_debug;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -123,8 +124,7 @@ export namespace deren::vulkan::pass {
             .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
@@ -132,7 +132,7 @@ export namespace deren::vulkan::pass {
         // and MSVC /W4 reports C4458 (an error under /WX).
         /// the channel the view shows (see set_channel); the default is the renderer's historical normal channel
         int32_t debug_channel = 1;
-    };
+    }; // namespace deren::vulkan::pass
 
     static_assert(sizeof(gbuffer_debug_pass::push_constants) == render_resource::gbuffer_debug_io.push->size,
                   "the debug view's declared push block must be the size of the struct the renderer composes");

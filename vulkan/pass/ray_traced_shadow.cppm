@@ -111,6 +111,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.ray_traced_shadow;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -183,8 +184,19 @@ export namespace deren::vulkan::pass {
             .resync_viewport = false,
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        /**
+         * @brief the traceRays LAUNCH, through the contract buffer (recording face, migration recipe §1.4)
+         *
+         * `vkCmdTraceRaysKHR` is an extension command the loader does not export and the record series has no
+         * verb for, so the launch is one of the escape sites: this wrapper takes the recording face's buffer and
+         * reaches the native through `pass::native_commands` (the contract's own documented answer), which
+         * answers null on a face without a native command buffer - and then nothing is recorded rather than a
+         * foreign pointer mis-cast. The wrapper exists so `record` names no native handle at all; the pipeline
+         * migration (§8.2) is where a contract `trace_rays` verb would replace it.
+         */
+        void trace_rays(deren::promise::rhi::command_buffer& commands, VkStridedDeviceAddressRegionKHR const* raygen, VkStridedDeviceAddressRegionKHR const* miss,
+                        VkStridedDeviceAddressRegionKHR const* hit, VkStridedDeviceAddressRegionKHR const* callable, uint32_t width, uint32_t height, uint32_t depth) noexcept;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
@@ -192,8 +204,9 @@ export namespace deren::vulkan::pass {
         // BUFFER is the owner's (see pass_context::create_upload_buffer); what the pass keeps is where each
         // region starts, which is the per-pipeline part.
         /// the traceRays entry point, loaded through vkGetDeviceProcAddr at create time (an extension command
-        /// is not exported by the loader's import library - see the acceleration-structure module's note)
-        PFN_vkCmdTraceRaysKHR trace_rays = nullptr;
+        /// is not exported by the loader's import library - see the acceleration-structure module's note); the
+        /// `trace_rays` wrapper above is the only caller, so no recording site names this pointer
+        PFN_vkCmdTraceRaysKHR trace_rays_fn = nullptr;
         VkStridedDeviceAddressRegionKHR raygen_region = {};
         VkStridedDeviceAddressRegionKHR miss_region = {};
         VkStridedDeviceAddressRegionKHR hit_region = {};
@@ -203,7 +216,7 @@ export namespace deren::vulkan::pass {
         VkStridedDeviceAddressRegionKHR callable_region = {};
         /// whether the "tracing WxH rays per frame" line has been logged (it used to be the runtime's flag)
         bool logged = false;
-    };
+    }; // namespace deren::vulkan::pass
 
     static_assert(sizeof(rt_shadow_pass::push_constants) == render_resource::rt_shadow_io.push->size,
                   "the shadow pass's declared push block must be the size of the struct the renderer composes");

@@ -48,13 +48,13 @@ namespace deren::vulkan::pass {
     }
 
     void gbuffer_debug_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -109,22 +109,40 @@ namespace deren::vulkan::pass {
         }
         // THE FOUR IMAGES THIS PASS READS BECOME SAMPLES, in ONE dependency info and in the declaration's order -
         // the three stored targets, then the motion-vector target. A pipeline barrier may not be recorded inside a
-        // rendering instance, which is why this is here and not after vkCmdBeginRendering below.
-        std::array<VkImageMemoryBarrier2, render_resource::gbuffer_debug_barriers.size()> barriers = {};
+        // rendering instance, which is why this is here and not after the scope below.
+        std::array<rhi::image_barrier, render_resource::gbuffer_debug_barriers.size()> barriers = {};
         for (std::size_t b = 0; b < barriers.size(); ++b) {
-            barriers[b] = deren::vulkan::hdr_sampling_transition; // COLOR_ATTACHMENT -> SHADER_READ
-            barriers[b].image = io.barrier_images[b].image;
+            // COLOR_ATTACHMENT -> SHADER_READ, the shipped `hdr_sampling_transition` pair: the backend derives
+            // the masks and the layouts from it (abi 20).
+            barriers[b] = rhi::image_barrier{.resource = io.barrier_images[b].image_handle,
+                                             .from = rhi::image_use::color_attachment,
+                                             .to = rhi::image_use::shader_read,
+                                             .range = {}};
         }
-        VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
-        vkCmdPipelineBarrier2(io.cmd, &dependency);
+        if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
+            return; // a refused barrier would leave the inputs in a state nobody declared
+        }
         // ... and the two pieces of per-image bookkeeping the frame USED to carry are now the renderer's stage
         // preamble (see gbuffer_debug_frame's replacement note): the depth's hand-back and the motion-vector flag's
         // clearing are the frame's ordering rules about images the G-buffer pass wrote.
-        VkClearValue clear = {};
-        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
+        // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (what the raw
+        // helper spelled), zero clear colour, no depth - the whole scope this pass opens.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // nothing here executes a secondary command buffer
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // No set to bind: the G-buffer images are per-swapchain-image heap slots the shader indexes itself with
         // the image index its push block carries (see shaders/gbuffer_debug.slang and heap_slots.glsl).
         // The push block is the pass's own now: the channel it owns, the frame's two projection terms (from
@@ -136,9 +154,9 @@ namespace deren::vulkan::pass {
             .proj_32 = io.constants.proj[3][2],
             .motion_gain = static_cast<float>(io.frame.extent.width) * 0.25f,
         };
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(io.cmd);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->draw(3, 1, 0, 0);
+        io.list->end_rendering();
     }
 
 } // namespace deren::vulkan::pass

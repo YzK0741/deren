@@ -52,7 +52,7 @@ namespace deren::vulkan {
         /// The VkCommandBuffer a contract COMMAND LIST names, through the same escape (abi 15). A list
         /// of a buffer the caller created is resolvable outside a frame - that is exactly what the
         /// read-back's one-shot buffer needs, because its read runs after the frame has landed.
-        VkCommandBuffer native_command_buffer_of(deren::promise::rhi::api_core& gpu, deren::promise::rhi::command_list& list) {
+        VkCommandBuffer native_command_buffer_of(deren::promise::rhi::api_core& gpu, deren::promise::rhi::command_buffer& list) {
             auto* const escape = escape_of(gpu);
             if (escape == nullptr) {
                 return VK_NULL_HANDLE;
@@ -156,7 +156,10 @@ namespace deren::vulkan {
         if (commands->begin_recording({.usage = deren::promise::rhi::to_bits(deren::promise::rhi::command_buffer_usage::one_time_submit)}) != deren::promise::rhi::error::ok) {
             return std::unexpected(std::string("readback: begin_recording failed"));
         }
-        VkCommandBuffer const command_buffer = native_command_buffer_of(vk, *commands->recording());
+        // THE BUFFER IS THE RECORDER (abi 21): `recording()` is deleted with the borrowed-view type it
+        // returned, so what the escape resolves here is the buffer itself - the caller-owned handle
+        // `make_command_buffer` (through `create_command_buffer`) handed out one line above.
+        VkCommandBuffer const command_buffer = native_command_buffer_of(vk, *commands);
         if (command_buffer == VK_NULL_HANDLE) {
             return std::unexpected(std::string("readback: the escape answered no command buffer"));
         }

@@ -38,13 +38,13 @@ namespace deren::vulkan::pass {
     }
 
     std::expected<void, std::string> compute_skin_job::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return std::unexpected(std::string("compute skin: no device"));
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(std::string("compute skin: the owner has no ") + std::string(shader_name));
@@ -60,12 +60,19 @@ namespace deren::vulkan::pass {
         return {};
     }
 
-    bool compute_skin_job::record(VkCommandBuffer const command_buffer, std::span<compute_skin_request const> const requests, void* const push_owner,
-                                  bool (*push_indices)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept {
+    bool compute_skin_job::record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> const requests, void* const push_owner,
+                                  bool (*push_indices)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept {
         if (!this->ready() || requests.empty() || push_indices == nullptr) {
             return false;
         }
-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline());
+        // THE BIND IS RAW ON PURPOSE (see the header): this job's compute pipeline is not a contract pipeline
+        // yet, so the one bind goes through the contract's own escape. A face that answers no native command
+        // buffer records nothing rather than mis-casting a foreign pointer.
+        VkCommandBuffer const native = pass::native_commands(this->built_against, commands);
+        if (native == VK_NULL_HANDLE) {
+            return false;
+        }
+        vkCmdBindPipeline(native, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline());
         // No descriptor set is bound: the per-joint matrices are a heap slot the shader names itself, and a set
         // bound to a layout-less pipeline is invalid. The block travels as data (see the header) with the two heap
         // indices appended, which is how the shader finds the frame's matrices at all.
@@ -83,8 +90,8 @@ namespace deren::vulkan::pass {
                 .vertex_count = request.vertex_count,
                 .skin_base = request.skin_base,
             };
-            [[maybe_unused]] bool const pushed = push_indices(push_owner, command_buffer, std::as_bytes(std::span(&push, 1)), 0u);
-            vkCmdDispatch(command_buffer, (push.vertex_count + group_size - 1u) / group_size, 1, 1);
+            [[maybe_unused]] bool const pushed = push_indices(push_owner, commands, std::as_bytes(std::span(&push, 1)), 0u);
+            commands.dispatch((push.vertex_count + group_size - 1u) / group_size, 1, 1);
             recorded = true;
         }
         if (!recorded) {
@@ -95,6 +102,11 @@ namespace deren::vulkan::pass {
         // the REFIT on every frame after. A compute write is not visible to the acceleration structure build
         // stage without this barrier, and the symptom would be a structure built or refitted against the
         // previous frame's vertices - a shadow one frame behind, which reads as animation lag.
+        // THE BUILD-ORDERING BARRIER STAYS RAW, and it is the record series' one measured gap here: this is a
+        // GLOBAL memory barrier (COMPUTE_SHADER/SHADER_WRITE -> ACCELERATION_STRUCTURE_BUILD/SHADER_READ) and
+        // `barrier_group` carries IMAGES and BUFFERS, not a memory barrier with no operand. The escape is the
+        // contract's own answer for a step it has no concept for; a face without one records nothing (the
+        // dispatches above are already recorded, which is the same ordering the old code left).
         VkMemoryBarrier2 skin_order = {};
         skin_order.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
         skin_order.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
@@ -110,7 +122,7 @@ namespace deren::vulkan::pass {
                                                   .pBufferMemoryBarriers = nullptr,
                                                   .imageMemoryBarrierCount = 0,
                                                   .pImageMemoryBarriers = nullptr};
-        vkCmdPipelineBarrier2(command_buffer, &skin_dependency);
+        vkCmdPipelineBarrier2(native, &skin_dependency);
         return true;
     }
 

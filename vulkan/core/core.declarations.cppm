@@ -277,7 +277,7 @@ namespace deren::vulkan {
         /// `command_buffer::recording()`). The frame-scoped verbs below (`use`,
         /// `copy_image_to_buffer`, the timing pair) are the FRAME's: they answer `not_ready` on a list
         /// that is not the frame's, which is the window their own contract notes already name.
-        struct frame_commands final : deren::promise::rhi::command_list {
+        struct frame_commands : deren::promise::rhi::command_buffer {
             core* owner = nullptr;
             /// the buffer this list records into: null = the frame's slot buffer, set = an owned one
             VkCommandBuffer target = VK_NULL_HANDLE;
@@ -291,6 +291,16 @@ namespace deren::vulkan {
             /// the native command buffer this list records into (the escape answers with it, see
             /// core.api_core.cpp's frame_escape::native_command_buffer)
             [[nodiscard]] VkCommandBuffer native() const noexcept;
+
+            /// THE FRAME'S BUFFER IS THE CORE'S, so the four lifecycle verbs take the BORROWED shape
+            /// (frame_image_slot sets the precedent): release() refuses with a ONE-TIME named log, because
+            /// a caller that wrapped this view had a bug, and begin/end/execute answer unsupported by name
+            /// because the FRAME LOOP owns those steps. The recording series below is the frame's own.
+            mutable bool borrowed_lifecycle_logged = false;
+            void release() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const& info) override;
+            [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override;
+            [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer& secondary) override;
 
             [[nodiscard]] deren::promise::rhi::error use(deren::promise::rhi::image const& resource, deren::promise::rhi::image_use from, deren::promise::rhi::image_use to) noexcept override;
             [[nodiscard]] deren::promise::rhi::error copy_image_to_buffer(deren::promise::rhi::buffer& destination,
@@ -327,24 +337,27 @@ namespace deren::vulkan {
 
         /// A command buffer the caller OWNS, as the contract's `command_buffer` (abi 15).
         ///
-        /// THE HEAP OBJECT THE FACTORY MAKES: it wraps one `vk_command_buffer` (which OWNS ITS OWN
-        /// COMMAND POOL - handles/handles.cppm, so no allocator crosses the boundary) and one
-        /// `frame_commands` view whose `target` is that buffer, which is what
-        /// `command_buffer::recording()` hands out. `release()` is the contract's one-reference drop and
-        /// the matching delete, exactly like `owned_buffer`.
-        struct owned_command_buffer final : deren::promise::rhi::command_buffer {
-            core* owner = nullptr;
+        /// THE HEAP OBJECT THE FACTORY MAKES: it IS a `frame_commands` (one inheritance, not a composed
+        /// member) whose `target` is its own `vk_command_buffer`, so the whole record series and the
+        /// frame-scoped verbs are the SAME implementation the frame's borrowed buffer uses - one
+        /// definition, and the `target` field is the only thing that tells the two apart. `release()` is
+        /// the contract's one-reference drop and the matching delete, exactly like `owned_buffer`.
+        ///
+        /// NO SECOND `owner` MEMBER: the base's `owner` is the one every inherited verb reads
+        /// (`use`, `copy_image_to_buffer`, the timing pair, the record series), and a derived member of
+        /// the same name would SHADOW it - which is what made `create_command_buffer`'s
+        /// `answer->owner = this` set a field the base never looked at, and the next inherited verb
+        /// dereference a null core. The factory sets THIS one.
+        struct owned_command_buffer final : frame_commands {
             /// the buffer and its command pool; the pool dies with this object
             vk_command_buffer buffer;
-            /// THIS buffer's borrowed recording view (returned by `recording()`, never owned by a caller)
-            frame_commands list;
+
             /// one log per buffer, not one per call: a begin that repeats a refusal must not flood the log
             bool refused_chain_logged = false;
 
             void release() noexcept override;
             [[nodiscard]] deren::promise::rhi::error begin_recording(deren::promise::rhi::command_buffer_begin_info const& info) override;
             [[nodiscard]] deren::promise::rhi::error end_recording() noexcept override;
-            [[nodiscard]] deren::promise::rhi::command_list* recording() noexcept override;
             [[nodiscard]] deren::promise::rhi::error execute(deren::promise::rhi::command_buffer& secondary) override;
         };
 
@@ -616,7 +629,7 @@ namespace deren::vulkan {
             [[nodiscard]] void* native_physical_device() const noexcept override;
             [[nodiscard]] void* native_device() const noexcept override;
             [[nodiscard]] void* native_queue() const noexcept override;
-            [[nodiscard]] void* native_command_buffer(deren::promise::rhi::command_list& commands) const noexcept override;
+            [[nodiscard]] void* native_command_buffer(deren::promise::rhi::command_buffer& commands) const noexcept override;
             [[nodiscard]] std::span<char const* const> enabled_instance_extensions() const noexcept override;
             [[nodiscard]] std::span<char const* const> enabled_device_extensions() const noexcept override;
             /// BORROWED: the `VkBuffer` behind a contract buffer this backend handed out (nullptr when it
@@ -839,10 +852,10 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::shader* create_shader(deren::promise::rhi::shader_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::pipeline* create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::query* create_query(deren::promise::rhi::query_desc const& desc) override;
-        [[nodiscard]] deren::promise::rhi::command_list* begin_commands() override;
+        [[nodiscard]] deren::promise::rhi::command_buffer* begin_commands() override;
         // ---- S2 batch 2: the recording surface's frame-domain views --------------------------------
         // `begin_commands()` now hands out a REAL list (the frame's primary command buffer, which this
-        // class owns - see command_buffers below), so the tier-2 verbs that take a `command_list&`
+        // class owns - see command_buffers below), so the tier-2 verbs that take a `command_buffer&`
         // (push_data / dispatch_mesh / build_acceleration_structure) become reachable, and the
         // read-back's copy can be recorded into the frame it belongs to.
         [[nodiscard]] deren::promise::rhi::image* frame_image() noexcept override;
@@ -855,10 +868,14 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::frame_walker* walk_frames() noexcept override;
         [[nodiscard]] deren::promise::rhi::gpu_profiler* profiler() noexcept override;
         [[nodiscard]] deren::promise::rhi::swapchain* frame_swapchain() noexcept override;
-        [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_list& commands) override;
+        [[nodiscard]] deren::promise::rhi::error submit(deren::promise::rhi::command_buffer& commands) override;
         /// abi 15: the owned recording handle. The result is heap-allocated here and destroyed by the
         /// contract's `release()` (which is also what removes it from the registry below).
         [[nodiscard]] deren::promise::rhi::command_buffer* create_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
+        /// abi 21: THE SAME OWNED HANDLE, handed over as a `shared_ptr` - the control block owns the
+        /// deleter, so no call site spells `release()`. Empty = the same refusal
+        /// `create_command_buffer()` reports as `nullptr` (logged there, once per call site).
+        [[nodiscard]] std::shared_ptr<deren::promise::rhi::command_buffer> make_command_buffer(deren::promise::rhi::command_buffer_desc const& desc) override;
 
         VkSurfaceKHR surface = VK_NULL_HANDLE;
 
@@ -1319,7 +1336,7 @@ namespace deren::vulkan {
         /// swapchain rebuild plus `skipped`, while the contract's `frame_begin()` collapses anything
         /// but success into a zeroed `submit_info` (tier-1 has no error channel, plan §3.3).
         [[nodiscard]] VkResult acquire_next_image(uint32_t& image_index);
-        /// the SUBMISSION PRIMITIVE behind the contract's `submit(command_list&)` (abi 14): signals
+        /// the SUBMISSION PRIMITIVE behind the contract's `submit(command_buffer&)` (abi 14): signals
         /// this slot's completion timeline and the recorded image's present-ready semaphore. It
         /// changed its name from `submit` when the contract's one-argument verb arrived - the two
         /// coexisting would hide the virtual under -Woverloaded-virtual, and the primitive is an

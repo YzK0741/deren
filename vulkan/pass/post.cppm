@@ -45,6 +45,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.post;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -233,13 +234,15 @@ export namespace deren::vulkan::pass {
         void release_owned() noexcept;
         /// @brief compose the chain's push block for this frame's target choice (see resolve)
         [[nodiscard]] bool fill_push(resolved_io& out, bool writing_ldr) const;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         std::optional<pipelines::pipeline_handle> composite = std::nullopt;
         std::optional<pipelines::pipeline_handle> hdr = std::nullopt;
         /// the surface's format, cached at create: the `encode_gamma` lane is a consequence of it (and of the
-        /// frame's target choice), and a session-stable device fact is exactly what a create step may cache
-        VkFormat swap_chain_format = VK_FORMAT_UNDEFINED;
+        /// frame's target choice), and a session-stable device fact is exactly what a create step may cache.
+        /// THE CONTRACT'S SPELLING (abi 20): the pass layer names no `VkFormat`, and the create step is handed
+        /// `pass_context::swap_chain_image_format` - see `pass::is_srgb_swapchain_format` for the one question
+        /// this member answers.
+        deren::promise::rhi::image_format swap_chain_format = deren::promise::rhi::image_format::unknown;
         // called overlay_callback, not overlay: set_overlay()'s overlay parameter in post.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         /// the GI upsample's lane (see set_gi_upsample)
@@ -248,7 +251,7 @@ export namespace deren::vulkan::pass {
         // called pass_frame, not frame: set_frame()'s frame parameter in post.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         composite_frame pass_frame = {};
-    };
+    }; // namespace deren::vulkan::pass
 
     /**
      * @brief ONE bloom level: the bright-pass prefilter (level 0) or a downsample (levels 1..3)

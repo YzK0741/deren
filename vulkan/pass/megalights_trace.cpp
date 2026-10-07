@@ -19,10 +19,14 @@ module;
 
 module deren.vulkan.pass.megalights_trace;
 
+import deren.promise.rhi; // the record series (abi 20): the two barriers and the dispatch
 import deren.vulkan.render_resource;
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_megalights_trace: the compute pipeline this pass owns
 import deren.utility;
+
+// The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -82,13 +86,13 @@ namespace deren::vulkan::pass {
     }
 
     void megalights_trace_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -111,7 +115,12 @@ namespace deren::vulkan::pass {
         if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::megalights_trace_barriers.size() || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (the declaration's own gates are the table's)
         }
-        VkImage const output = io.barrier_images[barrier_output].image;
+        // THE CONTRACT'S OWN HANDLE (abi 20): the record series names the handle the resolved binding publishes
+        // BESIDE the raw lane, so the guard and the barriers below speak one vocabulary.
+        rhi::image* const output = io.barrier_images[barrier_output].image_handle;
+        if (io.list == nullptr || output == nullptr) {
+            return; // the handles this frame's publication left empty: the pass cannot record
+        }
 
         // The image is this pass's to place, and it needs TWO transitions per frame:
         //  * UNDEFINED -> GENERAL here, because the pass writes it as a STORAGE image and its heap descriptor
@@ -120,10 +129,14 @@ namespace deren::vulkan::pass {
         //  * GENERAL -> SHADER_READ at the end, because the deferred lighting stage samples the SAME image
         //    through its own heap slot and that descriptor declares SHADER_READ - one image, two heap descriptors,
         //    and each is only accessed while the image is in the layout it names.
-        VkImageMemoryBarrier2 to_general = deren::vulkan::undefined_to_general_transition;
-        to_general.image = output;
-        VkDependencyInfo const first_use = make_image_dependency_info(1, &to_general);
-        vkCmdPipelineBarrier2(io.cmd, &first_use);
+        // THE PAIRS RIDE THE CONTRACT NOW (abi 20): (undefined, shader_write) is the shipped
+        // `undefined_to_general_transition` recipe, and the backend derives its masks and layouts.
+        if (io.list->barrier(rhi::image_barrier{.resource = output,
+                                                .from = rhi::image_use::undefined,
+                                                .to = rhi::image_use::shader_write,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the output in a state nobody declared
+        }
 
         // The pipeline, and no sets: the tracer's inputs are heap slots (the scene's buffers, the G-buffer images
         // per swapchain image, its own storage images), which the frame bound on this command buffer.
@@ -133,16 +146,18 @@ namespace deren::vulkan::pass {
         push.params = glm::vec4(static_cast<float>(this->sample_count), this->weight_floor, this->tmin, static_cast<float>(this->frame_index));
         push.bias = glm::vec4(this->floor_bias, this->grazing_bias, this->light_angle, 0.0f);
         static_assert(sizeof(push) <= pass::max_push_bytes, "the estimator's push block must fit the guaranteed minimum");
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDispatch(io.cmd, (io.extent.width + group_size - 1u) / group_size, (io.extent.height + group_size - 1u) / group_size, 1);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->dispatch((io.extent.width + group_size - 1u) / group_size, (io.extent.height + group_size - 1u) / group_size, 1);
 
         // ... and the hand-off: a compute SHADER_WRITE is not visible to the lighting stage's texture fetch
         // without this, and the layout it leaves the image in is the one the lighting stage's descriptor
-        // declares.
-        VkImageMemoryBarrier2 to_sampling = deren::vulkan::general_to_sampling_transition;
-        to_sampling.image = output;
-        VkDependencyInfo const hand_off = make_image_dependency_info(1, &to_sampling);
-        vkCmdPipelineBarrier2(io.cmd, &hand_off);
+        // declares. The contract's pair is (shader_write, shader_read) - `general_to_sampling_transition`.
+        if (io.list->barrier(rhi::image_barrier{.resource = output,
+                                                .from = rhi::image_use::shader_write,
+                                                .to = rhi::image_use::shader_read,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused hand-off would leave the output in a state nobody declared
+        }
 
         ++this->frame_index; // the next frame's ray sequence must differ (see the header)
     }

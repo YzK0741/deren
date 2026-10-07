@@ -1310,40 +1310,48 @@ namespace deren::vulkan {
     void runtime::init_recording_resources() {
         // THE FRAME'S PRIMARY COMMAND BUFFERS STAY THE BACKEND'S (abi 15): core allocates one per frame
         // slot in its own constructor, `begin_commands()` hands out that slot's borrowed recording view,
-        // and this runtime asks for the raw handle it begins, ends and submits through the contract's
-        // native-handle path (see frame_primary_handle()). Nothing of that is held here any more - the
-        // span that used to alias the core's container is gone with the type it named.
+        // and this runtime takes the raw handle it begins, ends and submits from the contract handle
+        // `frame_command_buffer()` answers (see `native_frame_commands()`). Nothing of that is held here any
+        // more - the span that used to alias the core's container is gone with the type it named.
         //
         // One secondary command buffer per frame slot (stage 2/3 of parallel recording),
         // pre-allocated with the primaries so the GPU can read them while this slot's primary
         // executes. Stage 3 additionally gives the main pass one parallel segment per task-pool worker.
-        // EVERY ONE OF THEM IS A CONTRACT-OWNED `command_buffer` (abi 15) THAT OWNS ITS OWN COMMAND POOL
-        // (handles/handles.cppm): a VkCommandPool is not thread safe, so the workers must never begin
-        // buffers of a shared pool concurrently - the backend keeps the pool behind the handle, and the
-        // engine's owner here is `rhi::object_manager`.
+        // EVERY ONE OF THEM IS A CALLER-OWNED `std::shared_ptr<rhi::command_buffer>` (abi 21), MADE BY
+        // `api_core::make_command_buffer`: the control block's deleter IS the contract's one drop
+        // (`release()`), so no call site here spells it and no second lifetime rule exists. Each buffer
+        // also owns its own command pool (handles/handles.cppm): a VkCommandPool is not thread safe, so the
+        // workers must never begin buffers of a shared pool concurrently - which is exactly why this
+        // factory (one pool per buffer) is the safe spelling rather than a cost.
+        //
+        // THE FACTORY IS CALLED THROUGH THE CONTRACT INTERFACE, and that is a boundary rule rather than a
+        // preference: `rhi_face()` is the `rhi::api_core&` the whole engine speaks, so this emits no backend
+        // symbol (a call on the concrete `core` would join the boundary worklist). `vulkan_core` IS that
+        // object, but naming it as the interface is what keeps the call site inside the rule.
+        rhi::api_core& face = this->rhi_face();
         this->secondary_command_buffers.reserve(this->frame_ring().slot_count());
         this->main_segments.reserve(this->frame_ring().slot_count());
         uint32_t const record_workers = static_cast<uint32_t>(std::max(1, this->task_pool_threads()));
         for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
-            std::array<rhi::object_manager<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
-                rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})}, // transparent
+            std::array<std::shared_ptr<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
+                face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}), // transparent
             };
             this->secondary_command_buffers.push_back(std::move(pair));
 
             // Shadow cascades record on the task pool, so each cascade gets its OWN buffer - and its
             // own pool with it (M9).
-            std::vector<rhi::object_manager<rhi::command_buffer>> cascade_recording;
+            std::vector<std::shared_ptr<rhi::command_buffer>> cascade_recording;
             cascade_recording.reserve(deren::vulkan::max_shadow_cascades);
             for (uint32_t cascade = 0; cascade < deren::vulkan::max_shadow_cascades; ++cascade) {
-                cascade_recording.push_back(rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})});
+                cascade_recording.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}));
             }
             this->shadow_recording.push_back(std::move(cascade_recording));
-            std::vector<rhi::object_manager<rhi::command_buffer>> segments;
+            std::vector<std::shared_ptr<rhi::command_buffer>> segments;
             segments.reserve(record_workers);
             for (uint32_t s = 0; s < record_workers; ++s) {
-                segments.push_back(rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})}); // one per worker
+                segments.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary})); // one per worker
             }
             this->main_segments.push_back(std::move(segments));
         }

@@ -58,9 +58,11 @@
 //     silently downgrades, which is what makes the double (DLL + static) build a contract check.
 //   - THE abi 15 SURFACE is one more pure virtual on `api_core`: `create_command_buffer()`, answered
 //     with a STATIC owned stand-in whose echo is the contract's whole lifecycle - the descriptor's
-//     kind goes in, `begin_recording()`'s usage flags are remembered, `recording()` answers the same
-//     borrowed view every call, `execute()` tells its own buffer from a foreign one, and `release()`
-//     drops the one reference so every later verb answers `not_ready`.
+//     kind goes in, `begin_recording()`'s usage flags are remembered, `execute()` tells its own buffer
+//     from a foreign one, and `release()` drops the one reference so every later verb answers
+//     `not_ready`. abi 21 appended `make_command_buffer()`, answered with the SAME stand-in behind a
+//     NO-OP deleter: the object is a static member, so the control block must not delete it (the
+//     contract's own `release()` is what a caller observes instead).
 // ============================================================================
 import deren.promise.rhi;
 
@@ -202,7 +204,7 @@ namespace {
         [[nodiscard]] void* native_queue() const noexcept override {
             return nullptr;
         }
-        [[nodiscard]] void* native_command_buffer(rhi::command_list&) const noexcept override {
+        [[nodiscard]] void* native_command_buffer(rhi::command_buffer&) const noexcept override {
             return nullptr;
         }
         [[nodiscard]] std::span<char const* const> enabled_instance_extensions() const noexcept override {
@@ -271,17 +273,33 @@ namespace {
         }
     };
 
-    /// THE PROBE'S RECORDING VIEW (abi 14): the frame's command list, statically allocated and handed
-    /// out by `begin_commands()` for as long as the probe's frame fiction is open. It is the object the
-    /// two new TIMING verbs live on, and the probe's device cannot timestamp - which is why their
-    /// honest answer is `unsupported` (the profiler face's story) - while the ORDER rule stays
-    /// observable: `mark_gpu_timing()` checks the positional index BEFORE its own capability, so an
-    /// out-of-order mark is refused with `invalid_argument` on this device-less list exactly as the
-    /// contract requires it to be. (The real backend checks its capability first; both orders are
-    /// contract-faithful - the two codes say different things, "you asked wrong" and "I cannot
-    /// measure" - and the probe's choice is the one that makes the positional rule testable without
-    /// a GPU.)
-    struct probe_command_list final : rhi::command_list {
+    /// THE PROBE'S ONE RECORDING FACE (abi 14/15/20): `command_list` is DELETED, so this single
+    /// statically allocated object is BOTH the frame's borrowed command buffer that `begin_commands()`
+    /// hands out for as long as the probe's frame fiction is open, AND the owned buffer
+    /// `create_command_buffer()` hands out. It is the object the two TIMING verbs live on, and the
+    /// probe's device cannot timestamp - which is why their honest answer is `unsupported` (the
+    /// profiler face's story) - while the ORDER rule stays observable: `mark_gpu_timing()` checks the
+    /// positional index BEFORE its own capability, so an out-of-order mark is refused with
+    /// `invalid_argument` on this device-less list exactly as the contract requires it to be. (The real
+    /// backend checks its capability first; both orders are contract-faithful - the two codes say
+    /// different things, "you asked wrong" and "I cannot measure" - and the probe's choice is the one
+    /// that makes the positional rule testable without a GPU.)
+    ///
+    /// THE TWO OBJECTS ARE THE SAME TYPE AND DIFFERENT INSTANCES: `commands` is the frame's
+    /// (`frame_scoped == true`), `command_buffer` is the owned one (`frame_scoped == false`), which is
+    /// how the frame-scoped verbs tell "the frame's" from "the caller's" exactly as the real backend's
+    /// `target != VK_NULL_HANDLE` test does.
+    struct probe_command_buffer final : rhi::command_buffer {
+        impl* owner = nullptr;
+        rhi::command_buffer_kind kind_echo = rhi::command_buffer_kind::primary;
+        rhi::command_buffer_flags usage_echo = rhi::no_command_buffer_flags;
+        std::uint32_t executions = 0;
+        bool released = false;
+
+        void release() noexcept override;
+        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const& info) override;
+        [[nodiscard]] rhi::error end_recording() noexcept override;
+        [[nodiscard]] rhi::error execute(rhi::command_buffer& secondary) override;
         /// WHOSE LIST THIS IS (abi 15): the probe has exactly two kinds of list - the FRAME's
         /// (`begin_commands()`, the abi-13/14 object) and one per owned command buffer - and the
         /// frame-scoped verbs below must tell them apart the way the real backend does.
@@ -498,21 +516,6 @@ namespace {
     ///     "a released handle is dead" shape `probe_buffer::release()` gives through size() == 0),
     ///   - `execute()` accepts only THIS probe's buffer and refuses anything else by name.
     /// The bodies live below `impl` (the execute check reaches back through the owner).
-    struct probe_command_buffer final : rhi::command_buffer {
-        impl* owner = nullptr;
-        /// the borrowed recording view `recording()` answers with (the same object every call)
-        probe_command_list list{};
-        rhi::command_buffer_kind kind_echo = rhi::command_buffer_kind::primary;
-        rhi::command_buffer_flags usage_echo = rhi::no_command_buffer_flags;
-        std::uint32_t executions = 0;
-        bool released = false;
-
-        void release() noexcept override;
-        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const& info) override;
-        [[nodiscard]] rhi::error end_recording() noexcept override;
-        [[nodiscard]] rhi::command_list* recording() noexcept override;
-        [[nodiscard]] rhi::error execute(rhi::command_buffer& secondary) override;
-    };
 
     /// THE PROBE'S PRESENTATION SURFACE (abi 14): a BORROWED view like the walker and the profiler, and
     /// the DESCRIPTOR ECHO reaches through it - the "current size" a rebuild re-derives from the window
@@ -599,7 +602,7 @@ namespace {
             return nullptr;
         }
 
-        [[nodiscard]] rhi::command_list* begin_commands() override {
+        [[nodiscard]] rhi::command_buffer* begin_commands() override {
             // A BORROWED VIEW, AND ONLY WHILE A FRAME IS OPEN: the real backend answers nullptr when
             // nothing is in flight, and the probe keeps that rule with its own frame fiction
             // (`frame_begin()` / the walker's `wait_and_acquire()` open it, `submit()` closes it).
@@ -667,8 +670,8 @@ namespace {
         /// abi 14: the frame verb the contract was missing. The list must be THIS probe's own borrowed
         /// recording view (a foreign list is a caller bug, refused by name, never guessed at), and
         /// there must be a frame to hand over - the same two-way check the real backend makes.
-        [[nodiscard]] rhi::error submit(rhi::command_list& commands_ref) override {
-            if (&commands_ref != static_cast<rhi::command_list*>(&this->commands)) {
+        [[nodiscard]] rhi::error submit(rhi::command_buffer& commands_ref) override {
+            if (&commands_ref != static_cast<rhi::command_buffer*>(&this->commands)) {
                 return rhi::error::invalid_argument;
             }
             if (!this->frame_open) {
@@ -682,6 +685,17 @@ namespace {
         /// abi 15: the owned recording handle. The probe has no device, so it answers with its static
         /// stand-in and ECHOES the descriptor into it; a kind outside the two roles the contract names
         /// is the factory's one refusal (`nullptr`, the contract's named-refusal rule).
+        /// abi 21: the SAME stand-in, handed over as a shared_ptr. The probe buffer is a STATIC
+        /// member (a probe has no device to allocate from), so the control block deleter is a no-op -
+        /// release() is what the test observes, and the object itself outlives every reference.
+        [[nodiscard]] std::shared_ptr<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const& desc) override {
+            rhi::command_buffer* const raw = this->create_command_buffer(desc);
+            if (raw == nullptr) {
+                return {};
+            }
+            return std::shared_ptr<rhi::command_buffer>(raw, [](rhi::command_buffer*) noexcept {});
+        }
+
         [[nodiscard]] rhi::command_buffer* create_command_buffer(rhi::command_buffer_desc const& desc) override {
             if (desc.kind != rhi::command_buffer_kind::primary && desc.kind != rhi::command_buffer_kind::secondary) {
                 return nullptr;
@@ -725,7 +739,7 @@ namespace {
         /// whether a frame was ever opened, which is what `present()` refuses on (abi 14)
         bool frame_acquired = false;
         probe_frame_walker walker{};
-        probe_command_list commands{};
+        probe_command_buffer commands{};
         probe_swapchain swapchain_view{};   // not `swapchain`: a type name, not a member name
         probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above owns that name
 
@@ -737,7 +751,7 @@ namespace {
             this->command_buffer.owner = this;
             // ITS list is NOT the frame's: the frame-scoped verbs must refuse it (abi 15's rule the
             // real backend applies, mirrored here so the test can measure it without a GPU).
-            this->command_buffer.list.frame_scoped = false;
+            this->command_buffer.frame_scoped = false;
         }
     };
 
@@ -802,10 +816,6 @@ namespace {
 
     rhi::error probe_command_buffer::end_recording() noexcept {
         return this->released ? rhi::error::not_ready : rhi::error::ok;
-    }
-
-    rhi::command_list* probe_command_buffer::recording() noexcept {
-        return this->released ? nullptr : &this->list; // the same borrowed view on every call
     }
 
     rhi::error probe_command_buffer::execute(rhi::command_buffer& secondary) {

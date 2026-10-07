@@ -23,10 +23,14 @@ module;
 
 module deren.vulkan.pass.ray_traced_shadow;
 
+import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape
 import deren.vulkan.render_resource;
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_rt_shadow: the compute pipeline this pass owns
 import deren.utility;
+
+// The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -61,13 +65,13 @@ namespace deren::vulkan::pass {
     }
 
     void rt_shadow_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -97,8 +101,8 @@ namespace deren::vulkan::pass {
         //      constant. Here a handle is 32 bytes while a region's address must be 64-byte aligned, so using the
         //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit. ----
         auto const get_group_handles = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(context.device, "vkGetRayTracingShaderGroupHandlesKHR"));
-        this->trace_rays = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(context.device, "vkCmdTraceRaysKHR"));
-        if (get_group_handles == nullptr || this->trace_rays == nullptr) {
+        this->trace_rays_fn = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(context.device, "vkCmdTraceRaysKHR"));
+        if (get_group_handles == nullptr || this->trace_rays_fn == nullptr) {
             deren::utility::log("ray-traced shadows unavailable: the device did not publish the traceRays entry points");
             this->release_owned();
             return;
@@ -148,24 +152,49 @@ namespace deren::vulkan::pass {
         // The one-shot log line stays set, because "this pass traces rays" does not become untrue on a resize.
     }
 
+    void rt_shadow_pass::trace_rays(deren::promise::rhi::command_buffer& commands, VkStridedDeviceAddressRegionKHR const* const raygen, VkStridedDeviceAddressRegionKHR const* const miss,
+                                    VkStridedDeviceAddressRegionKHR const* const hit, VkStridedDeviceAddressRegionKHR const* const callable, uint32_t const width, uint32_t const height,
+                                    uint32_t const depth) noexcept {
+        // THE PASS'S OWN RAW ENTRY POINT, reached through the contract's own escape (`pass::native_commands`):
+        // `vkCmdTraceRaysKHR` is resolved through vkGetDeviceProcAddr and the record series has no `trace_rays`
+        // verb yet, so this is one of the sites that stays raw - reported for §8.2. A face that answers no
+        // native command buffer records nothing rather than mis-casting a foreign pointer.
+        VkCommandBuffer const native = pass::native_commands(this->built_against, commands);
+        if (native == VK_NULL_HANDLE || this->trace_rays_fn == nullptr) {
+            return;
+        }
+        this->trace_rays_fn(native, raygen, miss, hit, callable, width, height, depth);
+    }
+
     void rt_shadow_pass::record(resolved_io const& io) {
         if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::rt_shadow_barriers.size() ||
-            io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+            io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE || io.list == nullptr ||
+            io.barrier_images[barrier_visibility].image == VK_NULL_HANDLE ||
             this->hit_region.deviceAddress == 0 ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
-        VkImage const visibility = io.barrier_images[barrier_visibility].image;
-        if (visibility == VK_NULL_HANDLE) {
-            return;
-        }
+        VkImage const visibility_native = io.barrier_images[barrier_visibility].image;
 
         // The image is written as a storage image (GENERAL) and read by the lighting stage as a sampler
         // (SHADER_READ). Both transitions happen here, around the dispatch, because this is the only place that
         // knows the image is being rewritten - the lighting stage's descriptor declares SHADER_READ whether or
         // not this pass ran (see the off path in the frame loop).
+        // THE STAGE OVERRIDE IS WHY THIS SITE IS STILL RAW, and it is the measurement the recording face's
+        // `stage_hint` is owed: the raw spelling REPLACES the recipe's writing stage with the RAY-TRACING
+        // one, because the producer is a traceRays LAUNCH and not a dispatch - a barrier whose masks do not
+        // cover the stage that actually ran leaves the writes unsynchronized (measured: half the model lost
+        // its sun). The pair-only contract vocabulary (`image_barrier`'s resource/from/to/range) derives the
+        // masks from the pair and cannot spell a stage override, so the call goes through the contract's OWN
+        // escape (see `pass::native_commands` and promise/rhi/rhi.api_core.cppm's barrier-model note, whose
+        // "add a stage hint only where a migrated site demonstrably needs it" names this site). It is a
+        // §8.2-style remainder, not a permanent raw lane.
+        VkCommandBuffer const native = pass::native_commands(this->built_against, *io.list);
+        if (native == VK_NULL_HANDLE) {
+            return; // a face with no native command buffer records nothing rather than mis-casting
+        }
         VkImageMemoryBarrier2 to_general = deren::vulkan::undefined_to_general_transition;
-        to_general.image = visibility;
+        to_general.image = visibility_native;
         // THE PRODUCER IS A RAY-TRACING STAGE, NOT A DISPATCH. The shared constants name COMPUTE_SHADER because
         // every other writer of this image was one; a barrier whose masks do not cover the stage that actually
         // ran leaves the writes unsynchronized, and the lighting stage then samples an image the trace has not
@@ -173,7 +202,7 @@ namespace deren::vulkan::pass {
         // constant write - which no ordering can make wrong - came out right).
         to_general.dstStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         VkDependencyInfo const general_dependency = make_image_dependency_info(1, &to_general);
-        vkCmdPipelineBarrier2(io.cmd, &general_dependency);
+        vkCmdPipelineBarrier2(native, &general_dependency);
 
         // No sets to bind (see the heap bind in begin_recording): the tracer's scene buffers, its G-buffer images
         // and the acceleration structure are heap slots the shader names, and the frame's indices arrive in its
@@ -186,16 +215,20 @@ namespace deren::vulkan::pass {
         // therefore the struct's defaults rather than values anybody has to pass in.
         push_constants push = {};
         push.inv_view_proj = io.constants.inv_view_proj;
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         // THE LAUNCH DIMS ARE THE EXTENT: one invocation per pixel of the visibility image, which is what the
-        // compute form got from its dispatch and its bounds check.
-        this->trace_rays(io.cmd, &this->raygen_region, &this->miss_region, &this->hit_region, &this->callable_region, io.extent.width, io.extent.height, 1);
+        // compute form got from its dispatch and its bounds check. The launch itself is the pass's wrapper: the
+        // contract buffer in, the native out of the escape (see `trace_rays` above).
+        this->trace_rays(*io.cmd, &this->raygen_region, &this->miss_region, &this->hit_region, &this->callable_region, io.extent.width, io.extent.height, 1);
 
+        // ... and the hand-off to the lighting stage, with the SAME caveat as the first barrier: the raw
+        // spelling names the RAY-TRACING stage as the SOURCE of the writes being published, which the
+        // pair-only vocabulary cannot express (see the first barrier's note).
         VkImageMemoryBarrier2 to_sampling = deren::vulkan::general_to_sampling_transition;
-        to_sampling.image = visibility;
-        to_sampling.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR; // the trace is the writer (see above)
+        to_sampling.image = visibility_native;
+        to_sampling.srcStageMask = VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
         VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-        vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
+        vkCmdPipelineBarrier2(native, &sampling_dependency);
 
         if (!this->logged) {
             this->logged = true;

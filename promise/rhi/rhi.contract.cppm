@@ -49,7 +49,7 @@ export namespace deren::promise::rhi {
     ///
     /// 1 -> 2 in the recording-surface batch: SIX virtuals were added to EXISTING tier-1 types
     /// (`api_core::frame_image`/`frame_readback_buffer`, `image::format`, `buffer::mapped`,
-    /// `command_list::use`/`copy_image_to_buffer`), which shifts the vtable every caller reaches
+    /// `command_buffer::use`/`copy_image_to_buffer`), which shifts the vtable every caller reaches
     /// through. Appending `error` values or adding a NEW interface does not move this number; a
     /// virtual on an existing type does. FROM S2 ON THIS IS STRICTER: the DLL ABI promise is live
     /// then, so a renumbering breaks binaries in the field rather than only recompiling this tree.
@@ -127,9 +127,9 @@ export namespace deren::promise::rhi {
     /// renumbering for one batch): the C entry's SIGNATURE is what the number protects, and an engine
     /// built for 12 calling 13's symbol would read a 40-byte diagnostic where it wrote a 4-byte enum.
     /// 13 -> 14 in the frame verbs' completion (the boundary batch, one renumbering for one batch):
-    /// `api_core` appended `submit(command_list&)` and `frame_swapchain()`, `present()` changed
+    /// `api_core` appended `submit(command_buffer&)` and `frame_swapchain()`, `present()` changed
     /// `void` -> `error` (a presentation that failed silently was the information loss the error
-    /// mechanism exists to end), `command_list` appended the GPU timing recording verbs
+    /// mechanism exists to end), `command_buffer` appended the GPU timing recording verbs
     /// (`begin_gpu_timing()` / `mark_gpu_timing(index, name)`), and `swapchain` appended
     /// `recreate()` / `extent()` - every one an append or a return-type change on a tier-1 vtable,
     /// which is the case the number exists for. The swapchain verbs live on the SWAPCHAIN, not on
@@ -204,7 +204,7 @@ export namespace deren::promise::rhi {
     /// runtime into `deren.vulkan.backend_loader`, called by `main.cpp` (`runtime` now takes the
     /// `shared_ptr` and refuses an empty one), which is a construction-path change in the same breath.
     /// 19 -> 20 in the RECORDING FACE's verbs (RECORDING_FACE_PLAN.md §2/§6, step 1's verbs half -
-    /// the descriptors half landed unbumped a batch earlier): `command_list` APPENDED the portable
+    /// the descriptors half landed unbumped a batch earlier): `command_buffer` APPENDED the portable
     /// record series the engine's passes record with - begin_rendering/end_rendering,
     /// bind_pipeline/bind_vertex_buffer/bind_index_buffer, draw/draw_indexed, dispatch/
     /// draw_mesh_tasks/draw_mesh_tasks_indirect, the five dynamic-state verbs, barrier (group and
@@ -371,7 +371,7 @@ export namespace deren::promise::rhi {
         pipeline = 7,
         swapchain = 8,
         query = 9,
-        command_list = 10,
+        command_list = 10,   ///< RETIRED: the face was absorbed into `command_buffer`; the NUMBER stays (never renumber).
         command_buffer = 11, ///< appended in abi 15: the owned recording handle `create_command_buffer()` hands out
         device_address = 0x100,
         descriptor_heap = 0x101,

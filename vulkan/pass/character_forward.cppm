@@ -44,12 +44,14 @@ module;
 
 #include <array>
 #include <cstdint>
+#include <memory> // std::shared_ptr: a session's target is the contract handle (see make_environment)
 #include <span>
 #include <string_view>
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.character_forward;
 
+import deren.promise.rhi; // the contract command buffer a session's target is
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
@@ -105,7 +107,7 @@ export namespace deren::vulkan::pass {
          * state. Both are fields of the environment rather than callback arguments, which is what lets this
          * pass state its own raster rules without the renderer having to know them.
          */
-        render_environment (*make_environment)(void* owner, VkCommandBuffer command_buffer, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
         void* owner = nullptr;
         /**
          * The pipeline name every leaf of this session binds.

@@ -55,13 +55,13 @@ namespace deren::vulkan::pass {
     }
 
     void upscale_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -213,7 +213,7 @@ namespace deren::vulkan::pass {
             .con2 = {es.con2[0], es.con2[1], es.con2[2], es.con2[3]},
             .con3 = {es.con3[0], es.con3[1], es.con3[2], es.con3[3]},
             .mode = this->filter_kind == upscale_filter::easu ? 1.0f : 0.0f,
-            .encode_gamma = deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
+            .encode_gamma = is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f,
         };
         // THE RENDERING SCOPE RIDES THE CONTRACT (abi 20): one colour attachment, CLEAR + STORE (what the raw
         // helper spelled), zero clear colour, no depth - the scope this pass opens.
@@ -235,14 +235,14 @@ namespace deren::vulkan::pass {
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // The source is a heap slot (see upscale.slang): the appended index lane names it, and the frame bound
         // the heaps for this command buffer, so there is no set to bind here.
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it
         // runs, so the overlay belongs here and NOT in the composite's instance - the composite drew into the
         // render-extent LDR image this pass is about to resample, so a UI drawn there would be scaled up with
         // the scene (see upscale_frame::after_draw and the composite's frame for the other case).
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
     }

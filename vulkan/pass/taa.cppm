@@ -38,6 +38,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.taa;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -137,8 +138,7 @@ export namespace deren::vulkan::pass {
             .resync_viewport = true, // the runner sets the viewport and scissor: the hazard this field exists for
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
@@ -154,7 +154,7 @@ export namespace deren::vulkan::pass {
         /// historical defaults so a session that never calls `set_taa` resolves exactly as it did before
         float blend_static = 0.9f;
         float blend_min = 0.5f;
-    };
+    }; // namespace deren::vulkan::pass
 
     /// THE DECLARATION'S NUMBER AND THE PASS'S STRUCT CANNOT DRIFT: the declared push block is what the
     /// pipeline layout's range is built from and what the host composes into.

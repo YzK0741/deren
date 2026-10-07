@@ -7,6 +7,7 @@ module;
 #include <cstring> // std::memcpy, for composing a pass's push block
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <memory>          // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
 #include <thread>          // std::this_thread::yield in the frame limiter
@@ -393,14 +394,14 @@ namespace deren::vulkan {
         if (!this->gpu_timings_enabled) {
             return;
         }
-        // THE MARK GOES THROUGH THE FRAME'S OWN RECORDING VIEW (abi 14): `command_list` is where the
+        // THE MARK GOES THROUGH THE FRAME'S OWN RECORDING VIEW (abi 14): `command_buffer` is where the
         // timing range and its marks live now, and the backend owns both the POSITIONAL check (an
         // out-of-order index is refused by name - the read of `gpu_timing_marks` this function used
         // to make is gone with it) and WHICH PIPELINE STAGE the timestamp resolves at (a measurement
         // detail of the query pool's owner, so the engine no longer names a VkPipelineStageFlagBits
         // here at all). No list means no frame in flight: nothing to record into, and the frame's
         // marks are written only inside a recording window anyway.
-        rhi::command_list* const commands = this->rhi_face().begin_commands();
+        rhi::command_buffer* const commands = this->rhi_face().begin_commands();
         if (commands == nullptr) {
             return;
         }
@@ -1386,7 +1387,7 @@ namespace deren::vulkan {
         }
     } // namespace
 
-    bool runtime::push_stage_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+    bool runtime::push_stage_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         // THE INDICES ARE APPENDED HERE, and that placement is the whole trick: the renderer knows the frame slot and
         // the swapchain image, a pass knows neither, and a converted stage's shader declares them as its block's
         // LAST two fields (see shaders/heap_slots.glsl). Doing it here is what keeps every pass's push struct - and
@@ -1403,17 +1404,17 @@ namespace deren::vulkan {
         uint32_t const source_slot = extra_lane == 0u
                                          ? deren::vulkan::render_layout::heap_slots::post_color + self->current_image_index
                                          : deren::vulkan::render_layout::heap_slots::bloom_l0 + (extra_lane - 1u) * deren::vulkan::render_layout::heap_image_capacity + self->current_image_index;
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, source_slot, 3u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, self->native_handle(command_buffer), bytes, source_slot, 3u);
     }
 
-    bool runtime::push_index_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+    bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, self->native_handle(command_buffer), bytes, extra_lane, 2u);
     }
 
-    bool runtime::push_raw_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes) {
+    bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), 0u, 0u, command_buffer, bytes, 0u, 0u);
+        return push_with_lanes(self->rhi_face(), 0u, 0u, self->native_handle(command_buffer), bytes, 0u, 0u);
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -1431,16 +1432,22 @@ namespace deren::vulkan {
         return self->buffer_address(buffer);
     }
 
-    bool runtime::push_geometry_block(void* const owner, VkCommandBuffer const command_buffer, uint32_t const offset, std::span<std::byte const> const bytes) {
+    bool runtime::push_geometry_block(void* const owner, rhi::command_buffer& command_buffer, uint32_t const offset, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
-        return contract_push_heap_data(self->rhi_face(), command_buffer, offset, bytes);
+        // The contract handle becomes the API's own command buffer here, through the same escape the push above
+        // uses (see push_stage_block).
+        return contract_push_heap_data(self->rhi_face(), self->native_handle(command_buffer), offset, bytes);
     }
 
-    bool runtime::draw_mesh_tasks(void* const owner, VkCommandBuffer const command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+    bool runtime::draw_mesh_tasks(void* const owner, rhi::command_buffer& command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(owner);
+        // THE CONTRACT HANDLE BECOMES THE RESOLVED ENTRY POINT'S ARGUMENT (see the declaration): the two
+        // `vkCmdDrawMeshTasks*` entry points are resolved through `vkGetDeviceProcAddr` because the loader's
+        // import library does not export them, and they take the API's own `VkCommandBuffer`.
+        VkCommandBuffer const native = self->native_handle(command_buffer);
         if (self->mesh_dispatch == nullptr) {
             // Unreachable while the mesh path is gated on the capability (see runtime::create_passes), and answered
             // rather than asserted: a dispatch that cannot be recorded draws NOTHING, which is the same picture a
@@ -1448,7 +1455,7 @@ namespace deren::vulkan {
             deren::utility::log("mesh dispatch: the device has no vkCmdDrawMeshTasksEXT, so the dispatch was skipped");
             return false;
         }
-        self->mesh_dispatch(command_buffer, groups_x, groups_y, groups_z);
+        self->mesh_dispatch(native, groups_x, groups_y, groups_z);
         return true;
     }
 
@@ -1460,7 +1467,7 @@ namespace deren::vulkan {
     // IT ANSWERS RATHER THAN ASSERTS when the route is unavailable, and the reasons are all logged once: a silent
     // fall-back is a seam nobody tests, which is exactly how the first version of this (entry point resolved,
     // buffer never bound) went unnoticed for a whole round.
-    bool runtime::draw_mesh_tasks_indirect(void* const owner, VkCommandBuffer const command_buffer, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+    bool runtime::draw_mesh_tasks_indirect(void* const owner, rhi::command_buffer& command_buffer, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(owner);
         auto const direct = [&]() {
             self->mesh_indirect_direct_fallbacks.fetch_add(1u, std::memory_order_relaxed);
@@ -1505,7 +1512,7 @@ namespace deren::vulkan {
         commands[static_cast<std::size_t>(self->frame_ring().position()) * runtime::mesh_command_capacity + command_slot] =
             VkDrawMeshTasksIndirectCommandEXT{.groupCountX = groups_x, .groupCountY = groups_y, .groupCountZ = groups_z};
         VkDeviceSize const offset = static_cast<VkDeviceSize>(self->frame_ring().position() * runtime::mesh_command_capacity + command_slot) * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-        self->mesh_dispatch_indirect(command_buffer, self->mesh_indirect_table, offset, 1u, sizeof(VkDrawMeshTasksIndirectCommandEXT));
+        self->mesh_dispatch_indirect(self->native_handle(command_buffer), self->mesh_indirect_table, offset, 1u, sizeof(VkDrawMeshTasksIndirectCommandEXT));
         self->mesh_indirect_dispatches.fetch_add(1u, std::memory_order_relaxed);
         if (!self->mesh_indirect_route_logged) {
             self->mesh_indirect_route_logged = true;
@@ -1554,7 +1561,18 @@ namespace deren::vulkan {
     }
 
     void runtime::structure_record_mask_bake(void* const owner, VkCommandBuffer const command_buffer, pass::mask_bake_request const& request) {
-        static_cast<runtime*>(owner)->mask_bake.record(command_buffer, request, owner, &runtime::push_raw_block);
+        // THE HOOK IS HANDED THE FRAME'S OWN PRIMARY (the frame loop calls `structures.build(command_buffer, ...)`
+        // with this frame's native handle), and the bake records through the CONTRACT now. The contract handle for
+        // that same buffer is this frame's borrowed `frame_command_buffer()`, and the pair is CHECKED rather than
+        // assumed: a hook called with a buffer that is not this frame's primary would record the bake somewhere the
+        // structure build is not - the one failure this association exists to prevent.
+        runtime& self = *static_cast<runtime*>(owner);
+        std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
+        if (!commands || self.native_frame_commands(commands) != command_buffer) {
+            deren::utility::log("mask bake: the structure hook was called with a command buffer that is not this frame's primary - the bake is skipped");
+            return;
+        }
+        self.mask_bake.record(*commands, request, owner, &runtime::push_raw_block);
     }
 
     bool runtime::structure_skin_ready(void* const owner) noexcept {
@@ -1562,7 +1580,15 @@ namespace deren::vulkan {
     }
 
     bool runtime::structure_record_skin(void* const owner, VkCommandBuffer const command_buffer, std::span<ray_tracing::caster_level const> const casters) {
-        return static_cast<runtime*>(owner)->record_compute_skin_pass(command_buffer, casters);
+        // The SAME bridge as the mask bake above, and for the same reason: the hook's operand is the frame's
+        // primary native handle, and the job's dispatches are contract verbs now.
+        runtime& self = *static_cast<runtime*>(owner);
+        std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
+        if (!commands || self.native_frame_commands(commands) != command_buffer) {
+            deren::utility::log("compute skin: the structure hook was called with a command buffer that is not this frame's primary - the skin dispatches are skipped");
+            return false;
+        }
+        return self.record_compute_skin_pass(*commands, casters);
     }
 
     void runtime::set_shadow_enabled(bool const enabled) {

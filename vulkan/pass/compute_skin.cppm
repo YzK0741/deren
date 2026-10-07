@@ -32,6 +32,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.compute_skin;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
@@ -90,14 +91,18 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
         /**
          * @brief record one dispatch per request, then the build-ordering barrier; whether anything was recorded
-         * @param command_buffer the command buffer the dispatches are recorded into
+         * @param commands the frame's recording buffer, through the CONTRACT (abi 20): the dispatches and the push
+         *        blocks are contract verbs. The two RAW steps this job still takes through the contract's own
+         *        escape are named where they are: the pipeline BIND (its compute pipeline is created raw until
+         *        the pipeline migration lands) and the build-ordering MEMORY barrier, which the record series has
+         *        no verb for (a `barrier_group` carries images and buffers, not a global memory barrier).
          * @param requests the frame's skin requests (one dispatch each)
          * @param push_owner the renderer, @param push_indices its endpoint: the block is sent as DATA with the two
          *        heap indices appended (this shader reads the per-frame joint matrices, so it declares both), which
          *        is why the frame slot is no longer a parameter here - the endpoint carries it.
          */
-        [[nodiscard]] bool record(VkCommandBuffer command_buffer, std::span<compute_skin_request const> requests, void* push_owner,
-                                  bool (*push_indices)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept;
+        [[nodiscard]] bool record(deren::promise::rhi::command_buffer& commands, std::span<compute_skin_request const> requests, void* push_owner,
+                                  bool (*push_indices)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes, uint32_t extra_lane)) const noexcept;
         /// @brief whether the job built what it records with (the renderer's gate for skinning at all)
         [[nodiscard]] bool ready() const noexcept;
 
@@ -107,11 +112,10 @@ export namespace deren::vulkan::pass {
         static constexpr std::string_view shader_name = "compute_skin.comp.spv";
         static constexpr uint32_t group_size = 64; // `compute_skin.comp`'s local_size_x
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    };
+    }; // namespace deren::vulkan::pass
 
 } // namespace deren::vulkan::pass

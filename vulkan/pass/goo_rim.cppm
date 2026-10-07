@@ -44,6 +44,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.goo_rim;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -104,12 +105,11 @@ export namespace deren::vulkan::pass {
             .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    };
+    }; // namespace deren::vulkan::pass
 
     /// the pass's own block: the frame's inverse view-projection and its two depth-linearization terms, and the
     /// framework appends the two heap lanes on top (see the shader).

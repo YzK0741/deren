@@ -132,29 +132,40 @@ namespace deren::vulkan {
         return *this->rhi_face().walk_frames();
     }
 
-    VkCommandBuffer runtime::frame_primary_handle() const noexcept {
-        // THE FRAME'S PRIMARY, THROUGH THE CONTRACT (abi 15): `begin_commands()` names the frame slot's
-        // borrowed recording view, and the contract's native-handle path (the escape) turns that view
-        // into the `VkCommandBuffer` the recording speaks. No backend type is named here, which is what
-        // let the engine stop holding a `vk_command_buffer` for the primaries at all; the buffer itself
-        // is still the core's, and the frame-in-flight window is still the contract's.
-        rhi::command_list* const list = this->rhi_face().begin_commands();
+    std::shared_ptr<rhi::command_buffer> runtime::frame_command_buffer() const noexcept {
+        // THE BORROWED CONTRACT HANDLE OF THE FRAME'S OWN BUFFER (abi 21): `begin_commands()` answers the
+        // CORE's stable `commands_view` for the slot in flight, which is why the same object comes back
+        // every call - and why the control block below must be NON-OWNING. `frame_commands::release()`
+        // (the one drop a deleter could perform) refuses BY NAME, because the core owns the buffer and this
+        // view never held a reference to drop; a deleter that called it would only draw that log.
+        //
+        // `nullptr` IS THE HONEST ANSWER OUTSIDE A FRAME: nothing is recording, so there is no buffer to
+        // hand out - the state the removed `frame_primary_handle()` answered VK_NULL_HANDLE for, and the
+        // state the frame loop's own begin/end guards already name.
+        rhi::command_buffer* const list = this->rhi_face().begin_commands();
         if (list == nullptr) {
-            return VK_NULL_HANDLE;
+            return {};
         }
-        return static_cast<VkCommandBuffer>(this->escape().native_command_buffer(*list));
+        return std::shared_ptr<rhi::command_buffer>(list, [](rhi::command_buffer*) noexcept {
+            // NOTHING IS DROPPED, on purpose: the core owns the frame's buffer and its
+            // `frame_commands::release()` refuses by name (see the note above).
+        });
     }
 
     VkCommandBuffer runtime::native_handle(rhi::command_buffer& buffer) const noexcept {
-        // A CONTRACT-OWNED BUFFER'S RAW HANDLE, through the contract's own escape: `recording()` is the
-        // buffer's borrowed view, and `native_command_buffer()` is the documented way a pass (or this
-        // frame loop) records Vulkan commands into it. Outside a frame is fine for a buffer the caller
-        // owns - the escape says so (see frame_escape::native_command_buffer).
-        rhi::command_list* const list = buffer.recording();
-        if (list == nullptr) {
-            return VK_NULL_HANDLE;
-        }
-        return static_cast<VkCommandBuffer>(this->escape().native_command_buffer(*list));
+        // A CONTRACT BUFFER'S RAW HANDLE, through the contract's own escape: `recording()` is deleted (the
+        // buffer IS the recorder - abi 21), so what `vulkan_escape::native_command_buffer()` resolves here is
+        // the buffer itself. That is the documented way a pass (or this frame loop) records Vulkan commands
+        // into it, and outside a frame it is fine for a buffer the CALLER owns - the escape says so (see
+        // frame_escape::native_command_buffer).
+        return static_cast<VkCommandBuffer>(this->escape().native_command_buffer(buffer));
+    }
+
+    VkCommandBuffer runtime::native_frame_commands(std::shared_ptr<rhi::command_buffer> const& buffer) const noexcept {
+        // THE FRAME LOOP'S OWN UNWRAP, one place (see the declaration): the shared_ptr the recording face
+        // speaks, then the same `native_handle` conversion every other contract buffer goes through. An
+        // empty pointer is "no frame is open", which the frame loop's guards already answer for.
+        return buffer ? this->native_handle(*buffer) : VK_NULL_HANDLE;
     }
 
     // THE FRAME OPEN'S CLASSIFIER (the error mechanism's verdict family): the one place that knows
@@ -469,14 +480,16 @@ namespace deren::vulkan {
         // "what exists right now" has an answer (see pass::resource_table and runtime::publish_frame_resources).
         this->publish_frame_resources();
         // Record the frame into this slot's command buffer (inline recording: no inheritance).
-        // THE HANDLE COMES FROM THE CONTRACT (abi 15): `begin_commands()` names this slot's borrowed
-        // recording view and the escape answers its raw command buffer, so this frame loop no longer
-        // holds - or names - a backend command-buffer type. The BEGIN/END themselves stay Vulkan calls:
-        // the frame's primaries belong to the CORE (that is what keeps `begin_commands()` and `submit()`
-        // naming the same buffer), so there is no contract `command_buffer` handle here to begin - the
-        // contract's own begin/end lifecycle is what a buffer the CALLER creates goes through
-        // (readback does, and `command_buffer::begin_recording` documents the verbs).
-        VkCommandBuffer const command_buffer = this->frame_primary_handle();
+        // THE HANDLE COMES FROM THE CONTRACT (abi 15/21): `frame_command_buffer()` names the frame slot's
+        // borrowed handle and `native_frame_commands()` turns it into the raw `VkCommandBuffer` the
+        // recording speaks, so this frame loop no longer holds - or names - a backend command-buffer
+        // type. The BEGIN/END themselves stay Vulkan calls: the frame's primaries belong to the CORE
+        // (that is what keeps `begin_commands()` and `submit()` naming the same buffer), so there is no
+        // contract `command_buffer` handle here to begin - the contract's own begin/end lifecycle is
+        // what a buffer the CALLER creates goes through (readback does, and
+        // `command_buffer::begin_recording` documents the verbs). This is a DELIBERATE raw site: §8.4's
+        // frame-level sweep owns it, not this batch.
+        VkCommandBuffer const command_buffer = this->native_frame_commands(this->frame_command_buffer());
         if (command_buffer == VK_NULL_HANDLE) {
             return frame_status::begin_recording_failed; // no frame is open: nothing to record into
         }
@@ -515,7 +528,7 @@ namespace deren::vulkan {
         // not in flight has no list at all. The answer is read rather than dropped: `unsupported` is
         // the device's honest state and is already reported by gpu_timing_summary(), while any other
         // refusal means the range did not open and is worth a line.
-        if (rhi::command_list* const frame_commands = this->rhi_face().begin_commands(); frame_commands != nullptr) {
+        if (rhi::command_buffer* const frame_commands = this->rhi_face().begin_commands(); frame_commands != nullptr) {
             rhi::error const opened = frame_commands->begin_gpu_timing();
             if (opened != rhi::error::ok && opened != rhi::error::unsupported) {
                 deren::utility::log("runtime: opening the GPU timing range was refused ({})", static_cast<std::uint32_t>(opened));
@@ -825,7 +838,7 @@ namespace deren::vulkan {
 
     void runtime::record_main_drawcalls() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::scene};
-        VkCommandBuffer const command_buffer = this->frame_primary_handle();
+        VkCommandBuffer const command_buffer = this->native_frame_commands(this->frame_command_buffer());
         if (command_buffer == VK_NULL_HANDLE) {
             return; // no frame is open (see begin_recording): there is nothing to record into
         }
@@ -1002,30 +1015,39 @@ namespace deren::vulkan {
     // (`ensure_shadow_resources`). What is left here is what the pass genuinely cannot know: which secondaries to
     // record into, and what a caster's draw state is (the scene block, the live depth-bias state, the two-sided
     // policy, the secondary's own begin info) - so that arrives as a callback, and the map's edge with it.
-    bool runtime::record_shadow_cascade(void* const owner, VkCommandBuffer const secondary, uint32_t const cascade_index, VkPipeline const pipeline, bool const mesh_stage, bool const meshlets) {
+    bool runtime::record_shadow_cascade(void* const owner, rhi::command_buffer& secondary, uint32_t const cascade_index, VkPipeline const pipeline, bool const mesh_stage, bool const meshlets) {
         runtime* const self = static_cast<runtime*>(owner);
         // The secondary inherits ONLY the depth attachment (no colour one): dynamic rendering 1.3, single-sampled,
-        // viewMask 0. The inheritance struct hangs off VkCommandBufferInheritanceInfo::pNext (NOT the begin info's),
-        // and a secondary buffer must always provide inheritance info.
-        VkCommandBufferInheritanceRenderingInfo const inheritance = make_inheritance_rendering_info(false, nullptr, self->depth_attachment_format, VK_SAMPLE_COUNT_1_BIT);
-        // An inherited HEAP bind, for the same reason the scene pass's segments carry one (see
-        // scene_frame::fill_heap_bind): this secondary is validated on its own, and the shadow shaders read the
-        // light matrices and the shadow map straight out of the heaps.
-        VkBindHeapInfoEXT resource_bind = {};
-        VkBindHeapInfoEXT sampler_bind = {};
-        contract_heap_bind_infos(self->rhi_face(), resource_bind, sampler_bind);
-        VkCommandBufferInheritanceDescriptorHeapInfoEXT const heap_inheritance = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
-            .pNext = &inheritance,
-            .pSamplerHeapBindInfo = &sampler_bind,
-            .pResourceHeapBindInfo = &resource_bind,
+        // viewMask 0 - and the DESCRIPTOR HEAPS, which the BACKEND derives from its own heap state when it
+        // begins the recorder (see core::owned_command_buffer::begin_recording). That derivation is why the
+        // hand-written `VkCommandBufferInheritanceDescriptorHeapInfoEXT` that stood here is gone: this
+        // secondary is validated on its own, and the shadow shaders read the light matrices and the shadow map
+        // straight out of the heaps, but the heap is the BACKEND's state and this layer has no business
+        // repeating it (VUID-vkCmdDrawIndexed-None-11308 is what a missing one produces).
+        // THE HEADER IS THE STRUCTURE'S OWN DEFAULT (no `.header = {}`): an explicit `= {}` would VALUE-INITIALISE
+        // the header and take `structure_header`'s own defaults (`s_type = unknown`, its own size), which is not
+        // the tagged type this chain entry must declare - the backend refuses a chain whose `s_type` is not
+        // `vulkan_command_buffer_inheritance` (validate_structure), and the symptom is a secondary that never
+        // begins. Omitting the member is what keeps the NSDI's `{vulkan_command_buffer_inheritance, sizeof(...)}`.
+        rhi::vulkan_command_buffer_inheritance_info const inheritance = {
+            .color_format_count = 0,
+            .color_formats = nullptr, // depth-only: the shadow map is the one attachment
+            .depth_format = static_cast<std::int32_t>(self->depth_attachment_format),
+            .samples = static_cast<std::uint32_t>(VK_SAMPLE_COUNT_1_BIT),
+            .view_mask = 0,
         };
-        VkCommandBufferInheritanceInfo const inherit = make_inheritance_info(&heap_inheritance);
-        VkCommandBufferBeginInfo const begin = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT, &inherit);
-        if (vkBeginCommandBuffer(secondary, &begin) != VK_SUCCESS) {
+        rhi::command_buffer_begin_info const begin = {
+            .struct_size = sizeof(rhi::command_buffer_begin_info),
+            .usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue),
+            .next = &inheritance.header,
+        };
+        if (secondary.begin_recording(begin) != rhi::error::ok) {
             deren::utility::log("runtime: shadow secondary command buffer begin failed - cascade {} skipped this frame", cascade_index);
             return false;
         }
+        // THE NATIVE HANDLE FOR THE RECORDING SERIES THE CONTRACT DOES NOT CARRY YET (the heap push and the
+        // mesh entry points), derived ONCE through the frame loop's own unwrap path.
+        VkCommandBuffer const command_buffer = self->native_handle(secondary);
         // which cascade these casters are projected into: the vertex stage indexes the light UBO's matrix array with
         // it, and a secondary records that itself (state is not inherited from the primary). The offset is the
         // declaration's own - where the scene's push block ends.
@@ -1034,9 +1056,19 @@ namespace deren::vulkan {
         // render_environment::push_block). This is ONE 4-byte slice of the shadow stage's block - the cascade
         // index's own offset - while the rest of the block is the material's, pushed per caster below. A
         // secondary records its own state (nothing is inherited from the primary), which is why it is set here.
-        [[maybe_unused]] bool const pushed = contract_push_heap_data(self->rhi_face(), secondary, render_resource::shadow_io.push->offset, std::as_bytes(std::span(&index, 1)));
-        self->record_shadow_content(secondary, pipeline, mesh_stage, meshlets);
-        vkEndCommandBuffer(secondary);
+        [[maybe_unused]] bool const pushed = contract_push_heap_data(self->rhi_face(), command_buffer, render_resource::shadow_io.push->offset, std::as_bytes(std::span(&index, 1)));
+        // THE SESSION'S BUFFER IS THE CASCADE'S OWN SECONDARY, handed over as a NON-OWNING view: the runtime owns
+        // those buffers (`shadow_recording`) and this callback only records into one of them for the duration of the
+        // call, so the control block must drop nothing.
+        self->record_shadow_content(std::shared_ptr<rhi::command_buffer>(&secondary, [](rhi::command_buffer*) noexcept {}), pipeline, mesh_stage, meshlets);
+        // THE END IS THE CONTRACT'S MATCHING HALF, and it is checked: `end_recording()` on this buffer is the
+        // contract's verb (the buffer is CALLER-owned, unlike the frame's own), and a failed end means the
+        // secondary is not executable - which is a cascade this frame must not execute (that is a VUID), so
+        // the false answer skips it rather than recording a broken execution.
+        if (secondary.end_recording() != rhi::error::ok) {
+            deren::utility::log("runtime: shadow secondary command buffer end failed - cascade {} is not executable this frame", cascade_index);
+            return false;
+        }
         return true;
     }
 
@@ -1224,7 +1256,18 @@ namespace deren::vulkan {
     // scene casts shadows). Pure bind/push/draw commands - the caller owns the barriers and
     // the depth-only rendering instance around it. Recorded inline today; stage 2 records the
     // same content into a per-slot secondary command buffer for parallel pass recording.
-    void runtime::record_shadow_content(VkCommandBuffer const command_buffer, VkPipeline const pipeline, bool const mesh_stage, bool const meshlets) const {
+    void runtime::record_shadow_content(std::shared_ptr<deren::promise::rhi::command_buffer> secondary, VkPipeline const pipeline, bool const mesh_stage, bool const meshlets) const {
+        // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 20), and here it is the CASCADE'S OWN secondary: the
+        // shadow pass hands this callback that buffer and everything this session records goes into it - which is
+        // why the handle has to be the same object the pass began and will execute. The raw steps below (the depth
+        // bias) derive the native handle once, through the same unwrap path every other frame-loop site uses.
+        if (secondary == nullptr) {
+            return; // no session, nothing to record into
+        }
+        VkCommandBuffer const command_buffer = this->native_handle(*secondary);
+        if (command_buffer == VK_NULL_HANDLE) {
+            return; // a face with no native command buffer records nothing rather than mis-casting
+        }
         // NO SET IS BOUND (see the heap bind in begin_recording): the light matrices, the camera and the shadow map
         // are heap slots, and the shadow stage's push block carries the two indices that pick this frame's
         // generation. A secondary records its own state, and the heap bind is made on the buffer it records into.
@@ -1237,9 +1280,13 @@ namespace deren::vulkan {
         // whatever a custom leaf would draw in the main pass, its geometry still casts the same
         // shadow. Default-semantics leaves hit bind_default() and land here too.
         render_environment env;
-        env.command_buffer = command_buffer;
+        // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 21), and here it is the CASCADE'S OWN secondary:
+        // the shadow pass hands this callback that buffer, and everything this session records goes into it
+        // - which is why the handle has to be the same object the pass began and will execute.
+        env.command_buffer = std::move(secondary);
         env.default_name = "shadow"; // binder ignores the name; kept for in_default_pipeline()
-        env.bind = [this, pipeline](VkCommandBuffer const cb, std::string_view const /*name*/) {
+        env.bind = [this, pipeline](std::shared_ptr<rhi::command_buffer> const& session, std::string_view const /*name*/) {
+            VkCommandBuffer const cb = this->native_handle(*session);
             vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
             VkViewport const shadow_viewport = {0.0f, 0.0f, static_cast<float>(this->shadow_map_size), static_cast<float>(this->shadow_map_size), 0.0f, 1.0f};
             VkRect2D const shadow_scissor = {{0, 0}, {this->shadow_map_size, this->shadow_map_size}};
@@ -1251,8 +1298,8 @@ namespace deren::vulkan {
         // set_depth_write() emits the one required vkCmdSetDepthWriteEnable and later leaves
         // dedupe against it. (The pipeline declares depth-write as dynamic state, so it must be
         // set at least once even though the value matches the default.)
-        env.set_depth_write_fn = [](VkCommandBuffer const cb, VkBool32 const) {
-            vkCmdSetDepthWriteEnable(cb, VK_TRUE);
+        env.set_depth_write_fn = [this](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const) {
+            vkCmdSetDepthWriteEnable(this->native_handle(*session), VK_TRUE);
         };
         // ... and it draws every caster TWO-SIDED: a caster is never culled for facing away from
         // the light. A single-sided wall plane whose only face points into the room is back-facing
@@ -1260,8 +1307,8 @@ namespace deren::vulkan {
         // pours straight through a wall the camera sees as solid - the classic "the wall behind the
         // camera is transparent" leak. See render_environment::two_sided.
         env.two_sided = true;
-        env.set_cull_mode_fn = [](VkCommandBuffer const cb, VkCullModeFlags const mode) {
-            vkCmdSetCullMode(cb, mode);
+        env.set_cull_mode_fn = [this](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
+            vkCmdSetCullMode(this->native_handle(*session), mode);
         };
         // The shadow session's endpoint (see render_environment::push_block). `this` is const here because the
         // method is; the endpoint only records into the command buffer, so the cast is a formality.
@@ -1537,7 +1584,7 @@ namespace deren::vulkan {
     // The TAA resolve's factory is gone: `deren.vulkan.pass.taa` builds its own pipeline and owns its per-image
     // history flags in its create step, from its own declaration and its own shaders (the app registers those).
 
-    bool runtime::ensure_gbuffer_depth_sampled(VkCommandBuffer const command_buffer, uint32_t const image_index) {
+    bool runtime::ensure_gbuffer_depth_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t const image_index) {
         // Nothing to do when no G-buffer instance ran for this image: the depth is already in the
         // layout the sampling descriptors declare (it keeps whatever the last frame for this image
         // left it in), so re-transitioning would only claim a layout the image is not in.
@@ -1550,12 +1597,12 @@ namespace deren::vulkan {
         VkImageMemoryBarrier2 barrier = deren::vulkan::shadow_map_sampling_transition;
         barrier.image = static_cast<VkImage>(this->escape().native_image(*this->gbuffer_depth_images[image_index]));
         VkDependencyInfo const dependency = make_image_dependency_info(1, &barrier);
-        vkCmdPipelineBarrier2(command_buffer, &dependency);
+        vkCmdPipelineBarrier2(this->native_frame_commands(command_buffer), &dependency);
         this->gbuffer_depth_written[image_index] = false;
         return true;
     }
 
-    bool runtime::ensure_gbuffer_targets_sampled(VkCommandBuffer const command_buffer, uint32_t const image_index) {
+    bool runtime::ensure_gbuffer_targets_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t const image_index) {
         // Nothing to do when no G-buffer instance ran for this image, or when an earlier stage already
         // took the transition (the ray-traced shadow pass runs first when it runs): re-transitioning
         // would claim a COLOR_ATTACHMENT old layout the image is not in.
@@ -1568,11 +1615,11 @@ namespace deren::vulkan {
             barriers[target].image = static_cast<VkImage>(this->escape().native_image(*this->gbuffer_images[target][image_index]));
         }
         VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
-        vkCmdPipelineBarrier2(command_buffer, &dependency);
+        vkCmdPipelineBarrier2(this->native_frame_commands(command_buffer), &dependency);
         this->gbuffer_targets_written[image_index] = false;
         return true;
     }
-    bool runtime::ensure_velocity_sampled(VkCommandBuffer const command_buffer, uint32_t const image_index) {
+    bool runtime::ensure_velocity_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t const image_index) {
         // Nothing to do when no G-buffer instance ran for this image, or when an earlier sampler
         // already took the transition (the TAA resolve, which runs before the GI denoiser in the same
         // frame): re-transitioning would claim a COLOR_ATTACHMENT old layout the image is not in.
@@ -1582,7 +1629,7 @@ namespace deren::vulkan {
         VkImageMemoryBarrier2 barrier = deren::vulkan::hdr_sampling_transition; // COLOR_ATTACHMENT -> SHADER_READ
         barrier.image = static_cast<VkImage>(this->escape().native_image(*this->velocity_images[image_index]));
         VkDependencyInfo const dependency = make_image_dependency_info(1, &barrier);
-        vkCmdPipelineBarrier2(command_buffer, &dependency);
+        vkCmdPipelineBarrier2(this->native_frame_commands(command_buffer), &dependency);
         this->velocity_written[image_index] = false;
         return true;
     }
@@ -1853,10 +1900,10 @@ namespace deren::vulkan {
             // The surface's format: a SESSION-STABLE device fact a pipeline that renders into the swapchain must
             // be created with (see pass_context). The post chain needs it today; the graphics passes being
             // extracted need it tomorrow.
-            .swap_chain_image_format = this->swap_chain_image_format,
+            .swap_chain_image_format = contract_image_format(this->swap_chain_image_format),
             // ... and the DEPTH format, which the shadow pass`s pipeline needs (it has a depth attachment and no
             // colour one): the same kind of session-stable device fact, and the second one a context carries.
-            .depth_format = this->depth_attachment_format,
+            .depth_format = contract_image_format(this->depth_attachment_format),
             // ... and whether the device can run a MESH pipeline at all, which a pass must not try to find out by
             // attempting it (see the metric above and pass_context::mesh_shaders).
             .mesh_shaders = this->mesh_shaders,
@@ -2027,8 +2074,34 @@ namespace deren::vulkan {
         // the swapchain's own image count is the one authority for how many images exist.
         std::size_t const scene_images = static_cast<std::size_t>(rhi::max_swapchain_images);
         for (std::size_t i = 0; i < scene_images; ++i) {
+            // THE CONTRACT LANES RIDE BESIDE THE RAW ONES, and here they are the reason the frame renders at
+            // all: the scene pass's FIVE colour attachments take `view_handle` (its rendering scope is refused
+            // whole if one is null), and this alias is the one publication whose target THIS FRAME's TAA switch
+            // chooses - so the branch is repeated (never a handle for an image the frame did not choose), and
+            // the same managers `scene_target_image` / `scene_target_view` read answer the contract side.
+            deren::promise::rhi::image* color_image = nullptr;
+            deren::promise::rhi::image_view* color_view = nullptr;
+            if (this->taa_active()) {
+                if (i < this->scene_color_images.size() && static_cast<bool>(this->scene_color_images[i])) {
+                    color_image = &*this->scene_color_images[i];
+                }
+                if (i < this->scene_color_image_views.size() && static_cast<bool>(this->scene_color_image_views[i])) {
+                    color_view = &*this->scene_color_image_views[i];
+                }
+            } else {
+                if (i < this->hdr_images.size() && static_cast<bool>(this->hdr_images[i])) {
+                    color_image = &*this->hdr_images[i];
+                }
+                if (i < this->hdr_image_views.size() && static_cast<bool>(this->hdr_image_views[i])) {
+                    color_view = &*this->hdr_image_views[i];
+                }
+            }
             single(render_resource::resource_id::scene_color, 0, static_cast<uint32_t>(i),
-                   pass::resolved_binding{.view = this->scene_target_view(static_cast<uint32_t>(i)), .buffer = VK_NULL_HANDLE, .image = this->scene_target_image(static_cast<uint32_t>(i))});
+                   pass::resolved_binding{.view = this->scene_target_view(static_cast<uint32_t>(i)),
+                                          .buffer = VK_NULL_HANDLE,
+                                          .image = this->scene_target_image(static_cast<uint32_t>(i)),
+                                          .image_handle = color_image,
+                                          .view_handle = color_view});
         }
 
         // ---- per FRAME SLOT: the ray-traced visibility image, the shadow map's cascades, the buffers ----
@@ -2043,7 +2116,9 @@ namespace deren::vulkan {
             single(render_resource::resource_id::rt_shadow_visibility, 0, static_cast<uint32_t>(slot),
                    pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->rt_shadow_image_views[slot])),
                                           .buffer = VK_NULL_HANDLE,
-                                          .image = static_cast<VkImage>(this->escape().native_image(*this->rt_shadow_images[slot]))});
+                                          .image = static_cast<VkImage>(this->escape().native_image(*this->rt_shadow_images[slot])),
+                                          .image_handle = &*this->rt_shadow_images[slot],
+                                          .view_handle = &*this->rt_shadow_image_views[slot]});
         }
         // The shadow map's family elements are the CASCADES (see render_resource::shadow_io): the image is one
         // layered depth array per slot and the pass renders one layer at a time, so every layer the image
@@ -2055,7 +2130,11 @@ namespace deren::vulkan {
             VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(*this->shadow_images[slot]));
             for (std::size_t layer = 0; layer < this->shadow_layer_views[slot].size(); ++layer) {
                 single(render_resource::resource_id::shadow_map, static_cast<uint32_t>(layer), static_cast<uint32_t>(slot),
-                       pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->shadow_layer_views[slot][layer])), .buffer = VK_NULL_HANDLE, .image = shadow_native});
+                       pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->shadow_layer_views[slot][layer])),
+                                              .buffer = VK_NULL_HANDLE,
+                                              .image = shadow_native,
+                                              .image_handle = &*this->shadow_images[slot],
+                                              .view_handle = &*this->shadow_layer_views[slot][layer]});
             }
         }
         // The per-slot buffers, each into its own instance: a frame in flight reads its own copy, which is the
@@ -2095,7 +2174,9 @@ namespace deren::vulkan {
             single(render_resource::resource_id::furnace_cube, 0, 0,
                    pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->furnace_cube_view)),
                                           .buffer = VK_NULL_HANDLE,
-                                          .image = static_cast<VkImage>(this->escape().native_image(*this->furnace_cube_image))});
+                                          .image = static_cast<VkImage>(this->escape().native_image(*this->furnace_cube_image)),
+                                          .image_handle = &*this->furnace_cube_image,
+                                          .view_handle = &*this->furnace_cube_view});
         }
         // The white fallback and the array it is element 0 of. The array is BINDLESS (one binding, N descriptors),
         // which the declaration vocabulary cannot index element by element yet - so what is published is the one
@@ -2196,9 +2277,10 @@ namespace deren::vulkan {
         for (auto const& buffer : segments) {
             // NO POOL TRAVELS WITH THE BUFFER ANY MORE (the wrapper owns it), and the pass never read
             // one: `segment_buffer` used to carry a VkCommandPool field that no pass touched.
-            // abi 15: the buffer is a CONTRACT handle, so the raw handle the pass records with comes
-            // through the contract's own escape (`native_handle`) instead of a dereferenced backend type.
-            this->scene_segment_view.push_back(pass::segment_buffer{.buffer = this->native_handle(*buffer)});
+            // abi 21: the secondary is a CALLER-OWNED contract handle, so the frame carries the BORROWED
+            // pointer to it (`scene_frame::segment_buffer::buffer` is `rhi::command_buffer*`); the pass
+            // derives the native handle it records with through the escape, exactly as this layer does.
+            this->scene_segment_view.push_back(pass::segment_buffer{.buffer = buffer.get()});
         }
         // the secondaries inherit the instance's attachments: the three surface targets in order, the velocity
         // target, and the scene colour - the same order the pass's declaration lists them in
@@ -2220,10 +2302,14 @@ namespace deren::vulkan {
 
     /// build ONE segment's draw state; a fresh one per segment, because the pipeline-dedup state is per
     /// recording session (see scene_frame::make_environment)
-    render_environment runtime::make_scene_environment(void* owner, VkCommandBuffer const command_buffer, bool const gbuffer) {
+    render_environment runtime::make_scene_environment(void* owner, std::shared_ptr<rhi::command_buffer> command_buffer, bool const gbuffer) {
         runtime& self = *static_cast<runtime*>(owner);
         render_environment env;
-        env.command_buffer = command_buffer;
+        // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 21): the caller hands over the same borrowed
+        // shared_ptr the pass records into (`resolved_io::cmd`, or the scene/transparent frame's own
+        // secondary). A primitive that needs the raw command buffer - the heap push and the mesh entry
+        // points are the two today - derives it through `self.native_handle(*env.command_buffer)`.
+        env.command_buffer = std::move(command_buffer);
         // The G-buffer pass binds its own pipeline as the pass default (see gbuffer_pipeline_name): same
         // leaves, same draw path, but the fragment stage writes the surface instead of shading.
         // ... AND WHICH FORM OF IT: the MESH pipeline when the device built one (docs/mesh_shaders.md step 2). The
@@ -2238,7 +2324,11 @@ namespace deren::vulkan {
             gbuffer_mesh = gbuffer && self.gbuffer_pipeline_mesh.has_value();
             gbuffer_meshlet = gbuffer && self.gbuffer_pipeline_meshlet.has_value();
         }
-        env.bind = [&self, &env, gbuffer, gbuffer_mesh, gbuffer_meshlet](VkCommandBuffer const cb, std::string_view const name) {
+        env.bind = [&self, &env, gbuffer, gbuffer_mesh, gbuffer_meshlet](std::shared_ptr<rhi::command_buffer> const& session, std::string_view const name) {
+            // THE SESSION'S RAW HANDLE, derived here through the runtime's own escape: the injected binder
+            // still records `vkCmdBindPipeline` and the stored viewport/scissor (the pipelines are raw
+            // `VkPipeline` builders until §8.2 lands), while the recording face itself is the contract's.
+            VkCommandBuffer const cb = self.native_handle(*session);
             if (gbuffer) {
                 if (name == gbuffer_pipeline_name) {
                     if (gbuffer_meshlet) {
@@ -2321,10 +2411,14 @@ namespace deren::vulkan {
         };
 
         // transparent leaves toggle depth writes off via this (core dynamic state, 1.3)
-        env.set_depth_write_fn = [](VkCommandBuffer const cb, VkBool32 const enabled) { vkCmdSetDepthWriteEnable(cb, enabled); };
+        env.set_depth_write_fn = [&self](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const enabled) {
+            vkCmdSetDepthWriteEnable(self.native_handle(*session), enabled);
+        };
         // single-sided materials keep back-face culling here (the shadow pass overrides it with env.two_sided;
         // the main pass must not, or double-sided handling would cost fill rate)
-        env.set_cull_mode_fn = [](VkCommandBuffer const cb, VkCullModeFlags const mode) { vkCmdSetCullMode(cb, mode); };
+        env.set_cull_mode_fn = [&self](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
+            vkCmdSetCullMode(self.native_handle(*session), mode);
+        };
         // THE HEAP PUSH (see render_environment::push_block): every draw in this session sends its block through
         // the same endpoint a converted pass uses; that endpoint is what appends the two heap indices, which is
         // why a primitive's own push struct never had to grow a field.
@@ -2366,12 +2460,14 @@ namespace deren::vulkan {
 
     pass::transparent_frame runtime::make_transparent_frame() noexcept {
         auto const& secondaries = this->secondary_command_buffers[static_cast<std::size_t>(this->frame_ring().position())];
-        // abi 15: the secondary is a contract handle; the pass records Vulkan commands, so the raw
-        // handle comes from the contract's escape (`native_handle`).
-        rhi::command_buffer& transparent = *secondaries[static_cast<std::size_t>(secondary_pass::transparent)];
+        // abi 21: the secondary is a CALLER-OWNED contract handle, and the frame hands the SAME shared_ptr
+        // over (the pass begins, records and executes it through the contract); no native handle is derived
+        // here at all any more - the pass has the escape and does that itself, which is what keeps this
+        // frame free of the recording mechanism.
+        std::shared_ptr<rhi::command_buffer> const& transparent = secondaries[static_cast<std::size_t>(secondary_pass::transparent)];
         return pass::transparent_frame{
             .leaves = this->frame_transparent,
-            .secondary = this->native_handle(transparent),
+            .secondary = transparent,
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
             .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
@@ -2511,14 +2607,16 @@ namespace deren::vulkan {
         uint32_t const slot = this->frame_ring().position();
         uint32_t const cascades = std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades);
         for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
-            // abi 15: the per-cascade buffer is a contract handle; the pass executes Vulkan commands, so
-            // the raw handle comes from the contract's escape (`native_handle`).
-            this->shadow_secondaries_scratch[cascade] = this->native_handle(*this->shadow_recording[slot][cascade]);
+            // abi 21: the per-cascade buffer is a CALLER-OWNED contract handle, and the frame carries the
+            // BORROWED POINTER to it (`shadow_frame::cascades` is `std::span<rhi::command_buffer* const>`):
+            // the pass begins, records and executes the buffer through the contract, and the owner of the
+            // shared_ptr stays this runtime's `shadow_recording`.
+            this->shadow_secondaries_scratch[cascade] = this->shadow_recording[slot][cascade].get();
         }
         return pass::shadow_frame{.record_cascade = &runtime::record_shadow_cascade,
                                   .run_tasks = &runtime::run_shadow_tasks,
                                   .owner = this,
-                                  .cascades = std::span<VkCommandBuffer const>(this->shadow_secondaries_scratch.data(), cascades),
+                                  .cascades = std::span<rhi::command_buffer* const>(this->shadow_secondaries_scratch.data(), cascades),
                                   .map_size = this->shadow_map_size};
     }
 
@@ -2544,13 +2642,13 @@ namespace deren::vulkan {
         };
     }
 
-    runtime::frame_services runtime::make_frame_services(VkCommandBuffer const command_buffer) noexcept {
+    runtime::frame_services runtime::make_frame_services(std::shared_ptr<rhi::command_buffer> command_buffer) noexcept {
         // Capture-less lambdas: each one casts the owner back and calls the builder it names, so the owner never
         // sees a member function of this class - it sees the frame. THREE builders, not eleven: the rest of the
         // frames are composed by their own passes from the published facts (see frame_pass::prepare_frame).
         return frame_services{
             .owner = this,
-            .cmd = command_buffer,
+            .cmd = std::move(command_buffer),
             .image_index = static_cast<uint32_t>(this->current_image_index),
             .device = runtime_detail::native_device_of(this->rhi_face()),
             .samplers = this->shared_samplers(),
@@ -2562,10 +2660,11 @@ namespace deren::vulkan {
             .make_transparent_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_transparent_frame(); },
             .make_character_forward_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_character_forward_frame(); },
             .ensure_gbuffer_targets_sampled =
-                [](void* owner, VkCommandBuffer cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_targets_sampled(cmd, image); },
+                [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_targets_sampled(cmd, image); },
             .ensure_gbuffer_depth_sampled =
-                [](void* owner, VkCommandBuffer cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_depth_sampled(cmd, image); },
-            .ensure_velocity_sampled = [](void* owner, VkCommandBuffer cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_velocity_sampled(cmd, image); },
+                [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_depth_sampled(cmd, image); },
+            .ensure_velocity_sampled =
+                [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_velocity_sampled(cmd, image); },
             .require_velocity_publish = [](void* owner, uint32_t image) { static_cast<runtime*>(owner)->require_velocity_publish(image); },
             .feature_active = [](void* owner, std::string_view name) { return static_cast<runtime const*>(owner)->feature_active(name); },
         };
@@ -2615,7 +2714,11 @@ namespace deren::vulkan {
         this->frame_wiring = wiring;
     }
 
-    void runtime::prepare_stage(pass::stage const& stage, VkCommandBuffer const command_buffer) {
+    void runtime::prepare_stage(pass::stage const& stage, [[maybe_unused]] VkCommandBuffer const command_buffer) {
+        // THE NATIVE HANDLE IS NO LONGER THIS FUNCTION'S (abi 20): every frame a pass is given now carries the
+        // CONTRACT buffer (`frame_command_buffer()`), and the pass derives whatever native handle it still needs
+        // through the escape. The parameter stays because the frame loop's call shape is "prepare this stage in the
+        // frame's recording", and a caller that has the handle should not have to drop it to call this.
         // THE PASSES BUILD THEIR OWN FRAMES FIRST, from the facts this renderer publishes for THIS STAGE:
         //     structure phase rebuilds DURING this frame (see make_frame_facts);
         //   * before the owner's `prepare`, so an owner that still wants to add to a frame (or override one)
@@ -2629,7 +2732,7 @@ namespace deren::vulkan {
         if (this->frame_wiring.prepare == nullptr) {
             return; // no owner: the passes keep the frames they just built and record with them
         }
-        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(command_buffer), stage.name);
+        this->frame_wiring.prepare(this->frame_wiring.owner, this->make_frame_services(this->frame_command_buffer()), stage.name);
     }
 
     void runtime::collect_stage(std::string_view const stage) {
@@ -2721,9 +2824,12 @@ namespace deren::vulkan {
         return pass::resolve_context{
             .resources = &this->frame_resources,
             .frame = this->pass_frame(),
-            .cmd = this->frame_primary_handle(),
+            // THE FRAME'S OWN BUFFER IN THE CONTRACT'S SPELLING (abi 21): the framework copies this value
+            // into `resolved_io::cmd` for every pass it resolves (see resolve_declaration), so the two
+            // lanes name the same borrowed handle by construction.
+            .cmd = this->frame_command_buffer(),
             .list = this->rhi_face().begin_commands(),
-            .extent_of = [](void* owner, render_resource::resource_id id, uint32_t element) { return static_cast<runtime*>(owner)->resolve_resource_extent(id, element); },
+            .extent_of = [](void* owner, render_resource::resource_id id, uint32_t element) { return contract_image_extent(static_cast<runtime*>(owner)->resolve_resource_extent(id, element)); },
             .pipeline = [](void* owner, std::string_view name) { return static_cast<runtime*>(owner)->resolve_pipeline(name); },
             .owner = this,
         };
@@ -2751,7 +2857,7 @@ namespace deren::vulkan {
             // chain back up to what is presented - declares `extent_rule::resource` over
             // `resource_id::swapchain_image` instead, and `resolve_resource_extent` answers with the
             // swapchain's extent.
-            .extent = this->render_extent(),
+            .extent = contract_image_extent(this->render_extent()),
         };
     }
 
@@ -2885,13 +2991,18 @@ namespace deren::vulkan {
         // this function no longer has a "not a compute pass" branch: the three graphics kinds differ in how
         // many draws they issue, and only the pass knows that.
         pass::behaviour const& behaviour = pass.behaviour();
+        // THE FRAME LOOP'S OWN RAW STEPS, and they stay raw (the §8.4 frame-level sweep owns them - they are
+        // not a pass's recording): what changed here is only which native handle they take. `io.cmd` is the
+        // frame's contract buffer now, so the one derivation every other frame-loop site uses answers the
+        // handle these three commands need.
+        VkCommandBuffer const commands = this->native_frame_commands(io.cmd);
         if (behaviour.resync_viewport) {
             // io.extent is the extent the declaration's rule produced (the frame's, half of it, or a
             // resource's), so a fullscreen pass gets a viewport that matches the target it declared.
             VkViewport const viewport = {0.0f, 0.0f, static_cast<float>(io.extent.width), static_cast<float>(io.extent.height), 0.0f, 1.0f};
-            VkRect2D const scissor = {{0, 0}, io.extent};
-            vkCmdSetViewport(io.cmd, 0, 1, &viewport);
-            vkCmdSetScissor(io.cmd, 0, 1, &scissor);
+            VkRect2D const scissor = {{0, 0}, {io.extent.width, io.extent.height}};
+            vkCmdSetViewport(commands, 0, 1, &viewport);
+            vkCmdSetScissor(commands, 0, 1, &scissor);
         }
         // THREE bind points, one per way a pass's work reaches the command buffer: a compute dispatch, a
         // traceRays launch (a ray-tracing pipeline bound to the compute point is invalid, so the pass's own
@@ -2901,7 +3012,7 @@ namespace deren::vulkan {
                                                                                                      : VK_PIPELINE_BIND_POINT_GRAPHICS;
         for (VkPipeline const pipeline : io.pipelines) {
             if (pipeline != VK_NULL_HANDLE) {
-                vkCmdBindPipeline(io.cmd, bind_point, pipeline);
+                vkCmdBindPipeline(commands, bind_point, pipeline);
             }
         }
     }
@@ -2935,7 +3046,7 @@ namespace deren::vulkan {
         }
     }
 
-    bool runtime::record_compute_skin_pass(VkCommandBuffer const command_buffer, std::span<ray_tracing::caster_level const> const casters) {
+    bool runtime::record_compute_skin_pass(deren::promise::rhi::command_buffer& commands, std::span<ray_tracing::caster_level const> const casters) {
         // The knob and the frame slot are the RENDERER's; the dispatches and the barrier the acceleration
         // structure build needs after them are the JOB's (vulkan.pass.compute_skin_job). "Is there anything
         // skinned at all" is NOT asked here any more: the structure set owns that answer (its map), and it only
@@ -2944,7 +3055,7 @@ namespace deren::vulkan {
             return false;
         }
         this->fill_compute_skin_requests(casters);
-        return this->compute_skin.record(command_buffer, this->compute_skin_requests, this, &runtime::push_index_block);
+        return this->compute_skin.record(commands, this->compute_skin_requests, this, &runtime::push_index_block);
     }
 
     // THE RAY-TRACED SHADOW PASS'S RESOLVER IS GONE (S3): its one barrier image comes from the frame's resource
@@ -3238,10 +3349,14 @@ namespace deren::vulkan {
         return this->render_scale < 1.0f && this->pass_ready("upscale");
     }
 
-    void runtime::draw_overlay_after(void* const owner, VkCommandBuffer const command_buffer) {
+    void runtime::draw_overlay_after(void* const owner, deren::promise::rhi::command_buffer& commands) {
         // The composite's frame carries this as a plain function pointer (a pass records into what it is given and
         // knows nothing about this class), so the member is reached through the context that frame also holds.
-        static_cast<runtime*>(owner)->record_overlay_if_enabled(command_buffer);
+        // THE ARCHITECTURE LINE (abi 20): the pass hands the CONTRACT buffer, and the third-party overlay's own
+        // recorder - which is not a contract consumer - receives the native handle derived HERE, once, through the
+        // same unwrap path every other raw step uses.
+        runtime& self = *static_cast<runtime*>(owner);
+        self.record_overlay_if_enabled(self.native_handle(commands));
     }
 
     // =============================================================================================
@@ -3414,7 +3529,7 @@ namespace deren::vulkan {
     frame_status runtime::end_recording() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::post};
         rhi::api_core& vk = this->vulkan_core;
-        VkCommandBuffer const command_buffer = this->frame_primary_handle();
+        VkCommandBuffer const command_buffer = this->native_frame_commands(this->frame_command_buffer());
         if (command_buffer == VK_NULL_HANDLE) {
             return frame_status::end_recording_failed; // no frame is open: there is nothing to close
         }
@@ -3434,7 +3549,7 @@ namespace deren::vulkan {
         // hand-written version carried - the shadow gate (A5) proves they land on the same barriers. THE
         // SUBMITTER DOES NOT CHANGE: this runtime submits the same command buffer below.
         if (post_wrote_swapchain && this->screenshot_requested) {
-            deren::promise::rhi::command_list* const commands = vk.begin_commands();
+            deren::promise::rhi::command_buffer* const commands = vk.begin_commands();
             deren::promise::rhi::image* const frame_image = vk.frame_image();
             deren::promise::rhi::buffer* const slot = vk.frame_readback_buffer();
             if (commands != nullptr && frame_image != nullptr && slot != nullptr) {
@@ -3555,11 +3670,12 @@ namespace deren::vulkan {
         // backend's own borrowed recording view (`begin_commands()` - the same list this frame's
         // recording verbs were handed), and the IMAGE plus the present-ready semaphore are the
         // backend's own acquire state: this object never touches either. The command buffer the frame
-        // RECORDED into is the one `begin_commands()` names (its raw handle came from that same list
-        // through the escape - see frame_primary_handle), so the verb submits exactly what was recorded.
+        // RECORDED into is the one `begin_commands()` names (its raw handle came from that same buffer
+        // through `native_frame_commands()` - see `frame_command_buffer`), so the verb submits exactly what
+        // was recorded.
         auto const submit_started = std::chrono::steady_clock::now(); // sub-phase marks: what of submit is the
         // queue submission (with its timeline signal) and what is the present call below
-        rhi::command_list* const commands = this->rhi_face().begin_commands();
+        rhi::command_buffer* const commands = this->rhi_face().begin_commands();
         if (commands == nullptr) {
             // A frame that reached the submit point is the frame `wait_and_acquire()` opened, so this
             // is an invariant, not a state a caller can produce: refusing by not submitting is the

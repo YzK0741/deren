@@ -102,7 +102,7 @@ namespace {
     /**
      * @brief a command list the probe NEVER handed out - the foreign-list refusal's subject
      *
-     * `api_core::submit(command_list&)` has to tell "the list I handed out this frame" from "some
+     * `api_core::submit(command_buffer&)` has to tell "the list I handed out this frame" from "some
      * other list": without RTTI there is no honest way to check the dynamic type, so the contract's
      * precondition is the caller's - and a backend that cannot recognise the list must refuse it BY
      * NAME instead of guessing. This stand-in is that "some other list": it declares the same
@@ -110,7 +110,20 @@ namespace {
      * caught. It lives in the TEST, because "not handed out by the backend" is exactly what the test
      * knows and the probe cannot.
      */
-    struct foreign_command_list final : rhi::command_list {
+    struct foreign_command_buffer final : rhi::command_buffer {
+        // the owner-side lifecycle, in the same everything-refused shape: this stand-in answers BOTH
+        // questions the contract asks (submit's list and execute's buffer), so one class serves both.
+        void release() noexcept override {
+        }
+        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error end_recording() noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
+            return rhi::error::invalid_argument;
+        }
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use, rhi::image_use) noexcept override {
             return rhi::error::invalid_argument;
         }
@@ -124,7 +137,7 @@ namespace {
             return rhi::error::invalid_argument;
         }
         // the record series (abi 20): the same everything-refused shape, so the stand-in stays a
-        // complete command_list as the interface grows
+        // complete command_buffer as the interface grows
         [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const&) override {
             return rhi::error::invalid_argument;
         }
@@ -186,22 +199,6 @@ namespace {
      * This stand-in is that "not mine" case, and it lives in the TEST because the test is what knows
      * the difference.
      */
-    struct foreign_command_buffer final : rhi::command_buffer {
-        void release() noexcept override {
-        }
-        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const&) override {
-            return rhi::error::invalid_argument;
-        }
-        [[nodiscard]] rhi::error end_recording() noexcept override {
-            return rhi::error::invalid_argument;
-        }
-        [[nodiscard]] rhi::command_list* recording() noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
-            return rhi::error::invalid_argument;
-        }
-    };
 
     /**
      * @brief everything the promise contract promises, driven through one pair of entry points
@@ -232,9 +229,9 @@ namespace {
         // shift) with the new tier-1 types, and the entry's out-parameter became `error_info*` -
         // the C signature is the other thing the number protects.
         // ABI14 is the frame verbs' completion (the boundary batch, one renumbering for one batch):
-        // `api_core` appended `submit(command_list&)` / `frame_swapchain()`, `present()` changed
+        // `api_core` appended `submit(command_buffer&)` / `frame_swapchain()`, `present()` changed
         // `void` -> `error` (a presentation that failed silently was information loss), and the two
-        // tier-1 vtables that carry the new recording surface grew - `command_list` appended
+        // tier-1 vtables that carry the new recording surface grew - `command_buffer` appended
         // `begin_gpu_timing()` / `mark_gpu_timing(index, name)`, `swapchain` appended `recreate()` /
         // `extent()`. Appends and a return-type change on tier-1 vtables are exactly the case the
         // number exists for.
@@ -275,6 +272,10 @@ namespace {
         // of the device root out of the runtime into deren.vulkan.backend_loader, called by main.cpp -
         // which is why this test's subject (the loader) is now something the app uses rather than
         // something the runtime hides.
+        // ABI20 is the RECORDING FACE's merge: `command_list` is DELETED and every one of its verbs is
+        // declared once on `command_buffer` itself, so the recording vtables moved without a new
+        // tier-1 type. ABI21 is the OWNING factory (`api_core::make_command_buffer`, the virtual whose
+        // deleter is the contract's own `release()`) and this line moves to 21u with it.
         CHECK(rhi::abi_version == 20u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
@@ -478,7 +479,7 @@ namespace {
         // timestamp (its profiler says `unsupported`, and so do these two), but the ORDER rule is
         // measured here all the same: the positional index is checked before the capability, so an
         // index that is not the next mark is refused BY NAME.
-        rhi::command_list* const commands = core->begin_commands();
+        rhi::command_buffer* const commands = core->begin_commands();
         CHECK(commands != nullptr); // a frame is open: wait_and_acquire above opened it
         CHECK(core->begin_commands() == commands);
         CHECK(commands->begin_gpu_timing() == rhi::error::unsupported);
@@ -488,8 +489,8 @@ namespace {
         // SUBMIT (abi 14): the frame's own list is accepted and hands the frame over; a list the
         // backend did not hand out is refused by name; and after the hand-over there is no frame to
         // submit any more.
-        foreign_command_list foreign{};
-        CHECK_MSG(core->submit(foreign) == rhi::error::invalid_argument, which_half);
+        foreign_command_buffer foreign_list_stand_in{};
+        CHECK_MSG(core->submit(foreign_list_stand_in) == rhi::error::invalid_argument, which_half);
         CHECK_MSG(core->submit(*commands) == rhi::error::ok, which_half);
         CHECK(core->begin_commands() == nullptr); // handed over: no frame is open to record into
         CHECK(core->submit(*commands) == rhi::error::not_ready);
@@ -502,13 +503,11 @@ namespace {
         CHECK_MSG(recorded != nullptr, which_half);
         if (recorded != nullptr) {
             CHECK(recorded->type() == rhi::command_buffer::interface_id);
-            // the borrowed recording view: the same object every call, exactly like the frame's list
-            rhi::command_list* const recorded_view = recorded->recording();
-            CHECK(recorded_view != nullptr);
-            CHECK(recorded->recording() == recorded_view);
-            // ... and the frame-scoped verbs refuse a list that is not the frame's (the contract's own
-            // window for `use` / the timing pair)
-            CHECK(recorded_view->begin_gpu_timing() == rhi::error::not_ready);
+            // THE FRAME-SCOPED VERBS REFUSE A BUFFER THAT IS NOT THE FRAME'S (the contract's own window
+            // for `use` and the timing pair): `recording()` and its borrowed view are GONE with
+            // `command_list` - the owned buffer IS the recording face now - so what used to be asserted
+            // through the view is asserted on the buffer itself.
+            CHECK(recorded->begin_gpu_timing() == rhi::error::not_ready);
             // the recording lifecycle, portable usage bits and all
             CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{.usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit)}) == rhi::error::ok);
             CHECK(recorded->end_recording() == rhi::error::ok);
@@ -517,13 +516,13 @@ namespace {
             // this backend's own is accepted.
             rhi::command_buffer* const secondary = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary});
             CHECK(secondary == recorded); // one static stand-in per probe, reset on each create
-            foreign_command_buffer foreign{};
-            CHECK_MSG(recorded->execute(foreign) == rhi::error::invalid_argument, which_half);
+            foreign_command_buffer foreign_buffer_stand_in{};
+            CHECK_MSG(recorded->begin_gpu_timing() == rhi::error::not_ready, which_half); // the frame's range is not this buffer's
+            CHECK_MSG(recorded->execute(foreign_buffer_stand_in) == rhi::error::invalid_argument, which_half);
             CHECK_MSG(recorded->execute(*recorded) == rhi::error::ok, which_half);
             // RELEASE drops the one reference, and the probe echoes it: every later verb is not_ready
             recorded->release();
             CHECK(recorded->begin_recording(rhi::command_buffer_begin_info{}) == rhi::error::not_ready);
-            CHECK(recorded->recording() == nullptr);
         }
         // a kind outside the two roles is the factory's one refusal (`nullptr`, the contract's rule)
         CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);

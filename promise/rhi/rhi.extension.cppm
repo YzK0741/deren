@@ -73,7 +73,7 @@ export namespace deren::promise::rhi {
     struct heap_bind_info;
     struct heap_push_info;
     struct buffer;
-    struct command_list;
+    struct command_buffer;
     struct image;
     struct image_view;
     struct sampler;
@@ -216,7 +216,7 @@ export namespace deren::promise::rhi {
         }
         /// Record `groups_x` x `groups_y` x `groups_z` mesh workgroups into `commands`
         /// (plan §5: 19 `vkCmdDrawMeshTasksEXT` calls plus 4 indirect ones).
-        virtual void dispatch_mesh(command_list& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
+        virtual void dispatch_mesh(command_buffer& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
     };
 
     /// tier-2 ability: acceleration structures and ray tracing.
@@ -240,10 +240,10 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual std::uint64_t acceleration_structure_address(acceleration_structure const& structure) const noexcept = 0;
 
         /// Record the build of `target` into `commands`.
-        virtual void build_acceleration_structure(command_list& commands, acceleration_structure& target) = 0;
+        virtual void build_acceleration_structure(command_buffer& commands, acceleration_structure& target) = 0;
 
         /// Record a trace of `width` x `height` pixels, `depth` rays deep.
-        virtual void trace_rays(command_list& commands, std::uint32_t width, std::uint32_t height, std::uint32_t depth) = 0;
+        virtual void trace_rays(command_buffer& commands, std::uint32_t width, std::uint32_t height, std::uint32_t depth) = 0;
 
         // Micromaps (3 mentions), RT pipeline creation (3) and shader group handles (1)
         // are the remaining entries in §5's row for this ability; they land with S1.
@@ -341,11 +341,11 @@ export namespace deren::promise::rhi {
     };
     struct heap_bind_info {
         structure_header header{structure_type::heap_bind, sizeof(heap_bind_info), nullptr};
-        command_list* commands = nullptr;
+        command_buffer* commands = nullptr;
     };
     struct heap_push_info {
         structure_header header{structure_type::heap_push, sizeof(heap_push_info), nullptr};
-        command_list* commands = nullptr;
+        command_buffer* commands = nullptr;
         std::uint32_t offset = 0;
         std::span<std::byte const> data;
     };
@@ -453,7 +453,7 @@ export namespace deren::promise::rhi {
         /// The PRIMARY command buffer of the frame `commands` belongs to, as VkCommandBuffer; nullptr
         /// when no frame is in flight. This is what lets an escaping pass record raw Vulkan into the
         /// frame it is part of.
-        [[nodiscard]] virtual void* native_command_buffer(command_list& commands) const noexcept = 0;
+        [[nodiscard]] virtual void* native_command_buffer(command_buffer& commands) const noexcept = 0;
 
         /// The instance/device extensions this context ENABLED, NUL-terminated names, in the backend's
         /// own storage (valid for the context's lifetime). The escape's guard rail: a pass checks the

@@ -108,14 +108,28 @@ namespace {
     /**
      * @brief a command list the REAL backend never handed out - the foreign-list refusal's subject
      *
-     * abi 14 put `submit(command_list&)` on the contract, and with it the question "is this list
+     * abi 14 put `submit(command_buffer&)` on the contract, and with it the question "is this list
      * mine?". Without RTTI the backend cannot check the dynamic type, so the contract's precondition
      * is the caller's, and a backend that cannot recognise the list must refuse it BY NAME rather
      * than guess. This stand-in is the "not mine" half of that pair: it answers `invalid_argument`
      * to everything, so a backend that accepted it would be caught here. It lives in the SPIKE,
      * because "not handed out by the backend" is what this side knows and the DLL cannot.
      */
-    struct foreign_command_list final : rhi::command_list {
+    struct foreign_command_buffer final : rhi::command_buffer {
+        // the owner-side lifecycle, in the same everything-refused shape: this stand-in is "not
+        // handed out by the backend" for BOTH questions the contract asks (submit's list and
+        // execute's buffer), so one class answers both.
+        void release() noexcept override {
+        }
+        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error end_recording() noexcept override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
+            return rhi::error::invalid_argument;
+        }
         [[nodiscard]] rhi::error use(rhi::image const&, rhi::image_use, rhi::image_use) noexcept override {
             return rhi::error::invalid_argument;
         }
@@ -129,7 +143,7 @@ namespace {
             return rhi::error::invalid_argument;
         }
         // the record series (abi 20): the same everything-refused shape, so the stand-in stays a
-        // complete command_list as the interface grows
+        // complete command_buffer as the interface grows
         [[nodiscard]] rhi::error begin_rendering(rhi::rendering_info const&) override {
             return rhi::error::invalid_argument;
         }
@@ -191,22 +205,6 @@ namespace {
      * stand-in is the "not mine" case, and it lives in the SPIKE because "not handed out by the
      * backend" is what this side knows and the DLL cannot.
      */
-    struct foreign_command_buffer final : rhi::command_buffer {
-        void release() noexcept override {
-        }
-        [[nodiscard]] rhi::error begin_recording(rhi::command_buffer_begin_info const&) override {
-            return rhi::error::invalid_argument;
-        }
-        [[nodiscard]] rhi::error end_recording() noexcept override {
-            return rhi::error::invalid_argument;
-        }
-        [[nodiscard]] rhi::command_list* recording() noexcept override {
-            return nullptr;
-        }
-        [[nodiscard]] rhi::error execute(rhi::command_buffer&) override {
-            return rhi::error::invalid_argument;
-        }
-    };
 
     /// Q4 (weak form) + the ABI handshake, driven through the symbols the DLL itself exports.
     void check_the_handshake(make_core_fn make_core) {
@@ -216,7 +214,7 @@ namespace {
         // diagnostic, so the assertions below read the fields a bare `error` could not carry. (abi 14
         // did not change this structure, and neither did abi 15: the frame verbs - `api_core::submit()` /
         // `frame_swapchain()`, `swapchain::recreate()` / `extent()`, the two timing verbs on
-        // `command_list` - were APPENDED, and abi 15 appended the owned `command_buffer` interface plus
+        // `command_buffer` is the ONE recording face now (abi 21), and abi 15 appended the owned
         // `api_core::create_command_buffer()`, with `present()`'s return changing from void to error in
         // 14 - exactly the vtable case the number exists for; the number itself is compared symbolically
         // below, never spelled here, so a renumbering cannot silently pass this file.)
@@ -576,7 +574,7 @@ namespace {
             // SUBMIT: with no frame context the list to hand over does not exist. What this test CAN
             // measure is the other half of the verb's precondition - a list the backend never handed
             // out is refused BY NAME, never accepted and never guessed at.
-            foreign_command_list foreign{};
+            foreign_command_buffer foreign{};
             CHECK_MSG(core->submit(foreign) == rhi::error::invalid_argument,
                       "a command list this backend did not hand out is refused by name");
 
@@ -600,13 +598,23 @@ namespace {
             CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
             if (primary && secondary) {
                 CHECK(primary->type() == rhi::command_buffer::interface_id);
-                // the borrowed recording view: the same object every call, and NOT the frame's list
-                rhi::command_list* const view = primary->recording();
-                CHECK(view != nullptr);
-                CHECK(primary->recording() == view);
-                CHECK_MSG(view->begin_gpu_timing() == rhi::error::not_ready,
+                // THE BORROWED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
+                // view it returned): the owned buffer IS the recording face now, so the distinction
+                // this line used to draw - the view is NOT the frame's list - is drawn against the
+                // frame's own buffer instead: `begin_commands()` answers nothing outside a frame
+                // (checked above), and the owned buffer is a different object from it.
+                CHECK(core->begin_commands() != static_cast<rhi::command_buffer*>(&*primary));
+                // ... AND THE PROVENANCE RULE REACHES THE OWNED BUFFER TOO: the frame's own borrowed
+                // buffer and an owned one are different objects (which is what `recording()`'s view
+                // used to say), so `submit()` refuses the owned one BY NAME - and leaves the frame
+                // open, which is why the check above still holds after this call.
+                CHECK_MSG(core->submit(*primary) == rhi::error::invalid_argument,
+                          "an owned command buffer is not the frame's borrowed one, so submit refuses it by name");
+                rhi::error const timing_open = primary->begin_gpu_timing();
+                CHECK_MSG(timing_open == rhi::error::not_ready,
                           "the frame-scoped timing verbs refuse a list that is not the frame's");
-                CHECK_MSG(view->mark_gpu_timing(0, "not the frame's") == rhi::error::not_ready,
+                rhi::error const timing_mark = primary->mark_gpu_timing(0, "not the frame's");
+                CHECK_MSG(timing_mark == rhi::error::not_ready,
                           "the frame-scoped mark verb refuses the same way");
                 // THE NATIVE HANDLE: the escape answers it for a buffer the CALLER owns, outside any
                 // frame - which is the read-back's case (its read runs after the frame has landed).
@@ -614,7 +622,7 @@ namespace {
                 CHECK(escape_extension != nullptr);
                 if (escape_extension != nullptr) {
                     auto* const escape = static_cast<rhi::vulkan_escape*>(escape_extension);
-                    CHECK_MSG(escape->native_command_buffer(*view) != nullptr,
+                    CHECK_MSG(escape->native_command_buffer(*primary) != nullptr,
                               "an owned buffer's raw handle answers through the escape outside a frame");
                 }
 

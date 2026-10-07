@@ -35,6 +35,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.megalights_trace;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -142,11 +143,11 @@ export namespace deren::vulkan::pass {
          * every frame instead of an average of different ones.
          */
         uint32_t frame_index = 0;
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    };
+    }; // namespace deren::vulkan::pass
 
     static_assert(sizeof(megalights_trace_pass::push_constants) == render_resource::megalights_trace_io.push->size,
                   "the pass's composed push block must be the size its declaration pins");

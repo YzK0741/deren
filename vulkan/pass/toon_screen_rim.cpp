@@ -64,13 +64,13 @@ namespace deren::vulkan::pass {
     }
 
     void toon_screen_rim_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -149,11 +149,25 @@ namespace deren::vulkan::pass {
         if (target_view == VK_NULL_HANDLE) {
             return;
         }
-        // LOAD, not clear: this instance ADDS to the frame the character-forward stage wrote.
-        VkRenderingAttachmentInfo const attachment = make_load_color_attachment_info(target_view);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
+        // LOAD, not clear: this instance ADDS to the frame the character-forward stage wrote. THE RENDERING SCOPE
+        // RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw helper spelled), no
+        // depth - the whole scope this pass opens.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // nothing here executes a secondary command buffer
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // NO SET TO BIND: the depth and the albedo are per-swapchain-image heap slots the shader indexes with
         // the image index its push block carries. The two projection terms are the frame's (they are the same
         // pair the debug view's depth channel linearizes with), and the rest is this pass's own parameter.
@@ -168,9 +182,9 @@ namespace deren::vulkan::pass {
             .pad2 = 0.0f,
             .rim_colour = {this->rim_colour[0], this->rim_colour[1], this->rim_colour[2], 1.0f},
         };
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(io.cmd);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->draw(3, 1, 0, 0);
+        io.list->end_rendering();
     }
 
 } // namespace deren::vulkan::pass

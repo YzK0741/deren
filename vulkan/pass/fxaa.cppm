@@ -37,6 +37,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.fxaa;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -110,15 +111,15 @@ export namespace deren::vulkan::pass {
             .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         /// the surface's format, cached at create: the push block's `encode_gamma` lane follows from it, and a
         /// session-stable device fact is exactly what a create step may keep (see the composite, which does the
-        /// same for its own frame's target choice)
-        VkFormat swap_chain_format = VK_FORMAT_UNDEFINED;
+        /// same for its own frame's target choice). THE CONTRACT'S SPELLING (abi 20): the pass layer names no
+        /// `VkFormat`, and the create step is handed `pass_context::swap_chain_image_format`.
+        deren::promise::rhi::image_format swap_chain_format = deren::promise::rhi::image_format::unknown;
         // called overlay_callback, not overlay: set_overlay()'s overlay parameter in fxaa.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         /// the host's overlay hook, installed once (see set_overlay): this pass draws it whenever it runs
@@ -126,7 +127,7 @@ export namespace deren::vulkan::pass {
         // called pass_frame, not frame: set_frame()'s frame parameter in fxaa.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         fxaa_frame pass_frame = {};
-    };
+    }; // namespace deren::vulkan::pass
 
     /// THE DECLARATION'S NUMBER AND THE PASS'S STRUCT CANNOT DRIFT, and here the struct is the post chain's: FXAA
     /// is mode 3 of the same shader's push block, so this asserts the two the host composes into and the pass

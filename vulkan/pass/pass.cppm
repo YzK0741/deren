@@ -35,6 +35,7 @@ module;
 #include <algorithm> // std::max in the extent rule
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <vector>
@@ -151,7 +152,7 @@ export namespace deren::vulkan::pass {
         /// is what a pass that owns per-image bindings sizes it from. The passes that own them need it,
         /// and it is the kind of fact that used to be reachable only from inside `deren.vulkan.runtime`
         uint32_t image_count = 0;
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {};
     };
 
     /// @brief one resolved own binding: the handles this binding's resource actually is
@@ -221,12 +222,12 @@ export namespace deren::vulkan::pass {
         frame_identity frame = {};
         /// THE command buffer is handed out per frame, at recording time, and never stored: a pass records
         /// into what it is given, which is why it holds no device state between frames.
-        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        std::shared_ptr<deren::promise::rhi::command_buffer> cmd = {};
         /// THE RECORDING VIEW (abi 20): the contract list the record series rides (`barrier`,
         /// `begin_rendering`, `draw`, ...), the same object `begin_commands()` answers this frame. The raw
         /// handle above stays for the third-party overlay's recording and the heap push endpoint, which the
         /// record series deliberately does not carry (the heap face's push_data already takes the list).
-        deren::promise::rhi::command_list* list = nullptr;
+        deren::promise::rhi::command_buffer* list = nullptr;
         /// the storage `own` views
         std::array<resolved_binding, max_own_bindings> own_storage = {};
         /// the pass's own binding number -> the handles that binding's resource is (exactly one is set)
@@ -258,13 +259,13 @@ export namespace deren::vulkan::pass {
          */
         struct push_endpoint {
             void* owner = nullptr;
-            bool (*push)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+            bool (*push)(void* owner, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
 
             /// @param command_buffer the command buffer the block is sent on
             /// @param bytes the stage's push block, with the heap index lanes already appended
             /// @param extra_lane the POST chain's own source slot, which only that chain's passes can name; every
             ///        other stage leaves it 0 and its shader does not declare the third field at all.
-            [[nodiscard]] bool operator()(VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane = 0u) const {
+            [[nodiscard]] bool operator()(deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane = 0u) const {
                 return this->push != nullptr && this->push(this->owner, command_buffer, bytes, extra_lane);
             }
         };
@@ -345,7 +346,7 @@ export namespace deren::vulkan::pass {
         frame_constants constants = {};
         /// the extent THIS pass works at: the frame's, half of it, or a resource's, per `behaviour::extent` -
         /// and EMPTY for a pass that declared `extent_rule::none`, which sizes its own work from its frame
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {};
     };
 
     // =============================================================================================
@@ -359,6 +360,49 @@ export namespace deren::vulkan::pass {
     struct owned_pipeline {
         VkPipeline pipeline = VK_NULL_HANDLE;
     };
+
+    /**
+     * @brief the RAW `VkCommandBuffer` behind a contract buffer, for the sites the record series cannot
+     *        spell YET.
+     *
+     * ONE USER, AND IT IS TRANSITIONAL: `command_buffer::bind_pipeline` binds what
+     * `api_core::create_pipeline` made, and the COMPUTE and ray-tracing assemblies are still created raw
+     * through the escape (`vulkan/pipelines/pipelines.cppm`'s `vkCreateComputePipelines` builders), so a
+     * compute pass that binds its own pipeline has no contract handle to bind. This helper is how such a
+     * site reaches the native command buffer WITHOUT the pass layer carrying a raw handle it would then
+     * have to keep in step: the escape is the contract's own, documented answer for "the contract has no
+     * concept for this yet".
+     *
+     * IT ANSWERS NULL rather than casting a foreign pointer: a face that does not announce
+     * `vulkan_escape` (a non-Vulkan backend) has no native command buffer at all, and the caller then
+     * records nothing instead of mis-casting. The pipeline migration (§8.2 of the recording-face note)
+     * deletes this helper together with its call sites.
+     */
+    [[nodiscard]] inline VkCommandBuffer native_commands(deren::promise::rhi::api_core* const face,
+                                                         deren::promise::rhi::command_buffer& commands) noexcept {
+        if (face == nullptr) {
+            return VK_NULL_HANDLE;
+        }
+        auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
+            face->query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
+        if (escape == nullptr) {
+            return VK_NULL_HANDLE;
+        }
+        return static_cast<VkCommandBuffer>(escape->native_command_buffer(commands));
+    }
+
+    /**
+     * @brief whether a CONTRACT format's attachment write path encodes linear -> sRGB in HARDWARE.
+     *
+     * THE PASS LAYER HOLDS NO `VkFormat`, which is why this exists rather than the callers reaching for
+     * `deren.vulkan.constant_init::is_srgb_format(VkFormat)`: that module deliberately depends on nothing but the
+     * Vulkan headers, so a contract-spelled overload cannot live there. One definition, shared by the two post
+     * passes (composite and FXAA) and the upscale - a second switch would be a second place for the list of
+     * formats to fall behind, which is the argument the Vulkan-spelled original already makes.
+     */
+    [[nodiscard]] constexpr bool is_srgb_swapchain_format(deren::promise::rhi::image_format const format) noexcept {
+        return format == deren::promise::rhi::image_format::rgba8_srgb || format == deren::promise::rhi::image_format::bgra8_srgb;
+    }
 
     /**
      * @brief what a pass needs to turn its OWN declaration into this frame's handles
@@ -382,16 +426,16 @@ export namespace deren::vulkan::pass {
         frame_identity frame = {};
         /// THE command buffer, handed out here for the same reason `resolved_io::cmd` exists: a pass records
         /// into what it is given and stores no device state between frames
-        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        std::shared_ptr<deren::promise::rhi::command_buffer> cmd = {};
         /// THE RECORDING VIEW (abi 20): the contract list the record series rides - the same frame list
         /// `begin_commands()` answers, beside the raw handle above (which the third-party overlay's
         /// recording and the heap push endpoint still take)
-        deren::promise::rhi::command_list* list = nullptr;
+        deren::promise::rhi::command_buffer* list = nullptr;
         /**
          * The extent of a resource element the behaviour named (`extent_rule::resource`), or {0,0} for an
          * element the owner does not have - only the owner knows its own images' sizes
          */
-        VkExtent2D (*extent_of)(void* owner, render_resource::resource_id id, uint32_t element) = nullptr;
+        deren::promise::rhi::image_extent (*extent_of)(void* owner, render_resource::resource_id id, uint32_t element) = nullptr;
         /// the pipeline a `behaviour::pipelines` NAME refers to, or all-null when the owner has none
         owned_pipeline (*pipeline)(void* owner, std::string_view name) = nullptr;
         /// what every lookup above is called with
@@ -423,7 +467,9 @@ export namespace deren::vulkan::pass {
      * thing that creates an IMAGE, so a pass cannot take over an image family through this struct.
      */
     struct pass_context {
-        /// the device a pass builds its own objects on (the owner fills this from the filtered core view)
+        /// the device a pass builds its own objects on: filled from the filtered core view. It stays until
+        /// the pipeline builders take rhi::api_core alone (they are the last users); the pass FILES no
+        /// longer keep one of their own.
         VkDevice device = VK_NULL_HANDLE;
         /// THE CONTRACT FACE (abi 8): what a pass's own create step builds its pipelines through -
         /// `rhi::api_core&` of the same backend `device` belongs to, so a call through it emits no
@@ -476,14 +522,14 @@ export namespace deren::vulkan::pass {
          * rebuilds that object in `on_swapchain_recreated` - the hook that exists for it. A format never changes
          * for a given surface, so a pass may cache this at create time.
          */
-        VkFormat swap_chain_image_format = VK_FORMAT_UNDEFINED;
+        deren::promise::rhi::image_format swap_chain_image_format = deren::promise::rhi::image_format::unknown;
         /**
          * The DEPTH format, the second session-stable format a pass may need - and the one the shadow pass cannot
          * do without: its pipeline has a depth attachment and no colour one, so `swap_chain_image_format` is the
          * wrong fact for it. It is a SESSION-STABLE device fact for the same reason the surface's is (the renderer
          * finds it once at startup), which is what lets a pass cache it at create time.
          */
-        VkFormat depth_format = VK_FORMAT_UNDEFINED;
+        deren::promise::rhi::image_format depth_format = deren::promise::rhi::image_format::unknown;
         /**
          * Whether the DEVICE can run a mesh pipeline, i.e. whether a pass may build one at all (see
          * docs/mesh_shaders.md).
@@ -569,7 +615,7 @@ export namespace deren::vulkan::pass {
      */
     struct draw_callback {
         /// the host's function; null means "nothing to draw after this pass"
-        void (*record)(void* owner, VkCommandBuffer command_buffer) = nullptr;
+        void (*record)(void* owner, deren::promise::rhi::command_buffer& command_buffer) = nullptr;
         /// what it is called with (the host's own context)
         void* owner = nullptr;
 
@@ -1165,18 +1211,22 @@ export namespace deren::vulkan::pass {
      *       formula. `resource` is the owner's answer, because only it knows its own images' sizes; `none`
      *       means the pass sizes its own work and gets {0,0}
      */
-    [[nodiscard]] inline VkExtent2D resolve_extent(behaviour const& how, resolve_context const& context) noexcept {
+    [[nodiscard]] inline deren::promise::rhi::image_extent resolve_extent(behaviour const& how, resolve_context const& context) noexcept {
         switch (how.extent) {
         case extent_rule::full:
             return context.frame.extent;
         case extent_rule::half:
-            return VkExtent2D{std::max(1u, context.frame.extent.width / 2u), std::max(1u, context.frame.extent.height / 2u)};
+            return deren::promise::rhi::image_extent{std::max(1u, context.frame.extent.width / 2u), std::max(1u, context.frame.extent.height / 2u)};
         case extent_rule::resource:
-            return context.extent_of == nullptr ? VkExtent2D{} : context.extent_of(context.owner, how.extent_of, how.extent_of_element);
+            return context.extent_of == nullptr ? deren::promise::rhi::image_extent{} : context.extent_of(context.owner, how.extent_of, how.extent_of_element);
         case extent_rule::none:
-            return VkExtent2D{};
+            // "I SIZE MY OWN WORK" IS 0x0, NOT THE TYPE'S DEFAULT: `rhi::image_extent{}` is {0, 1, 1} (the
+            // contract's "a 2D image has one row at least"), and a pass that declared `none` reads this field to
+            // decide whether the frame sized anything for it - so the height is set to zero explicitly, which is
+            // the answer the field's own note promises.
+            return deren::promise::rhi::image_extent{.width = 0, .height = 0, .depth = 1};
         }
-        return VkExtent2D{};
+        return deren::promise::rhi::image_extent{.width = 0, .height = 0, .depth = 1};
     }
 
     /**

@@ -43,6 +43,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.toon_screen_rim;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -118,8 +119,7 @@ export namespace deren::vulkan::pass {
             .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
@@ -127,7 +127,7 @@ export namespace deren::vulkan::pass {
         float rim_scale = 4.0f;
         float rim_strength = 0.55f;
         float rim_colour[3] = {1.0f, 0.94f, 0.90f};
-    };
+    }; // namespace deren::vulkan::pass
 
     /// the pass's own block: the eight composed values plus the colour, and the framework appends the two heap
     /// lanes on top (see the shader).

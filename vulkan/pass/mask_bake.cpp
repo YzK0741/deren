@@ -37,13 +37,13 @@ namespace deren::vulkan::pass {
     }
 
     std::expected<void, std::string> mask_bake_job::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return std::unexpected(std::string("mask bake: no device"));
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(std::string("mask bake: the owner has no ") + std::string(shader_name));
@@ -59,8 +59,8 @@ namespace deren::vulkan::pass {
         return {};
     }
 
-    void mask_bake_job::record(VkCommandBuffer const command_buffer, mask_bake_request const& request, void* const push_owner,
-                               bool (*push_raw)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes)) const noexcept {
+    void mask_bake_job::record(deren::promise::rhi::command_buffer& commands, mask_bake_request const& request, void* const push_owner,
+                               bool (*push_raw)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes)) const noexcept {
         if (!this->ready() || request.triangle_count == 0) {
             return;
         }
@@ -76,15 +76,24 @@ namespace deren::vulkan::pass {
         bake.index_type = request.index_type;
         bake.triangle_count = request.triangle_count;
         bake.material_index = request.material_index;
-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline());
+        // THE BIND IS THE ONE RAW STEP LEFT, and it is raw because this job's compute pipeline is not a CONTRACT
+        // pipeline yet: `command_buffer::bind_pipeline` binds what `create_pipeline` made, and the compute
+        // assemblies are still created through `vkCreateComputePipelines` (the pipeline migration, §8.2 of the
+        // recording-face note, is what removes this). The native handle comes from the contract's own escape, and
+        // a face that answers none records nothing rather than mis-casting a foreign pointer.
+        VkCommandBuffer const native = pass::native_commands(this->built_against, commands);
+        if (native == VK_NULL_HANDLE) {
+            return;
+        }
+        vkCmdBindPipeline(native, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline());
         // THE BLOCK GOES AS DATA, not as a push constant: the pipeline has no layout (see the header). This shader
         // declares no heap indices, so nothing is appended - the block is pushed exactly as declared. The job's own
         // set is no longer bound either: the material table and the bindless textures are heap slots the shader
         // names itself, and a set bound to a layout-less pipeline is invalid.
         if (push_raw != nullptr) {
-            [[maybe_unused]] bool const pushed = push_raw(push_owner, command_buffer, std::as_bytes(std::span(&bake, 1)));
+            [[maybe_unused]] bool const pushed = push_raw(push_owner, commands, std::as_bytes(std::span(&bake, 1)));
         }
-        vkCmdDispatch(command_buffer, (bake.triangle_count + group_size - 1u) / group_size, 1, 1);
+        commands.dispatch((bake.triangle_count + group_size - 1u) / group_size, 1, 1);
     }
 
 } // namespace deren::vulkan::pass

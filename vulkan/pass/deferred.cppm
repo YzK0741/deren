@@ -31,6 +31,7 @@ module;
 #include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.deferred;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -148,8 +149,7 @@ export namespace deren::vulkan::pass {
             .resync_viewport = true, // the runner sets the viewport and scissor from io.extent
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
@@ -169,7 +169,7 @@ export namespace deren::vulkan::pass {
         // called pass_frame, not frame: set_frame()'s frame parameter in deferred.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         deferred_frame pass_frame = {};
-    };
+    }; // namespace deren::vulkan::pass
 
     static_assert(sizeof(deferred_pass::push_constants) == render_resource::deferred_io.push->size,
                   "the lighting stage's declared push block must be the size of the struct the renderer composes");

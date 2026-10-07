@@ -57,13 +57,13 @@ namespace deren::vulkan::pass {
     }
 
     void post_composite_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->composite.has_value()) {
             return; // already built for this device
         }
@@ -181,7 +181,7 @@ namespace deren::vulkan::pass {
             // for the reason that field records.
             .bloom_intensity = this->pass_frame.suppress_bloom ? 0.0f : settings.bloom_intensity,
             .bloom_threshold = settings.bloom_threshold,
-            .encode_gamma = writing_ldr ? 1.0f : (deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f),
+            .encode_gamma = writing_ldr ? 1.0f : (is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f),
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -237,7 +237,7 @@ namespace deren::vulkan::pass {
             return;
         }
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: the debug overlay composites a UI over the image
         // this draw just wrote and has no load op of its own, so it can be neither a pass nor outside the
@@ -245,7 +245,7 @@ namespace deren::vulkan::pass {
         // last writer instead, which its own frame decided in prepare_frame). The overlay records RAW (its
         // third-party recorder is not a contract consumer), which is why io.cmd stays beside the list.
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
     }
@@ -363,7 +363,7 @@ namespace deren::vulkan::pass {
         // THIS LEVEL'S SOURCE: the third lane says which one, and the HOST turns it into a heap slot (see
         // runtime::push_stage_block). Level 0 (the prefilter) and the composite read the HDR target, which is the
         // lane's 0; a downsample at level N reads the level above it, which is N.
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push), this->bloom_level);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push), this->bloom_level);
         io.list->draw(3, 1, 0, 0);
         io.list->end_rendering();
         // THE HAND-BACK, and it is the deepest level's because it has no successor to do it for it: the composite

@@ -45,6 +45,7 @@ module;
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <memory> // std::shared_ptr: make_command_buffer's control block
 #include <optional>
 #include <span>
 #include <string>
@@ -832,7 +833,7 @@ namespace deren::vulkan {
         static_assert(heap_descriptor_type(rhi::descriptor_type::uniform_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
         static_assert(heap_descriptor_type(rhi::descriptor_type::storage_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
 
-        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_list* const commands,
+        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_buffer* const commands,
                                                     rhi::structure_header const* const next, rhi::error& result) noexcept {
             if (next != nullptr) {
                 if (next->s_type != rhi::structure_type::vulkan_command_buffer) {
@@ -1499,7 +1500,7 @@ namespace deren::vulkan {
         return nullptr;
     }
 
-    rhi::command_list* core::begin_commands() {
+    rhi::command_buffer* core::begin_commands() {
         // THE RECORDING VIEW OF THE FRAME IN FLIGHT, OR nullptr WHEN THERE IS NONE. The verb is not
         // literal yet: the frame's own vkBeginCommandBuffer/vkEndCommandBuffer still belong to the
         // engine, which also decides the present recipe - this call starts nothing, it hands out the
@@ -1541,10 +1542,10 @@ namespace deren::vulkan {
             return nullptr;
         }
         // ITS RECORDING VIEW IS THIS BUFFER'S OWN (abi 15): the list the contract hands back knows which
-        // buffer it records into, which is what keeps one `command_list` type serving both the frame's
+        // buffer it records into, which is what keeps one `command_buffer` type serving both the frame's
         // list and every owned buffer.
-        answer->list.owner = this;
-        answer->list.target = *answer->buffer;
+        answer->owner = this;
+        answer->target = *answer->buffer;
         {
             // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: `execute()` and the
             // escape's native-handle answer must tell a buffer this backend made from a pointer a
@@ -1556,6 +1557,21 @@ namespace deren::vulkan {
                             kind == rhi::command_buffer_kind::secondary ? "secondary" : "primary",
                             reinterpret_cast<std::uintptr_t>(*answer->buffer));
         return answer;
+    }
+
+    std::shared_ptr<rhi::command_buffer> core::make_command_buffer(rhi::command_buffer_desc const& desc) {
+        rhi::command_buffer* const raw = this->create_command_buffer(desc);
+        if (raw == nullptr) {
+            return {}; // the refusal was named where it happened; an empty shared_ptr is the same answer
+        }
+        // THE CONTROL BLOCK OWNS THE DROP, and the drop IS `release()`: this introduces no second
+        // lifetime rule - it is the contract's one-reference drop, called from the deleter instead of
+        // from a call site.
+        return std::shared_ptr<rhi::command_buffer>(raw, [](rhi::command_buffer* const p) noexcept {
+            if (p != nullptr) {
+                p->release();
+            }
+        });
     }
 
     void core::owned_command_buffer::release() noexcept {
@@ -1586,6 +1602,9 @@ namespace deren::vulkan {
         }
 
         VkCommandBufferInheritanceRenderingInfo rendering = {};
+        VkCommandBufferInheritanceDescriptorHeapInfoEXT heap_inheritance = {};
+        VkBindHeapInfoEXT resource_bind = {};
+        VkBindHeapInfoEXT sampler_bind = {};
         VkCommandBufferInheritanceInfo inheritance = {};
         bool const inherits = next != nullptr;
         if (inherits) {
@@ -1620,6 +1639,38 @@ namespace deren::vulkan {
             // them. Refused by name rather than begun into an unvalidated state.
             return rhi::error::unsupported;
         }
+        // ---- THE DESCRIPTOR HEAPS A CONTINUATION INHERITS (VUID-vkCmdDrawIndexed-None-11308) -----------
+        //
+        // WHY THE BACKEND DERIVES THIS INSTEAD OF THE CALLER HANDING IT OVER: a descriptor heap is the
+        // BACKEND's own state - this class owns both heaps, `heap_inheritance`'s two bind infos come
+        // straight out of `descriptor_heaps` (the same two `record_bind` binds for a primary), and the
+        // CONTRACT's `begin_recording` says so in its own words: the parameter chain carries what the
+        // caller knows (which attachment formats the instance has), and "the backend owns the
+        // compatibility rules" - which heap state a secondary is validated against is exactly such a
+        // rule. Asking every caller to reach for `VkCommandBufferInheritanceDescriptorHeapInfoEXT`
+        // would put this backend's heap layout into the engine half (the boundary this whole face
+        // exists to hold), and a caller that forgot it would produce a BLACK secondary with the only
+        // symptom being a VUID nobody reads.
+        //
+        // A SECONDARY IS VALIDATED ON ITS OWN, so the bind the primary recorded never reaches it - and
+        // an inherited heap is only meaningful for a continuation, which is the one case where the
+        // secondary's draws are validated against the instance the primary opened. It is chained in
+        // FRONT of whatever the caller's own chain put in `pNext` (the attachment inheritance above),
+        // because a chain is a list and this entry is the backend's, not the caller's. Only when the
+        // heap face is ACTIVE: a device without VK_EXT_descriptor_heap leaves both heaps unusable, the
+        // bind infos stay zero, and chaining a heap the device never got would be worse than leaving it
+        // out - the same "the heap is simply unused" state every other heap path in this file accepts.
+        if (this->owner->descriptor_heaps.ready() && (inherits || rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue))) {
+            this->owner->descriptor_heaps.bind_infos(resource_bind, sampler_bind);
+            heap_inheritance = VkCommandBufferInheritanceDescriptorHeapInfoEXT{
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
+                .pNext = inheritance.pNext,
+                .pSamplerHeapBindInfo = &sampler_bind,
+                .pResourceHeapBindInfo = &resource_bind,
+            };
+            inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+            inheritance.pNext = &heap_inheritance;
+        }
 
         VkCommandBufferUsageFlags flags = 0;
         if (rhi::has_flag(usage, rhi::command_buffer_usage::one_time_submit)) {
@@ -1636,7 +1687,10 @@ namespace deren::vulkan {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .pNext = nullptr,
             .flags = flags,
-            .pInheritanceInfo = inherits ? &inheritance : nullptr,
+            // The inheritance info is passed whenever ANY of it was filled: the caller's attachment chain
+            // or this backend's own heap entry (see above). When neither applies - a primary, or a
+            // secondary begun for inline recording - `pInheritanceInfo` must be NULL.
+            .pInheritanceInfo = (inherits || inheritance.pNext != nullptr) ? &inheritance : nullptr,
         };
         return generic_error(vkBeginCommandBuffer(*this->buffer, &begin));
     }
@@ -1648,13 +1702,51 @@ namespace deren::vulkan {
         return generic_error(vkEndCommandBuffer(*this->buffer));
     }
 
-    rhi::command_list* core::owned_command_buffer::recording() noexcept {
-        if (*this->buffer == VK_NULL_HANDLE) {
-            return nullptr; // no reference held: there is no view to lend
+    // ---- THE FRAME'S BORROWED BUFFER: the four lifecycle verbs, refused BY NAME (see the note in
+    //      core.declarations.cppm). release() is the one that must not be silent - a caller that wrapped
+    //      this view in object_manager<> has a bug - so it says so once, exactly as frame_image_slot does.
+
+    void core::frame_commands::release() noexcept {
+        if (!this->borrowed_lifecycle_logged) {
+            this->borrowed_lifecycle_logged = true;
+            deren::utility::log("core: release() on the FRAME's command buffer - the core owns it and this view carries no reference to drop (logged once)");
         }
-        return &this->list;
     }
 
+    rhi::error core::frame_commands::begin_recording(rhi::command_buffer_begin_info const&) {
+        return rhi::error::unsupported; // the FRAME LOOP begins the frame's recording, not a pass
+    }
+
+    rhi::error core::frame_commands::end_recording() noexcept {
+        return rhi::error::unsupported; // ... and it ends it, right before the present transition
+    }
+
+    rhi::error core::frame_commands::execute(rhi::command_buffer& secondary) {
+        // THE FRAME'S OWN RECORDING EXECUTES SECONDARIES TOO, AND THAT IS THE PASS LAYER'S `execute`: the
+        // borrowed frame buffer IS a recording buffer, so `io.list->execute(*secondary)` (scene, shadow,
+        // transparent) arrives here. Only begin/end/submit stay the frame loop's (the three verbs above);
+        // the provenance rule and the one-secondary-per-call unit are the same as
+        // `owned_command_buffer::execute` below.
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // no frame is in flight: the window `begin_commands()` answers in
+        }
+        {
+            // PROVENANCE FIRST, exactly as the owned form: a buffer this backend did not hand out is a
+            // caller bug refused by name, and no pointer is cast before that is known.
+            std::lock_guard const lock(this->owner->contract_command_buffers_mutex);
+            if (!this->owner->contract_command_buffers.contains(&secondary)) {
+                return rhi::error::invalid_argument;
+            }
+        }
+        auto const& other = static_cast<core::owned_command_buffer const&>(secondary);
+        VkCommandBuffer const native_secondary = *other.buffer;
+        if (native_secondary == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // the secondary was released
+        }
+        vkCmdExecuteCommands(command_buffer, 1, &native_secondary);
+        return rhi::error::ok;
+    }
     rhi::error core::owned_command_buffer::execute(rhi::command_buffer& secondary) {
         if (*this->buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -2207,7 +2299,12 @@ namespace deren::vulkan {
             }
             return static_cast<owned_image_view const*>(view)->native_view;
         };
-        std::array<VkRenderingAttachmentInfo, 4> attachments = {};
+        // THE BOUND IS THE PASS FRAMEWORK'S, NOT THIS FUNCTION'S: `pass::max_render_targets` is 8 and the
+        // SCENE instance is the widest site (three surface targets + velocity + the scene colour + depth),
+        // so a 4-slot array refused the scene's own scope and the frame recorded no geometry. The contract
+        // places no bound of its own on `rendering_info::colors`; a scope wider than the widest DECLARED
+        // site is refused rather than silently truncated.
+        std::array<VkRenderingAttachmentInfo, 8> attachments = {};
         std::uint32_t color_count = 0;
         for (rhi::color_attachment const& one : info.colors) {
             if (color_count >= attachments.size()) {
@@ -2562,7 +2659,7 @@ namespace deren::vulkan {
         return reinterpret_cast<void*>(this->owner->graphics_queue_handle);
     }
 
-    void* core::frame_escape::native_command_buffer(rhi::command_list& commands) const noexcept {
+    void* core::frame_escape::native_command_buffer(rhi::command_buffer& commands) const noexcept {
         // THE SAME WINDOW `begin_commands()` ANSWERS IN for the FRAME's list: outside the frame there is
         // no command buffer to name, and answering with "the slot that would be next" would be a lie an
         // escaping pass could record into.
@@ -2581,7 +2678,10 @@ namespace deren::vulkan {
         std::lock_guard const lock(self.contract_command_buffers_mutex);
         for (deren::promise::rhi::command_buffer const* const candidate : self.contract_command_buffers) {
             auto const* const owned = static_cast<owned_command_buffer const*>(candidate);
-            if (static_cast<void const*>(&owned->list) == static_cast<void const*>(&commands)) {
+            // THE BUFFER **IS** THE LIST NOW (the recording face absorbed `command_list`), so this is an
+            // object-identity question rather than the member-address comparison the borrowed view needed:
+            // one inheritance chain, so the two pointers name the same object.
+            if (static_cast<void const*>(owned) == static_cast<void const*>(&commands)) {
                 return reinterpret_cast<void*>(*owned->buffer);
             }
         }
@@ -2790,10 +2890,10 @@ namespace deren::vulkan {
         return &this->swapchain_view_;
     }
 
-    rhi::error core::submit(rhi::command_list& commands) {
+    rhi::error core::submit(rhi::command_buffer& commands) {
         // The list must be THIS frame's recording view - the same two-way check every frame verb
         // makes (a foreign list is a caller bug, refused by name, never guessed at).
-        if (&commands != static_cast<rhi::command_list*>(&this->commands_view)) {
+        if (&commands != static_cast<rhi::command_buffer*>(&this->commands_view)) {
             return rhi::error::invalid_argument;
         }
         if (!this->frame_in_flight) {
