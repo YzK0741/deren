@@ -11,7 +11,7 @@ import deren.promise.rhi;
 
 /**
  * @defgroup vulkan_render_environment Render Environment
- * @ingroup vulkan_runtime
+ * @ingroup runtime
  * @brief per-recording-session render state: the session's command buffer, which pipeline is
  * bound and how to bind others.
  *

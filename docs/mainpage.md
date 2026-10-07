@@ -165,8 +165,8 @@ Modular composition is the point, not a side effect:
 Use the modules as-is to extend this renderer (new pass / primitive strategy / loader) or
 link only the ones you need into your own project.
 
-Module reference is grouped under the `vulkan_core`, `vulkan_runtime`,
-`vulkan_runtime_scene_tree`, `vulkan_render_environment`, `vulkan_render_resource`,
+Module reference is grouped under the `vulkan_core`, `runtime`,
+`vulkan_scene_tree`, `vulkan_render_environment`, `vulkan_render_resource`,
 `vulkan_pass`, `vulkan_animation`, `vulkan_gui`, `vulkan_math`, `gltf_loader`, `chores`,
 `utility` and `app_config` groups; the GLSL / Slang shaders are collected under the
 `shaders` group (see the shader reference page for the pass chain, the shared scene set and

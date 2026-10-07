@@ -1067,9 +1067,9 @@ WARN_LOGFILE           =
 # Reordering here reorders the PDF; test_docs only checks set membership, not order.
 #
 # `./runtime` IS INPUT TOO, and that is a fix rather than a new chapter: the runtime module lives at the
-# repository root since S5 and carries the `@defgroup vulkan_runtime` definition plus the facade's own
+# repository root since S5 and carries the `@defgroup runtime` definition plus the facade's own
 # API documentation. Without this line doxygen never read those files, so the manual documented the
-# renderer only through `docs/dynamic_runtime.md` AND every `@ingroup vulkan_runtime` in a scanned file
+# renderer only through `docs/dynamic_runtime.md` AND every `@ingroup runtime` in a scanned file
 # (vulkan/render_environment/render_environment.cppm) warned that the group did not exist - the group
 # was defined in a file the INPUT list did not name.
 

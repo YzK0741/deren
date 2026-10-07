@@ -191,7 +191,7 @@ TWO THINGS TO SETTLE BEFORE COMMITTING TO IT, both cheap:
   and only a region's INTERNAL parts nest (`vulkan.core.filter`, `vulkan.core.vma.handles`). The deciding
   question is whether `main.cpp`/`deren.chores` may touch it directly: if yes, a peer module (`vulkan.gi`,
   `vulkan.post`, `vulkan.shadow`, `vulkan.rt_scene`); if only `runtime` may, nest it.
-* Documentation belonging is expressed with `@defgroup` + `@ingroup vulkan_runtime`, as
+* Documentation belonging is expressed with `@defgroup` + `@ingroup runtime`, as
   `deren.vulkan.render_environment` already does.
 * `CMakeLists.txt` lists every `.cppm` explicitly, so each extraction adds lines there. The self-check for that
   is part of every step: introduce a deliberate error in the new module and confirm the build FAILS - a file in
