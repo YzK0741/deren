@@ -172,6 +172,38 @@ export namespace deren::promise::rhi {
         /// the barrier that says so is a (color_attachment, shader_read) pair. The backend derives the
         /// sampled-read access bit for it (the shipped recipe's own bit).
         shader_read = 3,
+        /// ---- APPENDED BY THE RECORDING FACE'S VOCABULARY BATCH (the lead's ruling on the transition census)
+        ///
+        /// THE SIX BELOW COME FROM ONE MEASUREMENT, not from a wish list: every transition recipe the engine
+        /// still records itself (`vulkan/constant_init/constant_init.cppm`, 20 of them) was read as a role
+        /// PAIR, and these are the roles that were missing. Adding VALUES is not an abi change (the rule at
+        /// `abi_version`), so this batch carries no bump - and the pilot's `shader_read` above stays as it was.
+        ///
+        /// THE MEASUREMENT'S SHAPE, which is why ROLES and not layouts decide: this renderer keeps every image
+        /// in `GENERAL` (`docs/unified_image_layouts.md`), so the recipes' `oldLayout`/`newLayout` are almost
+        /// all GENERAL -> GENERAL and carry NO information. THE SEMANTICS LIVE IN THE STAGE/ACCESS MASKS:
+        /// `hdr_sampling_transition` is COLOR_ATTACHMENT_OUTPUT/COLOR_ATTACHMENT_WRITE ->
+        /// FRAGMENT_SHADER|COMPUTE_SHADER/SHADER_SAMPLED_READ, while `general_to_sampling_transition` is
+        /// COMPUTE_SHADER/SHADER_WRITE -> that same destination. A later reader who "fixes" a layout will
+        /// change the wrong thing; THE PAIR, AND THEREFORE ITS MASKS, IS THE FACT.
+        shader_write = 4, ///< written by a shader: `undefined_to_general_transition`,
+                          ///< `sampling_to_general_transition`, and the source of `general_to_sampling` /
+                          ///< `general_to_transfer_src`
+        /// Written AND read by the same shader stage in one barrier: `compute_storage_transition`
+        /// (COMPUTE_SHADER/SHADER_WRITE -> COMPUTE_SHADER/SHADER_READ|SHADER_WRITE, a read-modify-write UAV
+        /// barrier). IT IS A ROLE, NOT A LAYOUT, and it exists because neither half can stand for it:
+        /// `shader_write` alone would DROP the read half (a race on the one site that needs it), and
+        /// widening every `shader_write` would over-synchronise every other site. A second combination
+        /// role is added only when a measurement produces one - never pre-stacked.
+        shader_read_write = 5,
+        transfer_destination = 6, ///< written by a copy in: `undefined_to_transfer_dst_transition`,
+                                  ///< `sampling_to_transfer_dst_transition`
+        depth_attachment = 7,     ///< written as the DEPTH attachment: `depth_attachment_transition`,
+                                  ///< `sampling_to_depth_attachment_transition`
+        depth_read = 8,           ///< sampled as depth: `undefined_to_depth_sampling_transition` (a shadow
+                                  ///< map read back after being written)
+        present = 9,              ///< handed to the presentation engine: `present_transition`,
+                                  ///< `undefined_to_present_transition`
     };
 
     /// One subresource of one image, tightly packed: what a copy reads.
