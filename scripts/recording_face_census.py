@@ -49,6 +49,37 @@ def engine_files():
     return sorted(files)
 
 
+def census_recipes(files):
+    """The barrier RECIPES: `*_transition` AND `*_dependency`, defined and used.
+
+    The second kind exists because a barrier need not change a layout: `deferred.cpp` uses
+    `color_attachment_dependency` to order one pass's colour-attachment store before the next instance's
+    LOAD. A `*_transition`-only scan cannot see it - which is exactly the miss this function fixes.
+
+    A RECIPE IS WHAT `vulkan/constant_init/constant_init.cppm` DECLARES it to be, and that is deliberate:
+    sites also name local `VkDependencyInfo` variables (`sampling_dependency`, `copy_dependency`, ...), so
+    "any name ending in _dependency" would count locals as vocabulary and report a dozen phantom gaps. The
+    defined set comes from the declaring file; a USE is a defined name appearing in an engine file.
+    """
+    definition_re = re.compile(r"\b(\w+_(?:transition|dependency))\s*=\s*\{")
+    declaring_file = "vulkan/constant_init/constant_init.cppm"
+    result = {
+        "transition": {"defined": set(), "used": set()},
+        "dependency": {"defined": set(), "used": set()},
+    }
+    declaring = strip_comments(open(os.path.join(ROOT, declaring_file), encoding="utf-8", errors="replace").read())
+    for name in definition_re.findall(declaring):
+        kind = "transition" if name.endswith("_transition") else "dependency"
+        result[kind]["defined"].add(name)
+    for rel in files:
+        text = strip_comments(open(os.path.join(ROOT, rel), encoding="utf-8", errors="replace").read())
+        for name in re.findall(r"\b\w+_(?:transition|dependency)\b", text):
+            kind = "transition" if name.endswith("_transition") else "dependency"
+            if name in result[kind]["defined"]:
+                result[kind]["used"].add(name)
+    return result
+
+
 def main() -> int:
     call_re = re.compile(r"\bvkCmd(\w+)\s*\(")
     include_re = re.compile(r"#\s*include\s*<vulkan/")
@@ -71,6 +102,27 @@ def main() -> int:
     print()
     for verb, count in per_verb.most_common():
         print(f"  {count:4}  {verb}")
+    print()
+    # ---- THE OTHER HALF OF THE MEASUREMENT: WHICH BARRIER SHAPES EXIST AT ALL -------------------
+    # FOUND BY A MISS: this script used to count call sites only, so the RECIPE a site uses was invisible -
+    # and `deferred.cpp` orders a colour-attachment store before this instance's load with a
+    # `color_attachment_dependency`, a shape no `vkCmd*` count can show and no `*_transition` scan finds.
+    # Both recipe kinds are therefore counted and reported SEPARATELY, together with the recipes that are
+    # DEFINED BUT NOT YET USED (the vocabulary the backend's pair table still owes) and, as a guard, any
+    # recipe a site names that is not defined at all.
+    recipes = census_recipes(files)
+    print("BARRIER RECIPES (the shapes a call-site count cannot show):")
+    print(f"  transition recipes: {len(recipes['transition']['defined'])} defined, "
+          f"{len(recipes['transition']['used'])} used by engine sites")
+    print(f"  dependency recipes: {len(recipes['dependency']['defined'])} defined, "
+          f"{len(recipes['dependency']['used'])} used by engine sites")
+    for kind in ("transition", "dependency"):
+        unused = sorted(recipes[kind]["defined"] - recipes[kind]["used"])
+        if unused:
+            print(f"  {kind} recipes DEFINED BUT NOT USED (the vocabulary still owed - if any of these are "
+                  f"not measurable, they are dead):")
+            for name in unused:
+                print(f"        {name}")
     print()
     print("files still calling a vkCmd*:")
     for rel, count in per_file.most_common():
