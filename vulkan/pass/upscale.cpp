@@ -16,9 +16,16 @@ module;
 
 module deren.vulkan.pass.upscale;
 
+// The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw go through
+// the contract, so this file names no `vkCmd*` at all - the same six-site shape fxaa.cpp migrated.
+import deren.promise.rhi;
 import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
 import deren.utility;
+
+// The contract's spelling, local to this TU (post.cpp and fxaa.cpp carry the same alias): the record series
+// names deren::promise::rhi types at every call site below.
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -158,9 +165,10 @@ namespace deren::vulkan::pass {
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
-        VkImage const target = io.targets[0].image;
-        VkImageView const target_view = io.targets[0].view;
-        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE) {
+        // THE CONTRACT'S OWN HANDLES (abi 20): the raw `VkImage`/`VkImageView` become the handles the
+        // resolved binding publishes BESIDE them (the pilot's framework change), so the guard speaks the
+        // vocabulary the record series does.
+        if (io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
             return;
         }
         // THE INPUT FIRST, and it is THIS pass's transition rather than the frame loop's: the LDR image was
@@ -168,19 +176,25 @@ namespace deren::vulkan::pass {
         // colour attachment and the src masks have to publish that write. It is the declaration's one barrier
         // image, so the handle is the one the pass named - and on a frame this pass does not run, nothing moves
         // the image at all (the composite writes it as an attachment, or writes the swapchain directly).
-        if (!io.barrier_images.empty() && io.barrier_images[0].image != VK_NULL_HANDLE) {
-            VkImageMemoryBarrier2 to_sampling = deren::vulkan::hdr_sampling_transition;
-            to_sampling.image = io.barrier_images[0].image;
-            VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-            vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
+        // THE PAIR RIDES THE CONTRACT (abi 20): the backend derives the masks and the layouts from the
+        // (color_attachment, shader_read) recipe, which the shadow gate `static_assert`s field for field.
+        if (!io.barrier_images.empty() && io.barrier_images[0].image_handle != nullptr) {
+            if (io.list->barrier(rhi::image_barrier{.resource = io.barrier_images[0].image_handle,
+                                                    .from = rhi::image_use::color_attachment,
+                                                    .to = rhi::image_use::shader_read,
+                                                    .range = {}}) != rhi::error::ok) {
+                return; // a refused barrier would leave the input in a state nobody declared
+            }
         }
         // ... then the swapchain, which the instance CLEARs: UNDEFINED as the old layout asserts nothing about
         // contents the resolve is about to replace entirely (the same claim the composite and FXAA make - a
-        // CLEAR instance's old layout is dead by definition).
-        VkImageMemoryBarrier2 to_attachment = deren::vulkan::color_attachment_transition;
-        to_attachment.image = target;
-        VkDependencyInfo const attachment_dependency = make_image_dependency_info(1, &to_attachment);
-        vkCmdPipelineBarrier2(io.cmd, &attachment_dependency);
+        // CLEAR instance's old layout is dead by definition). Also the contract's (abi 20).
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
+                                                .from = rhi::image_use::undefined,
+                                                .to = rhi::image_use::color_attachment,
+                                                .range = {}}) != rhi::error::ok) {
+            return;
+        }
         // The push block is composed HERE (S3), and it is the pass's own. TWO GROUPS OF LANES:
         //
         //   * EASU's four constants, from the two extents the pass can see without being told the scale: the
@@ -201,15 +215,28 @@ namespace deren::vulkan::pass {
             .mode = this->filter_kind == upscale_filter::easu ? 1.0f : 0.0f,
             .encode_gamma = deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
         };
-        VkClearValue clear = {};
-        VkRenderingAttachmentInfo const attachment = make_color_attachment_info(target_view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
+        // THE RENDERING SCOPE RIDES THE CONTRACT (abi 20): one colour attachment, CLEAR + STORE (what the raw
+        // helper spelled), zero clear colour, no depth - the scope this pass opens.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // the overlay records into the primary; nothing here executes a secondary
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // The source is a heap slot (see upscale.slang): the appended index lane names it, and the frame bound
         // the heaps for this command buffer, so there is no set to bind here.
         [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
+        io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it
         // runs, so the overlay belongs here and NOT in the composite's instance - the composite drew into the
         // render-extent LDR image this pass is about to resample, so a UI drawn there would be scaled up with
@@ -217,7 +244,7 @@ namespace deren::vulkan::pass {
         if (this->pass_frame.after_draw.valid()) {
             this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
         }
-        vkCmdEndRendering(io.cmd);
+        io.list->end_rendering();
     }
 
 } // namespace deren::vulkan::pass
