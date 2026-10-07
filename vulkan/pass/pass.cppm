@@ -314,17 +314,18 @@ export namespace deren::vulkan::pass {
         std::array<resolved_binding, max_barrier_buffers> barrier_buffer_storage = {};
         std::span<resolved_binding const> barrier_buffers = {};
         /// the storage `pipelines` views
-        std::array<VkPipeline, max_pass_pipelines> pipeline_storage = {};
-        /// in the order `behaviour::pipelines` names them, one entry per name
-        std::span<VkPipeline const> pipelines = {};
+        std::array<deren::promise::rhi::pipeline*, max_pass_pipelines> pipeline_storage = {};
         /**
-         * THE SAME RUN IN THE CONTRACT'S SPELLING (abi 21), one entry per name in the same order: the handle
-         * `command_buffer::bind_pipeline` takes, or NULL for a pipeline the contract cannot name yet (the
-         * ray-tracing assembly - see `owned_pipeline`). A pass that binds its OWN pipeline asks THIS lane, and
-         * a null entry means the raw fallback; the runner does the same for a pass whose pipeline it binds.
+         * THE PIPELINES THE PASS RECORDS WITH, in the order `behaviour::pipelines` names them - one entry per
+         * name, or one entry for the pass's OWN pipeline when it resolves that instead. THE CONTRACT'S SPELLING
+         * (abi 21): the handle `command_buffer::bind_pipeline` takes, which is what the RUNNER binds from and
+         * what a pass asks for when it needs to know whether its pipeline exists (`io.pipelines[0] == nullptr`).
+         *
+         * A NULL ENTRY MEANS "THIS FRAME HAS NO PIPELINE FOR THIS NAME", and the framework does not resolve the
+         * pass at all in that case (`declaration_pipelines_ok`), so a pass that IS recorded has a non-null entry
+         * here - the guards below the framework's own rule are defence, not the rule.
          */
-        std::array<deren::promise::rhi::pipeline*, max_pass_pipelines> pipeline_handle_storage = {};
-        std::span<deren::promise::rhi::pipeline* const> pipeline_handles = {};
+        std::span<deren::promise::rhi::pipeline* const> pipelines = {};
         /**
          * The push block the HOST composed for this pass this frame, as raw bytes.
          *
@@ -365,16 +366,13 @@ export namespace deren::vulkan::pass {
      * @brief a pipeline a pass owns
      * @note the frame resolves a `behaviour::pipelines` NAME to one of these, and the runner binds what it finds
      *
-     * TWO LANES, the same shape `resolved_binding` carries and for the same reason: `pipeline` is the raw
-     * `VkPipeline` a bind needs today, and `contract` is the contract object
-     * `command_buffer::bind_pipeline` (abi 20) takes. A pipeline built through
-     * `api_core::create_pipeline` has BOTH (the backend hands the native handle out through the escape); the
-     * raw one is null only for a handle the caller does not have. WHERE THE CONTRACT LANE IS NULL - the
-     * ray-tracing assembly, which the contract cannot spell yet - the runner keeps the raw bind, and that is
-     * the single remainder §8.2 of the recording-face note names.
+     * ONE LANE, AND IT IS THE CONTRACT'S (abi 21): the handle `command_buffer::bind_pipeline` takes. The raw
+     * `VkPipeline` this struct used to carry BESIDE it is gone - every pipeline this renderer builds is a
+     * contract object now (graphics recipes, compute assemblies, the ray-tracing pipeline), so the raw lane had
+     * exactly one remaining user, the runner's fallback bind, and that fallback is gone with it. Deleting it is
+     * also what lets a pass FILE stop naming a Vulkan type at all (see the include sweep, note section 8).
      */
     struct owned_pipeline {
-        VkPipeline pipeline = VK_NULL_HANDLE;
         deren::promise::rhi::pipeline* contract = nullptr;
     };
 
@@ -793,36 +791,22 @@ export namespace deren::vulkan::pass {
         virtual void prepare_frame([[maybe_unused]] frame_facts const& facts) noexcept {
         }
         /**
-         * @brief the pipeline this pass OWNS, when it built one in `create`; `VK_NULL_HANDLE` otherwise
+         * @brief the pipeline this pass OWNS, when it built one in `create`; null otherwise
          *
-         * THE TWELVE PASSES THAT BUILD THEIR OWN PIPELINE ALREADY ANSWER THIS (their `pipeline()` accessor has had
-         * exactly this signature since each was extracted), so making it part of the interface costs them nothing
-         * and gives the declaration-driven resolver the one fact it cannot get from the declaration: a pass that
-         * owns its pipeline must be handed ITS OWN, never a registry entry that happens to share its
-         * `behaviour::pipelines` name. The runner binds what this returns (`apply_pass_behaviour`), which is the
-         * same relay the renderer's resolvers used to do by hand.
+         * THE ONE ACCESSOR, AND IT ANSWERS THE CONTRACT HANDLE (abi 21): the object
+         * `command_buffer::bind_pipeline` takes. It is what the declaration-driven resolver needs and cannot get
+         * from a declaration - a pass that owns its pipeline must be handed ITS OWN, never a registry entry that
+         * happens to share its `behaviour::pipelines` name - and the runner binds what `resolve_declaration`
+         * publishes from it (see `apply_pass_behaviour`).
          *
-         * A pass that owns TWO variants of one pipeline (the composite: the swapchain one and the HDR one) leaves
-         * this null and fills `resolved_io::pipelines` in its own `resolve` - choosing between them is its frame's
-         * decision, not the declaration's.
-         */
-        [[nodiscard]] virtual VkPipeline pipeline() const noexcept {
-            return VK_NULL_HANDLE;
-        }
-        /**
-         * @brief THE CONTRACT LANE OF THE SAME PIPELINE `pipeline()` returns (abi 21)
+         * THE RAW `VkPipeline` LANE THIS INTERFACE USED TO CARRY IS GONE, and that is what lets a pass FILE stop
+         * naming a Vulkan type: every pipeline this renderer builds is a contract object (the graphics recipes,
+         * the compute assemblies and the ray-tracing pipeline all come from `api_core::create_pipeline`), so the
+         * raw handle had no consumer left once the runner's fallback bind went with it.
          *
-         * TWO ACCESSORS FOR ONE OBJECT, and the reason is the same one `resolved_binding` carries two lane sets
-         * for: `pipeline()` is what the raw handle is needed for (`frame_pass::pipeline()` predates the record
-         * series, and the include sweep is what will retire it), while `command_buffer::bind_pipeline` - the verb
-         * the RUNNER binds a declared pipeline with - takes the CONTRACT object. A pass that owns a pipeline built
-         * through `api_core::create_pipeline` has both, and they MUST be the same object: `resolve_declaration`
-         * publishes both into `resolved_io` in the same breath, so a pass that answers one and not the other is
-         * the exact bug that left a frame with no pipeline bound (the runner has no raw fallback any more - see
-         * `apply_pass_behaviour`, and the frame-level VUID it produced).
-         *
-         * THE DEFAULT IS NULL, like `pipeline()`'s: a pass that owns nothing answers nothing, and a pass that
-         * owns a pipeline overrides BOTH.
+         * A pass that owns TWO variants of one pipeline (the composite: the swapchain one and the HDR one)
+         * answers the DEFAULT variant here and distinguishes them in its own `resolve` /
+         * `named_pipeline` - choosing between them is its frame's decision, not the declaration's.
          */
         [[nodiscard]] virtual deren::promise::rhi::pipeline* pipeline_handle() const noexcept {
             return nullptr;
@@ -838,7 +822,7 @@ export namespace deren::vulkan::pass {
          * asks this on every pass of the chain, taking the first answer - which is what keeps the resolution
          * chain-agnostic: the renderer does not know, and does not need to know, which pass owns what.
          * @param name one of this pass's own `behaviour::pipelines` names, or a sibling's
-         * @return the pipeline, or VK_NULL_HANDLE when this pass owns nothing by that name
+         * @return the pipeline, or an empty `owned_pipeline` when this pass owns nothing by that name
          */
         [[nodiscard]] virtual owned_pipeline named_pipeline([[maybe_unused]] std::string_view name) const noexcept {
             return {};
@@ -1271,8 +1255,7 @@ export namespace deren::vulkan::pass {
     [[nodiscard]] inline bool declaration_pipelines_ok(frame_pass const& pass, resolve_context const& context, resolved_io& out) {
         std::span<std::string_view const> const names = pass.behaviour().pipelines;
         if (names.empty()) {
-            out.pipelines = {};
-            out.pipeline_handles = {}; // both lanes empty: a pass that binds nothing declares no pipeline
+            out.pipelines = {}; // a pass that binds nothing declares no pipeline
             return true;
         }
         if (names.size() > out.pipeline_storage.size() || context.pipeline == nullptr) {
@@ -1282,23 +1265,17 @@ export namespace deren::vulkan::pass {
             // THE PASS'S OWN ANSWER FIRST, which is what makes `frame_pass::named_pipeline` REAL: a chain's
             // stages may share one pipeline (the post chain's four bloom levels record with the composite's R16F
             // variant), and only a pass of that chain can say which object a name is. It was declared and
-            // overridden but never consulted before this batch - so a shared pipeline resolved to nothing, and
-            // the lane that mattered (`pipeline_handles`) was empty even when the runtime had a raw one.
+            // overridden but never consulted before this batch.
             owned_pipeline found = pass.named_pipeline(names[i]);
-            if (found.pipeline == VK_NULL_HANDLE) {
+            if (found.contract == nullptr) {
                 found = context.pipeline != nullptr ? context.pipeline(context.owner, names[i]) : owned_pipeline{};
             }
-            if (found.pipeline == VK_NULL_HANDLE) {
+            if (found.contract == nullptr) {
                 return false; // the frame cannot bind a pipeline the pass declared: do not record it
             }
-            out.pipeline_storage[i] = found.pipeline;
-            out.pipeline_handle_storage[i] = found.contract;
+            out.pipeline_storage[i] = found.contract;
         }
-        out.pipelines = std::span<VkPipeline const>(out.pipeline_storage.data(), names.size());
-        // THE CONTRACT LANE IS AS LONG AS THE RAW ONE, and a null ENTRY is meaningful (see owned_pipeline):
-        // the runner asks `bind_pipeline` for the ones the backend built and falls back to the raw bind for
-        // the one it could not (the ray-tracing assembly).
-        out.pipeline_handles = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_handle_storage.data(), names.size());
+        out.pipelines = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_storage.data(), names.size());
         return true;
     }
 
@@ -1428,15 +1405,13 @@ export namespace deren::vulkan::pass {
         out.barrier_buffers = std::span<resolved_binding const>(out.barrier_buffer_storage.data(), declaration.barrier_buffers.size());
 
         // ---- the pipelines: the pass's OWN first, then the names the behaviour declares ----
-        // BOTH LANES ARE FILLED, ALWAYS: `pipeline()` is the raw handle the framework's own accessor answers and
-        // `pipeline_handle()` is the contract object the runner BINDS with (abi 21). A publication that filled
-        // only the raw one is what produced a frame with no pipeline bound, so the two are written together
-        // here and in `declaration_pipelines_ok`.
-        if (pass.pipeline() != VK_NULL_HANDLE) {
-            out.pipeline_storage[0] = pass.pipeline();
-            out.pipeline_handle_storage[0] = pass.pipeline_handle();
-            out.pipelines = std::span<VkPipeline const>(out.pipeline_storage.data(), 1);
-            out.pipeline_handles = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_handle_storage.data(), 1);
+        // ONE PUBLICATION, ONE ACCESSOR (abi 21): the pass's own contract handle when it owns one, otherwise
+        // the declaration's names resolved through `named_pipeline` / the owner's lookup. Both paths end in
+        // `out.pipelines` being the contract handles the RUNNER binds with (and the ones a pass checks for its
+        // own "do I have a pipeline" guard), so there is no second lane to keep in step.
+        if (pass.pipeline_handle() != nullptr) {
+            out.pipeline_storage[0] = pass.pipeline_handle();
+            out.pipelines = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_storage.data(), 1);
         } else if (!declaration_pipelines_ok(pass, context, out)) {
             return false;
         }

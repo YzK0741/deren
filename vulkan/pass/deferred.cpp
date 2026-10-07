@@ -50,10 +50,6 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline deferred_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
-    }
-
     deren::promise::rhi::pipeline* deferred_pass::pipeline_handle() const noexcept {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
@@ -127,7 +123,7 @@ namespace deren::vulkan::pass {
     }
 
     void deferred_pass::record(resolved_io const& io) {
-        if (!this->pass_pipeline.has_value() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pass_pipeline.has_value() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }

@@ -14,7 +14,6 @@ module;
 #include <glm/glm.hpp>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.megalights_temporal;
 
@@ -53,10 +52,6 @@ namespace deren::vulkan::pass {
 
     bool megalights_temporal_pass::ready() const noexcept {
         return this->pass_pipeline.has_value();
-    }
-
-    VkPipeline megalights_temporal_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     deren::promise::rhi::pipeline* megalights_temporal_pass::pipeline_handle() const noexcept {
@@ -125,7 +120,7 @@ namespace deren::vulkan::pass {
     void megalights_temporal_pass::record(resolved_io const& io) {
         this->accumulation_resolved = false;
         if (!this->ready() || io.barrier_images.size() < render_resource::megalights_temporal_barriers.size() || io.frame.image_count == 0 || io.pipelines.empty() ||
-            io.pipelines[0] == VK_NULL_HANDLE || io.extent.width == 0 || io.extent.height == 0) {
+            io.pipelines[0] == nullptr || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (the declaration's own gates are the table's)
         }
         // THE CONTRACT'S OWN HANDLES (abi 20): the record series names the handles the resolved binding

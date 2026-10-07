@@ -42,7 +42,6 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.post;
 import deren.promise.rhi;
@@ -185,13 +184,11 @@ export namespace deren::vulkan::pass {
             return this->pipeline_ready();
         }
         /// @brief the pipeline for a target in the SWAPCHAIN's format (the frame no resolve finishes)
-        [[nodiscard]] VkPipeline composite_pipeline() const noexcept;
+        [[nodiscard]] deren::promise::rhi::pipeline* composite_pipeline() const noexcept;
         /// @brief the R16F pipeline: the bloom levels, and the LDR target a resolve will read
-        [[nodiscard]] VkPipeline hdr_pipeline() const noexcept;
+        [[nodiscard]] deren::promise::rhi::pipeline* hdr_pipeline() const noexcept;
         /// @brief the pipeline the runner binds by default: the SWAPCHAIN variant, which `resolve` replaces on
         ///        the frames a resolve finishes (the declaration names ONE pipeline, and this pass owns both variants)
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
-        /// @brief the contract lane of the SAME `composite` variant `pipeline()` answers (the HDR one is published by name)
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
         /**
          * @brief the R16F variant, which the BLOOM LEVELS record with

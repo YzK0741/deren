@@ -118,29 +118,18 @@ namespace deren::vulkan::pass {
         return this->meshlet_pipeline.has_value() || this->mesh_pipeline.has_value();
     }
 
-    VkPipeline shadow_pass::pipeline() const noexcept {
-        // THE MESHLET FORM WHEN THERE IS ONE, and the MESH form otherwise: they are the same pass (same targets, same
-        // fragment stage, same casters), so which one draws is not the frame's business. There is NO vertex form
-        // since step 4 (docs/mesh_shaders.md): a null here means no shadow map rather than a different rasterizer.
-        if (this->meshlet_pipeline.has_value()) {
-            return this->meshlet_pipeline->get_pipeline();
-        }
-        if (this->mesh_pipeline.has_value()) {
-            return this->mesh_pipeline->get_pipeline();
-        }
-        return VK_NULL_HANDLE; // no mesh form, no shadow map: the vertex form is gone (see create)
-    }
-
     deren::promise::rhi::pipeline* shadow_pass::pipeline_handle() const noexcept {
-        // THE SAME PREFERENCE, and it must answer the SAME object: whichever form `pipeline()` picked is the one
-        // the runner binds, and a second rule here would bind a pipeline this pass does not draw with.
+        // THE MESHLET FORM WHEN THERE IS ONE, and the MESH form otherwise: they are the same pass (same targets,
+        // same fragment stage, same casters), so which one draws is not the frame's business. There is NO vertex
+        // form since step 4 (docs/mesh_shaders.md): a null here means no shadow map rather than a different
+        // rasterizer.
         if (this->meshlet_pipeline.has_value()) {
             return this->meshlet_pipeline->contract;
         }
         if (this->mesh_pipeline.has_value()) {
             return this->mesh_pipeline->contract;
         }
-        return nullptr;
+        return nullptr; // no mesh form, no shadow map: the vertex form is gone (see create)
     }
 
     void shadow_pass::set_frame(shadow_frame const& frame) noexcept {
@@ -162,7 +151,10 @@ namespace deren::vulkan::pass {
         if (layers == 0u) {
             return;
         }
-        VkPipeline const pipeline = this->pipeline();
+        // THE PASS'S OWN PIPELINE, AS THE CONTRACT HANDLE (abi 21): it travels to the frame's cascade callback,
+        // which binds it through `command_buffer::bind_pipeline` inside the secondary's own session. There is no
+        // raw `VkPipeline` in this file any more.
+        deren::promise::rhi::pipeline* const pipeline = this->pipeline_handle();
         // ... and HOW it must be fed travels with it: a mesh pipeline has no input assembler, so its casters are
         // dispatched rather than drawn (see the frame's record_cascade).
         bool const meshlets = this->meshlet_pipeline.has_value();

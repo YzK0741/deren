@@ -15,7 +15,6 @@ module;
 #include <cstdint>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.cluster;
 
@@ -52,10 +51,6 @@ namespace deren::vulkan::pass {
 
     bool cluster_pass::pipeline_ready() const noexcept {
         return this->pass_pipeline.has_value();
-    }
-
-    VkPipeline cluster_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     deren::promise::rhi::pipeline* cluster_pass::pipeline_handle() const noexcept {
@@ -106,7 +101,7 @@ namespace deren::vulkan::pass {
     }
 
     void cluster_pass::record(resolved_io const& io) {
-        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.barrier_buffers.size() < render_resource::cluster_barriers.size() || this->pass_frame.cluster_count == 0) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_cluster_pass)
         }

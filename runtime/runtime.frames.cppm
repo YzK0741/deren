@@ -1015,7 +1015,7 @@ namespace deren::vulkan {
     // (`ensure_shadow_resources`). What is left here is what the pass genuinely cannot know: which secondaries to
     // record into, and what a caster's draw state is (the scene block, the live depth-bias state, the two-sided
     // policy, the secondary's own begin info) - so that arrives as a callback, and the map's edge with it.
-    bool runtime::record_shadow_cascade(void* const owner, rhi::command_buffer& secondary, uint32_t const cascade_index, VkPipeline const pipeline, bool const mesh_stage, bool const meshlets) {
+    bool runtime::record_shadow_cascade(void* const owner, rhi::command_buffer& secondary, uint32_t const cascade_index, rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) {
         runtime* const self = static_cast<runtime*>(owner);
         // The secondary inherits ONLY the depth attachment (no colour one): dynamic rendering 1.3, single-sampled,
         // viewMask 0 - and the DESCRIPTOR HEAPS, which the BACKEND derives from its own heap state when it
@@ -1256,25 +1256,23 @@ namespace deren::vulkan {
     // scene casts shadows). Pure bind/push/draw commands - the caller owns the barriers and
     // the depth-only rendering instance around it. Recorded inline today; stage 2 records the
     // same content into a per-slot secondary command buffer for parallel pass recording.
-    void runtime::record_shadow_content(std::shared_ptr<deren::promise::rhi::command_buffer> secondary, VkPipeline const pipeline, bool const mesh_stage, bool const meshlets) const {
-        // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 20), and here it is the CASCADE'S OWN secondary: the
+    void runtime::record_shadow_content(std::shared_ptr<deren::promise::rhi::command_buffer> secondary, deren::promise::rhi::pipeline* const pipeline, bool const mesh_stage, bool const meshlets) const {
+        // THE SESSION'S BUFFER IS THE CONTRACT HANDLE (abi 20/21), and here it is the CASCADE'S OWN secondary: the
         // shadow pass hands this callback that buffer and everything this session records goes into it - which is
-        // why the handle has to be the same object the pass began and will execute. The raw steps below (the depth
-        // bias) derive the native handle once, through the same unwrap path every other frame-loop site uses.
+        // why the handle has to be the same object the pass began and will execute. THE PIPELINE IS THE CONTRACT
+        // HANDLE TOO, and every command below is a contract verb, so no native handle is derived here at all.
         if (secondary == nullptr) {
             return; // no session, nothing to record into
         }
-        VkCommandBuffer const command_buffer = this->native_handle(*secondary);
-        if (command_buffer == VK_NULL_HANDLE) {
-            return; // a face with no native command buffer records nothing rather than mis-casting
-        }
+        deren::promise::rhi::command_buffer* const session = secondary.get();
         // NO SET IS BOUND (see the heap bind in begin_recording): the light matrices, the camera and the shadow map
         // are heap slots, and the shadow stage's push block carries the two indices that pick this frame's
         // generation. A secondary records its own state, and the heap bind is made on the buffer it records into.
         [[maybe_unused]] uint32_t const frame_slot = this->frame_ring().position();
         // depth bias is dynamic state on the shadow pipeline: record the live-tunable values
-        // (gui-adjustable) before the depth-only draw
-        vkCmdSetDepthBias(command_buffer, this->shadow_depth_bias_constant, this->shadow_depth_bias_clamp, this->shadow_depth_bias_slope);
+        // (gui-adjustable) before the depth-only draw. THE CONTRACT'S VERB (abi 21), which is `void` - there is
+        // nothing for the frame to check - and so the native handle is no longer derived here at all.
+        session->set_depth_bias(this->shadow_depth_bias_constant, this->shadow_depth_bias_slope, this->shadow_depth_bias_clamp);
         // Shadow pass render_environment: every leaf draws into the DEPTH-ONLY shadow map, so
         // the binder ignores the requested pipeline name and always binds the shadow pipeline -
         // whatever a custom leaf would draw in the main pass, its geometry still casts the same
@@ -1285,21 +1283,29 @@ namespace deren::vulkan {
         // - which is why the handle has to be the same object the pass began and will execute.
         env.command_buffer = std::move(secondary);
         env.default_name = "shadow"; // binder ignores the name; kept for in_default_pipeline()
+        // THE BIND, THE VIEWPORT AND THE SCISSOR ARE CONTRACT VERBS (abi 21): the pipeline arrives as the
+        // CONTRACT handle the pass resolved (`shadow_frame::record_cascade`), so this session binds it the same
+        // way every other session does, and the map-sized viewport/scissor is set from the numbers this frame
+        // already holds.
         env.bind = [this, pipeline](std::shared_ptr<rhi::command_buffer> const& session, std::string_view const /*name*/) {
-            VkCommandBuffer const cb = this->native_handle(*session);
-            vkCmdBindPipeline(cb, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
-            VkViewport const shadow_viewport = {0.0f, 0.0f, static_cast<float>(this->shadow_map_size), static_cast<float>(this->shadow_map_size), 0.0f, 1.0f};
-            VkRect2D const shadow_scissor = {{0, 0}, {this->shadow_map_size, this->shadow_map_size}};
-            vkCmdSetViewport(cb, 0, 1, &shadow_viewport);
-            vkCmdSetScissor(cb, 0, 1, &shadow_scissor);
+            if (pipeline == nullptr || session->bind_pipeline(*pipeline) != deren::promise::rhi::error::ok) {
+                deren::utility::log("runtime: the shadow session could not bind its pipeline - this cascade's casters are skipped");
+                return;
+            }
+            constexpr float origin = 0.0f;
+            (void)session->set_viewport(deren::promise::rhi::viewport{
+                .x = origin, .y = origin, .width = static_cast<float>(this->shadow_map_size), .height = static_cast<float>(this->shadow_map_size), .min_depth = origin, .max_depth = 1.0f});
+            (void)session->set_scissor(deren::promise::rhi::rect{.offset_x = 0, .offset_y = 0, .width = this->shadow_map_size, .height = this->shadow_map_size});
         };
         // The shadow pass MUST write depth for every caster: its env always records depth-write
         // ENABLED (VK_TRUE) regardless of what a leaf requests - the first leaf's
         // set_depth_write() emits the one required vkCmdSetDepthWriteEnable and later leaves
         // dedupe against it. (The pipeline declares depth-write as dynamic state, so it must be
         // set at least once even though the value matches the default.)
-        env.set_depth_write_fn = [this](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const) {
-            vkCmdSetDepthWriteEnable(this->native_handle(*session), VK_TRUE);
+        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const) {
+            // THE CONTRACT'S VERB, and the value is the point of this lambda: the shadow env always forces
+            // depth-write ENABLED whatever a leaf asked for, so `true` needs no flag mapping.
+            session->set_depth_write(true);
         };
         // ... and it draws every caster TWO-SIDED: a caster is never culled for facing away from
         // the light. A single-sided wall plane whose only face points into the room is back-facing
@@ -2811,12 +2817,11 @@ namespace deren::vulkan {
 
     pass::owned_pipeline runtime::resolve_pipeline(std::string_view const name) const noexcept {
         if (pipelines::pipeline_handle const* const pipeline = this->get_pipeline(name); pipeline != nullptr) {
-            // BOTH LANES: the raw handle (kept for `frame_pass::pipeline()`'s return type - the framework's own
-            // shape, which the include sweep is what removes) and the contract object the record series takes.
-            // `pipeline_handle::contract` is set for EVERY pipeline this renderer builds now: the graphics
-            // recipes, the compute assemblies and the ray-tracing one all come from `api_core::create_pipeline`
-            // (abi 21), so a null contract here is a wiring bug rather than a backend without the ability.
-            return pass::owned_pipeline{.pipeline = pipeline->get_pipeline(), .contract = pipeline->contract};
+            // ONE LANE, THE CONTRACT'S (abi 21): `pipeline_handle::contract` is set for EVERY pipeline this
+            // renderer builds - the graphics recipes, the compute assemblies and the ray-tracing one all come
+            // from `api_core::create_pipeline` - and a null contract here is a wiring bug, not a backend without
+            // the ability (the runner's raw fallback is gone with the raw lane itself).
+            return pass::owned_pipeline{.contract = pipeline->contract};
         }
         // ... AND THEN THE CHAIN'S OWN PASSES, because a chain's stages may SHARE one pipeline: the post chain's
         // four bloom levels record with the composite's R16F variant, and a copy per level would be five identical
@@ -3009,17 +3014,14 @@ namespace deren::vulkan {
             vkCmdSetViewport(commands, 0, 1, &viewport);
             vkCmdSetScissor(commands, 0, 1, &scissor);
         }
-        // THE CONTRACT, WITH NO FALLBACK LEFT (abi 21): every pipeline this renderer builds is a contract
-        // pipeline now - the graphics recipes, the compute assemblies AND the ray-tracing one, whose
-        // `bind_point` is the ray-tracing point the backend set at creation. The old raw bind stood here for the
-        // one pipeline the contract could not name, and that pipeline no longer exists; `io.pipeline_handles` is
-        // index-aligned with `io.pipelines` (see resolve_declaration).
-        for (std::size_t i = 0; i < io.pipelines.size(); ++i) {
-            deren::promise::rhi::pipeline* const contract = i < io.pipeline_handles.size() ? io.pipeline_handles[i] : nullptr;
+        // THE CONTRACT, ONE LANE (abi 21): every pipeline a pass resolves is the contract object
+        // `command_buffer::bind_pipeline` takes - the graphics recipes, the compute assemblies and the
+        // ray-tracing pipeline alike - and the runner has NO raw fallback any more. A declared pipeline that
+        // resolved to a null handle is a wiring bug, and it is REPORTED rather than silently recorded without
+        // its pipeline (the frame's bind is what makes a pass's draws legal).
+        for (deren::promise::rhi::pipeline* const contract : io.pipelines) {
             if (contract == nullptr) {
-                // A DECLARED PIPELINE WITH NO CONTRACT HANDLE IS A WIRING BUG, and it is REPORTED rather than
-                // silently recorded without its pipeline: the frame's bind is what makes a pass's draws legal.
-                deren::utility::log("runtime: the pass declared a pipeline with no contract handle - its record may miss its pipeline");
+                deren::utility::log("runtime: the pass declared a pipeline that resolved to nothing - its record may miss its pipeline");
                 continue;
             }
             if (io.list->bind_pipeline(*contract) != deren::promise::rhi::error::ok) {

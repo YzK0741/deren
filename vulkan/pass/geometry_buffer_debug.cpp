@@ -84,10 +84,6 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline gbuffer_debug_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
-    }
-
     deren::promise::rhi::pipeline* gbuffer_debug_pass::pipeline_handle() const noexcept {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
@@ -103,7 +99,7 @@ namespace deren::vulkan::pass {
     }
 
     void gbuffer_debug_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }

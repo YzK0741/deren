@@ -15,7 +15,6 @@ module;
 #include <glm/glm.hpp>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.megalights_trace;
 
@@ -55,10 +54,6 @@ namespace deren::vulkan::pass {
 
     bool megalights_trace_pass::pipeline_ready() const noexcept {
         return this->pass_pipeline.has_value();
-    }
-
-    VkPipeline megalights_trace_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     deren::promise::rhi::pipeline* megalights_trace_pass::pipeline_handle() const noexcept {

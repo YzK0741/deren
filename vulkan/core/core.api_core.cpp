@@ -2816,7 +2816,15 @@ namespace deren::vulkan {
     void core::frame_commands::set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) noexcept {
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer != VK_NULL_HANDLE) {
-            vkCmdSetDepthBias(command_buffer, clamp, slope_factor, constant_factor); // Vulkan's own argument order, spelled once here
+            // THE TWO ORDERS ARE NOT THE SAME, and this line is where that is spelled once: the CONTRACT states
+            // `set_depth_bias(constant, slope, clamp)` (the order a reader of the record series expects, and the
+            // order `rhi::command_buffer::set_depth_bias` documents), while VULKAN states
+            // `vkCmdSetDepthBias(cb, depthBiasConstantFactor, depthBiasClamp, depthBiasSlopeFactor)`. This call
+            // had them as (clamp, slope, constant) - ALL THREE WRONG - and the comment claimed to be Vulkan's own
+            // order, so nothing but a frame that reads the number back could catch it. The shadow map's live depth
+            // bias is what does: the 14-hash render gate took 12 mismatches the first time the shadow cascade
+            // recorded its bias through this verb instead of through vkCmdSetDepthBias directly.
+            vkCmdSetDepthBias(command_buffer, constant_factor, clamp, slope_factor);
         }
     }
 

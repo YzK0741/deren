@@ -153,8 +153,6 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
     private:
@@ -198,7 +196,7 @@ export namespace deren::vulkan::pass {
         void trace_rays(deren::promise::rhi::command_buffer& commands, VkStridedDeviceAddressRegionKHR const* raygen, VkStridedDeviceAddressRegionKHR const* miss,
                         VkStridedDeviceAddressRegionKHR const* hit, VkStridedDeviceAddressRegionKHR const* callable, uint32_t width, uint32_t height, uint32_t depth) noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
-        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         // The shader binding table's three regions, filled at create time from the pipeline's group handles. The

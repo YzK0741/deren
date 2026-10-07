@@ -101,30 +101,24 @@ namespace deren::vulkan::pass {
         return this->composite.has_value() && this->hdr.has_value();
     }
 
-    VkPipeline post_composite_pass::pipeline() const noexcept {
-        return this->composite_pipeline();
-    }
-
     deren::promise::rhi::pipeline* post_composite_pass::pipeline_handle() const noexcept {
-        // THE CONTRACT LANE OF THE SAME VARIANT `pipeline()` ANSWERS - the `composite` one; the HDR variant is
-        // published by NAME (see named_pipeline below), never by this accessor.
+        // THE DEFAULT VARIANT, the `composite` one (the swapchain/LDR target's R16F-format pipeline); the HDR
+        // variant is published by NAME (see named_pipeline below), never by this accessor.
         return this->composite.has_value() ? this->composite->contract : nullptr;
     }
 
     owned_pipeline post_composite_pass::named_pipeline(std::string_view const name) const noexcept {
         // THE ONE NAME THIS PASS PUBLISHES TO ITS SIBLINGS: the bloom levels' `post_hdr` (see the class note and
-        // frame_pass::named_pipeline). Its own name is answered by `pipeline()` above.
-        // BOTH LANES ARE FILLED: `declaration_pipelines_ok` asks THIS first and publishes the pair it returns, so a
-        // raw-only answer here is exactly the "resolved but unbound" frame the two-lane rule exists to prevent.
-        return name == bloom_pipeline_name ? owned_pipeline{.pipeline = this->hdr_pipeline(), .contract = this->hdr.has_value() ? this->hdr->contract : nullptr} : owned_pipeline{};
+        // frame_pass::named_pipeline). Its own name is answered by `pipeline_handle()` above.
+        return name == bloom_pipeline_name ? owned_pipeline{.contract = this->hdr.has_value() ? this->hdr->contract : nullptr} : owned_pipeline{};
     }
 
-    VkPipeline post_composite_pass::composite_pipeline() const noexcept {
-        return this->composite.has_value() ? this->composite->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* post_composite_pass::composite_pipeline() const noexcept {
+        return this->composite.has_value() ? this->composite->contract : nullptr;
     }
 
-    VkPipeline post_composite_pass::hdr_pipeline() const noexcept {
-        return this->hdr.has_value() ? this->hdr->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* post_composite_pass::hdr_pipeline() const noexcept {
+        return this->hdr.has_value() ? this->hdr->contract : nullptr;
     }
 
     void post_composite_pass::set_frame(composite_frame const& frame) noexcept {
@@ -172,9 +166,10 @@ namespace deren::vulkan::pass {
             return false; // no LDR image this generation: do not record a composite that cannot write anywhere
         }
         out.target_storage[0] = target;
+        // THE VARIANT THIS FRAME NEEDS, in the ONE lane there is now (abi 21): the LDR target is the R16F
+        // pipeline's, and `resolve` is where the frame's decision between the two variants lives.
         out.pipeline_storage[0] = this->hdr_pipeline();
-        out.pipeline_handle_storage[0] = this->hdr.has_value() ? this->hdr->contract : nullptr;
-        out.pipeline_handles = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_handle_storage.data(), 1);
+        out.pipelines = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_storage.data(), 1);
         return this->fill_push(out, true);
     }
 
@@ -202,7 +197,7 @@ namespace deren::vulkan::pass {
     }
 
     void post_composite_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.push.size() < sizeof(post_push_constants) || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_post_composite)
         }
@@ -317,7 +312,7 @@ namespace deren::vulkan::pass {
     }
 
     void post_bloom_pass::record(resolved_io const& io) {
-        if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].image_handle == nullptr ||
             io.targets[0].view_handle == nullptr) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)

@@ -1096,7 +1096,7 @@ namespace deren::vulkan {
     // BUFFERS come from the frame's resource table (per-frame-slot instance), its shared scene block from the owner,
     // its pipeline from the PASS (which owns it), its extent from the declaration's `none` rule and its push block
     // from nowhere - it has none. Its old gates are answered by the two mechanisms that own those questions: "the
-    // pipeline exists" is `pass.pipeline()` (a null pipeline is what the generic resolution fails on), "the
+    // pipeline exists" is `pass.pipeline_handle()` (a null handle is what the generic resolution fails on), "the
     // buffers are there" is the resource table, "the scene block is there" is the shared-set rule, and "the grid was
     // computed this frame" is the pass's own `frame_.cluster_count == 0` guard, which its `record` already had.
 

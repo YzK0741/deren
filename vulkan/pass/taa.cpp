@@ -10,7 +10,6 @@ module;
 #include <cstring>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.taa;
 
@@ -46,10 +45,6 @@ namespace deren::vulkan::pass {
 
     bool taa_pass::pipeline_ready() const noexcept {
         return this->pass_pipeline.has_value();
-    }
-
-    VkPipeline taa_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
     }
 
     deren::promise::rhi::pipeline* taa_pass::pipeline_handle() const noexcept {

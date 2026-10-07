@@ -40,7 +40,6 @@ module;
 #include <optional>
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.toon_screen_rim;
 import deren.promise.rhi;
@@ -91,8 +90,6 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /**
@@ -121,7 +118,7 @@ export namespace deren::vulkan::pass {
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
-        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         float rim_width = 1.0f;

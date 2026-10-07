@@ -163,8 +163,8 @@ namespace {
     std::shared_ptr<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
     VkDevice const fake_device = reinterpret_cast<VkDevice>(0xDD);
     VkSampler const fake_shadow_sampler = reinterpret_cast<VkSampler>(0x22);
-    std::array<VkPipeline, 4> const fake_pipelines = {
-        reinterpret_cast<VkPipeline>(0x1), reinterpret_cast<VkPipeline>(0x2), reinterpret_cast<VkPipeline>(0x3), reinterpret_cast<VkPipeline>(0x4)};
+    std::array<deren::promise::rhi::pipeline*, 4> const fake_pipelines = {
+        reinterpret_cast<deren::promise::rhi::pipeline*>(0x1), reinterpret_cast<deren::promise::rhi::pipeline*>(0x2), reinterpret_cast<deren::promise::rhi::pipeline*>(0x3), reinterpret_cast<deren::promise::rhi::pipeline*>(0x4)};
     /// the push block the fake host composes: raw bytes, as a real host does (the framework has no pass's type)
     std::array<std::byte, 4> const fake_push = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
     /// the per-image view lists the fake host resolves (one entry per swapchain image of its fake frame): what a
@@ -211,7 +211,7 @@ namespace {
         out.frame = state.frame;
         out.cmd = fake_cmd;
         out.own = state.own;
-        out.pipelines = std::span<VkPipeline const>(fake_pipelines.data(), behaviour.pipelines.size());
+        out.pipelines = std::span<deren::promise::rhi::pipeline* const>(fake_pipelines.data(), behaviour.pipelines.size());
         out.push = fake_push;
         // the declared render targets, resolved the way an own binding is: the view for the instance, the
         // image for a barrier
@@ -758,7 +758,7 @@ int32_t main() {
         struct declared_pass final : vp::frame_pass {
             rr::pass_io const* declaration = &rr::taa_io;
             vp::behaviour how = {.kind = vp::behaviour_kind::fullscreen, .extent = vp::extent_rule::full};
-            VkPipeline owned_pipeline = VK_NULL_HANDLE;
+            deren::promise::rhi::pipeline* owned_contract = nullptr;
             [[nodiscard]] rr::pass_io const& io() const noexcept override {
                 return *this->declaration;
             }
@@ -770,8 +770,8 @@ int32_t main() {
             }
             // the passes that build their OWN pipeline answer this, and the resolver must prefer it over a
             // registry entry that happens to share a `behaviour::pipelines` name
-            [[nodiscard]] VkPipeline pipeline() const noexcept override {
-                return this->owned_pipeline;
+            [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override {
+                return this->owned_contract;
             }
             void create(vp::pass_context const&) override {
             }
@@ -784,7 +784,7 @@ int32_t main() {
         struct resolver_owner {
             vp::resource_table table;
             deren::promise::rhi::image_extent resource_extent = {7, 9};
-            VkPipeline pipeline = reinterpret_cast<VkPipeline>(0x77);
+            deren::promise::rhi::pipeline* pipeline = reinterpret_cast<deren::promise::rhi::pipeline*>(0x77);
             std::string_view unknown_pipeline = {};
         };
         resolver_owner owner;
@@ -799,7 +799,7 @@ int32_t main() {
                 // the owner answers a NAME with a pipeline, or with nothing for a name it does not own
                 return name == static_cast<resolver_owner*>(o)->unknown_pipeline
                            ? vp::owned_pipeline{}
-                           : vp::owned_pipeline{.pipeline = static_cast<resolver_owner*>(o)->pipeline};
+                           : vp::owned_pipeline{.contract = static_cast<resolver_owner*>(o)->pipeline};
             },
             .owner = &owner,
         };
@@ -893,11 +893,11 @@ int32_t main() {
 
         // ... and a pass that BUILT its own pipeline is handed its own, never the same-named registry entry: that
         // is the whole reason the interface asks the pass first
-        pass.owned_pipeline = reinterpret_cast<VkPipeline>(0x1234);
+        pass.owned_contract = reinterpret_cast<deren::promise::rhi::pipeline*>(0x1234);
         CHECK(pass.resolve(context, io));
         CHECK(io.pipelines.size() == 1);
-        CHECK(io.pipelines[0] == pass.owned_pipeline);
-        pass.owned_pipeline = VK_NULL_HANDLE;
+        CHECK(io.pipelines[0] == pass.owned_contract);
+        pass.owned_contract = nullptr;
 
         // A DECLARATION WITH NO BINDING OF ITS OWN IS STILL A DECLARATION: the framework has no set to hand a pass
         // (every stage reads its descriptors from the frame's heap), so such a declaration resolves with no own

@@ -34,7 +34,6 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.shadow;
 import deren.promise.rhi;
@@ -74,7 +73,7 @@ export namespace deren::vulkan::pass {
         /// @param mesh_stage whether @p pipeline is a MESH pipeline, i.e. whether the casters must be drawn as
         ///        dispatches (vkCmdDrawMeshTasksEXT) instead of indexed draws - the pipeline and the way to feed
         ///        it are one fact, so they travel together (see docs/mesh_shaders.md step 1)
-        bool (*record_cascade)(void* owner, deren::promise::rhi::command_buffer& secondary, uint32_t cascade_index, VkPipeline pipeline, bool mesh_stage, bool meshlets) = nullptr;
+        bool (*record_cascade)(void* owner, deren::promise::rhi::command_buffer& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
         /// the frame loop's scheduler: one task per cascade, each recording into its own secondary
         void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
         void* owner = nullptr;
@@ -114,9 +113,8 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
-        /// @brief the contract lane of the SAME object `pipeline()` prefers: the MESHLET form when it exists, the MESH form otherwise
+        /// @brief the pipeline the runner binds before this pass records: the MESHLET form when it exists, the
+        ///        MESH form otherwise (the contract handle - see `frame_pass::pipeline_handle`)
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         void set_frame(shadow_frame const& frame) noexcept;

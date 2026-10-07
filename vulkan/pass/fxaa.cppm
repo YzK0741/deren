@@ -34,7 +34,6 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.fxaa;
 import deren.promise.rhi;
@@ -85,8 +84,6 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
         [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief install the host's overlay hook (this pass is the frame's last writer whenever it runs)
@@ -113,7 +110,7 @@ export namespace deren::vulkan::pass {
         };
         void release_owned() noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
-        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         /// the surface's format, cached at create: the push block's `encode_gamma` lane follows from it, and a

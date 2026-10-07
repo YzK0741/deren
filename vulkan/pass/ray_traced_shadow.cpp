@@ -60,10 +60,6 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline rt_shadow_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
-    }
-
     deren::promise::rhi::pipeline* rt_shadow_pass::pipeline_handle() const noexcept {
         return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
@@ -172,7 +168,7 @@ namespace deren::vulkan::pass {
 
     void rt_shadow_pass::record(resolved_io const& io) {
         if (!this->pass_pipeline.has_value() || io.barrier_images.size() < render_resource::rt_shadow_barriers.size() ||
-            io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE || io.list == nullptr ||
+            io.pipelines.empty() || io.pipelines[0] == nullptr || io.list == nullptr ||
             io.barrier_images[barrier_visibility].image_handle == nullptr ||
             this->hit_region.deviceAddress == 0 ||
             io.extent.width == 0 || io.extent.height == 0) {
