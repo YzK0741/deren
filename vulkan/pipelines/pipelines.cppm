@@ -56,13 +56,13 @@ namespace deren::vulkan::pipelines {
     export void release_contract_pipeline(rhi::pipeline* resource) noexcept;
 
     /// AN ENGINE-HELD PIPELINE (abi 8): a CONTRACT pipeline (every pipeline this renderer builds since abi 21),
-    /// created through `create_pipeline` and released inside the backend when this dies. The pass-visible
-    /// interface is the one `vk_pipeline` exposed to them: `get_pipeline()`.
+    /// created through `create_pipeline` and released inside the backend when this dies.
     ///
     /// THE RAW LANE IS GONE (abi 21): this type used to be able to own a `VkPipeline` the engine created itself
     /// - for the compute and ray-tracing assemblies - and destroy it with `vkDestroyPipeline`. The contract's
-    /// factory creates all of them now, so `native` is an ESCAPE READ (`vulkan_escape::native_pipeline`) that
-    /// one caller still needs (the ray-traced shadow's shader-group-handle query) and nobody owns.
+    /// factory creates all of them now, so `native` is an ESCAPE READ (`vulkan_escape::native_pipeline`) with ONE
+    /// reader left: `begin_pipeline`, the runner's raw path for the geometry pipelines (a frame-sweep site - see
+    /// the note). `get_pipeline()` had no reader once the two probes recorded through the contract, and is gone.
     export struct pipeline_handle {
         /// SET FOR EVERY PIPELINE THIS RENDERER BUILDS: its release() runs inside the backend.
         rhi::pipeline* contract = nullptr;
@@ -83,9 +83,6 @@ namespace deren::vulkan::pipelines {
         pipeline_handle(pipeline_handle const&) = delete;
         pipeline_handle& operator=(pipeline_handle const&) = delete;
         ~pipeline_handle() noexcept;
-        [[nodiscard]] VkPipeline get_pipeline() const noexcept {
-            return this->native;
-        }
         /// bind + re-emit the stored dynamic state - `vk_pipeline::begin_pipeline`'s exact behavior
         void begin_pipeline(VkCommandBuffer command_buffer) const noexcept {
             vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, this->native);

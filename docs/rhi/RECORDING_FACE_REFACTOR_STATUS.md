@@ -1,6 +1,6 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: seven batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: eight batches have LANDED AND ARE GREEN.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
@@ -10,12 +10,12 @@
 > it did not before the third batch, and the sixth batch's new escape slots are proven by it (the SBT
 > query travels through `api_basis` there, and the smoke run still builds its table).
 >
-> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 51**, **none of them
-> in `vulkan/pass/`**; and the ESCAPE's own demand, measured for the first time in the seventh batch:
-> **105 -> 102 engine-side call sites** (its five classes are in 2.12). Engine files including a Vulkan
-> header **62 -> 39**; abi **20 -> 22**, pinned in both tests. (The call-site count's last move was +3
-> rather than down: the fifth batch's probe fix ADDS three dynamic-state calls - trap 12 - and honesty
-> about an instrument means counting what it measures.)
+> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 41**, **none of them
+> in `vulkan/pass/`**; the ESCAPE's own demand, measured for the first time in the seventh batch:
+> **105 -> 101 engine-side call sites**. Engine files including a Vulkan header **62 -> 39**; abi
+> **20 -> 22**, pinned in both tests. (The call-site count is not monotone: the fifth batch's probe fix
+> ADDED three dynamic-state calls - trap 12 - because honesty about an instrument means counting what it
+> measures.)
 >
 > THIS NOTE IS THE COMMIT-MESSAGE-LENGTH VERSION of all six batches: section 2 is what changed,
 > section 5 is the failure class the first batch closed, section 8 is what is left AND the measurement
@@ -208,6 +208,18 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | the include sweep | `vulkan/pass/compute_skin.cpp` now names NO Vulkan type, macro or entry point at all and dropped its include: engine files with a Vulkan header **40 -> 39**. |
 | the numbers | engine-side escape call sites **105 -> 102**; the heap/recording class **68 -> 65**. |
 | WHAT BLOCKED THE REST (measured, not guessed) | (1) `pipelines::pipeline_handle::native` still has TWO readers - the two PROBES' raw `vkCmdBindPipeline`, because a probe records into its own raw pool/command buffer, so `command_buffer::bind_pipeline` cannot be called there yet; retiring that lane is the probes' rewrite. (2) The probe's `vkCmdDrawMeshTasksEXT` -> `mesh_shader::dispatch_mesh` is blocked by the same fact: `dispatch_mesh(command_buffer&, ...)` needs a contract command buffer, which the probe does not have. (3) The remaining 65 heap/recording sites hang off the FRAME RESOURCE TABLE's raw lanes (`resolved_binding::view/image`), which is the frame sweep. (4) RT's launch needs SBT REGIONS the contract's `trace_rays(commands, w, h, depth)` does not carry - a genuine contract GAP, not a migration. |
+
+### 2.13 What the EIGHTH batch added (the probes record through the contract - and what that turned up)
+
+| area | what landed |
+|---|---|
+| the probes' recording | BOTH probes (`run_heap_probe`, `run_heap_graphics_probe`) record through the contract now: `make_command_buffer` + `begin_recording` (a helper, `runtime::make_probe_commands`) instead of a hand-made `VkCommandPool`/`VkCommandBuffer`; the heap bind and the push through `descriptor_heap::bind` / `push_data` instead of the raw helpers; the rendering scope, the dynamic state, the pipeline bind and the draw through the record series; `draw_mesh_tasks` instead of a resolved `vkCmdDrawMeshTasksEXT` (`vkGetDeviceProcAddr` gone); `barrier(image_barrier)` instead of the raw UNDEFINED->GENERAL transition; `wait_idle()` instead of a fence. **Census: `vkCmd*` 51 -> 41.** |
+| THE BACKEND BUG THIS EXPOSED | `heap_commands` (the helper behind `descriptor_heap::bind` / `push_data`) refused EVERY command buffer except the frame's own borrowed view (`commands != &owner.commands_view` -> `invalid_argument`). The heap verbs' `commands` field is a CONTRACT `command_buffer*` with no frame restriction, and `frame_commands::native()` answers for both shapes (the frame's slot buffer or an owned buffer's, per `target`) - so the guard was stale, and its consequence was **silent**: `[[nodiscard]] bool pushed = heap->push_data(...)` at the shadow cascade (converted in this batch) and the probes' own bind would have been DROPPED with no image difference to notice. Fixed: any buffer this backend handed out is accepted, by the same cast convention the escape's other native accessors use. |
+| the probe readbacks | VERIFIED IDENTICAL to the pre-rewrite values, line for line: the compute probe still reads `0xffffffff` (texture red 0xffff, alpha 0xffff; material default record 0xffff), and the MESH/GRAPHICS arms still read `rgba 255,255,255,255` at the known slot with the deliberately WRONG slot (16897) reading `rgba 0,0,0,255` - the negative proof that the index selects the descriptor. |
+| what stays raw in the probes, and why | TWO sites, both documented rather than worked around: (1) `submit_probe_commands` - `api_core::submit()` is spelled, in its OWN contract doc, for "the list `begin_commands()` handed out" (the FRAME's), and the backend refuses anything else by name, so an ISOLATED probe buffer reaches the queue through the escape (with the WAIT staying `wait_idle()`); (2) the graphics probe's HOST-READ barrier - the contract's `image_use` census ends with "no HOST-ACCESS masks ... the two host-visible barrier sites stay in the escape bucket (runtime.probes.cppm / ray_tracing.cpp)", so this is that site. The missing vocabulary is now recorded in the declaration itself: a `submit_nowait(owned buffer)`-shaped verb would let both probes drop their last native handle. |
+| dead code | `pipelines::pipeline_handle::get_pipeline()` DELETED - its last two readers were the probes, which now bind the CONTRACT object. `native` stays: `begin_pipeline` (the runner's raw path for the geometry pipelines, a frame-sweep site) still reads it. |
+| the shadow cascade | its push moved to `descriptor_heap::push_data` with the CONTRACT secondary, so `record_shadow_cascade` no longer derives a native handle at all - and that conversion is what turned the `heap_commands` bug from a latent trap into a caught one. |
+| ONE ENVIRONMENTAL RED HERRING, RECORDED | the first full gate run came back 12/14 with two scenarios panicking on `Failed to create image: -2` (out of device memory) - with the build itself reporting `LLVM ERROR: out of memory` in the same window. Attribution, not assumption: the SAME revision at HEAD failed the same way, and the scenario passed when run alone after the pressure cleared (the final full run is 14/14). NO code in this batch is implicated; the lesson is that a host under memory pressure can fail a scenario in a way no diff explains, so attribute before bisecting. |
 
 ## 3. What was tried and reverted (do not repeat)
 
@@ -433,14 +445,14 @@ interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragm
 ## 8. What is left (ranked, with the measurements each step needs)
 
 **THE PASS LAYER IS AT ZERO `vkCmd*` SITES, HAS NO DEVICE IN ITS CONTEXT, AND EVERY PIPELINE IT BINDS IS A
-CONTRACT OBJECT.** The census reads **51 sites in 6 files**, none of them a pass:
+CONTRACT OBJECT.** The census reads **41 sites in 6 files**, none of them a pass:
 `runtime/runtime.frames.cppm` (29 - the frame loop's own open/close, its barriers, the furnace clear and
-the shadow hand-back), `runtime/runtime.probes.cppm` (11 - the probe's own path, three of them the dynamic
-state trap 12 found), `vulkan/ray_tracing/ray_tracing.cpp` (4 - the structure set's barriers, out of the
-pass layer by design), `runtime/runtime.cpp` (3 - the resolved mesh entry points), `pipelines.cppm` (3 -
-`begin_pipeline`'s bind + viewport + scissor) and `readback.cpp` (2 - its one-shot copy). The include
-count is **39** (the census's own scope: `runtime/**` + `vulkan/**` MINUS `vulkan/core/**`; the fifth
-batch also dropped a dead one in `vulkan/core/filter/filters.cpp`, which that scope does not count).
+the shadow hand-back), `runtime/runtime.probes.cppm` (1 - the ONE host-visible barrier the contract's own
+`image_use` note assigns to the escape bucket; the batch before this one had 11 here),
+`vulkan/ray_tracing/ray_tracing.cpp` (4 - the structure set's barriers, out of the pass layer by design),
+`runtime/runtime.cpp` (3 - the resolved mesh entry points), `pipelines.cppm` (3 - `begin_pipeline`'s bind +
+viewport + scissor) and `readback.cpp` (2 - its one-shot copy). The include count is **39** (the census's
+own scope: `runtime/**` + `vulkan/**` MINUS `vulkan/core/**`).
 
 DONE IN THE SECOND, THIRD AND FOURTH BATCHES (all gated, see section 6):
 
@@ -483,6 +495,11 @@ DONE IN THE SECOND, THIRD AND FOURTH BATCHES (all gated, see section 6):
    contract ALREADY carried the shapes for all of it (`heap_image_write_info` + the heap verbs) - what
    blocks the rest is the frame resource table's raw lanes and the probes' raw command buffers, not the
    contract (see 2.12's "what blocked the rest").
+9. **The probes record through the contract** (eighth batch): `vkCmd*` 51 -> 41, the probes' pools,
+   fences, queue submissions, dynamic state, rendering scope and mesh dispatch all went through the
+   record series or the abilities, `get_pipeline()` is deleted, the shadow cascade's push is the
+   ability's verb - and the backend bug that exposed (`heap_commands` refusing every buffer but the
+   frame's own, silently dropping heap binds/pushes for owned buffers) is fixed (see 2.13).
 
 WHAT REMAINS:
 

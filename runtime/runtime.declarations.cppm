@@ -1069,6 +1069,38 @@ namespace deren::vulkan {
          */
         void run_heap_probe(uint32_t texture_slot);
         /**
+         * @brief ONE probe's recording session, as a CONTRACT command buffer that is already recording
+         *
+         * WHY IT EXISTS (abi 22's escape-shrink batch): both probes used to hand-make their isolation out of the
+         * escape - a `VkCommandPool` with `TRANSIENT`, one allocated `VkCommandBuffer`, a `VkFence`, a
+         * `vkQueueSubmit` and a `vkWaitForFences` - every one of which named a device or a queue the contract
+         * already owns. The contract's `make_command_buffer` + `command_buffer::begin_recording` + `submit` +
+         * `wait_idle` spell the same thing with no native handle at all, and the BACKEND picks the pool and the
+         * queue family (which is why the two `VkCommandPoolCreateInfo`s that read the runtime's
+         * `graphics_queue_family_index` are gone - the FIELD stays: `runtime.cpp` still publishes that family as a
+         * device fact).
+         *
+         * `what` names the probe in the failure log (a probe that cannot record is a named line, never a silent
+         * skip). Null means the session could not be opened, and the caller returns.
+         */
+        [[nodiscard]] std::shared_ptr<rhi::command_buffer> make_probe_commands(std::string_view what);
+        /**
+         * @brief hand a PROBE's own command buffer to the queue, and answer whether the submit was accepted
+         *
+         * WHY THIS IS RAW, AND WHY IT IS NOT A CONTRACT BUG: `api_core::submit()` is spelled - in its OWN contract
+         * doc - for "the list `begin_commands()` handed out" (the FRAME's): the backend owns which image is
+         * presented and which semaphores are signalled, and it refuses a buffer it did not hand out for that
+         * frame. A probe's buffer is isolated BY DESIGN, so it reaches the queue through the escape - the same
+         * documented bucket as the host-visible barrier the graphics probe records. The WAIT stays the
+         * contract's: `api_core::wait_idle()`, which is exactly what a probe that reads host memory needs, and
+         * it is why no fence is created here (the file used to make one, submit with it and wait on it).
+         *
+         * THE MISSING VOCABULARY IS RECORDED, NOT WORKED AROUND SILENTLY: a `submit_nowait(owned buffer)`-shaped
+         * contract verb would let both probes stop deriving a native handle and a queue. Until it exists, this is
+         * the escape's, and the count of raw sites here is what says so.
+         */
+        [[nodiscard]] bool submit_probe_commands(rhi::command_buffer& commands);
+        /**
          * @brief run the GRAPHICS half of the heap-native probe once (see shaders/heap_probe.slang)
          * @param material_slot the ABSOLUTE grid slot of the material table the fragment stage reads; the caller
          *        runs it once with the right slot and once with a deliberately WRONG one, because a probe that can

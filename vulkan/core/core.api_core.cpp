@@ -869,8 +869,21 @@ namespace deren::vulkan {
                 return static_cast<VkCommandBuffer>(native.commands);
             }
             if (commands != &owner.commands_view) {
-                result = rhi::error::invalid_argument;
-                return VK_NULL_HANDLE;
+                // ANY OTHER COMMAND BUFFER THIS BACKEND HANDED OUT IS ACCEPTED TOO (a correction to the refusal
+                // that stood here): `create_command_buffer` / `make_command_buffer` produce
+                // `owned_command_buffer`s - the probes' own isolated buffers are exactly that - and
+                // `frame_commands::native()` answers for EITHER shape (the frame's slot buffer or an owned
+                // buffer's, per `target`). The guard was written when the frame's borrowed view was the only
+                // `command_buffer` the engine could pass to a heap verb.
+                //
+                // THE CAST IS THIS BACKEND'S ESTABLISHED CONVENTION for a handle IT handed out (`native_buffer`
+                // / `native_image` / `native_sampler` / `native_pipeline` all cast the contract reference back to
+                // the owned type without RTTI), and a foreign pointer would be a caller bug rather than a case to
+                // survive: the contract's ownership note says touching a released handle is undefined, and
+                // nothing on the engine side can obtain one of these without going through this backend.
+                auto* const buffer = static_cast<core::frame_commands*>(commands);
+                result = rhi::error::ok;
+                return buffer->native();
             }
             if (!owner.frame_in_flight) {
                 result = rhi::error::not_ready;

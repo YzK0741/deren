@@ -1045,9 +1045,6 @@ namespace deren::vulkan {
             deren::utility::log("runtime: shadow secondary command buffer begin failed - cascade {} skipped this frame", cascade_index);
             return false;
         }
-        // THE NATIVE HANDLE FOR THE RECORDING SERIES THE CONTRACT DOES NOT CARRY YET (the heap push and the
-        // mesh entry points), derived ONCE through the frame loop's own unwrap path.
-        VkCommandBuffer const command_buffer = self->native_handle(secondary);
         // which cascade these casters are projected into: the vertex stage indexes the light UBO's matrix array with
         // it, and a secondary records that itself (state is not inherited from the primary). The offset is the
         // declaration's own - where the scene's push block ends.
@@ -1056,7 +1053,12 @@ namespace deren::vulkan {
         // render_environment::push_block). This is ONE 4-byte slice of the shadow stage's block - the cascade
         // index's own offset - while the rest of the block is the material's, pushed per caster below. A
         // secondary records its own state (nothing is inherited from the primary), which is why it is set here.
-        [[maybe_unused]] bool const pushed = contract_push_heap_data(self->rhi_face(), command_buffer, render_resource::shadow_io.push->offset, std::as_bytes(std::span(&index, 1)));
+        // THE ABILITY'S OWN VERB (abi 22's escape-shrink batch): the push was the ONE thing this function derived a
+        // native handle for, so that derivation is gone with it - `descriptor_heap::push_data` takes the CONTRACT
+        // buffer the cascade is being recorded into.
+        rhi::descriptor_heap* const heap = rhi::query_extension<rhi::descriptor_heap>(self->rhi_face());
+        rhi::heap_push_info const push_info{.commands = &secondary, .offset = render_resource::shadow_io.push->offset, .data = std::as_bytes(std::span(&index, 1))};
+        [[maybe_unused]] bool const pushed = heap != nullptr && heap->push_data(push_info) == rhi::error::ok;
         // THE SESSION'S BUFFER IS THE CASCADE'S OWN SECONDARY, handed over as a NON-OWNING view: the runtime owns
         // those buffers (`shadow_recording`) and this callback only records into one of them for the duration of the
         // call, so the control block must drop nothing.
