@@ -131,7 +131,7 @@ struct image : object {
 |---|---|---|---|---|
 | **X0** | **门禁 + 窗口**：P-Gate 的"无 Vulkan 编译"配置（先允许列出当前违规，作为待办）、P-Census 脚本、P-Import 检查；`native_window` 统一 `GLFWwindow*` | `CMakeLists.txt`、`scripts/`、`promise/rhi/rhi.core_desc.cppm`、`runtime/*`、`main.cpp` | 窗口 | — |
 | **X1** | **砍链接边**：`Vulkan::Vulkan` → 只给头文件的 INTERFACE；`vulkan_constant_init` 的 `PUBLIC` → PRIVATE；`imgui` 连同 `imgui_impl_vulkan.cpp` 移出引擎链接图（先让它"编得进、链不进"） | `CMakeLists.txt` | §2.2 三条边 | — |
-| **X2** | **GUI 后端化**：契约加 `gui` 扩展；ImGui 的 Vulkan 后端编译进 `deren_vulkan.dll`；引擎的 `graphical_user_interface/**` 只与契约打交道；运行时不再喂原生句柄 | `promise/rhi/rhi.extension.cppm`、`vulkan/core/*`、`vulkan/graphical_user_interface/*`、`runtime/runtime.cpp` | GUI | 25 |
+| **X2** | **GUI 独立成 DLL（每个 API 一个），像后端一样手动导入**（用户的决定，取代"编进 deren_vulkan.dll"的旧写法）：新建 `deren_gui_vulkan.dll`（ImGui + GLFW/Vulkan 后端 + `graphical_user_interface` 整个模块都编在里面，私有链接 `vulkan-1`/`glfw`）；它导出**一个 C 入口** `deren_make_gui(...)`，主程序通过**自己的 loader**（`LoadLibrary`/`GetProcAddress`，与 `backend_loader` 同形）按 `api_type` 解析 `deren_gui_<api>.dll`；边界是**纯头文件抽象接口**（`gui` + `panel`，见 §4.1），`gui_create_info` 带 `rhi::api_core*` + `GLFWwindow*`，DLL 自己用 `vulkan_escape` 取原生句柄（引擎不再喂句柄）；`init(api_type)` 是 DLL 的**自检**（`deren_gui_d3d12` 见到 `vulkan` 就具名拒绝）。`vulkancorekit`/`deren.exe` 不再链接 `imgui` → `deren.exe` 的导入表里 **`vulkan-1.dll` 消失**，也没有 `deren_gui_*.dll`（手动导入）。 | `CMakeLists.txt`、新增 `promise/gui/gui_entry.hpp`、新增 `runtime/gui_loader.cppm`、`vulkan/graphical_user_interface/*`、`runtime/runtime.{cpp,frames.cppm,declarations.cppm}`、`chores.cpp` | GUI | — |
 | **X3** | **设备事实 + 交换链 + 格式**：`device_facts`/`facts()`/`format_is_supported()`；冻结 `swapchain_desc` 并实装 `create_swapchain`；`swapchain` 查询；入口点解析全搬进后端；特性启用由后端自决 | `promise/rhi/*`、`vulkan/core/*`、`runtime/runtime.constructor.cppm`、`runtime/runtime.cpp` | 实例/设备/队列、交换链、格式 | 26 |
 | **X4** | **读回走 host image copy + 录制生命周期 + 提交/等待**：① 契约给 `image` 加 **`get_content()`**（`image_content` POD），后端用 `vkCopyImageToMemoryEXT` 实现；截图改读**自有的 `host_transfer` 目标**；`frame_readback_buffer()`/mapped 槽/copy 命令退役；**删除 `vulkan/readback` 整模块**（已无调用者，7 个引用随之消失）；② 帧循环改 `begin_recording/end_recording`；③ `api_core` 加 owned-buffer 提交/等待 + `image_use::host_read`（加值） | `promise/rhi/*`、`vulkan/core/*`、`runtime/runtime.frames.cppm`、`runtime/runtime.readback.cppm`、`runtime/runtime.probes.cppm`、删除 `vulkan/readback/*` | 图像读回、截图源、缓冲读回（可选）、录制生命周期、探针、屏障 | 27 |
 | **X5** | **类型清扫 + pass/资源层**：`resolved_binding` raw 车道退役、资源发布契约化、`VkExtent2D`→`image_extent`、`VkFormat`→`image_format`、`VkDeviceAddress`→`uint64_t`、`VkDeviceSize`→`uint64_t`、`VkBindHeapInfoEXT`→`heap_bind_info`、`VkBool32`/`VkCullModeFlags`→`bool`/`cull_mode`、`VkSampler`→`sampler*`、间接网格动词 | `vulkan/pass/*`、`vulkan/render_resource/*`、`vulkan/render_environment/*`、`vulkan/primitive/*`、`runtime/*` | 视图、采样器、pass 资源表、动态状态、描述符/堆、管线、间接网格 | 28 |
@@ -146,6 +146,33 @@ X2/X3/X5 改画面 → render gate 是主判据；X4 改提交/屏障 → render
 
 ---
 
+### 4.1 X2 的形状（用户定：GUI 独立 DLL，像后端一样手动导入）
+
+**为什么这条路**：GUI 是主程序里最后一块 Vulkan（72 个符号全部来自 `third_party/imgui/backends/imgui_impl_vulkan.cpp`）。把它编进 `deren_vulkan.dll`（旧写法）会让**渲染后端**去服务 GUI 的实现细节；做成**自己的 DLL** 则把"这个 API 的 GUI 后端"整块关进插件里，`api_type` 由**被加载的 DLL** 满足——这正是每个 API 一个 DLL 的意义。
+
+**已实测的两个事实（本批）**：
+1. **模块编进 SHARED 库、exe 导入它是可行的**（15 分钟实验：`probe_module_dll` SHARED + `probe_module_use` 只链 import lib → `answer() from the DLL == 42`，EXIT=0，exe 导入表只有该 DLL + CRT）。**但我们不走这条**：用户要求像后端一样**手动导入**，而手动导入就必须有 C 入口 + 抽象接口（后端 DLL 的既有形状），所以这个结论只作为"另一条路可行"的记录。
+2. **GUI 的运行时面只有 6 个方法**（`init`/`shutdown`/`is_active`/`wants_mouse`/`begin_frame`/`render`）+ panel/widget 层；**调用点 56 处，其中 41 处在 `chores.cpp`**（app 自己搭调试面板的地方）——这就是抽象接口要覆盖的全部。
+
+**边界（纯头文件 `promise/gui/gui_entry.hpp`）**：
+```cpp
+enum class gui_api_type : std::uint32_t { none = 0, vulkan = 1, d3d12 = 2 };
+struct gui_create_info { std::uint32_t struct_size; gui_api_type api;
+                         deren::promise::rhi::api_core* core; GLFWwindow* window; };
+struct gui { virtual bool init(gui_create_info const&); virtual void shutdown(); virtual bool is_active();
+             virtual bool wants_mouse(); virtual void begin_frame(); virtual void render(command_buffer&);
+             virtual panel* add_panel(std::string); virtual void remove_panel(panel const&); };
+using make_gui_fn = gui* (*)(gui_create_info const&);   // the C entry each deren_gui_<api>.dll exports
+```
+`gui_create_info` 带的是**契约面 + 窗口**（不是原生句柄）：DLL 自己 `query_extension<vulkan_escape>()` 取 instance/device/queue/format —— 于是 `runtime::enable_debug_gui()` 里那些 `VkInstance`/`VkDevice` 也随之消失。
+
+**分批（每批可单独绿）**：
+| 步 | 内容 | 判据 |
+|---|---|---|
+| X2a | `promise/gui/gui_entry.hpp` + `runtime/gui_loader.cppm`（按 `api_type` 解析 `deren_gui_<api>.dll`，命名失败要像 `backend_loader` 一样**具名 panic**） | 编译 + loader 单测（缺失 DLL 的具名失败） |
+| X2b | 新建 `deren_gui_vulkan` SHARED（ImGui 源 + `graphical_user_interface` 模块 + 一个实现 `gui` 的 C 入口）；私有链接 `vulkan-1`/`glfw` | 构建 + `objdump -p` 看它**有** `vulkan-1.dll` |
+| X2c | 运行时改走 loader（成员从 `gui::gui_content` 变成`gui*`）；`chores.cpp` 的 panel/widget 调用改接口形（`panel->add_label(...)`） | render 14/14（调试覆盖层默认关，另跑一次 `enable_debug_gui()` 的路径） |
+| X2d | `vulkancorekit`/`deren.exe` 去掉 `imgui` 与 `Vulkan::Vulkan` 的传递；`objdump -p deren.exe` **无 `vulkan-1.dll`** | **P-Import 归零**（本计划的最终判据之一） |
 ## 5. 为什么不是"把引擎也做成 DLL"
 
 "主程序不链接 vulkan" 若用"引擎变 DLL"来达成，只是把 Vulkan **藏进另一个 DLL**：引擎内部仍然引用 `vk*`（imgui 后端 + 7 个对象），

@@ -1395,6 +1395,7 @@ target_link_libraries(test_acceleration_structures
 # Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
 add_dependencies(test_acceleration_structures deren_vulkan)
 
+
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
