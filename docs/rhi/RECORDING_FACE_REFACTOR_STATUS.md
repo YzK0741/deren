@@ -287,6 +287,15 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | the numbers | engine objects with `vk*` **6 -> 5** (the frame loop's two entry points are gone), that file's vocabulary 39 -> 36, gate findings 40 -> 39. **NO abi bump**: the contract's two verbs already existed - this batch changed who serves them, not their shape. |
 | verification | render gate **14/14** (the frame's open/close is exactly what it exercises: fourteen scenarios, each screenshotted), `ctest` 19/19, `clang-format-check` 0, the boundary gate 0 symbols, spike 95/0, runtime_dyn 10/0, and the probe's read-back values unchanged. |
 
+### 2.19 What the FOURTEENTH batch added (two small, self-contained shavings)
+
+| area | what landed |
+|---|---|
+| the device wait | `runtime.cpp`'s shadow-array shrink called `vkDeviceWaitIdle(native_device_of(face))`; it calls the contract's `wait_idle()` now. The engine was borrowing a device handle from the backend in order to tell the backend's device to be idle - which is exactly the call the contract already had a verb for. |
+| device ADDRESSES are numbers | `mask_bake_request` / `compute_skin_request` carried `VkDeviceAddress` fields. THAT TYPE IS `uint64_t` (the API typedefs it), so the only thing the spelling bought was a graphics-API name in a pass's own struct - and the contract already spells a device address as `uint64_t` in `shader_binding_table_region`. Both request structs and the bake's address-splitting lambda are `std::uint64_t` now; no conversion exists anywhere, because there is nothing to convert. |
+| the numbers | `runtime.cpp`'s object 4 refs -> 3 (`vkDeviceWaitIdle` gone); `vkCmd*`-style token lists unchanged otherwise; engine objects still 5, gate findings 39 -> 39 (this batch moved VOCABULARY, not link references, in the two pass files). |
+| verification | render gate 14/14, ctest 19/19, clang-format-check 0. NOTE that the mask/skin bake paths these two files serve are RT-only (`rt_mask_bake`/`rt_skin_bake`) and therefore run in the rt_shadows smoke alone - which is red for the environmental reason 2.17/§1 record. The change is a type substitution between two names of the SAME type, so the compile is the whole risk; that is why it is grouped here rather than billed as a migration. |
+
 ## 3. What was tried and reverted (do not repeat)
 
 A blanket "replace every native type in the pass layer with the contract type" was attempted and

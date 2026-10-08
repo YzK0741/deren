@@ -58,10 +58,11 @@ export namespace deren::vulkan::pass {
 
     /// @brief one skinned caster's dispatch: the two buffers it works between, and where its joints start
     struct compute_skin_request {
-        VkDeviceAddress source_vertices = 0; // the primitive's bind-pose vertices
-        VkDeviceAddress destination = 0;     // the skinned buffer this job fills (0 = not a skinned caster)
-        uint32_t source_stride = 0;          // 64
-        uint32_t destination_stride = 0;     // 32
+        // `uint64_t`, the contract's spelling for a device address (see `mask_bake_request`'s note)
+        std::uint64_t source_vertices = 0; // the primitive's bind-pose vertices
+        std::uint64_t destination = 0;     // the skinned buffer this job fills (0 = not a skinned caster)
+        uint32_t source_stride = 0;        // 64
+        uint32_t destination_stride = 0;   // 32
         uint32_t vertex_count = 0;
         uint32_t skin_base = 0;
     };

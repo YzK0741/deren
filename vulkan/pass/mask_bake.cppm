@@ -67,9 +67,13 @@ export namespace deren::vulkan::pass {
      * request is the dispatch.
      */
     struct mask_bake_request {
-        VkDeviceAddress source_vertices = 0; // the caster's vertex buffer
-        VkDeviceAddress source_indices = 0;  // ... its index buffer (0 = not indexed)
-        VkDeviceAddress destination = 0;     // the expanded copy this bake writes
+        // THE ADDRESSES ARE `uint64_t` (the contract's own spelling for a device address, as
+        // `shader_binding_table_region` already uses): a device address is a NUMBER, not a graphics-API type,
+        // and the only reason this struct ever named one was that the entry point below takes the API's
+        // spelling - a conversion this file now makes where it calls.
+        std::uint64_t source_vertices = 0; // the caster's vertex buffer
+        std::uint64_t source_indices = 0;  // ... its index buffer (0 = not indexed)
+        std::uint64_t destination = 0;     // the expanded copy this bake writes
         uint32_t source_stride = 0;
         uint32_t destination_stride = 32; // the engine's traced vertex layout
         uint32_t index_type = 1;          // VkIndexType

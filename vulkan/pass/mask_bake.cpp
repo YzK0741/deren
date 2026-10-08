@@ -60,7 +60,7 @@ namespace deren::vulkan::pass {
         if (!this->ready() || request.triangle_count == 0) {
             return;
         }
-        auto const halves = [](VkDeviceAddress const address) {
+        auto const halves = [](std::uint64_t const address) {
             return glm::uvec2(static_cast<uint32_t>(address & 0xFFFFFFFFu), static_cast<uint32_t>(address >> 32u));
         };
         mask_bake_push_constants bake = {};

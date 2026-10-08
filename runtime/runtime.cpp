@@ -1302,7 +1302,10 @@ namespace deren::vulkan {
         // afterwards because it holds their array view. Shrinking keeps the layers (no second
         // rebuild when the user cycles the combo, and the spare ones simply go unused).
         if (!this->shadow_images.empty() && clamped > this->shadow_allocated_layers) {
-            vkDeviceWaitIdle(runtime_detail::native_device_of(this->rhi_face()));
+            // THE WAIT IS THE CONTRACT'S (the native device tear-down the frame's in-flight work needed): `wait_idle()`'s
+            // doc says exactly this - the backend owns the device, so the engine asks it to be idle rather than
+            // calling an entry point on a handle it borrowed from it.
+            (void)this->rhi_face().wait_idle();
             this->shadow_images.clear();
             this->shadow_array_views.clear();
             this->shadow_layer_views.clear();
