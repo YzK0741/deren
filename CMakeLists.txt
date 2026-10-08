@@ -1395,6 +1395,42 @@ target_link_libraries(test_acceleration_structures
 # Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
 add_dependencies(test_acceleration_structures deren_vulkan)
 
+# ============================================================================================
+# deren_gui_vulkan: THE GUI AS ITS OWN PLUGIN (plan X2, the user's ruling: one DLL per API).
+#
+# WHAT LIVES HERE: the vendored ImGui sources (through the `imgui` static library, PRIVATE) and the whole
+# `deren.vulkan.graphical_user_interface` module, plus the C entry that adapts the module's overlay to the
+# `deren::gui::overlay` boundary (vulkan/graphical_user_interface/gui_dll.cpp). THE DLL IS WHAT LINKS
+# `vulkan-1`: the host resolves `deren_make_gui` by NAME through its loader and links nothing of this target,
+# so `deren.exe` stops importing vulkan-1.dll - every one of those imports came from
+# `imgui_impl_vulkan.cpp`, which is compiled in here.
+#
+# IT IS NOT IN ANY `add_dependencies` YET: the engine still uses the module directly (the "write it, wire it,
+# test it, then delete the old path" order). The next step is the loader plus the runtime's rewiring.
+# ============================================================================================
+add_library(deren_gui_vulkan SHARED)
+set_target_properties(deren_gui_vulkan PROPERTIES PREFIX "") # deren_gui_vulkan.dll, beside the executable
+target_sources(deren_gui_vulkan
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        vulkan/graphical_user_interface/graphical_user_interface.cppm
+        PRIVATE
+        vulkan/graphical_user_interface/graphical_user_interface.cpp
+        vulkan/graphical_user_interface/gui_dll.cpp
+)
+target_compile_options(deren_gui_vulkan PRIVATE ${COMPILE_OPTIONS})
+target_compile_definitions(deren_gui_vulkan PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
+target_link_libraries(deren_gui_vulkan
+        PRIVATE
+        imgui
+        glfw
+        Vulkan::Vulkan
+        vulkan_constant_init
+        static_utility
+        vstd_lib
+)
+
 
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
