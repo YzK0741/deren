@@ -24,7 +24,6 @@ module deren.vulkan.runtime;
 
 import deren.vulkan.profiling;
 import deren.vulkan.pipelines;
-import deren.vulkan.bindings;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 

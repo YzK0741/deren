@@ -519,7 +519,7 @@ namespace deren::vulkan {
         // owner among the passes, but which filter a stored surface is read with IS a renderer-level choice
         // (NEAREST for the G-buffer's surface and the composite's depth tap, a comparison for the cascaded
         // shadow map), so the engine creates and owns them through the contract's `create_sampler()` and
-        // hands the raw handle out through `vulkan_escape::native_sampler()`.
+        // lends RHI sampler pointers to passes through `shared_samplers()`.
         //
         // THE BACKEND KEEPS ITS OWN SIX CREATE INFOS for the sampler HEAP: a heap sampler is created by the
         // driver FROM a create info (VK_EXT_descriptor_heap), so the heap's six were never these objects.

@@ -14,6 +14,7 @@
 #include <glm/glm.hpp> // the frame constants carry glm types (see deren.vulkan.frame_constants)
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 #include <vulkan/vulkan.h>
 
@@ -22,7 +23,6 @@ import deren.vulkan.pass;
 import deren.vulkan.pass.chain;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
-import deren.vulkan.bindings;
 
 namespace {
     namespace vp = deren::vulkan::pass;
@@ -181,7 +181,16 @@ namespace {
     /// fake handles, so a resolved pass can be told apart from an unresolved one without a device
     /// (not `constexpr`: a handle comes from `reinterpret_cast`, which is not a constant expression)
     std::shared_ptr<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
-    VkSampler const fake_shadow_sampler = reinterpret_cast<VkSampler>(0x22);
+    class contract_sampler final : public deren::promise::rhi::sampler {
+    public:
+        void release() noexcept override {
+        }
+    };
+    contract_sampler shadow_sampler_object;
+    contract_sampler gbuffer_sampler_object;
+    auto* const fake_shadow_sampler = &shadow_sampler_object;
+    static_assert(std::is_same_v<decltype(rr::shared::sampler_set{}.of(rr::sampler_hint::shadow)),
+                                 deren::promise::rhi::sampler*>);
     std::array<deren::promise::rhi::pipeline*, 4> const fake_pipelines = {
         reinterpret_cast<deren::promise::rhi::pipeline*>(0x1), reinterpret_cast<deren::promise::rhi::pipeline*>(0x2), reinterpret_cast<deren::promise::rhi::pipeline*>(0x3), reinterpret_cast<deren::promise::rhi::pipeline*>(0x4)};
     /// the push block the fake host composes: raw bytes, as a real host does (the framework has no pass's type)
@@ -200,7 +209,7 @@ namespace {
         std::array<vp::resolved_binding, 9> own = {};
         /// what a pass was handed at create time, recorded so the create interface can be asserted
         /// (THE DEVICE IS GONE FROM THE CONTEXT, abi 21: the builders are contract factories that take the face)
-        VkSampler created_with_sampler = VK_NULL_HANDLE;
+        deren::promise::rhi::sampler* created_with_sampler = nullptr;
         /// WHAT THE RESOLVER CAN READ OFF THE DECLARATION, recorded here because the extent rule is applied by
         /// the HOST (see host_resolve): a rule that names a resource and one of its elements is only usable if
         /// both halves of the pair reach the host that has to map them to a size.
@@ -538,7 +547,7 @@ int32_t main() {
         std::array<frame_pass*, 1> passes = {&probe};
         stage const st = {.name = "scene", .passes = passes};
         state.log.clear();
-        state.created_with_sampler = VK_NULL_HANDLE;
+        state.created_with_sampler = nullptr;
         run_report const built = create_stage(st, make_context());
         CHECK(built.created == 1);
         CHECK(state.created_with_sampler == fake_shadow_sampler); // chosen by hint, never named by the pass
@@ -593,29 +602,14 @@ int32_t main() {
         CHECK(has(state.log, "recreate:gated")); // even the pass this frame skipped
     }
 
-    // ---- the declaration -> Vulkan mapping, which is what the generator builds a layout from ----
-    // These live in this test rather than in test_render_resources because they are Vulkan-typed: the
-    // description layer itself stays pure CPU, and everything that has to name a VkDescriptorType lives on the
-    // bindings side. No device is created - an enum mapping needs none - so this still runs in CI.
+    // ---- borrowed contract samplers are selected by the declaration's hint ----
     {
-        using namespace deren::vulkan::bindings;
-        CHECK(descriptor_type_of(rr::binding_kind::sampled_image) == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER);
-        CHECK(descriptor_type_of(rr::binding_kind::storage_image) == VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
-        CHECK(descriptor_type_of(rr::binding_kind::sampler) == VK_DESCRIPTOR_TYPE_SAMPLER);
-        CHECK(descriptor_type_of(rr::binding_kind::uniform_buffer) == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER);
-        CHECK(descriptor_type_of(rr::binding_kind::storage_buffer) == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        CHECK(descriptor_type_of(rr::binding_kind::input_attachment) == VK_DESCRIPTOR_TYPE_INPUT_ATTACHMENT);
-        CHECK(descriptor_type_of(rr::binding_kind::acceleration_structure) == VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR);
-        CHECK(stage_flags_of(rr::stage_flag::compute) == VK_SHADER_STAGE_COMPUTE_BIT);
-        CHECK(stage_flags_of(rr::stage_flag::fragment | rr::stage_flag::compute) == (VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_COMPUTE_BIT));
-        CHECK(stage_flags_of(rr::stage_flag::none) == 0u);
-        // (the `image_layout_of` mapping pins stood here; the mapping went with the enum when every image
-        // became GENERAL - see docs/unified_image_layouts.md)
-        // the sampler CHOICE a declaration makes instead of a handle
-        rr::shared::sampler_set const samplers = {.gbuffer = reinterpret_cast<VkSampler>(0x11), .shadow = reinterpret_cast<VkSampler>(0x22)};
-        CHECK(samplers.of(rr::sampler_hint::shadow) == reinterpret_cast<VkSampler>(0x22));
-        CHECK(samplers.of(rr::sampler_hint::gbuffer) == reinterpret_cast<VkSampler>(0x11));
-        CHECK(samplers.of(rr::sampler_hint::none) == VK_NULL_HANDLE); // "no sampler", which the validator enforces
+        rr::shared::sampler_set const samplers = {.gbuffer = &gbuffer_sampler_object, .shadow = fake_shadow_sampler};
+        CHECK(samplers.of(rr::sampler_hint::shadow) == fake_shadow_sampler);
+        CHECK(samplers.of(rr::sampler_hint::gbuffer) == &gbuffer_sampler_object);
+        CHECK(samplers.of(rr::sampler_hint::none) == nullptr);
+        CHECK(samplers.of(rr::sampler_hint::taa) == nullptr); // the owner published no object for this hint
+        CHECK(samplers.of(static_cast<rr::sampler_hint>(255)) == nullptr);
         // a declaration's own bindings are exactly the bindings its shader declares, in order - checked against the
         // stochastic punctual lighting chain's temporal resolve, which is the shape the pipeline builder this
         // test covers still builds from (that declaration went with the removed chain)

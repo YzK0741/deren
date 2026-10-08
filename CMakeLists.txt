@@ -659,7 +659,6 @@ target_sources(vulkancorekit
         vulkan/core/filter/filters.cppm
         vulkan/math/math.cppm
         ${VR_RUNTIME_MODULES}
-        vulkan/bindings/bindings.cppm
         vulkan/pipelines/pipelines.cppm
         vulkan/render_resource/render_resource.cppm
         vulkan/render_resource/shared.cppm

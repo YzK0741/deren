@@ -29,7 +29,6 @@ module;
 #include <string>
 #include <string_view>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.compute_skin;
 import deren.promise.rhi;

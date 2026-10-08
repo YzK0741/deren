@@ -29,7 +29,6 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.mask_bake;
 import deren.promise.rhi;

@@ -11,7 +11,6 @@ module;
 #include <span>
 #include <string>
 #include <utility>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.mask_bake;
 
