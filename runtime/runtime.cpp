@@ -1457,7 +1457,7 @@ namespace deren::vulkan {
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
     //      needs and only the device's owner can answer. ----
 
-    VkDeviceAddress runtime::mesh_buffer_address(void* const owner, rhi::buffer const& buffer) {
+    std::uintptr_t runtime::mesh_buffer_address(void* const owner, rhi::buffer const& buffer) {
         runtime* const self = static_cast<runtime*>(owner);
         // THE HOOK TAKES A CONTRACT BUFFER (render_environment's own note says why: the primitive's geometry is
         // `object_manager` members now, and a hook that demanded a raw handle would force every primitive to keep

@@ -85,9 +85,9 @@ export namespace deren::vulkan::ray_tracing {
         primitive const* caster = nullptr;
         uint32_t blas_index = 0;
         uint32_t mask_stride = 0;
-        VkDeviceAddress mask_vertex_address = 0;
-        VkDeviceAddress skin_source_address = 0;
-        VkDeviceAddress skin_destination_address = 0;
+        std::uintptr_t mask_vertex_address = 0;
+        std::uintptr_t skin_source_address = 0;
+        std::uintptr_t skin_destination_address = 0;
         uint32_t skin_source_stride = 0;
         uint32_t skin_destination_stride = 0; // 32 (position, normal, uv)
         uint32_t skin_vertex_count = 0;
@@ -239,11 +239,11 @@ export namespace deren::vulkan::ray_tracing {
         /// drop everything: the structures, the map and the copies they were built from (all four are one fact)
         void abandon() noexcept;
         [[nodiscard]] acceleration_structure::geometry_source caster_geometry(primitive const& caster,
-                                                                              VkDeviceAddress source_vertex_address,
-                                                                              VkDeviceAddress source_index_address,
-                                                                              VkDeviceAddress mask_address,
+                                                                              std::uintptr_t source_vertex_address,
+                                                                              std::uintptr_t source_index_address,
+                                                                              std::uintptr_t mask_address,
                                                                               uint32_t mask_stride,
-                                                                              VkDeviceAddress skin_address,
+                                                                              std::uintptr_t skin_address,
                                                                               uint32_t skin_stride,
                                                                               micromap_resource const* micromap) const noexcept;
 

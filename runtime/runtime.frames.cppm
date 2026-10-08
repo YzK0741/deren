@@ -97,7 +97,7 @@ namespace deren::vulkan {
         }
     }
 
-    VkDeviceAddress buffer_address(rhi::api_core& device, rhi::buffer const& buffer) noexcept {
+    std::uintptr_t buffer_address(rhi::api_core& device, rhi::buffer const& buffer) noexcept {
         // THROUGH THE ABILITY POINTER, never through a concrete member: `query_extension` is a virtual on
         // `rhi::api_core`, and `buffer_address` is called on the `device_address` interface it answers with -
         // a call on the backend's own `buffer_address_view` member would emit a symbol into this half.
@@ -116,7 +116,7 @@ namespace deren::vulkan {
         return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
     }
 
-    VkDeviceAddress runtime::buffer_address(rhi::buffer const& buffer) const noexcept {
+    std::uintptr_t runtime::buffer_address(rhi::buffer const& buffer) const noexcept {
         return deren::vulkan::buffer_address(this->vulkan_core, buffer);
     }
 

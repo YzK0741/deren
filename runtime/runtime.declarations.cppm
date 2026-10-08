@@ -292,7 +292,7 @@ namespace deren::vulkan {
                                                  rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept;
     [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, VkImageViewCreateInfo const& view,
                                                  VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
-    [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, VkDeviceAddress address,
+    [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, std::uintptr_t address,
                                                   VkDeviceSize size, VkDescriptorType type) noexcept;
     void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer commands) noexcept;
     void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept;
@@ -2102,7 +2102,7 @@ namespace deren::vulkan {
          * over: the session holds the contract handle, and the native handle the `vkCmdDrawMeshTasks*` entry points
          * need is derived inside these two, through the escape.
          */
-        static VkDeviceAddress mesh_buffer_address(void* owner, rhi::buffer const& buffer);
+        static std::uintptr_t mesh_buffer_address(void* owner, rhi::buffer const& buffer);
         static bool push_geometry_block(void* owner, rhi::command_buffer& command_buffer, uint32_t offset, std::span<std::byte const> bytes);
         static bool draw_mesh_tasks(void* owner, rhi::command_buffer& command_buffer, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
         /// the same dispatch through the INDIRECT entry point: `command_slot` names the primitive's own record (its
@@ -2136,7 +2136,7 @@ namespace deren::vulkan {
          *         `buffer_flag::device_address` - the ability's own two answers, which every call site here
          *         asks for a buffer it created WITH that flag.
          */
-        [[nodiscard]] VkDeviceAddress buffer_address(rhi::buffer const& buffer) const noexcept;
+        [[nodiscard]] std::uintptr_t buffer_address(rhi::buffer const& buffer) const noexcept;
         /**
          * @brief write ONE converted buffer's address range into the descriptor heap's grid slot @p slot.
          * @return whether the heap took the write; a false is the caller's to log or to panic on, exactly as
@@ -4539,5 +4539,5 @@ namespace deren::vulkan {
      *         `buffer_flag::device_address` - the ability's own two answers, and every call site here asks
      *         for a buffer it created WITH that flag.
      */
-    [[nodiscard]] VkDeviceAddress buffer_address(rhi::api_core& device, rhi::buffer const& buffer) noexcept;
+    [[nodiscard]] std::uintptr_t buffer_address(rhi::api_core& device, rhi::buffer const& buffer) noexcept;
 } // namespace deren::vulkan

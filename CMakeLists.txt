@@ -1139,12 +1139,17 @@ if(VR_BUILD_TESTS)
 
     set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
+    # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
+    # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
+    # directory `ctest -j` made two of them read each other's files (measured: 18/19 in parallel, 19/19
+    # serial). They cannot collide now.
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
         add_executable(${test_target} tests/${test_target}.cpp)
         add_test(NAME ${test_target} COMMAND $<TARGET_FILE:${test_target}>)
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${test_target}")
         set_tests_properties(${test_target} PROPERTIES
-                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${test_target}"
                 TIMEOUT 120)
     endforeach()
 

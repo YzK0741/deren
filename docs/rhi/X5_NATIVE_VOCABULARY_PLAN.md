@@ -130,6 +130,25 @@ TEXT and the new comments NAME the removed types to explain what left. The depen
 lane no longer exists in code. The raw vocabulary that remains is the escape helpers (`buffer_of`,
 `scene_target_image`, `scene_target_view`, `write_sampled_target`, `write_storage_target`, `native_target`) and
 the families of step B3 - B4 and B3 respectively.
+### B3.1 - DONE (2026-10-08): VkDeviceAddress leaves the engine
+
+51 sites in 11 engine files stopped naming `VkDeviceAddress`; the spelling is `std::uintptr_t` (the user's
+ruling). The API's own type is `std::uint64_t` and the CONTRACT still returns `std::uint64_t`
+(`buffer::device_address()`), so on every target this project builds for the two are the same width and the
+change is a spelling change - recorded here because a 32-bit host would make them differ. RHI abi stays 27.
+Measured: P-Census tokens 209 -> 201.
+
+Verified: build, CTest 19/19 (parallel AND serial, see below), frozen rendering 14/14, RT acceptance
+(`check_rt.ps1`: GPU traversal verified, 40 frames, clean validation, screenshot).
+
+### Housekeeping found by running the suite in parallel: ctest was NOT parallel-safe
+
+`ctest -j 8` reported 18/19 while the same tree passed 19/19 serially: every test shared ONE working
+directory (`build/test-run`), and `test_runtime_injection` reads, from a file, the panic text a CHILD process
+left behind - so a test running beside it overwrote that file and the parent read the wrong panic (2 failed
+checks about the abi refusal's text). Each test now has its own `test-run/<target>` directory. Verified
+19/19 both ways. This is a test-harness bug, not an engine one, and it is why every earlier "19/19" in this
+project's history was really "19/19 when run serially".
 ### B3 - semantic values, one family per commit
 
 Ordered by blast radius, smallest first so a mistake stays local:

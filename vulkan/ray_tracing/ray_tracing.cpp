@@ -54,9 +54,9 @@ namespace deren::vulkan::ray_tracing {
 
         /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
         /// the address could not be answered (the flag was not set, or the ability is not announced).
-        VkDeviceAddress buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
+        std::uintptr_t buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
             auto* const addresses = address_of(face);
-            return addresses == nullptr ? 0 : static_cast<VkDeviceAddress>(addresses->buffer_address(buffer, 0));
+            return addresses == nullptr ? 0 : static_cast<std::uintptr_t>(addresses->buffer_address(buffer, 0));
         }
 
         /// THE DEVICE THE ENTRY POINTS ARE RESOLVED AGAINST, TAKEN FROM THE ESCAPE (③-D/E step 1b): the same
@@ -216,11 +216,11 @@ namespace deren::vulkan::ray_tracing {
         return out;
     }
     acceleration_structure::geometry_source structure_set::caster_geometry(primitive const& caster,
-                                                                           VkDeviceAddress const source_vertex_address,
-                                                                           VkDeviceAddress const source_index_address,
-                                                                           VkDeviceAddress const mask_address,
+                                                                           std::uintptr_t const source_vertex_address,
+                                                                           std::uintptr_t const source_index_address,
+                                                                           std::uintptr_t const mask_address,
                                                                            uint32_t const mask_stride,
-                                                                           VkDeviceAddress const skin_address,
+                                                                           std::uintptr_t const skin_address,
                                                                            uint32_t const skin_stride,
                                                                            micromap_resource const* const micromap) const noexcept {
         // The three cases, in the order they take precedence: a MASK bake replaces the geometry entirely (an
@@ -313,8 +313,8 @@ namespace deren::vulkan::ray_tracing {
                 ++skipped_no_stride;
                 continue;
             }
-            VkDeviceAddress const source_vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
-            VkDeviceAddress const source_index_address = buffer_address_of(vk, *caster->index_buffer);
+            std::uintptr_t const source_vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
+            std::uintptr_t const source_index_address = buffer_address_of(vk, *caster->index_buffer);
 
             // alphaMode MASK: bake the material's holes into an EXPANDED copy of this caster's vertices and build
             // the structure from that. An inline ray query has no any-hit stage, so a traversal cannot run the
@@ -369,7 +369,7 @@ namespace deren::vulkan::ray_tracing {
                 }
             }
 
-            VkDeviceAddress mask_address = 0;
+            std::uintptr_t mask_address = 0;
             uint32_t mask_stride = 0;
             if (inputs.mask_bake && inputs.hooks.mask_ready != nullptr && inputs.hooks.mask_ready(inputs.hooks.owner)) {
                 // material_record::flags bit 4 is alphaMode MASK (see vulkan/primitive.cppm; the bits are literals
@@ -422,7 +422,7 @@ namespace deren::vulkan::ray_tracing {
             // 64-byte interleaved vertex, so a caster whose vertices are packed differently is REFUSED (it keeps
             // its bind pose and is counted in the log) rather than skinned with the wrong words.
             constexpr uint32_t skin_source_stride_expected = 64u;
-            VkDeviceAddress skin_address = 0;
+            std::uintptr_t skin_address = 0;
             uint32_t skin_stride = 0;
             uint32_t skin_source_stride = 0;
             uint32_t skin_vertex_count = 0;
@@ -644,8 +644,8 @@ namespace deren::vulkan::ray_tracing {
             // A baked or skinned caster is read from the copy its structure was built from: the mask bake's
             // expanded, non-indexed one (zero index address = a flat vertex list), or the skinned one, which keeps
             // the primitive's own index buffer because its vertex ORDER is unchanged.
-            VkDeviceAddress vertex_address = built.mask_vertex_address != 0 ? built.mask_vertex_address : built.skin_destination_address;
-            VkDeviceAddress index_address = 0;
+            std::uintptr_t vertex_address = built.mask_vertex_address != 0 ? built.mask_vertex_address : built.skin_destination_address;
+            std::uintptr_t index_address = 0;
             uint32_t vertex_stride = built.mask_vertex_address != 0 ? built.mask_stride : built.skin_destination_stride;
             if (vertex_address == 0) {
                 vertex_address = buffer_address_of(vk, *caster->vertex_buffer);

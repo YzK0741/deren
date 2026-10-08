@@ -536,13 +536,13 @@ namespace deren::vulkan {
             VkMicromapEXT native = VK_NULL_HANDLE;
             deren::promise::rhi::buffer* storage = nullptr; ///< the micromap's own memory (MICROMAP_STORAGE)
             deren::promise::rhi::buffer* scratch = nullptr; ///< the build's scratch (only its address is read)
-            VkDeviceAddress scratch_address = 0;
+            std::uintptr_t scratch_address = 0;
             deren::promise::rhi::buffer* data = nullptr; ///< the attributes, 256-aligned inside it
-            VkDeviceAddress data_address = 0;
+            std::uintptr_t data_address = 0;
             deren::promise::rhi::buffer* triangles = nullptr; ///< one record per micro-triangle
-            VkDeviceAddress triangles_address = 0;
+            std::uintptr_t triangles_address = 0;
             deren::promise::rhi::buffer* indices = nullptr; ///< the index array the ATTACHMENT points at
-            VkDeviceAddress indices_address = 0;
+            std::uintptr_t indices_address = 0;
             VkDeviceSize triangle_array_stride = 0;
             std::uint32_t index_stride = 0;
             std::uint32_t triangle_count = 0;
@@ -572,10 +572,10 @@ namespace deren::vulkan {
             /// the build's scratch, sized ONCE at creation for the worst case (a bottom level's geometries are
             /// fixed, a top level is sized for its capacity), so recording a build never allocates
             deren::promise::rhi::buffer* scratch = nullptr;
-            VkDeviceAddress scratch_address = 0;
+            std::uintptr_t scratch_address = 0;
             VkDeviceSize scratch_size = 0;
             /// what `device_address()` and `size_bytes()` answer, cached at creation
-            VkDeviceAddress address = 0;
+            std::uintptr_t address = 0;
             VkDeviceSize structure_size = 0;
             /// WHAT IT WAS CREATED AS: the geometry the driver's build reads, or the instances the caller writes
             bool top_level = false;

@@ -163,7 +163,7 @@ namespace deren::vulkan {
         /// one - i.e. to keep reaching into the backend for exactly the thing the migration removes. The
         /// `owner` void* is the runtime's own state, and the address comes back through
         /// `native_buffer()` + `device_address::buffer_address()` on that side.
-        VkDeviceAddress (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
+        std::uintptr_t (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
         bool (*push_at)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
         bool (*draw_mesh_tasks)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         /**

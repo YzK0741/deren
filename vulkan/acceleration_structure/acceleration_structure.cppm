@@ -94,10 +94,10 @@ namespace deren::vulkan::acceleration_structure {
      *       a flat vertex list
      */
     export struct geometry_source {
-        VkDeviceAddress vertex_address = 0; // first vertex, already offset into the buffer
-        uint32_t vertex_stride = 0;         // bytes per vertex (the engine's interleaved layout)
+        std::uintptr_t vertex_address = 0; // first vertex, already offset into the buffer
+        uint32_t vertex_stride = 0;        // bytes per vertex (the engine's interleaved layout)
         uint32_t vertex_count = 0;
-        VkDeviceAddress index_address = 0; // first index, already offset into the buffer
+        std::uintptr_t index_address = 0; // first index, already offset into the buffer
         VkIndexType index_type = VK_INDEX_TYPE_UINT32;
         uint32_t index_count = 0; // triangles = index_count / 3
         /**
@@ -159,9 +159,9 @@ namespace deren::vulkan::acceleration_structure {
      *       added here from silently shifting every lane after it in the shader's copy of this struct.
      */
     export struct instance_record {
-        VkDeviceAddress vertex_address = 0; // the vertex buffer's device address (base)
-        VkDeviceAddress index_address = 0;  // the index buffer's device address (base)
-        glm::mat4 model = glm::mat4(1.0f);  // object -> world, for the vertex normal
+        std::uintptr_t vertex_address = 0; // the vertex buffer's device address (base)
+        std::uintptr_t index_address = 0;  // the index buffer's device address (base)
+        glm::mat4 model = glm::mat4(1.0f); // object -> world, for the vertex normal
         uint32_t vertex_stride = 0;
         uint32_t index_type = 0;     // VkIndexType, for the shader that indexes with it
         uint32_t material_index = 0; // into the scene's material table (set 0 binding 5)

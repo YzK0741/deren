@@ -206,7 +206,7 @@ namespace deren::vulkan {
         return heap->write_image(info) == rhi::error::ok;
     }
 
-    bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize const offset, VkDeviceAddress const address,
+    bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize const offset, std::uintptr_t const address,
                                     VkDeviceSize const size, VkDescriptorType const type) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
         rhi::heap_buffer_write_info info{};
@@ -748,7 +748,7 @@ namespace deren::vulkan {
         // heap-native shader bakes as `heap_slots_materials` (shaders/heap_slots.glsl): the write and the read are
         // the same number by construction rather than by review.
         if (contract_heap_ready(this->rhi_face())) {
-            VkDeviceAddress const address = this->buffer_address(*this->material_buffer);
+            std::uintptr_t const address = this->buffer_address(*this->material_buffer);
             bool const written = this->write_heap_buffer(*this->material_buffer,
                                                          deren::vulkan::render_layout::heap_slots::materials,
                                                          static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * sizeof(material_record),
@@ -952,7 +952,7 @@ namespace deren::vulkan {
                           this->toon_colour_buffer,
                           &this->toon_colour_mapped);
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceAddress const address = this->buffer_address(*this->toon_colour_buffer);
+                std::uintptr_t const address = this->buffer_address(*this->toon_colour_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_colour_buffer,
                                                              deren::vulkan::render_layout::heap_slots::toon_colours,
                                                              std::as_bytes(std::span(neutral_colours)).size(),
@@ -990,7 +990,7 @@ namespace deren::vulkan {
                       this->toon_lane_buffer,
                       &this->toon_lane_mapped);
         if (contract_heap_ready(this->rhi_face())) {
-            VkDeviceAddress const address = this->buffer_address(*this->toon_lane_buffer);
+            std::uintptr_t const address = this->buffer_address(*this->toon_lane_buffer);
             bool const written = this->write_heap_buffer(*this->toon_lane_buffer,
                                                          deren::vulkan::render_layout::heap_slots::toon_lanes,
                                                          static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
@@ -1016,7 +1016,7 @@ namespace deren::vulkan {
                           this->toon_rig_buffer,
                           &this->toon_rig_mapped);
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceAddress const address = this->buffer_address(*this->toon_rig_buffer);
+                std::uintptr_t const address = this->buffer_address(*this->toon_rig_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_rig_buffer,
                                                              deren::vulkan::render_layout::heap_slots::toon_rig,
                                                              static_cast<VkDeviceSize>(sizeof(deren::vulkan::toon_rig)),
@@ -1045,7 +1045,7 @@ namespace deren::vulkan {
                           this->meshlet_buffer,
                           &this->meshlet_mapped);
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceAddress const address = this->buffer_address(*this->meshlet_buffer);
+                std::uintptr_t const address = this->buffer_address(*this->meshlet_buffer);
                 bool const written = this->write_heap_buffer(*this->meshlet_buffer,
                                                              deren::vulkan::render_layout::heap_slots::meshlets,
                                                              static_cast<VkDeviceSize>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),

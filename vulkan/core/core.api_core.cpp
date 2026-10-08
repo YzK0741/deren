@@ -3011,7 +3011,7 @@ namespace deren::vulkan {
         constexpr VkDeviceSize address_alignment = 256u;
         constexpr rhi::buffer_flags setup_flags =
             rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_build_input);
-        auto const setup = [this](std::span<std::byte const> const bytes, VkDeviceAddress& address) -> rhi::buffer* {
+        auto const setup = [this](std::span<std::byte const> const bytes, std::uintptr_t& address) -> rhi::buffer* {
             rhi::buffer* const buffer = this->create_buffer(rhi::buffer_desc{
                 .size = static_cast<std::uint64_t>(bytes.size()) + address_alignment,
                 .usage = rhi::buffer_usage::storage_coherent,
