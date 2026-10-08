@@ -1377,6 +1377,24 @@ target_link_libraries(test_runtime_dyn
 # has to exist first (it does not link it).
 add_dependencies(test_runtime_dyn deren_vulkan)
 
+# ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
+#
+# SPIKE-SHAPED LIKE `test_runtime_dyn` ABOVE, for the same reason (it creates a real device, so it cannot
+# belong to the headless ctest set) - and it is the SMALL instrument the acceleration-structure migration runs
+# against: a three-vertex triangle, one instance, a hidden 64x64 window and VALIDATION ON, where the repo's
+# only other ray-tracing instrument is the full Sponza scene at 1080x960 (see the file's own header comment).
+add_executable(test_acceleration_structures tests/test_acceleration_structures.cpp)
+target_compile_options(test_acceleration_structures PRIVATE ${COMPILE_OPTIONS})
+target_link_libraries(test_acceleration_structures
+        backend_loader   # load_api_core() explicitly, exactly as the scaffold test does
+        vulkancorekit
+        promise
+        static_utility
+        vstd_lib
+)
+# Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
+add_dependencies(test_acceleration_structures deren_vulkan)
+
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).

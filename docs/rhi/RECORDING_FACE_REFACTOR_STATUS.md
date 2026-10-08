@@ -317,6 +317,17 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | the numbers | engine objects with a Vulkan symbol **5 -> 4** (the constructor's `vkGetDeviceProcAddr` is gone), gate findings 39 -> 38; the engine's remaining 5 references are 3 `vkGetDeviceProcAddr` (the AS/micromap allocation entry points - the S1 shape) and the probes' two (plan X4). |
 | verification | render gate **14/14**, ctest 19/19, clang-format-check 0, boundary gate 0 symbols, spike 95/0, runtime_dyn 10/0, probe read-back values unchanged. |
 
+### 2.22 What the SEVENTEENTH batch added (the acceleration-structure probe - plan S1's P0)
+
+| area | what landed |
+|---|---|
+| why a NEW instrument instead of the smoke | the repository's only end-to-end ray-tracing instrument is `render-check/rt_smoke.toml`: the full Sponza scene, a 1080x960 frame and the whole pass chain. That is the right acceptance for the RENDERER and the wrong instrument for a MIGRATION - it needs hundreds of MB (so it fails on a memory-short host for reasons unrelated to the code under test, measured at HEAD), and it answers one bit for a whole frame. |
+| the probe | `tests/test_acceleration_structures.cpp`: a three-vertex triangle and ONE instance, a hidden 64x64 window, **validation ON**, and no scene data at all. It drives THE SAME MODULE SURFACE the migration touches - `bottom_level_structures::add/record_build/record_update` and `top_level_structure::begin/add/record_build` - so it keeps its meaning on both sides of the change. |
+| what it checks separately | the CREATE + SIZES path (two entries, one refittable), the module's documented SKIP (a no-triangle source keeps the caller's index alignment and answers a null handle), the BUILD path (a recorded build that is actually SUBMITTED and WAITED on, which a record-only check cannot say), the REFIT path (`record_update`, which reuses the build's scratch - the path most likely to break when scratch stops being the engine's), and the top level (one instance). |
+| it also measured plan X4's second item | the probe creates a CALLER-OWNED contract command buffer and submits it through the escape with a fence, because the contract has no submit verb for a buffer the caller owns - the same raw pair `runtime.probes.cppm` needs. That gap is now visible in an instrument instead of only in the plan. |
+| the first green run | `[test_acceleration_structures] 31 checks, 0 failed -> PASS`, **0 VUIDs** with validation on, and its own lines report the facts: `mesh_shader=true ray_query=true max_push_constants=256 graphics_queue_family=0` (the ability from 2.20 answering on a real device), `geometry vertex_address=0xca40000 index_address=0xca40100 triangles=1`, `bottom level built: 2 geometries, 2 triangles, 3968 bytes of scratch`, `built, submitted and waited: 3 structures, 1 instances`. |
+| how it is wired | SPIKE-SHAPED like `test_runtime_dyn` (a real device, so it is NOT in the headless ctest set - ctest stays 19/19), `--with-device` required, `add_dependencies(... deren_vulkan)` so the DLL it resolves exists. |
+
 ## 3. What was tried and reverted (do not repeat)
 
 A blanket "replace every native type in the pass layer with the contract type" was attempted and
