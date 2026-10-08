@@ -238,6 +238,36 @@ int main(int const argc, char** const argv) {
     CHECK(commands->build_acceleration_structure(*tlas) == rhi::error::ok);
     CHECK(commands->refit_acceleration_structure(*blas) == rhi::error::ok);                 // created with allow_update
     CHECK(commands->refit_acceleration_structure(*static_blas) == rhi::error::unsupported); // ... and this one was not
+
+    // ---- 5b. THE ENGINE MODULE ON TOP OF IT (plan S1's P1b-2): `bottom_level_structures` is a thin front end
+    //          over the same interface now, and this is what says so on a real device - it adds the same
+    //          geometry, records its build and a refit, and hands back the object the runtime binds.
+    {
+        as::bottom_level_structures levels{*core};
+        // (a) THE DOCUMENTED SKIP: a source with no triangles keeps the caller's index alignment.
+        std::expected<std::uint32_t, std::string> const skipped = levels.add(as::geometry_source{.vertex_count = 0, .index_count = 0});
+        CHECK(skipped.has_value() && *skipped == 0u);
+        CHECK(levels.structure(*skipped) == nullptr);
+        std::expected<std::uint32_t, std::string> const via_module = levels.add(source, /*refittable=*/true);
+        CHECK_MSG(via_module.has_value(), via_module.has_value() ? nullptr : via_module.error().c_str());
+        if (via_module.has_value()) {
+            CHECK(levels.size() == 2u);
+            CHECK(levels.structure(*via_module) != nullptr);
+            CHECK(levels.structure(*via_module)->device_address() != 0u);
+            std::expected<void, std::string> const built = levels.record_build(*commands);
+            CHECK_MSG(built.has_value(), built.has_value() ? nullptr : built.error().c_str());
+            std::uint32_t const refit[] = {*via_module};
+            std::expected<void, std::string> const refitted = levels.record_update(*commands, refit);
+            CHECK_MSG(refitted.has_value(), refitted.has_value() ? nullptr : refitted.error().c_str());
+            deren::vk_test::write_line("as_probe: the module built and refitted through the tier-1 interface: {} geometries",
+                                       levels.last_stats().geometry_count);
+        }
+        // (b) THE ATTACHMENT THE CONTRACT CANNOT CARRY YET is refused by name rather than built without it
+        //     (plan S1's P4 gives micromaps the same treatment).
+        as::geometry_source const with_micromap{.vertex_count = triangle_vertices, .index_count = triangle_vertices, .opacity_micromap = reinterpret_cast<VkMicromapEXT>(1)};
+        CHECK(!levels.add(with_micromap, /*refittable=*/false).has_value());
+    }
+
     CHECK(commands->end_recording() == rhi::error::ok);
 
     // ---- 6. THE SUBMISSION, THROUGH THE ESCAPE (plan X4's second item: the contract has no submit verb for a

@@ -896,7 +896,10 @@ namespace deren::vulkan {
             // ONLY WHEN THE HANDLE CHANGES (see rt_binding_written): the unconditional write invalidated a frame that
             // was still in flight, which the validation layer reports as "VkDescriptorSet ... was destroyed or
             // updated without UPDATE_AFTER_BIND" followed by every later call on that command buffer failing.
-            VkAccelerationStructureKHR const tlas = this->structures.handle(structures_frame_slot);
+            // THE HANDLE IS A TIER-1 OBJECT NOW (abi 26), which is also what replaces the entry point that used to
+            // be resolved here to read the TLAS address out of it (see write_rt_structure_binding: it asks
+            // `device_address()` / `size_bytes()`).
+            deren::promise::rhi::acceleration_structure* const tlas = this->structures.handle(structures_frame_slot);
             if (structures_frame_slot < this->rt_binding_written.size() && this->rt_binding_written[structures_frame_slot] != tlas) {
                 this->write_rt_structure_binding(tlas, structures_frame_slot);
                 this->rt_binding_written[structures_frame_slot] = tlas;

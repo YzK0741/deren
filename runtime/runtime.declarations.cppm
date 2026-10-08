@@ -1296,7 +1296,9 @@ namespace deren::vulkan {
          * different one is required. A structure REBUILT into a different buffer still writes here, which is
          * the rare case the project's other per-generation writes also accept.
          */
-        std::vector<VkAccelerationStructureKHR> rt_binding_written = {};
+        /// the tier-1 handle written into each slot's heap range last (tier-1 since abi 26: the object, not a
+        /// narrowed `VkAccelerationStructureKHR` - comparing objects is what the "only when it changes" guard does)
+        std::vector<deren::promise::rhi::acceleration_structure*> rt_binding_written = {};
 
         /** @brief the swapchain was rebuilt: drop everything that pointed at the old generation
          *         (the debug overlay's backend, whose views are gone) */
@@ -2108,7 +2110,7 @@ namespace deren::vulkan {
         static bool structure_skin_ready(void* owner) noexcept;
         static bool structure_record_skin(void* owner, VkCommandBuffer command_buffer, std::span<ray_tracing::caster_level const> casters);
         /** @brief write the structure's and its instance table's heap slots for @p frame_slot */
-        void write_rt_structure_binding(VkAccelerationStructureKHR tlas, uint32_t frame_slot);
+        void write_rt_structure_binding(deren::promise::rhi::acceleration_structure* tlas, uint32_t frame_slot);
         /**
          * @brief THE NATIVE HANDLE BEHIND A CONTRACT BUFFER, for the places a raw `VkBuffer` is still what
          *        the call takes (a heap descriptor written by hand, `vkCmdBindVertexBuffers`, the indirect

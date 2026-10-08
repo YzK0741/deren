@@ -190,71 +190,25 @@ namespace deren::vulkan::acceleration_structure {
      *       ordering is needed, and the batching is purely a CPU-side win.
      */
     export class bottom_level_structures {
+        /// ONE GEOMETRY'S STRUCTURE, AND NOTHING ELSE (P1b-2): the tier-1 object owns the storage, the
+        /// scratch, the size query and the alignment, so what stays here is the HANDLE plus the one bit the
+        /// caller declared (whether it may be refitted). The geometry the build reads lives in the backend's
+        /// own copy of the description, which is why a resize of `entries` cannot dangle a pointer any more -
+        /// the container this class used to be careful about (`micromap_geometries`, a deque for exactly that
+        /// reason) is gone with it.
         struct entry {
-            VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-            // the memory the structure lives in: the contract's owner holds ONE reference and releases it
-            // when the entry dies (release is not destruction - the backend may share the memory)
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> storage = {};
-            VkDeviceSize scratch_offset = 0; // into the shared scratch buffer, already aligned
-            VkDeviceSize scratch_size = 0;
-            bool refittable = false;                                         // built with ALLOW_UPDATE, so record_update may refit it
-            VkAccelerationStructureBuildRangeInfoKHR range = {};             // primitiveCount etc, for the build
-            std::vector<VkAccelerationStructureGeometryKHR> geometries = {}; // one per entry, kept alive
+            deren::promise::rhi::object_manager<deren::promise::rhi::acceleration_structure> structure = {};
+            bool refittable = false; // built with ALLOW_UPDATE, so record_update may refit it
         };
 
         /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
         /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
         /// (clang does not warn: -Wshadow is not enabled there).
         /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b): non-const, because creating and
-        /// releasing the storage/scratch buffers goes through the contract's factories.
+        /// releasing the structures goes through the contract's factories.
         rhi::api_core* contract = nullptr;
-        /// The device and the two answers these structures need, resolved ONCE from the escaping handles
-        /// (`native_device()` / `native_physical_device()`): the front end asks the device itself now,
-        /// instead of reading `core`'s cached fields - which is what removes the backend import.
-        VkDevice device = VK_NULL_HANDLE;
-        std::uint64_t scratch_alignment = 0;
-        std::uint64_t max_instances = 0;
         std::vector<entry> entries = {};
-        /// The extension entry points, resolved per device in the constructor. Declared incomplete here
-        /// and defined in the .cpp, because a function pointer table is implementation detail - and a
-        /// unique_ptr so the header does not have to name the four PFN types either.
-        ///
-        /// NO INITIALIZER HERE, AND THAT IS WHAT MAKES THE INCOMPLETE TYPE LEGAL: `entry_points` is only
-        /// forward-declared at this point, so anything that constructs or destroys a unique_ptr<entry_points>
-        /// IN THIS HEADER needs the complete type. libc++ (the clang64 build) tolerates the `= {}` this used to
-        /// carry; libstdc++ does not - GCC instantiates `~unique_ptr<entry_points>` at the default member
-        /// initializer itself and stops on `default_delete`'s `static_assert(sizeof(_Tp)>0)` (measured, both
-        /// classes in this file). Default-initializing the member in the CONSTRUCTOR instead costs the same
-        /// (the members are default-constructed before the body runs either way) and puts the instantiation in
-        /// the .cpp, where `entry_points` is defined - which is the same reason the destructor is declared above
-        /// and defined there.
-        struct entry_points;
-        std::unique_ptr<entry_points> functions;
-        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> scratch = {};
-        VkDeviceAddress scratch_address = 0;
-        VkDeviceSize scratch_size = 0;
         build_stats stats = {};
-        /// the build infos handed to the command, assembled once per record_build (they point into
-        /// `entries`, so they cannot outlive a resize of it)
-        std::vector<VkAccelerationStructureBuildGeometryInfoKHR> build_infos = {};
-        std::vector<VkAccelerationStructureBuildRangeInfoKHR const*> range_ptrs = {};
-        /// the same two, assembled per record_update: separate from the build's so a refit cannot disturb
-        /// what the build recorded (it keeps its infos for exactly this reason - an update reuses them)
-        std::vector<VkAccelerationStructureBuildGeometryInfoKHR> update_infos = {};
-        std::vector<VkAccelerationStructureBuildRangeInfoKHR const*> update_range_ptrs = {};
-        /**
-         * THE OPACITY MICROMAP ATTACHMENTS, one per geometry that has one.
-         *
-         * @note A DEQUE, and that is the whole point of the type: `VkAccelerationStructureGeometryKHR::pNext`
-         *       points at these structs from add() until the build is recorded, so their addresses must survive
-         *       every later insertion - which a vector does not promise and a deque does. The usage record sits
-         *       beside its attachment in the same element because the attachment points at it.
-         */
-        struct micromap_attachment {
-            VkAccelerationStructureTrianglesOpacityMicromapEXT attachment = {};
-            VkMicromapUsageEXT usage = {};
-        };
-        std::deque<micromap_attachment> micromap_geometries = {};
 
     public:
         explicit bottom_level_structures(rhi::api_core& face);
@@ -287,7 +241,7 @@ namespace deren::vulkan::acceleration_structure {
          * @note call once: a second call would rebuild into the same structures with no scratch space
          *       left (the buffer is sized by the first call's requirements)
          */
-        std::expected<void, std::string> record_build(VkCommandBuffer command_buffer);
+        std::expected<void, std::string> record_build(deren::promise::rhi::command_buffer& commands);
 
         /**
          * @ingroup vulkan_acceleration_structure
@@ -302,16 +256,16 @@ namespace deren::vulkan::acceleration_structure {
          * @note the caller must have made the writes visible to the acceleration structure build stage
          *       first (a command-level barrier), or the refit reads whatever was there before
          */
-        std::expected<void, std::string> record_update(VkCommandBuffer command_buffer, std::span<uint32_t const> indices);
+        std::expected<void, std::string> record_update(deren::promise::rhi::command_buffer& commands, std::span<uint32_t const> indices);
 
         /** @brief how many structures were added */
         [[nodiscard]] uint32_t size() const noexcept {
             return static_cast<uint32_t>(this->entries.size());
         }
 
-        /** @brief the structure at @p index, or VK_NULL_HANDLE when it was skipped */
-        [[nodiscard]] VkAccelerationStructureKHR handle(uint32_t index) const noexcept {
-            return index < this->entries.size() ? this->entries[index].handle : VK_NULL_HANDLE;
+        /** @brief the structure at @p index, or nullptr when it was skipped (a geometry with no triangles) */
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* structure(uint32_t index) const noexcept {
+            return index < this->entries.size() ? this->entries[index].structure.get() : nullptr;
         }
 
         /** @brief what the last build cost (see build_stats) */
@@ -339,36 +293,31 @@ namespace deren::vulkan::acceleration_structure {
      */
     export class top_level_structure {
         struct slot {
-            // The two host-visible arrays the caller fills through add(). They are contract owners now,
-            // and the native handle / the mapping are asked OF THE HANDLE where they are used
-            // (vulkan_escape::native_buffer() / buffer::mapped()) instead of being cached beside it.
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> instances = {}; // host-visible VkAccelerationStructureInstanceKHR[capacity]
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> records = {};   // host-visible instance_record[capacity] (the instance table)
-            uint32_t capacity = 0;                                                           // instances the buffers above can hold
-            uint32_t count = 0;                                                              // instances added this frame
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> storage = {};   // the structure's own memory, sized for `capacity`
-            VkAccelerationStructureKHR handle = VK_NULL_HANDLE;
-            VkDeviceSize structure_size = 0;                                               // the size it was CREATED with: what a heap address-range descriptor carries
-            VkDeviceSize scratch_size = 0;                                                 // what the build of `count` instances needs
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> scratch = {}; // the build's scratch memory, kept once sized
+            /// THE STRUCTURE ITSELF: the tier-1 object owns the instance records it reads (the caller writes
+            /// them through `write_instances`), the storage, the scratch and the instance capacity - so this
+            /// slot keeps ONE handle where it used to keep five objects and a size.
+            deren::promise::rhi::object_manager<deren::promise::rhi::acceleration_structure> structure = {};
+            /// THE INSTANCE TABLE THE SHADER READS (through `instanceCustomIndex`): this is the ENGINE's own
+            /// data, not the driver's instance array, which is why it stays here - it is the per-instance
+            /// record the hit shader resolves a hit back to a surface with.
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> records = {};
+            /// what `add()` has collected for the frame being recorded, handed to the structure at
+            /// `record_build` (the backend copies it into its own memory: the contract's record POD, the same
+            /// shape a caller writes anywhere else).
+            std::vector<deren::promise::rhi::acceleration_structure_instance> pending = {};
+            uint32_t capacity = 0; // instances the records buffer can hold
+            uint32_t count = 0;    // instances added this frame
         };
 
         /// Deliberately NOT called `vk`: add() and record_build() bind a local `core& vk`, and that
         /// local would hide a member of the same name - MSVC /W4 reports C4458, an error under /WX
         /// (clang does not warn: -Wshadow is not enabled there).
         /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b): non-const, because creating and
-        /// releasing the storage/scratch buffers goes through the contract's factories.
+        /// releasing the structures goes through the contract's factories.
         rhi::api_core* contract = nullptr;
-        /// The device and the two answers these structures need, resolved ONCE from the escaping handles
-        /// (`native_device()` / `native_physical_device()`): the front end asks the device itself now,
-        /// instead of reading `core`'s cached fields - which is what removes the backend import.
-        VkDevice device = VK_NULL_HANDLE;
-        std::uint64_t scratch_alignment = 0;
+        /// the device's instance limit, from `device_capabilities` (the check that used to need a properties
+        /// query of this module's own)
         std::uint64_t max_instances = 0;
-        /// The extension entry points, forward-declared and held by pointer for the same reason (and with the
-        /// same NO-initializer rule) as `bottom_level_structures::functions` above - see the note there.
-        struct entry_points;
-        std::unique_ptr<entry_points> functions;
         std::vector<slot> slots = {};
         uint32_t current_slot = 0;
         build_stats stats = {};
@@ -406,11 +355,11 @@ namespace deren::vulkan::acceleration_structure {
          * @param command_buffer a buffer being recorded outside a rendering instance
          * @return success, or an error message
          */
-        std::expected<void, std::string> record_build(VkCommandBuffer command_buffer);
+        std::expected<void, std::string> record_build(deren::promise::rhi::command_buffer& commands);
 
-        /** @brief the structure the slot's frame must bind, or VK_NULL_HANDLE when it is empty */
-        [[nodiscard]] VkAccelerationStructureKHR handle(uint32_t frame_slot) const noexcept {
-            return frame_slot < this->slots.size() ? this->slots[frame_slot].handle : VK_NULL_HANDLE;
+        /** @brief the structure the slot's frame must bind, or nullptr when the slot is empty */
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* structure(uint32_t frame_slot) const noexcept {
+            return frame_slot < this->slots.size() ? this->slots[frame_slot].structure.get() : nullptr;
         }
 
         /**
@@ -423,7 +372,11 @@ namespace deren::vulkan::acceleration_structure {
          *       place that number exists, so it is kept rather than re-derived by a caller that cannot know it.
          */
         [[nodiscard]] VkDeviceSize structure_size(uint32_t frame_slot) const noexcept {
-            return frame_slot < this->slots.size() ? this->slots[frame_slot].structure_size : 0;
+            // THE NUMBER IS THE OBJECT'S NOW (tier-1 since abi 26): `size_bytes()` is what the backend cached
+            // when it created the structure, so this module keeps no copy of it that could drift.
+            return frame_slot < this->slots.size() && this->slots[frame_slot].structure
+                       ? static_cast<VkDeviceSize>(this->slots[frame_slot].structure->size_bytes())
+                       : 0;
         }
 
         /**

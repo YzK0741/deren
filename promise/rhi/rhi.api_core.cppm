@@ -655,6 +655,15 @@ export namespace deren::promise::rhi {
     };
     inline constexpr std::uint32_t acceleration_structure_instance_size = sizeof(acceleration_structure_instance);
 
+    /// THE INSTANCE BIT A SHADOW CASTER NEEDS: a shadow ray must be blocked by a surface it approaches from
+    /// behind, which is what the raster shadow pass does for the casters whose pipeline disables culling - so
+    /// the traversal must disable facing culling for the same instances, or every plane and every open mesh
+    /// leaks light.
+    ///
+    /// IT IS A CONTRACT VALUE, NOT THE API'S MACRO, and the backend asserts the two agree (it is the only side
+    /// that names both). The engine writes it into `acceleration_structure_instance::flags`.
+    inline constexpr std::uint32_t acceleration_structure_instance_facing_cull_disable = 1u;
+
     /// WHAT TO BUILD: the geometries of a bottom-level structure, or the capacity of a top-level one.
     ///
     /// `struct_size` is the same ABI guard `buffer_desc` carries, so a caller compiled against an older

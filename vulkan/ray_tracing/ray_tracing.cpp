@@ -104,8 +104,11 @@ namespace deren::vulkan::ray_tracing {
         return this->top_level.has_value() ? this->top_level->instance_table_size(frame_slot) : 0;
     }
 
-    VkAccelerationStructureKHR structure_set::handle(uint32_t const frame_slot) const noexcept {
-        return this->top_level.has_value() ? this->top_level->handle(frame_slot) : VK_NULL_HANDLE;
+    deren::promise::rhi::acceleration_structure* structure_set::handle(uint32_t const frame_slot) const noexcept {
+        // TIER-1 SINCE ABI 26: the handle IS the object now, so a caller that needs its address or its size asks
+        // `device_address()` / `size_bytes()` instead of narrowing a `VkAccelerationStructureKHR` and resolving
+        // an entry point to read an address out of it - which is exactly what runtime.cpp used to do.
+        return this->top_level.has_value() ? this->top_level->structure(frame_slot) : nullptr;
     }
 
     VkBuffer structure_set::instance_table(uint32_t const frame_slot) const noexcept {
@@ -681,7 +684,7 @@ namespace deren::vulkan::ray_tracing {
             }
         }
 
-        if (auto const built = structures.record_build(command_buffer); !built) {
+        if (auto const built = structures.record_build(commands); !built) {
             // The two structures go, the COPIES stay: this is the same asymmetry the renderer had, and it is kept
             // deliberately - a failed record of a build does not invalidate the buffers the map points at, and
             // dropping them would be a second, unrelated change of behaviour.
@@ -736,7 +739,7 @@ namespace deren::vulkan::ray_tracing {
         // comment explains).
         if (inputs.skin_bake && !this->skin_levels.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner)) {
             if (inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->caster_list)) {
-                if (auto const updated = levels.record_update(command_buffer, this->skin_levels); !updated) {
+                if (auto const updated = levels.record_update(commands, this->skin_levels); !updated) {
                     // Once, and off: a failure here would otherwise log every frame, and a refit is not something
                     // to keep attempting against structures the device refused. The knob is the CALLER's, so the
                     // decision travels back with the failure.
@@ -810,7 +813,7 @@ namespace deren::vulkan::ray_tracing {
             deren::utility::log("ray tracing: the top-level build-ordering barrier was refused");
         }
 
-        if (auto const built = top.record_build(command_buffer); !built) {
+        if (auto const built = top.record_build(commands); !built) {
             return std::unexpected(failure{.message = built.error()});
         }
 

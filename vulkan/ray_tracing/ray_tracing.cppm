@@ -194,7 +194,7 @@ export namespace deren::vulkan::ray_tracing {
         /// @brief whether both structures exist, i.e. whether anything can be traversed
         [[nodiscard]] bool ready() const noexcept;
         /// @brief this slot's top level structure, or `VK_NULL_HANDLE` (the scene block's binding 16)
-        [[nodiscard]] VkAccelerationStructureKHR handle(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* handle(uint32_t frame_slot) const noexcept;
         /**
          * @brief the size this slot's top level structure was created with (see top_level_structure::structure_size)
          * @note forwarded rather than re-derived: the structure is `top_level`'s, and the descriptor heap writes

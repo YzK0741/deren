@@ -58,30 +58,23 @@ namespace deren::vulkan {
         }
     } // namespace runtime_detail
 
-    void runtime::write_rt_structure_binding(VkAccelerationStructureKHR const tlas, uint32_t const frame_slot) {
+    void runtime::write_rt_structure_binding(deren::promise::rhi::acceleration_structure* const tlas, uint32_t const frame_slot) {
         // The top level structure is a HEAP slot now, and this is the one thing this function still does: a heap
         // descriptor for an acceleration structure is an ADDRESS RANGE carrying the structure's device address
         // (the heap's payload union has no AS member - see docs/descriptor_heap_migration.md), and it is
         // per FRAME SLOT because the structure is rebuilt every frame - which is why heap_slots::tlas is a
-        // two-slot array. The size is the one the structure was created with (published through
-        // ray_tracing::structure_set): a heap range must carry a real size, a lesson this renderer already paid
-        // for on the material table.
-        if (!contract_heap_ready(this->rhi_face()) || tlas == VK_NULL_HANDLE) {
+        // two-slot array. The size is the one the structure was created with: a heap range must carry a real
+        // size, a lesson this renderer already paid for on the material table.
+        //
+        // BOTH NUMBERS COME FROM THE OBJECT (tier-1 since abi 26): this function used to resolve
+        // `vkGetAccelerationStructureDeviceAddressKHR` through `vkGetDeviceProcAddr` and fill a
+        // `VkAccelerationStructureDeviceAddressInfoKHR` to read the address out of the handle - the LAST Vulkan
+        // reference this file had, and the reason its census entry was `vkGetDeviceProcAddr`.
+        if (!contract_heap_ready(this->rhi_face()) || tlas == nullptr) {
             return;
         }
-        // RESOLVED PER DEVICE, not linked: the loader exports the core entry points and not this
-        // extension one (the link failed with `undefined symbol:
-        // vkGetAccelerationStructureDeviceAddressKHR`, which is the same reason the acceleration
-        // structure module loads its own entry points through vkGetDeviceProcAddr).
-        static PFN_vkGetAccelerationStructureDeviceAddressKHR const get_structure_address =
-            reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(runtime_detail::native_device_of(this->rhi_face()), "vkGetAccelerationStructureDeviceAddressKHR"));
-        VkAccelerationStructureDeviceAddressInfoKHR const tlas_address_info = {
-            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-            .pNext = nullptr,
-            .accelerationStructure = tlas,
-        };
-        VkDeviceAddress const tlas_address = get_structure_address != nullptr ? get_structure_address(runtime_detail::native_device_of(this->rhi_face()), &tlas_address_info) : 0;
-        if (!contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
+        std::uint64_t const tlas_address = tlas->device_address();
+        if (!contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::tlas + frame_slot), tlas_address, tlas->size_bytes(), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
             deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::tlas + frame_slot);
         }
 
