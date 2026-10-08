@@ -302,7 +302,7 @@ namespace deren::vulkan {
         // the render scale cancels out of it - but the output's own extent is the honest source (a scale
         // that rounds the two axes differently would otherwise tilt the projection by a fraction of a
         // pixel's worth of aspect).
-        VkExtent2D const output = this->presentation_extent();
+        rhi::image_extent const output = this->presentation_extent();
         this->current_aspect = static_cast<float>(output.width) / static_cast<float>(output.height);
         this->current_ubo = make_orbit_camera_ubo(this->camera.yaw, this->camera.pitch, this->camera.distance, this->camera.target, this->scene_extent_radius, this->current_aspect);
         // Motion-vector support: the G-buffer computes its vectors from the UNJITTERED pair, and the
@@ -1453,7 +1453,7 @@ namespace deren::vulkan {
                                                            0.0f, 0.0f, 0.0f, blends, rhi::shader_stage::mesh,
                                                            rhi::depth_compare::less_or_equal, "G-buffer");
             if (built) {
-                VkExtent2D const extent = this->render_extent();
+                rhi::image_extent const extent = this->render_extent();
                 built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(extent.width), .height = static_cast<float>(extent.height), .min_depth = 0.0f, .max_depth = 1.0f};
                 built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (extent).width, .height = (extent).height};
             }
@@ -2786,7 +2786,7 @@ namespace deren::vulkan {
     // `extent_of` callback below), so the bridge had no callers left - the rule is in ONE place, which is what the
     // function's own comment argued for while it was the second copy.
 
-    VkExtent2D runtime::render_target_extent(rhi::object_manager<rhi::image> const& image) const noexcept {
+    rhi::image_extent runtime::render_target_extent(rhi::object_manager<rhi::image> const& image) const noexcept {
         // THE CREATED IMAGE IS THE ANSWER (③-D/E A1.7, see the declaration): no size arithmetic lives here,
         // because the arithmetic already happened ONCE - when `create_render_chain_targets()` created this
         // image at the frame's render extent or at a size derived from it. An empty manager answers the
@@ -2796,10 +2796,10 @@ namespace deren::vulkan {
             return this->render_extent();
         }
         rhi::image_extent const extent = image->extent();
-        return VkExtent2D{extent.width, extent.height};
+        return rhi::image_extent{extent.width, extent.height};
     }
 
-    VkExtent2D runtime::resolve_resource_extent(render_resource::resource_id const id, uint32_t const element) const noexcept {
+    rhi::image_extent runtime::resolve_resource_extent(render_resource::resource_id const id, uint32_t const element) const noexcept {
         switch (id) {
         case pass::resource_id::ml_trace:
             // THE HALF-RESOLUTION CHAIN ANSWERS FROM ITS OWN IMAGES (③-D/E A1.7): the three ml images are
@@ -2830,7 +2830,7 @@ namespace deren::vulkan {
             // engine caches as `presentation_extent()` - not the render extent and never scaled.
             return this->presentation_extent();
         default:
-            return VkExtent2D{}; // an element of a resource whose extent IS the frame's: nothing to answer
+            return rhi::image_extent{}; // an element of a resource whose extent IS the frame's: nothing to answer
         }
     }
 
@@ -2858,7 +2858,7 @@ namespace deren::vulkan {
             // lanes name the same borrowed handle by construction.
             .cmd = this->frame_command_buffer(),
             .list = this->rhi_face().begin_commands(),
-            .extent_of = [](void* owner, render_resource::resource_id id, uint32_t element) { return contract_image_extent(static_cast<runtime*>(owner)->resolve_resource_extent(id, element)); },
+            .extent_of = [](void* owner, render_resource::resource_id id, uint32_t element) { return static_cast<runtime*>(owner)->resolve_resource_extent(id, element); },
             .pipeline = [](void* owner, std::string_view name) { return static_cast<runtime*>(owner)->resolve_pipeline(name); },
             .owner = this,
         };
@@ -2886,7 +2886,7 @@ namespace deren::vulkan {
             // chain back up to what is presented - declares `extent_rule::resource` over
             // `resource_id::swapchain_image` instead, and `resolve_resource_extent` answers with the
             // swapchain's extent.
-            .extent = contract_image_extent(this->render_extent()),
+            .extent = this->render_extent(),
         };
     }
 

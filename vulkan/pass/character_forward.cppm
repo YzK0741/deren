@@ -139,7 +139,7 @@ export namespace deren::vulkan::pass {
         /// the two declared targets' formats and the extent (the pass opens its own instance)
         VkFormat color_format = VK_FORMAT_UNDEFINED;
         VkFormat depth_format = VK_FORMAT_UNDEFINED;
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {0, 0};
     };
 
     /**

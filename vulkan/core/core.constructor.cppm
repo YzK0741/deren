@@ -861,7 +861,7 @@ namespace deren::vulkan {
         // asked glfwCreateWindow for two calls up, and it is what choose_swap_extent uses when the surface
         // leaves the extent to the application AND the window reports no framebuffer (a hidden or not yet
         // mapped window can). See that function: the value is the caller's, not one invented there.
-        VkExtent2D const extent = choose_swap_extent(capabilities, this->window, this->create_options.window_width, this->create_options.window_height);
+        ::deren::promise::rhi::image_extent const extent = choose_swap_extent(capabilities, this->window, this->create_options.window_width, this->create_options.window_height);
 
         uint32_t image_count = capabilities.minImageCount + 1;
 
@@ -878,7 +878,7 @@ namespace deren::vulkan {
         create_info.minImageCount = image_count;
         create_info.imageFormat = format;
         create_info.imageColorSpace = color_space;
-        create_info.imageExtent = extent;
+        create_info.imageExtent = VkExtent2D{.width = extent.width, .height = extent.height};
         create_info.imageArrayLayers = 1;
         create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         // The F12 screenshot read-back copies FROM a swapchain image (vkCmdCopyImageToBuffer), which
@@ -984,7 +984,9 @@ namespace deren::vulkan {
 
     void core::create_depth_image(VkImage& image, VkDeviceMemory& image_memory, VkImageView& image_view) const noexcept {
         // Use the swapchain size stored in the class
-        auto const& [width, height] = this->render_extent();
+        auto const& extent = this->render_extent();
+        auto const width = extent.width;
+        auto const height = extent.height;
 
         // 1. Create images
         VkImageCreateInfo image_info = {};

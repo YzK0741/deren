@@ -519,7 +519,7 @@ namespace deren::vulkan {
                 0.0f,
                 1.0f,
             };
-            result->scissor = {{0, 0}, this->render_extent()};
+            result->scissor = {{0, 0}, this->render_extent_2d()};
         }
         return result;
     }
@@ -569,7 +569,7 @@ namespace deren::vulkan {
                 0.0f,
                 1.0f,
             };
-            result->scissor = {{0, 0}, this->render_extent()};
+            result->scissor = {{0, 0}, this->render_extent_2d()};
         }
         return result;
     }
@@ -615,7 +615,7 @@ namespace deren::vulkan {
                 0.0f,
                 1.0f,
             };
-            result->scissor = {{0, 0}, this->render_extent()};
+            result->scissor = {{0, 0}, this->render_extent_2d()};
         }
         return result;
     }
@@ -662,7 +662,7 @@ namespace deren::vulkan {
                 0.0f,
                 1.0f,
             };
-            result->scissor = {{0, 0}, this->render_extent()};
+            result->scissor = {{0, 0}, this->render_extent_2d()};
         }
         // CULL FRONT IS NOT HERE, AND THAT IS THE POINT RATHER THAN AN OMISSION: the rasterization state is
         // DYNAMIC in this renderer (every leaf's draw() calls `set_cull_mode` with its own `doubleSided` flag), so

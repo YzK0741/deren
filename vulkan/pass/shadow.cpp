@@ -182,7 +182,7 @@ namespace deren::vulkan::pass {
         this->pass_frame.run_tasks(this->pass_frame.owner, tasks);
 
         // ---- ONE INSTANCE PER CASCADE, in the primary ----
-        VkExtent2D const map_extent = {this->pass_frame.map_size, this->pass_frame.map_size};
+        rhi::image_extent const map_extent = {this->pass_frame.map_size, this->pass_frame.map_size};
         for (uint32_t cascade = 0; cascade < layers; ++cascade) {
             rhi::image_view* const layer_view = io.targets[cascade].view_handle;
             rhi::image* const layer_image = io.targets[cascade].image_handle;

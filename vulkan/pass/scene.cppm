@@ -115,7 +115,7 @@ export namespace deren::vulkan::pass {
         VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
         /// whether this frame writes the G-buffer (the surface pass) or shades into the HDR target
         bool gbuffer = true;
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {0, 0};
     };
 
     /**

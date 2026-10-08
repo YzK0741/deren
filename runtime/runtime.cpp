@@ -383,7 +383,7 @@ namespace deren::vulkan {
         // backend's images have (it does not pre-multiply any scale - that is a renderer decision).
         rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
         rhi::image_extent const output = surface != nullptr ? surface->extent() : rhi::image_extent{};
-        this->output_extent = VkExtent2D{output.width, output.height};
+        this->output_extent = rhi::image_extent{output.width, output.height};
         // ... and the frame's resolution is that EXTENT times this engine's own scale, ROUNDED to
         // nearest rather than truncated: at half scale the floor would take a pixel off an odd output
         // width ON TOP of the halving, and both the images and the passes have to agree on the
@@ -394,7 +394,7 @@ namespace deren::vulkan {
             uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
             return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
         };
-        this->render_extent_value = VkExtent2D{scaled(output.width), scaled(output.height)};
+        this->render_extent_value = rhi::image_extent{scaled(output.width), scaled(output.height)};
     }
 
     bool runtime::gpu_timings_available() const noexcept {

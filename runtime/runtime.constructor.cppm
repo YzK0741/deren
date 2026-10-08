@@ -1405,7 +1405,7 @@ namespace deren::vulkan {
         this->furnace_cube_view = {};
         this->furnace_cube_image = {};
 
-        VkExtent2D const render = this->render_extent();
+        rhi::image_extent const render = this->render_extent();
         std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
         // THE CONTRACT'S BOUND IS THE ARRAY SIZE, so the backend keeps the promise (it refuses a driver
         // that reports more) and this is the engine's side of it: a count past `rhi::max_swapchain_images`

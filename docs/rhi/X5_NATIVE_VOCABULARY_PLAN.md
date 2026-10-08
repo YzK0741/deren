@@ -141,6 +141,27 @@ Measured: P-Census tokens 209 -> 201.
 Verified: build, CTest 19/19 (parallel AND serial, see below), frozen rendering 14/14, RT acceptance
 (`check_rt.ps1`: GPU traversal verified, 40 frames, clean validation, screenshot).
 
+### B3.2 - DONE (2026-10-08): the engine's size vocabulary is rhi::image_extent
+
+31 sites in 12 engine files stopped naming `VkExtent2D`: runtime.constructor/declarations/frames/cpp,
+init_utils, core.cpp/core.api_core/core.constructor/core.declarations, and the four pass files
+(scene, transparent, character_forward, shadow). `rhi::image_extent` is `{width, height, depth = 1}`, so a 2D
+size is the same aggregate with the contract's own depth default.
+
+TWO CONSEQUENCES worth recording, because both are the shape this migration keeps taking:
+
+- **The identity helper died.** `contract_image_extent(VkExtent2D)` existed only because the two halves spelled
+  a size differently; with one spelling it was a conversion from a type to itself, so it is gone and its two
+  call sites use `render_extent()` directly.
+- **One API-facing conversion took its place.** `core::render_extent_2d()` is the single place that builds a
+  `VkExtent2D` out of the contract value, because `VkRect2D`'s extent (the scissors in `core.cpp`) and the
+  swapchain's `create_info.imageExtent` are Vulkan structs that a Vulkan call needs. A Vulkan struct is built
+  where Vulkan is spoken - not stored in the engine's own declarations.
+- A structured binding of a 2D extent (`auto const& [width, height] = render_extent()`) broke: the contract
+  type has three members. It now binds the extent once and reads its two fields.
+
+Measured: P-Census tokens 201 -> 193. RHI abi stays 27.
+Verified: build, CTest 19/19 (parallel), frozen rendering 14/14, clang-format-check.
 ### Housekeeping found by running the suite in parallel: ctest was NOT parallel-safe
 
 `ctest -j 8` reported 18/19 while the same tree passed 19/19 serially: every test shared ONE working

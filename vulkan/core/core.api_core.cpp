@@ -2166,7 +2166,7 @@ namespace deren::vulkan {
         // THE BACKEND'S HOST-VISIBLE READ-BACK SLOT, at least one texel per frame pixel at four bytes
         // each (the formats the contract can unpack are all 8-bit RGBA/BGRA). Grown on demand: this is
         // the slot the read-back copy is recorded into, and its size follows the swapchain extent.
-        VkExtent2D const extent = this->swap_chain_extent;
+        rhi::image_extent const extent = this->swap_chain_extent;
         VkDeviceSize const needed = static_cast<VkDeviceSize>(extent.width) * static_cast<VkDeviceSize>(extent.height) * 4u;
         if (needed == 0) {
             return nullptr; // no swapchain extent yet: there is nothing a copy could write into
@@ -2217,7 +2217,7 @@ namespace deren::vulkan {
     // view object is a member of that core, so it can never outlive it).
 
     rhi::image_extent core::frame_image_slot::extent() const noexcept {
-        VkExtent2D const extent = this->owner->swap_chain_extent;
+        rhi::image_extent const extent = this->owner->swap_chain_extent;
         return rhi::image_extent{.width = extent.width, .height = extent.height, .depth = 1};
     }
 
@@ -2429,7 +2429,7 @@ namespace deren::vulkan {
             static_cast<void const*>(&source) != static_cast<void const*>(&self->frame_image_view)) {
             return rhi::error::invalid_argument;
         }
-        VkExtent2D const extent = self->swap_chain_extent;
+        rhi::image_extent const extent = self->swap_chain_extent;
         if (region.extent.width == 0 || region.extent.height == 0 || region.extent.depth != 1) {
             return rhi::error::invalid_argument;
         }

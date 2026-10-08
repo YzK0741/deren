@@ -389,7 +389,7 @@ namespace deren::vulkan {
             /// the same one-log rule for abi 7's make_view on this borrowed view
             mutable bool borrowed_make_view_logged = false;
 
-            [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
+            [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
             /// abi 7's make_view on a BORROWED view: the swapchain image's views belong to the backend's
             /// own presentation path, so the contract's one borrowed-view rule applies - a one-time log
@@ -454,7 +454,7 @@ namespace deren::vulkan {
             /// BORROWED: logs once and drops no reference (see frame_image_slot's note)
             void release() noexcept override;
             [[nodiscard]] deren::promise::rhi::error recreate() override;
-            [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
+            [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
         };
 
         /// The last completed frame's GPU timing report, as the contract's `gpu_profiler` (abi 13).
@@ -637,7 +637,7 @@ namespace deren::vulkan {
             /// concrete spelling lives in `resolved_format`)
             deren::promise::rhi::image_format declared_format = deren::promise::rhi::image_format::unknown;
 
-            [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
+            [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_view* make_view(deren::promise::rhi::image_view_desc const& desc) override;
             /// abi 25's read-back: the image's CONTENT in host memory, performed by the IMPLEMENTATION
@@ -1111,7 +1111,7 @@ namespace deren::vulkan {
         VkSwapchainKHR swap_chain = {};
         std::vector<VkImage> swap_chain_images = {};
         VkFormat swap_chain_image_format = {};
-        VkExtent2D swap_chain_extent = {};
+        ::deren::promise::rhi::image_extent swap_chain_extent = {};
         /// the swapchain image the contract's frame_begin() acquired (vkAcquireNextImageKHR), i.e. what
         /// the contract's present() hands to the presentation engine. The runtime's own pacing path
         /// keeps its own `current_image_index` until it migrates onto the contract (S3).
@@ -1129,12 +1129,19 @@ namespace deren::vulkan {
          * output width ON TOP of the halving, and both the images and the passes have to agree on the
          * number, so there is one formula and it is this one.
          */
-        [[nodiscard]] VkExtent2D render_extent() const noexcept {
+        [[nodiscard]] ::deren::promise::rhi::image_extent render_extent() const noexcept {
             auto const scaled = [this](uint32_t const axis) {
                 uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
                 return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
             };
-            return VkExtent2D{scaled(this->swap_chain_extent.width), scaled(this->swap_chain_extent.height)};
+            return ::deren::promise::rhi::image_extent{scaled(this->swap_chain_extent.width), scaled(this->swap_chain_extent.height)};
+        }
+        /// THE SAME SIZE, IN THE API'S OWN STRUCT (plan X5 B3.2): `VkRect2D`'s extent and the swapchain create
+        /// info still take a `VkExtent2D`, so this is the ONE place that conversion lives. The engine's own
+        /// vocabulary for a size is `rhi::image_extent` now; a Vulkan struct is only built where Vulkan is.
+        [[nodiscard]] VkExtent2D render_extent_2d() const noexcept {
+            ::deren::promise::rhi::image_extent const extent = this->render_extent();
+            return VkExtent2D{.width = extent.width, .height = extent.height};
         }
         /// @brief the render scale `render_extent()` applies; clamped to (0, 1] at construction
         float render_scale = 1.0f;

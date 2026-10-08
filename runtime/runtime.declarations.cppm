@@ -324,13 +324,9 @@ namespace deren::vulkan {
         }
     }
 
-    /// The CONTRACT's spelling of a 2D extent, for the same reason `contract_image_format` exists: the PASS
-    /// layer holds `rhi::image_extent` and the engine's own sizes are `VkExtent2D`. A 2D size has no depth,
-    /// and the contract's default of 1 is exactly what a 2D image means - so this is a conversion, not a
-    /// derivation, and it is the ONE place the two spellings meet.
-    [[nodiscard]] constexpr rhi::image_extent contract_image_extent(VkExtent2D const extent) noexcept {
-        return rhi::image_extent{.width = extent.width, .height = extent.height, .depth = 1};
-    }
+    // (THE `contract_image_extent` HELPER IS GONE - plan X5 B3.2. It existed because the pass layer held
+    //  `rhi::image_extent` while the engine spelled its own sizes differently, so it was "the ONE place the two
+    //  spellings meet". There is one spelling now, and a conversion from a type to itself is only noise.)
 
     export class runtime {
         /**
@@ -754,16 +750,16 @@ namespace deren::vulkan {
         /// cannot drift); `post_upscale_active()` is the other reader
         float render_scale = 1.0f;
         /// `frame_swapchain()->extent()` at the current generation: what presentation shows
-        VkExtent2D output_extent = {};
+        rhi::image_extent output_extent = {};
         /// output_extent x render_scale, rounded to nearest and clamped to >= 1x1 (a zero extent is
         /// not a small frame, it is an invalid one)
-        VkExtent2D render_extent_value = {.width = 1u, .height = 1u};
+        rhi::image_extent render_extent_value = {.width = 1u, .height = 1u};
         /// @brief the extent the RENDER chain runs at - the ONE definition of the frame's resolution
-        [[nodiscard]] VkExtent2D render_extent() const noexcept {
+        [[nodiscard]] rhi::image_extent render_extent() const noexcept {
             return this->render_extent_value;
         }
         /// @brief the extent presentation shows (the swapchain's own, from the contract)
-        [[nodiscard]] VkExtent2D presentation_extent() const noexcept {
+        [[nodiscard]] rhi::image_extent presentation_extent() const noexcept {
             return this->output_extent;
         }
         /// @brief re-read the contract's swapchain extent and recompute the render extent
@@ -3767,7 +3763,7 @@ namespace deren::vulkan {
         [[nodiscard]] pass::resolve_context make_resolve_context() noexcept;
         /** @brief the extent of a declared resource element (the bloom levels, the probe grid) - the rule that
          *         used to live in `pass_extent`, now shared with the framework's resolver */
-        [[nodiscard]] VkExtent2D resolve_resource_extent(render_resource::resource_id id, uint32_t element) const noexcept;
+        [[nodiscard]] rhi::image_extent resolve_resource_extent(render_resource::resource_id id, uint32_t element) const noexcept;
         /**
          * @brief THE CREATED IMAGE ANSWERS ITS OWN EXTENT (③-D/E A1.7)
          *
@@ -3778,7 +3774,7 @@ namespace deren::vulkan {
          * generation is created, or after a creation the backend refused) answers the frame's own extent
          * rather than a second formula.
          */
-        [[nodiscard]] VkExtent2D render_target_extent(rhi::object_manager<rhi::image> const& image) const noexcept;
+        [[nodiscard]] rhi::image_extent render_target_extent(rhi::object_manager<rhi::image> const& image) const noexcept;
         /**
          * @brief the pipeline a `behaviour::pipelines` name refers to
          *

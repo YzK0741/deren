@@ -64,7 +64,7 @@ export namespace deren::vulkan::pass {
         /// the ONE colour attachment the secondary inherits, plus the depth format
         VkFormat color_format = VK_FORMAT_UNDEFINED;
         VkFormat depth_format = VK_FORMAT_UNDEFINED;
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {0, 0};
     };
 
     /**
