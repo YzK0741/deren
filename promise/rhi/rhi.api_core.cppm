@@ -707,7 +707,8 @@ export namespace deren::promise::rhi {
         index_type index_format = index_type::uint32; ///< what an index is
         std::uint32_t index_count = 0;                ///< indices; triangles = index_count / 3
 
-        /// OPTIONAL: THE OPACITY MICROMAP this geometry consults, or null for an opaque one.
+        /// OPTIONAL: THE OPACITY MICROMAP this geometry consults, or null when no micromap is attached.
+        /// A missing micromap still permits the hit group's any-hit alpha test.
         ///
         /// ONE HANDLE AND NOTHING ELSE, deliberately: the micromap knows its own usage record and owns the index
         /// array the traversal reads (the backend built both), so a caller cannot get either wrong - which is
@@ -1076,6 +1077,17 @@ export namespace deren::promise::rhi {
         bool triangles = true;
     };
 
+    /// A shader AS binding backed by an existing descriptor heap range. No descriptor set is allocated.
+    /// The backend translates the binding to its own heap mapping; array elements are stride bytes apart.
+    struct acceleration_structure_heap_binding {
+        shader_stage stage = shader_stage::ray_generation;
+        std::uint32_t descriptor_set = 0;
+        std::uint32_t binding = 0;
+        std::uint32_t byte_offset = 0;
+        std::uint32_t array_stride = 0;
+        std::uint32_t array_count = 1;
+    };
+
     /// How a pipeline is created - `make_pipeline`'s parameters in the contract's vocabulary.
     /// The COLOR and DEPTH formats are contract formats (a named value, or the `depth` ROLE for the
     /// depth attachment; `unknown` as the depth format means the pipeline has NO depth attachment).
@@ -1136,6 +1148,9 @@ export namespace deren::promise::rhi {
         std::span<ray_tracing_group const> ray_tracing_groups;
         /// the pipeline's ray recursion depth (`maxPipelineRayRecursionDepth`); 1 = "a ray may hit once".
         std::uint32_t max_ray_recursion = 1u;
+        /// Optional AS shader bindings into the heap. Appended and guarded by struct_size;
+        /// older callers keep an empty list. Currently supported by ray-tracing pipelines.
+        std::span<acceleration_structure_heap_binding const> acceleration_structure_bindings;
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).

@@ -48,6 +48,7 @@ import deren.vulkan.acceleration_structure; // the module S1 migrates (bottom_le
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../promise/rhi/backend_entry.hpp"
+#include "rt_traversal_probe.hpp"
 
 namespace {
     namespace rhi = deren::promise::rhi;
@@ -144,7 +145,7 @@ int main(int const argc, char** const argv) {
                                        {.position = {0.0f, 1.0f, 0.0f}}};
     std::uint32_t const indices[triangle_vertices] = {0u, 1u, 2u};
     rhi::buffer* const vertex_buffer = core->create_buffer(rhi::buffer_desc{
-        .size = sizeof(vertices), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
+        .size = vertices.size() * sizeof(vertex), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
     rhi::buffer* const index_buffer = core->create_buffer(rhi::buffer_desc{
         .size = sizeof(indices), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
     CHECK(vertex_buffer != nullptr);
@@ -152,7 +153,7 @@ int main(int const argc, char** const argv) {
     if (vertex_buffer == nullptr || index_buffer == nullptr) {
         return deren::vk_test::finish("test_acceleration_structures");
     }
-    std::memcpy(vertex_buffer->mapped().data(), vertices.data(), sizeof(vertices));
+    std::memcpy(vertex_buffer->mapped().data(), vertices.data(), vertices.size() * sizeof(vertex));
     std::memcpy(index_buffer->mapped().data(), indices, sizeof(indices));
 
     as::geometry_source const source{
@@ -228,7 +229,8 @@ int main(int const argc, char** const argv) {
     instance.structure_reference = blas->device_address();
     CHECK(tlas->write_instances(std::span<rhi::acceleration_structure_instance const>(&instance, 1u)) == rhi::error::ok);
     // (a) THE CAPACITY REFUSAL: one past what it was created with - the array behind it is sized for one.
-    CHECK(tlas->write_instances(std::span<rhi::acceleration_structure_instance const>(&instance, 2u)) == rhi::error::invalid_argument);
+    rhi::acceleration_structure_instance const too_many[] = {instance, instance};
+    CHECK(tlas->write_instances(too_many) == rhi::error::invalid_argument);
     // (b) A BOTTOM LEVEL HAS NO INSTANCE LIST, refused by name rather than silently dropped.
     CHECK(blas->write_instances(std::span<rhi::acceleration_structure_instance const>(&instance, 1u)) == rhi::error::unsupported);
 
@@ -242,8 +244,26 @@ int main(int const argc, char** const argv) {
     // ---- 5b. THE ENGINE MODULE ON TOP OF IT (plan S1's P1b-2): `bottom_level_structures` is a thin front end
     //          over the same interface now, and this is what says so on a real device - it adds the same
     //          geometry, records its build and a refit, and hands back the object the runtime binds.
+    // Recorded commands borrow their structures and inputs until submission has completed.
+    as::bottom_level_structures levels{*core};
+    rhi::object_manager<rhi::micromap> micromap_owner;
+    rhi::object_manager<rhi::acceleration_structure> shaded_owner;
+    rhi::object_manager<rhi::acceleration_structure> triangle_soup;
     {
-        as::bottom_level_structures levels{*core};
+        rhi::acceleration_structure_geometry const unindexed{
+            .vertex_address = source.vertex_address,
+            .vertex_stride = source.vertex_stride,
+            .vertex_count = triangle_vertices,
+        };
+        triangle_soup = rhi::object_manager<rhi::acceleration_structure>{core->create_acceleration_structure(rhi::acceleration_structure_desc{
+            .type = rhi::acceleration_structure_type::bottom_level,
+            .geometries = &unindexed,
+            .geometry_count = 1u,
+        })};
+        CHECK(triangle_soup);
+        if (triangle_soup) {
+            CHECK(commands->build_acceleration_structure(*triangle_soup) == rhi::error::ok);
+        }
         // (a) THE DOCUMENTED SKIP: a source with no triangles keeps the caller's index alignment.
         std::expected<std::uint32_t, std::string> const skipped = levels.add(as::geometry_source{.vertex_count = 0, .index_count = 0});
         CHECK(skipped.has_value() && *skipped == 0u);
@@ -283,6 +303,7 @@ int main(int const argc, char** const argv) {
             });
             CHECK(micromap != nullptr); // a device without VK_EXT_opacity_micromap answers null with a named log
             if (micromap != nullptr) {
+                micromap_owner = rhi::object_manager<rhi::micromap>{micromap};
                 rhi::acceleration_structure_geometry const with_micromap{
                     .vertex_address = source.vertex_address,
                     .vertex_stride = source.vertex_stride,
@@ -299,11 +320,14 @@ int main(int const argc, char** const argv) {
                 });
                 CHECK(shaded != nullptr);
                 if (shaded != nullptr) {
+                    shaded_owner = rhi::object_manager<rhi::acceleration_structure>{shaded};
                     CHECK(commands->build_micromap(*micromap) == rhi::error::ok); // ... the micromap FIRST
+                    CHECK(commands->barrier(rhi::barrier_group{
+                              .has_memory = true,
+                              .memory = rhi::memory_barrier{.from = rhi::buffer_use::micromap_write, .to = rhi::buffer_use::micromap_read},
+                          }) == rhi::error::ok);
                     CHECK(commands->build_acceleration_structure(*shaded) == rhi::error::ok);
-                    shaded->release();
                 }
-                micromap->release();
             }
             deren::vk_test::write_line("as_probe: an opacity micromap was created, built and consulted by a geometry");
         }
@@ -334,10 +358,18 @@ int main(int const argc, char** const argv) {
         deren::vk_test::write_line("as_probe: built, refit, submitted and waited: 2 bottom level + 1 top level");
     }
 
+    bool native_heap = false;
+    for (int index = 1; index < argc; ++index) {
+        native_heap = native_heap || std::string_view(argv[index]) == "--native-heap-traversal";
+    }
+    check_rt_traversal(*core, *escape, *addresses, *capabilities, *blas, *tlas, argv[0], native_heap);
+
     blas->release();
     static_blas->release();
     tlas->release();
     commands->release();
+    vertex_buffer->release();
+    index_buffer->release();
     deren::vk_test::write_line("as_probe: done (validation was ON: any VUID appears above)");
     return deren::vk_test::finish("test_acceleration_structures");
 }

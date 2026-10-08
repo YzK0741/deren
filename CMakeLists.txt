@@ -1855,6 +1855,15 @@ set(VR_SLANG_SOURCES
     # docs/slang_migration.md section 9, "the last stage, and the one-pixel re-baseline".
     deferred.slang:main:fragment:deferred.frag.spv
 )
+# These entries belong to the GPU test, rather than the application's shader catalogue.
+if(TARGET test_acceleration_structures)
+    list(APPEND VR_SLANG_SOURCES
+        rt_traversal_probe.slang:rgen_main:raygeneration:rt_traversal_probe.rgen.spv
+        rt_traversal_probe.slang:native_main:raygeneration:rt_traversal_probe.native.spv
+        rt_traversal_probe.slang:chit_main:closesthit:rt_traversal_probe.rchit.spv
+        rt_traversal_probe.slang:miss_main:miss:rt_traversal_probe.rmiss.spv
+    )
+endif()
 set(VR_SLANG_OUTPUTS "")
 foreach(entry IN LISTS VR_SLANG_SOURCES)
     string(REPLACE ":" ";" parts "${entry}")
@@ -1908,6 +1917,9 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(shaders ALL DEPENDS ${VR_SHADER_OUTPUTS} "${VR_SHADER_OUT_DIR}/.sources-copied")
+if(TARGET test_acceleration_structures)
+    add_dependencies(test_acceleration_structures shaders)
+endif()
 if(TARGET deren)
     add_dependencies(deren shaders)
 endif()

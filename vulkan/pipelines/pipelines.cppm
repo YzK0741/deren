@@ -37,6 +37,7 @@ export module deren.vulkan.pipelines;
 
 import deren.promise.rhi;
 import deren.vulkan.render_resource;
+import deren.vulkan.render_layout;
 
 namespace deren::vulkan::pipelines {
 
@@ -530,6 +531,17 @@ namespace deren::vulkan::pipelines {
         // the first hit, so there is nothing for a second level to do.
         desc.max_ray_recursion = 1u;
         desc.debug_name = "rt shadow";
+        std::array<rhi::acceleration_structure_heap_binding, 1> const bindings = {
+            rhi::acceleration_structure_heap_binding{
+                .stage = rhi::shader_stage::ray_generation,
+                .descriptor_set = 0,
+                .binding = 16,
+                .byte_offset = static_cast<uint32_t>(render_layout::heap_slots::tlas * render_layout::heap_slot_stride),
+                .array_stride = static_cast<uint32_t>(render_layout::heap_slot_stride),
+                .array_count = rhi::max_frames_in_flight,
+            },
+        };
+        desc.acceleration_structure_bindings = bindings;
         rhi::pipeline* const built = face.create_pipeline(desc);
         if (built == nullptr) {
             return fail("rt shadow: the contract's ray-tracing pipeline factory refused the descriptor");

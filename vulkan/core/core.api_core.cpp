@@ -725,6 +725,9 @@ namespace deren::vulkan {
             if (covered_by(declared, offsetof(rhi_pipeline_desc, max_ray_recursion), sizeof(rhi_pipeline_desc::max_ray_recursion))) {
                 options.max_ray_recursion = desc.max_ray_recursion;
             }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, acceleration_structure_bindings), sizeof(rhi_pipeline_desc::acceleration_structure_bindings))) {
+                options.acceleration_structure_bindings = desc.acceleration_structure_bindings;
+            }
             return options;
         }
 
@@ -1500,6 +1503,11 @@ namespace deren::vulkan {
         // here. The branch is FIRST so the graphics field reads below cannot be reached with a compute
         // descriptor (a compute pipeline whose `color_formats` names `unknown` would be refused for the
         // wrong reason).
+        if (!desc.acceleration_structure_bindings.empty() &&
+            (desc.first_stage == rhi::shader_stage::compute || desc.ray_tracing_stages.empty())) {
+            deren::utility::log("rhi: create_pipeline {} refused: acceleration-structure bindings require a ray-tracing pipeline", what);
+            return nullptr;
+        }
         if (desc.first_stage == rhi::shader_stage::compute) {
             return this->create_compute_pipeline(desc, what);
         }
@@ -1692,6 +1700,55 @@ namespace deren::vulkan {
         };
         // ONE MODULE PER STAGE, each destroyed when this function returns (a module is needed only while the
         // pipeline is created): the RAII wrappers below cover every path out, refusals included.
+        // Ordinary AS bindings still read the same heap. This avoids heap-native integer-to-AS
+        // conversion, which loses the device on affected NVIDIA drivers during traversal.
+        // Own all stage mapping arrays until pipeline creation has consumed them.
+        std::vector<std::vector<VkDescriptorSetAndBindingMappingEXT>> mappings(desc.ray_tracing_stages.size());
+        std::vector<VkShaderDescriptorSetAndBindingMappingInfoEXT> mapping_infos(desc.ray_tracing_stages.size());
+        for (auto const& binding : desc.acceleration_structure_bindings) {
+            auto const capacity = this->descriptor_heaps.resource_size();
+            auto const descriptor_size = this->descriptor_heaps.descriptor_stride(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR);
+            std::uint64_t const last_offset = binding.array_count == 0 ? 0 : static_cast<std::uint64_t>(binding.array_count - 1) * binding.array_stride;
+            if (!this->descriptor_heaps.ready() || descriptor_size == 0 || binding.array_count == 0 || binding.array_stride < descriptor_size ||
+                binding.byte_offset > capacity || descriptor_size > capacity - binding.byte_offset ||
+                last_offset > capacity - binding.byte_offset - descriptor_size ||
+                binding.byte_offset % descriptor_size != 0 || binding.array_stride % descriptor_size != 0) {
+                deren::utility::log("rhi: create_pipeline {} refused: invalid acceleration-structure heap range", what);
+                return nullptr;
+            }
+            bool found_stage = false;
+            for (std::size_t index = 0; index < desc.ray_tracing_stages.size(); ++index) {
+                if (desc.ray_tracing_stages[index].stage != binding.stage) {
+                    continue;
+                }
+                found_stage = true;
+                for (auto const& prior : mappings[index]) {
+                    if (prior.descriptorSet == binding.descriptor_set && prior.firstBinding == binding.binding) {
+                        deren::utility::log("rhi: create_pipeline {} refused: duplicate acceleration-structure shader binding", what);
+                        return nullptr;
+                    }
+                }
+                VkDescriptorSetAndBindingMappingEXT mapping{};
+                mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+                mapping.descriptorSet = binding.descriptor_set;
+                mapping.firstBinding = binding.binding;
+                mapping.bindingCount = 1;
+                mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
+                mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+                mapping.sourceData.constantOffset.heapOffset = binding.byte_offset;
+                mapping.sourceData.constantOffset.heapArrayStride = binding.array_stride;
+                mappings[index].push_back(mapping);
+            }
+            if (!found_stage) {
+                deren::utility::log("rhi: create_pipeline {} refused: acceleration-structure binding has no matching stage", what);
+                return nullptr;
+            }
+        }
+        for (std::size_t index = 0; index < mappings.size(); ++index) {
+            mapping_infos[index].sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+            mapping_infos[index].mappingCount = static_cast<std::uint32_t>(mappings[index].size());
+            mapping_infos[index].pMappings = mappings[index].data();
+        }
         std::vector<std::optional<vk_shader_module>> modules(desc.ray_tracing_stages.size());
         std::vector<VkPipelineShaderStageCreateInfo> stages;
         stages.reserve(desc.ray_tracing_stages.size());
@@ -1713,7 +1770,7 @@ namespace deren::vulkan {
                 return nullptr;
             }
             stages.push_back(VkPipelineShaderStageCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-                                                             .pNext = nullptr,
+                                                             .pNext = mappings[index].empty() ? nullptr : &mapping_infos[index],
                                                              .flags = 0,
                                                              .stage = kind.value(),
                                                              .module = modules[index]->get(),
@@ -3141,7 +3198,7 @@ namespace deren::vulkan {
                 .pNext = nullptr,
                 .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
                 .geometry = {.instances = instances_data},
-                .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+                .flags = 0,
             });
             structure->range = VkAccelerationStructureBuildRangeInfoKHR{.primitiveCount = 0u, .primitiveOffset = 0u, .firstVertex = 0u, .transformOffset = 0u};
         } else {
@@ -3156,7 +3213,8 @@ namespace deren::vulkan {
                 triangles.vertexData.deviceAddress = source.vertex_address;
                 triangles.vertexStride = source.vertex_stride;
                 triangles.maxVertex = source.vertex_count == 0 ? 0u : source.vertex_count - 1u;
-                triangles.indexType = static_cast<VkIndexType>(source.index_format);
+                // Zero index address denotes triangle soup (for example the MASK bake's output).
+                triangles.indexType = source.index_address == 0 ? VK_INDEX_TYPE_NONE_KHR : static_cast<VkIndexType>(source.index_format);
                 triangles.indexData.deviceAddress = source.index_address;
                 triangles.transformData.deviceAddress = 0;
                 // THE OPACITY MICROMAP, CHAINED INTO THE TRIANGLES DATA (not into the geometry: the geometry's own
@@ -3198,7 +3256,8 @@ namespace deren::vulkan {
                     .pNext = nullptr,
                     .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
                     .geometry = {.triangles = triangles},
-                    .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+                    // Preserve the engine's any-hit alpha test, including geometries without a micromap.
+                    .flags = 0,
                 });
                 structure->range = VkAccelerationStructureBuildRangeInfoKHR{
                     .primitiveCount = (source.index_address == 0 ? source.vertex_count : source.index_count) / 3u,
@@ -3214,7 +3273,8 @@ namespace deren::vulkan {
         size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
         size_info.pNext = nullptr;
         size_info.type = top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        size_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | (structure->refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
+        size_info.flags = (top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                          (structure->refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
         size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
         size_info.geometryCount = static_cast<std::uint32_t>(structure->geometries.size());
         size_info.pGeometries = structure->geometries.data();
@@ -3237,17 +3297,25 @@ namespace deren::vulkan {
         }
         structure->structure_size = sizes.accelerationStructureSize;
 
-        if (sizes.buildScratchSize != 0) {
-            structure->scratch = this->create_buffer(rhi::buffer_desc{.size = sizes.buildScratchSize,
+        std::uint64_t const scratch_size = std::max(sizes.buildScratchSize, structure->refittable ? sizes.updateScratchSize : 0u);
+        if (scratch_size != 0) {
+            std::uint64_t const alignment = std::max<std::uint64_t>(this->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1u);
+            structure->scratch = this->create_buffer(rhi::buffer_desc{.size = scratch_size + alignment - 1u,
                                                                       .usage = rhi::buffer_usage::acceleration_structure_scratch,
                                                                       .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
             if (structure->scratch == nullptr) {
-                deren::utility::log("rhi: create_acceleration_structure refused: the build scratch could not be allocated ({} bytes)", sizes.buildScratchSize);
+                deren::utility::log("rhi: create_acceleration_structure refused: the build scratch could not be allocated ({} bytes)", scratch_size);
                 delete structure;
                 return nullptr;
             }
-            structure->scratch_size = sizes.buildScratchSize;
-            structure->scratch_address = this->address_view.buffer_address(*structure->scratch, 0);
+            structure->scratch_size = scratch_size;
+            std::uint64_t const base = this->address_view.buffer_address(*structure->scratch, 0);
+            if (base == 0) {
+                delete structure;
+                return nullptr;
+            }
+            // The requirement applies to the device address, rather than merely an offset in the buffer.
+            structure->scratch_address = base + (alignment - base % alignment) % alignment;
         }
 
         // ---- 3. THE HANDLE AND ITS ADDRESS --------------------------------------------------------------
@@ -3395,7 +3463,8 @@ namespace deren::vulkan {
         build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
         build_info.pNext = nullptr;
         build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | (structure.refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
+        build_info.flags = (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                           (structure.refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
         build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
         build_info.srcAccelerationStructure = VK_NULL_HANDLE;
         build_info.dstAccelerationStructure = structure.native;
@@ -3456,7 +3525,8 @@ namespace deren::vulkan {
         build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
         build_info.pNext = nullptr;
         build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+        build_info.flags = (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                           VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
         build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR; // the whole difference from a build
         build_info.srcAccelerationStructure = structure.native;
         build_info.dstAccelerationStructure = structure.native;
