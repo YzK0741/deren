@@ -426,6 +426,9 @@ export namespace deren::promise::rhi {
         ray_tracing = 0x103,
         host_image_copy = 0x104,
         vulkan_escape = 0x105,
+        /// APPENDED: the tier-2 `device_capabilities` ability - what the DEVICE can do, asked once through the
+        /// extension mechanism instead of the engine re-deriving it from the API (see the ability's own note).
+        device_capabilities = 0x106,
     };
 
     /// 只用于接口识别/调试，不是设备归属、对象存活或具体实现布局的证明。

@@ -275,15 +275,10 @@ namespace deren::vulkan {
                 return rhi::query_extension<rhi::vulkan_escape>(face);
             }
 
-            /// whether `name` is one of the device extensions this context ENABLED
-            [[nodiscard]] bool device_extension_enabled(rhi::vulkan_escape& escape, char const* const name) noexcept {
-                for (char const* const enabled : escape.enabled_device_extensions()) {
-                    if (enabled != nullptr && std::string_view(enabled) == std::string_view(name)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
+            // `device_extension_enabled` STOOD HERE, and its two callers were the feature helpers below: they
+            // asked "is VK_KHR_ray_query / VK_EXT_mesh_shader in the enabled list" AND the device's feature
+            // struct. `device_capabilities` answers both halves in one call now, so this half is gone with
+            // them - and with it the two `VK_*_EXTENSION_NAME` macros this engine half used to name.
         } // namespace
 
         VkDevice native_device_of(rhi::api_core& face) noexcept {
@@ -306,18 +301,9 @@ namespace deren::vulkan {
             return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkQueue>(escape->native_queue());
         }
 
-        VkPhysicalDeviceProperties physical_properties_of(rhi::api_core& face) noexcept {
-            // THE DEVICE'S OWN LIMITS, re-queried rather than cached: `vkGetPhysicalDeviceProperties` is a
-            // pure query, and the two call sites (the push-constant limit) are startup/rare. Answering a
-            // zeroed structure when the escape is missing keeps the callers' own guard rails meaningful -
-            // a zero limit is visibly not a device.
-            VkPhysicalDeviceProperties properties = {};
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceProperties(physical, &properties);
-            }
-            return properties;
-        }
+        // `physical_properties_of` STOOD HERE, and the push-constant limit was the only field anyone read out of
+        // it - so it is `max_push_constants_of` below now: one integer, from the ability that already holds the
+        // query's answer, instead of a whole `VkPhysicalDeviceProperties` fetched per call site.
 
         std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept {
             // THE HEAP'S PUSH BUDGET, from the ability's own value-only POD - never from the backend's
@@ -326,57 +312,40 @@ namespace deren::vulkan {
         }
 
         deren::promise::rhi::shader_binding_table_properties ray_tracing_properties_of(rhi::api_core& face) noexcept {
-            // THE SHADER-BINDING-TABLE NUMBERS: the alignment facts a pass cannot query itself (it has no
-            // physical device), read off the same chain `VkPhysicalDeviceProperties2` carries. Zeroed on a
-            // device without the extension - which the pass reads as "build no table".
-            // BOTH STRUCTURES ARE BUILT BY constant_init, so neither call site names an `sType`: a chain member
-            // whose type is written by hand is the bug class where `= {}` leaves sType ZERO - and zero IS
-            // VK_STRUCTURE_TYPE_APPLICATION_INFO (see constant_init's device-query section, and the note's
-            // section 7 trap 8).
-            // WHAT COMES BACK IS THE CONTRACT'S THREE NUMBERS (abi 24), not the Vulkan structure the query fills:
-            // this runtime is where the Vulkan query belongs, and a pass that receives the result has no business
-            // naming `VkPhysicalDeviceRayTracingPipelinePropertiesKHR` to read three integers out of it.
-            VkPhysicalDeviceRayTracingPipelinePropertiesKHR properties = deren::vulkan::make_ray_tracing_pipeline_properties();
-            VkPhysicalDeviceProperties2 query = deren::vulkan::make_properties_2(&properties);
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceProperties2(physical, &query);
-            }
-            return deren::promise::rhi::shader_binding_table_properties{.handle_size = properties.shaderGroupHandleSize,
-                                                                        .handle_alignment = properties.shaderGroupHandleAlignment,
-                                                                        .base_alignment = properties.shaderGroupBaseAlignment};
+            // THE SHADER-BINDING-TABLE NUMBERS, from the device-capability ability: three integers a pass cannot
+            // query itself (it has no physical device). This used to build a `VkPhysicalDeviceProperties2` chain,
+            // ask the device and copy the three fields out - and the BACKEND made exactly that query at startup
+            // to decide whether ray tracing was available at all, so it already holds the answer. Asking it is
+            // both shorter and the only shape a second backend can serve. Zeroed on a device without the
+            // extension, which the pass reads as "build no table".
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities == nullptr ? deren::promise::rhi::shader_binding_table_properties{} : capabilities->shader_binding_table();
         }
 
         bool ray_query_available_of(rhi::api_core& face) noexcept {
-            // TWO FACTS, BOTH THE BACKEND'S OWN GATE: the extension has to be ENABLED (the escape answers
-            // the enabled list) and the device has to support the feature - which is the pair the backend
-            // enables it under, so this answers exactly what its own `ray_query_available` flag answers.
-            rhi::vulkan_escape* const escape = escape_of(face);
-            if (escape == nullptr || !device_extension_enabled(*escape, VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
-                return false;
-            }
-            VkPhysicalDeviceRayQueryFeaturesKHR features = deren::vulkan::make_ray_query_features();
-            VkPhysicalDeviceFeatures2 query = deren::vulkan::make_features_2(&features);
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceFeatures2(physical, &query);
-            }
-            return features.rayQuery == VK_TRUE;
+            // THE DEVICE'S OWN ANSWER, ASKED THROUGH THE ABILITY THAT EXISTS FOR IT (see
+            // `rhi::device_capabilities`). This used to be TWO engine-side halves - "is VK_KHR_ray_query in the
+            // ESCAPE's enabled list" and "does `vkGetPhysicalDeviceFeatures2` report the feature" - which is
+            // the same pair the backend enables the extension under, re-derived every call (this helper has
+            // SIX call sites, several per frame). The backend recorded that decision when it made it; asking it
+            // cannot disagree with the enabling, and it removes both the entry point and the `VK_KHR_` spelling
+            // from this half.
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities != nullptr && capabilities->ray_query();
         }
 
         bool mesh_shader_available_of(rhi::api_core& face) noexcept {
-            // the same pair for the mesh stage (see ray_query_available_of)
-            rhi::vulkan_escape* const escape = escape_of(face);
-            if (escape == nullptr || !device_extension_enabled(*escape, VK_EXT_MESH_SHADER_EXTENSION_NAME)) {
-                return false;
-            }
-            VkPhysicalDeviceMeshShaderFeaturesEXT features = deren::vulkan::make_mesh_shader_features();
-            VkPhysicalDeviceFeatures2 query = deren::vulkan::make_features_2(&features);
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceFeatures2(physical, &query);
-            }
-            return features.meshShader == VK_TRUE;
+            // the same question for the mesh stage (see `ray_query_available_of`)
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities != nullptr && capabilities->mesh_shader();
+        }
+
+        std::uint32_t max_push_constants_of(rhi::api_core& face) noexcept {
+            // THE STAGE BLOCK'S OWN LIMIT, from the same ability: it used to be
+            // `physical_properties_of(face).limits.maxPushConstantsSize`, a whole `VkPhysicalDeviceProperties`
+            // fetched (and re-fetched) to read ONE integer out of it.
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities == nullptr ? 0u : capabilities->max_push_constants_size();
         }
     } // namespace runtime_detail
 

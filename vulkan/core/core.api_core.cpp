@@ -797,7 +797,11 @@ namespace deren::vulkan {
         // consumer this bit was waiting for.
         return rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
-               (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u);
+               (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
+               // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
+               // ANSWERS false - that is an answer, not an unserved ability), which is why this bit carries no
+               // device condition while the two above it do.
+               rhi::to_bits(rhi::extension_kind::device_capabilities);
     }
 
     bool core::frame_heap::ready() const noexcept {
@@ -1038,6 +1042,12 @@ namespace deren::vulkan {
         }
         if (kind == rhi::extension_kind::host_image_copy && this->host_image_copy_available) {
             return &this->host_copy_view;
+        }
+        if (kind == rhi::extension_kind::device_capabilities) {
+            // UNCONDITIONAL, and that is the difference from host_image_copy just above: every method of this
+            // ability is answerable once the device exists (a device with no mesh shader answers false), so no
+            // device fact can make it unserved.
+            return &this->capabilities_view;
         }
         return nullptr;
     }
@@ -3289,6 +3299,50 @@ namespace deren::vulkan {
             return generic_error(self.copy_image_to_memory(self.logical_device, &copy_info));
         }
     } // namespace
+
+    // ---- tier-2 device_capabilities: THE DEVICE'S OWN FACTS, ANSWERED FROM WHAT THE CONSTRUCTOR QUERIED ----
+    //
+    // NOT ONE OF THESE METHODS ASKS THE DEVICE ANYTHING. Every value is a member the constructor filled while it
+    // decided what to enable (`gate G2` in init_utils.cppm verified the four-part capability sets), so the
+    // engine's questions are answered from the record of the decision rather than by repeating its queries -
+    // which is also what makes the answers UNABLE to disagree with the enabling they describe.
+    //
+    // A MISSING DEVICE (`owner == nullptr`, a released core) answers the same defaults an unqueried device
+    // struct would have: false for the features, zero for the numbers - the callers' own guard rails treat a
+    // zero limit as "visibly not a device" (the note `physical_properties_of` used to carry).
+    bool core::frame_device_capabilities::mesh_shader() const noexcept {
+        return this->owner != nullptr && this->owner->mesh_shader_available;
+    }
+
+    bool core::frame_device_capabilities::ray_query() const noexcept {
+        return this->owner != nullptr && this->owner->ray_query_available;
+    }
+
+    std::uint32_t core::frame_device_capabilities::max_push_constants_size() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->device_properties.limits.maxPushConstantsSize;
+    }
+
+    std::uint32_t core::frame_device_capabilities::graphics_queue_family() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->graphics_queue_family_index;
+    }
+
+    rhi::shader_binding_table_properties core::frame_device_capabilities::shader_binding_table() const noexcept {
+        if (this->owner == nullptr) {
+            return {};
+        }
+        auto const& properties = this->owner->ray_tracing_pipeline_properties;
+        return rhi::shader_binding_table_properties{.handle_size = properties.shaderGroupHandleSize,
+                                                    .handle_alignment = properties.shaderGroupHandleAlignment,
+                                                    .base_alignment = properties.shaderGroupBaseAlignment};
+    }
+
+    std::uint64_t core::frame_device_capabilities::acceleration_structure_scratch_alignment() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment;
+    }
+
+    std::uint64_t core::frame_device_capabilities::max_acceleration_structure_instances() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->acceleration_structure_properties.maxInstanceCount;
+    }
 
     rhi::error core::frame_host_copy::copy_image_to_memory(rhi::image const& source, std::span<std::byte> destination,
                                                            rhi::image_copy_region const& region) noexcept {

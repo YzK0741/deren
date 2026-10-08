@@ -698,6 +698,28 @@ namespace deren::vulkan {
                                                                           deren::promise::rhi::image_copy_region const& region) noexcept override;
         };
 
+        /// tier-2 `device_capabilities`: WHAT THIS DEVICE CAN DO, answered from the values the constructor
+        /// already QUERIED to decide what to enable (`ray_query_available`, `mesh_shader_available`,
+        /// `device_properties`, `acceleration_structure_properties`, `ray_tracing_pipeline_properties`,
+        /// `graphics_queue_family_index`). Not one of these methods queries anything: the engine used to make
+        /// these queries itself - `vkGetPhysicalDeviceFeatures2` / `...Properties` / `...Properties2` and a
+        /// queue-family walk - to re-derive facts this object already holds.
+        ///
+        /// ANNOUNCED UNCONDITIONALLY, because every method is answerable the moment the device exists (a
+        /// device with no mesh shader answers `false`, it is not UNSERVED), so "a set bit is a promise about
+        /// service" is kept in the strict sense.
+        struct frame_device_capabilities final : deren::promise::rhi::device_capabilities {
+            core* owner = nullptr;
+
+            [[nodiscard]] bool mesh_shader() const noexcept override;
+            [[nodiscard]] bool ray_query() const noexcept override;
+            [[nodiscard]] std::uint32_t max_push_constants_size() const noexcept override;
+            [[nodiscard]] std::uint32_t graphics_queue_family() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::shader_binding_table_properties shader_binding_table() const noexcept override;
+            [[nodiscard]] std::uint64_t acceleration_structure_scratch_alignment() const noexcept override;
+            [[nodiscard]] std::uint64_t max_acceleration_structure_instances() const noexcept override;
+        };
+
         struct frame_heap final : deren::promise::rhi::descriptor_heap {
             core* owner = nullptr;
             [[nodiscard]] bool ready() const noexcept override;
@@ -752,6 +774,9 @@ namespace deren::vulkan {
         /// the tier-2 host-copy object `query_extension(host_image_copy)` answers with (③-D/E step 2) -
         /// the first thing that serves that ability, which the contract had announced from the start
         frame_host_copy host_copy_view;
+        /// the tier-2 `device_capabilities` object `query_extension(device_capabilities)` answers with, and it
+        /// is announced UNCONDITIONALLY because every method of it is answerable once the device exists
+        frame_device_capabilities capabilities_view;
         /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,
         /// host-coherent and TRANSFER_DST, grown on demand (see frame_readback_buffer())
         vk_buffer readback_slot_buffer;

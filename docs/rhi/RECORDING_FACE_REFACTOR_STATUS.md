@@ -296,6 +296,16 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | the numbers | `runtime.cpp`'s object 4 refs -> 3 (`vkDeviceWaitIdle` gone); `vkCmd*`-style token lists unchanged otherwise; engine objects still 5, gate findings 39 -> 39 (this batch moved VOCABULARY, not link references, in the two pass files). |
 | verification | render gate 14/14, ctest 19/19, clang-format-check 0. NOTE that the mask/skin bake paths these two files serve are RT-only (`rt_mask_bake`/`rt_skin_bake`) and therefore run in the rt_shadows smoke alone - which is red for the environmental reason 2.17/§1 record. The change is a type substitution between two names of the SAME type, so the compile is the whole risk; that is why it is grouped here rather than billed as a migration. |
 
+### 2.20 What the FIFTEENTH batch added (the DEVICE'S FACTS become a tier-2 ability; no abi bump)
+
+| area | what landed |
+|---|---|
+| the shape, and why it is an ability | `rhi::device_capabilities` is the SEVENTH ability (`extension_kind::device_capabilities = 1u << 6`, `interface_type::device_capabilities = 0x106`). It went through the EXISTING extension mechanism - `abilities()` announces it with a bit, `query_extension()` hands the object back - rather than becoming a `facts()` method on `api_core`, and the difference is measured: a new ability moves NO existing vtable, so this batch needs **no `abi_version` change**, while a `api_core` method would have renumbered the tier-1 interface. It is announced UNCONDITIONALLY because every method is answerable the moment the device exists (a device with no mesh shader ANSWERS `false` - that is an answer, not an unserved ability). |
+| the seven methods | Each one is read by the engine today, and each one replaced an engine-side query: `mesh_shader()` and `ray_query()` (each was "is `VK_KHR_*` in the escape's enabled list" AND a `vkGetPhysicalDeviceFeatures2` chain - re-derived at SIX call sites, several per frame), `max_push_constants_size()` (was a whole `VkPhysicalDeviceProperties` fetched for one integer, at two call sites), `graphics_queue_family()` (was a WALK of the device's queue families with `vkGetDeviceQueue` per graphics family, comparing each queue against the escape's own handle, to RECOVER a family index the backend had chosen), `shader_binding_table()` (was a second `VkPhysicalDeviceProperties2` chain in `runtime.constructor.cppm`), and `acceleration_structure_scratch_alignment()` / `max_acceleration_structure_instances()` (were a third chain, in the acceleration-structure module). NOT ONE OF THE SEVEN QUERIES ANYTHING: they read the members the backend's constructor filled while it decided what to enable - so an answer cannot disagree with the enabling it describes. |
+| the trap THIS batch paid for | the view needs `capabilities_view.owner = this` like every other view in that constructor, and the omission is NOT silent: every method answered its zero/false default, `mesh_shader()` came back false, and the app could not start at all - the render gate reported it in the words of the thing it broke ("pipeline 'pbr' has no mesh stage to build from, and its vertex form is gone"). Recorded in section 7. |
+| the numbers | engine objects referencing a Vulkan symbol **6 -> 5**, references **13 -> 7** (the whole `vkGetPhysicalDeviceFeatures2`/`Properties`/`Properties2`/`QueueFamilyProperties`/`vkGetDeviceQueue` family is gone); `runtime/runtime.constructor.cppm`'s vocabulary 55 -> 46, `runtime/runtime.cpp`'s 28 -> 23; `device_extension_enabled` (its two callers) and `physical_properties_of` are deleted, and with them the two `VK_*_EXTENSION_NAME` macros the engine half used to name. |
+| verification | render gate **14/14**, ctest 19/19, clang-format-check 0, boundary gate 0 symbols, spike, runtime_dyn 10/0. |
+
 ## 3. What was tried and reverted (do not repeat)
 
 A blanket "replace every native type in the pass layer with the contract type" was attempted and
@@ -436,6 +446,15 @@ Expected abi: **21** after the `make_command_buffer` virtual lands (20 today). A
 interface is why `rhi.api_core.cppm` needs `<memory>` in its global module fragment.
 
 ## 7. Traps that have already cost time here
+
+**TRAP (the fifteenth batch): a new ability's view needs its `owner` assigned in the constructor, and the
+failure is a WRONG ANSWER rather than a crash.** `core::frame_device_capabilities` reads the core's cached
+facts, so with `capabilities_view.owner == nullptr` every method answered its default - `mesh_shader()`
+returned false - and the render gate reported it in the terms of what it broke: "pipeline 'pbr' has no mesh
+stage to build from, and its vertex form is gone" (the vertex form is deleted, so the app cannot start).
+Every other view in that constructor (`escape_view`, `heap_view`, `address_view`, `host_copy_view`) sets it
+one line each; a new view must join them, and the instrument that catches a miss is the render gate, not the
+build.
 
 1. **Do not edit these files with shell string manipulation.** Three separate accidents came from
    PowerShell string handling in one session: a comment split by an escape sequence (a backtick-

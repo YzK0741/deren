@@ -59,30 +59,23 @@ namespace deren::vulkan::acceleration_structure {
             return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkDevice>(escape->native_device());
         }
 
-        /// THE DEVICE AND THE TWO ANSWERS THE STRUCTURES NEED, ASKED DIRECTLY (③-D/E step 1b): the entry
-        /// points this module resolves are per-device (`vkGetDeviceProcAddr`), and the alignment / instance
-        /// limits come from the device's own `VkPhysicalDeviceProperties2` chain - the same values `core`
-        /// used to cache. Nothing here needs the backend's class.
+        /// THE DEVICE AND THE TWO ANSWERS THE STRUCTURES NEED. The entry points this module resolves are
+        /// per-device (`vkGetDeviceProcAddr`, which is what keeps `VkDevice` here for now), while the alignment
+        /// and the instance limit come from `device_capabilities` - the backend asked
+        /// `VkPhysicalDeviceAccelerationStructurePropertiesKHR` at startup to decide whether the extension was
+        /// usable at all, so re-asking the device here was a second query for an answer it already had.
         struct device_facts {
             VkDevice device = VK_NULL_HANDLE;
-            VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
+            /// `scratch_alignment == 0` is "the device did not answer", which the callers treat as 1
+            std::uint64_t scratch_alignment = 0;
+            std::uint64_t max_instances = 0;
         };
         device_facts facts_of(rhi::api_core& face) {
             device_facts facts = {};
             facts.device = device_of(face);
-            // THE CHAINED STRUCTURE IS BUILT BY constant_init, and that is what makes the sType impossible to
-            // forget: `device_facts facts = {}` zero-initialises the member, and `sType = 0` IS
-            // `VK_STRUCTURE_TYPE_APPLICATION_INFO` - so a hand-built member chained into
-            // `VkPhysicalDeviceProperties2::pNext` is read as an APPLICATION_INFO
-            // (VUID-VkPhysicalDeviceProperties2-pNext-pNext, which this site produced before the factory
-            // existed). The same trap the recording-face note records for `.header = {}` in a command-buffer
-            // chain (RECORDING_FACE_REFACTOR_STATUS section 7, trap 8): an explicit `= {}` is not "use the
-            // default member initializer", and for a TAGGED structure that difference is the whole contract.
-            facts.acceleration_structure_properties = deren::vulkan::make_acceleration_structure_properties();
-            VkPhysicalDeviceProperties2 properties = deren::vulkan::make_properties_2(&facts.acceleration_structure_properties);
-            auto* const escape = escape_of(face);
-            if (escape != nullptr) {
-                vkGetPhysicalDeviceProperties2(reinterpret_cast<VkPhysicalDevice>(escape->native_physical_device()), &properties);
+            if (rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face); capabilities != nullptr) {
+                facts.scratch_alignment = capabilities->acceleration_structure_scratch_alignment();
+                facts.max_instances = capabilities->max_acceleration_structure_instances();
             }
             return facts;
         }
@@ -139,7 +132,8 @@ namespace deren::vulkan::acceleration_structure {
         , functions(std::make_unique<entry_points>()) {
         device_facts const facts = facts_of(face);
         this->device = facts.device;
-        this->acceleration_structure_properties = facts.acceleration_structure_properties;
+        this->scratch_alignment = facts.scratch_alignment;
+        this->max_instances = facts.max_instances;
         if (!this->functions->load(this->device)) {
             deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
                                 "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
@@ -293,7 +287,7 @@ namespace deren::vulkan::acceleration_structure {
         // requires of a SCRATCH ADDRESS (not of an offset - the requirement is on the address the
         // build is handed, which is why the base address is taken into account and why the buffer
         // carries one alignment worth of slack).
-        VkDeviceSize const alignment = std::max<VkDeviceSize>(this->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1);
+        VkDeviceSize const alignment = std::max<VkDeviceSize>(this->scratch_alignment, 1);
         VkDeviceSize total = 0;
         for (entry& item : this->entries) {
             total += item.scratch_size + alignment;
@@ -431,7 +425,8 @@ namespace deren::vulkan::acceleration_structure {
         , slots(frame_slot_count) {
         device_facts const facts = facts_of(face);
         this->device = facts.device;
-        this->acceleration_structure_properties = facts.acceleration_structure_properties;
+        this->scratch_alignment = facts.scratch_alignment;
+        this->max_instances = facts.max_instances;
         if (!this->functions->load(this->device)) {
             deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
                                 "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
@@ -474,7 +469,7 @@ namespace deren::vulkan::acceleration_structure {
         // query's instance count is an upper bound for the build.
         if (target.count >= target.capacity) {
             uint32_t const wanted = std::max(target.capacity * 2u, 256u);
-            if (wanted > this->acceleration_structure_properties.maxInstanceCount) {
+            if (wanted > this->max_instances) {
                 return std::unexpected(std::string("acceleration structures: the scene has more instances than the device allows in one top level structure"));
             }
             // The two arrays are HOST-VISIBLE and coherent (the caller fills them through add()), and they
@@ -582,7 +577,7 @@ namespace deren::vulkan::acceleration_structure {
 
         VkDeviceAddress const instances_address = buffer_address_of(*this->contract, *target.instances);
 
-        VkDeviceSize const alignment = std::max<VkDeviceSize>(this->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1);
+        VkDeviceSize const alignment = std::max<VkDeviceSize>(this->scratch_alignment, 1);
         target.scratch_size = 0;
         VkAccelerationStructureGeometryKHR geometry = {};
         geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;

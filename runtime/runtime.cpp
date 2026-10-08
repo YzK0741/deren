@@ -35,54 +35,26 @@ import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md 
 [[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace deren::vulkan {
-    // ---- runtime_detail::graphics_queue_family_of: THE DERIVATION, AND WHY IT IS EXACT ---------------
+    // ---- runtime_detail::graphics_queue_family_of: ONE QUESTION TO THE BACKEND -------------------------
     //
-    // DEFINED HERE rather than beside the other runtime_detail helpers (`:constructor`) because it is the
-    // ONE of them that needs the frame-time TU's Vulkan surface and nothing else, and because the probes'
-    // use of it is the only caller.
+    // WHAT STOOD HERE, AND WHY IT IS GONE: this walked the device's queue families, fetched each graphics
+    // family's queue with `vkGetDeviceQueue` and compared it against the escape's own queue handle, in order to
+    // RECOVER a family index the backend had chosen for itself (`init_utils.cppm` takes the first family with
+    // `VK_QUEUE_GRAPHICS_BIT`, queue index 0). The argument for the walk was that it needed no contract addition
+    // - and the contract has since grown the shape that answers it directly (`device_capabilities::
+    // graphics_queue_family()`, answered from the backend's own `graphics_queue_family_index`), so the engine
+    // asks that instead of re-deriving it, and this TU keeps no Vulkan surface at all.
     //
-    // THE ARGUMENT IN ONE PARAGRAPH: the backend takes the FIRST family with `VK_QUEUE_GRAPHICS_BIT`
-    // (`init_utils.cppm:1148`) and gets its queue with queue index 0 (`:1125`), so
-    // `vkGetDeviceQueue(device, family, 0)` answers the escape's own queue handle for that family and for
-    // no other family. Walking the families and comparing against `escape().native_queue()` therefore
-    // recovers the backend's choice without naming a family index anywhere, without a contract addition
-    // (which would renumber the ABI for a fact the escape already implies) and without a write of any
-    // kind - `vkGetDeviceQueue` has no side effects on a created device.
-    //
-    // A FAILURE PANICS. The alternative - answering 0 - would put the probes' command pools on a family
-    // that does not own the queue they submit to, which is a validation error at best and an undefined
-    // submission at worst; a device whose own queue handle cannot be found through its own family list is
-    // a broken invariant, not a case to paper over.
+    // THE PANIC THE WALK ENDED WITH IS NOW THE BACKEND'S BUSINESS: a device whose own queue handle cannot be
+    // found through its own family list is a broken invariant, and the backend is the object that can see it.
     namespace runtime_detail {
         std::uint32_t graphics_queue_family_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = rhi::query_extension<rhi::vulkan_escape>(face);
-            VkDevice const device = escape == nullptr ? VK_NULL_HANDLE : static_cast<VkDevice>(escape->native_device());
-            VkPhysicalDevice const physical = escape == nullptr ? VK_NULL_HANDLE : static_cast<VkPhysicalDevice>(escape->native_physical_device());
-            VkQueue const expected = escape == nullptr ? VK_NULL_HANDLE : static_cast<VkQueue>(escape->native_queue());
-            if (device == VK_NULL_HANDLE || physical == VK_NULL_HANDLE || expected == VK_NULL_HANDLE) {
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            if (capabilities == nullptr) {
                 deren::utility::panic(std::source_location::current(),
-                                      "runtime: the escape cannot answer the device, its physical device and its queue - the graphics queue's family cannot be derived");
+                                      "runtime: the backend does not serve device_capabilities, so the graphics queue's family cannot be asked for");
             }
-            uint32_t family_count = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, nullptr);
-            if (family_count == 0) {
-                deren::utility::panic(std::source_location::current(), "runtime: the device reports no queue families at all");
-            }
-            std::vector<VkQueueFamilyProperties> families(family_count);
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, families.data());
-            for (uint32_t family = 0; family < family_count; ++family) {
-                if ((families[family].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0u) {
-                    continue;
-                }
-                VkQueue queue = VK_NULL_HANDLE;
-                vkGetDeviceQueue(device, family, 0, &queue);
-                if (queue == expected) {
-                    return family;
-                }
-            }
-            deren::utility::panic(std::source_location::current(),
-                                  "runtime: none of the {} queue families answered the backend's own graphics queue - the family derivation has no answer",
-                                  family_count);
+            return capabilities->graphics_queue_family();
         }
     } // namespace runtime_detail
 

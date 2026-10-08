@@ -212,7 +212,8 @@ namespace deren::vulkan::acceleration_structure {
         /// (`native_device()` / `native_physical_device()`): the front end asks the device itself now,
         /// instead of reading `core`'s cached fields - which is what removes the backend import.
         VkDevice device = VK_NULL_HANDLE;
-        VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
+        std::uint64_t scratch_alignment = 0;
+        std::uint64_t max_instances = 0;
         std::vector<entry> entries = {};
         /// The extension entry points, resolved per device in the constructor. Declared incomplete here
         /// and defined in the .cpp, because a function pointer table is implementation detail - and a
@@ -362,7 +363,8 @@ namespace deren::vulkan::acceleration_structure {
         /// (`native_device()` / `native_physical_device()`): the front end asks the device itself now,
         /// instead of reading `core`'s cached fields - which is what removes the backend import.
         VkDevice device = VK_NULL_HANDLE;
-        VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
+        std::uint64_t scratch_alignment = 0;
+        std::uint64_t max_instances = 0;
         /// The extension entry points, forward-declared and held by pointer for the same reason (and with the
         /// same NO-initializer rule) as `bottom_level_structures::functions` above - see the note there.
         struct entry_points;

@@ -1808,7 +1808,7 @@ namespace deren::vulkan {
         //     the spec guarantees - so the path is available where the device reports room and the VERTEX path
         //     stays where it does not.
         {
-            uint32_t const push_constants = runtime_detail::physical_properties_of(this->rhi_face()).limits.maxPushConstantsSize;
+            uint32_t const push_constants = runtime_detail::max_push_constants_of(this->rhi_face());
             uint32_t const push_data = runtime_detail::heap_max_push_data(this->rhi_face());
             this->mesh_shaders = this->evaluate_mesh_shaders(&this->mesh_shaders_unavailable_reason);
             if (!this->mesh_shaders) {
@@ -1889,7 +1889,7 @@ namespace deren::vulkan {
         // THE GATE, as one question asked in two places (create_passes, for the log and the pass context; and the
         // G-buffer pipeline's builder, which runs earlier). In both cases the answer is the same three facts, and
         // the reason string is only filled in for the one caller that logs it.
-        uint32_t const push_constants = runtime_detail::physical_properties_of(this->rhi_face()).limits.maxPushConstantsSize;
+        uint32_t const push_constants = runtime_detail::max_push_constants_of(this->rhi_face());
         uint32_t const push_data = runtime_detail::heap_max_push_data(this->rhi_face());
         auto const unavailable = [reason](std::string text) {
             if (reason != nullptr) {

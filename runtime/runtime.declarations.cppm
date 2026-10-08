@@ -182,7 +182,9 @@ namespace deren::vulkan {
         /// and the refusal in a child process (a panic cannot be observed from inside the process it kills).
         /// @param core the root to check; never null (the caller checks that first, also fatally)
         export void verify_contract_version(rhi::api_core const& core) noexcept;
-        [[nodiscard]] VkPhysicalDeviceProperties physical_properties_of(rhi::api_core& face) noexcept;
+        /// THE STAGE BLOCK'S LIMIT (one integer, not a whole `VkPhysicalDeviceProperties`): the engine used to
+        /// fetch the device's property struct - per call site - to read only this field out of it.
+        [[nodiscard]] std::uint32_t max_push_constants_of(rhi::api_core& face) noexcept;
         [[nodiscard]] std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept;
         [[nodiscard]] deren::promise::rhi::shader_binding_table_properties ray_tracing_properties_of(rhi::api_core& face) noexcept;
         [[nodiscard]] bool ray_query_available_of(rhi::api_core& face) noexcept;

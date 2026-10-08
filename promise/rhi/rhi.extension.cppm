@@ -101,6 +101,15 @@ export namespace deren::promise::rhi {
         ray_tracing = 1u << 3,     ///< acceleration structures, RT pipelines, trace
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
         vulkan_escape = 1u << 5,   ///< raw Vulkan handles, for the code the contract cannot express yet
+        /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE
+        /// CAN DO, in the contract's own vocabulary. A backend announces it when it can answer every method,
+        /// the same "a set bit is a promise about service" rule the others live by. The engine used to derive
+        /// these facts ITSELF - `vkGetPhysicalDeviceFeatures2` for the two features,
+        /// `vkGetPhysicalDeviceProperties` for the push-constant limit, `vkGetPhysicalDeviceQueueFamilyProperties`
+        /// + `vkGetDeviceQueue` to recover the graphics queue's family, and a second properties query for the
+        /// acceleration-structure numbers - while the BACKEND had already made the same queries to decide what
+        /// to enable. Asking it is both the smaller code and the only shape a second backend can serve.
+        device_capabilities = 1u << 6,
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -119,26 +128,28 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every bit defined here: what a backend with all six abilities reports, and the
+    /// Every bit defined here: what a backend with all seven abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) | to_bits(extension_kind::ray_tracing) |
-               to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape);
+               to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
+               to_bits(extension_kind::device_capabilities);
     }
 
-    /// The same six, as a LIST: what a gate walks to check one bit at a time.
+    /// The same seven, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
-    /// list of six is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 6> {
+    /// list is spelled in ONE place instead of per caller.
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 7> {
         return {extension_kind::device_address, extension_kind::descriptor_heap, extension_kind::mesh_shader,
-                extension_kind::ray_tracing, extension_kind::host_image_copy, extension_kind::vulkan_escape};
+                extension_kind::ray_tracing, extension_kind::host_image_copy, extension_kind::vulkan_escape,
+                extension_kind::device_capabilities};
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x3fu, "six abilities, six bits, one bit each (plan §3.5)");
+    static_assert(all_abilities() == 0x7fu, "seven abilities, seven bits, one bit each (plan §3.5)");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -320,6 +331,68 @@ export namespace deren::promise::rhi {
                                                          image_copy_region const& region) noexcept = 0;
     };
 
+    /// tier-2 ability: WHAT THE DEVICE CAN DO, in the contract's own vocabulary.
+    ///
+    /// WHY AN ABILITY RATHER THAN A METHOD ON `api_core`: the extension mechanism already IS the channel for
+    /// "a capability a backend may or may not serve" - `abilities()` announces it with a bit, `query_extension()`
+    /// hands back the object, and "a set bit is a promise about service" holds for it exactly as it does for
+    /// `vulkan_escape` or `descriptor_heap`. It also keeps the TIER-1 vtable untouched: a new ability moves no
+    /// existing slot, which is why this batch needs no `abi_version` change while a `facts()` method on
+    /// `api_core` would have.
+    ///
+    /// EVERY METHOD IS A SEMANTIC FACT, NOT AN API QUERY, and the distinction is the whole point:
+    /// `ray_query()` means "this device can run ray queries", which in this backend is "the extension is
+    /// ENABLED and its feature is present" - the TWO halves the engine used to re-derive itself from the
+    /// enabled-extension list (by naming `VK_KHR_ray_query`) and from `vkGetPhysicalDeviceFeatures2`. Asking
+    /// the backend for the answer it already computed to make its own enabling decision is smaller, cannot
+    /// disagree with it, and is the only shape a second backend can serve: a D3D12 backend answers the same
+    /// seven questions from ITS own caps, and the engine keeps compiling.
+    ///
+    /// THE METHODS ARE THE MEASURED SET, not a device dump: each one is read by the engine today (the call
+    /// sites are named in `docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md` §2.20). A fact nobody reads is dead
+    /// vocabulary, so a later need adds a method rather than this type carrying a `VkPhysicalDeviceProperties`.
+    struct device_capabilities : extension {
+        static constexpr interface_type interface_id = interface_type::device_capabilities;
+        static constexpr extension_kind extension_id = extension_kind::device_capabilities;
+        device_capabilities() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+
+        /// Whether this device can run a MESH pipeline: the engine gates `evaluate_mesh_shaders()` and the
+        /// mesh-dispatch path on it (the vertex form is gone - docs/mesh_shaders.md step 4).
+        [[nodiscard]] virtual bool mesh_shader() const noexcept = 0;
+
+        /// Whether this device can run RAY QUERIES: the ray-traced lighting path's gate, and what the
+        /// acceleration-structure input usage on a buffer is decided by.
+        [[nodiscard]] virtual bool ray_query() const noexcept = 0;
+
+        /// The largest push block the device accepts, in bytes: the stage block's own limit (a mesh stage
+        /// needs more than a vertex one, so this is the number its availability is checked against).
+        [[nodiscard]] virtual std::uint32_t max_push_constants_size() const noexcept = 0;
+
+        /// The queue family the backend's GRAPHICS queue belongs to. A command pool created by anyone else
+        /// (the probes' pools are the measured example) must name this family, and the backend is the only
+        /// object that knows it - the engine used to walk the device's families and compare each one's queue
+        /// against the escape's, which is a derivation of a fact the backend already had.
+        [[nodiscard]] virtual std::uint32_t graphics_queue_family() const noexcept = 0;
+
+        /// The shader-binding-table numbers a pass builds its table from: the same POD the pass context
+        /// carries, answered here so a caller that is NOT a pass (and has no context) can ask for it.
+        [[nodiscard]] virtual shader_binding_table_properties shader_binding_table() const noexcept = 0;
+
+        /// The alignment an acceleration structure's scratch offset must obey. The acceleration-structure
+        /// module reads it when it sizes and offsets its scratch buffers; zero means "the device did not
+        /// answer", which its callers already treat as 1.
+        [[nodiscard]] virtual std::uint64_t acceleration_structure_scratch_alignment() const noexcept = 0;
+
+        /// The largest number of instances one acceleration structure may hold: the module refuses a frame
+        /// whose instance count passes it rather than asking the driver to fail.
+        [[nodiscard]] virtual std::uint64_t max_acceleration_structure_instances() const noexcept = 0;
+    };
+
     /// ABI9: heap 查询只返回值，不暴露后端 heap_limits 类型或引用。
     struct descriptor_heap_properties {
         std::uint64_t resource_size = 0;
@@ -460,6 +533,8 @@ export namespace deren::promise::rhi {
             return interface_type::host_image_copy;
         case extension_kind::vulkan_escape:
             return interface_type::vulkan_escape;
+        case extension_kind::device_capabilities:
+            return interface_type::device_capabilities;
         }
         return interface_type::unknown;
     }
