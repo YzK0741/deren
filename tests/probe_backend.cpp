@@ -69,6 +69,7 @@ import deren.promise.rhi;
 #include "../promise/rhi/backend_entry.hpp"
 
 #include <cstdint>
+#include <expected> // std::expected: the contract's `image::get_content()` (abi 25) answers one
 #include <source_location>
 #include <span>
 #include <string_view>
@@ -133,6 +134,13 @@ namespace {
 
         [[nodiscard]] rhi::image_format format() const noexcept override {
             return rhi::image_format::bgra8_srgb;
+        }
+
+        /// abi 25: the read-back. The probe's frame image stands in for a BORROWED swapchain image, which the
+        /// real backend also refuses with `unsupported` (its surface lists no HOST_TRANSFER) - so the probe
+        /// answers the same named error rather than inventing bytes a GPU never wrote.
+        [[nodiscard]] std::expected<rhi::image_content, rhi::error> get_content(rhi::image_copy_region const&) const override {
+            return std::unexpected(rhi::error::unsupported);
         }
 
         [[nodiscard]] rhi::image_view* make_view(rhi::image_view_desc const& desc) override {
@@ -242,16 +250,16 @@ namespace {
             return static_cast<std::uint32_t>(probe_image_format);
         }
         /// abi 22's BASIC-HANDLE slots, answered the way a DEVICE-LESS probe must: it has no basis to hand out
-        /// (null), and the two methods that take one refuse everything - `device_proc` resolves no entry point
-        /// and `shader_group_handles` writes no handle. A pass that reaches them through this face therefore
-        /// takes its own documented "unavailable" path instead of recording against a device that is not there,
-        /// which is exactly what the probe is for: the boundary, witnessed with no GPU behind it.
+        /// (null), and the method that takes one writes no handle. A pass that reaches it through this face
+        /// therefore takes its own documented "unavailable" path instead of recording against a device that is not
+        /// there, which is exactly what the probe is for: the boundary, witnessed with no GPU behind it.
+        /// (abi 24 removed the `device_proc` slot this class used to answer with "no entry point".)
         [[nodiscard]] rhi::api_basis* get_basis() const noexcept override {
             return nullptr;
         }
-        [[nodiscard]] void* device_proc(rhi::api_basis&, char const*) const noexcept override {
-            return nullptr;
-        }
+        // abi 24: `device_proc` was REMOVED from `vulkan_escape` (the ray-tracing launch resolves its entry point
+        // in the backend now), so the probe has no override for it - and it must not keep one, because the point
+        // of this stand-in is that it answers exactly the contract's slots.
         [[nodiscard]] bool shader_group_handles(rhi::api_basis&, rhi::pipeline const&, std::uint32_t, std::uint32_t, std::span<std::uint8_t>) const noexcept override {
             return false;
         }
@@ -409,6 +417,12 @@ namespace {
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const& handle, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) noexcept override {
             this->last_indirect_mesh = {&handle, offset, count, stride};
             return rhi::error::ok;
+        }
+
+        // abi 24: the recording face's ray-tracing LAUNCH. A fake backend records nothing; the real one calls the
+        // entry point it resolved at startup.
+        void trace_rays(rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&,
+                        std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
         }
 
         void set_viewport(rhi::viewport const& vp) noexcept override {

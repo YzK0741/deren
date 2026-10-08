@@ -122,6 +122,13 @@ namespace {
             return deren::promise::rhi::error::ok;
         }
 
+        // abi 24: the recording face's ray-tracing LAUNCH. A fake backend records nothing; the real one calls the
+        // entry point it resolved at startup.
+        void trace_rays(deren::promise::rhi::shader_binding_table_region const&, deren::promise::rhi::shader_binding_table_region const&,
+                        deren::promise::rhi::shader_binding_table_region const&, deren::promise::rhi::shader_binding_table_region const&, std::uint32_t, std::uint32_t,
+                        std::uint32_t) noexcept override {
+        }
+
         void set_viewport(deren::promise::rhi::viewport const&) noexcept override {
         }
 

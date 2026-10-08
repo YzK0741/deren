@@ -46,9 +46,11 @@
 module;
 
 #include <cstdint>
+#include <expected>    // std::expected: `image::get_content()` answers the bytes OR the named reason
 #include <memory>      // std::shared_ptr: the ownership `make_command_buffer` hands over
 #include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
 #include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
+#include <vector>      // std::vector: the CONTENT `image::get_content()` returns
 
 export module deren.promise.rhi:api_core;
 
@@ -216,6 +218,24 @@ export namespace deren::promise::rhi {
         std::uint32_t offset_x = 0;
         std::uint32_t offset_y = 0;
         std::uint32_t offset_z = 0;
+    };
+
+    /// THE CONTENT OF AN IMAGE, IN HOST MEMORY: what `image::get_content()` answers with.
+    ///
+    /// THE LAYOUT IS PART OF THE CONTRACT, because the caller has to be able to unpack it without asking
+    /// the backend anything else: ROW-MAJOR, TIGHTLY PACKED (`row_pitch == extent.width * bytes_per_pixel`,
+    /// which is why there is no pitch field), TOP-LEFT origin, channel order decided by the image's
+    /// `image_format` (so `bgra8_*` really is B,G,R,A in memory), and layers/mips laid out in the order the
+    /// region asked for them.
+    ///
+    /// THE INVARIANT: `bytes.size() == extent.width * extent.height * extent.depth * bytes_per_pixel`.
+    /// A backend that cannot answer exactly that must answer an ERROR instead of a partial buffer - the
+    /// caller's unpacking loop trusts this and nothing else.
+    struct image_content {
+        image_extent extent = {};          ///< the texels `bytes` covers
+        std::uint32_t bytes_per_pixel = 0; ///< `bytes_per_pixel(image_format)`, repeated here so the caller does
+                                           ///< not have to look up the image's format to stride the rows
+        std::vector<std::byte> bytes = {}; ///< the content, row-major and tightly packed
     };
 
     // ================================================================================================
@@ -500,6 +520,37 @@ export namespace deren::promise::rhi {
                                               depth = 0x7FFFFFFFu,        ///< ROLE: a depth attachment the backend shapes
                                               r16_sfloat = 0x80000000u }; ///< APPENDED: one half-float channel (ray-traced visibility)
 
+    /// How many bytes ONE texel of @p format takes in host memory. `unknown` answers 0 (a format the
+    /// contract cannot describe), and `depth` answers 0 as well: a depth ROLE has no host spelling here,
+    /// which is the same answer `image::get_content()` gives that content a named error for.
+    ///
+    /// IT LIVES IN THE CONTRACT because it is a fact about the FORMAT, not about any API: a caller that
+    /// receives `image_content` needs it to stride rows, and a backend that fills `bytes_per_pixel` must
+    /// agree with every reader. The channel counts here are the enum's own, and a format added to the enum
+    /// must give its size here in the same change - `image_content`'s invariant is
+    /// `bytes.size() == width * height * depth * bytes_per_pixel`.
+    [[nodiscard]] constexpr std::uint32_t bytes_per_pixel(image_format const format) noexcept {
+        switch (format) {
+        case image_format::rgba8_unorm:
+        case image_format::rgba8_srgb:
+        case image_format::bgra8_unorm:
+        case image_format::bgra8_srgb:
+            return 4u;
+        case image_format::r16g16_sfloat:
+            return 4u; // two half-floats
+        case image_format::r16g16b16a16_sfloat:
+            return 8u; // four half-floats
+        case image_format::r32g32b32_sfloat:
+            return 12u; // three 32-bit floats
+        case image_format::r16_sfloat:
+            return 2u; // one half-float
+        case image_format::unknown:
+        case image_format::depth:
+            break;
+        }
+        return 0u;
+    }
+
     // ---- OWNERSHIP: WHAT `release()` IS, AND WHAT IT IS NOT ---------------------------------------
     //
     // EVERY handle a factory returns (`swapchain`, `buffer`, `image`, `sampler`, `shader`, `pipeline`,
@@ -620,6 +671,28 @@ export namespace deren::promise::rhi {
         /// APPENDED IN ABI 7 (§17's image face): a new virtual on an existing interface moves the
         /// vtable's shape, which is exactly the case `abi_version` exists to number.
         [[nodiscard]] virtual image_view* make_view(image_view_desc const& desc) = 0;
+
+        /// READ THIS IMAGE BACK INTO HOST MEMORY - the image's CONTENT, not a handle to it.
+        ///
+        /// THE MECHANISM IS THE BACKEND'S, AND IT IS `VK_EXT_host_image_copy` IN THIS ONE: the implementation
+        /// performs the copy (`vkCopyImageToMemoryEXT`), so there is NO staging buffer, NO copy command and NO
+        /// submission in the caller's path - the bytes come back directly. A caller that must not allocate can
+        /// still use the `host_image_copy` ability's span-shaped verb; this is the convenience the ENGINE uses,
+        /// and it is the ONLY read-back shape the engine sees.
+        ///
+        /// @param region WHICH subresource and which texels of it; the default is the whole mip 0, every layer.
+        /// @return the content, row-major and tightly packed with the invariant `image_content` states - or a
+        ///         NAMED error, never a partial buffer. `error::unsupported` is the honest answer for an image
+        ///         the backend cannot copy out of (not created for host transfer, a device without the
+        ///         extension) and for a format the contract cannot describe; it is also the answer for the
+        ///         FRAME image on a surface whose swapchain usage has no `HOST_TRANSFER` bit, which is a
+        ///         property of the SURFACE and not of this backend.
+        ///
+        /// APPENDED IN ABI 25: a new virtual on an existing interface, the case `abi_version` numbers.
+        /// The default argument is spelled here rather than in the backend for the reason every other
+        /// contract default is: a caller compiled against an older contract and a callee compiled against a
+        /// newer one must agree on what "no region" means, and that can only be the header's text.
+        [[nodiscard]] virtual std::expected<image_content, error> get_content(image_copy_region const& region = {}) const = 0;
     };
 
     /// A view of an image, owned by the backend: the contract's substitute for a raw `VkImageView`.
@@ -1272,6 +1345,24 @@ export namespace deren::promise::rhi {
         virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
         virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
         [[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
+        /// Record a ray-tracing LAUNCH over `width` x `height` pixels, `depth` rays deep, reading the shader
+        /// binding table the CALLER built: one region per table - ray generation, miss, hit - plus the callable
+        /// table a shader may invoke (an all-zero region when there are none).
+        ///
+        /// WHY THE LAUNCH IS A RECORD VERB AND NOT PART OF THE `ray_tracing` ABILITY: it is a recorded command
+        /// exactly like `draw`, `dispatch` and `draw_mesh_tasks` - it takes a command buffer, it is ordered with
+        /// the rest of a frame's commands, and it needs nothing the recording face does not already have. The
+        /// `ray_tracing` ability declares the ACCELERATION-STRUCTURE half, whose descriptor shapes are still the
+        /// S1 design surface and are deliberately incomplete - and a launch reachable only through an ANNOUNCED
+        /// ability would be unreachable on a backend that serves the recording face but has not frozen those
+        /// shapes yet, which is exactly this renderer's state.
+        ///
+        /// APPENDED IN ABI 24 (a tier-1 slot). The regions are the contract's own
+        /// `shader_binding_table_region`; the verb answers NOTHING (`void`), like `draw` and `draw_mesh_tasks`, and
+        /// a backend whose device published no `vkCmdTraceRaysKHR` records nothing - a pass that launches rays is
+        /// only built when its pipeline could be created, which needs that extension.
+        virtual void trace_rays(shader_binding_table_region const& raygen, shader_binding_table_region const& miss, shader_binding_table_region const& hit,
+                                shader_binding_table_region const& callable, std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept = 0;
 
         // dynamic state
         virtual void set_viewport(viewport const& vp) noexcept = 0;

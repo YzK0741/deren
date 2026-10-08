@@ -171,6 +171,9 @@ export namespace deren::vulkan::ray_tracing {
 
         /**
          * @brief build the bottom levels, once, from @p inputs (the frame that first wants the structures)
+         * @param commands the frame's CONTRACT primary (abi 24): every ordering barrier this build records goes
+         *        through it, and the ONE native handle still needed - the acceleration-structure build entry
+         *        points - is derived inside from the escape
          * @return the reason it was refused, with the object left EMPTY - which is what makes the passes that
          *         read the structures gate themselves off rather than traverse a half-built set
          * @note a second call does nothing: a device that refused the build is not asked again, and a build that

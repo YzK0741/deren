@@ -1936,35 +1936,30 @@ namespace deren::vulkan {
             // ... and the owner's buffer factory: the pass gets a handle and a device address, the runtime keeps
             // the allocation for the generation (see `pass_upload_buffers`).
             .create_upload_buffer =
-                [](void* owner, void const* data, uint64_t const bytes, VkBufferUsageFlags const usage, VkDeviceAddress* const out_address) -> VkBuffer {
+                [](void* owner, void const* data, uint64_t const bytes, rhi::buffer_flags const flags, uint64_t* const out_address) -> rhi::buffer* {
                 runtime* const self = static_cast<runtime*>(owner);
-                // THE CALLER'S USAGE BITS BECOME CONTRACT FLAGS HERE, and a bit this mapping does not name is
-                // a NAMED FAILURE rather than a silent drop - the pass framework's own rule ("a missing
-                // capability is a named failure, never a silent skip"), and the reason it matters here is that
-                // a buffer created WITHOUT the bit its descriptor needs reads as zeros, with no validation
-                // finding at all. The census today is one caller: the ray-traced shadow's shader binding table.
-                rhi::buffer_flags flags = rhi::to_bits(rhi::buffer_flag::device_address);
-                switch (usage) {
-                case 0u:
-                    break;
-                case VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR:
-                    flags |= rhi::to_bits(rhi::buffer_flag::shader_binding_table);
-                    break;
-                default:
-                    deren::utility::panic(std::source_location::current(),
-                                          "pass upload buffer: the caller asked for Vulkan usage bits {:#x}, which the contract has no flag for", usage);
-                }
-                // The mapping is APPENDED BEFORE the address is asked for, so the reference the address call
-                // reads is the one this class owns - and the raw handle handed back is borrowed from it, exactly
-                // as `vulkan_escape::native_buffer` documents: valid while `pass_upload_buffers` holds it.
+                // THE CALLER'S FLAGS GO STRAIGHT THROUGH (abi 24): the hook speaks the contract's bit set now, so
+                // the Vulkan-usage switch that stood here - and the named panic for a bit its mapping did not
+                // cover - has nothing left to translate. `device_address` is ORed in because the ADDRESS is what
+                // the caller comes for (a shader binding table's whole purpose); the caller's own bits decide the
+                // rest. The pass framework's rule still holds: the owner either builds what was asked for or
+                // answers nullptr, and a pass that gets nullptr records nothing rather than reading zeros.
                 self->pass_upload_buffers.emplace_back();
-                create_buffer(self->vulkan_core, rhi::buffer_usage::storage_coherent, flags,
+                create_buffer(self->vulkan_core, rhi::buffer_usage::storage_coherent, flags | rhi::to_bits(rhi::buffer_flag::device_address),
                               std::span<std::byte const>(static_cast<std::byte const*>(data), static_cast<std::size_t>(bytes)),
                               "pass upload buffer", self->pass_upload_buffers.back(), nullptr);
+                // A FACTORY THAT REFUSED LEAVES THE MANAGER EMPTY, and that is the nullptr this hook documents:
+                // checked BEFORE the address is read, because `buffer_address` dereferences the manager.
+                if (!self->pass_upload_buffers.back()) {
+                    return nullptr;
+                }
                 if (out_address != nullptr) {
                     *out_address = self->buffer_address(*self->pass_upload_buffers.back());
                 }
-                return self->buffer_of(*self->pass_upload_buffers.back());
+                // the CONTRACT handle, which the pass borrows and never destroys (`object_manager::get()` is the
+                // pointer it holds): `pass_upload_buffers` is this class's and lives with the generation (see its
+                // own note).
+                return self->pass_upload_buffers.back().get();
             },
             // The surface's format: a SESSION-STABLE device fact a pipeline that renders into the swapchain must
             // be created with (see pass_context). The post chain needs it today; the graphics passes being

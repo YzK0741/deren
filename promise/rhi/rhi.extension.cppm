@@ -215,12 +215,14 @@ export namespace deren::promise::rhi {
     /// BUILDS - the records come from a pipeline's shader-group handles, which only the pipeline's creator can
     /// read back - so it has to travel through the contract's vocabulary like every other descriptor.
     ///
-    /// IT LIVES IN THIS PARTITION (not `:api_core`) because it is the vocabulary of an ABILITY's verb: the
-    /// `ray_tracing` interface below takes it, and `:extension` is what `:api_core` imports rather than the other
-    /// way round - the same reason `descriptor_type` and the heap write PODs are here.
+    /// IT LIVES IN THIS PARTITION (not `:api_core`) because `:extension` is the module's VOCABULARY partition -
+    /// the one `:api_core` imports rather than the other way round - the same reason `descriptor_type` and the
+    /// heap write PODs are here. Its consumers are the recording face's `command_buffer::trace_rays` (abi 24) and
+    /// the pass that builds the table; the `ray_tracing` ability's own copy of the launch was MOVED to the
+    /// recording face rather than kept here (see that verb's note).
     ///
     /// AN ALL-ZERO REGION (`address == 0`) IS THE "NO RECORDS" SPELLING, and it is the honest one for a table a
-    /// given pipeline has no shaders for: a caller of `ray_tracing::trace_rays` passes it rather than a null
+    /// given pipeline has no shaders for: a caller of `command_buffer::trace_rays` passes it rather than a null
     /// pointer, and the backend decides what a launch does with it (Vulkan DEREFERENCES the region pointer, so
     /// "empty table" is a zeroed region, never nullptr).
     ///
@@ -230,6 +232,23 @@ export namespace deren::promise::rhi {
         std::uint64_t address = 0; ///< device address of this region's first record (0 = no records)
         std::uint64_t size = 0;    ///< bytes this region spans
         std::uint64_t stride = 0;  ///< bytes between consecutive records (the device's own alignment asks for it)
+    };
+
+    /// THE THREE DEVICE FACTS A SHADER BINDING TABLE IS BUILT FROM: how many bytes one shader-group handle is,
+    /// how far apart consecutive handles are in the table, and how the table itself must be aligned.
+    ///
+    /// IT TRAVELS WITH THE REGION TYPE and for the same reason: a pass that builds a table needs the numbers, and
+    /// it has no physical device to ask (the pass layer deliberately holds none) - so the SESSION carries them,
+    /// exactly as it carries `swap_chain_image_format` and `depth_format`. Vulkan spells them inside
+    /// `VkPhysicalDeviceRayTracingPipelinePropertiesKHR`; naming that structure in a pass is what this type
+    /// removes, and it is what let the ray-traced shadow pass stop including a Vulkan header at all.
+    ///
+    /// ZEROED IS THE "NO RAY TRACING" SPELLING: a device without the pipeline extension answers zeros, which the
+    /// one caller reads as "build no table" (its own check, because zero is a legal value in no other sense).
+    struct shader_binding_table_properties {
+        std::uint32_t handle_size = 0;      ///< bytes per shader-group handle
+        std::uint32_t handle_alignment = 0; ///< bytes between consecutive handles in the table
+        std::uint32_t base_alignment = 0;   ///< the table's own alignment
     };
 
     /// tier-2 ability: mesh and task shaders.
@@ -270,23 +289,14 @@ export namespace deren::promise::rhi {
         /// Record the build of `target` into `commands`.
         virtual void build_acceleration_structure(command_buffer& commands, acceleration_structure& target) = 0;
 
-        /// Record a trace of `width` x `height` pixels, `depth` rays deep, reading the SHADER BINDING TABLE the
-        /// caller built: one region per table - ray generation, miss, hit - plus the callable table a shader may
-        /// invoke (`shader_binding_table_region{}`, i.e. `address == 0`, when it has no callable shaders).
-        ///
-        /// WHY THE REGIONS ARE PARAMETERS RATHER THAN THE BACKEND'S OWN STATE: the records in them are a
-        /// pipeline's shader-group HANDLES, which only the pipeline's creator can read back
-        /// (`vulkan_escape::shader_group_handles`, and the alignments come off the device). A backend cannot
-        /// invent them, so a launch verb without them cannot be served by anything - which is exactly what the
-        /// previous shape here was (`trace_rays(commands, width, height, depth)`), with NO implementer and NO
-        /// caller. THE SHAPE WAS REPLACED RATHER THAN APPENDED TO, and that is what moves `abi_version`: a
-        /// second overload would leave a verb nobody can carry out standing next to the one they can.
-        virtual void trace_rays(command_buffer& commands, shader_binding_table_region const& raygen, shader_binding_table_region const& miss,
-                                shader_binding_table_region const& hit, shader_binding_table_region const& callable, std::uint32_t width,
-                                std::uint32_t height, std::uint32_t depth) = 0;
+        // THE LAUNCH IS NOT HERE (abi 24): `trace_rays` moved to the RECORDING FACE
+        // (`command_buffer::trace_rays`), because a launch is an ordered recording command like `draw`,
+        // `dispatch` and `draw_mesh_tasks` - and because a verb reachable only through an ANNOUNCED ability is
+        // unreachable on a backend that serves the recording face without having frozen this ability's
+        // acceleration-structure shapes. What stays here is the ACCELERATION-STRUCTURE half.
 
-        // Micromaps (3 mentions), RT pipeline creation (3) and shader group handles (1)
-        // are the remaining entries in §5's row for this ability; they land with S1.
+        // Micromaps (3 mentions) and RT pipeline creation (3) are the remaining entries in §5's row for this
+        // ability; they land with S1.
     };
 
     /// tier-2 ability: copying an image into memory the app chose.
@@ -604,18 +614,18 @@ export namespace deren::promise::rhi {
 
         /// THE BASIS THIS ESCAPE HANDS OUT (abi 22), as the contract's tagged `api_basis` - see its own note for
         /// why the base carries no handle and no interface. A caller that has to pass "the device this work
-        /// belongs to" passes THIS, and the two methods below take it back. Null before the device exists.
+        /// belongs to" passes THIS, and the method below takes it back. Null before the device exists.
         [[nodiscard]] virtual api_basis* get_basis() const noexcept = 0;
 
-        /// RESOLVE AN ALLOCATED ENTRY POINT against the basis's device - an extension command the loader's
-        /// import library does not export (`vkCmdTraceRaysKHR`, `vkCmdDrawMeshTasksEXT`, ...), which is why the
-        /// engine must ask the device for its address rather than call it. nullptr when the basis carries the
-        /// wrong tag, or the device does not publish the name.
-        ///
-        /// WHY THE BASIS IS A PARAMETER RATHER THAN IMPLICIT IN `this`: a resolution is a fact about a DEVICE,
-        /// and the token says which one. The backend checks the token's TAG and then reads the device from its
-        /// own state - the difference between this and a `char const*`-keyed global lookup.
-        [[nodiscard]] virtual void* device_proc(api_basis& basis, char const* name) const noexcept = 0;
+        // THE `device_proc` SLOT IS GONE (abi 24), AND ITS LAST CALLER IS THE MEASUREMENT: it resolved an
+        // allocated entry point against the basis's device (`vkCmdTraceRaysKHR` above all), and the ray-tracing
+        // launch is the recording face's verb now - the BACKEND resolves that pointer once at startup
+        // (`core::ray_trace_launch`), so nothing in the engine asks a device for an entry point any more. The
+        // engine's own ray-tracing module resolves the acceleration-structure and micromap commands through
+        // `native_device`, which is a raw handle it already holds rather than a basis round trip. Removing it is
+        // an interface change - `shader_group_handles` below shifts down one slot - which is what the abi number
+        // is for; a facility nobody calls is dead vocabulary, and this file has deleted one before
+        // (`pass::native_commands`) rather than keep it "in case".
 
         /// THE SHADER-BINDING-TABLE GROUPS of a ray-tracing `pipeline`: `group_count` handles starting at
         /// `first_group`, written into `out` (the device-side query `vkGetRayTracingShaderGroupHandlesKHR`).
@@ -625,7 +635,8 @@ export namespace deren::promise::rhi {
         /// bucket: the group handles are per-pipeline DEVICE data whose layout (size, alignment, the regions a
         /// launch is given) is exactly what the contract has no vocabulary for. `pass::shader_group_handles` is
         /// the pass-layer spelling of this call, and it is what let `ray_traced_shadow.cpp` stop naming a
-        /// `VkDevice` (it still names the REGIONS: that is the launch, and it stays native).
+        /// `VkDevice` - and, with the region and properties types promoted in abi 24, stop including a Vulkan
+        /// header at all.
         [[nodiscard]] virtual bool shader_group_handles(api_basis& basis, pipeline const& resource, std::uint32_t first_group, std::uint32_t group_count,
                                                         std::span<std::uint8_t> out) const noexcept = 0;
     };

@@ -163,6 +163,12 @@ namespace {
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
             return rhi::error::invalid_argument;
         }
+        // abi 24: the recording face's ray-tracing LAUNCH. This stand-in is the "a buffer this backend did not
+        // make" case, so it records nothing; what the test pins is that the DLL half and the static half answer
+        // the same slot at the same index.
+        void trace_rays(rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&,
+                        rhi::shader_binding_table_region const&, std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
         void set_viewport(rhi::viewport const&) noexcept override {
         }
         void set_scissor(rhi::rect const&) noexcept override {
@@ -279,7 +285,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 23u);
+        CHECK(rhi::abi_version == 25u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

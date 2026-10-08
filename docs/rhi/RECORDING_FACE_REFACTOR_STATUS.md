@@ -1,20 +1,28 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
-> Working note (2026-10-07). **STATUS: eleven batches have LANDED AND ARE GREEN.** The build compiles, and
+> Working note (2026-10-07). **STATUS: twelve batches have LANDED.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
 > gate **matched 14 / mismatched 0 (exit 0)** - re-run after EACH batch, not once at the end.
 >
 > PLUS ONE GATE THAT IS NOT IN THE LIST, because no scenario reaches it: the ray-traced shadow path is
-> smoked by hand (`[render] rt_shadows = true`, 40 frames, validation on) and it reports **0 VUIDs** -
-> it did not before the third batch, and the sixth batch's new escape slots are proven by it (the SBT
-> query travels through `api_basis` there, and the smoke run still builds its table).
+> smoked by hand (`[render] rt_shadows = true`, 40 frames, validation on) and it reports **0 VUIDs** - it
+> did not before the third batch, and the sixth batch's new escape slots are proven by it (the SBT query
+> travels through `api_basis` there, and the smoke run still builds its table).
 >
-> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 5**, **none of them
-> in `vulkan/pass/`** (the FIVE left are documented escape-bucket sites - see 2.15/2.16); the ESCAPE's
-> own demand, measured for the first time in the seventh batch: **105 -> 69 engine-side call sites**.
-> Engine files including a Vulkan header **62 -> 38**; abi
-> **20 -> 23**, pinned in both tests. (The call-site count is not monotone: the fifth batch's probe fix
+> **IT IS RED AS OF THE TWELFTH BATCH, AND THE BASELINE SAYS IT IS NOT THE BATCH'S FAULT**: the run panics
+> with `device_lost` ("waiting the frame slot's timeline failed") when the trace executes, and **HEAD
+> (`ddbda33`) reproduces the identical failure** when checked out and rebuilt - with ~3.5 GB of host memory
+> free, the environmental condition this session already met twice (`Failed to create image: -2`,
+> `LLVM ERROR: out of memory`). The batch's own instruments are green (the probe's read-back values are
+> byte-identical, the render gate is 14/14). Re-run this smoke when the host has memory before attributing
+> anything to a diff.
+>
+> THE NUMBERS THE EFFORT IS MEASURED BY: engine-side `vkCmd*` call sites **116 -> 3**, **none of them
+> in `vulkan/pass/`** (the THREE left are documented escape-bucket sites - see 2.15/2.16/2.17); the
+> ESCAPE's own demand, measured for the first time in the seventh batch: **105 -> 69 engine-side call
+> sites**. Engine files including a Vulkan header **62 -> 35** (and two modules, eadback and
+> ay_traced_shadow, dropped their include outright); abi **20 -> 25**, pinned in both tests. (The call-site count is not monotone: the fifth batch's probe fix
 > ADDED three dynamic-state calls - trap 12 - because honesty about an instrument means counting what it
 > measures.)
 >
@@ -255,6 +263,19 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | what the engine gained | `rt_shadow_pass`'s four region members are the CONTRACT type now (they were `VkStridedDeviceAddressRegionKHR`, which put a Vulkan type in a pass's own state for no reason - the data is a device range, not a driver structure), and the ONE conversion to the driver's struct happens at the launch, field for field. |
 | what did NOT change, and why | THE BACKEND STILL DOES NOT SERVE THE VERB: `core::abilities()` does not announce `ray_tracing`, and a set bit is a promise about service - its other three verbs (create/build/address of an acceleration structure) are served by the engine's own `vulkan/ray_tracing` module through the escape today. So the launch stays the ONE raw site in that pass and `pass::native_commands` keeps its single user; the pass's wrapper and `pass::native_commands`' own doc now say exactly that (the vocabulary is no longer the reason - the SERVICE is). Serving the ability is a design step (implement all four methods in the backend, i.e. move acceleration-structure creation out of the engine module), not a migration. |
 | micromap roles | `buffer_use` gained `micromap_write`/`micromap_read` (two VALUES - no abi change), mapped in the backend to MICROMAP_BUILD/MICROMAP_WRITE_EXT and ACCELERATION_STRUCTURE_BUILD/MICROMAP_READ_EXT, and `ray_tracing.cpp`'s SECOND micromap barrier rides the contract now (`vkCmd*` 6 -> 5). THE FIRST ONE STAYS RAW: its source is HOST_WRITE, and the enum carries no host role - the split the contract's own `image_use` census records ("the host-visible barrier sites stay in the escape bucket"). |
+
+### 2.17 What the TWELFTH batch added (read-back becomes CONTENT, not a handle: `image::get_content`; abi 24-25)
+
+| area | what landed |
+|---|---|
+| the launch rides the RECORDING FACE | `command_buffer::trace_rays(raygen, miss, hit, callable, w, h, d)` (tier-1 append, abi 24), served by the BACKEND against the `vkCmdTraceRaysKHR` pointer it resolves ONCE at startup (`core::ray_trace_launch`). The `ray_tracing` ability LOST its copy of the launch (a verb reachable only through an ANNOUNCED ability is unreachable on a backend that serves the recording face without having frozen that ability's acceleration-structure shapes - which is this backend's state, and those shapes are still the S1 design surface). `vulkan_escape::device_proc` - whose last caller was that launch - is DELETED, and `pass::native_commands` / `pass::device_proc` with it. |
+| the SBT and its numbers | `shader_binding_table_properties` (handle size / handle alignment / base alignment) joins the region type in the contract, so `pass_context` no longer holds `VkPhysicalDeviceRayTracingPipelinePropertiesKHR`; and the upload hook speaks the contract (`buffer_flags` in, `rhi::buffer*` out, `uint64_t` address). The result: **`vulkan/pass/ray_traced_shadow.{cppm,cpp}` names NO Vulkan type at all and dropped its `#include <vulkan/vulkan.h>`**. |
+| read-back is CONTENT now | `image_content{extent, bytes_per_pixel, bytes}` + `bytes_per_pixel(image_format)` + `image::get_content(region)` (abi 25): the backend performs the copy with `vkCopyImageToMemoryEXT` (`VK_EXT_host_image_copy`, already a REQUIRED capability here) and answers the image's bytes - **no staging buffer, no copy command, no submission**. The probe's read-back moved from "query the ability, size a vector, build the region, call" to ONE call, and its log values are byte-identical (the instrument: `255,255,255,255` for the right slot, `0,0,0,255` for the wrong one). |
+| the FRAME image, HONESTLY refused | `frame_image_slot::get_content()` answers `error::unsupported`, WITH the measurement in its note: a swapchain image can only be host-copied when the surface listed `VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT` (the swapchain usage must be a subset of `supportedUsageFlags`), and **on every surface this renderer has been run on that bit is ABSENT** - the constructor already logs it. So the screenshot's copy-command path stays, and the reason is the SURFACE, not a gap in the backend. |
+| the dead utility retired | `vulkan/readback/**` (the staging + export-fence + raw-submit read-back) had **no callers left** - the runtime stopped importing it in S2 batch 2 - so the module is DELETED, and with it 7 of the engine's `vk*` references (`vkCmdCopyBuffer`, `vkCmdCreateFence`/`Destroy`/`Reset`/`Wait`, `vkQueueSubmit`, `vkCmdPipelineBarrier2`). |
+| bug found BY THE INSTRUMENT | the AS-to-AS build-ordering barrier (`ray_tracing.cpp`'s top-level ordering) was reusing `buffer_use::acceleration_structure_read` - a value whose backend access is `SHADER_READ` (it was measured for "a build reads compute-written vertices"). The raw pair that site replaced had `ACCELERATION_STRUCTURE_READ_KHR`, so the two builds were **not ordered against each other**. The value now carries BOTH access bits (a DESTINATION mask can only ever order more), with the measurement in the mapping's comment. |
+| the numbers | `vkCmd*` 5 -> **3**; engine files 82 -> **80**; engine files with a Vulkan header 37 -> **35**; engine-side `Vk*` types 64 -> fewer by `VkStridedDeviceAddressRegionKHR`/`VkPhysicalDeviceRayTracingPipelinePropertiesKHR`/`VkBufferUsageFlags`/`VkDeviceAddress`/`VkBuffer` across the RT pass and the hook. |
+| THE ONE RED, AND WHY IT IS NOT THIS BATCH | the `rt_shadows` smoke run (the ONLY config with RT on - none of the fourteen frozen scenarios enable it) panics with `device_lost` when the trace executes. **HEAD (ddbda33) reproduces the identical failure** (measured: `git checkout` to HEAD, full rebuild, same 0xC0000409 + `waiting the frame slot's timeline failed`), with only ~3.5 GB of host memory free - the same environmental condition this session already met twice (`Failed to create image: -2` + `LLVM ERROR: out of memory`). The instruments that DO cover this batch are green (probe bytes identical, render 14/14). Attribution recorded rather than guessed: the launch's recorded arguments were verified (command buffer, four regions, dims) and the SBT's own handles read back non-zero; the run is red at HEAD with the same config. |
 
 ## 3. What was tried and reverted (do not repeat)
 

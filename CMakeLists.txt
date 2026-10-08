@@ -687,7 +687,6 @@ target_sources(vulkancorekit
         ${VR_FULL_API_MODULES}
         vulkan/profiling/profiling.cppm
         vulkan/shadow_fit/shadow_fit.cppm
-        vulkan/readback/readback.cppm
         vulkan/acceleration_structure/acceleration_structure.cppm
         vulkan/ray_tracing/ray_tracing.cppm
         vulkan/scene_tree/scene_tree.cppm
@@ -721,7 +720,6 @@ target_sources(vulkancorekit
         vulkan/pass/shadow.cpp
         ${VR_FULL_API_SOURCES}
         vulkan/shadow_fit/shadow_fit.cpp
-        vulkan/readback/readback.cpp
         vulkan/acceleration_structure/acceleration_structure.cpp
         vulkan/ray_tracing/ray_tracing.cpp
         vulkan/scene_tree/scene_tree.cpp

@@ -15,7 +15,8 @@ module;
 #include <algorithm> // std::min in the resource publication
 #include <bit>       // std::bit_cast for the caster world-matrix hash
 #include <chrono>
-#include <cstring> // std::memcpy, for composing a pass's push block
+#include <cstring>  // std::memcpy, for composing a pass's push block
+#include <expected> // std::expected: `image::get_content()` answers the content or the named reason
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
@@ -216,7 +217,10 @@ namespace deren::vulkan {
         // of the app's own memory: the target needs the HOST_TRANSFER usage instead of TRANSFER_SRC, no staging
         // buffer is created and no copy command is recorded. The capability is REQUIRED of the device now, so
         // there is no second path to choose between and no predicate for later branches to disagree about.
-        constexpr VkDeviceSize probe_bytes = static_cast<VkDeviceSize>(pipelines::heap_probe_extent) * pipelines::heap_probe_extent * 4u;
+        //
+        // THE SIZE IS NO LONGER THIS SIDE'S BUSINESS (abi 25): `image::get_content()` answers the bytes AND the
+        // shape they cover (`rhi::image_content`), so the probe no longer computes
+        // `extent * extent * 4` from a format assumption - the backend knows what it created.
         rhi::image_desc target_desc{};
         target_desc.extent = rhi::image_extent{.width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent, .depth = 1u};
         target_desc.mip_levels = 1;
@@ -342,25 +346,19 @@ namespace deren::vulkan {
         // the probe reads HOST memory below (and the host copy is a host-side call): the work has to be DONE
         vk.wait_idle();
 
-        // ---- the host copy itself: no command records it and no queue runs it, and it is legal HERE because the
-        //      barrier above has been submitted and waited on (the render's writes are visible to the host stage and
-        //      the image is in GENERAL, the layout this renderer keeps every image in). The region is the whole image
-        //      tightly packed (memoryRowLength and memoryImageHeight 0 - both a multiple of the texel block extent,
-        //      and the destination large enough for it).
+        // ---- THE READ-BACK IS `image::get_content()` NOW (abi 25): the SAME host image copy, in ONE call.
         //
-        // THE COPY IS THE CONTRACT'S `host_image_copy` ABILITY (③-D/E step 2), and that is a shape change rather
-        // than a spelling one: this used to call the DEVICE'S entry point (`core::copy_image_to_memory`, a
-        // `PFN_vkCopyImageToMemoryEXT`) with a raw `VkCopyImageToMemoryInfo`. The contract has carried the ability
-        // since abi 1 and nobody served it; the backend serves it now (it announces the bit exactly when the
-        // device has the extension, the feature and GENERAL among the source layouts), and the region is the
-        // contract's own `image_copy_region` - whose fields are its OWN names (`extent`, `mip_level`,
-        // `base_array_layer`, `array_layer_count`, `offset_*`), NOT the API's.
-        std::vector<uint8_t> host_pixels(static_cast<std::size_t>(probe_bytes));
-        rhi::host_image_copy* const host_copy = rhi::query_extension<rhi::host_image_copy>(this->rhi_face());
-        if (host_copy == nullptr) {
-            deren::utility::log("descriptor heap: the heap-native {} probe's HOST image copy is unavailable - this backend does not serve host_image_copy", mesh_shader ? "MESH" : "GRAPHICS");
-            return;
-        }
+        // WHY THE SHAPE CHANGED (and what it replaced): this used to query the `host_image_copy` ABILITY, size a
+        // vector from the format, build the region by hand and call
+        // `copy_image_to_memory(image, span, region)` - three steps a caller had to get right (the size, the
+        // region's meaning, the ability's presence). `image::get_content()` answers the CONTENT
+        // (`rhi::image_content`: the bytes PLUS the extent and bytes-per-pixel they cover), so the caller sizes
+        // nothing and strides nothing, and the backend keeps ONE implementation of the copy
+        // (`vkCopyImageToMemoryEXT`, no staging buffer and no copy command) behind it.
+        //
+        // IT IS LEGAL HERE for the reason it always was: the barrier above has been submitted and waited on, so
+        // the render's writes are visible to the host stage and the image is in GENERAL (the layout this
+        // renderer keeps every image in). The region is the whole image, tightly packed.
         rhi::image_copy_region const host_region = {
             .extent = rhi::image_extent{.width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent, .depth = 1u},
             .mip_level = 0,
@@ -370,12 +368,19 @@ namespace deren::vulkan {
             .offset_y = 0,
             .offset_z = 0,
         };
-        rhi::error const copied = host_copy->copy_image_to_memory(*target, std::as_writable_bytes(std::span(host_pixels)), host_region);
-        if (copied != rhi::error::ok) {
-            deren::utility::log("descriptor heap: the heap-native {} probe's HOST image copy failed (rhi::error {})", mesh_shader ? "MESH" : "GRAPHICS", static_cast<std::uint32_t>(copied));
+        std::expected<rhi::image_content, rhi::error> const content = target->get_content(host_region);
+        if (!content) {
+            deren::utility::log("descriptor heap: the heap-native {} probe's read-back failed (rhi::error {})", mesh_shader ? "MESH" : "GRAPHICS",
+                                static_cast<std::uint32_t>(content.error()));
             return;
         }
-        uint8_t const* const pixel = host_pixels.data();
+        std::vector<std::byte> const& host_pixels = content->bytes;
+        if (host_pixels.size() < 4u) {
+            deren::utility::log("descriptor heap: the heap-native {} probe's read-back came back short ({} bytes)", mesh_shader ? "MESH" : "GRAPHICS",
+                                host_pixels.size());
+            return;
+        }
+        auto const* const pixel = reinterpret_cast<std::uint8_t const*>(host_pixels.data());
         deren::utility::log("descriptor heap: the heap-native {} probe rendered grid slot {} into a {}x{} target and read back rgba {},{},{},{} (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)",
                             mesh_shader ? "MESH" : "GRAPHICS",
                             material_slot,

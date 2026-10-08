@@ -237,6 +237,7 @@ export namespace deren::promise::rhi {
     /// which is a tier-2 interface growing, the same shape as 5 -> 6 and 7 -> 8 above. The new `api_basis` type
     /// is an EMPTY, VIRTUAL-FREE tag struct (`s_type` only) that no boundary crosses by value and no interface
     /// gets a slot for, so the type alone moves nothing; the three appends are the whole reason for the number.
+    /// (`device_proc` WAS REMOVED AGAIN IN ABI 24 - see below - so that escape now carries two of the three.)
     /// 22 -> 23 in the SHADER-BINDING-TABLE batch: the `ray_tracing` ability's `trace_rays` slot CHANGED SHAPE
     /// rather than being appended to - it takes four `shader_binding_table_region` parameters now, because the
     /// shape it had (`commands, width, height, depth`) could not describe a launch at all and had no implementer
@@ -244,7 +245,32 @@ export namespace deren::promise::rhi {
     /// pass three integers where the callee reads four regions. The new `shader_binding_table_region` type is a
     /// plain by-value POD (adding a TYPE moves nothing on its own - it is the slot it appears in), and it is
     /// FROZEN once shipped, like `image_copy_region`.
-    inline constexpr std::uint32_t abi_version = 23u;
+    /// 23 -> 24 in the RAY-TRACING LAUNCH batch, and THREE THINGS MOVED - all of them interface changes, because
+    /// this batch moved a verb to the face it belongs on and deleted what that left behind:
+    ///  * `command_buffer` (tier 1) GAINED `trace_rays(...)` as an APPENDED slot - the launch is an ordered
+    ///    recording command like `draw`/`dispatch`/`draw_mesh_tasks`, and the backend serves it against the
+    ///    `vkCmdTraceRaysKHR` pointer it resolves once at startup.
+    ///  * the `ray_tracing` ability LOST its `trace_rays` (moved to the recording face): a launch reachable only
+    ///    through an ANNOUNCED ability is unreachable on a backend that serves the recording face without having
+    ///    frozen the ability's acceleration-structure shapes - which is this backend's state, because those
+    ///    shapes are still the S1 design surface. Its remaining three slots did NOT move (the removed one was
+    ///    last).
+    ///  * `vulkan_escape` LOST `device_proc(...)`, whose last caller was that launch: the BACKEND resolves the
+    ///    entry point now, so nothing in the engine asks a device for one through a basis. Its `shader_group_handles`
+    ///    SHIFTED DOWN one slot - which is precisely the case the number exists for, and why the removal is
+    ///    recorded here rather than done quietly.
+    /// TWO PODs JOINED with no bump of their own (a type moves nothing until a slot carries it): the general
+    /// `shader_binding_table_region` and the session's `shader_binding_table_properties`, the three numbers a pass
+    /// builds a table from. A third `buffer_use`/`buffer_flag`-style addition is a VALUE and, by the rule above,
+    /// renumbers nothing.
+    /// 24 -> 25 in the HOST-IMAGE-COPY batch: `image` GAINED one APPENDED virtual, `get_content()`, which
+    /// answers the image's CONTENT in host memory (`image_content`) instead of a handle to it. It is the
+    /// read-back shape the engine sees from now on, and the backend serves it with `VK_EXT_host_image_copy`
+    /// (no staging buffer, no copy command, no submission). The two new TYPES (`image_content`, and the
+    /// `bytes_per_pixel(image_format)` helper they rely on) move nothing on their own - it is the slot that
+    /// carries them - and `image_content`'s invariant is FROZEN with it: a backend that cannot fill it exactly
+    /// answers an error rather than a partial buffer.
+    inline constexpr std::uint32_t abi_version = 25u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

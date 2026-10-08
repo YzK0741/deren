@@ -377,52 +377,24 @@ export namespace deren::vulkan::pass {
     };
 
     /**
-     * @brief the RAW `VkCommandBuffer` behind a contract buffer, for the ONE thing the record series cannot
-     *        spell at all: an ALLOCATED ENTRY POINT.
-     *
-     * ITS ONE REMAINING USER IS THE RAY-TRACING LAUNCH (recording-face note §1.5): `vkCmdTraceRaysKHR` is
-     * resolved through `vkGetDeviceProcAddr` (the loader's import library does not export it), so the pass that
-     * launches rays holds a function pointer and an API command buffer. THE VOCABULARY IS NO LONGER THE REASON:
-     * `ray_tracing::trace_rays` EXISTS with the shape a launch needs (four `shader_binding_table_region`s, abi
-     * 23), but this backend does not ANNOUNCE the `ray_tracing` ability - a set bit is a promise about service,
-     * and its three acceleration-structure verbs are served by the engine's own module through the escape - so a
-     * pass that traced rays could not call it yet. `pass::native_commands()` is how that site reaches the buffer
-     * WITHOUT the pass layer keeping a raw handle in step (the escape is the contract's own, documented answer
-     * for "the contract has no concept for this").
-     *
-     * IT ANSWERS NULL rather than casting a foreign pointer: a face that does not announce `vulkan_escape` (a
-     * non-Vulkan backend) has no native command buffer at all, and the caller then records nothing instead of
-     * mis-casting. The COMPUTE and GRAPHICS pipeline binds do NOT use this any more - since abi 21 every one of
-     * them is a contract pipeline and binds through `command_buffer::bind_pipeline`.
-     */
-    [[nodiscard]] inline VkCommandBuffer native_commands(deren::promise::rhi::api_core* const face,
-                                                         deren::promise::rhi::command_buffer& commands) noexcept {
-        if (face == nullptr) {
-            return VK_NULL_HANDLE;
-        }
-        auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
-            face->query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
-        if (escape == nullptr) {
-            return VK_NULL_HANDLE;
-        }
-        return static_cast<VkCommandBuffer>(escape->native_command_buffer(commands));
-    }
-
-    /**
      * @brief THE BASIS a face's basic handles belong to, and the two calls that take it back (abi 22).
      *
      * WHY A PASS NEEDS THIS AT ALL: the pass layer stopped taking a `VkDevice` in its context (the pipeline
      * builders are contract factories and not one of them read it), but TWO FACTS still need the device itself,
      * and both are ALLOCATED ENTRY POINTS rather than objects: `vkGetDeviceProcAddr` to resolve an extension
-     * command (`vkCmdTraceRaysKHR`, `vkCmdDrawMeshTasksEXT`) and the shader-binding-table handle query
-     * (`vkGetRayTracingShaderGroupHandlesKHR`). Neither can be spelled with the contract's vocabulary, so they
-     * go through the escape - and the DEVICE travels as `rhi::api_basis`, the contract's tagged, interface-free
-     * token: a pass never names a `VkDevice`, it obtains the basis from the face once and hands it back to the
-     * backend for each call (see `api_basis`'s note for why the token carries no handle and no methods).
+     * command, and the shader-binding-table handle query (`vkGetRayTracingShaderGroupHandlesKHR`). Neither can be
+     * spelled with the contract's vocabulary, so they go through the escape - and the DEVICE travels as
+     * `rhi::api_basis`, the contract's tagged, interface-free token: a pass never names a `VkDevice`, it obtains
+     * the basis from the face once and hands it back to the backend for each call (see `api_basis`'s note for why
+     * the token carries no handle and no methods).
      *
-     * ALL THREE ANSWER "NOTHING" RATHER THAN CASTING A FOREIGN POINTER: a face that does not announce
-     * `vulkan_escape` (a non-Vulkan backend) has no device at all, and the caller then records nothing instead
-     * of mis-casting - the same rule `native_commands` above states for the raw command buffer.
+     * THE LAUNCH IS NO LONGER ONE OF THEM (abi 24): `command_buffer::trace_rays` is the recording face's verb and
+     * the BACKEND owns the `vkCmdTraceRaysKHR` pointer, so `pass::native_commands` - the raw-command-buffer
+     * helper that stood here for exactly that site - has no callers left and is deleted rather than kept "in case".
+     *
+     * ALL OF THEM ANSWER "NOTHING" RATHER THAN CASTING A FOREIGN POINTER: a face that does not announce
+     * `vulkan_escape` (a non-Vulkan backend) has no device at all, and the caller then records nothing instead of
+     * mis-casting.
      */
     [[nodiscard]] inline deren::promise::rhi::api_basis* device_basis(deren::promise::rhi::api_core* const face) noexcept {
         if (face == nullptr) {
@@ -434,21 +406,6 @@ export namespace deren::vulkan::pass {
             return nullptr;
         }
         return escape->get_basis();
-    }
-
-    /// @brief resolve an ALLOCATED ENTRY POINT (an extension command) against @p basis's device; null when
-    ///        the backend refuses the basis or the device does not publish the name
-    [[nodiscard]] inline void* device_proc(deren::promise::rhi::api_core* const face, deren::promise::rhi::api_basis& basis,
-                                           char const* const name) noexcept {
-        if (face == nullptr) {
-            return nullptr;
-        }
-        auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
-            face->query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
-        if (escape == nullptr) {
-            return nullptr;
-        }
-        return escape->device_proc(basis, name);
     }
 
     /// @brief the shader-binding-table groups of a ray-tracing pipeline, through the same basis: the ONE device
@@ -548,10 +505,11 @@ export namespace deren::vulkan::pass {
         /// backend symbol. Null only before the owner fills it.
         ///
         /// THERE IS NO `VkDevice` HERE ANY MORE (abi 21): every pipeline builder is a contract factory that
-        /// takes this face alone, and the one fact the pass layer still needs a device FOR - an allocated entry
-        /// point (`vkGetDeviceProcAddr` for `vkCmdTraceRaysKHR`, the SBT handle query) - is reached through the
-        /// escape, exactly as the raw command buffer is: `pass::device_basis` hands out the contract's tagged
-        /// `rhi::api_basis` token, and `pass::device_proc` / `pass::shader_group_handles` take it back.
+        /// takes this face alone, and the one fact the pass layer still needs a device FOR - the SBT handle query
+        /// (`vkGetRayTracingShaderGroupHandlesKHR`) - is reached through the escape, exactly as the raw command
+        /// buffer is: `pass::device_basis` hands out the contract's tagged `rhi::api_basis` token, and
+        /// `pass::shader_group_handles` takes it back. (The LAUNCH is no longer one of these: abi 24 made it the
+        /// recording face's verb, and the entry point lives in the backend.)
         deren::promise::rhi::api_core* face = nullptr;
         /// the swapchain's format in the contract's spelling (the passes that render into it name it
         /// through the pipeline descriptors now)
@@ -569,23 +527,34 @@ export namespace deren::vulkan::pass {
         std::span<uint8_t const> (*shader)(void* owner, std::string_view name) = nullptr;
         /**
          * The three numbers a SHADER BINDING TABLE is built against: the handle size, the base alignment of a
-         * region's device address and the alignment of a handle inside a region (see
-         * `VkPhysicalDeviceRayTracingPipelinePropertiesKHR`). Zeroed on a device without the ray-tracing
-         * pipeline, which is also the answer to "build no table".
+         * region's device address and the alignment of a handle inside a region. THEY ARE THE CONTRACT'S TYPE
+         * (abi 24) rather than the Vulkan structure the session queried them into
+         * (`VkPhysicalDeviceRayTracingPipelinePropertiesKHR`): the runtime is where the device query belongs, and a
+         * pass that receives three integers has no business naming a driver structure to read them.
+         * Zeroed on a device without the ray-tracing pipeline, which is also the answer to "build no table".
          *
          * WHY THE CONTEXT CARRIES IT: a pass that traces through a pipeline fills its own SBT, and the stride is
          * NOT the handle size on a device whose handle alignment is larger - a fact the pass cannot query (it has
          * no physical device) and must not guess.
          */
-        VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties = {};
+        deren::promise::rhi::shader_binding_table_properties ray_tracing_properties = {};
         /**
          * A small buffer the OWNER creates, uploads and keeps alive: what a pass needs when it must hand the
          * device a device ADDRESS rather than a binding (the shader binding table above is the first case).
          *
          * The owner keeps ownership because the memory has to come from its allocator and live with the
          * generation; the pass gets the handle and the address and nothing to destroy.
+         *
+         * ITS TYPES ARE THE CONTRACT'S (abi 24): the caller says which `buffer_flags` it needs (a shader binding
+         * table asks for `shader_binding_table`), the handle it gets back is a contract `buffer*` the OWNER keeps
+         * alive for the generation, and the device address is written through the out-parameter. The previous
+         * shape took `VkBufferUsageFlags` and answered a `VkBuffer`, which made this the ray-traced shadow pass's
+         * last Vulkan surface for no reason at all: nothing in this call is a driver structure. It answers nullptr
+         * when the owner could not create the buffer, which is the same "named failure" the flags mapping used to
+         * raise.
          */
-        VkBuffer (*create_upload_buffer)(void* owner, void const* data, uint64_t bytes, VkBufferUsageFlags usage, VkDeviceAddress* out_address) = nullptr;
+        deren::promise::rhi::buffer* (*create_upload_buffer)(void* owner, void const* data, uint64_t bytes, deren::promise::rhi::buffer_flags flags,
+                                                             uint64_t* out_address) = nullptr;
         /**
          * The SURFACE's format, which is a session-stable device fact rather than a frame's.
          *

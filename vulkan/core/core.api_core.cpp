@@ -2380,8 +2380,19 @@ namespace deren::vulkan {
                 // THE READER IS NOT A SHADER STAGE (abi 21): the acceleration-structure BUILD reads the vertex
                 // data a compute dispatch wrote. The access bit is the same SHADER_READ every consumer of
                 // shader-written data uses - what differs, and what no other role named, is the STAGE.
+                //
+                // IT CARRIES A SECOND ACCESS BIT SINCE THE RT BATCH, AND MEASUREMENT PUT IT THERE: the same ROLE
+                // ("an acceleration-structure build reads") also has to cover a build reading the STRUCTURE
+                // another build wrote - `vulkan/ray_tracing/ray_tracing.cpp`'s top-level build-ordering barrier,
+                // whose raw destination access was `VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR`. With only
+                // SHADER_READ the two builds were NOT ordered against each other, and the symptom was exactly
+                // what an unsynchronised structure read looks like: the next frame's refit read half-written
+                // bottom levels, the GPU faulted, and `wait_and_acquire()` reported a device loss (measured: the
+                // rt_shadows smoke run panicked "waiting the frame slot's timeline failed" until this bit was
+                // added). Widening a DESTINATION access mask is the safe direction - it can only order more - so
+                // one role serves both sites instead of two values saying nearly the same thing.
                 stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-                access = VK_ACCESS_2_SHADER_READ_BIT;
+                access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
                 return true;
             case rhi::buffer_use::acceleration_structure_write:
                 // THE WRITER IS NOT A SHADER STAGE EITHER (the appended value): a bottom level the BUILD wrote
@@ -2790,6 +2801,30 @@ namespace deren::vulkan {
         }
     }
 
+    void core::frame_commands::trace_rays(rhi::shader_binding_table_region const& raygen, rhi::shader_binding_table_region const& miss,
+                                          rhi::shader_binding_table_region const& hit, rhi::shader_binding_table_region const& callable,
+                                          std::uint32_t const width, std::uint32_t const height, std::uint32_t const depth) noexcept {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE || self->ray_trace_launch == nullptr) {
+            // NOTHING IS RECORDED rather than a launch through an entry point the device did not publish: a pass
+            // that launches rays is only built when its ray-tracing pipeline could be created, which needs the
+            // extension - so this is the "no device support" answer, not a silent skip of a frame's work that
+            // could have run (the extension command is resolved once at startup, see `core::init_device`).
+            return;
+        }
+        // THE ONE CONVERSION FROM THE CONTRACT'S REGION TO THE DRIVER'S STRUCTURE, field for field: the contract
+        // type is three numbers (address, size, stride) and Vulkan's is the same three under its own names.
+        auto const as_native = [](rhi::shader_binding_table_region const& region) {
+            return VkStridedDeviceAddressRegionKHR{.deviceAddress = region.address, .stride = region.stride, .size = region.size};
+        };
+        VkStridedDeviceAddressRegionKHR const native_raygen = as_native(raygen);
+        VkStridedDeviceAddressRegionKHR const native_miss = as_native(miss);
+        VkStridedDeviceAddressRegionKHR const native_hit = as_native(hit);
+        VkStridedDeviceAddressRegionKHR const native_callable = as_native(callable);
+        self->ray_trace_launch(command_buffer, &native_raygen, &native_miss, &native_hit, &native_callable, width, height, depth);
+    }
+
     rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
         core* const self = this->owner;
         VkCommandBuffer const command_buffer = this->native();
@@ -3141,18 +3176,6 @@ namespace deren::vulkan {
         return this->owner != nullptr ? this->owner->get_basis() : nullptr;
     }
 
-    void* core::frame_escape::device_proc(rhi::api_basis& basis, char const* const name) const noexcept {
-        core* const self = this->owner;
-        if (self == nullptr || name == nullptr || !self->owns_basis(basis) || self->logical_device == VK_NULL_HANDLE) {
-            return nullptr;
-        }
-        // THE DEVICE IS THIS CORE'S OWN, and it is resolved HERE rather than at the caller: an extension command
-        // is not exported by the loader's import library, so the address has to come from the device
-        // (`vkGetDeviceProcAddr`), which is what the engine cannot do without naming a `VkDevice` - the whole
-        // reason this slot exists. Null is the honest answer for a device that does not publish the name.
-        return reinterpret_cast<void*>(vkGetDeviceProcAddr(self->logical_device, name));
-    }
-
     bool core::frame_escape::shader_group_handles(rhi::api_basis& basis, rhi::pipeline const& resource, std::uint32_t const first_group, std::uint32_t const group_count,
                                                   std::span<std::uint8_t> const out) const noexcept {
         core* const self = this->owner;
@@ -3175,6 +3198,58 @@ namespace deren::vulkan {
     }
 
     // ---- tier-2 host_image_copy (③-D/E step 2) ------------------------------------------------------
+    //
+    // THE ONE MECHANISM, IN ONE PLACE (abi 25): the ability's span-shaped verb and `image::get_content()`
+    // are two SPELLINGS of the same host copy - `vkCopyImageToMemoryEXT`, with no staging buffer, no copy
+    // command and no submission - so both build the same `VkImageToMemoryCopy` through this helper. A
+    // device fact (`host_image_copy_available`) gates both, which is what keeps them from disagreeing.
+    namespace {
+        [[nodiscard]] rhi::error host_copy_image_out(core& self, VkImage const source, std::span<std::byte> const destination,
+                                                     rhi::image_copy_region const& region) noexcept {
+            if (!self.host_image_copy_available || source == VK_NULL_HANDLE) {
+                return rhi::error::unsupported;
+            }
+            // THE REGION IS THE CALLER'S, TIGHTLY PACKED: the contract's `image_copy_region` says WHERE in
+            // the image (texels, subresource, offsets) and this maps it onto the API's own structure with the
+            // row/image strides left zero - which is the API's own spelling of "the region is tightly
+            // packed", i.e. exactly extent.width texels per row and extent.height rows deep. The aspect is
+            // COLOUR: the contract's region carries no aspect, and every image this renderer copies out of
+            // is a colour one.
+            VkImageToMemoryCopy memory_copy = {};
+            memory_copy.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT;
+            memory_copy.pNext = nullptr;
+            memory_copy.pHostPointer = destination.data();
+            memory_copy.memoryRowLength = 0;
+            memory_copy.memoryImageHeight = 0;
+            // THE CONVERSIONS ARE EXPLICIT because the API's own structure is less wide here than the
+            // contract's region: `mipLevel` and the offsets are `int32_t` in Vulkan and `uint32_t` in the
+            // region. A braced initializer would refuse the narrowing outright (-Wc++11-narrowing), which is
+            // the compiler asking for the cast - and a region whose values do not fit is a caller bug the
+            // backend cannot repair.
+            memory_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            memory_copy.imageSubresource.mipLevel = static_cast<std::int32_t>(region.mip_level);
+            memory_copy.imageSubresource.baseArrayLayer = region.base_array_layer;
+            memory_copy.imageSubresource.layerCount = region.array_layer_count;
+            memory_copy.imageOffset = {static_cast<std::int32_t>(region.offset_x),
+                                       static_cast<std::int32_t>(region.offset_y),
+                                       static_cast<std::int32_t>(region.offset_z)};
+            memory_copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
+            VkCopyImageToMemoryInfo copy_info = {};
+            copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT;
+            copy_info.pNext = nullptr;
+            copy_info.flags = 0;
+            copy_info.srcImage = source;
+            // GENERAL, AND THAT IS THIS RENDERER'S OWN CONVENTION rather than a choice made here: every image
+            // it creates is kept in GENERAL (the heap-native shaders index the grid directly), and the
+            // device's host-copy source layouts list GENERAL among what it can read from - which is exactly
+            // what `host_image_copy_available` verifies at startup.
+            copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            copy_info.regionCount = 1;
+            copy_info.pRegions = &memory_copy;
+            return generic_error(self.copy_image_to_memory(self.logical_device, &copy_info));
+        }
+    } // namespace
+
     rhi::error core::frame_host_copy::copy_image_to_memory(rhi::image const& source, std::span<std::byte> destination,
                                                            rhi::image_copy_region const& region) noexcept {
         core* const self = this->owner;
@@ -3185,9 +3260,10 @@ namespace deren::vulkan {
             return rhi::error::unsupported;
         }
         // ONLY AN IMAGE THIS BACKEND CREATED, which is the contract's precondition for every borrowed
-        // native handle. The frame image (a BORROWED view) is deliberately NOT served here: a host copy
-        // out of the presentation image is not what this ability is for today, and reinterpreting the
-        // borrowed object as an owned one is the bug the escape's pointer-identity tests exist to avoid.
+        // native handle. The frame image (a BORROWED view) is NOT served HERE, and that is deliberate: this
+        // ability's contract is "an image a caller made", and reinterpreting the borrowed object as an owned
+        // one is the bug the escape's pointer-identity tests exist to avoid. The FRAME image has its own
+        // spelling now (`frame_image_slot::get_content()`), so nothing is lost by keeping this refusal.
         if (static_cast<void const*>(&source) == static_cast<void const*>(&self->frame_image_view)) {
             return rhi::error::invalid_argument;
         }
@@ -3195,44 +3271,65 @@ namespace deren::vulkan {
         if (owned->native_handle == VK_NULL_HANDLE) {
             return rhi::error::invalid_argument;
         }
-        // THE REGION IS THE CALLER'S, TIGHTLY PACKED: the contract's `image_copy_region` says WHERE in
-        // the image (texels, subresource, offsets) and this maps it onto the API's own structure with the
-        // row/image strides left zero - which is the API's own spelling of "the region is tightly
-        // packed", i.e. exactly extent.width texels per row and extent.height rows deep. The aspect is
-        // COLOUR: the contract's region carries no aspect, and the image this renderer copies out of (a
-        // probe's colour target) is a colour attachment.
-        VkImageToMemoryCopy memory_copy = {};
-        memory_copy.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT;
-        memory_copy.pNext = nullptr;
-        memory_copy.pHostPointer = destination.data();
-        memory_copy.memoryRowLength = 0;
-        memory_copy.memoryImageHeight = 0;
-        // THE CONVERSIONS ARE EXPLICIT because the API's own structure is less wide here than the
-        // contract's region: `mipLevel` and the offsets are `int32_t` in Vulkan and `uint32_t` in the
-        // region. A braced initializer would refuse the narrowing outright (-Wc++11-narrowing), which is
-        // the compiler asking for the cast - and a region whose values do not fit is a caller bug the
-        // backend cannot repair.
-        memory_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        memory_copy.imageSubresource.mipLevel = static_cast<std::int32_t>(region.mip_level);
-        memory_copy.imageSubresource.baseArrayLayer = region.base_array_layer;
-        memory_copy.imageSubresource.layerCount = region.array_layer_count;
-        memory_copy.imageOffset = {static_cast<std::int32_t>(region.offset_x),
-                                   static_cast<std::int32_t>(region.offset_y),
-                                   static_cast<std::int32_t>(region.offset_z)};
-        memory_copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
-        VkCopyImageToMemoryInfo copy_info = {};
-        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT;
-        copy_info.pNext = nullptr;
-        copy_info.flags = 0;
-        copy_info.srcImage = owned->native_handle;
-        // GENERAL, AND THAT IS THIS RENDERER'S OWN CONVENTION rather than a choice made here: every image
-        // it creates is kept in GENERAL (the heap-native shaders index the grid directly), and the
-        // device's host-copy source layouts list GENERAL among what it can read from - which is exactly
-        // what `host_image_copy_available` verifies at startup.
-        copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        copy_info.regionCount = 1;
-        copy_info.pRegions = &memory_copy;
-        return generic_error(self->copy_image_to_memory(self->logical_device, &copy_info));
+        return host_copy_image_out(*self, owned->native_handle, destination, region);
+    }
+
+    // ---- image::get_content (abi 25): THE CONTENT, NOT A HANDLE --------------------------------------
+    std::expected<rhi::image_content, rhi::error> core::owned_image::get_content(rhi::image_copy_region const& region) const {
+        core* const self = this->owner;
+        if (self == nullptr || this->native_handle == VK_NULL_HANDLE) {
+            return std::unexpected(rhi::error::invalid_argument);
+        }
+        // THE IMAGE MUST HAVE BEEN MADE FOR HOST TRANSFER: the contract's `image_flag::host_transfer`, which
+        // the descriptor declared and this backend kept in `declared_flags`. An image without it is refused by
+        // nature (VUID-vkCopyImageToMemoryEXT-srcImage-09460), so the answer is a NAMED error, not the call.
+        if (!rhi::has_flag(this->declared_flags, rhi::image_flag::host_transfer) || !self->host_image_copy_available) {
+            return std::unexpected(rhi::error::unsupported);
+        }
+        // The region: what the caller asked for, or the whole mip 0 of every layer.
+        rhi::image_extent const whole{this->width, this->height, 1u};
+        bool const whole_image = region.extent.width == 0u || region.extent.height == 0u;
+        rhi::image_extent const extent = whole_image ? whole : region.extent;
+        rhi::image_copy_region const asked = whole_image
+                                                 ? rhi::image_copy_region{.extent = whole, .array_layer_count = this->array_layers}
+                                                 : region;
+        std::uint32_t const bpp = rhi::bytes_per_pixel(this->declared_format);
+        if (bpp == 0u) {
+            // A format with no host spelling here (a depth ROLE, `unknown`): the caller would not be able to
+            // unpack what it received, so the honest answer is the refusal.
+            return std::unexpected(rhi::error::unsupported);
+        }
+        std::size_t const texels = static_cast<std::size_t>(extent.width) * extent.height * extent.depth * asked.array_layer_count;
+        rhi::image_content content{};
+        content.extent = extent;
+        content.bytes_per_pixel = bpp;
+        content.bytes.resize(texels * bpp);
+        rhi::error const copied = host_copy_image_out(*self, this->native_handle, std::span<std::byte>(content.bytes), asked);
+        if (copied != rhi::error::ok) {
+            return std::unexpected(copied);
+        }
+        return content;
+    }
+
+    // ---- the FRAME image's content (abi 25): REFUSED, WITH THE MEASURED REASON ------------------------
+    //
+    // A swapchain image can only be host-copied when the surface listed `VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT`
+    // - the swapchain's usage has to be a subset of the surface's `supportedUsageFlags`
+    // (VUID-VkSwapchainCreateInfoKHR-imageUsage-01276) - and the swapchain here does not include that bit. On
+    // every surface this renderer has been run on the bit is ABSENT (the constructor logs the fact, and
+    // docs/host_image_copy.md records why the screenshot's read-back is the recorded copy command instead).
+    //
+    // SO THIS ANSWERS `unsupported` RATHER THAN FAKING IT, and the day a surface lists the bit the honest fix
+    // is two lines in the constructor (add the usage bit, remember the answer) plus the body below - the
+    // refusal is a MEASURED property of the surface, not a gap in this backend. A caller that wants pixels on
+    // such a surface reads an image this backend created (`image_flag::host_transfer`), which is what the
+    // probes do.
+    std::expected<rhi::image_content, rhi::error> core::frame_image_slot::get_content(rhi::image_copy_region const& region) const {
+        static_cast<void>(region);
+        if (this->owner == nullptr) {
+            return std::unexpected(rhi::error::invalid_argument);
+        }
+        return std::unexpected(rhi::error::unsupported);
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {

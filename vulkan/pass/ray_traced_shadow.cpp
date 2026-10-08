@@ -100,27 +100,25 @@ namespace deren::vulkan::pass {
         //      group handles are per-pipeline data, and the STRIDE is a property of the device rather than a
         //      constant. Here a handle is 32 bytes while a region's address must be 64-byte aligned, so using the
         //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit.
-        //      THE DEVICE TRAVELS AS `api_basis` (abi 22), the contract's tagged, interface-free token: both facts
-        //      below are ALLOCATED ENTRY POINTS rather than objects, so they go through the escape - and the pass
-        //      never names a `VkDevice` at all. `pass::device_basis` is the token, `pass::device_proc` resolves an
-        //      entry point, `pass::shader_group_handles` asks the device for the SBT's own handles.
+        //      THE DEVICE TRAVELS AS `api_basis` (abi 22), the contract's tagged, interface-free token: the fact
+        //      below is a DEVICE QUERY rather than an object, so it goes through the escape - and the pass never
+        //      names a `VkDevice` at all. `pass::device_basis` is the token and `pass::shader_group_handles` asks
+        //      the device for the SBT's own handles. (THE LAUNCH IS NO LONGER ONE OF THESE - abi 24 made it
+        //      `command_buffer::trace_rays`, and the backend owns the `vkCmdTraceRaysKHR` pointer, which is why
+        //      this file resolves no entry point and includes no Vulkan header.)
         deren::promise::rhi::api_basis* const basis = pass::device_basis(context.face);
         if (basis == nullptr) {
             deren::utility::log("ray-traced shadows unavailable: the face publishes no basis to resolve the trace entry points on");
             this->release_owned();
             return;
         }
-        // The LAUNCH entry point is resolved here and kept as a function pointer (it is what `record` calls);
-        // the group-handle query is asked where it is used, through the same basis.
-        this->trace_rays_fn = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(pass::device_proc(context.face, *basis, "vkCmdTraceRaysKHR"));
-        if (this->trace_rays_fn == nullptr) {
-            deren::utility::log("ray-traced shadows unavailable: the device did not publish the traceRays entry points");
-            this->release_owned();
-            return;
-        }
-        uint32_t const handle_size = context.ray_tracing_properties.shaderGroupHandleSize;
-        uint32_t const handle_alignment = context.ray_tracing_properties.shaderGroupHandleAlignment;
-        uint32_t const base_alignment = context.ray_tracing_properties.shaderGroupBaseAlignment;
+        // The LAUNCH ENTRY POINT IS NO LONGER RESOLVED HERE (abi 24): the recording face owns it
+        // (`command_buffer::trace_rays`, implemented against the entry point the BACKEND resolved once at
+        // startup), so `record` calls the contract verb and this create() has nothing to keep. The group-handle
+        // query is still asked through the basis, where it is used.
+        uint32_t const handle_size = context.ray_tracing_properties.handle_size;
+        uint32_t const handle_alignment = context.ray_tracing_properties.handle_alignment;
+        uint32_t const base_alignment = context.ray_tracing_properties.base_alignment;
         if (handle_size == 0 || handle_alignment == 0 || base_alignment == 0 || context.create_upload_buffer == nullptr) {
             deren::utility::log("ray-traced shadows unavailable: this device published no shader binding table numbers to build one against");
             this->release_owned();
@@ -144,14 +142,21 @@ namespace deren::vulkan::pass {
         for (uint32_t group = 0; group < group_count; ++group) {
             std::memcpy(table.data() + static_cast<size_t>(group) * region_size, handles.data() + static_cast<size_t>(group) * handle_size, handle_size);
         }
-        VkDeviceAddress address = 0;
-        VkBuffer const table_buffer = context.create_upload_buffer(context.owner, table.data(), static_cast<uint64_t>(table.size()), VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR, &address);
-        if (table_buffer == VK_NULL_HANDLE || address == 0) {
+        uint64_t address = 0;
+        // THE TABLE IS BUILT THROUGH THE CONTRACT NOW (abi 24): the hook takes the contract's `buffer_flags`
+        // (a shader binding table asks for `shader_binding_table`), answers the contract handle the OWNER keeps
+        // alive, and writes the device address through the out-parameter - so this file names no Vulkan type for
+        // any of it, which is why it no longer includes a Vulkan header at all.
+        deren::promise::rhi::buffer* const table_buffer = context.create_upload_buffer(context.owner, table.data(), static_cast<uint64_t>(table.size()),
+                                                                                       deren::promise::rhi::buffer_flags{deren::promise::rhi::to_bits(
+                                                                                           deren::promise::rhi::buffer_flag::shader_binding_table)},
+                                                                                       &address);
+        if (table_buffer == nullptr || address == 0) {
             deren::utility::log("ray-traced shadows unavailable: the shader binding table buffer could not be created");
             this->release_owned();
             return;
         }
-        auto const region = [region_size](VkDeviceAddress const at) { return rhi::shader_binding_table_region{.address = at, .size = region_size, .stride = region_size}; };
+        auto const region = [region_size](uint64_t const at) { return rhi::shader_binding_table_region{.address = at, .size = region_size, .stride = region_size}; };
         this->raygen_region = region(address);
         this->miss_region = region(address + region_size);
         this->hit_region = region(address + 2u * region_size);
@@ -165,31 +170,6 @@ namespace deren::vulkan::pass {
         // belongs to the acceleration structures' own lifetime (the renderer rebuilds both together), and its
         // pipeline does not depend on the surface's format or size - so the generation change is not its event.
         // The one-shot log line stays set, because "this pass traces rays" does not become untrue on a resize.
-    }
-
-    void rt_shadow_pass::trace_rays(deren::promise::rhi::command_buffer& commands, deren::promise::rhi::shader_binding_table_region const& raygen,
-                                    deren::promise::rhi::shader_binding_table_region const& miss, deren::promise::rhi::shader_binding_table_region const& hit,
-                                    deren::promise::rhi::shader_binding_table_region const& callable, uint32_t const width, uint32_t const height,
-                                    uint32_t const depth) noexcept {
-        // THE PASS'S OWN RAW ENTRY POINT, reached through the contract's own escape (`pass::native_commands`):
-        // `vkCmdTraceRaysKHR` is an ALLOCATED ENTRY POINT, and the contract's `ray_tracing::trace_rays` verb -
-        // which now takes exactly these four regions (see `shader_binding_table_region`) - is DECLARED but NOT
-        // SERVED: this backend does not announce the ability (`core::abilities` says so, and a set bit is a
-        // promise about service). So the launch stays raw, and the ONE conversion from the contract's region to
-        // the driver's structure happens here, field for field. A face that answers no native command buffer
-        // records nothing rather than mis-casting a foreign pointer.
-        VkCommandBuffer const native = pass::native_commands(this->built_against, commands);
-        if (native == VK_NULL_HANDLE || this->trace_rays_fn == nullptr) {
-            return;
-        }
-        auto const as_native = [](deren::promise::rhi::shader_binding_table_region const& region) {
-            return VkStridedDeviceAddressRegionKHR{.deviceAddress = region.address, .stride = region.stride, .size = region.size};
-        };
-        VkStridedDeviceAddressRegionKHR const native_raygen = as_native(raygen);
-        VkStridedDeviceAddressRegionKHR const native_miss = as_native(miss);
-        VkStridedDeviceAddressRegionKHR const native_hit = as_native(hit);
-        VkStridedDeviceAddressRegionKHR const native_callable = as_native(callable);
-        this->trace_rays_fn(native, &native_raygen, &native_miss, &native_hit, &native_callable, width, height, depth);
     }
 
     void rt_shadow_pass::record(resolved_io const& io) {
@@ -236,7 +216,7 @@ namespace deren::vulkan::pass {
         // compute form got from its dispatch and its bounds check. The launch itself is the pass's wrapper: the
         // contract buffer in, the native entry point out of the escape (see `trace_rays` above), and the REGIONS
         // are the contract's own type now (see the members).
-        this->trace_rays(*io.cmd, this->raygen_region, this->miss_region, this->hit_region, this->callable_region, io.extent.width, io.extent.height, 1);
+        io.list->trace_rays(this->raygen_region, this->miss_region, this->hit_region, this->callable_region, io.extent.width, io.extent.height, 1);
 
         // ... and the hand-off to the lighting stage, with the SAME hint and for the SAME reason: the recipe
         // (shader_write, shader_read) is `general_to_sampling_transition`, and its SOURCE stage is the

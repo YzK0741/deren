@@ -325,7 +325,7 @@ namespace deren::vulkan {
             return contract_heap_properties(face).max_push_data;
         }
 
-        VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_of(rhi::api_core& face) noexcept {
+        deren::promise::rhi::shader_binding_table_properties ray_tracing_properties_of(rhi::api_core& face) noexcept {
             // THE SHADER-BINDING-TABLE NUMBERS: the alignment facts a pass cannot query itself (it has no
             // physical device), read off the same chain `VkPhysicalDeviceProperties2` carries. Zeroed on a
             // device without the extension - which the pass reads as "build no table".
@@ -333,13 +333,18 @@ namespace deren::vulkan {
             // whose type is written by hand is the bug class where `= {}` leaves sType ZERO - and zero IS
             // VK_STRUCTURE_TYPE_APPLICATION_INFO (see constant_init's device-query section, and the note's
             // section 7 trap 8).
+            // WHAT COMES BACK IS THE CONTRACT'S THREE NUMBERS (abi 24), not the Vulkan structure the query fills:
+            // this runtime is where the Vulkan query belongs, and a pass that receives the result has no business
+            // naming `VkPhysicalDeviceRayTracingPipelinePropertiesKHR` to read three integers out of it.
             VkPhysicalDeviceRayTracingPipelinePropertiesKHR properties = deren::vulkan::make_ray_tracing_pipeline_properties();
             VkPhysicalDeviceProperties2 query = deren::vulkan::make_properties_2(&properties);
             VkPhysicalDevice const physical = native_physical_device_of(face);
             if (physical != VK_NULL_HANDLE) {
                 vkGetPhysicalDeviceProperties2(physical, &query);
             }
-            return properties;
+            return deren::promise::rhi::shader_binding_table_properties{.handle_size = properties.shaderGroupHandleSize,
+                                                                        .handle_alignment = properties.shaderGroupHandleAlignment,
+                                                                        .base_alignment = properties.shaderGroupBaseAlignment};
         }
 
         bool ray_query_available_of(rhi::api_core& face) noexcept {

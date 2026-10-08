@@ -718,6 +718,12 @@ namespace deren::vulkan {
             this->mesh_dispatch_indirect = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
         }
 
+        // ---- THE RAY-TRACING LAUNCH: the same rule and the same shape as the mesh commands above. It is the
+        //      extension entry point the recording face's `command_buffer::trace_rays` records through (abi 24),
+        //      and it is resolved ONCE here rather than per launch - so a device without the ray-tracing pipeline
+        //      extension answers null and the verb records nothing (see the member's own note).
+        this->ray_trace_launch = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(device, "vkCmdTraceRaysKHR"));
+
         // ---- HOST IMAGE COPY: the same shape as the mesh commands above (extension entry points fetched
         //      through vkGetDeviceProcAddr, because the loader's import library does not export them) - and
         //      the OPPOSITE POLICY: VK_EXT_host_image_copy is required, so a name that does not resolve is a

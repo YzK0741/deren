@@ -323,6 +323,11 @@ namespace deren::vulkan {
             void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
             void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept override;
             [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
+            /// abi 24: the ray-tracing LAUNCH, through the entry point resolved once at startup
+            /// (`core::ray_trace_launch`). It records nothing when the device published no `vkCmdTraceRaysKHR`.
+            void trace_rays(deren::promise::rhi::shader_binding_table_region const& raygen, deren::promise::rhi::shader_binding_table_region const& miss,
+                            deren::promise::rhi::shader_binding_table_region const& hit, deren::promise::rhi::shader_binding_table_region const& callable,
+                            std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept override;
             void set_viewport(deren::promise::rhi::viewport const& vp) noexcept override;
             void set_scissor(deren::promise::rhi::rect const& scissor) noexcept override;
             void set_cull_mode(deren::promise::rhi::cull_mode mode) noexcept override;
@@ -385,6 +390,12 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::image_view* make_view(deren::promise::rhi::image_view_desc const& desc) override;
             /// BORROWED: logs once and drops no reference (see the note above)
             void release() noexcept override;
+            /// abi 25's read-back on a BORROWED view: a swapchain image can only be host-copied when the
+            /// surface listed `HOST_TRANSFER` in its `supportedUsageFlags`, which this one does not (measured
+            /// and logged at swapchain creation) - so this answers the contract's named `unsupported` rather
+            /// than faking content. A caller that wants pixels reads an image this backend CREATED.
+            [[nodiscard]] std::expected<deren::promise::rhi::image_content, deren::promise::rhi::error> get_content(
+                deren::promise::rhi::image_copy_region const& region) const override;
             /// the raw handle the backend's own recording needs (never carried across the boundary)
             [[nodiscard]] VkImage handle() const noexcept;
         };
@@ -540,6 +551,13 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_view* make_view(deren::promise::rhi::image_view_desc const& desc) override;
+            /// abi 25's read-back: the image's CONTENT in host memory, performed by the IMPLEMENTATION
+            /// (`vkCopyImageToMemoryEXT`) - no staging buffer, no copy command, no submission. It refuses with
+            /// the contract's named `unsupported` when the descriptor did not declare
+            /// `image_flag::host_transfer` (the API requires the bit on the source) or the device's host-copy
+            /// ability is absent, and with `invalid_argument` when this is not an owned image.
+            [[nodiscard]] std::expected<deren::promise::rhi::image_content, deren::promise::rhi::error> get_content(
+                deren::promise::rhi::image_copy_region const& region) const override;
             /// give the reference back: `delete this`, whose destructor resets `owned`
             void release() noexcept override;
         };
@@ -654,7 +672,10 @@ namespace deren::vulkan {
             /// token's TAG (`core::owns_basis`) before reading this core's device - this build is `-fno-rtti`,
             /// so a foreign token is refused rather than cast (see `api_basis`).
             [[nodiscard]] deren::promise::rhi::api_basis* get_basis() const noexcept override;
-            [[nodiscard]] void* device_proc(deren::promise::rhi::api_basis& basis, char const* name) const noexcept override;
+            // `device_proc` STOOD HERE (abi 22) AND IS GONE IN ABI 24: its last caller was the ray-tracing launch,
+            // which is the recording face's verb now - so the BACKEND resolves `vkCmdTraceRaysKHR` once at startup
+            // (`core::ray_trace_launch`) and nothing asks a device for an entry point through a basis any more.
+            // `shader_group_handles` below is what keeps the basis's reason to exist.
             [[nodiscard]] bool shader_group_handles(deren::promise::rhi::api_basis& basis, deren::promise::rhi::pipeline const& resource, std::uint32_t first_group,
                                                     std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept override;
         };
@@ -811,6 +832,13 @@ namespace deren::vulkan {
         /// the seam a COMPUTE culling pass needs - the counts are then decided on the GPU, after culling, rather
         /// than by the host that recorded the draw (see runtime::draw_mesh_tasks_indirect)
         PFN_vkCmdDrawMeshTasksIndirectEXT mesh_dispatch_indirect = nullptr;
+        /// `vkCmdTraceRaysKHR`, THE SAME SHAPE AS THE MESH COMMANDS (abi 24): the ray-tracing launch is an
+        /// extension entry point the loader's import library does not export, so it is resolved once here and is
+        /// null on a device without the ray-tracing pipeline extension. `frame_commands::trace_rays` is the
+        /// recording face's verb (a launch is an ordered recording command like `draw`/`dispatch`/
+        /// `draw_mesh_tasks`), and it records NOTHING where this is null - a pass that launches rays is only built
+        /// when its pipeline could be created, which needs that extension.
+        PFN_vkCmdTraceRaysKHR ray_trace_launch = nullptr;
         /// VK_EXT_host_image_copy (REQUIRED - see host_image_copy_available below): the copy between an
         /// image and HOST memory that the IMPLEMENTATION performs - no command buffer, no staging buffer,
         /// no submission. Resolved through vkGetDeviceProcAddr like the mesh commands above, because the

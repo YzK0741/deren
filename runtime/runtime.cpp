@@ -1604,11 +1604,13 @@ namespace deren::vulkan {
     }
 
     void runtime::structure_record_mask_bake(void* const owner, VkCommandBuffer const command_buffer, pass::mask_bake_request const& request) {
-        // THE HOOK IS HANDED THE FRAME'S OWN PRIMARY (the frame loop calls `structures.build(command_buffer, ...)`
-        // with this frame's native handle), and the bake records through the CONTRACT now. The contract handle for
-        // that same buffer is this frame's borrowed `frame_command_buffer()`, and the pair is CHECKED rather than
-        // assumed: a hook called with a buffer that is not this frame's primary would record the bake somewhere the
-        // structure build is not - the one failure this association exists to prevent.
+        // THE HOOK'S OPERAND IS THE FRAME'S NATIVE PRIMARY, AND THAT IS STILL THE SEAM (abi 24 changed the ROUTE
+        // it arrives by, not the fact): the frame loop calls `structures.build(*frame_command_buffer(), ...)`
+        // with the CONTRACT buffer, and `structure_set::build` derives the native handle once for its allocated
+        // build entry points - the same handle this hook is then called with. The bake itself records through the
+        // CONTRACT, so the contract handle is this frame's borrowed `frame_command_buffer()`, and the pair is
+        // CHECKED rather than assumed: a hook called with a buffer that is not this frame's primary would record
+        // the bake somewhere the structure build is not - the one failure this association exists to prevent.
         runtime& self = *static_cast<runtime*>(owner);
         std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
         if (!commands || self.native_frame_commands(commands) != command_buffer) {

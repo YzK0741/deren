@@ -169,6 +169,11 @@ namespace {
         [[nodiscard]] rhi::error draw_mesh_tasks_indirect(rhi::buffer const&, std::uint64_t, std::uint32_t, std::uint32_t) override {
             return rhi::error::invalid_argument;
         }
+        // abi 24: the recording face's ray-tracing LAUNCH. A fake backend records nothing; the real one calls the
+        // entry point it resolved at startup.
+        void trace_rays(rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&, rhi::shader_binding_table_region const&,
+                        std::uint32_t, std::uint32_t, std::uint32_t) noexcept override {
+        }
         void set_viewport(rhi::viewport const&) noexcept override {
         }
         void set_scissor(rhi::rect const&) noexcept override {

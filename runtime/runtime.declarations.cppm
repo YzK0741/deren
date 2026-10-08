@@ -184,7 +184,7 @@ namespace deren::vulkan {
         export void verify_contract_version(rhi::api_core const& core) noexcept;
         [[nodiscard]] VkPhysicalDeviceProperties physical_properties_of(rhi::api_core& face) noexcept;
         [[nodiscard]] std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept;
-        [[nodiscard]] VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_of(rhi::api_core& face) noexcept;
+        [[nodiscard]] deren::promise::rhi::shader_binding_table_properties ray_tracing_properties_of(rhi::api_core& face) noexcept;
         [[nodiscard]] bool ray_query_available_of(rhi::api_core& face) noexcept;
         [[nodiscard]] bool mesh_shader_available_of(rhi::api_core& face) noexcept;
     } // namespace runtime_detail

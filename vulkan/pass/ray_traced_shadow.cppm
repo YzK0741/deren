@@ -108,7 +108,6 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.ray_traced_shadow;
 import deren.promise.rhi;
@@ -183,25 +182,6 @@ export namespace deren::vulkan::pass {
             .resync_viewport = false,
         };
         void release_owned() noexcept;
-        /**
-         * @brief the traceRays LAUNCH, through the contract buffer (recording face, migration recipe §1.4)
-         *
-         * THE CONTRACT NOW HAS THE VERB, AND THE BACKEND DOES NOT SERVE IT. `ray_tracing::trace_rays` takes
-         * exactly the four `shader_binding_table_region`s this wrapper passes (that is the shape this batch gave
-         * it - the previous one, `commands, width, height, depth`, could not describe a launch at all), but this
-         * backend does not ANNOUNCE the `ray_tracing` ability: a set bit is a promise about service, and its other
-         * three verbs (create/build/address of an acceleration structure) are served by the engine's own
-         * `vulkan/ray_tracing` module through the escape today. So the launch stays raw - the one site in this
-         * pass that names a native handle - and the reason belongs here rather than in a note: the day the
-         * ability is served, this wrapper becomes one call and `pass::native_commands` loses its last user.
-         *
-         * The native handle comes from `pass::native_commands` (the contract's own documented answer), which
-         * answers null on a face without one - and then nothing is recorded rather than a foreign pointer
-         * mis-cast.
-         */
-        void trace_rays(deren::promise::rhi::command_buffer& commands, deren::promise::rhi::shader_binding_table_region const& raygen,
-                        deren::promise::rhi::shader_binding_table_region const& miss, deren::promise::rhi::shader_binding_table_region const& hit,
-                        deren::promise::rhi::shader_binding_table_region const& callable, uint32_t width, uint32_t height, uint32_t depth) noexcept;
         deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
@@ -213,10 +193,10 @@ export namespace deren::vulkan::pass {
         // THEY ARE THE CONTRACT'S TYPE NOW (`rhi::shader_binding_table_region`): the three numbers are a DEVICE
         // RANGE, not a driver structure, so a pass's own state has no business naming a Vulkan type for them - and
         // the type is general enough for any backend's launch.
-        /// the traceRays entry point, loaded through vkGetDeviceProcAddr at create time (an extension command
-        /// is not exported by the loader's import library - see the acceleration-structure module's note); the
-        /// `trace_rays` wrapper below is the only caller, so no recording site names this pointer
-        PFN_vkCmdTraceRaysKHR trace_rays_fn = nullptr;
+        //
+        // NO ENTRY POINT IS KEPT HERE ANY MORE (abi 24): `record` calls `command_buffer::trace_rays`, and the
+        // backend owns the `vkCmdTraceRaysKHR` pointer it resolved once at startup. The pass therefore names no
+        // native handle for the launch at all.
         deren::promise::rhi::shader_binding_table_region raygen_region = {};
         deren::promise::rhi::shader_binding_table_region miss_region = {};
         deren::promise::rhi::shader_binding_table_region hit_region = {};
