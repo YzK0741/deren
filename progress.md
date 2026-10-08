@@ -1,7 +1,7 @@
 # progress.md — 原生句柄退出（图形 API 走 RHI）进展
 
-> 记录时间：本轮会话结束时。
-> **一句话现状：引擎半边已经**一个 Vulkan 符号都不引用**（P-Nm = 0），只剩两件事——① `deren.exe` 仍导入 `vulkan-1.dll`（GUI 插件化做到一半，**当前树不构建**）；② 引擎源码仍有 34 个文件命名 Vulkan 词汇。**
+> 更新日期：2026-10-08（接手后）。
+> **最新核验：GUI 插件化 X2 完成；P-Import = 0、P-Nm = 0，P-Census 剩 25 个引擎文件。当前工作区的 TLAS 描述符映射已通过严格 RT 验收：GPU 命中/未命中/实例掩码及两帧槽正确，Sponza 40 帧、验证层干净并生成截图。下文旧的 RT 失败记录属于映射修正前。**
 > 计划与验收定义在 [`docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md`](docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md)，逐批的详细记录在 [`docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md`](docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md)。
 
 ---
@@ -12,9 +12,9 @@
 
 | 判据 | 检查 | 现状 |
 |---|---|---|
-| **P-Import** | `objdump -p deren.exe` 不出现 `vulkan-1.dll` | ❌ 仍有（X2 差最后一步） |
+| **P-Import** | `objdump -p deren.exe` 不出现 `vulkan-1.dll` | ✅ **0**，也不静态导入 GUI 插件 |
 | **P-Nm** | `llvm-nm` 扫 `vulkancorekit` 的对象无未解析 `vk*` | ✅ **0** |
-| **P-Census** | 引擎源码不出现 `Vk*`/`VK_*`/`vk*`/`escape()->native_*`/`#include <vulkan/` | ⚠️ 34 个文件（X5） |
+| **P-Census** | 引擎源码不出现 `Vk*`/`VK_*`/`vk*`/`escape()->native_*`/`#include <vulkan/` | ⚠️ **25** 个文件（X5；插件已排除） |
 
 门禁脚本：`python scripts/check_native_boundary.py`（`--require-zero` 变失败门禁）。
 
@@ -43,7 +43,7 @@
 
 ---
 
-## 2. 当前状态（重要：树不构建）
+## 2. 上轮交接检查点（已解除；最新状态见 §2.1）
 
 **唯一失败**：`chores.cpp` 的 **41 处** `deren::vulkan::gui::*`（旧模块的 `debug_panel`/`label_widget`/`checkbox_widget`/`slider_widget`/`combo_widget` 与 `->visible_when`）。GUI 模块已经搬进 `deren_gui_vulkan.dll`，运行时不再 `import` 它，所以 app 侧必须改走**边界接口**。
 
@@ -68,22 +68,79 @@ panel.add_vec3(S, V, speed);  panel.add_combo(S, items, &index, on_change);
 
 ---
 
+## 2.1 接手后已完成（2026-10-08，工作区改动尚未提交）
+
+- `chores.cpp` 的 **52 个控件构造点**全部迁到 `panel.add_*` / `set_visible_when`，边界头位于全局模块片段，路径是 `promise/gui/gui_entry.hpp`。转换按配对括号扫描，并在原 `push_back` 位置生成调用，保持控件顺序、回调和显隐条件。
+- 修复 DLL 入口遗漏的 `overlay->init(*info)`。新增 `test_gui_plugin`：错误 ABI、空描述、错误 API、缺少窗口；修复前 6 checks / 2 failed，修复后 **6/0**。
+- 修复插件私有 GLFW 副本未初始化：插件管理自己的 `glfwInit` / `glfwTerminate`，清理幂等。仅入口初始化成功仍会出现“零缩放、无面板”；现在缩放 **1.50**，已目视确认面板。
+- 新增 `scripts/windows/check_gui.ps1`：GUI 开关各 40 帧、验证层干净、图像必须不同，避免“日志成功但没有实际绘制”的假绿。已通过。
+- 门禁从 CMake 的 `deren_gui_vulkan` 源列表排除插件源；新增真实临时源码树回归测试，仍检出引擎中的 `VkDevice`。该测试随既有 CTest 边界组一起运行。
+- 更新边界探针的 X4 陈旧断言：自有 primary 完成录制后可以独立提交，并等待设备空闲再释放资源；不再用未录制的命令缓冲测试旧的拒绝行为。接口注释同步描述该约定。
+- **RT 额外发现与修复**：MASK 烘焙输出的 `index_address == 0` 表示无索引，后端此前仍使用索引格式。现在转换成 `VK_INDEX_TYPE_NONE_KHR`，`VUID-vkCmdBuildAccelerationStructuresKHR-pInfos-03806` 消失。
+- **RT 仍未验收**：Sponza / 1080×960 / 40 帧请求在提交时返回 `device_lost`（error 11），无截图。修复前归档日志也有该失败；关闭 MASK/蒙皮烘焙的同场景对照仍失败。此轮测得约 5 GB 空闲内存，不能仅凭上轮的低内存结论归因。新增 `scripts/windows/check_rt.ps1` 严格拒绝提交失败、验证错误和无截图。
+
+验证：完整构建通过；ctest **19/19**（边界组包含 41 个 Python 用例）；冻结 render **14/14**；GUI **6/0 + 开关截图验证通过**；backend spike **95/0**（含自有 primary 提交）；runtime_dyn **10/0**；AS **42/0**；文档 **224/0**；格式检查与动态后端边界门禁通过。RT **未通过**。ABI 保持 RHI 27 / GUI 1。
+
+## 2.2 X5 首批：共享采样器与死依赖（2026-10-08）
+
+分批方案见 [`docs/rhi/X5_NATIVE_VOCABULARY_PLAN.md`](docs/rhi/X5_NATIVE_VOCABULARY_PLAN.md)。按“共享采样器 → 资源发布 → 语义值 → escape 入口 → 无 Vulkan 编译/运行证明”的顺序推进，每批保持资源所有权与画面。
+
+- 共享采样器表的六个字段和 `of()` 改为借用 `rhi::sampler*`。运行时直接发布已有契约对象，删除该路径的 `vulkan_escape::native_sampler()`。资源仍由原来的 `object_manager` 持有。
+- 删除没有生产调用者的 `deren.vulkan.bindings` 枚举映射模块、构建条目和 runtime 导入；移除仅验证旧 Vulkan 映射的测试。
+- `compute_skin.cppm`、`mask_bake.cppm`、`mask_bake.cpp`、`ray_traced_shadow.cpp` 去掉残留 Vulkan 头。
+- 新测试用真实的 fake RHI sampler 对象验证身份、空 hint、未发布 hint、未知 hint，并静态检查返回类型。旧实现编译时因 `VkSampler*` 与 RHI 指针不符而失败；迁移后 `test_pass` **169/0**。
+- 完整构建、CTest **19/19**、冻结渲染 **14/14 逐像素一致**、格式检查和动态边界门禁通过；P-Census **31 → 25**、P-Nm / P-Import **0**。独立只读审查未发现首批范围内的缺陷。RHI ABI 保持 **27**。
+
+RT 的 device_lost 仍未解决。本批不代表 X5 整体完成。
+
+### 2.3 RT：与迁移前加速结构对照
+
+历史对照结论已纠正：无 RHI 的 `c245102`（`26a3190^`）、早期静态 RHI 的 `f188b2c`、`7af1018` 和 `9e7eb3b` 虽完成 40 帧，但图像描述符在堆创建前写入而被跳过，raygen 在 `GetDimensions` 后提前返回，不能证明执行了 GPU 射线遍历。给隔离的 `c245102` 仅补齐已有 RT visibility、G-buffer depth/normal 图像的描述符发布后，原生 `vkQueueSubmit` 返回 **VK_ERROR_DEVICE_LOST (-4)**。因此撤回此前的 RHI/DLL/资源迁移回归区间；`874675d` 是实际遍历暴露点，不能视为故障引入点。历史源码与当前的 RT 源码、四个 SPIR-V 一致。
+
+对照发现并修正无索引格式、OPAQUE 标志、TLAS FAST_BUILD 策略、scratch 地址对齐四处行为差异，并让可更新结构同时覆盖 build/update scratch 大小。
+
+同时修正 AS 探针的顶点字节数和 GPU 对象寿命、补上无索引几何检查，真设备 **45/0**、无验证错误。完整 RT 仍失败；临时绕过追踪、屏蔽实例等诊断修改均已撤回。详细证据见 [`RT_AS_COMPARISON.md`](docs/rhi/RT_AS_COMPARISON.md)。
+
+此前完整构建、CTest **19/19**、冻结渲染 **14/14**、格式检查和动态边界门禁通过。当前完整 RT 再验仍为提交返回 11。下一步验证同一描述符堆槽通过普通 AS shader binding 的后端映射访问是否能恢复遍历，并加强验收，防止 GPU 提前返回造成假通过。用户最新要求额度剩 **25%** 时停止并做阶段总结；不自动消耗重置额度。
+
+### 2.4 项目现状核验（2026-10-08）
+
+- 当前分支 `wip/recording-face`，HEAD `808ae15`；33 个改动路径尚未提交（含未跟踪文件）。本轮仅检查并更新进度，未修改实现。
+- 当前实现新增 RHI `acceleration_structure_heap_binding` 描述，由 Vulkan 后端映射原有 TLAS heap 槽，RT shader 经普通 AS binding 访问；GPU 探针覆盖真实遍历。
+- 本轮复跑 `check_rt.ps1` 成功：两帧 TLAS 槽的 GPU 结果均为 `1,0,0`，40 帧、1080×960、14 个 MASK caster 烘焙、验证层干净、截图生成。该结果取代本文件映射修正前的“完整 RT 未通过”结论；不据此断言驱动故障的普遍根因。
+- 本轮复跑原生边界：P-Census 25、P-Nm 0、P-Import 0；动态后端边界门禁通过。
+- 本轮 CTest 为 **18/19**：边界测试组中两个 `os.link` 用例因当前执行环境 `PermissionError / WinError 5` 失败，其他 39 个 Python 用例通过，其余 18 个 CTest 组通过。此前 19/19 为历史记录。本轮未重建、未复跑冻结渲染，不能将旧 14/14 当成本轮验证。
+- 下一步：同步 RT 专项及重构状态文档，完成当前映射改动的构建/格式/冻结渲染验证，并在允许硬链接的环境复核完整 CTest；之后继续 X5 资源发布和源码词汇迁移。
+- 用户要求：**剩余额度达到 25% 时停止并写阶段进度，不自动消耗重置额度**。本次查询短期剩余 33%、周额度剩余 63%；以后持续工作以最新查询为准。
+
+### 2.5 分批提交与 25% 停止报告（2026-10-08）
+
+已按用户要求完成三个本地代码提交：
+- `cd697ae9`：GUI 插件激活、私有 GLFW 生命周期、应用控件迁移、GUI 验收和边界测试；包含 X4 自有命令提交断言/注释同步。
+- `7d053bb`：X5 共享采样器改用借用 RHI 对象，删除旧 bindings 模块及残留依赖。
+- `925e666f`：TLAS heap binding 映射、AS 构建行为修正、探针资源寿命与字节数修正，以及真实 GPU 遍历验收。
+
+本轮最新验证：完整单线程构建通过，格式检查通过，允许创建硬链接的环境中 CTest **19/19**（边界 Python **41/41**），GUI 插件 **6/0** 与 GUI 开关各 40 帧验收通过，严格 RT 验收通过（GPU 探针 **75/0**、两帧槽命中/未命中/掩码结果正确、Sponza 40 帧、干净验证层、截图）。冻结画面哈希独立比较 **14/14** 一致。渲染包装脚本因沙箱重定向的本地参考目录未播种而返回 1；其生成的全部实际哈希已由 `compare_render_hashes.py --frozen --expect 14` 验证通过，未更新基线。
+
+短期额度已用 **75%**、剩余 **25%**；周额度剩余 **62%**。已停止开发和额外验证，未使用重置额度。本报告及专项文档作为第四批收尾提交；只做本地提交，未推送或合并。
+
+下一轮优先推进 X5 的资源发布：将 `resource_handles` / `resolved_binding` 的原生字段及消费者一起迁到 RHI 对象，保持每图像/帧槽索引和生命周期；之后迁移语义值和 escape 入口，补无 Vulkan 构建及非 Vulkan 后端运行证明。当前 P-Census 25、P-Nm/P-Import 0；X5 整体尚未完成。此前 RT 失败记录是映射修正前的历史，最新验收已通过。
+
 ## 3. 剩余工作
 
 | 项 | 内容 | 判据 |
 |---|---|---|
-| **X2d** | 完成 `chores.cpp` → 断掉 `imgui`（已在 CMake 里断掉，等链接成功） | P-Import 归零；render 14/14 |
-| **X5** | 源码词汇清扫：34 个文件里的 `VkExtent2D`/`VkFormat`/`VkSampler`/`resolved_binding` raw 车道/`VkBindHeapInfoEXT`/`escape()->native_*` | P-Census 下降 |
-| **门禁 scope 补充** | `deren_gui_vulkan` 的源（GUI 模块 + `gui_dll.cpp`）现在**被 P-Census 当成"引擎文件"**计入了（它们不在 `deren_vulkan` 的源列表里）——gate 需要把插件目标的源一并排除 | 数字口径正确 |
-| **rt_shadows 冒烟** | 唯一端到端 RT 仪器；本机内存紧张时（~3.5 GB 空闲）**连 HEAD 都崩**，已用基线对照证明与代码无关 | 内存充裕时复跑确认 0 VUID |
+| **X5** | 源码词汇清扫：25 个文件里的 `VkExtent2D`/`VkFormat`/`resolved_binding` raw 车道/`VkBindHeapInfoEXT`/`escape()->native_*`；GUI 仍借原生句柄传入插件，需要后续契约化 | P-Census 归零 |
+| **P-Gate / P-Run** | 按主计划补齐无 Vulkan 包含环境的引擎构建与非 Vulkan 后端运行证明 | 真正的后端可移植性 |
+| **RT 映射修正收尾** | 严格 RT 冒烟已通过；同步专项文档并补齐当前改动的完整验证 | GPU 遍历证据 + 40 帧截图已通过；构建/格式/冻结渲染待本轮复核 |
 
 ---
 
 ## 4. 仪器：怎么验证
 
 ```powershell
-# 构建（-j 3：本机内存紧张时更稳）
-cmake --build build-release-dyn-clang64 -j 3
+# 构建（本轮 -j 3 遇到模块映射文件占用，-j 1 通过）
+cmake --build build-release-dyn-clang64 -j 1
 
 # 边界门禁（三条判据）
 python scripts/check_native_boundary.py            # 报告
@@ -94,12 +151,19 @@ objdump -p build-release-dyn-clang64/deren.exe | Select-String "DLL Name"   # P-
 ctest --test-dir build-release-dyn-clang64                       # 19/19
 cmake --build build-release-dyn-clang64 --target clang-format-check
 python scripts/check_backend_boundary.py --config dynamic --require-zero
-& build-spike-clang64\test_backend_boundary_spike.exe --with-device        # 95/0
+& build-release-dyn-clang64\test_backend_boundary_spike.exe --with-device # 95 checks，含自有 primary 提交
 & build-release-dyn-clang64\test_runtime_dyn.exe --with-device             # 10/0
 pwsh -File scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare frozen  # 14/14 像素一致
 
-# S1 加速结构探针（真设备、验证层开、小场景；42 checks）
+# S1 加速结构探针（真设备、验证层开、小场景；45 checks）
 build-release-dyn-clang64\test_acceleration_structures.exe --with-device
+
+# GUI 插件的拒绝输入 + 实际绘制（新仪器）
+build-release-dyn-clang64\test_gui_plugin.exe
+pwsh -NoProfile -File scripts/windows/check_gui.ps1 -BuildDir build-release-dyn-clang64
+
+# RT 全链路严格验收（目前失败：提交返回 device_lost）
+pwsh -NoProfile -File scripts/windows/check_rt.ps1 -BuildDir build-release-dyn-clang64
 
 # census（配对数是"数据"，改 constant_init 的配方要一起更新它 + 后端两处期望）
 python scripts/recording_face_census.py
@@ -136,9 +200,10 @@ python scripts/recording_face_census.py
 | 指标 | 本轮起点 | 现在 |
 |---|---|---|
 | 引擎对象里的 `vk*` 符号 | 7 个对象 / 23 引用 | **0** |
-| `vkCmd*` 调用点 | 5 | 3（都在已文档化的 escape 桶） |
-| 含 Vulkan 头的引擎文件 | 37 | 34（含 gate 口径问题，见 §3） |
+| `vkCmd*` 调用点（recording_face_census） | 5 | **0** |
+| P-Census 含图形 API 词汇的引擎文件 | 原交接 34 | **25**（修正插件口径后 31，X5 首批再清 6） |
 | `rhi::abi_version` | 24 | **27** |
 | GUI 边界版本 | — | `gui_abi_version = 1` |
 | `deren_gui_vulkan.dll` | — | 导出 `deren_make_gui`、导入 `vulkan-1.dll` |
-| ctest / render / spike / runtime_dyn | 19/19、14/14、95/0、10/0 | 同左（WIP 前一次全绿） |
+| ctest / render / runtime_dyn / AS / GUI probe | — | **19/19、14/14、10/0、45/0、6/0** |
+| RT 全链路 | 低内存时失败 | **仍未通过**，提交时 device_lost；无索引 VUID 已消失 |

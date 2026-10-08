@@ -1,5 +1,7 @@
 # Recording-face refactor: goals, progress, blocking state, and next steps
 
+> Latest verification (2026-10-08): the TLAS heap mapping now passes strict RT acceptance, including deterministic GPU hit/miss/mask results for both frame slots and 40 Sponza frames with clean validation and a screenshot. Earlier RED RT entries below are historical. Native census remains 25; engine Vulkan symbols and executable API imports remain zero. See `RT_AS_COMPARISON.md` and `progress.md` for current evidence.
+
 > Working note (2026-10-07). **STATUS: twelve batches have LANDED.** The build compiles, and
 > every gate in section 6 passes on this machine: build 0, `ctest` 19/19, `clang-format-check` 0, the
 > boundary gate 0 symbols, the spike 95 checks / 0 failed, `test_runtime_dyn` 10 / 0, and the render
@@ -392,7 +394,7 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | the trap this batch paid for | the boundary header declares `struct GLFWwindow;` itself, so including it INSIDE a module purview makes the module redeclare a name `<GLFW/glfw3.h>` already declared in the global module - clang refuses with "declaration of 'GLFWwindow' in module ... follows declaration in the global module". It belongs to the GLOBAL MODULE FRAGMENT, and it can sit there because it names only its own types. |
 | what is next (X2c/X2d) | the loader (`runtime/gui_loader.cppm`: `LoadLibrary` + `GetProcAddress` by `api_type`, a NAMED panic when the DLL is missing - `backend_loader`'s shape), the runtime's rewiring (its member becomes a `shared_ptr<gui::overlay>`; `record_overlay_if_enabled` passes the native command buffer as `void*` for now), `chores.cpp`'s 41 call sites onto the panel verbs, then dropping `imgui` from `vulkancorekit`/`deren` - whose gate is `objdump -p deren.exe` having NO `vulkan-1.dll`. |
 
-### 2.29 CHECKPOINT: where plan X2 stands (recorded at the user's request; the tree does NOT build yet)
+### 2.29 Historical checkpoint (superseded by 2.30; the tree did not build then)
 
 | piece | state |
 |---|---|
@@ -402,6 +404,38 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | HOW THAT STEP WAS ATTEMPTED, TWICE, AND FAILED | a script keyed on LINE ENDINGS to find where a call ends - wrong, because a statement inside a lambda ends with `);` just as the call does, so arguments were cut short and parentheses lost their balance (`chores.cpp` was restored with `git checkout --` both times). The second attempt (counting parentheses, which IS the right way) never got written to disk. **Recorded so the next attempt starts from the right algorithm: count delimiters, one transform, then let the compiler name the residuals - and keep a rollback ready.** |
 | X2d (not done) | `objdump -p deren.exe` still lists `vulkan-1.dll` (the link never happened, `chores.cpp` does not compile). The step is: finish `chores.cpp`, then verify the executable has NO `vulkan-1.dll` and does NOT import `deren_gui_vulkan.dll` either (manual import), and run the render gate + one `enable_debug_gui()` session. |
 | the two traps this step already paid for | the boundary header must be included in the GLOBAL MODULE FRAGMENT (it declares `GLFWwindow` itself and pulls standard headers in; inside a module purview clang reports "declaration ... follows declaration in the global module"); and `export module` does NOT export its members - `load_gui` needed `export`, without it `runtime.cpp` failed with "declaration of 'load_gui' must be imported from module ... before it is required". |
+
+### 2.30 X2c/X2d completed and RT acceptance revisited (2026-10-08)
+
+| Change | Evidence |
+|---|---|
+| App panel migration | 52 widget construction sites in `chores.cpp` now use `panel.add_*` and `set_visible_when`; matched delimiters preserve multiline callbacks and the old append order. The boundary header is included in the global module fragment. Full build succeeds. |
+| Plugin activation | `deren_make_gui` now calls `init` and returns empty on refusal. `test_gui_plugin` observed 6 checks / 2 failures before the fix, then 6 / 0 after it. It checks ABI mismatch, null description, unsupported API and missing window. |
+| Private GLFW lifecycle | The static GLFW copy inside the GUI image was uninitialized: content scale was 0 and no panel drew despite successful initialization logs. The adapter initializes and terminates its own copy, with idempotent shutdown. `check_gui.ps1` renders on/off for 40 frames each, rejects identical screenshots and validation findings. It passes, scale is 1.50 and the screenshot visibly contains the panel. |
+| Native boundary | P-Import = 0, P-Nm = 0. The executable also has no static GUI-plugin import. P-Census = 31 after excluding the GUI target's sources, covered by a synthetic-source-tree regression that still detects an engine violation. |
+| Existing acceptance | CTest 19/19 (41 Python cases in its boundary group), frozen captures 14/14, backend spike 95/0, runtime_dyn 10/0, AS probe 42/0, GUI probe 6/0, docs 224/0; formatting and dynamic backend boundary gate pass. The spike's stale pre-X4 owned-buffer refusal is replaced by a recorded-primary submission check; submit documentation now describes the widened contract. |
+| RT finding | Non-indexed MASK output had index address zero but the backend still set an indexed type. `core.api_core.cpp` now selects `VK_INDEX_TYPE_NONE_KHR` when the address is zero; VUID-03806 disappears. |
+| RT acceptance remains RED | Sponza at 1080x960 still loses the device at frame submission and produces no screenshot. Pre-fix archived logs also show this refusal, and disabling MASK/skin bake reproduces it with about 5 GB free RAM. No new memory-cause claim is made. `check_rt.ps1` requires tracing + MASK bake, clean validation, successful submission and a screenshot; it currently fails. |
+
+X5 and the no-Vulkan compilation / non-Vulkan runtime acceptance remain open. RHI ABI 27 and GUI ABI 1 are unchanged.
+
+### 2.31 X5 first batch: shared samplers and obsolete dependencies (2026-10-08)
+
+The shared sampler table now carries six borrowed RHI sampler pointers. The runtime
+publishes its existing owners directly; this path no longer asks the Vulkan escape
+for native sampler handles. No RHI interface or ABI change is involved.
+
+The declaration-to-Vulkan mapping module had no production caller and is removed
+with its CMake entry, runtime imports and obsolete mapping tests. Four migrated
+pass/job files also no longer include the Vulkan header. The sampler tests use
+actual fake contract objects, check pointer identity and null/unknown hints, and
+pin the return type. This type assertion failed against the old native table.
+
+Acceptance: full dynamic build succeeds; CTest 19/19; pass tests 169/0; frozen
+rendering 14/14; formatting and dynamic backend gate pass. P-Census is 25 engine
+files (31 before this batch), P-Nm and P-Import stay zero. Read-only review found
+no actionable defect in this batch. Further publication/semantic/escape migration
+is specified in `X5_NATIVE_VOCABULARY_PLAN.md`; RT device loss remains unresolved.
 
 ## 3. What was tried and reverted (do not repeat)
 

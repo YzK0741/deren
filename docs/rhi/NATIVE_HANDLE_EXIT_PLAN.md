@@ -173,7 +173,7 @@ using make_gui_fn = gui* (*)(gui_create_info const&);   // the C entry each dere
 | X2b | 新建 `deren_gui_vulkan` SHARED（ImGui 源 + `graphical_user_interface` 模块 + 一个实现 `gui` 的 C 入口）；私有链接 `vulkan-1`/`glfw` | 构建 + `objdump -p` 看它**有** `vulkan-1.dll` |
 | X2c | 运行时改走 loader（成员从 `gui::gui_content` 变成`gui*`）；`chores.cpp` 的 panel/widget 调用改接口形（`panel->add_label(...)`） | render 14/14（调试覆盖层默认关，另跑一次 `enable_debug_gui()` 的路径） |
 | X2d | `vulkancorekit`/`deren.exe` 去掉 `imgui` 与 `Vulkan::Vulkan` 的传递；`objdump -p deren.exe` **无 `vulkan-1.dll`** | **P-Import 归零**（本计划的最终判据之一） |
-### 4.2 X2 的现状（检查点：X2a/X2b 已提交，X2c 差 app 侧一步，X2d 未做）
+### 4.2 X2 的历史检查点（已解除；最新状态见 §4.3）
 
 **已完成并验证**
 - **X2a/X2b（提交 `8808b69`）**：`promise/gui/gui_entry.hpp`（一个 `extern "C"` 入口 `deren_make_gui`、`overlay`/`panel`/`widget` 抽象接口、`gui_api_type`/`api_suffix()`、`create_info` 里句柄是 `void*`）；`deren_gui_vulkan` SHARED 目标把整个 `deren.vulkan.graphical_user_interface` 模块 + `gui_dll.cpp` 适配器编进去，私有链接 `imgui`/`glfw`/`vulkan-1`。**实测**：`objdump -p deren_gui_vulkan.dll` 有 `vulkan-1.dll`，且 DLL 导出 `deren_make_gui` ✓。
@@ -194,6 +194,22 @@ auto w = std::make_unique<...slider_widget>(L, V, lo, hi); w->visible_when = P; 
 **X2d（未做）**：`objdump -p deren.exe` 目前**仍有** `vulkan-1.dll`（`chores.cpp` 编译不过，链接未发生）；做完上面一步后应变为 **无** `vulkan-1.dll`、且**不导入** `deren_gui_vulkan.dll`（手动导入），然后跑 render 14/14 + 一次 `enable_debug_gui()` 路径。
 
 **这批踩到的两个坑（已修，记下来）**：① 边界头必须在**全局模块片段**里 include（它自己声明 `GLFWwindow` 并拉标准库；放进模块内会让模块重声明全局模块已有的名字，clang 两处报错）；② `export module` **不会**自动导出成员——`load_gui` 写成 `export` 之前，`runtime.cpp` 报 "declaration of 'load_gui' must be imported from module ... before it is required"。
+### 4.3 X2c/X2d 完成（2026-10-08）
+
+`chores.cpp` 的 52 个控件构造点已迁到边界动词，使用全局模块片段中的 `promise/gui/gui_entry.hpp`。
+构建恢复，主程序导入表没有 `vulkan-1.dll`，也不静态导入 `deren_gui_vulkan.dll`；引擎对象的 Vulkan 引用仍为 0。
+GUI 插件仍导出 `deren_make_gui`，自身私有导入 Vulkan loader。
+
+实际 GUI 验收发现并修复两个遗漏：入口必须调用 `overlay::init`；GUI DLL 静态链接的 GLFW 副本必须由插件自行初始化、清理。
+否则前者只创建未激活的对象，后者让尺寸/缩放查询返回零，即使“初始化成功”的日志出现，面板仍不绘制。
+`test_gui_plugin` 拒绝错误 ABI、空描述、错误 API 和缺少窗口（6 checks / 0 failed）；
+`scripts/windows/check_gui.ps1` 各渲染 40 帧的开关对照，要求图像不同、完整初始化日志及干净的验证层，且已目视确认面板。
+冻结的渲染基线 14/14 一致，ctest 19/19。
+
+门禁 scope 已把 `deren_gui_vulkan` 的 CMake 源列表一并排除，真实引擎词汇待办是 31 个文件。
+**这不是整个可移植性计划完成**：X5、P-Gate / P-Run 仍需推进，GUI 传原生句柄的临时车道也仍在 X5 范围。
+RT 后续修复了无索引格式、几何透明性、TLAS 构建策略及 scratch 对齐，并添加 TLAS heap binding 映射。最新严格验收通过真实 GPU 遍历及 Sponza 40 帧、干净验证层和截图；详情与复现命令见 `progress.md` 和 `RT_AS_COMPARISON.md`。
+
 ## 5. 为什么不是"把引擎也做成 DLL"
 
 "主程序不链接 vulkan" 若用"引擎变 DLL"来达成，只是把 Vulkan **藏进另一个 DLL**：引擎内部仍然引用 `vk*`（imgui 后端 + 7 个对象），
