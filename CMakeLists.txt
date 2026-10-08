@@ -693,7 +693,9 @@ target_sources(vulkancorekit
         vulkan/meshlet/meshlet.cppm
         vulkan/primitive/primitive.cppm
         vulkan/render_environment/render_environment.cppm
-        vulkan/graphical_user_interface/graphical_user_interface.cppm
+        # (the GUI module MOVED to deren_gui_vulkan - see that target's comment) and the loader the
+        # engine uses instead: it resolves deren_gui_<api>.dll by name through the boundary header.
+        runtime/gui_loader.cppm
         vulkan/animation/controller.cppm
         vulkan/animation/mmd_motion.cppm
     PRIVATE
@@ -724,7 +726,6 @@ target_sources(vulkancorekit
         vulkan/ray_tracing/ray_tracing.cpp
         vulkan/scene_tree/scene_tree.cpp
         vulkan/primitive/primitive.cpp
-        vulkan/graphical_user_interface/graphical_user_interface.cpp
         vulkan/animation/controller.cpp
         vulkan/animation/mmd_motion.cpp
 )
@@ -892,7 +893,8 @@ target_link_libraries(vulkancorekit
         glm::glm
         ${CMAKE_DL_LIBS}
         vstd_lib
-        imgui
+        # (imgui MOVED OUT: deren_gui_vulkan links it PRIVATE and the engine resolves the plugin by name
+        #  through deren.vulkan.gui_loader - see that target below. No engine target links it any more.)
         # The constexpr builders the engine imports directly (26 sites): the module is
         # neutral (compiled once for both halves), which is what takes those imports off the flip
         # gate's meter - see the target's comment above deren_vulkan.
@@ -1038,7 +1040,7 @@ target_link_libraries(${PROJECT_NAME}
         app_config
         vstd_lib
         glm::glm
-        imgui
+        # (imgui is NOT linked here: the GUI is a plugin loaded by name - see deren_gui_vulkan.)
 )
 # BUILD ORDER, NOT LINKAGE: the runtime resolves deren_make_api_core out of deren_vulkan.dll at run
 # time (runtime/runtime.constructor.cppm), so the DLL has to exist beside the executable - but the
@@ -1394,6 +1396,11 @@ target_link_libraries(test_acceleration_structures
 )
 # Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
 add_dependencies(test_acceleration_structures deren_vulkan)
+
+# THE GUI PLUGIN IS BUILT BESIDE THE EXECUTABLE like the renderer backend, and for the same build-order
+# reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.vulkan.gui_loader, so the file
+# has to exist, but the executable must NOT link it (an import library would bind the GUI before main).
+add_dependencies(deren deren_gui_vulkan)
 
 # ============================================================================================
 # deren_gui_vulkan: THE GUI AS ITS OWN PLUGIN (plan X2, the user's ruling: one DLL per API).

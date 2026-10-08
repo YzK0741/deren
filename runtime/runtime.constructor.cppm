@@ -608,7 +608,13 @@ namespace deren::vulkan {
         // Shut the debug overlay down explicitly while the VkDevice is still alive (its ImGui
         // Vulkan backend owns device resources); member destruction would also run it before
         // vulkan_core, but doing it here keeps the order obvious.
-        this->debug_overlay.shutdown();
+        // THE PLUGIN IS RELEASED HERE TOO (plan X2): dropping the last reference destroys the overlay inside
+        // `deren_gui_vulkan.dll`, the image that allocated it - and it has to happen while the device is
+        // alive, which is why this is explicit rather than left to member order.
+        if (this->debug_overlay != nullptr) {
+            this->debug_overlay->shutdown();
+            this->debug_overlay.reset();
+        }
     }
 
     // THE SESSION'S MESH CULLING TOTALS (docs/mesh_shaders.md step 3, "what the culling buys"). Read from the

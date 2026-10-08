@@ -570,8 +570,8 @@ namespace deren::vulkan {
         // Debug overlay: begin a fresh ImGui frame once per rendered frame (after the acquire,
         // before any UI content is built; the actual draw is recorded at the end of
         // record_main_drawcalls() while the main rendering instance is still open).
-        if (this->debug_gui_shown && this->debug_overlay.is_active()) {
-            this->debug_overlay.new_frame();
+        if (this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
+            this->debug_overlay->new_frame();
         }
 
         // Accumulate scene-tree world transforms: every leaf's push.model = scene_transform *
@@ -3373,8 +3373,10 @@ namespace deren::vulkan {
     }
 
     void runtime::record_overlay_if_enabled(VkCommandBuffer const command_buffer) {
-        if (this->debug_gui_shown && this->debug_overlay.is_active()) {
-            this->debug_overlay.record(command_buffer);
+        if (this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
+            // THE RECORDING HANDLE CROSSES AS `void*` FOR NOW (the entry header says why): the plugin casts it
+            // back to `VkCommandBuffer`, so the conversion lives on the side that knows what it is.
+            this->debug_overlay->record(command_buffer);
         }
     }
 

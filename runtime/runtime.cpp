@@ -14,6 +14,12 @@ module;
 #include <vector>          // the queue-family list the graphics-queue derivation walks
 #include <vulkan/vulkan.h>
 
+// THE GUI PLUGIN'S BOUNDARY (plan X2): `create_info`, `api_type` and `overlay` live in a header the plugin
+// and the host share. In the GLOBAL MODULE FRAGMENT because the header declares `GLFWwindow` itself and pulls
+// standard headers in - inside the module purview it would make the module redeclare names the global module
+// already has (the trap the plugin's own file records).
+#include "../promise/gui/gui_entry.hpp"
+
 module deren.vulkan.runtime;
 
 import deren.vulkan.profiling;
@@ -27,6 +33,7 @@ import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
 import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
+import deren.vulkan.gui_loader;      // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
@@ -212,7 +219,7 @@ namespace deren::vulkan {
         // it on demand, so the key also brings the ui back after a disable.
         bool const f1_down = glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS;
         if (f1_down && !this->gui_toggle_down) {
-            if (!this->debug_overlay.is_active()) {
+            if (this->debug_overlay == nullptr || !this->debug_overlay->is_active()) {
                 this->debug_gui_shown = this->enable_debug_gui();
             } else {
                 this->debug_gui_shown = !this->debug_gui_shown;
@@ -324,7 +331,9 @@ namespace deren::vulkan {
         //    (VUID-vkUpdateDescriptorSets-None-03047), and with two frames in flight the other slot's
         //    frame can still be running - a freshly allocated set is referenced by nothing, so
         //    allocating instead of updating sidesteps that entirely.
-        this->debug_overlay.on_swapchain_recreated();
+        if (this->debug_overlay != nullptr) {
+            this->debug_overlay->on_swapchain_recreated();
+        }
         // NOTHING OF THIS CLASS IS RETIRED HERE ANY MORE: the G-buffer and post descriptor families it used to
         // retire are gone with the sets (every stage reaches its images through the heap, whose slots name images
         // rather than sets), so the only per-generation state left is the PASSES' - and they are told below.
@@ -502,31 +511,49 @@ namespace deren::vulkan {
     }
 
     bool runtime::enable_debug_gui() {
-        if (this->debug_overlay.is_active()) {
+        // THE PLUGIN IS LOADED ON DEMAND (plan X2): the GUI lives in `deren_gui_<api>.dll`, resolved BY NAME
+        // through the loader, so the engine has no link-time dependency on it at all - and this is the one
+        // place that decides which API it asks for (the renderer this runtime drives).
+        if (this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
             return true;
         }
         // The overlay draws into the runtime's OPEN main rendering instance via dynamic
         // rendering (the backend is initialized with UseDynamicRendering=true).
         rhi::api_core& vk = this->vulkan_core;
-        gui::gui_create_info info = {};
+        deren::gui::create_info info = {};
+        info.api = deren::gui::api_type::vulkan;
         info.window = static_cast<GLFWwindow*>(this->create_options.native_window);
-        info.instance = static_cast<VkInstance>(this->escape().native_instance());
-        info.physical_device = static_cast<VkPhysicalDevice>(this->escape().native_physical_device());
+        // THE HANDLES CROSS AS `void*` (see the entry header): the plugin is the side that knows they are
+        // Vulkan ones, and typing them here would put `VkDevice` in a header the engine half includes.
+        info.instance = this->escape().native_instance();
+        info.physical_device = this->escape().native_physical_device();
         info.device = runtime_detail::native_device_of(vk);
         info.graphics_queue_family = static_cast<std::uint32_t>(this->graphics_queue_family_index);
-        info.graphics_queue = static_cast<VkQueue>(runtime_detail::native_queue_of(vk));
-        info.color_format = this->swap_chain_image_format;
-        info.depth_format = VK_FORMAT_UNDEFINED; // the post/gui pass has no depth attachment
+        info.graphics_queue = runtime_detail::native_queue_of(vk);
+        info.color_format = static_cast<std::uint32_t>(this->swap_chain_image_format);
+        info.depth_format = static_cast<std::uint32_t>(VK_FORMAT_UNDEFINED); // the post/gui pass has no depth attachment
         info.frames_in_flight = this->frame_ring().slot_count();
-        return this->debug_overlay.init(info);
+        this->debug_overlay = deren::vulkan::load_gui(info);
+        if (this->debug_overlay == nullptr) {
+            deren::utility::log("gui overlay: no plugin answered (the loader's own line says which step failed) - the overlay stays off");
+            return false;
+        }
+        return this->debug_overlay->is_active();
     }
 
     bool runtime::debug_gui_wants_mouse() const noexcept {
-        return this->debug_gui_shown && this->debug_overlay.is_active() && this->debug_overlay.wants_mouse();
+        return this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active() && this->debug_overlay->wants_mouse();
     }
 
-    gui::gui_content& runtime::debug_gui() noexcept {
-        return this->debug_overlay;
+    deren::gui::overlay& runtime::debug_gui() noexcept {
+        // A DEFAULT-CONSTRUCTED PLACEHOLDER WOULD BE A LIE: `enable_debug_gui()` is the one creator, and a
+        // caller that reaches this WITHOUT it has a bug the contract cannot paper over - so a null plugin is a
+        // named panic (the app's own order guarantees it, and `debug_gui_wants_mouse` above is the guarded path
+        // every frame-time caller uses).
+        if (this->debug_overlay == nullptr) {
+            deren::utility::panic(std::source_location::current(), "runtime::debug_gui() was called before enable_debug_gui() brought the plugin up");
+        }
+        return *this->debug_overlay;
     }
 
     std::expected<void, std::string> runtime::make_pipeline(std::string_view pipeline_name, std::span<uint8_t const> fragment_shader_code,

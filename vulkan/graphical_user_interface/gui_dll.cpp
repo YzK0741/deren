@@ -36,6 +36,23 @@ namespace deren::vulkan::gui {
     namespace {
         /// ONE PANEL, AS THE BOUNDARY SPEAKS IT: every verb forwards to the `debug_panel` the overlay already
         /// owns, and each widget verb CONSTRUCTS the class this plugin already had.
+        /// ONE WIDGET, AS THE BOUNDARY SPEAKS IT: it holds the class the plugin already had, so the only verb
+        /// the host can call on it - a visibility predicate - writes the member that class already has.
+        class widget_adapter final : public deren::gui::widget {
+        public:
+            /// THE PLUGIN'S OWN widget CLASS, qualified: inside this adapter widget would name the BOUNDARY
+            /// interface it derives from, and the member has to be the class that actually has isible_when.
+            explicit widget_adapter(deren::vulkan::gui::widget& target) noexcept
+                : item(&target) {
+            }
+            void set_visible_when(std::function<bool()> predicate) override {
+                this->item->visible_when = std::move(predicate);
+            }
+
+        private:
+            deren::vulkan::gui::widget* item = nullptr;
+        };
+
         class panel_adapter final : public deren::gui::panel {
         public:
             explicit panel_adapter(debug_panel& target) noexcept
@@ -46,23 +63,23 @@ namespace deren::vulkan::gui {
                 return this->panel;
             }
 
-            void add_label(std::string text) override {
-                this->panel->push_back(std::make_unique<label_widget>(std::move(text)));
+            deren::gui::widget& add_label(std::string text) override {
+                return this->keep(std::make_unique<label_widget>(std::move(text)));
             }
-            void add_label(std::function<std::string()> text) override {
-                this->panel->push_back(std::make_unique<label_widget>(std::move(text)));
+            deren::gui::widget& add_label(std::function<std::string()> text) override {
+                return this->keep(std::make_unique<label_widget>(std::move(text)));
             }
-            void add_checkbox(std::string label, bool* value, std::function<void(bool)> on_change) override {
-                this->panel->push_back(std::make_unique<checkbox_widget>(std::move(label), value, std::move(on_change)));
+            deren::gui::widget& add_checkbox(std::string label, bool* value, std::function<void(bool)> on_change) override {
+                return this->keep(std::make_unique<checkbox_widget>(std::move(label), value, std::move(on_change)));
             }
-            void add_slider(std::string label, float* value, float min, float max, std::function<void(float)> on_change) override {
-                this->panel->push_back(std::make_unique<slider_widget>(std::move(label), value, min, max, std::move(on_change)));
+            deren::gui::widget& add_slider(std::string label, float* value, float min, float max, std::function<void(float)> on_change) override {
+                return this->keep(std::make_unique<slider_widget>(std::move(label), value, min, max, std::move(on_change)));
             }
-            void add_vec3(std::string label, float* value, float speed, std::function<void()> on_change) override {
-                this->panel->push_back(std::make_unique<vec3_widget>(std::move(label), value, speed, std::move(on_change)));
+            deren::gui::widget& add_vec3(std::string label, float* value, float speed, std::function<void()> on_change) override {
+                return this->keep(std::make_unique<vec3_widget>(std::move(label), value, speed, std::move(on_change)));
             }
-            void add_combo(std::string label, std::vector<std::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change) override {
-                this->panel->push_back(std::make_unique<combo_widget>(std::move(label), std::move(items), current_item, std::move(on_change)));
+            deren::gui::widget& add_combo(std::string label, std::vector<std::string> items, std::int32_t* current_item, std::function<void(std::int32_t)> on_change) override {
+                return this->keep(std::make_unique<combo_widget>(std::move(label), std::move(items), current_item, std::move(on_change)));
             }
 
             void clear() override {
@@ -89,7 +106,18 @@ namespace deren::vulkan::gui {
             }
 
         private:
+            /// Append @p item to the panel and hand back a STABLE adapter for it: the adapters live in a deque
+            /// because the host keeps the returned reference across later `add_*` calls (the same reason the
+            /// overlay keeps its panel adapters in one).
+            deren::gui::widget& keep(std::unique_ptr<deren::vulkan::gui::widget> item) {
+                widget* const raw = item.get();
+                this->panel->push_back(std::move(item));
+                this->widgets.emplace_back(*raw);
+                return this->widgets.back();
+            }
+
             debug_panel* panel = nullptr;
+            std::deque<widget_adapter> widgets;
         };
 
         /// THE OVERLAY, AS THE BOUNDARY SPEAKS IT: one `gui_content` (unchanged) plus the panel adapters this

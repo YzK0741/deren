@@ -173,6 +173,27 @@ using make_gui_fn = gui* (*)(gui_create_info const&);   // the C entry each dere
 | X2b | 新建 `deren_gui_vulkan` SHARED（ImGui 源 + `graphical_user_interface` 模块 + 一个实现 `gui` 的 C 入口）；私有链接 `vulkan-1`/`glfw` | 构建 + `objdump -p` 看它**有** `vulkan-1.dll` |
 | X2c | 运行时改走 loader（成员从 `gui::gui_content` 变成`gui*`）；`chores.cpp` 的 panel/widget 调用改接口形（`panel->add_label(...)`） | render 14/14（调试覆盖层默认关，另跑一次 `enable_debug_gui()` 的路径） |
 | X2d | `vulkancorekit`/`deren.exe` 去掉 `imgui` 与 `Vulkan::Vulkan` 的传递；`objdump -p deren.exe` **无 `vulkan-1.dll`** | **P-Import 归零**（本计划的最终判据之一） |
+### 4.2 X2 的现状（检查点：X2a/X2b 已提交，X2c 差 app 侧一步，X2d 未做）
+
+**已完成并验证**
+- **X2a/X2b（提交 `8808b69`）**：`promise/gui/gui_entry.hpp`（一个 `extern "C"` 入口 `deren_make_gui`、`overlay`/`panel`/`widget` 抽象接口、`gui_api_type`/`api_suffix()`、`create_info` 里句柄是 `void*`）；`deren_gui_vulkan` SHARED 目标把整个 `deren.vulkan.graphical_user_interface` 模块 + `gui_dll.cpp` 适配器编进去，私有链接 `imgui`/`glfw`/`vulkan-1`。**实测**：`objdump -p deren_gui_vulkan.dll` 有 `vulkan-1.dll`，且 DLL 导出 `deren_make_gui` ✓。
+- **X2c 的后端侧**（未提交，但**编译通过**）：`runtime/gui_loader.cppm`（`LoadLibrary`+`GetProcAddress`，按 `api_type` 组成 `deren_gui_<api>.dll`，缺 DLL/缺符号/abi 不符都是**具名**诊断）；运行时成员改成 `std::shared_ptr<deren::gui::overlay>`，`enable_debug_gui()` 填 `create_info` 并调 `load_gui`，`new_frame`/`record`/`on_swapchain_recreated`/`wants_mouse` 全走接口，析构里显式 `shutdown()`+`reset()`；CMake 把 `graphical_user_interface` 两个源从 `vulkancorekit` 移出、`imgui` 从 `vulkancorekit` 与 `deren` 的链接列表移除（现在只被 `deren_gui_vulkan` PRIVATE 链接）、并加 `add_dependencies(deren deren_gui_vulkan)`（构建顺序，非链接）。
+
+**唯一的失败，也就是剩下的一步**：`chores.cpp` 的 **41 处** `deren::vulkan::gui::*`（`debug_panel`/`label_widget`/`checkbox_widget`/`slider_widget`/`combo_widget` 与 `->visible_when`）仍按**旧模块的类**写。抽象接口的动词已经就位（`panel.add_label/add_checkbox/add_slider/add_vec3/add_combo` 返回 `widget&`，`widget::set_visible_when`），机械替换即可：
+
+```cpp
+deren::vulkan::gui::debug_panel& panel = runtime.debug_gui().add_panel("deren debug");   // -> deren::gui::panel& panel
+panel.push_back(std::make_unique<deren::vulkan::gui::checkbox_widget>(L, V));             // -> panel.add_checkbox(L, V);
+auto w = std::make_unique<...slider_widget>(L, V, lo, hi); w->visible_when = P; panel.push_back(std::move(w));
+                                                                                          // -> panel.add_slider(L, V, lo, hi).set_visible_when(P);
+```
+另需在 `chores.cpp` 加 `#include "../promise/gui/gui_entry.hpp"`（它是普通 TU）。
+
+**这一步用脚本做过两次，都失败并被回滚**：第一版按**行尾**猜调用在哪结束，而 lambda 体内的一条语句同样以 `);` 结尾 → 参数被截断、括号失衡（`chores.cpp` 已 `git checkout` 复原）；第二版改成**数括号**（正确的做法）但脚本文件本身没写成，尚未运行。**结论：这一步用"数括号的脚本一次转换 + 编译器收尾"是对的，但要留出回滚与逐个修残余的时间**；不要再用行尾启发式。
+
+**X2d（未做）**：`objdump -p deren.exe` 目前**仍有** `vulkan-1.dll`（`chores.cpp` 编译不过，链接未发生）；做完上面一步后应变为 **无** `vulkan-1.dll`、且**不导入** `deren_gui_vulkan.dll`（手动导入），然后跑 render 14/14 + 一次 `enable_debug_gui()` 路径。
+
+**这批踩到的两个坑（已修，记下来）**：① 边界头必须在**全局模块片段**里 include（它自己声明 `GLFWwindow` 并拉标准库；放进模块内会让模块重声明全局模块已有的名字，clang 两处报错）；② `export module` **不会**自动导出成员——`load_gui` 写成 `export` 之前，`runtime.cpp` 报 "declaration of 'load_gui' must be imported from module ... before it is required"。
 ## 5. 为什么不是"把引擎也做成 DLL"
 
 "主程序不链接 vulkan" 若用"引擎变 DLL"来达成，只是把 Vulkan **藏进另一个 DLL**：引擎内部仍然引用 `vk*`（imgui 后端 + 7 个对象），

@@ -31,6 +31,12 @@ module;
 #include <memory> // std::shared_ptr: the frame's command buffer and the caller-owned secondaries are spelled in this interface (abi 21)
 #include <vulkan/vulkan.h>
 
+// THE GUI PLUGIN'S BOUNDARY (plan X2): the runtime holds a deren::gui::overlay, which lives in a
+// deren_gui_<api>.dll the loader resolves by name. In the GLOBAL MODULE FRAGMENT because the header
+// forward-declares GLFWwindow itself (the plugin's own file records the clang refusal that punishes the
+// other placement).
+#include "../promise/gui/gui_entry.hpp"
+
 export module deren.vulkan.runtime:declarations;
 
 import deren.vulkan.profiling;
@@ -73,7 +79,9 @@ export import deren.vulkan.scene_tree;         // scene storage + the abstract l
 export import deren.vulkan.primitive;          // the GPU primitives + material/UBO records (peer module)
 export import deren.vulkan.render_environment; // per-worker draw state (peer module)
 import deren.utility;
-export import deren.vulkan.graphical_user_interface; // optional debug overlay (gui_content): exported so callers can manage panels/widgets via debug_gui()
+// (deren.vulkan.graphical_user_interface IS NOT IMPORTED HERE ANY MORE: that module lives in
+//  deren_gui_vulkan.dll since plan X2, and this file holds the BOUNDARY type + whose loader brings it up.)
+// export import deren.vulkan.graphical_user_interface; // optional debug overlay (gui_content): exported so callers can manage panels/widgets via debug_gui()
 
 // THE CONTRACT, UNDER THE SHORT NAME EVERY SITE BELOW USES. The module `deren.promise.rhi` declares
 // `deren::promise::rhi`, and every member this file converted to a contract handle (the buffers held in
@@ -2158,7 +2166,9 @@ namespace deren::vulkan {
         // optional Dear ImGui debug overlay; inactive until enable_debug_gui() succeeds. The
         // runtime drives it inside the frame steps (new_frame before recording, record after the
         // runtime's own draw calls) so callers only manage its content via debug_gui().
-        gui::gui_content debug_overlay;
+        /// THE GUI PLUGIN'S OVERLAY (plan X2): a deren_gui_<api>.dll object the loader resolved. null
+        /// until nable_debug_gui() brought one up, which is why every call site guards on it.
+        std::shared_ptr<deren::gui::overlay> debug_overlay;
         // whether the active overlay is drawn (the built-in F1 toggle flips it);
         // hiding keeps the overlay initialized and its panels intact, so showing is instant
         bool debug_gui_shown = true;
@@ -2703,7 +2713,7 @@ namespace deren::vulkan {
          * @note panels added here are drawn every rendered frame by the runtime; add them after
          *       enable_debug_gui() (or any time — they are only drawn while the overlay is active)
          */
-        [[nodiscard]] gui::gui_content& debug_gui() noexcept;
+        [[nodiscard]] deren::gui::overlay& debug_gui() noexcept;
 
         /**
          * @ingroup runtime
