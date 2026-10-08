@@ -389,21 +389,20 @@ namespace deren::vulkan {
          */
         std::uint32_t graphics_queue_family_index = 0;
         /**
-         * THE TWO MESH-DISPATCH ENTRY POINTS (`vkCmdDrawMeshTasksEXT` and its indirect form), resolved
-         * ONCE at construction (③-D/E step 2).
+         * `PFN_vkCmdDrawMeshTasksEXT mesh_dispatch` AND ITS INDIRECT FORM STOOD HERE, and the paragraph that
+         * justified them is worth keeping as the record of a claim that did not survive measurement.
          *
-         * WHY THEY ARE RESOLVED HERE RATHER THAN REACHED THROUGH THE CONTRACT: the contract's
-         * `mesh_shader` ability carries `dispatch_mesh(command_buffer&, ...)`, which records into a
-         * contract list - and these two call sites hold a RAW `VkCommandBuffer` (the shadow pass's
-         * secondary and the pass framework's recording handle), so the contract's verb cannot express
-         * them without a second, borrow-a-list layer whose behaviour would differ from the one being
-         * measured. Resolving them the repository's documented way - `vkGetDeviceProcAddr` on the native
-         * device the escape hands out - is what the acceleration-structure and ray-tracing paths already
-         * do, and it needs no contract addition at all. They are null on a device without the extension,
-         * which the mesh path is gated on (`mesh_shader_available`, set above).
+         * THEY WERE RESOLVED HERE because the contract's `mesh_shader` ability was said to carry only
+         * `dispatch_mesh(command_buffer&, ...)`, which records into a contract list, "and these two call sites
+         * hold a RAW `VkCommandBuffer`". BOTH HALVES OF THAT ARE NOW FALSE, and neither was checked at the
+         * time: the mesh path is recorded through the SAME contract `command_buffer` every other draw uses
+         * (`io.list->draw_mesh_tasks(...)` - the probes do exactly that, and the pass framework hands the
+         * verb the frame's own borrowed buffer), and the BACKEND had resolved the same two entry points at
+         * its own startup to serve the contract verbs `draw_mesh_tasks()` and `draw_mesh_tasks_indirect()`.
+         * So the engine's pair was a second resolution of one entry point, kept alive by the raw handle the
+         * call borrowed back - which is the shape this whole effort exists to remove. See
+         * `runtime::draw_mesh_tasks` for what replaced them.
          */
-        PFN_vkCmdDrawMeshTasksEXT mesh_dispatch = nullptr;
-        PFN_vkCmdDrawMeshTasksIndirectEXT mesh_dispatch_indirect = nullptr;
 
     public:
         /// THE CONTRACT FACE of the backend this runtime drives (§18's rule: the factories and the
@@ -1926,10 +1925,12 @@ namespace deren::vulkan {
          */
         rhi::object_manager<rhi::buffer> mesh_indirect_buffer = {};
         void* mesh_indirect_mapped = nullptr;
-        /// the raw `VkBuffer` the command takes: `vk_buffer::handle()` is the allocator's id, not a `VkBuffer`, and
-        /// resolving the entry point without binding the buffer is what silently sent every dispatch down the
-        /// DIRECT path in the first version of this seam - which is why the route is logged (see the counts below)
-        VkBuffer mesh_indirect_table = VK_NULL_HANDLE;
+        /**
+         * THE RAW `VkBuffer` THE COMMAND TOOK STOOD HERE, and its own note explains why it is gone: "resolving the
+         * entry point without binding the buffer is what silently sent every dispatch down the DIRECT path" - the
+         * derivation existed only to hand a native handle to the engine's own `PFN_` call. The verb takes the
+         * CONTRACT handle (`mesh_indirect_buffer` above), so there is no second handle to get wrong.
+         */
         /// one line for the route actually taken, and one for the first slot that two draws disagree about: a
         /// conflict is a DESIGN violation (the same primitive dispatched with two different counts), and it falls
         /// back to the direct call for that dispatch rather than risking a command the GPU reads half-written

@@ -468,17 +468,16 @@ namespace deren::vulkan {
         // the probes allocate their own command pools outside the frame ring, and a pool's family index
         // must be the one the backend's queue belongs to. A failure inside the derivation PANICS there.
         this->graphics_queue_family_index = runtime_detail::graphics_queue_family_of(this->rhi_face());
-        // ... AND THE TWO MESH-DISPATCH ENTRY POINTS, resolved once the repository's documented way
-        // (`vkGetDeviceProcAddr` on the native device; the loader's import library does not export them).
-        // Null on a device without VK_EXT_mesh_shader, which is exactly what the mesh path is gated on -
-        // the callers answer "cannot record" rather than drawing nothing silently (see draw_mesh_tasks).
-        {
-            VkDevice const device = runtime_detail::native_device_of(this->rhi_face());
-            if (device != VK_NULL_HANDLE) {
-                this->mesh_dispatch = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT"));
-                this->mesh_dispatch_indirect = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
-            }
-        }
+        // THE TWO MESH-DISPATCH ENTRY POINTS ARE THE BACKEND'S, AND THEY ALWAYS WERE: this block used to resolve
+        // `vkCmdDrawMeshTasksEXT`/`...Indirect` through `vkGetDeviceProcAddr` and call them from `runtime.cpp`
+        // through `native_handle()`. The BACKEND had resolved the same two pointers at its own startup (its
+        // `mesh_dispatch` members) and serves them as the contract's `draw_mesh_tasks()` /
+        // `draw_mesh_tasks_indirect()`, so the engine's copy was a second resolution of one entry point - and
+        // the only reason the engine could call it at all was the raw handle it borrowed back for the argument
+        // (see `runtime::draw_mesh_tasks`). Two `PFN_` members, two `reinterpret_cast`s, one `VkBuffer` table
+        // and `sizeof(VkDrawMeshTasksIndirectCommandEXT)` are gone with it.
+        // The capability that GATES the path is asked once, through the ability that answers it
+        // (`device_capabilities::mesh_shader()` - see `runtime_detail::mesh_shader_available_of`).
 
         // ---- THE FRAME'S RESOLUTION IS THE ENGINE'S OWN FROM HERE ON (abi 14) ---------------------
         // The scale both halves use was clamped ONCE above (the option is startup-only: `render_scale` is
@@ -1056,14 +1055,19 @@ namespace deren::vulkan {
         }
 
         // ---- THE INDIRECT MESH COMMANDS (docs/mesh_shaders.md step 3, second mechanism): one
-        //      VkDrawMeshTasksIndirectCommandEXT per (frame in flight, primitive), written by whichever thread
-        //      records that primitive's meshlet dispatch and read by the GPU. THE SLOT IS THE PRIMITIVE'S OWN
-        //      `meshlet_base`, which is what removes the cursor the first attempt used - and with it the flakiness
-        //      that cursor caused (see the member's note in runtime.declarations.cppm). Not on the heap: it is
-        //      command data, not a resource any shader reads.
+        //      `rhi::mesh_task_command` per (frame in flight, primitive), written by whichever thread records
+        //      that primitive's meshlet dispatch and read by the GPU. THE SLOT IS THE PRIMITIVE'S OWN
+        //      `meshlet_base`, which is what removes the cursor the first attempt used - and with it the
+        //      flakiness that cursor caused (see the member's note in runtime.declarations.cppm). Not on the
+        //      heap: it is command data, not a resource any shader reads.
+        //
+        //      THE RECORD AND ITS SIZE ARE THE CONTRACT'S (`rhi::mesh_task_command` /
+        //      `mesh_task_command_size`): the engine WRITES these records and passes the size as the stride, so
+        //      the layout has to be nameable by both halves - the backend static_asserts its own structure
+        //      against it.
         {
             constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
-            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(this->frame_ring().slot_count()) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
+            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(this->frame_ring().slot_count()) * commands_per_frame * rhi::mesh_task_command_size, 0);
             create_buffer(this->vulkan_core,
                           rhi::buffer_usage::storage_coherent,
                           rhi::to_bits(rhi::buffer_flag::indirect),
@@ -1071,10 +1075,9 @@ namespace deren::vulkan {
                           "mesh indirect command table",
                           this->mesh_indirect_buffer,
                           &this->mesh_indirect_mapped);
-            // the raw handle the command takes: `vk_buffer::handle()` was the allocator's id rather than a
-            // `VkBuffer`, and a null here is what silently sent every dispatch down the DIRECT path in the
-            // first version of this seam. It comes from the escape now, off the handle this class owns.
-            this->mesh_indirect_table = this->buffer_of(*this->mesh_indirect_buffer);
+            // THE NATIVE TABLE IS GONE: the dispatch takes the CONTRACT handle this class already owns
+            // (`mesh_indirect_buffer`), so nothing here derives a `VkBuffer` for it any more - the derivation
+            // was the reason a null handle could silently send every dispatch down the DIRECT path.
         }
 
         // ---- THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one lane of eight

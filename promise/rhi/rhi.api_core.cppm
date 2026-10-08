@@ -1213,6 +1213,26 @@ export namespace deren::promise::rhi {
         structure_header const* next = nullptr;                        ///< optional tagged backend parameters
     };
 
+    /// ONE INDIRECT MESH-TASK RECORD: the three group counts, and nothing else.
+    ///
+    /// WHY THE LAYOUT IS THE CONTRACT'S: `command_buffer::draw_mesh_tasks_indirect()` takes a STRIDE, and the
+    /// caller that fills the argument buffer is the one that has to know what a record looks like. Leaving that
+    /// shape to the caller put the driver's own structure (`VkDrawMeshTasksIndirectCommandEXT` - which the
+    /// engine named both to size its buffer and to write its slot) in the engine half, so the shape lives here,
+    /// where both halves can name it. The backend that serves the verb static_asserts its own structure against
+    /// `mesh_task_command_size`: it is the only side that names BOTH, and that assert is what keeps the two from
+    /// drifting apart silently.
+    ///
+    /// A FIELD ADDED HERE IS NOT A FREE CHANGE: this value is what a caller passes as the stride, so the layout
+    /// is as frozen as the verb that consumes it.
+    struct mesh_task_command {
+        std::uint32_t groups_x = 0;
+        std::uint32_t groups_y = 0;
+        std::uint32_t groups_z = 0;
+    };
+    inline constexpr std::uint32_t mesh_task_command_size = 12u;
+    static_assert(sizeof(mesh_task_command) == mesh_task_command_size, "the record's size IS the stride callers pass");
+
     /// A command buffer the caller OWNS (abi 15).
     ///
     /// ONE REFERENCE, dropped through `release()` - the ownership the other owned handles carry (see

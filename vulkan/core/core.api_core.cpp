@@ -2876,6 +2876,14 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
+        // THE CONTRACT'S RECORD LAYOUT IS THE API'S, AND THIS IS WHERE THAT IS PROVEN: callers write
+        // `rhi::mesh_task_command` records into their argument buffer and pass `mesh_task_command_size` as the
+        // stride, so the two structures must be the same bytes. The backend is the only side that can assert it
+        // (it is the only one that names both).
+        static_assert(sizeof(VkDrawMeshTasksIndirectCommandEXT) == rhi::mesh_task_command_size,
+                      "the argument buffer's record IS the contract's layout, and the stride its size");
+        static_assert(sizeof(VkDrawMeshTasksIndirectCommandEXT) == sizeof(rhi::mesh_task_command),
+                      "the contract's record and the API's structure must agree");
         core* const self = this->owner;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {

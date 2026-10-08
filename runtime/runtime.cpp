@@ -1462,18 +1462,21 @@ namespace deren::vulkan {
 
     bool runtime::draw_mesh_tasks(void* const owner, rhi::command_buffer& command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(owner);
-        // THE CONTRACT HANDLE BECOMES THE RESOLVED ENTRY POINT'S ARGUMENT (see the declaration): the two
-        // `vkCmdDrawMeshTasks*` entry points are resolved through `vkGetDeviceProcAddr` because the loader's
-        // import library does not export them, and they take the API's own `VkCommandBuffer`.
-        VkCommandBuffer const native = self->native_handle(command_buffer);
-        if (self->mesh_dispatch == nullptr) {
-            // Unreachable while the mesh path is gated on the capability (see runtime::create_passes), and answered
-            // rather than asserted: a dispatch that cannot be recorded draws NOTHING, which is the same picture a
-            // caster with no geometry produces - and it is logged, so it cannot pass unnoticed.
-            deren::utility::log("mesh dispatch: the device has no vkCmdDrawMeshTasksEXT, so the dispatch was skipped");
+        // THE CONTRACT VERB RECORDS IT (abi 26's sibling - the verb has existed since abi 15): the two
+        // `vkCmdDrawMeshTasks*` entry points are the BACKEND's, resolved at ITS startup and reached through
+        // `draw_mesh_tasks()` / `draw_mesh_tasks_indirect()`. The engine used to resolve the same two pointers
+        // again, call them with a native handle borrowed back out of `command_buffer` (`native_handle()`), and
+        // keep two `PFN_` members alive to do it - a second resolution of one entry point, and the raw-handle
+        // borrow that this whole effort removes.
+        //
+        // THE GATE IS THE CAPABILITY, ASKED THROUGH THE ABILITY THAT OWNS IT (it used to be "is my PFN null",
+        // which is the same question asked of a copy): a dispatch that cannot be recorded draws NOTHING, which
+        // is the picture a caster with no geometry produces - and it is logged, so it cannot pass unnoticed.
+        if (!runtime_detail::mesh_shader_available_of(self->rhi_face())) {
+            deren::utility::log("mesh dispatch: this device cannot run a mesh pipeline, so the dispatch was skipped");
             return false;
         }
-        self->mesh_dispatch(native, groups_x, groups_y, groups_z);
+        command_buffer.draw_mesh_tasks(groups_x, groups_y, groups_z);
         return true;
     }
 
@@ -1491,13 +1494,13 @@ namespace deren::vulkan {
             self->mesh_indirect_direct_fallbacks.fetch_add(1u, std::memory_order_relaxed);
             return runtime::draw_mesh_tasks(owner, command_buffer, groups_x, groups_y, groups_z);
         };
-        if (self->mesh_dispatch_indirect == nullptr || self->mesh_indirect_mapped == nullptr || self->mesh_indirect_table == VK_NULL_HANDLE) {
+        if (!runtime_detail::mesh_shader_available_of(self->rhi_face()) || self->mesh_indirect_mapped == nullptr || !self->mesh_indirect_buffer) {
             if (!self->mesh_indirect_route_logged) {
                 self->mesh_indirect_route_logged = true;
-                deren::utility::log("mesh indirect: entry point {}, table {}, mapped {} - the meshlet dispatches go through the DIRECT call",
-                                    self->mesh_dispatch_indirect != nullptr ? "resolved" : "MISSING",
-                                    self->mesh_indirect_table != VK_NULL_HANDLE ? "bound" : "missing",
-                                    self->mesh_indirect_mapped != nullptr ? "yes" : "no");
+                deren::utility::log("mesh indirect: the device {}, the argument buffer is {}, the mapping {} - the meshlet dispatches go through the DIRECT call",
+                                    runtime_detail::mesh_shader_available_of(self->rhi_face()) ? "can run mesh pipelines" : "cannot run mesh pipelines",
+                                    static_cast<bool>(self->mesh_indirect_buffer) ? "bound" : "missing",
+                                    self->mesh_indirect_mapped != nullptr ? "present" : "missing");
             }
             return direct();
         }
@@ -1510,7 +1513,7 @@ namespace deren::vulkan {
             }
             return direct();
         }
-        auto* const commands = static_cast<VkDrawMeshTasksIndirectCommandEXT*>(self->mesh_indirect_mapped);
+        auto* const commands = static_cast<rhi::mesh_task_command*>(self->mesh_indirect_mapped);
         // THE WRITE IS UNCONDITIONAL, and that is a measured decision rather than a shortcut. A slot belongs to one
         // primitive, and every writer of it writes the SAME bytes: the group count is the primitive's meshlet run
         // (cut once, at import) and the instance count is set when the draw primitive is created - so the shadow
@@ -1528,13 +1531,26 @@ namespace deren::vulkan {
         // needs one command per (frame, draw) instead of per primitive, which is exactly what the COMPUTE culling
         // pass this seam exists for will write.
         commands[static_cast<std::size_t>(self->frame_ring().position()) * runtime::mesh_command_capacity + command_slot] =
-            VkDrawMeshTasksIndirectCommandEXT{.groupCountX = groups_x, .groupCountY = groups_y, .groupCountZ = groups_z};
-        VkDeviceSize const offset = static_cast<VkDeviceSize>(self->frame_ring().position() * runtime::mesh_command_capacity + command_slot) * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-        self->mesh_dispatch_indirect(self->native_handle(command_buffer), self->mesh_indirect_table, offset, 1u, sizeof(VkDrawMeshTasksIndirectCommandEXT));
+            rhi::mesh_task_command{.groups_x = groups_x, .groups_y = groups_y, .groups_z = groups_z};
+        uint64_t const offset = static_cast<uint64_t>(self->frame_ring().position() * runtime::mesh_command_capacity + command_slot) * rhi::mesh_task_command_size;
+        // THE RECORD'S LAYOUT AND SIZE ARE THE CONTRACT'S, and the call is the contract's verb: `mesh_task_command`
+        // is what was written above, `mesh_task_command_size` is the stride, and the buffer is the handle this
+        // class already owns. The native triple this used to pass (`native_handle(command_buffer)`, the derived
+        // `VkBuffer`, `sizeof(VkDrawMeshTasksIndirectCommandEXT)`) is gone.
+        if (rhi::error const recorded = command_buffer.draw_mesh_tasks_indirect(*self->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size); recorded != rhi::error::ok) {
+            // THE VERB ANSWERS RATHER THAN ASSERTS, and the answer is honoured: the capability check above says
+            // the device CAN, so a refusal here is a backend/provenance problem - announced once, then the
+            // dispatch goes down the direct call rather than being lost.
+            if (!self->mesh_indirect_route_logged) {
+                self->mesh_indirect_route_logged = true;
+                deren::utility::log("mesh indirect: the backend refused the indirect record ({}) - the meshlet dispatches go through the DIRECT call", static_cast<std::uint32_t>(recorded));
+            }
+            return direct();
+        }
         self->mesh_indirect_dispatches.fetch_add(1u, std::memory_order_relaxed);
         if (!self->mesh_indirect_route_logged) {
             self->mesh_indirect_route_logged = true;
-            deren::utility::log("mesh indirect: the meshlet dispatches go through vkCmdDrawMeshTasksIndirectEXT (table bound, {} records per frame in flight - two command classes - a slot is the primitive's meshlet_base)", runtime::mesh_command_capacity);
+            deren::utility::log("mesh indirect: the meshlet dispatches go through the contract's draw_mesh_tasks_indirect (argument buffer bound, {} records per frame in flight - two command classes - a slot is the primitive's meshlet_base)", runtime::mesh_command_capacity);
         }
         return true;
     }
