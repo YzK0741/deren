@@ -194,7 +194,7 @@ namespace deren::vulkan {
         if (!contract_heap_ready(vk) || vertex_code.empty() || fragment_code.empty()) {
             return;
         }
-        constexpr VkFormat probe_format = VK_FORMAT_R8G8B8A8_UNORM;
+        constexpr rhi::image_format probe_format = rhi::image_format::rgba8_unorm;
         auto const built = pipelines::build_heap_probe_graphics(vk, contract_image_format(probe_format), vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
         if (!built.has_value()) {
             deren::utility::log("descriptor heap: the heap-native graphics probe's pipeline was refused: {}", built.error());

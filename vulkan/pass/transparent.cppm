@@ -62,8 +62,8 @@ export namespace deren::vulkan::pass {
         /// stops filling it.
         void (*fill_heap_bind)(void* owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) = nullptr;
         /// the ONE colour attachment the secondary inherits, plus the depth format
-        VkFormat color_format = VK_FORMAT_UNDEFINED;
-        VkFormat depth_format = VK_FORMAT_UNDEFINED;
+        ::deren::promise::rhi::image_format color_format = ::deren::promise::rhi::image_format::unknown;
+        ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;
         deren::promise::rhi::image_extent extent = {0, 0};
     };
 

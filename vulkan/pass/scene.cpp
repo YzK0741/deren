@@ -71,7 +71,7 @@ namespace deren::vulkan::pass {
         // and a second truth is what it refuses).
         std::array<std::int32_t, max_render_targets> color_formats = {};
         uint32_t color_count = 0;
-        for (VkFormat const format : this->pass_frame.color_formats) {
+        for (::deren::promise::rhi::image_format const format : this->pass_frame.color_formats) {
             if (color_count >= color_formats.size()) {
                 break;
             }

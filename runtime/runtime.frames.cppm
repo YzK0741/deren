@@ -2308,7 +2308,7 @@ namespace deren::vulkan {
         }
         // the secondaries inherit the instance's attachments: the three surface targets in order, the velocity
         // target, and the scene colour - the same order the pass's declaration lists them in
-        this->scene_color_formats = {deren::vulkan::render_layout::gbuffer_formats[0], deren::vulkan::render_layout::gbuffer_formats[1], deren::vulkan::render_layout::gbuffer_formats[2], deren::vulkan::render_layout::gbuffer_velocity_format, deren::vulkan::render_layout::hdr_format};
+        this->scene_color_formats = {contract_image_format(deren::vulkan::render_layout::gbuffer_formats[0]), contract_image_format(deren::vulkan::render_layout::gbuffer_formats[1]), contract_image_format(deren::vulkan::render_layout::gbuffer_formats[2]), contract_image_format(deren::vulkan::render_layout::gbuffer_velocity_format), contract_image_format(deren::vulkan::render_layout::hdr_format)};
         return pass::scene_frame{
             .leaves = this->frame_visible,
             .segments = this->scene_segment_view,
@@ -2317,7 +2317,7 @@ namespace deren::vulkan {
             .owner = this,
             .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_formats = this->scene_color_formats,
-            .depth_format = this->depth_attachment_format,
+            .depth_format = contract_image_format(this->depth_attachment_format),
             .samples = VK_SAMPLE_COUNT_1_BIT,
             .gbuffer = true,
             .extent = this->render_extent(),
@@ -2497,8 +2497,8 @@ namespace deren::vulkan {
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
             .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
-            .color_format = deren::vulkan::render_layout::hdr_format,
-            .depth_format = this->depth_attachment_format,
+            .color_format = contract_image_format(deren::vulkan::render_layout::hdr_format),
+            .depth_format = contract_image_format(this->depth_attachment_format),
             .extent = this->render_extent(),
         };
     }
@@ -2607,8 +2607,8 @@ namespace deren::vulkan {
             // ... and the outline group's pipeline name, on the overlay's terms exactly: empty when it was never
             // built, which the pass reads as "there is no outline to draw" (see `outline_ready` above).
             .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
-            .color_format = deren::vulkan::render_layout::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
-            .depth_format = this->depth_attachment_format,
+            .color_format = contract_image_format(deren::vulkan::render_layout::hdr_format), // one HDR target, and NOT the swapchain format - see the pass
+            .depth_format = contract_image_format(this->depth_attachment_format),
             .extent = this->render_extent(),
         };
     }

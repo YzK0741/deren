@@ -137,8 +137,8 @@ export namespace deren::vulkan::pass {
          */
         std::string_view outline_pipeline_name = {};
         /// the two declared targets' formats and the extent (the pass opens its own instance)
-        VkFormat color_format = VK_FORMAT_UNDEFINED;
-        VkFormat depth_format = VK_FORMAT_UNDEFINED;
+        ::deren::promise::rhi::image_format color_format = ::deren::promise::rhi::image_format::unknown;
+        ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;
         deren::promise::rhi::image_extent extent = {0, 0};
     };
 

@@ -313,3 +313,28 @@ vkBeginCommandBuffer(): pBeginInfo->pInheritanceInfo->pNext<VkCommandBufferInher
 - **`-j 14`**（16 线程机器）：全量构建一次约 1–2 分钟，别再降到 `-j 2`。
 - 仪器的选择：**纯类型/词汇迁移用"构建 + 覆盖该路径的那一个门禁"**，不要每次跑全套；但**格式/布局这类"值被另一种语言解释"的改动，`check_render` 是唯一能抓住的仪器**（ctest 抓不到）。
 - 每个提交都要留下"当时的仪器数字"；回退时注意**成对数据**（census 的配对数、abi 版本等）必须同批动。
+
+---
+
+## 6. 工作树状态与剩余族的性质（2026-10-08 交接时，**未构建、未验证**）
+
+**当前工作树**：`runtime/`（constructor / runtime.cpp / declarations / frames / probes）+ `vulkan/core/core.api_core.cpp` + 5 个 pass/primitive 文件 = **12 个文件有未提交的 B3.3 改动**。这批改动**没有经过构建、没有经过渲染门禁**——上一次构建只差一条编译错误（已修的 `rhi::image_format` 未限定名），之后就停手了。**接手第一步：`-j 14` 构建一次，再跑 `check_render.ps1 -Full -Compare frozen`（14/14 是唯一判据）。**
+
+B3.3 这批的完整改动集（供核对/take over）：
+1. 引擎侧 11 文件：`VkFormat` → `rhi::image_format`、`VK_FORMAT_*` → 契约枚举值；
+2. `runtime/runtime.declarations.cppm`：`contract_image_format(VkFormat)` 保留为 **raw→契约** 的唯一换算点（读 `render_layout` 的已允许 constexpr 表），并新增**恒等重载** `contract_image_format(rhi::image_format)`；`depth_attachment_format` 与换算点的 raw case 标签**保持 raw**；
+3. `runtime/runtime.frames.cppm`：两个堆 lambda 的 `format` 参数保持 `VkFormat`；pass 帧的契约字段用 `contract_image_format(...)` 从 raw 表/成员换算（3 处 `depth_format`、2 处 `color_format`、1 处 `scene_color_formats`）；
+4. `runtime/runtime.constructor.cppm`：只动 2 处（`swap_chain_image_format` 过换算点、缓存键 tuple 用契约类型 + 值过换算点），**堆写入路径 33 处保持 raw**；
+5. **后端 `vulkan/core/core.api_core.cpp`：唯一的反向换算点**。后端本就有 `native_image_format(rhi::image_format, VkFormat depth_fallback)`（第 508 行，管线路径 1528/1536 已在用），只有**命令缓冲继承**那处漏了（原第 1964/1965 行 raw `reinterpret_cast`）→ 现改为逐项过 `native_image_format`，并用局部 `std::array<VkFormat, 8>` + 超限拒绝。
+
+## 7. B3.4 / B3.5 的性质：**这两族不是替换，是契约改动**（所以我没有盲改）
+
+| 族 | 引擎侧站点 | 性质 |
+|---|---|---|
+| 采样数 `VkSampleCountFlagBits`/`VK_SAMPLE_COUNT_1_BIT` | 7 处（declarations 2、frames 2、scene.cppm 2、transparent.cpp 1） | ❗**契约里没有 samples 字段**（`image_desc` 里 grep 不到 `samples`）→ 要么给契约加字段/枚举值，要么这族留给"契约补能力"那一步。**不是替换。** |
+| 裁剪模式 `VkCullModeFlags`/`VK_CULL_MODE_*` | 17 处（frames 9、render_environment 8） | ✅ 可替换：契约 `rhi::cull_mode { none=0, front=1, back=2, front_and_back=3 }` 与 Vulkan 值一致，且后端**已经**会换算（`core.api_core.cpp:3656-3662` `set_cull_mode`）→ 安全。 |
+| `VkBool32` | 5 处（frames 2、render_environment 3） | ✅ 可替换为 `bool`（契约取 `bool` 的地方）。 |
+| `VkBindHeapInfoEXT` | 12 处（constructor 2、runtime.cpp 2、declarations 4、scene.cppm 2、transparent.cppm 2） | ❗它是**框架接口参数**：`static void fill_heap_bind(void*, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler)`（`declarations.cppm:2118`）+ `contract_heap_bind_infos(...)`。迁移 = 改**契约的二级命令缓冲堆继承面**（需要一个契约堆绑定 POD），属计划里的 **B4**，不是替换。 |
+| `VK_NULL_HANDLE` | 34 处（9 文件） | 逐处判断：契约句柄处 → `nullptr`；计数/枚举处 → `0`；**大部分会随各"族"消失**。不要全局替换。 |
+
+**教训（写给接手者）**：**"值族的迁移"分两种**——契约里已有对应类型的（`VkDeviceAddress`/`VkExtent2D`/`VkFormat`/`cull_mode`/`bool`）= 替换 + **两端各一个换算点**；契约里**没有**对应能力的（samples / 堆绑定 POD）= **先补契约**，再迁移。把第二类当第一类做，就会得到"编译过、ctest 过、渲染全废"。

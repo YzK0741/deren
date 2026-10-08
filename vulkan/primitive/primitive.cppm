@@ -368,7 +368,7 @@ namespace deren::vulkan {
         uint32_t width = 0;
         uint32_t height = 0;
         uint32_t mip_levels = 1;
-        VkFormat format = VK_FORMAT_R8G8B8A8_UNORM;
+        ::deren::promise::rhi::image_format format = ::deren::promise::rhi::image_format::rgba8_unorm;
         bool valid = false;
     };
 
@@ -662,7 +662,7 @@ namespace deren::vulkan {
          * ceiling above still bounds what a LANE could add rather than what the port does without one.
          *
          * SRGB RATHER THAN UNORM, AND THE DIFFERENCE IS THE SAMPLER AND NOT THE SHADER: an `_RS` sheet is a
-         * COLOUR image (the reference multiplies it into a tint), so `VK_FORMAT_R8G8B8A8_SRGB` hands the stage
+         * COLOUR image (the reference multiplies it into a tint), so `::deren::promise::rhi::image_format::rgba8_srgb` hands the stage
          * texels the sampler has already decoded - a second decode in the shader would double-apply the curve.
          * `_GooRSMask` above is UNORM for the opposite reason: its channels are a mask and are read through no
          * decode at all.

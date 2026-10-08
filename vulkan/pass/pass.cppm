@@ -417,8 +417,8 @@ export namespace deren::vulkan::pass {
     /**
      * @brief whether a CONTRACT format's attachment write path encodes linear -> sRGB in HARDWARE.
      *
-     * THE PASS LAYER HOLDS NO `VkFormat`, which is why this exists rather than the callers reaching for
-     * `deren.vulkan.constant_init::is_srgb_format(VkFormat)`: that module deliberately depends on nothing but the
+     * THE PASS LAYER HOLDS NO `::deren::promise::rhi::image_format`, which is why this exists rather than the callers reaching for
+     * `deren.vulkan.constant_init::is_srgb_format(::deren::promise::rhi::image_format)`: that module deliberately depends on nothing but the
      * Vulkan headers, so a contract-spelled overload cannot live there. One definition, shared by the two post
      * passes (composite and FXAA) and the upscale - a second switch would be a second place for the list of
      * formats to fall behind, which is the argument the Vulkan-spelled original already makes.

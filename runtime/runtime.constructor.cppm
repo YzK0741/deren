@@ -454,7 +454,7 @@ namespace deren::vulkan {
         // and the pipelines that render into the presentation image are created up front (see the
         // contract's own note on the accessor). Asked here, in the constructor, and read from this member
         // by `make_pipeline` and `make_pass_context`.
-        this->swap_chain_image_format = static_cast<VkFormat>(this->escape().native_swapchain_image_format());
+        this->swap_chain_image_format = contract_image_format(static_cast<VkFormat>(this->escape().native_swapchain_image_format()));
         // THE DEVICE'S CAPABILITIES: a device fact does not change while the device lives, so the five
         // legacy `core::ray_query_available` / `core::mesh_shader_available` reads become one query each.
         // The two derivations are the ENGINE's, from facts the escape exposes (the enabled device
@@ -2206,8 +2206,8 @@ namespace deren::vulkan {
             deren::utility::xxh3_digest const digest = deren::utility::xxh3_128bits(std::span<uint8_t const>(tex.data.data(), tex.data.size_bytes()));
             // key on the digest data_block itself (not a raw byte array): data_block carries the
             // equality/ordering the std::map key needs
-            auto const key = std::tuple<deren::utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>{
-                digest, slots[i].second, tex.width, tex.height, tex.mip_levels};
+            auto const key = std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>{
+                digest, contract_image_format(slots[i].second), tex.width, tex.height, tex.mip_levels};
             auto const cached = this->texture_slot_cache.find(key);
             if (cached != this->texture_slot_cache.end()) {
                 texture_indices[i] = cached->second; // shared texture: reuse its slot

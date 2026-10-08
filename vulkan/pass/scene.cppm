@@ -110,8 +110,8 @@ export namespace deren::vulkan::pass {
          */
         void (*fill_heap_bind)(void* owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) = nullptr;
         /// the attachments a SECONDARY must inherit (dynamic rendering): formats in attachment order + depth
-        std::span<VkFormat const> color_formats = {};
-        VkFormat depth_format = VK_FORMAT_UNDEFINED;
+        std::span<::deren::promise::rhi::image_format const> color_formats = {};
+        ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;
         VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
         /// whether this frame writes the G-buffer (the surface pass) or shades into the HDR target
         bool gbuffer = true;

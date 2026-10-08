@@ -104,7 +104,7 @@ namespace rhi = deren::promise::rhi;
  * THE NAME IS A DOCUMENTATION GROUP, NOT A MODULE NAME: the module stays `deren.vulkan.runtime` (the
  * module-name rule is settled and a module rename is out of scope). And the VULKAN FACTS this layer
  * does name stay Vulkan's own - the native handles `vulkan_escape` hands out, `vkCreateWin32SurfaceKHR`
- * in the surface path, the enabled instance/device extension sets, the `VkFormat`/heap semantics behind
+ * in the surface path, the enabled instance/device extension sets, the `rhi::image_format`/heap semantics behind
  * the contract's spellings. Those say WHAT A NATIVE FACT OR ENTRY POINT IS; what changed here is only
  * what says what the LAYER is.
  * @note
@@ -299,6 +299,11 @@ namespace deren::vulkan {
     [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer commands, std::uint32_t offset,
                                                std::span<std::byte const> data) noexcept;
 
+    /// THE SAME CONVERSION FOR A VALUE THAT IS ALREADY THE CONTRACT'S (plan X5 B3.3): a site holding an
+    /// `rhi::image_format` that hands it to code taking "the contract's spelling" is not converting anything.
+    [[nodiscard]] constexpr rhi::image_format contract_image_format(rhi::image_format const format) noexcept {
+        return format;
+    }
     [[nodiscard]] constexpr rhi::image_format contract_image_format(VkFormat const format) noexcept {
         switch (format) {
         case VK_FORMAT_R8G8B8A8_UNORM:
@@ -316,7 +321,7 @@ namespace deren::vulkan {
         case VK_FORMAT_R32G32B32_SFLOAT:
             return rhi::image_format::r32g32b32_sfloat;
         // APPENDED with the contract's own appended value (③-D/E A1.2): the ray-traced visibility image is
-        // created at VK_FORMAT_R16_SFLOAT, so the engine has to be able to NAME the format it creates with.
+        // created at rhi::image_format::r16_sfloat, so the engine has to be able to NAME the format it creates with.
         case VK_FORMAT_R16_SFLOAT:
             return rhi::image_format::r16_sfloat;
         default:
@@ -368,11 +373,11 @@ namespace deren::vulkan {
          * native_swapchain_image_format()` (abi 17) is the accessor that can, and this member is that
          * one call's result. It is also what the backend's own `render_extent` path was created with.
          */
-        VkFormat swap_chain_image_format = VK_FORMAT_UNDEFINED;
+        rhi::image_format swap_chain_image_format = rhi::image_format::unknown;
         /**
          * THE G-BUFFER DEPTH'S CONCRETE FORMAT, read ONCE after the engine created its own depth images
          * (③-D/E step 2): the contract's `depth` ROLE is resolved by the BACKEND, so the engine cannot
-         * name the VkFormat it must give a depth-attachment pipeline - but it CAN ask the image it
+         * name the rhi::image_format it must give a depth-attachment pipeline - but it CAN ask the image it
          * created, and that answer is the device's own. Session-stable like the surface format, and the
          * replacement for the legacy runtime's `core::depth_attachment_format` reads.
          */
@@ -485,7 +490,7 @@ namespace deren::vulkan {
         std::vector<rhi::object_manager<rhi::image_view>> owned_texture_views = {};
         std::vector<rhi::object_manager<rhi::image>> owned_textures = {};
         uint32_t white_texture_index = 0;
-        std::map<std::tuple<deren::utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
+        std::map<std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>, uint32_t> texture_slot_cache = {}; // digest (data_block<16>), format, width, height, mip_levels
         // scene-wide IBL (bindings 2-4): prefiltered env / irradiance / BRDF LUT, uploaded once
         std::vector<rhi::object_manager<rhi::image_view>> ibl_views = {};
         std::vector<rhi::object_manager<rhi::image>> ibl_images = {};
@@ -501,7 +506,7 @@ namespace deren::vulkan {
         // reference's own 64x64 PNG - and it is the STEP-5 spec's architecture ruling that it is a shared global
         // image rather than a per-material lane (§3.4).
         //
-        // ITS FORMAT IS `VK_FORMAT_R8G8B8A8_UNORM` AND THAT IS A CORRECTNESS REQUIREMENT RATHER THAN A DEFAULT:
+        // ITS FORMAT IS `rhi::image_format::rgba8_unorm` AND THAT IS A CORRECTNESS REQUIREMENT RATHER THAN A DEFAULT:
         // the reference's image data-block is `colorspace = 'Non-Color'`, i.e. Blender does NOT linearize it, so
         // the node graph reads the texel's BYTES as the value. An `_SRGB` upload would decode every channel once
         // and move all three outputs of the group (spec §3.1 item 1).
@@ -1012,7 +1017,7 @@ namespace deren::vulkan {
         /// (the secondary is the caller's `shared_ptr`, and the frame carries the borrowed pointer).
         std::vector<pass::segment_buffer> scene_segment_view = {};
         /// the colour formats the scene pass's secondaries inherit, in attachment order
-        std::array<VkFormat, deren::vulkan::gbuffer_pass_attachment_count> scene_color_formats = {};
+        std::array<rhi::image_format, deren::vulkan::gbuffer_pass_attachment_count> scene_color_formats = {};
         // called taa_pass, not taa_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> taa_pass = {};
@@ -2975,9 +2980,9 @@ namespace deren::vulkan {
             // attachment order: one entry (the HDR target) when the leaves shade into it, the four G-buffer
             // attachments when the opaque pass writes the G-buffer. Held by value because the task outlives the
             // call that builds it (it is moved into the task pool).
-            std::array<VkFormat, deren::vulkan::gbuffer_pass_attachment_count> color_formats = {};
-            uint32_t color_count = 0;                    // formats in use (1 when only the HDR target, 4 for surface targets + HDR)
-            VkFormat depth_format = VK_FORMAT_UNDEFINED; // main depth attachment format
+            std::array<rhi::image_format, deren::vulkan::gbuffer_pass_attachment_count> color_formats = {};
+            uint32_t color_count = 0;                                    // formats in use (1 when only the HDR target, 4 for surface targets + HDR)
+            rhi::image_format depth_format = rhi::image_format::unknown; // main depth attachment format
             VkSampleCountFlagBits rasterization_samples = VK_SAMPLE_COUNT_1_BIT;
             bool gbuffer_pass = false;      // leaves bind the G-buffer pipeline (not the HDR-shading ones)
             runtime const* owner = nullptr; // recording context (scene set / pipeline caches)
@@ -4336,7 +4341,7 @@ namespace deren::vulkan {
             uint32_t const materials_before = this->material_count;
             // converts a pure image_source (e.g. the glTF loader's image_view) into the
             // internal texture_input with the slot's upload format; invalid images -> white
-            auto const to_texture = [](auto const& image, VkFormat const format) {
+            auto const to_texture = [](auto const& image, rhi::image_format const format) {
                 texture_input out = {};
                 if (image.valid) {
                     out.data = image.data;
@@ -4358,11 +4363,11 @@ namespace deren::vulkan {
                 info.index_data = index.data;
                 info.index_type = index.width == 4 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
                 info.index_count = index.count;
-                info.albedo = to_texture(drawable.get_albedo(), VK_FORMAT_R8G8B8A8_SRGB);
-                info.metallic_roughness = to_texture(drawable.get_metallic_roughness(), VK_FORMAT_R8G8B8A8_UNORM);
-                info.normal = to_texture(drawable.get_normal(), VK_FORMAT_R8G8B8A8_UNORM);
-                info.occlusion = to_texture(drawable.get_occlusion(), VK_FORMAT_R8G8B8A8_UNORM);
-                info.emissive = to_texture(drawable.get_emissive(), VK_FORMAT_R8G8B8A8_SRGB); // glTF emissive textures are sRGB
+                info.albedo = to_texture(drawable.get_albedo(), rhi::image_format::rgba8_srgb);
+                info.metallic_roughness = to_texture(drawable.get_metallic_roughness(), rhi::image_format::rgba8_unorm);
+                info.normal = to_texture(drawable.get_normal(), rhi::image_format::rgba8_unorm);
+                info.occlusion = to_texture(drawable.get_occlusion(), rhi::image_format::rgba8_unorm);
+                info.emissive = to_texture(drawable.get_emissive(), rhi::image_format::rgba8_srgb); // glTF emissive textures are sRGB
                 auto const factors = drawable.get_factors();
                 info.factors.base_color_factor = factors.base_color_factor;
                 info.factors.emissive_factor = factors.emissive_factor;

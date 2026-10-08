@@ -1933,6 +1933,9 @@ namespace deren::vulkan {
             return rhi::error::not_ready; // this handle holds no reference any more
         }
 
+        // The contract's colour formats, converted once into the API's own spelling (see the note below):
+        // eight is this backend's ceiling for inherited attachments, and a larger declaration is refused.
+        std::array<VkFormat, 8> native_color_formats = {};
         VkCommandBufferInheritanceRenderingInfo rendering = {};
         VkCommandBufferInheritanceDescriptorHeapInfoEXT heap_inheritance = {};
         VkBindHeapInfoEXT resource_bind = {};
@@ -1959,8 +1962,20 @@ namespace deren::vulkan {
             rendering.flags = 0;
             rendering.viewMask = declared_inheritance.view_mask;
             rendering.colorAttachmentCount = declared_inheritance.color_format_count;
-            rendering.pColorAttachmentFormats = reinterpret_cast<VkFormat const*>(declared_inheritance.color_formats);
-            rendering.depthAttachmentFormat = static_cast<VkFormat>(declared_inheritance.depth_format);
+            // THE DECLARED FORMATS ARE CONTRACT VALUES, AND A VULKAN STRUCT TAKES VkFormat (plan X5 B3.3):
+            // `native_image_format` is the backend's single pivot in this direction - the same one the pipeline
+            // descriptions already go through (see the `begin_rendering` path below) - and THIS call was the one
+            // place that treated the contract's numbers as Vulkan's, which is why a contract `rgba8_unorm` (1)
+            // reached the driver as `V4G4_UNORM_PACK8` (also 1) and every scenario failed validation. The engine
+            // never sees a `VkFormat`; the conversion happens here, on the side that speaks Vulkan.
+            if (rendering.colorAttachmentCount > native_color_formats.size()) {
+                return rhi::error::unsupported; // more inherited attachments than this backend serves
+            }
+            for (std::uint32_t format_index = 0; format_index < rendering.colorAttachmentCount; ++format_index) {
+                native_color_formats[format_index] = native_image_format(static_cast<rhi::image_format>(declared_inheritance.color_formats[format_index]), this->depth_attachment_format);
+            }
+            rendering.pColorAttachmentFormats = rendering.colorAttachmentCount == 0 ? nullptr : native_color_formats.data();
+            rendering.depthAttachmentFormat = native_image_format(static_cast<rhi::image_format>(declared_inheritance.depth_format), this->depth_attachment_format);
             rendering.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
             rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(declared_inheritance.samples);
             inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
