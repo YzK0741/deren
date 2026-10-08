@@ -179,64 +179,70 @@ int main(int const argc, char** const argv) {
     auto* const native_commands = static_cast<VkCommandBuffer>(escape->native_command_buffer(*commands));
     CHECK(native_commands != VK_NULL_HANDLE);
 
-    // ---- 4. THE STRUCTURES. Two bottom-level entries (one refittable, which is the path a compute-skinning
-    //         frame takes) and one top-level slot with one instance.
+    // ---- 4. THE STRUCTURES, THROUGH THE TIER-1 INTERFACE (abi 26): the two levels, the refit the flag
+    //         declares, and the refusals the interface promises - each as its own check.
+    //
+    //         THE BACKEND OWNS EVERYTHING THE CALLER DOES NOT SEE (the storage, the scratch, the alignment,
+    //         the sizes), which is why this section has no size query, no buffer and no offset in it: that is
+    //         the whole difference from the engine module's own path, which the probe drove before this batch.
+    rhi::acceleration_structure_geometry const geometry{
+        .vertex_address = addresses->buffer_address(*vertex_buffer, 0),
+        .vertex_stride = sizeof(vertex),
+        .vertex_count = triangle_vertices,
+        .index_address = addresses->buffer_address(*index_buffer, 0),
+        .index_format = rhi::index_type::uint32,
+        .index_count = triangle_vertices,
+    };
+    rhi::acceleration_structure* const blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+        .type = rhi::acceleration_structure_type::bottom_level,
+        .flags = rhi::to_bits(rhi::acceleration_structure_flag::allow_update),
+        .geometries = &geometry,
+        .geometry_count = 1u,
+    });
+    CHECK(blas != nullptr);
+    rhi::acceleration_structure* const static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+        .type = rhi::acceleration_structure_type::bottom_level,
+        .geometries = &geometry,
+        .geometry_count = 1u,
+    });
+    CHECK(static_blas != nullptr);
+    rhi::acceleration_structure* const tlas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+        .type = rhi::acceleration_structure_type::top_level,
+        .instance_capacity = 1u,
+    });
+    CHECK(tlas != nullptr);
+    if (blas == nullptr || static_blas == nullptr || tlas == nullptr) {
+        return deren::vk_test::finish("test_acceleration_structures");
+    }
+    deren::vk_test::write_line("as_probe: created blas address={:#x} size={} bytes, tlas address={:#x} size={} bytes",
+                               blas->device_address(), blas->size_bytes(), tlas->device_address(), tlas->size_bytes());
+    CHECK(blas->device_address() != 0u); // what a shader and an instance record reach it by
+    CHECK(blas->size_bytes() != 0u);     // what an address-range descriptor would carry
+    CHECK(tlas->device_address() != 0u);
+
+    // THE INSTANCE the traversal reads: an identity 3x4 transform, the BLAS's own address as its reference.
+    rhi::acceleration_structure_instance instance{};
+    instance.transform[0] = 1.0f;
+    instance.transform[5] = 1.0f;
+    instance.transform[10] = 1.0f;
+    instance.structure_reference = blas->device_address();
+    CHECK(tlas->write_instances(std::span<rhi::acceleration_structure_instance const>(&instance, 1u)) == rhi::error::ok);
+    // (a) THE CAPACITY REFUSAL: one past what it was created with - the array behind it is sized for one.
+    CHECK(tlas->write_instances(std::span<rhi::acceleration_structure_instance const>(&instance, 2u)) == rhi::error::invalid_argument);
+    // (b) A BOTTOM LEVEL HAS NO INSTANCE LIST, refused by name rather than silently dropped.
+    CHECK(blas->write_instances(std::span<rhi::acceleration_structure_instance const>(&instance, 1u)) == rhi::error::unsupported);
+
+    // ---- 5. THE RECORDING: both builds, the refit the flag allows, and the one it does not.
+    CHECK(commands->build_acceleration_structure(*blas) == rhi::error::ok);
+    CHECK(commands->build_acceleration_structure(*static_blas) == rhi::error::ok);
+    CHECK(commands->build_acceleration_structure(*tlas) == rhi::error::ok);
+    CHECK(commands->refit_acceleration_structure(*blas) == rhi::error::ok);                 // created with allow_update
+    CHECK(commands->refit_acceleration_structure(*static_blas) == rhi::error::unsupported); // ... and this one was not
+    CHECK(commands->end_recording() == rhi::error::ok);
+
+    // ---- 6. THE SUBMISSION, THROUGH THE ESCAPE (plan X4's second item: the contract has no submit verb for a
+    //         buffer the CALLER owns, which is why this is still a raw pair here).
     {
-        as::bottom_level_structures levels{*core};
-
-        // (a) THE SKIP the module documents: a source with no triangles keeps the caller's index alignment and
-        //     answers a null handle rather than an error.
-        std::uint32_t const skipped = *levels.add(as::geometry_source{.vertex_count = 0, .index_count = 0});
-        CHECK(skipped == 0u);
-        CHECK(levels.handle(skipped) == VK_NULL_HANDLE);
-
-        std::expected<std::uint32_t, std::string> const first = levels.add(source, /*refittable=*/true);
-        CHECK_MSG(first.has_value(), first.has_value() ? nullptr : first.error().c_str());
-        std::expected<std::uint32_t, std::string> const second = levels.add(source, /*refittable=*/false);
-        CHECK_MSG(second.has_value(), second.has_value() ? nullptr : second.error().c_str());
-        if (!first.has_value() || !second.has_value()) {
-            return deren::vk_test::finish("test_acceleration_structures");
-        }
-        CHECK(*first == 1u); // the skipped source took index 0
-        CHECK(*second == 2u);
-        CHECK(levels.size() == 3u);
-        CHECK(levels.handle(*first) != VK_NULL_HANDLE);
-        CHECK(levels.handle(*second) != VK_NULL_HANDLE);
-
-        // (b) THE BUILD: one recorded call that builds every entry (see the class note on batching).
-        std::expected<void, std::string> const built = levels.record_build(native_commands);
-        CHECK_MSG(built.has_value(), built.has_value() ? nullptr : built.error().c_str());
-        if (!built.has_value()) {
-            return deren::vk_test::finish("test_acceleration_structures");
-        }
-        deren::vk_test::write_line("as_probe: bottom level built: {} geometries, {} triangles, {} bytes of scratch",
-                                   levels.last_stats().geometry_count, levels.last_stats().triangle_count,
-                                   levels.last_stats().scratch_bytes);
-
-        // (c) THE TOP LEVEL: one instance referring to the refittable entry.
-        as::top_level_structure top{*core, 1u};
-        CHECK(top.begin(0u).has_value());
-        as::instance_source instance{};
-        instance.blas_index = *first;
-        std::expected<void, std::string> const instanced = top.add(levels, instance);
-        CHECK_MSG(instanced.has_value(), instanced.has_value() ? nullptr : instanced.error().c_str());
-        std::expected<void, std::string> const top_built = top.record_build(native_commands);
-        CHECK_MSG(top_built.has_value(), top_built.has_value() ? nullptr : top_built.error().c_str());
-        CHECK(top.handle(0u) != VK_NULL_HANDLE);
-        if (!top_built.has_value()) {
-            return deren::vk_test::finish("test_acceleration_structures");
-        }
-
-        // (d) THE REFIT: the same addresses and counts, so the structure is updated in place and reuses the
-        //     build's scratch. This is the path most likely to break when the scratch stops being the engine's.
-        std::uint32_t const refit[] = {*first};
-        std::expected<void, std::string> const refitted = levels.record_update(native_commands, refit);
-        CHECK_MSG(refitted.has_value(), refitted.has_value() ? nullptr : refitted.error().c_str());
-
-        CHECK(commands->end_recording() == rhi::error::ok);
-
-        // ---- 5. THE SUBMISSION, THROUGH THE ESCAPE (plan X4's second item: the contract has no submit verb
-        //         for a buffer the CALLER owns, which is why this is still a raw pair here).
         VkDevice const device = static_cast<VkDevice>(escape->native_device());
         VkQueue const queue = static_cast<VkQueue>(escape->native_queue());
         VkFenceCreateInfo const fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
@@ -252,14 +258,14 @@ int main(int const argc, char** const argv) {
                                   .signalSemaphoreCount = 0u,
                                   .pSignalSemaphores = nullptr};
         CHECK(vkQueueSubmit(queue, 1u, &submit, fence) == VK_SUCCESS);
-        CHECK(vkWaitForFences(device, 1u, &fence, VK_TRUE, 10'000'000'000ull) == VK_SUCCESS); // 10 s: a hung build must fail the probe rather than hang it
+        CHECK(vkWaitForFences(device, 1u, &fence, VK_TRUE, 10'000'000'000ull) == VK_SUCCESS); // a hung build fails the probe
         vkDestroyFence(device, fence, nullptr);
-
-        // THE BUILD ACTUALLY EXECUTED, which is the one thing a recorded-but-never-submitted buffer cannot say.
-        deren::vk_test::write_line("as_probe: built, submitted and waited: {} structures, {} instances",
-                                   levels.size(), 1u);
+        deren::vk_test::write_line("as_probe: built, refit, submitted and waited: 2 bottom level + 1 top level");
     }
 
+    blas->release();
+    static_blas->release();
+    tlas->release();
     commands->release();
     deren::vk_test::write_line("as_probe: done (validation was ON: any VUID appears above)");
     return deren::vk_test::finish("test_acceleration_structures");

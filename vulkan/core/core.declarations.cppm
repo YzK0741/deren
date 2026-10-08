@@ -519,6 +519,52 @@ namespace deren::vulkan {
             void release() noexcept override;
         };
 
+        /// AN ACCELERATION STRUCTURE THIS BACKEND OWNS (tier-1 since abi 26): the memory it lives in, the
+        /// scratch a build needs, and - for a top-level one - the instance records the CALLER writes through
+        /// `write_instances()`.
+        ///
+        /// WHAT IT REPLACES, AND WHY THE SHAPE IS THIS ONE: the engine's own `vulkan/acceleration_structure`
+        /// module used to do all of this itself (a size query, a storage buffer, one shared scratch with
+        /// aligned per-geometry ranges, the instance buffers, the recording). All of it moves here, so a caller
+        /// of the tier-1 interface never sees a size, an alignment or a scratch offset - which is what makes
+        /// the interface portable to a backend that has no such objects at all.
+        ///
+        /// THE DESTRUCTOR ORDER IS THE ONE THING WORTH STATING: the structure is destroyed BEFORE the memory it
+        /// lives in (`vkDestroyAccelerationStructureKHR` first, then the buffers are released), because
+        /// destroying the buffer under a live structure is a validation error and, on some drivers, worse.
+        struct owned_acceleration_structure final : deren::promise::rhi::acceleration_structure {
+            core* owner = nullptr;
+            VkAccelerationStructureKHR native = VK_NULL_HANDLE;
+            /// the memory the structure lives in: the BACKEND's reference, never handed to the caller
+            deren::promise::rhi::buffer* storage = nullptr;
+            /// the build's scratch, sized ONCE at creation for the worst case (a bottom level's geometries are
+            /// fixed, a top level is sized for its capacity), so recording a build never allocates
+            deren::promise::rhi::buffer* scratch = nullptr;
+            VkDeviceAddress scratch_address = 0;
+            VkDeviceSize scratch_size = 0;
+            /// what `device_address()` and `size_bytes()` answer, cached at creation
+            VkDeviceAddress address = 0;
+            VkDeviceSize structure_size = 0;
+            /// WHAT IT WAS CREATED AS: the geometry the driver's build reads, or the instances the caller writes
+            bool top_level = false;
+            bool refittable = false;
+            std::vector<VkAccelerationStructureGeometryKHR> geometries = {};
+            VkAccelerationStructureBuildRangeInfoKHR range = {};
+            /// TOP LEVEL: the instance records, in the backend's own host-visible buffer
+            deren::promise::rhi::buffer* instances = nullptr;
+            void* instances_mapped = nullptr;
+            std::uint32_t instance_capacity = 0;
+            std::uint32_t instance_count = 0;
+
+            [[nodiscard]] std::uint64_t device_address() const noexcept override;
+            [[nodiscard]] std::uint64_t size_bytes() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::error write_instances(std::span<deren::promise::rhi::acceleration_structure_instance const> records) override;
+            /// give the reference back: `delete this`, whose destructor destroys the structure and THEN
+            /// releases the memory (see the note above)
+            void release() noexcept override;
+            ~owned_acceleration_structure() noexcept;
+        };
+
         /// AN OWNED IMAGE: what `create_image()` hands the caller (abi 7's image face, §17's design).
         ///
         /// THE SAME SHAPE AS `owned_buffer`: heap-allocated by the factory, `release()` is `delete this`,
@@ -870,6 +916,18 @@ namespace deren::vulkan {
         /// `draw_mesh_tasks`), and it records NOTHING where this is null - a pass that launches rays is only built
         /// when its pipeline could be created, which needs that extension.
         PFN_vkCmdTraceRaysKHR ray_trace_launch = nullptr;
+        /// ---- THE ACCELERATION-STRUCTURE ENTRY POINTS (tier-1 since abi 26) ------------------------------
+        ///
+        /// The same rule as the mesh commands and the launch: the loader's import library does not export them,
+        /// so they are resolved once through `vkGetDeviceProcAddr`, and every one is null on a device without
+        /// `VK_KHR_acceleration_structure`. `create_acceleration_structure` refuses by name while they are
+        /// null, and the two recording verbs answer `unsupported` - a build that cannot be recorded must not
+        /// look like one that was.
+        PFN_vkCreateAccelerationStructureKHR acceleration_structure_create = nullptr;
+        PFN_vkDestroyAccelerationStructureKHR acceleration_structure_destroy = nullptr;
+        PFN_vkGetAccelerationStructureBuildSizesKHR acceleration_structure_build_sizes = nullptr;
+        PFN_vkGetAccelerationStructureDeviceAddressKHR acceleration_structure_address = nullptr;
+        PFN_vkCmdBuildAccelerationStructuresKHR acceleration_structure_build = nullptr;
         /// VK_EXT_host_image_copy (REQUIRED - see host_image_copy_available below): the copy between an
         /// image and HOST memory that the IMPLEMENTATION performs - no command buffer, no staging buffer,
         /// no submission. Resolved through vkGetDeviceProcAddr like the mesh commands above, because the

@@ -2876,43 +2876,374 @@ namespace deren::vulkan {
     }
 
     rhi::acceleration_structure* core::create_acceleration_structure(rhi::acceleration_structure_desc const& declared_desc) {
-        // ---- THE ABI GUARD, THEN THE REFUSAL, AND THE REFUSAL IS THE HONEST ANSWER TODAY --------------
+        // ---- THE ABI GUARD, THEN WHAT A CREATE ACTUALLY IS (tier-1 since abi 26) ------------------------
         //
-        // THE SHAPE IS TIER-1 SINCE ABI 26 (`rhi::acceleration_structure`, see its own note) and THIS BACKEND
-        // DOES NOT SERVE IT YET: the engine still builds its structures through `vulkan/acceleration_structure`,
-        // which owns the storage, the scratch and the recording itself. Answering `nullptr` is the contract's
-        // documented "this descriptor cannot be honoured" (the same answer `create_swapchain` gives), and it is
-        // LOGGED ONCE so a caller cannot read it as a device without ray tracing.
+        //   1. THE GEOMETRY, in the driver's words, built ONCE: the caller's records are PODs of the CONTRACT's
+        //      layout, and this is the ONE place the two spellings meet - the backend owns the conversion, the
+        //      same rule `mesh_task_command` follows.
+        //   2. THE SIZES (`vkGetAccelerationStructureBuildSizesKHR`) and the memory: the storage the structure
+        //      lives in, allocated through this backend's own factory. The caller never sees the number.
+        //   3. THE HANDLE (`vkCreateAccelerationStructureKHR`) and its ADDRESS
+        //      (`vkGetAccelerationStructureDeviceAddressKHR`), which is what a shader and an instance record use.
         //
-        // WHAT LANDING THIS LOOKS LIKE (plan S1's P1b), stated here so the gap is not a mystery at the call
-        // site: the storage buffer sized by `vkGetAccelerationStructureBuildSizesKHR`, the
-        // `vkCreateAccelerationStructureKHR` + `vkGetAccelerationStructureDeviceAddressKHR` pair for the
-        // address, the backend's own scratch for the build, and the two recording verbs below - all of which
-        // exist in that engine module today and move here.
-        //
-        // THE PREFIX IS READ FIRST anyway, because a refusal still has to know WHAT it is refusing (an older
-        // caller's shorter description is legal input, not a bug).
+        // THE SCRATCH IS ALLOCATED HERE TOO, not at a later first build: both sizes are known at creation (a
+        // bottom level's geometry is fixed; a top level is sized for its capacity), so recording a build never
+        // allocates - which is what keeps the recording verbs free of a failure mode in the middle of a frame.
+        if (this->acceleration_structure_create == nullptr || this->acceleration_structure_build_sizes == nullptr ||
+            this->acceleration_structure_address == nullptr || this->acceleration_structure_build == nullptr) {
+            if (!this->acceleration_structure_refusal_logged) {
+                this->acceleration_structure_refusal_logged = true;
+                deren::utility::log("rhi: create_acceleration_structure refused: this device has no "
+                                    "VK_KHR_acceleration_structure (its five entry points did not resolve at startup)");
+            }
+            return nullptr;
+        }
+
+        // THE ABI GUARD: only the prefix the caller declared is read (the rule every descriptor here follows).
         std::uint32_t const declared = declared_desc.struct_size;
         rhi::acceleration_structure_type type = rhi::acceleration_structure_type::bottom_level;
+        rhi::acceleration_structure_flags flags = rhi::no_acceleration_structure_flags;
+        rhi::acceleration_structure_geometry const* geometries = nullptr;
+        std::uint32_t geometry_count = 0;
+        std::uint32_t instance_capacity = 0;
         if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, type), sizeof(rhi::acceleration_structure_desc::type))) {
             type = declared_desc.type;
         }
-        if (!this->acceleration_structure_refusal_logged) {
-            this->acceleration_structure_refusal_logged = true;
-            deren::utility::log("rhi: create_acceleration_structure refused: this backend does not serve the tier-1 "
-                                "acceleration-structure interface yet (the {} level was asked for) - the engine builds its "
-                                "structures through deren.vulkan.acceleration_structure meanwhile (plan S1 P1b)",
-                                type == rhi::acceleration_structure_type::top_level ? "top" : "bottom");
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, flags), sizeof(rhi::acceleration_structure_desc::flags))) {
+            flags = declared_desc.flags;
         }
-        return nullptr;
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, geometries), sizeof(rhi::acceleration_structure_desc::geometries))) {
+            geometries = declared_desc.geometries;
+        }
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, geometry_count), sizeof(rhi::acceleration_structure_desc::geometry_count))) {
+            geometry_count = declared_desc.geometry_count;
+        }
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, instance_capacity), sizeof(rhi::acceleration_structure_desc::instance_capacity))) {
+            instance_capacity = declared_desc.instance_capacity;
+        }
+
+        bool const top_level = type == rhi::acceleration_structure_type::top_level;
+        if (!top_level && (geometries == nullptr || geometry_count == 0)) {
+            deren::utility::log("rhi: create_acceleration_structure refused: a bottom-level structure needs at least one geometry");
+            return nullptr; // a structure with nothing to trace is a caller bug, refused by name
+        }
+        if (top_level && instance_capacity == 0) {
+            deren::utility::log("rhi: create_acceleration_structure refused: a top-level structure needs an instance capacity");
+            return nullptr;
+        }
+
+        auto* const structure = new owned_acceleration_structure{};
+        structure->owner = this;
+        structure->top_level = top_level;
+        structure->refittable = rhi::has_flag(flags, rhi::acceleration_structure_flag::allow_update);
+        structure->instance_capacity = instance_capacity;
+
+        // ---- 1. THE GEOMETRY ---------------------------------------------------------------------------
+        if (top_level) {
+            rhi::buffer* const records = this->create_buffer(rhi::buffer_desc{
+                .size = static_cast<std::uint64_t>(instance_capacity) * sizeof(rhi::acceleration_structure_instance),
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)});
+            if (records == nullptr || records->mapped().data() == nullptr) {
+                deren::utility::log("rhi: create_acceleration_structure refused: the instance buffer could not be allocated");
+                delete structure;
+                return nullptr;
+            }
+            structure->instances = records;
+            structure->instances_mapped = records->mapped().data();
+            std::uint64_t const records_address = this->address_view.buffer_address(*records, 0);
+            if (records_address == 0) {
+                deren::utility::log("rhi: create_acceleration_structure refused: the instance buffer has no device address");
+                delete structure;
+                return nullptr;
+            }
+            VkAccelerationStructureGeometryInstancesDataKHR instances_data{};
+            instances_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+            instances_data.pNext = nullptr;
+            instances_data.arrayOfPointers = VK_FALSE;
+            instances_data.data.deviceAddress = records_address;
+            structure->geometries.push_back(VkAccelerationStructureGeometryKHR{
+                .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+                .pNext = nullptr,
+                .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+                .geometry = {.instances = instances_data},
+                .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+            });
+            structure->range = VkAccelerationStructureBuildRangeInfoKHR{.primitiveCount = 0u, .primitiveOffset = 0u, .firstVertex = 0u, .transformOffset = 0u};
+        } else {
+            structure->geometries.reserve(geometry_count);
+            for (std::uint32_t index = 0; index < geometry_count; ++index) {
+                rhi::acceleration_structure_geometry const& source = geometries[index];
+                VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
+                triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+                triangles.pNext = nullptr;
+                triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT; // the contract's geometry is positions
+                triangles.vertexData.deviceAddress = source.vertex_address;
+                triangles.vertexStride = source.vertex_stride;
+                triangles.maxVertex = source.vertex_count == 0 ? 0u : source.vertex_count - 1u;
+                triangles.indexType = static_cast<VkIndexType>(source.index_format);
+                triangles.indexData.deviceAddress = source.index_address;
+                triangles.transformData.deviceAddress = 0;
+                structure->geometries.push_back(VkAccelerationStructureGeometryKHR{
+                    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+                    .pNext = nullptr,
+                    .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+                    .geometry = {.triangles = triangles},
+                    .flags = VK_GEOMETRY_OPAQUE_BIT_KHR,
+                });
+                structure->range = VkAccelerationStructureBuildRangeInfoKHR{
+                    .primitiveCount = (source.index_address == 0 ? source.vertex_count : source.index_count) / 3u,
+                    .primitiveOffset = 0u,
+                    .firstVertex = 0u,
+                    .transformOffset = 0u,
+                };
+            }
+        }
+
+        // ---- 2. THE SIZES, THEN THE MEMORY --------------------------------------------------------------
+        VkAccelerationStructureBuildGeometryInfoKHR size_info{};
+        size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        size_info.pNext = nullptr;
+        size_info.type = top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        size_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | (structure->refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
+        size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        size_info.geometryCount = static_cast<std::uint32_t>(structure->geometries.size());
+        size_info.pGeometries = structure->geometries.data();
+        std::uint32_t const primitive_count = top_level ? instance_capacity : structure->range.primitiveCount;
+        VkAccelerationStructureBuildSizesInfoKHR sizes{};
+        sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        this->acceleration_structure_build_sizes(this->logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &primitive_count, &sizes);
+        if (sizes.accelerationStructureSize == 0) {
+            deren::utility::log("rhi: create_acceleration_structure refused: the build-size query answered zero bytes");
+            delete structure;
+            return nullptr;
+        }
+
+        structure->storage = this->create_buffer(
+            rhi::buffer_desc{.size = sizes.accelerationStructureSize, .usage = rhi::buffer_usage::acceleration_structure_storage});
+        if (structure->storage == nullptr) {
+            deren::utility::log("rhi: create_acceleration_structure refused: the structure's storage could not be allocated ({} bytes)", sizes.accelerationStructureSize);
+            delete structure;
+            return nullptr;
+        }
+        structure->structure_size = sizes.accelerationStructureSize;
+
+        if (sizes.buildScratchSize != 0) {
+            structure->scratch = this->create_buffer(rhi::buffer_desc{.size = sizes.buildScratchSize,
+                                                                      .usage = rhi::buffer_usage::acceleration_structure_scratch,
+                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
+            if (structure->scratch == nullptr) {
+                deren::utility::log("rhi: create_acceleration_structure refused: the build scratch could not be allocated ({} bytes)", sizes.buildScratchSize);
+                delete structure;
+                return nullptr;
+            }
+            structure->scratch_size = sizes.buildScratchSize;
+            structure->scratch_address = this->address_view.buffer_address(*structure->scratch, 0);
+        }
+
+        // ---- 3. THE HANDLE AND ITS ADDRESS --------------------------------------------------------------
+        auto const* const storage_buffer = static_cast<owned_buffer const*>(structure->storage);
+        VkAccelerationStructureCreateInfoKHR create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+        create_info.pNext = nullptr;
+        create_info.createFlags = 0;
+        create_info.buffer = storage_buffer->native;
+        create_info.offset = 0;
+        create_info.size = sizes.accelerationStructureSize;
+        create_info.type = size_info.type;
+        create_info.deviceAddress = 0;
+        if (this->acceleration_structure_create(this->logical_device, &create_info, nullptr, &structure->native) != VK_SUCCESS) {
+            deren::utility::log("rhi: create_acceleration_structure refused: vkCreateAccelerationStructureKHR failed");
+            delete structure;
+            return nullptr;
+        }
+        VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+        address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+        address_info.pNext = nullptr;
+        address_info.accelerationStructure = structure->native;
+        structure->address = this->acceleration_structure_address(this->logical_device, &address_info);
+        deren::utility::log("rhi: create_acceleration_structure: {} level, {} geometries, {} bytes of storage, {} bytes of scratch, address {:#x}",
+                            top_level ? "top" : "bottom", structure->geometries.size(), structure->structure_size,
+                            structure->scratch_size, static_cast<std::uint64_t>(structure->address));
+        return structure;
     }
 
-    rhi::error core::frame_commands::build_acceleration_structure(rhi::acceleration_structure&) {
-        return rhi::error::unsupported; // no handle of ours can reach here while create_* answers nullptr (abi 26)
+    rhi::error core::frame_commands::build_acceleration_structure(rhi::acceleration_structure& target) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (self->acceleration_structure_build == nullptr) {
+            return rhi::error::unsupported; // no VK_KHR_acceleration_structure on this device (see the constructor)
+        }
+        if (target.type() != rhi::interface_type::acceleration_structure) {
+            return rhi::error::invalid_argument; // a handle this backend did not hand out (the provenance rule)
+        }
+        auto& structure = static_cast<owned_acceleration_structure&>(target);
+        if (structure.owner != self) {
+            return rhi::error::invalid_argument;
+        }
+        if (structure.top_level && structure.instance_count == 0) {
+            // An empty top level is a legal but useless object; recording a build for it would make the driver
+            // read zero instances while `ok` claimed a build happened. Refused by name instead.
+            return rhi::error::invalid_argument;
+        }
+        // THE BARRIER IS THE BACKEND'S NOW (the engine's module used to record its own): everything the build
+        // READS was written by the host (the caller's vertex/index/instance writes, and this frame's transfers)
+        // and the structure itself is written - one conservative memory barrier covers both.
+        VkMemoryBarrier2 const barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        };
+        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                          .pNext = nullptr,
+                                          .dependencyFlags = 0,
+                                          .memoryBarrierCount = 1u,
+                                          .pMemoryBarriers = &barrier,
+                                          .bufferMemoryBarrierCount = 0u,
+                                          .pBufferMemoryBarriers = nullptr,
+                                          .imageMemoryBarrierCount = 0u,
+                                          .pImageMemoryBarriers = nullptr};
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
+
+        VkAccelerationStructureBuildGeometryInfoKHR build_info{};
+        build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        build_info.pNext = nullptr;
+        build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | (structure.refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
+        build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        build_info.srcAccelerationStructure = VK_NULL_HANDLE;
+        build_info.dstAccelerationStructure = structure.native;
+        build_info.geometryCount = static_cast<std::uint32_t>(structure.geometries.size());
+        build_info.pGeometries = structure.geometries.data();
+        build_info.ppGeometries = nullptr;
+        build_info.scratchData.deviceAddress = structure.scratch_address;
+        VkAccelerationStructureBuildRangeInfoKHR range = structure.range;
+        if (structure.top_level) {
+            range.primitiveCount = structure.instance_count; // the build reads what the caller last wrote
+        }
+        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {&range};
+        self->acceleration_structure_build(command_buffer, 1u, &build_info, ranges);
+        return rhi::error::ok;
     }
 
-    rhi::error core::frame_commands::refit_acceleration_structure(rhi::acceleration_structure&) {
-        return rhi::error::unsupported; // ... and the refit has nothing to refit for the same reason
+    rhi::error core::frame_commands::refit_acceleration_structure(rhi::acceleration_structure& target) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (self->acceleration_structure_build == nullptr) {
+            return rhi::error::unsupported;
+        }
+        if (target.type() != rhi::interface_type::acceleration_structure) {
+            return rhi::error::invalid_argument;
+        }
+        auto& structure = static_cast<owned_acceleration_structure&>(target);
+        if (structure.owner != self) {
+            return rhi::error::invalid_argument;
+        }
+        if (!structure.refittable) {
+            // THE ONE REFUSAL THE FLAG EXISTS FOR: a structure built without ALLOW_UPDATE has no in-place mode,
+            // and a "refit" that silently rebuilt it would be a different operation than the caller asked for.
+            return rhi::error::unsupported;
+        }
+        VkMemoryBarrier2 const barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        };
+        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                          .pNext = nullptr,
+                                          .dependencyFlags = 0,
+                                          .memoryBarrierCount = 1u,
+                                          .pMemoryBarriers = &barrier,
+                                          .bufferMemoryBarrierCount = 0u,
+                                          .pBufferMemoryBarriers = nullptr,
+                                          .imageMemoryBarrierCount = 0u,
+                                          .pImageMemoryBarriers = nullptr};
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
+
+        VkAccelerationStructureBuildGeometryInfoKHR build_info{};
+        build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        build_info.pNext = nullptr;
+        build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        build_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+        build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR; // the whole difference from a build
+        build_info.srcAccelerationStructure = structure.native;
+        build_info.dstAccelerationStructure = structure.native;
+        build_info.geometryCount = static_cast<std::uint32_t>(structure.geometries.size());
+        build_info.pGeometries = structure.geometries.data();
+        build_info.ppGeometries = nullptr;
+        build_info.scratchData.deviceAddress = structure.scratch_address;
+        VkAccelerationStructureBuildRangeInfoKHR range = structure.range;
+        if (structure.top_level) {
+            range.primitiveCount = structure.instance_count;
+        }
+        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {&range};
+        self->acceleration_structure_build(command_buffer, 1u, &build_info, ranges);
+        return rhi::error::ok;
+    }
+
+    // ---- the owned acceleration structure's own verbs -----------------------------------------------------
+
+    std::uint64_t core::owned_acceleration_structure::device_address() const noexcept {
+        return this->address;
+    }
+
+    std::uint64_t core::owned_acceleration_structure::size_bytes() const noexcept {
+        return this->structure_size;
+    }
+
+    rhi::error core::owned_acceleration_structure::write_instances(std::span<rhi::acceleration_structure_instance const> records) {
+        if (!this->top_level || this->instances_mapped == nullptr) {
+            return rhi::error::unsupported; // a bottom-level structure has no instance list to write
+        }
+        if (records.size() > this->instance_capacity) {
+            return rhi::error::invalid_argument; // past the capacity it was CREATED with (and sized for)
+        }
+        auto* const destination = static_cast<VkAccelerationStructureInstanceKHR*>(this->instances_mapped);
+        for (std::size_t index = 0; index < records.size(); ++index) {
+            rhi::acceleration_structure_instance const& source = records[index];
+            VkAccelerationStructureInstanceKHR record{};
+            std::memcpy(&record.transform, source.transform, sizeof(record.transform)); // 3x4 row-major: same layout
+            record.instanceCustomIndex = source.instance_custom_index;
+            record.mask = source.mask;
+            record.instanceShaderBindingTableRecordOffset = source.shader_binding_table_record_offset;
+            record.flags = source.flags;
+            record.accelerationStructureReference = source.structure_reference;
+            destination[index] = record;
+        }
+        this->instance_count = static_cast<std::uint32_t>(records.size());
+        return rhi::error::ok;
+    }
+
+    void core::owned_acceleration_structure::release() noexcept {
+        delete this;
+    }
+
+    core::owned_acceleration_structure::~owned_acceleration_structure() noexcept {
+        // THE ORDER IS THE POINT (see the type's note): the structure first, then the memory it lives in.
+        if (this->native != VK_NULL_HANDLE && this->owner != nullptr && this->owner->acceleration_structure_destroy != nullptr) {
+            this->owner->acceleration_structure_destroy(this->owner->logical_device, this->native, nullptr);
+        }
+        if (this->instances != nullptr) {
+            this->instances->release();
+        }
+        if (this->scratch != nullptr) {
+            this->scratch->release();
+        }
+        if (this->storage != nullptr) {
+            this->storage->release();
+        }
     }
     rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
         // THE CONTRACT'S RECORD LAYOUT IS THE API'S, AND THIS IS WHERE THAT IS PROVEN: callers write

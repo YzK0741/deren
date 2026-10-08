@@ -729,6 +729,28 @@ namespace deren::vulkan {
         //      extension answers null and the verb records nothing (see the member's own note).
         this->ray_trace_launch = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(device, "vkCmdTraceRaysKHR"));
 
+        // ---- THE ACCELERATION-STRUCTURE ENTRY POINTS (tier-1 since abi 26): the same rule and the same shape
+        //      again, and they are resolved HERE rather than per create/build for the same reason the mesh
+        //      commands are - one lookup at startup, and a null answers "this device cannot" at every call site
+        //      instead of a per-call lookup that could fail quietly. A device without VK_KHR_acceleration_structure
+        //      leaves all five null, `create_acceleration_structure` refuses by name, and the two recording verbs
+        //      answer `unsupported`.
+        if (capabilities.ray_query_available) {
+            this->acceleration_structure_create = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkCreateAccelerationStructureKHR"));
+            this->acceleration_structure_destroy = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR"));
+            this->acceleration_structure_build_sizes = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureBuildSizesKHR"));
+            this->acceleration_structure_address = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureDeviceAddressKHR"));
+            this->acceleration_structure_build = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR"));
+            // "THE EXTENSION IS ENABLED" HAS TO MEAN ALL FIVE ARE CALLABLE (the rule host image copy states
+            // above): the extension is what the backend ENABLED at startup, so a name that does not resolve is
+            // a startup fact worth naming rather than a create-time surprise.
+            if (this->acceleration_structure_create == nullptr || this->acceleration_structure_destroy == nullptr ||
+                this->acceleration_structure_build_sizes == nullptr || this->acceleration_structure_address == nullptr ||
+                this->acceleration_structure_build == nullptr) {
+                deren::utility::panic("VK_KHR_acceleration_structure is enabled but one of its five entry points did not resolve through vkGetDeviceProcAddr");
+            }
+        }
+
         // ---- HOST IMAGE COPY: the same shape as the mesh commands above (extension entry points fetched
         //      through vkGetDeviceProcAddr, because the loader's import library does not export them) - and
         //      the OPPOSITE POLICY: VK_EXT_host_image_copy is required, so a name that does not resolve is a

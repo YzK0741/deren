@@ -340,6 +340,17 @@ demand), in five classes. This batch took the part that the contract ALREADY had
 | what the fakes had to say | `probe_backend` (null structure, `unsupported` builds), `test_pass` and `spike_backend_boundary` / `test_dynamic_link` (their foreign command buffers refuse the two recording verbs by name). NONE of them ever implemented the retired ability's verbs - which is the measured proof that the retirement takes nothing away. |
 | verification | render gate **14/14**, ctest 19/19, clang-format-check 0, boundary gate 0 symbols, spike 95/0, runtime_dyn 10/0, and the S1 probe (2.22) run again on the new abi: **31 checks, 0 failed, 0 VUIDs**, reporting `as_probe: this executable compiled abi 26` and the same facts as before. |
 
+### 2.24 What the NINETEENTH batch added (the backend SERVES the tier-1 interface; S1's P1b-1)
+
+| area | what landed |
+|---|---|
+| the implementation | `core::create_acceleration_structure` is REAL now: the caller's contract-layout geometry becomes the driver's structures, `vkGetAccelerationStructureBuildSizesKHR` sizes it, the backend's own factory allocates the storage (`buffer_usage::acceleration_structure_storage`) and the scratch (`..._scratch`, sized ONCE at creation so recording a build never allocates), `vkCreateAccelerationStructureKHR` + `vkGetAccelerationStructureDeviceAddressKHR` produce the handle and the address. A top level also gets its own host-visible instance buffer, written through `write_instances()`. |
+| the two recording verbs | `frame_commands::build_acceleration_structure` / `refit_acceleration_structure` record their own memory barrier (HOST_WRITE/TRANSFER/AS_WRITE -> AS_BUILD) and then `vkCmdBuildAccelerationStructuresKHR` in BUILD or UPDATE mode. The refit refuses BY NAME when the structure was not created with `allow_update`, and an empty top level refuses its build rather than recording one that reads zero instances. `frame_commands` is the base of `owned_command_buffer`, so the frame's buffer and a caller-owned one share the implementation. |
+| the entry points | all five resolved ONCE at startup when the device has RT (`core.constructor.cppm`), with the host-image-copy rule applied to them: "the extension is enabled" has to mean all five resolve, so a missing name is a NAMED STARTUP PANIC rather than a create-time surprise. |
+| the probe now drives it | `tests/test_acceleration_structures.cpp` was rewritten from the engine module's surface to the TIER-1 one, because that is what this batch changes: it creates a refittable BLAS, a non-refittable one and a top level, writes one instance referring to the BLAS's address, records both builds + the allowed refit, and checks the three refusals (capacity, a bottom level's `write_instances`, a refit of a structure that never declared `allow_update`). |
+| the measured run | `[test_acceleration_structures] 30 checks, 0 failed -> PASS`, **0 VUIDs with validation on**: `created blas address=0xe970000 size=2944 bytes, tlas address=0xe972500 size=2048 bytes`, `built, refit, submitted and waited: 2 bottom level + 1 top level`. |
+| what is still NOT done | the ENGINE still builds its structures through `vulkan/acceleration_structure` (that module owns its own storage/scratch/recording and its three `vkGetDeviceProcAddr` references), so the two implementations coexist for exactly one more batch: P1b-2 moves the module onto this interface and deletes its machinery. |
+
 ## 3. What was tried and reverted (do not repeat)
 
 A blanket "replace every native type in the pass layer with the contract type" was attempted and
