@@ -64,3 +64,82 @@ The first batch is committed locally as `7d053bb` at the user's request; further
 Verified: full dynamic build, CTest 19/19, test_pass 169/0, frozen render 14/14,
 formatting and dynamic boundary gate. Native census 25; P-Nm/P-Import zero.
 Independent read-only review found no actionable defect in this batch.
+
+---
+
+## Remaining batches, measured (2026-10-08, after the first batch)
+
+The census is **25 engine files, 25 distinct `Vk*` types and 40 distinct `VK_*` macros**. Measured
+distribution (`python scripts/check_native_boundary.py --verbose`), by number of files each name appears in:
+
+| type | files | macro | files |
+|---|---|---|---|
+| `VkFormat` | 9 | `VK_NULL_HANDLE` | 15 |
+| `VkImageView` | 9 | `VK_FORMAT_UNDEFINED` | 5 |
+| `VkBuffer` | 8 | `VK_INDEX_TYPE_UINT16/_UINT32` | 4 / 3 |
+| `VkDeviceAddress` | 8 | `VK_SAMPLE_COUNT_1_BIT` | 4 |
+| `VkExtent2D` | 8 | `VK_FORMAT_R8G8B8A8_UNORM/_SRGB` | 4 / 2 |
+| `VkImage` | 7 | `VK_DESCRIPTOR_TYPE_*` | 3+2+2 |
+| `VkDeviceSize` | 6 | `VK_IMAGE_ASPECT_COLOR_BIT`, `VK_IMAGE_LAYOUT_GENERAL` | 2 / 2 |
+| `VkCommandBuffer` | 6 | | |
+| `VkBindHeapInfoEXT` | 5 | | |
+| `VkDevice` / `VkPhysicalDevice` | 4 / 2 | | |
+
+### B2 - resource publication (the double lane is the thing to remove)
+
+`pass::resolved_binding` carries TWO lanes today: the raw `VkImageView view` / `VkBuffer buffer` /
+`VkImage image`, and the contract `rhi::image_view* view_handle` / `rhi::buffer* buffer_handle` /
+`rhi::image* image_handle`. Its own comment says why: "the raw lane stays for the passes that have not
+migrated and for the third-party recording that never will". THE BATCH IS: find which passes still READ the raw
+lane, migrate each to the contract lane plus the recording face's verbs (`barrier`, `begin_rendering`,
+`bind_*`), stop publishing the raw fields in `runtime.frames.cppm`, then DELETE the three raw fields.
+
+56 references across 6 files: `runtime/runtime.frames.cppm` 24, `vulkan/pass/pass.cppm` 22,
+`vulkan/core/filter/filters.cppm` 5 + `.cpp` 2, `vulkan/pass/fxaa.cpp` 1, `vulkan/pass/post.cpp` 1,
+`vulkan/render_start_demo/render_start_demo.cpp` 1. `VkCommandBuffer` (6 files) belongs with this batch: a
+pass's recording signature should take `rhi::command_buffer&`, which is what the runner already holds.
+
+Instrument: frozen render 14/14 (every pass is on that path) plus `test_pass` - and each raw-lane reader has
+to be FOUND, not inferred: grep for the field names, migrate, and let the compiler prove the lane is empty
+before deleting it (an unused lane is invisible; a reader the compiler can still see is not).
+
+### B3 - semantic values, one family per commit
+
+Ordered by blast radius, smallest first so a mistake stays local:
+
+1. `VkDeviceSize` / `VkDeviceAddress` -> `uint64_t` (mechanical; 6 and 8 files). No behaviour.
+2. `VkExtent2D` -> `rhi::image_extent` (8 files: `pass/scene.cppm`, `pass/transparent.cppm`,
+   `pass/shadow.cpp`, `pass/character_forward.cppm`, `runtime/runtime.declarations.cppm`, ...).
+3. `VkFormat` + `VK_FORMAT_*` -> `rhi::image_format` (9 files; the contract already has `bytes_per_pixel` and
+   the format vocabulary `image::get_content` uses). `VK_FORMAT_UNDEFINED` becomes the contract's
+   "no format" value, not a macro.
+4. `VkSampleCountFlagBits` / `VK_SAMPLE_COUNT_1_BIT` -> the contract's sample count (2 files).
+5. `VkCullModeFlags` / `VK_CULL_MODE_*` -> `rhi::cull_mode` (2 files), `VkBool32` -> `bool` (2 files).
+6. `VkBindHeapInfoEXT` -> the contract's heap bind info (5 files; the heap requests are already contract PODs
+   with a tagged chain, so this is a spelling change at the producers).
+7. `VK_NULL_HANDLE` (15 files) disappears with the families above - it is the raw lane's null, so it must not
+   outlive them; where a contract handle is meant, `nullptr`; where a count or an enum is meant, its own zero.
+
+Instrument per family: frozen render 14/14 and `ctest`; a family that touches a pass's DECLARATION also needs
+`test_pass` (169 checks today), and one that touches the frame loop needs the probe read-back lines.
+
+### B4 - the last escape paths
+
+Image descriptor writes and RT shader-group operations move behind their contract objects (the
+`acceleration_structure_heap_binding` this session added is the shape: the pipeline description carries the
+binding and the backend maps it). GUI creation changes to "contract device + window": `gui_create_info` stops
+carrying `void*` handles and carries the `rhi::api_core` face instead, and the plugin asks the escape for what
+it needs - which is what finally removes `VkInstance`/`VkDevice`/`VkQueue`/`VkFormat` from
+`runtime/runtime.cpp` (today the heaviest remaining file after the constructor).
+
+Instruments: the GUI gate (`scripts/windows/check_gui.ps1`) and the RT acceptance
+(`scripts/windows/check_rt.ps1`) - a green raster gate is NOT RT acceptance.
+
+### B5 - the portability proof, and then the gate closes
+
+1. A second CMake configuration that compiles the engine with NO Vulkan include path and NO Vulkan library
+   (the P-Gate of the exit plan). It is the strongest statement available and it is cheap once B2-B4 land.
+2. An injected non-Vulkan `api_core` that the engine runs against (`tests/probe_backend` already is one: it
+   announces no `vulkan_escape`), extended to drive a frame instead of only the handshake.
+3. `scripts/check_native_boundary.py --require-zero` becomes the standing gate: P-Import 0, P-Nm 0,
+   P-Census 0 - and the census stops being "report-only".
