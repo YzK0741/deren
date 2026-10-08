@@ -246,3 +246,70 @@ python scripts/recording_face_census.py
 | `deren_gui_vulkan.dll` | — | 导出 `deren_make_gui`、导入 `vulkan-1.dll` |
 | ctest / render / runtime_dyn / AS / GUI probe | — | **19/19、14/14、10/0、45/0、6/0** |
 | RT 全链路 | 低内存时失败 | **仍未通过**，提交时 device_lost；无索引 VUID 已消失 |
+
+---
+
+# X5 进度与交接（截至 `e029cad6`，工作树干净）
+
+> 交接说明：B2/B3.1/B3.2 已提交且各自**当时全绿**；B3.3（格式族）**试过一次、编译与 ctest 通过但渲染 0/14，已回退**。下面写清失败的确切机制与正确改法，避免下一位重复。
+
+## 1. 已完成并验证（提交号 + 当时的仪器结果）
+
+| 批 | 提交 | 内容 | 验证（当时） |
+|---|---|---|---|
+| **B2** | `bd3ebf6f` | pass 绑定**只剩契约车道**：`pass::resolved_binding` 删掉 `VkImageView/VkBuffer/VkImage`；`family_entry` 删 raw span；`publish_family(id, element, image_handles, view_handles)`；`own_per_image` 改 `rhi::image_view*` 串；`filters::resource_handles` 改契约三件套；4 处解析校验 + `find()`/`views_of`/`instances_of` + 资源表一致性检查 + 5 个 pass（post/deferred/goo_rim/toon_screen_rim/geometry_buffer_debug）迁移；`tests/test_pass.cpp`（**它就是这条车道的单元测试**）随之迁移 | build ✓ / ctest **19/19** / `test_pass` **169/0** / 冻结渲染 **14/14** / format 0 |
+| **B3.1** | `d04454c9` | `VkDeviceAddress` → `std::uintptr_t`（51 处 / 11 文件，按用户裁定）；**并修掉 ctest 非并行安全**（所有测试共用一个 `test-run` 工作目录，`test_runtime_injection` 靠**文件**读子进程 panic 文本 → 并行 18/19、串行 19/19；现在每测试独立目录） | build ✓ / ctest **19/19（并行+串行）** / 渲染 **14/14** / **`check_rt.ps1` PASS**（两帧槽 GPU 遍历 + 40 帧 + 验证层干净 + 截图） |
+| **B3.2** | `e029cad6` | `VkExtent2D` → `rhi::image_extent`（31 处 / 12 文件）；恒等 helper `contract_image_extent` 删除；新增**唯一**"面向 API 的转换" `core::render_extent_2d()`（`VkRect2D`/`create_info.imageExtent` 需要 `VkExtent2D`）；一处结构化绑定修正 | build ✓ / ctest **19/19（并行）** / 渲染 **14/14** / format 0 |
+
+**当前边界判据**（`python scripts/check_native_boundary.py`）：
+- 引擎对象引用 Vulkan 符号：**0**
+- `deren.exe` 图形 API 导入：**0**（也不静态导入 GUI 插件）
+- 引擎源码含图形 API 词汇：**25 个文件**（census token 205 → 193）
+- RHI abi：**27**（B2/B3.1/B3.2 都只动引擎侧，未动导出契约）
+
+## 2. B3.3（格式族）：试过一次，**渲染 0/14**，已回退 —— 失败机制
+
+**做了什么**（已 `git checkout` 回退）：`VkFormat` → `rhi::image_format`、`VK_FORMAT_*` → 契约枚举值（84 处 / 11 文件；最终把 `runtime/runtime.constructor.cppm` 那 34 处排除，见下）。**编译通过、ctest 19/19 通过**，但冻结渲染 **0/14**。
+
+**失败签名**（验证层，14 个场景全部同一条）：
+```
+vkBeginCommandBuffer(): pBeginInfo->pInheritanceInfo->pNext<VkCommandBufferInheritanceRenderingInfo>
+  .pColorAttachmentFormats[0] (VK_FORMAT_R4G4_UNORM_PACK8) doesn't support VK_FORMAT_FEATURE_2_COLOR_ATTACHMENT_BIT
+```
+
+**根因（一句话）**：契约枚举 `image_format::rgba8_unorm = 1` 与 Vulkan 的 `VK_FORMAT_R4G4_UNORM_PACK8 = 1` **数值相同、语义不同**。pass 帧的 `color_format`/`depth_format` 换成契约枚举后，后端仍**原样**把它们塞进 Vulkan 结构体（`vulkan/core/core.api_core.cpp:1962-1963` 是 `reinterpret_cast<VkFormat const*>` 和 `static_cast<VkFormat>`）→ 驱动把 1 读成 R4G4。
+
+**即：raw↔契约是双向的，逐字替换只做了 raw→契约 一个方向，在"填 Vulkan 结构体"的那条路上留了洞。** 这不是"转换容易出 bug"，而是**转换点放错了地方**。
+
+**为什么 ctest 全绿而渲染全废**：这条路径只有在真设备 + 验证层下录制时才暴露；`ctest` 抓不到它。**能抓住它的唯一仪器是 `check_render.ps1 -Full -Compare frozen`。**
+
+## 3. B3.3 的正确做法（请照此实现，是一个**原子改动**）
+
+1. **引擎侧**（census 口径内的 11 个文件）：`VkFormat` → 契约 `image_format`；`VK_FORMAT_*` → 契约枚举值。保留 **raw→契约** 的换算点 `contract_image_format(VkFormat)`（它读的是 `vulkan/render_layout` 的 constexpr 表 —— 那是**已允许的例外**），并给它加一个**恒等重载** `contract_image_format(image_format)`（很多站点手里已经是契约值）。
+2. **必须同批**在后端加**反向换算**：在 `vulkan/core/core.api_core.cpp` 里加一张 `constexpr VkFormat native_image_format(rhi::image_format)` 表，把 1962/1963 两行改成"先逐项填 `std::array<VkFormat, N>`，再让 `pColorAttachmentFormats` 指向它"，`depthAttachmentFormat` 同样换算。**该文件属于后端（`deren_vulkan` 的源，census 已排除）→ Vulkan 词汇在这里是允许的。**
+3. **保持 raw、不要动**的地方：
+   - `runtime/runtime.constructor.cppm` 的堆写入路径（34 处，喂 `VkImageViewCreateInfo` / `VkFormat`）；
+   - `runtime/runtime.frames.cppm` 的两个堆 lambda `write_sampled_target` / `write_storage_target` 的 `format` 参数；
+   - `static_cast<VkFormat>(this->escape().native_*)` 这类**取 raw** 的站点；
+   - 成员 `depth_attachment_format`（只喂堆路径）。
+4. **验证**：`build` + `check_render.ps1 -Full -Compare frozen`（**14/14** 是唯一判据）；可选 `check_rt.ps1`（RT 也用格式）。
+
+**引擎侧格式族在 HEAD 上的实测残留**（census 口径，共 **84**）：`runtime/runtime.constructor.cppm` 34、`runtime/runtime.declarations.cppm` 28、`vulkan/pass/character_forward.cppm` 4、`vulkan/pass/transparent.cppm` 4、`vulkan/pass/scene.cppm` 3、`vulkan/primitive/primitive.cppm` 3、`runtime/runtime.frames.cppm` 2、`runtime/runtime.probes.cppm` 2、`vulkan/pass/pass.cppm` 2、`vulkan/pass/scene.cpp` 1、`runtime/runtime.cpp` 1。
+
+## 4. 剩余批次
+
+| 批 | 内容 | 体量（census 口径） |
+|---|---|---|
+| **B3.3** | 格式族（见 §3） | 84 处 / 11 文件 |
+| **B3.4** | `VkSampleCountFlagBits`+`VK_SAMPLE_COUNT_1_BIT`；`VkCullModeFlags`+`VK_CULL_MODE_*`；`VkBool32`；`VkBindHeapInfoEXT` → 契约语义值 | 2 / 2 / 2 / 5 文件 |
+| **B3.5** | 无 Vulkan 头的编译配置（P-Gate）+ 注入式非 Vulkan `api_core` 跑一帧 + `check_native_boundary.py --require-zero` 成为常设门禁 | — |
+| **B4** | 最后的 escape：图像描述符写入、RT shader-group、GUI 创建改"契约面 + 窗口"（会清掉 `runtime/runtime.cpp` 里的 `VkInstance/VkDevice/VkQueue/VkFormat`） | — |
+| 其余词汇 | `VkImageLayout`、`VkDescriptorType`、`VkImageViewCreateInfo`、`VkImageAspectFlags` 等 | 25 文件里剩下的部分 |
+
+## 5. 流程教训（这一轮的失误，写给下一位）
+
+- **不要逐处改逐处全量构建**。正确节奏：**一批改完 → 一次构建 → 一次门禁**。我这一轮为了 84 处改动构建了十几次，既慢又引发 `.pcm` 文件占用。
+- **中止后台作业会留下仍在运行的 `ninja/c++`**，后续构建报 `unable to open output file ... user-mapped section`（那不是编译错误）。构建前先确认无残留进程；**不要中止正在跑的构建**。
+- **`-j 14`**（16 线程机器）：全量构建一次约 1–2 分钟，别再降到 `-j 2`。
+- 仪器的选择：**纯类型/词汇迁移用"构建 + 覆盖该路径的那一个门禁"**，不要每次跑全套；但**格式/布局这类"值被另一种语言解释"的改动，`check_render` 是唯一能抓住的仪器**（ctest 抓不到）。
+- 每个提交都要留下"当时的仪器数字"；回退时注意**成对数据**（census 的配对数、abi 版本等）必须同批动。
