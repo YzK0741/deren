@@ -130,6 +130,14 @@ namespace {
         [[nodiscard]] rhi::error copy_image_to_buffer(rhi::buffer&, rhi::image const&, rhi::image_copy_region const&) noexcept override {
             return rhi::error::invalid_argument;
         }
+        /// abi 26: the tier-1 acceleration-structure recording verbs. A FOREIGN buffer (this fake) records
+        /// nothing, so a build on it is an argument this backend refuses - the same answer the copy above gives.
+        [[nodiscard]] rhi::error build_acceleration_structure(rhi::acceleration_structure&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error refit_acceleration_structure(rhi::acceleration_structure&) override {
+            return rhi::error::invalid_argument;
+        }
         [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
             return rhi::error::invalid_argument;
         }
@@ -285,7 +293,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 25u);
+        CHECK(rhi::abi_version == 26u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

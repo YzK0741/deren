@@ -136,6 +136,14 @@ namespace {
         [[nodiscard]] rhi::error copy_image_to_buffer(rhi::buffer&, rhi::image const&, rhi::image_copy_region const&) noexcept override {
             return rhi::error::invalid_argument;
         }
+        /// abi 26's tier-1 acceleration-structure recording verbs, refused for the same reason as the copy
+        /// above: this fake wraps a buffer it did not create, so no build records into a real device.
+        [[nodiscard]] rhi::error build_acceleration_structure(rhi::acceleration_structure&) override {
+            return rhi::error::invalid_argument;
+        }
+        [[nodiscard]] rhi::error refit_acceleration_structure(rhi::acceleration_structure&) override {
+            return rhi::error::invalid_argument;
+        }
         [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
             return rhi::error::invalid_argument;
         }

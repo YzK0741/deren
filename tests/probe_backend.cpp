@@ -345,6 +345,17 @@ namespace {
             return this->frame_scoped ? rhi::error::unsupported : rhi::error::not_ready;
         }
 
+        /// TIER-1 RECORDING VERBS SINCE ABI 26, AND `unsupported` IS THE HONEST ANSWER HERE: this fake records
+        /// into no device, so a build it accepted would be a recorded lie - the same rule the copy above
+        /// follows. (No handle can reach these calls while `create_acceleration_structure` answers null, which
+        /// is why they are answered rather than exercised.)
+        [[nodiscard]] rhi::error build_acceleration_structure(rhi::acceleration_structure&) override {
+            return rhi::error::unsupported;
+        }
+        [[nodiscard]] rhi::error refit_acceleration_structure(rhi::acceleration_structure&) override {
+            return rhi::error::unsupported;
+        }
+
         [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
             if (!this->frame_scoped) {
                 return rhi::error::not_ready; // the timing range is the frame slot's, and this is not it
@@ -606,6 +617,14 @@ namespace {
         }
 
         [[nodiscard]] rhi::image* create_image(rhi::image_desc const&) override {
+            return nullptr;
+        }
+
+        /// TIER-1 SINCE ABI 26 AND NULL HERE, which is this fake's whole stance: it has no device, so an
+        /// acceleration structure is exactly what it cannot hand out - the same answer `create_image` gives
+        /// (and the answer the retired `ray_tracing` ability got from it: "an engine that asks for ray_tracing
+        /// gets a null, not a stub").
+        [[nodiscard]] rhi::acceleration_structure* create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
             return nullptr;
         }
 

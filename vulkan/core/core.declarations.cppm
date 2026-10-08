@@ -325,6 +325,12 @@ namespace deren::vulkan {
             [[nodiscard]] deren::promise::rhi::error draw_mesh_tasks_indirect(deren::promise::rhi::buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) override;
             /// abi 24: the ray-tracing LAUNCH, through the entry point resolved once at startup
             /// (`core::ray_trace_launch`). It records nothing when the device published no `vkCmdTraceRaysKHR`.
+            /// TIER-1 RECORDING VERBS SINCE ABI 26 (the frame's buffer and a caller-owned one share them, exactly
+            /// as `draw`/`trace_rays` are shared): `frame_commands` is the base of `owned_command_buffer`, so one
+            /// implementation serves both.
+            [[nodiscard]] deren::promise::rhi::error build_acceleration_structure(deren::promise::rhi::acceleration_structure& target) override;
+            [[nodiscard]] deren::promise::rhi::error refit_acceleration_structure(deren::promise::rhi::acceleration_structure& target) override;
+
             void trace_rays(deren::promise::rhi::shader_binding_table_region const& raygen, deren::promise::rhi::shader_binding_table_region const& miss,
                             deren::promise::rhi::shader_binding_table_region const& hit, deren::promise::rhi::shader_binding_table_region const& callable,
                             std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept override;
@@ -880,6 +886,9 @@ namespace deren::vulkan {
         /// process this member is therefore true: it exists so the paths that use the extension can state
         /// their precondition, not to choose between implementations.
         bool host_image_copy_available = false;
+        /// one line for the tier-1 acceleration-structure refusal (see that definition): a caller that reads a
+        /// `nullptr` has to be able to tell "not served yet" from "this device cannot"
+        bool acceleration_structure_refusal_logged = false;
         // called graphics_queue_family_index, not graphics_family_index: the structured binding of that name
         // in core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         uint32_t graphics_queue_family_index = 0;
@@ -936,6 +945,10 @@ namespace deren::vulkan {
         [[nodiscard]] deren::promise::rhi::swapchain* create_swapchain(deren::promise::rhi::swapchain_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::buffer* create_buffer(deren::promise::rhi::buffer_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::image* create_image(deren::promise::rhi::image_desc const& desc) override;
+        /// TIER-1 SINCE ABI 26 AND REFUSED BY NAME BY THIS BACKEND UNTIL PLAN S1's P1b: the shape exists (see
+        /// the definition's note for what landing it takes), so a caller gets a logged `nullptr` - the same
+        /// answer `create_swapchain` gives - rather than a silent absence.
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::sampler* create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::shader* create_shader(deren::promise::rhi::shader_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::pipeline* create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;

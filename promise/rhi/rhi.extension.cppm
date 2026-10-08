@@ -84,8 +84,10 @@ export namespace deren::promise::rhi {
     // §6.4's usage/barrier decisions). A reference to an incomplete type is all a
     // virtual declaration needs, which is what lets the abilities be reviewed before
     // the shapes they carry are frozen.
-    struct acceleration_structure;
-    struct acceleration_structure_desc;
+    // `acceleration_structure` AND `acceleration_structure_desc` WERE FORWARD-DECLARED HERE, for the
+    // `ray_tracing` ability's three acceleration-structure verbs. Both moved to TIER-1 in abi 26 (they are
+    // `rhi.api_core` furniture now, next to `buffer` and `image`), so this file needs neither name - and
+    // the ability that carried them is retired where its bit is defined.
     struct image_copy_region;
 
     /// One bit per ability a backend can report through `api_core::abilities()`.
@@ -98,7 +100,7 @@ export namespace deren::promise::rhi {
         device_address = 1u << 0,  ///< buffer/acceleration-structure addresses (plan §5: 35 mentions, 9 files)
         descriptor_heap = 1u << 1, ///< VK_EXT_descriptor_heap: push data, write descriptors, bind heaps
         mesh_shader = 1u << 2,     ///< vkCmdDrawMeshTasksEXT and its indirect form
-        ray_tracing = 1u << 3,     ///< acceleration structures, RT pipelines, trace
+        ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
         vulkan_escape = 1u << 5,   ///< raw Vulkan handles, for the code the contract cannot express yet
         /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE
@@ -131,8 +133,11 @@ export namespace deren::promise::rhi {
     /// Every bit defined here: what a backend with all seven abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
+        // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
+        // bit of the retired kind is defined. The ENUMERATOR stays (bits are never reused), which is why this
+        // set is no longer "every enumerator" - the note on that enumerator says so.
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
-               to_bits(extension_kind::mesh_shader) | to_bits(extension_kind::ray_tracing) |
+               to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
                to_bits(extension_kind::device_capabilities);
     }
@@ -142,14 +147,14 @@ export namespace deren::promise::rhi {
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 7> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 6> {
         return {extension_kind::device_address, extension_kind::descriptor_heap, extension_kind::mesh_shader,
-                extension_kind::ray_tracing, extension_kind::host_image_copy, extension_kind::vulkan_escape,
+                extension_kind::host_image_copy, extension_kind::vulkan_escape,
                 extension_kind::device_capabilities};
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x7fu, "seven abilities, seven bits, one bit each (plan §3.5)");
+    static_assert(all_abilities() == 0x77u, "six abilities now: `ray_tracing` (bit 3 = 0x08) is RETIRED in abi 26 and a retired bit is never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -277,38 +282,23 @@ export namespace deren::promise::rhi {
         virtual void dispatch_mesh(command_buffer& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
     };
 
-    /// tier-2 ability: acceleration structures and ray tracing.
-    struct ray_tracing : extension {
-        static constexpr interface_type interface_id = interface_type::ray_tracing;
-        static constexpr extension_kind extension_id = extension_kind::ray_tracing;
-        ray_tracing() noexcept
-            : extension(interface_id) {
-        }
-        [[nodiscard]] extension_kind kind() const noexcept final {
-            return extension_id;
-        }
-        /// Allocate an acceleration structure (plan §5: 47 creates and 21 destroys go
-        /// through the generic `create`/`destroy` members, which is why the census
-        /// undercounts this ability by name).
-        [[nodiscard]] virtual acceleration_structure* create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
-
-        /// The device address of `structure`, as the backend reports it for
-        /// `vkGetAccelerationStructureDeviceAddressKHR` - HERE RATHER THAN IN `device_address`, because
-        /// this is the only ability that can hand out the operand it takes (see `device_address`'s note).
-        [[nodiscard]] virtual std::uint64_t acceleration_structure_address(acceleration_structure const& structure) const noexcept = 0;
-
-        /// Record the build of `target` into `commands`.
-        virtual void build_acceleration_structure(command_buffer& commands, acceleration_structure& target) = 0;
-
-        // THE LAUNCH IS NOT HERE (abi 24): `trace_rays` moved to the RECORDING FACE
-        // (`command_buffer::trace_rays`), because a launch is an ordered recording command like `draw`,
-        // `dispatch` and `draw_mesh_tasks` - and because a verb reachable only through an ANNOUNCED ability is
-        // unreachable on a backend that serves the recording face without having frozen this ability's
-        // acceleration-structure shapes. What stays here is the ACCELERATION-STRUCTURE half.
-
-        // Micromaps (3 mentions) and RT pipeline creation (3) are the remaining entries in §5's row for this
-        // ability; they land with S1.
-    };
+    // ---- `struct ray_tracing : extension` STOOD HERE, AND IT IS RETIRED (abi 26) ---------------------
+    //
+    // IT CARRIED THREE ACCELERATION-STRUCTURE VERBS whose operands (`acceleration_structure` /
+    // `acceleration_structure_desc`) were never more than FORWARD DECLARATIONS in this file - so the ability
+    // announced a service no backend could implement, and its own note admitted it ("the backend still does
+    // not serve the verb"). The launch left first (abi 24, it is a recording command); now the rest has:
+    //
+    //   * `acceleration_structure` is TIER-1 FURNITURE (`rhi.api_core`, next to `buffer` and `image`), with
+    //     `api_core::create_acceleration_structure()` and the recording face's
+    //     `command_buffer::build_acceleration_structure()` / `refit_acceleration_structure()`;
+    //   * "CAN THIS DEVICE TRACE RAYS" - the only question the ability still answered - is a device fact, and
+    //     `device_capabilities` answers it (`ray_query()` today, a pipeline bit when a caller needs one);
+    //   * the `extension_kind::ray_tracing` BIT and the `interface_type::ray_tracing` VALUE stay, marked
+    //     RETIRED in place: a bit and a number are never reused.
+    //
+    // The micromap half this note used to promise arrives with the same tier-1 treatment (plan S1's P4): a
+    // micromap is a resource a caller creates, exactly as an acceleration structure is.
 
     /// tier-2 ability: copying an image into memory the app chose.
     ///
@@ -527,7 +517,7 @@ export namespace deren::promise::rhi {
             return interface_type::descriptor_heap;
         case extension_kind::mesh_shader:
             return interface_type::mesh_shader;
-        case extension_kind::ray_tracing:
+        case extension_kind::ray_tracing: // RETIRED: no interface answers to it any more (see its bit's note)
             return interface_type::ray_tracing;
         case extension_kind::host_image_copy:
             return interface_type::host_image_copy;

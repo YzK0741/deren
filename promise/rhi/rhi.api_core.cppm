@@ -604,6 +604,114 @@ export namespace deren::promise::rhi {
     // ----------------------------------------------------------------------------------------------
 
     /// A buffer, owned by the backend and released by the caller through `release()`.
+    /// WHAT KIND OF ACCELERATION STRUCTURE: the two levels the hardware API has, named the contract's way.
+    enum class acceleration_structure_type : std::uint32_t {
+        bottom_level = 0, ///< one geometry's own structure (a BLAS), built from triangles
+        top_level = 1,    ///< the instance list a ray launch traverses (a TLAS)
+    };
+
+    /// What a description may ask for beyond its type.
+    enum class acceleration_structure_flag : std::uint32_t {
+        allow_update = 1u << 0, ///< the structure may be REFIT in place (addresses and counts stay fixed)
+    };
+    /// The bits an `acceleration_structure_desc` carries (the same shape `buffer_flags` has).
+    using acceleration_structure_flags = std::uint32_t;
+    inline constexpr acceleration_structure_flags no_acceleration_structure_flags = 0u;
+    [[nodiscard]] constexpr auto to_bits(acceleration_structure_flag const flag) noexcept -> acceleration_structure_flags {
+        return static_cast<acceleration_structure_flags>(flag);
+    }
+    [[nodiscard]] constexpr auto has_flag(acceleration_structure_flags const flags, acceleration_structure_flag const flag) noexcept -> bool {
+        return (flags & to_bits(flag)) != no_acceleration_structure_flags;
+    }
+
+    /// ONE TRIANGLE GEOMETRY of a bottom-level structure: where its vertices and indices are, and how many.
+    ///
+    /// THE ADDRESSES ARE DEVICE ADDRESSES (the contract's `uint64_t`, as `shader_binding_table_region` spells
+    /// them), which is what a build reads: a caller that wants an address asks `device_address::buffer_address()`
+    /// for the buffer it created, so the engine half never names the driver's `VkDeviceAddress`.
+    ///
+    /// THE STRUCTURE IS BUILT ONCE FROM THIS (the addresses and counts are part of its identity); a structure
+    /// whose BYTES change behind the same addresses is REFIT, which is what `acceleration_structure_flag::
+    /// allow_update` declares at creation.
+    struct acceleration_structure_geometry {
+        std::uint64_t vertex_address = 0;             ///< first vertex, already offset into its buffer
+        std::uint32_t vertex_stride = 0;              ///< bytes per vertex (the caller's layout)
+        std::uint32_t vertex_count = 0;               ///< vertices the geometry spans
+        std::uint64_t index_address = 0;              ///< first index (0 = the geometry is not indexed)
+        index_type index_format = index_type::uint32; ///< what an index is
+        std::uint32_t index_count = 0;                ///< indices; triangles = index_count / 3
+    };
+
+    /// ONE TOP-LEVEL INSTANCE, as the CALLER writes it. THE LAYOUT IS THE CONTRACT'S, and the backend asserts
+    /// it against the driver's own structure (the same rule `mesh_task_command` follows): the caller is the one
+    /// that fills these records, so their shape cannot live only in one API's header.
+    struct acceleration_structure_instance {
+        float transform[12] = {};                             ///< 3x4 ROW-major (the fourth column is implicit)
+        std::uint32_t instance_custom_index = 0;              ///< what a shader reads back through the hit
+        std::uint32_t mask = 0xFFu;                           ///< the visibility mask the traversal tests
+        std::uint32_t shader_binding_table_record_offset = 0; ///< which hit record this instance's hits use
+        std::uint32_t flags = 0;                              ///< the caller's own instance bits
+        std::uint64_t structure_reference = 0;                ///< `acceleration_structure::device_address()`
+    };
+    inline constexpr std::uint32_t acceleration_structure_instance_size = sizeof(acceleration_structure_instance);
+
+    /// WHAT TO BUILD: the geometries of a bottom-level structure, or the capacity of a top-level one.
+    ///
+    /// `struct_size` is the same ABI guard `buffer_desc` carries, so a caller compiled against an older
+    /// description is read only as far as it declared.
+    struct acceleration_structure_desc {
+        std::uint32_t struct_size = sizeof(acceleration_structure_desc);
+        acceleration_structure_type type = acceleration_structure_type::bottom_level;
+        acceleration_structure_flags flags = no_acceleration_structure_flags;
+        acceleration_structure_geometry const* geometries = nullptr; ///< BOTTOM: borrowed until the call returns
+        std::uint32_t geometry_count = 0;                            ///< BOTTOM: how many
+        std::uint32_t instance_capacity = 0;                         ///< TOP: how many instances it must hold
+    };
+
+    /// AN ACCELERATION STRUCTURE (tier-1, like `buffer` and `image`).
+    ///
+    /// WHY TIER-1 RATHER THAN AN ABILITY: the ability mechanism answers "can this backend serve this optional
+    /// feature, or not", and an acceleration structure is not optional furniture to a renderer that has one -
+    /// it is a RESOURCE the caller creates, reads an address from, and destroys, exactly as a buffer is. The
+    /// `ray_tracing` ability carried these verbs until abi 26 and announced them for nobody (its shapes were
+    /// forward declarations); with the object here, the ability is RETIRED and the capability question ("can
+    /// this device run ray queries / a ray-tracing pipeline") is asked through `device_capabilities`.
+    ///
+    /// WHO OWNS THE MEMORY: the BACKEND. This is the whole point of the tier-1 shape - the storage the
+    /// structure lives in, the scratch a build needs, its alignment and the per-geometry offsets are the
+    /// backend's business, and a caller that never sees them cannot depend on them. A second backend with no
+    /// explicit acceleration structures at all can therefore answer `create_acceleration_structure` and
+    /// `build_acceleration_structure` however it must.
+    ///
+    /// ONE REFERENCE, dropped through `release()`, like every owned handle in this contract.
+    struct acceleration_structure : object {
+        static constexpr interface_type interface_id = interface_type::acceleration_structure;
+        acceleration_structure() noexcept
+            : object(interface_id) {
+        }
+        virtual ~acceleration_structure() noexcept = default;
+
+        /// Release the caller's one reference (see `buffer::release()`).
+        virtual void release() noexcept = 0;
+
+        /// THE ADDRESS a shader (or an instance record's `structure_reference`) uses to reach this structure.
+        /// Zero means the backend could not report one - which a top-level structure never means, since an
+        /// address is exactly what an instance stores.
+        [[nodiscard]] virtual std::uint64_t device_address() const noexcept = 0;
+
+        /// THE BYTES this structure occupies. A caller needs it to describe the structure to something that
+        /// carries address ranges (the descriptor heap's own address-range descriptor is the measured case);
+        /// zero means the backend did not answer.
+        [[nodiscard]] virtual std::uint64_t size_bytes() const noexcept = 0;
+
+        /// TOP LEVEL ONLY: replace the instance list the NEXT build reads. Host work on memory the backend
+        /// owns, and the records are `acceleration_structure_instance` - so the caller of a top-level structure
+        /// never allocates the array the traversal reads, which is the same ownership rule as everywhere else
+        /// here. Refused by name when the structure is a bottom-level one or the list is longer than the
+        /// capacity it was created with.
+        [[nodiscard]] virtual error write_instances(std::span<acceleration_structure_instance const> instances) = 0;
+    };
+
     struct buffer : object {
         static constexpr interface_type interface_id = interface_type::buffer;
         buffer() noexcept
@@ -1384,6 +1492,21 @@ export namespace deren::promise::rhi {
         virtual void trace_rays(shader_binding_table_region const& raygen, shader_binding_table_region const& miss, shader_binding_table_region const& hit,
                                 shader_binding_table_region const& callable, std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept = 0;
 
+        /// APPENDED IN ABI 26: record the BUILD of @p target - its geometries (a bottom-level structure) or its
+        /// instance list (a top-level one), whichever it was created with, over the memory the backend owns.
+        /// `ok` = recorded; `not_ready` = this buffer is not recording; `invalid_argument` = a handle this
+        /// backend did not hand out; `unsupported` = a level or a shape it cannot serve (REFUSED BY NAME, never
+        /// silently skipped - a missing build would produce an empty traversal, which is a wrong picture rather
+        /// than a missing one).
+        [[nodiscard]] virtual error build_acceleration_structure(acceleration_structure& target) = 0;
+
+        /// APPENDED IN ABI 26: REFIT @p target in place, for the structures whose description declared
+        /// `acceleration_structure_flag::allow_update` - the addresses and counts are unchanged and only the
+        /// memory they point at has been rewritten (the zero-copy shape a compute-skinning frame produces).
+        /// Refused by name when the structure was not created refittable, which is exactly what declaring it
+        /// is for.
+        [[nodiscard]] virtual error refit_acceleration_structure(acceleration_structure& target) = 0;
+
         // dynamic state
         virtual void set_viewport(viewport const& vp) noexcept = 0;
         virtual void set_scissor(rect const& scissor) noexcept = 0;
@@ -1566,6 +1689,12 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual swapchain* create_swapchain(swapchain_desc const& desc) = 0;
         [[nodiscard]] virtual buffer* create_buffer(buffer_desc const& desc) = 0;
         [[nodiscard]] virtual image* create_image(image_desc const& desc) = 0;
+        /// APPENDED IN ABI 26: allocate an acceleration structure (see the type's own note for why this is
+        /// tier-1 furniture rather than an ability). The BACKEND owns the storage and the scratch a build needs;
+        /// `desc` carries what the structure IS - its level, whether it may be refitted, and its geometries or
+        /// its instance capacity - and is borrowed only until the call returns. `nullptr` = this backend cannot
+        /// serve it, with its own named diagnosis logged, exactly as the other factories answer.
+        [[nodiscard]] virtual acceleration_structure* create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
         [[nodiscard]] virtual sampler* create_sampler(sampler_desc const& desc) = 0;
         [[nodiscard]] virtual shader* create_shader(shader_desc const& desc) = 0;
         [[nodiscard]] virtual pipeline* create_pipeline(pipeline_desc const& desc) = 0;

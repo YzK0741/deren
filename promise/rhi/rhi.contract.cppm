@@ -270,7 +270,17 @@ export namespace deren::promise::rhi {
     /// `bytes_per_pixel(image_format)` helper they rely on) move nothing on their own - it is the slot that
     /// carries them - and `image_content`'s invariant is FROZEN with it: a backend that cannot fill it exactly
     /// answers an error rather than a partial buffer.
-    inline constexpr std::uint32_t abi_version = 25u;
+    /// 25 -> 26 in the ACCELERATION-STRUCTURE batch: the acceleration structure became TIER-1 FURNITURE (like
+    /// `buffer` and `image`), which is two APPENDED SLOTS on two existing interfaces -
+    /// `api_core::create_acceleration_structure()` and the recording face's
+    /// `command_buffer::build_acceleration_structure()` / `refit_acceleration_structure()`. The new TYPES
+    /// (`acceleration_structure`, `acceleration_structure_desc`, `acceleration_structure_geometry`,
+    /// `acceleration_structure_instance`) and the new `interface_type::acceleration_structure` value carry no
+    /// bump of their own. THE `ray_tracing` ABILITY IS RETIRED in the same number: its three
+    /// acceleration-structure verbs are gone (their operands were never more than forward declarations in the
+    /// extension file, so no backend could serve them), its BIT stays unused and its `interface_type` value
+    /// stays retired - a bit and a number are never reused (see `rhi.extension.cppm`).
+    inline constexpr std::uint32_t abi_version = 26u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -420,6 +430,9 @@ export namespace deren::promise::rhi {
         query = 9,
         command_list = 10,   ///< RETIRED: the face was absorbed into `command_buffer`; the NUMBER stays (never renumber).
         command_buffer = 11, ///< appended in abi 15: the owned recording handle `create_command_buffer()` hands out
+        /// APPENDED IN ABI 26: the acceleration-structure handle became TIER-1 furniture (like `buffer` and
+        /// `image`) when the `ray_tracing` ability was retired - the number continues the object range.
+        acceleration_structure = 12,
         device_address = 0x100,
         descriptor_heap = 0x101,
         mesh_shader = 0x102,

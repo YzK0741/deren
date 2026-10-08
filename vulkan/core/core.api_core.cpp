@@ -2875,6 +2875,45 @@ namespace deren::vulkan {
         self->ray_trace_launch(command_buffer, &native_raygen, &native_miss, &native_hit, &native_callable, width, height, depth);
     }
 
+    rhi::acceleration_structure* core::create_acceleration_structure(rhi::acceleration_structure_desc const& declared_desc) {
+        // ---- THE ABI GUARD, THEN THE REFUSAL, AND THE REFUSAL IS THE HONEST ANSWER TODAY --------------
+        //
+        // THE SHAPE IS TIER-1 SINCE ABI 26 (`rhi::acceleration_structure`, see its own note) and THIS BACKEND
+        // DOES NOT SERVE IT YET: the engine still builds its structures through `vulkan/acceleration_structure`,
+        // which owns the storage, the scratch and the recording itself. Answering `nullptr` is the contract's
+        // documented "this descriptor cannot be honoured" (the same answer `create_swapchain` gives), and it is
+        // LOGGED ONCE so a caller cannot read it as a device without ray tracing.
+        //
+        // WHAT LANDING THIS LOOKS LIKE (plan S1's P1b), stated here so the gap is not a mystery at the call
+        // site: the storage buffer sized by `vkGetAccelerationStructureBuildSizesKHR`, the
+        // `vkCreateAccelerationStructureKHR` + `vkGetAccelerationStructureDeviceAddressKHR` pair for the
+        // address, the backend's own scratch for the build, and the two recording verbs below - all of which
+        // exist in that engine module today and move here.
+        //
+        // THE PREFIX IS READ FIRST anyway, because a refusal still has to know WHAT it is refusing (an older
+        // caller's shorter description is legal input, not a bug).
+        std::uint32_t const declared = declared_desc.struct_size;
+        rhi::acceleration_structure_type type = rhi::acceleration_structure_type::bottom_level;
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, type), sizeof(rhi::acceleration_structure_desc::type))) {
+            type = declared_desc.type;
+        }
+        if (!this->acceleration_structure_refusal_logged) {
+            this->acceleration_structure_refusal_logged = true;
+            deren::utility::log("rhi: create_acceleration_structure refused: this backend does not serve the tier-1 "
+                                "acceleration-structure interface yet (the {} level was asked for) - the engine builds its "
+                                "structures through deren.vulkan.acceleration_structure meanwhile (plan S1 P1b)",
+                                type == rhi::acceleration_structure_type::top_level ? "top" : "bottom");
+        }
+        return nullptr;
+    }
+
+    rhi::error core::frame_commands::build_acceleration_structure(rhi::acceleration_structure&) {
+        return rhi::error::unsupported; // no handle of ours can reach here while create_* answers nullptr (abi 26)
+    }
+
+    rhi::error core::frame_commands::refit_acceleration_structure(rhi::acceleration_structure&) {
+        return rhi::error::unsupported; // ... and the refit has nothing to refit for the same reason
+    }
     rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
         // THE CONTRACT'S RECORD LAYOUT IS THE API'S, AND THIS IS WHERE THAT IS PROVEN: callers write
         // `rhi::mesh_task_command` records into their argument buffer and pass `mesh_task_command_size` as the

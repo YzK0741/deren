@@ -79,6 +79,16 @@ namespace {
             return deren::promise::rhi::error::unsupported;
         }
 
+        /// THE TIER-1 ACCELERATION-STRUCTURE VERBS (abi 26): this fake records nothing, so it refuses them by
+        /// name like the copy above - and no handle can reach them while its `create_acceleration_structure`
+        /// answers null.
+        [[nodiscard]] deren::promise::rhi::error build_acceleration_structure(deren::promise::rhi::acceleration_structure&) override {
+            return deren::promise::rhi::error::unsupported;
+        }
+        [[nodiscard]] deren::promise::rhi::error refit_acceleration_structure(deren::promise::rhi::acceleration_structure&) override {
+            return deren::promise::rhi::error::unsupported;
+        }
+
         [[nodiscard]] deren::promise::rhi::error begin_gpu_timing() noexcept override {
             return deren::promise::rhi::error::unsupported;
         }
