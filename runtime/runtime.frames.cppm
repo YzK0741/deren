@@ -481,25 +481,19 @@ namespace deren::vulkan {
         this->publish_frame_resources();
         // Record the frame into this slot's command buffer (inline recording: no inheritance).
         // THE HANDLE COMES FROM THE CONTRACT (abi 15/21): `frame_command_buffer()` names the frame slot's
-        // borrowed handle and `native_frame_commands()` turns it into the raw `VkCommandBuffer` the
-        // recording speaks, so this frame loop no longer holds - or names - a backend command-buffer
-        // type. The BEGIN/END themselves stay Vulkan calls: the frame's primaries belong to the CORE
-        // (that is what keeps `begin_commands()` and `submit()` naming the same buffer), so there is no
-        // contract `command_buffer` handle here to begin - the contract's own begin/end lifecycle is
-        // what a buffer the CALLER creates goes through (readback does, and
-        // `command_buffer::begin_recording` documents the verbs). This is a DELIBERATE raw site: §8.4's
-        // frame-level sweep owns it, not this batch.
+        // borrowed handle and `native_frame_commands()` turns it into the raw `VkCommandBuffer` the few
+        // remaining raw sites below speak (the heap bind, the shadow stage's prepares, the post chain).
+        // THE BEGIN AND THE END ARE THE CONTRACT'S NOW (abi 26): `command_buffer::begin_recording()` /
+        // `end_recording()` are the lifecycle verbs, and the BACKEND - which owns this buffer - performs the
+        // API's own `vkBeginCommandBuffer`/`vkEndCommandBuffer`. What used to be here was a hand-built
+        // `VkCommandBufferBeginInfo` and `VK_SUCCESS`; the engine half names neither any more, and the guard
+        // below is only "is there a frame in flight", which the native derivation already answers.
         VkCommandBuffer const command_buffer = this->native_frame_commands(this->frame_command_buffer());
         if (command_buffer == VK_NULL_HANDLE) {
             return frame_status::begin_recording_failed; // no frame is open: nothing to record into
         }
-        VkCommandBufferBeginInfo const begin_info = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-            .pNext = nullptr,
-            .flags = 0,
-            .pInheritanceInfo = nullptr,
-        };
-        if (vkBeginCommandBuffer(command_buffer, &begin_info) != VK_SUCCESS) {
+        if (std::shared_ptr<rhi::command_buffer> const frame_commands = this->frame_command_buffer();
+            !frame_commands || frame_commands->begin_recording({}) != rhi::error::ok) {
             return frame_status::begin_recording_failed;
         }
         // THE HEAP IS NOT BOUND HERE, AND THE MEASUREMENT IS WHY: binding it takes the WHOLE command buffer, not
@@ -3739,7 +3733,10 @@ namespace deren::vulkan {
         // GPU timing: last mark of the frame. The interval it closes is everything after the FXAA
         // (or composite) pass - the screenshot read-back copy and the present barrier.
         this->gpu_mark(gpu_mark_id::frame_end);
-        if (vkEndCommandBuffer(command_buffer) != VK_SUCCESS) {
+        // THE OTHER END OF THE LIFECYCLE (abi 26): `end_recording()` closes the buffer the BEGIN opened above,
+        // and the backend performs `vkEndCommandBuffer` - so no `VK_SUCCESS` stands between the frame's last
+        // mark and the present transition any more.
+        if (auto const frame_commands = this->frame_command_buffer(); !frame_commands || frame_commands->end_recording() != rhi::error::ok) {
             return frame_status::end_recording_failed;
         }
         return frame_status::proceed;

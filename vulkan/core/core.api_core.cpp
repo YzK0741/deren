@@ -1971,12 +1971,52 @@ namespace deren::vulkan {
         }
     }
 
-    rhi::error core::frame_commands::begin_recording(rhi::command_buffer_begin_info const&) {
-        return rhi::error::unsupported; // the FRAME LOOP begins the frame's recording, not a pass
+    rhi::error core::frame_commands::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
+        // THE FRAME'S OWN RECORDING RIDES THE CONTRACT NOW (abi 26), and the two verbs under this comment are
+        // why the frame loop stopped calling `vkBeginCommandBuffer`/`vkEndCommandBuffer` itself: the buffer is
+        // the CORE's (`frame_command_buffer()`), the API's state machine behind it is exactly what the
+        // recording face exists to own, and the engine half must not name an entry point to open a frame.
+        //
+        // WHAT THE REFUSAL THAT STOOD HERE WAS PROTECTING: "the frame loop begins the frame's recording, not a
+        // pass". That rule is still true and is now the CALLER's to keep - the contract's own `begin_recording`
+        // doc has always said a buffer's lifecycle is begun once and by its owner - while the pass layer never
+        // reaches this verb at all (a pass records into `resolved_io::list`, whose recording the RUNNER opened).
+        // A usage bit this backend cannot serve is still refused BY NAME, exactly as the owned form refuses it.
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // no frame in flight: the same window `begin_commands()` answers in
+        }
+        rhi::command_buffer_flags usage = rhi::no_command_buffer_flags;
+        if (covered_by(declared_info.struct_size, offsetof(rhi::command_buffer_begin_info, usage), sizeof(rhi::command_buffer_begin_info::usage))) {
+            usage = declared_info.usage;
+        }
+        VkCommandBufferUsageFlags flags = 0;
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::one_time_submit)) {
+            flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        }
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::simultaneous_use)) {
+            flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+        }
+        // `render_pass_continue` is a SECONDARY's bit and the frame's buffer is a primary: the owned form refuses
+        // the combination it cannot spell rather than passing a flag the API rejects on a primary.
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
+            return rhi::error::unsupported;
+        }
+        VkCommandBufferBeginInfo const begin = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .pInheritanceInfo = nullptr, // a primary has no inheritance
+        };
+        return generic_error(vkBeginCommandBuffer(command_buffer, &begin));
     }
 
     rhi::error core::frame_commands::end_recording() noexcept {
-        return rhi::error::unsupported; // ... and it ends it, right before the present transition
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        return generic_error(vkEndCommandBuffer(command_buffer));
     }
 
     rhi::error core::frame_commands::execute(rhi::command_buffer& secondary) {
