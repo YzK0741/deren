@@ -30,6 +30,21 @@
 
 ---
 
+## 0.1 `deren.exe` 里还有没有 Vulkan？——四层实测（2026-10-08）
+
+| 层 | 问题 | 实测 | 判定 |
+|---|---|---|---|
+| ① **导入表** | 有没有链接图形库 | 17 个导入，**没有任何** `vulkan-1`/`glfw`/`d3d`/`dxgi`（`shared_utility` + CRT + USER32/SHELL32/GDI32/comdlg32） | ✅ 无 |
+| ② **符号** | 有没有 `vk*`/`Vk*` 符号 | `llvm-nm`：**0**（未解析与已定义**都**是 0） | ✅ 无 |
+| ③ **二进制字符串** | 镜像里还有没有 Vulkan 名字 | 有，但**来源是 GLFW**：`vkCreateWin32SurfaceKHR`、`vkCreateHeadlessSurfaceEXT`、`vkGetPhysicalDeviceWin32PresentationSupportKHR`、`vkEnumerateInstanceExtensionProperties`、`vkGetInstanceProcAddr`、`VkSurfaceKHR`、`VK_KHR_`/`VK_EXT_`/`VK_MVK_` —— 全部能在静态链接的 `C:\msys64\clang64\lib\libglfw3.a` 里找到，**仓库源码里一处都没有**（命中的是 `third_party/vma` 与 `imgui_impl_vulkan`，它们分别在**后端 DLL** 与 **GUI 插件 DLL** 里）。GLFW 把这些入口点**名字当字符串**交给应用提供的 loader 回调，它自己不 import `vulkan-1` —— 与①一致。引擎自身只留日志文本（`"vulkan runtime initialized"`、`"rhi: vulkan_escape ..."`）与 `.spv` 着色器文件名 | ⚠️ 剩 GLFW 平台层 + 文本 |
+| ④ **源码词汇** | 引擎源码还命名什么 | **25 个文件**，全部仍 `#include <vulkan/`；其中 **12 个**还经 `escape()->native_*` 借用原生句柄。最重四个都在 runtime：`runtime.constructor.cppm`(45 tok，16 类型/21 宏)、`runtime.frames.cppm`(34)、`runtime.declarations.cppm`(33)、`runtime.cpp`(15) | ⚠️ X5 清单 |
+
+**工具**：`python scripts/binary_vulkan_scan.py build-release-dyn-clang64/deren.exe`（第③层；`vulkan`/入口点名/`Vk*`/`VK_*`/`.spv` 计数与去重列表）。
+
+**回答"还有没有 Vulkan"**：**依赖与符号层面一点都没有了**（① ② 均 0）；**二进制里还有 Vulkan 相关字符串，但几乎全是 GLFW 平台层的**——按本项目的既定例外（`glfw`/`GLFWwindow*` 是平台而非图形 API）这是允许的；**引擎源码词汇还没清**，即 ④ 的 25 个文件（X5 第 2–5 步）。
+
+---
+
 ## 0. 目标与判据（为什么做这件事）
 
 目标**不是**"不链接 Vulkan"，而是**后端可替换**：主程序（`deren.exe` + `vulkancorekit`）不得接触任何图形 API 的**类型、入口点与库**，这样第二个后端（D3D12/nul）可以插进来。三条判据按强度排列：
