@@ -103,8 +103,10 @@ namespace deren::vulkan::pass {
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
-        VkImageView const target_view = io.targets[0].view;
-        if (target_view == VK_NULL_HANDLE) {
+        // THE CONTRACT VIEW IS THE GUARD (plan X5 B2): the raw lane is gone, and a null handle is exactly the
+        // "this frame has no target" this refusal is about.
+        deren::promise::rhi::image_view* const target_view = io.targets[0].view_handle;
+        if (target_view == nullptr) {
             return;
         }
         // THE FOUR IMAGES THIS PASS READS BECOME SAMPLES, in ONE dependency info and in the declaration's order -

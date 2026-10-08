@@ -127,9 +127,11 @@ namespace deren::vulkan::pass {
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
-        VkImage const target = io.targets[0].image;
-        VkImageView const target_view = io.targets[0].view;
-        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE) {
+        // THE CONTRACT HANDLES ARE THE GUARD (plan X5 B2): the raw lane is gone, so this reads the lane the pass
+        // records through - a null one is exactly "this frame has no target".
+        deren::promise::rhi::image* const target = io.targets[0].image_handle;
+        deren::promise::rhi::image_view* const target_view = io.targets[0].view_handle;
+        if (target == nullptr || target_view == nullptr) {
             return;
         }
         // The scene-colour dependency, which cannot be folded into the sampling transitions below: it does not

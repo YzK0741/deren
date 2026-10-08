@@ -157,23 +157,13 @@ export namespace deren::vulkan::pass {
 
     /// @brief one resolved own binding: the handles this binding's resource actually is
     struct resolved_binding {
-        VkImageView view = VK_NULL_HANDLE;
-        VkBuffer buffer = VK_NULL_HANDLE;
         /**
-         * The image BEHIND @c view, because a descriptor takes a view and a BARRIER takes an image.
-         *
-         * This field exists because a pass that owns a per-image family needs it: the transitions and clears
-         * its own nine images (same-layout storage barriers for the propagation, a clear when the global
-         * lighting changed), and a pass that has only views cannot name them. It is resolved from the same
-         * declaration element as the view, so a pass still reaches nothing it did not declare.
-         */
-        VkImage image = VK_NULL_HANDLE;
-        /**
-         * THE CONTRACT HANDLES BEHIND THE RAW ONES (abi 20): the recording face's verbs take contract
-         * handles (`barrier`'s image, `begin_rendering`'s views, `bind_*`'s buffers), so the binding
-         * carries them BESIDE the raw spelling above - the raw lane stays for the passes that have not
-         * migrated and for the third-party recording that never will. Every lane is filled by the same
-         * publisher from the same source, so the two spellings cannot disagree.
+         * THE CONTRACT HANDLES (abi 20), AND THEY ARE THE ONLY LANE (plan X5 B2): the recording face's verbs
+         * take them (`barrier`'s image, `begin_rendering`'s views, `bind_*`'s buffers), so this carries what
+         * every recording site actually uses. THE RAW LANE THAT STOOD HERE - `VkImageView view`, `VkBuffer
+         * buffer` and `VkImage image` - IS GONE: it existed for "the passes that have not migrated and for the
+         * third-party recording that never will", every such site is migrated now, and a second spelling could
+         * only drift from the first.
          */
         deren::promise::rhi::image* image_handle = nullptr;
         deren::promise::rhi::image_view* view_handle = nullptr;
@@ -242,7 +232,7 @@ export namespace deren::vulkan::pass {
          * reaches into the core for this (`vulkan_core.gi_images[i]` and friends); a pass
          * cannot - the failure mode this guards against is reaching an image that belongs to another generation.
          */
-        std::array<std::span<VkImageView const>, max_own_bindings> own_per_image = {};
+        std::array<std::span<deren::promise::rhi::image_view* const>, max_own_bindings> own_per_image = {};
         /**
          * @brief HOW A PASS SENDS ITS PUSH BLOCK NOW THAT NO PIPELINE HAS A LAYOUT
          *
@@ -1103,25 +1093,23 @@ export namespace deren::vulkan::pass {
          *
          * @param id the resource, in the declaration's vocabulary
          * @param element which image of the family (the G-buffer's second target, the bloom chain's level 1)
-         * @param views one view per instance, in instance order (an empty span publishes nothing)
-         * @param images the images behind them, in the same order (a buffer family passes an empty span)
+         * @param image_handles one contract image per instance, in instance order (empty = nothing published)
+         * @param view_handles the views behind them, in the same order (a buffer family passes an empty span)
          */
-        void publish_family(render_resource::resource_id const id, uint32_t const element, std::span<VkImageView const> views,
-                            std::span<VkImage const> images, std::span<deren::promise::rhi::image* const> image_handles = {},
+        void publish_family(render_resource::resource_id const id, uint32_t const element,
+                            std::span<deren::promise::rhi::image* const> image_handles = {},
                             std::span<deren::promise::rhi::image_view* const> view_handles = {}) noexcept {
-            if (views.empty() && images.empty()) {
-                return;
+            if (image_handles.empty() && view_handles.empty()) {
+                return; // nothing published: the same refusal an empty native pair used to be
             }
             for (family_entry& f : this->families) {
                 if (f.id == id && f.element == element) {
-                    f.views = views;
-                    f.images = images;
                     f.image_handles = image_handles;
                     f.view_handles = view_handles;
                     return;
                 }
             }
-            this->families.push_back(family_entry{.id = id, .element = element, .views = views, .images = images, .image_handles = image_handles, .view_handles = view_handles});
+            this->families.push_back(family_entry{.id = id, .element = element, .image_handles = image_handles, .view_handles = view_handles});
         }
 
         /**
@@ -1159,14 +1147,10 @@ export namespace deren::vulkan::pass {
                 }
             }
             for (family_entry const& f : this->families) {
-                if (f.id == id && f.element == element && instance < f.views.size()) {
-                    VkImage const image = instance < f.images.size() ? f.images[instance] : VK_NULL_HANDLE;
-                    // THE CONTRACT HANDLES RIDE ALONG when the owner published them; a family whose owner has
-                    // not (yet) passes nullptrs, which is the state the resolve-side check reports.
-                    return resolved_binding{.view = f.views[instance],
-                                            .buffer = VK_NULL_HANDLE,
-                                            .image = image,
-                                            .image_handle = instance < f.image_handles.size() ? f.image_handles[instance] : nullptr,
+                if (f.id == id && f.element == element && instance < f.view_handles.size()) {
+                    // THE CONTRACT LANE IS THE ONLY ONE (plan X5 B2): the family no longer carries the native
+                    // pair, so this branch answers from the columns the owner published.
+                    return resolved_binding{.image_handle = instance < f.image_handles.size() ? f.image_handles[instance] : nullptr,
                                             .view_handle = instance < f.view_handles.size() ? f.view_handles[instance] : nullptr};
                 }
             }
@@ -1180,10 +1164,13 @@ export namespace deren::vulkan::pass {
          * @return the views the owner published as one run, or an EMPTY span when it published none (or published
          *         the family instance by instance, which is what a single entry is for)
          */
-        [[nodiscard]] std::span<VkImageView const> views_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
+        /// THE PER-IMAGE CHANNEL SPEAKS CONTRACT VIEWS NOW (plan X5 B2): it used to be a run of `VkImageView`,
+        /// which is the lane this batch removes - a pass that owns a per-image family reaches its other images
+        /// through the recording face's verbs, and those take these handles.
+        [[nodiscard]] std::span<deren::promise::rhi::image_view* const> views_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
             for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
-                    return f.views;
+                    return f.view_handles;
                 }
             }
             return {};
@@ -1204,7 +1191,7 @@ export namespace deren::vulkan::pass {
             }
             for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
-                    count += static_cast<uint32_t>(std::max(f.views.size(), f.images.size()));
+                    count += static_cast<uint32_t>(std::max(f.view_handles.size(), f.image_handles.size()));
                 }
             }
             return count;
@@ -1230,11 +1217,11 @@ export namespace deren::vulkan::pass {
         struct family_entry {
             render_resource::resource_id id = render_resource::resource_id::none;
             uint32_t element = 0;
-            std::span<VkImageView const> views = {};
-            std::span<VkImage const> images = {};
-            /// one contract image per instance, in the same order as `images` (empty = not published yet)
+            // (the raw `views`/`images` spans stood here until plan X5 B2: the contract columns below are the
+            //  only ones now, which is why `publish_family` no longer takes the native pair at all.)
+            /// one contract image per instance (empty = not published yet)
             std::span<deren::promise::rhi::image* const> image_handles = {};
-            /// one contract view per instance, in the same order as `views` (empty = not published yet)
+            /// one contract view per instance (empty = not published yet)
             std::span<deren::promise::rhi::image_view* const> view_handles = {};
         };
         /// A vector rather than a map: the table holds what one frame's chain can NAME, it is filled once per
@@ -1357,7 +1344,7 @@ export namespace deren::vulkan::pass {
                 return false; // not a resource the schema knows, or not the contiguous own bindings the validator requires
             }
             resolved_binding const handles = context.resources->find(binding.resource, binding.element, instance_for(info->scope, context.frame));
-            if (handles.view == VK_NULL_HANDLE && handles.buffer == VK_NULL_HANDLE && handles.image == VK_NULL_HANDLE) {
+            if (handles.view_handle == nullptr && handles.buffer_handle == nullptr && handles.image_handle == nullptr) {
                 return false; // this frame does not have it: do not record the pass at all
             }
             out.own_storage[binding.binding] = handles;
@@ -1392,7 +1379,7 @@ export namespace deren::vulkan::pass {
                     return false; // more targets than the fixed storage: the declaration outgrew the framework
                 }
                 resolved_binding const handles = context.resources->find(target.resource, target.element + i, instance_for(info->scope, context.frame));
-                if (handles.view == VK_NULL_HANDLE && handles.image == VK_NULL_HANDLE) {
+                if (handles.view_handle == nullptr && handles.image_handle == nullptr) {
                     if (i == 0u) {
                         return false; // this frame does not have it: do not record the pass at all
                     }
@@ -1417,7 +1404,7 @@ export namespace deren::vulkan::pass {
                 return false;
             }
             resolved_binding const handles = context.resources->find(declaration.barrier_images[i].resource, declaration.barrier_images[i].element, instance_for(info->scope, context.frame));
-            if (handles.image == VK_NULL_HANDLE) {
+            if (handles.image_handle == nullptr) {
                 return false;
             }
             out.barrier_storage[i] = handles;
@@ -1429,7 +1416,7 @@ export namespace deren::vulkan::pass {
                 return false;
             }
             resolved_binding const handles = context.resources->find(declaration.barrier_buffers[i].resource, declaration.barrier_buffers[i].element, instance_for(info->scope, context.frame));
-            if (handles.buffer == VK_NULL_HANDLE) {
+            if (handles.buffer_handle == nullptr) {
                 return false;
             }
             out.barrier_buffer_storage[i] = handles;

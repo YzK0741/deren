@@ -1966,7 +1966,7 @@ namespace deren::vulkan {
                 [](void* owner, render_resource::resource_id const id, uint32_t const element) {
                     runtime* const self = static_cast<runtime*>(owner);
                     resource_handles const handles = self->pass_resources.resource(id, element);
-                    return pass::resolved_binding{.view = handles.view, .buffer = handles.buffer, .image = handles.image};
+                    return pass::resolved_binding{.image_handle = handles.image, .view_handle = handles.view, .buffer_handle = handles.buffer};
                 },
             .frames_in_flight = this->frame_ring().slot_count(),
             .owner = this,
@@ -1980,13 +1980,13 @@ namespace deren::vulkan {
         // are created once and only rewritten; the skin matrix buffers are created once and rewritten per slot),
         // which is what makes them safe for a pass to name at create time.
         if (this->material_mapped != nullptr) {
-            this->pass_resources.register_resource(render_resource::resource_id::material_table, 0, resource_handles{.buffer = this->buffer_of(*this->material_buffer)});
+            this->pass_resources.register_resource(render_resource::resource_id::material_table, 0, resource_handles{.buffer = &*this->material_buffer});
         }
         if (!this->owned_texture_views.empty()) {
-            this->pass_resources.register_resource(render_resource::resource_id::scene_textures, 0, resource_handles{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views[0]))});
+            this->pass_resources.register_resource(render_resource::resource_id::scene_textures, 0, resource_handles{.view = &*this->owned_texture_views[0]});
         }
         for (uint32_t slot = 0; slot < this->skin_buffers.size(); ++slot) {
-            this->pass_resources.register_resource(render_resource::resource_id::skin_matrices, slot, resource_handles{.buffer = this->buffer_of(*this->skin_buffers[slot])});
+            this->pass_resources.register_resource(render_resource::resource_id::skin_matrices, slot, resource_handles{.buffer = &*this->skin_buffers[slot]});
         }
     }
 
@@ -2032,30 +2032,26 @@ namespace deren::vulkan {
         };
         // One buffer: the RAII wrapper holds a handle and the descriptor needs the VkBuffer behind it, so the
         // lookup goes through vma exactly where the renderer's own binding writes do.
-        auto const buffer = [this, &table](render_resource::resource_id const id, uint32_t const instance, rhi::object_manager<rhi::buffer> const& owned) {
-            table.publish(id, 0, instance, pass::resolved_binding{.buffer = this->buffer_of(*owned), .buffer_handle = &*owned});
+        auto const buffer = [&table](render_resource::resource_id const id, uint32_t const instance, rhi::object_manager<rhi::buffer> const& owned) {
+            table.publish(id, 0, instance, pass::resolved_binding{.buffer_handle = &*owned});
         };
-        auto const image = [this](rhi::object_manager<rhi::image> const& owned) -> pass::resolved_binding {
-            return static_cast<bool>(owned) ? pass::resolved_binding{.image = static_cast<VkImage>(this->escape().native_image(*owned)),
-                                                                     .image_handle = &*owned}
-                                            : pass::resolved_binding{};
+        // One image, in the contract lane ONLY (plan X5 B2): the raw `VkImage` the binding used to carry is
+        // gone, and the handle is what `image()` answers with.
+        auto const image = [](rhi::object_manager<rhi::image> const& owned) -> pass::resolved_binding {
+            return static_cast<bool>(owned) ? pass::resolved_binding{.image_handle = &*owned} : pass::resolved_binding{};
         };
         // ONE ENGINE-OWNED PER-IMAGE FAMILY (③-D/E A1): the engine holds the generation's handles, so the
         // run the table needs is assembled here, instance by instance, each handle through the contract's
         // escape. `find()` answers exactly what the family form answered; the family form itself needs a
         // CONTIGUOUS run of `VkImageView`s, which an array of `object_manager`s is not - and a local run
         // would dangle, because the table stores the span rather than copying it.
-        auto const owned_family = [this, &table](render_resource::resource_id const id, uint32_t const element, auto const& images, auto const& views) {
+        auto const owned_family = [&table](render_resource::resource_id const id, uint32_t const element, auto const& images, auto const& views) {
             for (std::size_t instance = 0; instance < rhi::max_swapchain_images; ++instance) {
                 if (!static_cast<bool>(images[instance]) || !static_cast<bool>(views[instance])) {
                     continue;
                 }
                 table.publish(id, element, static_cast<uint32_t>(instance),
-                              pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*views[instance])),
-                                                     .buffer = VK_NULL_HANDLE,
-                                                     .image = static_cast<VkImage>(this->escape().native_image(*images[instance])),
-                                                     .image_handle = &*images[instance],
-                                                     .view_handle = &*views[instance]});
+                              pass::resolved_binding{.image_handle = &*images[instance], .view_handle = &*views[instance]});
             }
         };
 
@@ -2074,11 +2070,7 @@ namespace deren::vulkan {
                 this->frame_swapchain_views[slot] = rhi::object_manager<rhi::image_view>{frame_image->make_view(rhi::image_view_desc{})};
                 if (this->frame_swapchain_views[slot]) {
                     single(render_resource::resource_id::swapchain_image, 0, this->current_image_index,
-                           pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->frame_swapchain_views[slot])),
-                                                  .buffer = VK_NULL_HANDLE,
-                                                  .image = static_cast<VkImage>(this->escape().native_image(*frame_image)),
-                                                  .image_handle = frame_image,
-                                                  .view_handle = &*this->frame_swapchain_views[slot]});
+                           pass::resolved_binding{.image_handle = frame_image, .view_handle = &*this->frame_swapchain_views[slot]});
                 }
             }
         }
@@ -2148,11 +2140,7 @@ namespace deren::vulkan {
                 }
             }
             single(render_resource::resource_id::scene_color, 0, static_cast<uint32_t>(i),
-                   pass::resolved_binding{.view = this->scene_target_view(static_cast<uint32_t>(i)),
-                                          .buffer = VK_NULL_HANDLE,
-                                          .image = this->scene_target_image(static_cast<uint32_t>(i)),
-                                          .image_handle = color_image,
-                                          .view_handle = color_view});
+                   pass::resolved_binding{.image_handle = color_image, .view_handle = color_view});
         }
 
         // ---- per FRAME SLOT: the ray-traced visibility image, the shadow map's cascades, the buffers ----
@@ -2165,11 +2153,7 @@ namespace deren::vulkan {
                 continue;
             }
             single(render_resource::resource_id::rt_shadow_visibility, 0, static_cast<uint32_t>(slot),
-                   pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->rt_shadow_image_views[slot])),
-                                          .buffer = VK_NULL_HANDLE,
-                                          .image = static_cast<VkImage>(this->escape().native_image(*this->rt_shadow_images[slot])),
-                                          .image_handle = &*this->rt_shadow_images[slot],
-                                          .view_handle = &*this->rt_shadow_image_views[slot]});
+                   pass::resolved_binding{.image_handle = &*this->rt_shadow_images[slot], .view_handle = &*this->rt_shadow_image_views[slot]});
         }
         // The shadow map's family elements are the CASCADES (see render_resource::shadow_io): the image is one
         // layered depth array per slot and the pass renders one layer at a time, so every layer the image
@@ -2178,14 +2162,9 @@ namespace deren::vulkan {
             if (!static_cast<bool>(this->shadow_images[slot])) {
                 continue;
             }
-            VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(*this->shadow_images[slot]));
             for (std::size_t layer = 0; layer < this->shadow_layer_views[slot].size(); ++layer) {
                 single(render_resource::resource_id::shadow_map, static_cast<uint32_t>(layer), static_cast<uint32_t>(slot),
-                       pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->shadow_layer_views[slot][layer])),
-                                              .buffer = VK_NULL_HANDLE,
-                                              .image = shadow_native,
-                                              .image_handle = &*this->shadow_images[slot],
-                                              .view_handle = &*this->shadow_layer_views[slot][layer]});
+                       pass::resolved_binding{.image_handle = &*this->shadow_images[slot], .view_handle = &*this->shadow_layer_views[slot][layer]});
             }
         }
         // The per-slot buffers, each into its own instance: a frame in flight reads its own copy, which is the
@@ -2223,32 +2202,24 @@ namespace deren::vulkan {
         // ---- device-wide: the probe grid's eight elements, its geometry, the cubes and the textures ----
         if (static_cast<bool>(this->furnace_cube_image) && static_cast<bool>(this->furnace_cube_view)) {
             single(render_resource::resource_id::furnace_cube, 0, 0,
-                   pass::resolved_binding{.view = static_cast<VkImageView>(this->escape().native_image_view(*this->furnace_cube_view)),
-                                          .buffer = VK_NULL_HANDLE,
-                                          .image = static_cast<VkImage>(this->escape().native_image(*this->furnace_cube_image)),
-                                          .image_handle = &*this->furnace_cube_image,
-                                          .view_handle = &*this->furnace_cube_view});
+                   pass::resolved_binding{.image_handle = &*this->furnace_cube_image, .view_handle = &*this->furnace_cube_view});
         }
         // The white fallback and the array it is element 0 of. The array is BINDLESS (one binding, N descriptors),
         // which the declaration vocabulary cannot index element by element yet - so what is published is the one
         // element that always exists, which is also the one every declaration can name (element 0).
         if (this->white_texture_index < this->owned_textures.size() && this->white_texture_index < this->owned_texture_views.size()) {
             pass::resolved_binding white = image(this->owned_textures[this->white_texture_index]);
-            white.view = static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views[this->white_texture_index]));
             single(render_resource::resource_id::white_texture, 0, 0, white);
             single(render_resource::resource_id::scene_textures, 0, 0, white);
         }
         // The IBL triple, in the order set_ibl uploads it: prefiltered environment, irradiance, BRDF LUT.
         if (this->ibl_views.size() >= 3 && this->ibl_images.size() >= 3) {
-            pass::resolved_binding env = image(this->ibl_images[0]);
-            env.view = static_cast<VkImageView>(this->escape().native_image_view(*this->ibl_views[0]));
-            pass::resolved_binding irradiance = image(this->ibl_images[1]);
-            irradiance.view = static_cast<VkImageView>(this->escape().native_image_view(*this->ibl_views[1]));
-            pass::resolved_binding lut = image(this->ibl_images[2]);
-            lut.view = static_cast<VkImageView>(this->escape().native_image_view(*this->ibl_views[2]));
-            single(render_resource::resource_id::ibl_env, 0, 0, env);
-            single(render_resource::resource_id::ibl_irradiance, 0, 0, irradiance);
-            single(render_resource::resource_id::brdf_lut, 0, 0, lut);
+            // THE CONTRACT LANE, ONE CALL PER IMAGE (plan X5 B2): the raw `view` assignments that stood here
+            // were filling a lane that no longer exists - the `image()` lambda publishes the contract handle,
+            // which is what a pass's recording verbs take.
+            single(render_resource::resource_id::ibl_env, 0, 0, image(this->ibl_images[0]));
+            single(render_resource::resource_id::ibl_irradiance, 0, 0, image(this->ibl_images[1]));
+            single(render_resource::resource_id::brdf_lut, 0, 0, image(this->ibl_images[2]));
         }
         // NOT published: `top_level_structure`. It is an acceleration structure, and `resolved_binding` carries
         // the three handles a set write and a barrier take - a device address is neither. Whoever needs it asks
@@ -2269,7 +2240,9 @@ namespace deren::vulkan {
             }
             ++checked;
             pass::resolved_binding const published = table.find(id, element, pass::instance_for(info->scope, io.frame));
-            if (published.view == resolved.view && published.buffer == resolved.buffer && published.image == resolved.image) {
+            // THE CHECK COMPARES THE CONTRACT LANE (plan X5 B2): it is the lane the table publishes and the lane
+            // the passes record through, so a comparison is a statement about what a pass actually receives.
+            if (published.view_handle == resolved.view_handle && published.buffer_handle == resolved.buffer_handle && published.image_handle == resolved.image_handle) {
                 return;
             }
             ++mismatched;
@@ -2278,8 +2251,8 @@ namespace deren::vulkan {
             if (this->resource_check_frames < 3 && this->resource_check_mismatched + mismatched <= 10) {
                 deren::utility::log("resource table: pass '{}' {} (resource {}, element {}) resolved as [view {}, buffer {}, image {}] but published as [view {}, buffer {}, image {}]",
                                     decl.name, channel, static_cast<int32_t>(id), element,
-                                    as_pointer(resolved.view), as_pointer(resolved.buffer), as_pointer(resolved.image),
-                                    as_pointer(published.view), as_pointer(published.buffer), as_pointer(published.image));
+                                    as_pointer(resolved.view_handle), as_pointer(resolved.buffer_handle), as_pointer(resolved.image_handle),
+                                    as_pointer(published.view_handle), as_pointer(published.buffer_handle), as_pointer(published.image_handle));
             }
         };
         // The own bindings, indexed by their own binding number: the validator requires those to be contiguous

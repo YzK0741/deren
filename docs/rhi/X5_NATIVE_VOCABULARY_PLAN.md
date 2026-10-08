@@ -103,6 +103,33 @@ Instrument: frozen render 14/14 (every pass is on that path) plus `test_pass` - 
 to be FOUND, not inferred: grep for the field names, migrate, and let the compiler prove the lane is empty
 before deleting it (an unused lane is invisible; a reader the compiler can still see is not).
 
+### B2 - DONE (2026-10-08)
+
+The double lane is GONE. `resolved_binding` carries only the contract handles; `resource_table::family_entry` lost
+its `views`/`images` spans; `publish_family(id, element, image_handles, view_handles)` no longer takes the native
+pair at all; `resolved_io::own_per_image` is a run of `rhi::image_view*`; and `filters`'s `resource_handles` is
+the contract trio.
+
+Readers migrated: the four resolve validators in `pass.cppm` (`view/buffer/image == VK_NULL_HANDLE` -> the
+handles being null), the family fallback in `find()`, `views_of`/`instances_of`, the resource-table consistency
+check in `runtime.frames.cppm`, and five passes that guarded on a raw view (post, deferred, goo_rim,
+toon_screen_rim, geometry_buffer_debug). The publisher in `runtime.frames.cppm` fills one lane now: the `single`,
+`buffer`, `image` and `owned_family` helpers, the render-target chain, the RT visibility image, the shadow
+cascades, the IBL triple and the furnace cube.
+
+`tests/test_pass.cpp` was THE LANE'S UNIT TEST (it published and asserted the native spelling), which is why the
+first attempt at this batch - migrating only the readers - made it SEGFAULT: the pass refused to record and the
+test dereferenced what it expected. It is migrated too: its fake handles are `rhi::image_view*`/`rhi::image*`/
+`rhi::buffer*` sentinels, and `publish_family`'s two spans are passed in the new order.
+
+Verified: full build, CTest 19/19, `test_pass` 169/0, frozen rendering 14/14, clang-format-check clean,
+P-Nm/P-Import 0. RHI ABI stays 27 (no exported contract change - this batch only removed engine-side fields).
+
+Measured note: P-Census stays at 25 FILES and its token count went 205 -> 209, because the census counts source
+TEXT and the new comments NAME the removed types to explain what left. The dependency is what changed: the raw
+lane no longer exists in code. The raw vocabulary that remains is the escape helpers (`buffer_of`,
+`scene_target_image`, `scene_target_view`, `write_sampled_target`, `write_storage_target`, `native_target`) and
+the families of step B3 - B4 and B3 respectively.
 ### B3 - semantic values, one family per commit
 
 Ordered by blast radius, smallest first so a mistake stays local:

@@ -67,11 +67,12 @@ export namespace deren::vulkan {
      * depend on this module. The runtime copies the three fields across, which is the whole conversion.
      */
     struct resource_handles {
-        VkImageView view = VK_NULL_HANDLE;
-        VkBuffer buffer = VK_NULL_HANDLE;
-        VkImage image = VK_NULL_HANDLE;
+        /// THE CONTRACT LANE, AND ONLY IT (plan X5 B2): the native trio that stood here is gone, so a
+        /// publisher hands over the object a pass's recording verbs take rather than a spelling of it.
+        deren::promise::rhi::image_view* view = nullptr;
+        deren::promise::rhi::buffer* buffer = nullptr;
+        deren::promise::rhi::image* image = nullptr;
     };
-
     /**
      * @ingroup vulkan_core_filters
      * @brief the application's view of the device root, exposed by `runtime::operator->`

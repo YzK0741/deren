@@ -162,7 +162,9 @@ namespace deren::vulkan::pass {
             return false;
         }
         resolved_binding const target = context.resources->find(resource_id::ldr, 0, instance_for(ldr->scope, out.frame));
-        if (target.view == VK_NULL_HANDLE || target.image == VK_NULL_HANDLE) {
+        // THE CONTRACT LANE IS THE GUARD (plan X5 B2): the raw lane is gone, and "no LDR image this generation"
+        // is exactly "no contract handle was published for it".
+        if (target.view_handle == nullptr || target.image_handle == nullptr) {
             return false; // no LDR image this generation: do not record a composite that cannot write anywhere
         }
         out.target_storage[0] = target;
@@ -201,11 +203,10 @@ namespace deren::vulkan::pass {
             io.push.size() < sizeof(post_push_constants) || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_post_composite)
         }
-        VkImage const target = io.targets[0].image;
-        VkImageView const target_view = io.targets[0].view;
-        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE || io.list == nullptr || io.targets[0].image_handle == nullptr ||
-            io.targets[0].view_handle == nullptr) {
-            return; // the raw lanes this frame's publication left empty: the pass cannot record on either spelling
+        // THE RAW LOCALS ARE GONE (plan X5 B2) and nothing below used them: the recording verbs take the
+        // contract handles, so the guard reads the lane the pass actually records through.
+        if (io.list == nullptr || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
+            return; // this frame's publication left no contract handle: the pass cannot record
         }
         // The target becomes a colour attachment BEFORE the instance (a pipeline barrier may not be recorded
         // inside one) with UNDEFINED as its old layout: the instance CLEARs it, so whatever it held is dead - and

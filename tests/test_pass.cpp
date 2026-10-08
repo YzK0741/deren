@@ -197,8 +197,8 @@ namespace {
     std::array<std::byte, 4> const fake_push = {std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
     /// the per-image view lists the fake host resolves (one entry per swapchain image of its fake frame): what a
     /// pass that owns a per-image descriptor family is handed, so the test can assert the runner passes them on
-    std::array<VkImageView, 3> const fake_per_image = {
-        reinterpret_cast<VkImageView>(0xA0), reinterpret_cast<VkImageView>(0xA1), reinterpret_cast<VkImageView>(0xA2)};
+    std::array<deren::promise::rhi::image_view*, 3> const fake_per_image = {
+        reinterpret_cast<deren::promise::rhi::image_view*>(0xA0), reinterpret_cast<deren::promise::rhi::image_view*>(0xA1), reinterpret_cast<deren::promise::rhi::image_view*>(0xA2)};
 
     /// the host's own state: the log every callback writes, plus what the fake host answers
     struct host_state {
@@ -244,7 +244,7 @@ namespace {
         // the declared render targets, resolved the way an own binding is: the view for the instance, the
         // image for a barrier
         for (std::size_t t = 0; t < pass.io().targets.size() && t < out.target_storage.size(); ++t) {
-            out.target_storage[t] = {.view = reinterpret_cast<VkImageView>(0x70 + t), .buffer = VK_NULL_HANDLE, .image = reinterpret_cast<VkImage>(0x80 + t)};
+            out.target_storage[t] = {.image_handle = reinterpret_cast<deren::promise::rhi::image*>(0x80 + t), .view_handle = reinterpret_cast<deren::promise::rhi::image_view*>(0x70 + t)};
         }
         out.targets = std::span<vp::resolved_binding const>(out.target_storage.data(), pass.io().targets.size());
         // THE PER-IMAGE VIEW LISTS: what a pass that owns a per-image descriptor family needs (its write callback
@@ -252,7 +252,7 @@ namespace {
         // them here so the test can assert the runner hands them through untouched - the framework does not
         // interpret them.
         for (std::size_t k = 0; k < pass.io().bindings.size() && k < out.own_per_image.size(); ++k) {
-            out.own_per_image[k] = std::span<VkImageView const>(fake_per_image.data(), fake_per_image.size());
+            out.own_per_image[k] = std::span<deren::promise::rhi::image_view* const>(fake_per_image.data(), fake_per_image.size());
         }
         out.extent = behaviour.extent == vp::extent_rule::half ? deren::promise::rhi::image_extent{state.frame.extent.width / 2u, state.frame.extent.height / 2u} : state.frame.extent;
         return true;
@@ -367,10 +367,10 @@ namespace {
             last_slot = io.frame.slot;
             last_image_count = io.frame.image_count;
             last_targets = io.targets.size();
-            last_target_view = io.targets.empty() ? VK_NULL_HANDLE : io.targets[0].view;
-            last_target_image = io.targets.empty() ? VK_NULL_HANDLE : io.targets[0].image;
+            last_target_view = io.targets.empty() ? nullptr : io.targets[0].view_handle;
+            last_target_image = io.targets.empty() ? nullptr : io.targets[0].image_handle;
             // the per-image view lists, as the pass received them (see resolved_io::own_per_image)
-            last_per_image_first = io.own_per_image.empty() || io.own_per_image[0].empty() ? VK_NULL_HANDLE : io.own_per_image[0][0];
+            last_per_image_first = io.own_per_image.empty() || io.own_per_image[0].empty() ? nullptr : io.own_per_image[0][0];
             last_per_image_length = io.own_per_image.empty() ? 0 : io.own_per_image[0].size();
         }
 
@@ -382,9 +382,9 @@ namespace {
         uint32_t last_slot = 0;
         uint32_t last_image_count = 0;
         std::size_t last_targets = 0;
-        VkImageView last_target_view = VK_NULL_HANDLE;
-        VkImage last_target_image = VK_NULL_HANDLE;
-        VkImageView last_per_image_first = VK_NULL_HANDLE;
+        deren::promise::rhi::image_view* last_target_view = nullptr;
+        deren::promise::rhi::image* last_target_image = nullptr;
+        deren::promise::rhi::image_view* last_per_image_first = nullptr;
         std::size_t last_per_image_length = 0;
 
     private:
@@ -494,13 +494,13 @@ int32_t main() {
         // view and its image resolved
         CHECK(probe.last_targets == 0);
         CHECK(tail.last_targets == 1);
-        CHECK(tail.last_target_view == reinterpret_cast<VkImageView>(0x70));
-        CHECK(tail.last_target_image == reinterpret_cast<VkImage>(0x80));
+        CHECK(tail.last_target_view == reinterpret_cast<deren::promise::rhi::image_view*>(0x70));
+        CHECK(tail.last_target_image == reinterpret_cast<deren::promise::rhi::image*>(0x80));
         // ... and the PER-IMAGE VIEW LISTS reached the pass untouched: a pass that owns per-image state reads
         // each image's own handles from them, which `own` (the current frame's) cannot supply - see
         // resolved_io::own_per_image
         CHECK(probe.last_per_image_length == 3); // one entry per swapchain image of the frame
-        CHECK(probe.last_per_image_first != VK_NULL_HANDLE);
+        CHECK(probe.last_per_image_first != nullptr);
     }
 
     // ---- the extent rule's (resource, element) PAIR reaches the host, which is the only layer that can map it
@@ -702,50 +702,50 @@ int32_t main() {
         CHECK(vp::instance_for(rr::resource_scope::device_wide, frame) == 0); // one instance, whatever the frame says
 
         vp::resource_table table;
-        VkImageView const view_a = reinterpret_cast<VkImageView>(0x1000);
-        VkImage const image_a = reinterpret_cast<VkImage>(0x2000);
-        VkImageView const view_b = reinterpret_cast<VkImageView>(0x3000);
-        VkImage const image_b = reinterpret_cast<VkImage>(0x4000);
-        VkBuffer const buffer_a = reinterpret_cast<VkBuffer>(0x5000);
+        deren::promise::rhi::image_view* const view_a = reinterpret_cast<deren::promise::rhi::image_view*>(0x1000);
+        deren::promise::rhi::image* const image_a = reinterpret_cast<deren::promise::rhi::image*>(0x2000);
+        deren::promise::rhi::image_view* const view_b = reinterpret_cast<deren::promise::rhi::image_view*>(0x3000);
+        deren::promise::rhi::image* const image_b = reinterpret_cast<deren::promise::rhi::image*>(0x4000);
+        deren::promise::rhi::buffer* const buffer_a = reinterpret_cast<deren::promise::rhi::buffer*>(0x5000);
 
         // an empty table answers all-null rather than failing: "the owner does not have it" and "this frame
         // cannot use it" are different statements, and only the second is a pass's business
         CHECK(table.size() == 0);
-        CHECK(table.find(rr::resource_id::hdr, 0, 0).view == VK_NULL_HANDLE);
-        CHECK(table.find(rr::resource_id::hdr, 0, 0).image == VK_NULL_HANDLE);
-        CHECK(table.find(rr::resource_id::hdr, 0, 0).buffer == VK_NULL_HANDLE);
+        CHECK(table.find(rr::resource_id::hdr, 0, 0).view_handle == nullptr);
+        CHECK(table.find(rr::resource_id::hdr, 0, 0).image_handle == nullptr);
+        CHECK(table.find(rr::resource_id::hdr, 0, 0).buffer_handle == nullptr);
 
         // one entry per IMAGE, which is what makes `own_per_image` and the bloom levels expressible
-        table.publish(rr::resource_id::hdr, 0, 0, {.view = view_a, .image = image_a});
-        table.publish(rr::resource_id::hdr, 0, 1, {.view = view_b, .image = image_b});
+        table.publish(rr::resource_id::hdr, 0, 0, {.image_handle = image_a, .view_handle = view_a});
+        table.publish(rr::resource_id::hdr, 0, 1, {.image_handle = image_b, .view_handle = view_b});
         CHECK(table.size() == 2);
-        CHECK(table.find(rr::resource_id::hdr, 0, 0).view == view_a);
-        CHECK(table.find(rr::resource_id::hdr, 0, 1).view == view_b);
-        CHECK(table.find(rr::resource_id::hdr, 0, 2).view == VK_NULL_HANDLE); // no third image this generation
+        CHECK(table.find(rr::resource_id::hdr, 0, 0).view_handle == view_a);
+        CHECK(table.find(rr::resource_id::hdr, 0, 1).view_handle == view_b);
+        CHECK(table.find(rr::resource_id::hdr, 0, 2).view_handle == nullptr); // no third image this generation
         CHECK(table.instances_of(rr::resource_id::hdr, 0) == 2);
         // the ELEMENT is part of the key: the bloom chain's four levels are four entries of one family
-        table.publish(rr::resource_id::bloom, 3, 0, {.view = view_a, .image = image_a});
+        table.publish(rr::resource_id::bloom, 3, 0, {.image_handle = image_a, .view_handle = view_a});
         CHECK(table.size() == 3);
-        CHECK(table.find(rr::resource_id::bloom, 3, 0).view == view_a);
-        CHECK(table.find(rr::resource_id::bloom, 2, 0).view == VK_NULL_HANDLE);
+        CHECK(table.find(rr::resource_id::bloom, 3, 0).view_handle == view_a);
+        CHECK(table.find(rr::resource_id::bloom, 2, 0).view_handle == nullptr);
         CHECK(table.instances_of(rr::resource_id::bloom, 3) == 1);
         // a buffer-only family carries the buffer and leaves the image lanes null, which is how a barrier
         // buffer is told apart from an image with a view
-        table.publish(rr::resource_id::cluster_counts, 0, 1, {.buffer = buffer_a});
-        CHECK(table.find(rr::resource_id::cluster_counts, 0, 1).buffer == buffer_a);
-        CHECK(table.find(rr::resource_id::cluster_counts, 0, 1).view == VK_NULL_HANDLE);
-        CHECK(table.find(rr::resource_id::cluster_counts, 1, 1).buffer == VK_NULL_HANDLE);
+        table.publish(rr::resource_id::cluster_counts, 0, 1, {.buffer_handle = buffer_a});
+        CHECK(table.find(rr::resource_id::cluster_counts, 0, 1).buffer_handle == buffer_a);
+        CHECK(table.find(rr::resource_id::cluster_counts, 0, 1).view_handle == nullptr);
+        CHECK(table.find(rr::resource_id::cluster_counts, 1, 1).buffer_handle == nullptr);
 
         // publishing the same key REPLACES it: a frame that re-publishes an alias (scene_color is TAA-or-HDR)
         // ends with the last value rather than with two entries that disagree
-        table.publish(rr::resource_id::hdr, 0, 0, {.view = view_b, .image = image_b});
+        table.publish(rr::resource_id::hdr, 0, 0, {.image_handle = image_b, .view_handle = view_b});
         CHECK(table.size() == 4);
-        CHECK(table.find(rr::resource_id::hdr, 0, 0).view == view_b);
+        CHECK(table.find(rr::resource_id::hdr, 0, 0).view_handle == view_b);
 
         // ... and `clear` is what makes the next frame's publication the whole truth
         table.clear();
         CHECK(table.size() == 0);
-        CHECK(table.find(rr::resource_id::hdr, 0, 0).view == VK_NULL_HANDLE);
+        CHECK(table.find(rr::resource_id::hdr, 0, 0).view_handle == VK_NULL_HANDLE);
     }
 
     // ---- the frame constants ride with the resolved I/O: a value, defaulted, so a pass that reads it before
@@ -829,19 +829,19 @@ int32_t main() {
         for (uint32_t image = 0; image < 2; ++image) {
             for (rr::resource_id const id : {rr::resource_id::scene_color, rr::resource_id::taa_history, rr::resource_id::velocity, rr::resource_id::gbuffer_depth}) {
                 uint64_t const tag = static_cast<uint64_t>(id) + image;
-                owner.table.publish(id, 0, image, {.view = reinterpret_cast<VkImageView>(0x8000 + tag), .image = reinterpret_cast<VkImage>(0x9000 + tag)});
+                owner.table.publish(id, 0, image, {.image_handle = reinterpret_cast<deren::promise::rhi::image*>(0x9000 + tag), .view_handle = reinterpret_cast<deren::promise::rhi::image_view*>(0x8000 + tag)});
             }
         }
-        VkImageView const hdr_view = reinterpret_cast<VkImageView>(0xAA);
-        owner.table.publish(rr::resource_id::hdr, 0, frame.image_index, {.view = hdr_view, .image = reinterpret_cast<VkImage>(0xBB)});
+        deren::promise::rhi::image_view* const hdr_view = reinterpret_cast<deren::promise::rhi::image_view*>(0xAA);
+        owner.table.publish(rr::resource_id::hdr, 0, frame.image_index, {.image_handle = reinterpret_cast<deren::promise::rhi::image*>(0xBB), .view_handle = hdr_view});
         CHECK(pass.resolve(context, io));
         CHECK(io.cmd == fake_cmd);
         CHECK(io.frame.image_index == frame.image_index);
         CHECK(io.own.size() == 4); // the four own bindings, in their own binding order
-        CHECK(io.own[0].image == reinterpret_cast<VkImage>(0x9000 + static_cast<uint64_t>(rr::resource_id::scene_color) + frame.image_index));
-        CHECK(io.own[3].image == reinterpret_cast<VkImage>(0x9000 + static_cast<uint64_t>(rr::resource_id::gbuffer_depth) + frame.image_index));
+        CHECK(io.own[0].image_handle == reinterpret_cast<deren::promise::rhi::image*>(0x9000 + static_cast<uint64_t>(rr::resource_id::scene_color) + frame.image_index));
+        CHECK(io.own[3].image_handle == reinterpret_cast<deren::promise::rhi::image*>(0x9000 + static_cast<uint64_t>(rr::resource_id::gbuffer_depth) + frame.image_index));
         CHECK(io.targets.size() == 1);
-        CHECK(io.targets[0].view == hdr_view);
+        CHECK(io.targets[0].view_handle == hdr_view);
         CHECK(io.extent.width == 64 && io.extent.height == 32); // the declaration's rule is `full`
         CHECK(io.push.empty());                                 // a pass composes its own push block
         CHECK(io.barrier_images.empty() && io.barrier_buffers.empty());
@@ -851,32 +851,32 @@ int32_t main() {
 
         // ... and published AS A FAMILY, the same declaration also hands the pass every image's view - the run
         // `views_of` returns, in the owner's own storage, which is what a per-image descriptor family writes from
-        std::array<VkImageView, 2> const family_views = {reinterpret_cast<VkImageView>(0xF0), reinterpret_cast<VkImageView>(0xF1)};
-        std::array<VkImage, 2> const family_images = {reinterpret_cast<VkImage>(0xE0), reinterpret_cast<VkImage>(0xE1)};
+        std::array<deren::promise::rhi::image_view*, 2> const family_views = {reinterpret_cast<deren::promise::rhi::image_view*>(0xF0), reinterpret_cast<deren::promise::rhi::image_view*>(0xF1)};
+        std::array<deren::promise::rhi::image*, 2> const family_images = {reinterpret_cast<deren::promise::rhi::image*>(0xE0), reinterpret_cast<deren::promise::rhi::image*>(0xE1)};
         owner.table.clear();
         for (rr::resource_id const id : {rr::resource_id::scene_color, rr::resource_id::taa_history, rr::resource_id::velocity, rr::resource_id::gbuffer_depth}) {
-            owner.table.publish_family(id, 0, family_views, family_images);
+            owner.table.publish_family(id, 0, family_images, family_views);
         }
-        owner.table.publish_family(rr::resource_id::hdr, 0, family_views, family_images);
+        owner.table.publish_family(rr::resource_id::hdr, 0, family_images, family_views);
         CHECK(pass.resolve(context, io));
-        CHECK(io.own_per_image[0].size() == 2);                                   // one view per image of the generation
-        CHECK(io.own_per_image[0][1] == family_views[1]);                         // ... in instance order
-        CHECK(io.own_per_image[3].data() == family_views.data());                 // and it is the OWNER's run, not a copy
-        CHECK(io.own[frame.image_index].view == family_views[frame.image_index]); // find() answers from the family too
-        CHECK(io.targets[0].image == family_images[frame.image_index]);
+        CHECK(io.own_per_image[0].size() == 2);                                          // one view per image of the generation
+        CHECK(io.own_per_image[0][1] == family_views[1]);                                // ... in instance order
+        CHECK(io.own_per_image[3].data() == family_views.data());                        // and it is the OWNER's run, not a copy
+        CHECK(io.own[frame.image_index].view_handle == family_views[frame.image_index]); // find() answers from the family too
+        CHECK(io.targets[0].image_handle == family_images[frame.image_index]);
         CHECK(owner.table.instances_of(rr::resource_id::hdr, 0) == 2);
         CHECK(owner.table.size() == 5); // the four bindings' families + the target's, one entry each
 
         // A MISSING TARGET is the same statement as a missing binding: do not record the pass
         owner.table.clear();
         for (rr::resource_id const id : {rr::resource_id::scene_color, rr::resource_id::taa_history, rr::resource_id::velocity, rr::resource_id::gbuffer_depth}) {
-            owner.table.publish_family(id, 0, family_views, family_images);
+            owner.table.publish_family(id, 0, family_images, family_views);
         }
         CHECK(!pass.resolve(context, io));
 
         // THE EXTENT RULES, applied by the framework from the behaviour: half is the formula the half-size images
         // are created with, `resource` is the owner's answer, and `none` means the pass sizes its own work
-        owner.table.publish_family(rr::resource_id::hdr, 0, family_views, family_images);
+        owner.table.publish_family(rr::resource_id::hdr, 0, family_images, family_views);
         pass.how.extent = vp::extent_rule::half;
         CHECK(pass.resolve(context, io));
         CHECK(io.extent.width == 32 && io.extent.height == 16);
@@ -941,19 +941,19 @@ int32_t main() {
             // `0xC0 + layer` is 32 bits wide, and MSVC /W4 reports C4312 for a uint32_t reinterpret_cast to the
             // 64-bit VkImageView handle, so the fabricated handle is widened to pointer size first.
             owner.table.publish(rr::resource_id::shadow_map, layer, frame.slot,
-                                {.view = reinterpret_cast<VkImageView>(static_cast<std::uintptr_t>(0xC0 + layer)), .image = reinterpret_cast<VkImage>(0xD0)});
+                                {.image_handle = reinterpret_cast<deren::promise::rhi::image*>(0xD0), .view_handle = reinterpret_cast<deren::promise::rhi::image_view*>(static_cast<std::uintptr_t>(0xC0 + layer))});
         }
         vp::resolved_io run_out = {};
         CHECK(run_pass.resolve(context, run_out));
         CHECK(run_out.targets.size() == 3); // the run ends where the FRAME's elements end, not at the declaration's count
-        CHECK(run_out.targets[0].view == reinterpret_cast<VkImageView>(0xC0));
-        CHECK(run_out.targets[1].view == reinterpret_cast<VkImageView>(0xC1));
-        CHECK(run_out.targets[2].view == reinterpret_cast<VkImageView>(0xC2));
-        CHECK(run_out.targets[0].image == reinterpret_cast<VkImage>(0xD0)); // ONE image behind every layer of the run
+        CHECK(run_out.targets[0].view_handle == reinterpret_cast<deren::promise::rhi::image_view*>(0xC0));
+        CHECK(run_out.targets[1].view_handle == reinterpret_cast<deren::promise::rhi::image_view*>(0xC1));
+        CHECK(run_out.targets[2].view_handle == reinterpret_cast<deren::promise::rhi::image_view*>(0xC2));
+        CHECK(run_out.targets[0].image_handle == reinterpret_cast<deren::promise::rhi::image*>(0xD0)); // ONE image behind every layer of the run
         // ... a frame with ONE layer hands over one target (the single-shadow-map configuration: the same
         // declaration, a different frame) ...
         owner.table.clear();
-        owner.table.publish(rr::resource_id::shadow_map, 0, frame.slot, {.view = reinterpret_cast<VkImageView>(0xC0), .image = reinterpret_cast<VkImage>(0xD0)});
+        owner.table.publish(rr::resource_id::shadow_map, 0, frame.slot, {.image_handle = reinterpret_cast<deren::promise::rhi::image*>(0xD0), .view_handle = reinterpret_cast<deren::promise::rhi::image_view*>(0xC0)});
         CHECK(run_pass.resolve(context, run_out));
         CHECK(run_out.targets.size() == 1);
         // ... and a frame with NONE does not run the pass at all, exactly like a missing single target
