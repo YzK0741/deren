@@ -1332,7 +1332,7 @@ namespace deren::vulkan {
         // set_depth_write() emits the one required vkCmdSetDepthWriteEnable and later leaves
         // dedupe against it. (The pipeline declares depth-write as dynamic state, so it must be
         // set at least once even though the value matches the default.)
-        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const) {
+        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, bool const) {
             // THE CONTRACT'S VERB, and the value is the point of this lambda: the shadow env always forces
             // depth-write ENABLED whatever a leaf asked for, so `true` needs no flag mapping.
             session->set_depth_write(true);
@@ -1343,13 +1343,11 @@ namespace deren::vulkan {
         // pours straight through a wall the camera sees as solid - the classic "the wall behind the
         // camera is transparent" leak. See render_environment::two_sided.
         env.two_sided = true;
-        // THE RECEIVED VkCullModeFlags MAPS ONTO THE CONTRACT'S ENUM: NONE -> none, FRONT_BIT -> front,
-        // BACK_BIT -> back and FRONT_AND_BACK -> front_and_back (the contract spells all four).
-        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
-            session->set_cull_mode(mode == VK_CULL_MODE_NONE        ? rhi::cull_mode::none
-                                   : mode == VK_CULL_MODE_FRONT_BIT ? rhi::cull_mode::front
-                                   : mode == VK_CULL_MODE_BACK_BIT  ? rhi::cull_mode::back
-                                                                    : rhi::cull_mode::front_and_back);
+        // THE CONTRACT'S OWN ENUM CROSSES HERE (plan X5 B3.4): the lambda used to take `VkCullModeFlags` and
+        // map NONE/FRONT/BACK/FRONT_AND_BACK by hand; the environment decides in `rhi::cull_mode` now, so the
+        // mapping is gone and `set_cull_mode` gets exactly what was decided.
+        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, rhi::cull_mode const mode) {
+            session->set_cull_mode(mode);
         };
         // The shadow session's endpoint (see render_environment::push_block). `this` is const here because the
         // method is; the endpoint only records into the command buffer, so the cast is a formality.
@@ -2434,16 +2432,13 @@ namespace deren::vulkan {
         };
 
         // transparent leaves toggle depth writes off via this (core dynamic state, 1.3)
-        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkBool32 const enabled) {
-            session->set_depth_write(enabled != VK_FALSE); // the contract's verb; the raw flag converts at the boundary
+        env.set_depth_write_fn = [](std::shared_ptr<rhi::command_buffer> const& session, bool const enabled) {
+            session->set_depth_write(enabled); // the contract's verb takes the bool the environment decided
         };
         // single-sided materials keep back-face culling here (the shadow pass overrides it with env.two_sided;
         // the main pass must not, or double-sided handling would cost fill rate)
-        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, VkCullModeFlags const mode) {
-            session->set_cull_mode(mode == VK_CULL_MODE_NONE        ? rhi::cull_mode::none
-                                   : mode == VK_CULL_MODE_FRONT_BIT ? rhi::cull_mode::front
-                                   : mode == VK_CULL_MODE_BACK_BIT  ? rhi::cull_mode::back
-                                                                    : rhi::cull_mode::front_and_back);
+        env.set_cull_mode_fn = [](std::shared_ptr<rhi::command_buffer> const& session, rhi::cull_mode const mode) {
+            session->set_cull_mode(mode);
         };
         // THE HEAP PUSH (see render_environment::push_block): every draw in this session sends its block through
         // the same endpoint a converted pass uses; that endpoint is what appends the two heap indices, which is

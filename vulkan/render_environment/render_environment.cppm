@@ -68,7 +68,7 @@ namespace deren::vulkan {
         std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer = {};                                    // session's recording target (contract handle)
         std::string_view default_name = {};                                                                          // this pass's default
         std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, std::string_view)> bind = {};       // injected binder
-        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, VkBool32)> set_depth_write_fn = {}; // injected depth-write setter
+        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, bool)> set_depth_write_fn = {};   // injected depth-write setter
         VkPipelineLayout layout = VK_NULL_HANDLE;                                                                    // shared scene layout
         /**
          * HOW A DRAW SENDS ITS PUSH BLOCK, now that no pipeline has a layout (see
@@ -177,7 +177,7 @@ namespace deren::vulkan {
         std::string_view bound = {}; // currently bound name
         // injected cull-mode setter (core dynamic state since Vulkan 1.3, so one pipeline serves
         // single- and double-sided materials)
-        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, VkCullModeFlags)> set_cull_mode_fn = {};
+        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, deren::promise::rhi::cull_mode)> set_cull_mode_fn = {};
         // Session-wide two-sided rasterization. The SHADOW pass sets it, and it is not a nicety: a
         // caster must never be dropped for facing it away from the light. A single-sided wall plane
         // whose only face points into the room (Sponza is full of them) is back-facing as seen from
@@ -186,13 +186,13 @@ namespace deren::vulkan {
         // sunlight pours straight through it. Front-face culling fails on exactly the same geometry,
         // so the depth pass draws both sides (the depth test still keeps the nearest surface).
         bool two_sided = false;
-        VkCullModeFlags cull_mode_recorded = VK_CULL_MODE_BACK_BIT;
+        deren::promise::rhi::cull_mode cull_mode_recorded = deren::promise::rhi::cull_mode::back;
         bool cull_mode_known = false;
         // depth-write state actually recorded so far. Starts "unknown" (nothing recorded yet):
         // the first set_depth_write() must ALWAYS emit vkCmdSetDepthWriteEnable even when the
         // requested state matches the pipeline default - a dynamic state that is never set is
         // invalid (VUID). known == true once any set has been recorded.
-        VkBool32 depth_write_recorded = VK_TRUE;
+        bool depth_write_recorded = true;
         bool depth_write_known = false;
         /**
          * WHETHER THE SESSION, RATHER THAN THE LEAF, OWNS THE DEPTH-WRITE STATE.
@@ -244,7 +244,7 @@ namespace deren::vulkan {
             if (this->depth_write_locked) {
                 return;
             }
-            VkBool32 const want = enabled ? VK_TRUE : VK_FALSE;
+            bool const want = enabled;
             if (!this->depth_write_known || this->depth_write_recorded != want) {
                 this->set_depth_write_fn(this->command_buffer, want);
                 this->depth_write_recorded = want;
@@ -271,16 +271,16 @@ namespace deren::vulkan {
          * @brief record the cull mode for a material, honoring the session's two-sided flag
          * @param two_sided_material the primitive's own glTF `doubleSided` flag (renders both faces)
          * @note callers pass their material flag and let the session decide: the shadow pass forces
-         *       VK_CULL_MODE_NONE regardless (see two_sided), the main pass keeps back-face culling
+         *       the contract's `cull_mode::none` regardless (see two_sided), the main pass keeps back-face culling
          *       for single-sided materials. Deduplicated like set_depth_write(), so consecutive
          *       leaves sharing a cull mode emit the state once.
          * @note `forced_cull_front` outranks both session and material (see its own note): it is how the inverted
          *       hull states Cull Front for a group of leaves that would otherwise each put BACK/NONE back.
          */
         void set_cull_mode(bool const two_sided_material) {
-            VkCullModeFlags const want = this->forced_cull_front
-                                             ? VK_CULL_MODE_FRONT_BIT
-                                             : ((this->two_sided || two_sided_material) ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT);
+            deren::promise::rhi::cull_mode const want = this->forced_cull_front
+                                                      ? deren::promise::rhi::cull_mode::front
+                                                      : ((this->two_sided || two_sided_material) ? deren::promise::rhi::cull_mode::none : deren::promise::rhi::cull_mode::back);
             if (!this->cull_mode_known || this->cull_mode_recorded != want) {
                 this->set_cull_mode_fn(this->command_buffer, want);
                 this->cull_mode_recorded = want;
