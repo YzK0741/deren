@@ -165,8 +165,7 @@ export namespace deren::promise::rhi {
     /// layout `GENERAL` is deliberately NOT a member (it is a Vulkan spelling, not a use).
     enum class image_use : std::uint32_t {
         color_attachment = 0, ///< written as a render target (and read back as one)
-        transfer_source = 1,  ///< read by a copy out of the image
-        /// APPENDED for the recording face (RECORDING_FACE_PLAN.md §3): the state an image is in
+        transfer_source = 1,  ///< read by a copy out of the image        /// APPENDED for the recording face (RECORDING_FACE_PLAN.md §3): the state an image is in
         /// before anything has declared a use for it, which is what a barrier's `from` says at the top
         /// of a pass. A new VALUE, never a renumbering - the rule at `abi_version`.
         undefined = 2,
@@ -207,6 +206,12 @@ export namespace deren::promise::rhi {
                                   ///< map read back after being written)
         present = 9,              ///< handed to the presentation engine: `present_transition`,
                                   ///< `undefined_to_present_transition`
+        /// APPENDED for plan X4: READ BY THE HOST - the state a written target is handed to the
+        /// IMPLEMENTATION's own copy-out (`image::get_content()`) or to a read-back. IT IS THE ROLE THE CENSUS
+        /// FOUND MISSING ("no HOST-access masks ... stay in the escape bucket, runtime.probes.cppm /
+        /// ray_tracing.cpp"), and it is why a probe that records its own read-back needed a raw
+        /// `vkCmdPipelineBarrier2`: the pair (color_attachment, host_read) is declared in the backend's table now.
+        host_read = 10,
     };
 
     /// One subresource of one image, tightly packed: what a copy reads.

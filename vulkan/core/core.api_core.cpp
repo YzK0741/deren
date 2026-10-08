@@ -135,6 +135,9 @@ namespace deren::vulkan {
             pair_of(rhi::image_use::color_attachment, rhi::image_use::shader_read, deren::vulkan::hdr_sampling_transition),
             pair_of(rhi::image_use::color_attachment, rhi::image_use::transfer_source, deren::vulkan::color_attachment_to_transfer_transition),
             pair_of(rhi::image_use::color_attachment, rhi::image_use::present, deren::vulkan::present_transition),
+            // PLAN X4: the host-access role the census said the contract had none of. The probe reads its own
+            // render back through `image::get_content()`, and this is the pair that says so.
+            pair_of(rhi::image_use::color_attachment, rhi::image_use::host_read, deren::vulkan::color_attachment_to_host_transition),
             // THE DEPENDENCY (no layout change, store -> load inside one frame): see the note above
             pair_of(rhi::image_use::color_attachment, rhi::image_use::color_attachment, deren::vulkan::color_attachment_dependency),
             // ---- the shader-written family ----
@@ -162,19 +165,21 @@ namespace deren::vulkan {
         // covered. The numbers below are the histogram output of `scripts/recording_face_census.py`, quoted
         // so a reader can re-run it:
         //
-        //     measured pairs: 21   role values: 10   combinations: 100   unsupported: 79
+        //     measured pairs: 22   role values: 11   combinations: 121   unsupported: 99
         //
-        // and 21 + 79 = 100 is asserted, so the three cannot drift apart silently.
+        // and 22 + 99 = 121 is asserted, so the three cannot drift apart silently. THE HOST-READ PAIR MOVED ALL
+        // FOUR NUMBERS (plan X4): `image_use::host_read` is a new VALUE, so the census's role set grew with it -
+        // and this line is the record of re-running the census rather than of a hand count.
         // ============================================================================================
-        inline constexpr std::size_t image_use_pair_count_from_census = 21;
-        inline constexpr std::size_t unsupported_pair_count_from_census = 79;
-        inline constexpr std::uint32_t image_use_value_count = 10; // the enum's values, contiguous 0..9
+        inline constexpr std::size_t image_use_pair_count_from_census = 22;   // 21 + the host-read pair (plan X4)
+        inline constexpr std::size_t unsupported_pair_count_from_census = 99; // 121 combinations - 22 measured
+        inline constexpr std::uint32_t image_use_value_count = 11;            // the enum's values, contiguous 0..10
         static_assert(image_use_pairs.size() == image_use_pair_count_from_census,
                       "the declaration table must be exactly the pairs the CENSUS measured "
-                      "(scripts/recording_face_census.py: 'measured pairs: 21'); a hand count is not evidence");
+                      "(scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
         static_assert(image_use_pair_count_from_census + unsupported_pair_count_from_census ==
                           image_use_value_count * image_use_value_count,
-                      "21 measured pairs + 79 unsupported must be exactly the 100 role combinations the census "
+                      "22 measured pairs + 99 unsupported must be exactly the 121 role combinations the census "
                       "reports - if the enum grows, both numbers are re-read from the same run");
 
         /// The barrier one (from, to) role pair needs: the TABLE's row, with the caller's image filled in.
@@ -265,6 +270,8 @@ namespace deren::vulkan {
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::shader_read},
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::transfer_source},
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::present},
+            // PLAN X4: the host-read pair, from `color_attachment_to_host_transition` (the recipe the census counts too).
+            role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::host_read},
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::color_attachment},
             role_pair_expected{rhi::image_use::shader_write, rhi::image_use::shader_read},
             role_pair_expected{rhi::image_use::shader_write, rhi::image_use::transfer_source},
@@ -4140,10 +4147,39 @@ namespace deren::vulkan {
     }
 
     rhi::error core::submit(rhi::command_buffer& commands) {
-        // The list must be THIS frame's recording view - the same two-way check every frame verb
-        // makes (a foreign list is a caller bug, refused by name, never guessed at).
+        // THE FRAME'S OWN LIST first, which is the shape this verb had from the start.
         if (&commands != static_cast<rhi::command_buffer*>(&this->commands_view)) {
-            return rhi::error::invalid_argument;
+            // ---- AND THE CALLER'S OWN LIST (plan X4) ------------------------------------------------------
+            //
+            // WHAT THIS WIDENING IS FOR, and it is a WIDENING rather than a new slot (the signature does not
+            // move, so abi 27 stands): the probes record their read-back into a buffer THEY created
+            // (`create_command_buffer()`), and they handed it to the queue through the escape with a raw
+            // `vkQueueSubmit` - the last Vulkan reference the engine half had. A one-shot list the caller owns is
+            // the same operation the frame's list is (record -> submit to the graphics queue); what differs is
+            // that NOTHING IS PRESENTED, so the acquire state, the swapchain image and the semaphores are not
+            // involved. THE ORDERING STAYS THE CALLER'S (`wait_idle()`), exactly as it was when it submitted by
+            // hand - the contract has no fence for an owned buffer, and inventing one is not this batch's call.
+            {
+                std::lock_guard const lock(this->contract_command_buffers_mutex);
+                if (!this->contract_command_buffers.contains(&commands)) {
+                    return rhi::error::invalid_argument; // a list this backend did not hand out (provenance)
+                }
+            }
+            auto const& owned = static_cast<core::owned_command_buffer const&>(commands);
+            VkCommandBuffer const native = *owned.buffer;
+            if (native == VK_NULL_HANDLE || this->graphics_queue_handle == VK_NULL_HANDLE) {
+                return rhi::error::not_ready;
+            }
+            VkSubmitInfo const one_shot = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                           .pNext = nullptr,
+                                           .waitSemaphoreCount = 0,
+                                           .pWaitSemaphores = nullptr,
+                                           .pWaitDstStageMask = nullptr,
+                                           .commandBufferCount = 1,
+                                           .pCommandBuffers = &native,
+                                           .signalSemaphoreCount = 0,
+                                           .pSignalSemaphores = nullptr};
+            return generic_error(vkQueueSubmit(this->graphics_queue_handle, 1, &one_shot, VK_NULL_HANDLE));
         }
         if (!this->frame_in_flight) {
             return rhi::error::not_ready;

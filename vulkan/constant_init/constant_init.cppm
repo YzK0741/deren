@@ -1167,6 +1167,29 @@ export namespace deren::vulkan {
         .image = VK_NULL_HANDLE,
         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
     };
+    /**
+     * @brief GENERAL -> GENERAL, COLOR_ATTACHMENT_OUTPUT/COLOR_ATTACHMENT_WRITE -> HOST/HOST_READ (plan X4)
+     *
+     * THE ONE RECIPE THE ENGINE RECORDED BY HAND, and the reason the `image_use` census said "no HOST-access
+     * masks (the two host-visible barrier sites stay in the escape bucket, runtime.probes.cppm / ray_tracing.cpp)":
+     * the render's writes have to be visible to the HOST stage before the implementation copies the image out
+     * (`image::get_content()` and the descriptor-heap probes' read-back). It joins the table so the pair
+     * (color_attachment, host_read) is a DECLARED one rather than a raw command somebody records.
+     */
+    inline constexpr VkImageMemoryBarrier2 color_attachment_to_host_transition = {
+        .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
+        .pNext = nullptr,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
+        .srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
+        .dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT,
+        .dstAccessMask = VK_ACCESS_2_HOST_READ_BIT,
+        .oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .newLayout = VK_IMAGE_LAYOUT_GENERAL,
+        .srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+        .image = VK_NULL_HANDLE,
+        .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+    };
     /** @brief GENERAL -> PRESENT_SRC_KHR (dynamic rendering has no finalLayout) */
     inline constexpr VkImageMemoryBarrier2 present_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,

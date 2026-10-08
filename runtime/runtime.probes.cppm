@@ -66,22 +66,12 @@ namespace deren::vulkan {
     }
 
     bool runtime::submit_probe_commands(rhi::command_buffer& commands) {
-        // see the declaration: `api_core::submit()` is the FRAME's list, so an isolated probe buffer goes to the
-        // queue through the escape - and the wait afterwards is the contract's `wait_idle()`.
-        VkCommandBuffer const native = this->native_handle(commands);
-        if (native == VK_NULL_HANDLE) {
-            return false;
-        }
-        VkSubmitInfo const submit = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                     .pNext = nullptr,
-                                     .waitSemaphoreCount = 0,
-                                     .pWaitSemaphores = nullptr,
-                                     .pWaitDstStageMask = nullptr,
-                                     .commandBufferCount = 1,
-                                     .pCommandBuffers = &native,
-                                     .signalSemaphoreCount = 0,
-                                     .pSignalSemaphores = nullptr};
-        return vkQueueSubmit(static_cast<VkQueue>(runtime_detail::native_queue_of(this->rhi_face())), 1, &submit, VK_NULL_HANDLE) == VK_SUCCESS;
+        // THE CONTRACT SUBMITS IT (plan X4): `api_core::submit()` takes a list the CALLER owns as well as the
+        // frame's, so an isolated probe buffer no longer goes to the queue through the escape - the raw
+        // `vkQueueSubmit` that stood here was this file's second and last Vulkan call. NOTHING IS PRESENTED for an
+        // owned list (no swapchain image, no acquire state), and the wait afterwards is still the contract's
+        // `wait_idle()`, which the callers already perform.
+        return this->rhi_face().submit(commands) == rhi::error::ok;
     }
 
     void runtime::run_heap_probe(uint32_t const texture_slot) {
@@ -316,24 +306,6 @@ namespace deren::vulkan {
             commands->draw(3u, 1u, 0u, 0u); // the fullscreen triangle the vertex entry builds from SV_VertexID
         }
         commands->end_rendering();
-
-        // ---- THE ONE STEP THE CONTRACT HAS NO ROLE FOR, AND ITS OWN NOTE SAYS SO ----
-        // `image_use`'s census ends with: "no HOST-ACCESS masks (the two host-visible barrier sites stay in the
-        // escape bucket, runtime.probes.cppm / ray_tracing.cpp)". THIS IS THAT SITE: the render's writes have to
-        // be visible to the HOST stage for the implementation's copy-out, and no contract role spells HOST_READ.
-        // It is derived through the runtime's own unwrap path, and it is the ONLY raw command left in this file.
-        VkImageMemoryBarrier2 to_copy = {};
-        to_copy.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        to_copy.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        to_copy.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        to_copy.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-        to_copy.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
-        to_copy.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_copy.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_copy.image = static_cast<VkImage>(this->escape().native_image(*target));
-        to_copy.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkDependencyInfo const to_copy_dependency = make_image_dependency_info(1, &to_copy);
-        vkCmdPipelineBarrier2(this->native_handle(*commands), &to_copy_dependency);
 
         if (commands->end_recording() != rhi::error::ok) {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not close its recording");
