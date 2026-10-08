@@ -229,21 +229,9 @@ namespace deren::vulkan {
         }
     }
 
-    void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        rhi::heap_bindings const bindings = heap != nullptr ? heap->bindings() : rhi::heap_bindings{};
-        // 二级命令缓冲的继承信息仍在原来的录制点构造，逐字段保留两个 heap 的范围。
-        resource = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
-                    .pNext = nullptr,
-                    .heapRange = {bindings.resource.address, bindings.resource.size},
-                    .reservedRangeOffset = bindings.resource.reserved_offset,
-                    .reservedRangeSize = bindings.resource.reserved_size};
-        sampler = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
-                   .pNext = nullptr,
-                   .heapRange = {bindings.sampler.address, bindings.sampler.size},
-                   .reservedRangeOffset = bindings.sampler.reserved_offset,
-                   .reservedRangeSize = bindings.sampler.reserved_size};
-    }
+    // (THE HEAP-BIND HOOK IS GONE - plan X5 B3.5: it mirrored the contract's `heap_bindings()` into the two raw
+    //  `VkBindHeapInfoEXT` a secondary used to inherit. The pass layer stopped calling it at abi 20 and the
+    //  BACKEND derives that inheritance from its own bound heaps now, so this was a second truth with no reader.)
 
     bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer const commands, std::uint32_t const offset,
                                  std::span<std::byte const> const data) noexcept {

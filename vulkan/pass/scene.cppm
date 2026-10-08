@@ -91,28 +91,16 @@ export namespace deren::vulkan::pass {
         /// record the segments in parallel through the renderer's task pool (same reason as above)
         void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
         void* owner = nullptr;
-        /**
-         * Fill the two heap bind infos a SECONDARY command buffer must INHERIT (see
-         * descriptor_heap::bind_infos and runtime::fill_heap_bind).
-         *
-         * A SECONDARY IS VALIDATED ON ITS OWN, so the heap bound on the primary does not reach it, and validation
-         * refuses the draws with "The shader uses resource descriptors, but
-         * VkCommandBufferInheritanceDescriptorHeapInfoEXT::pResourceHeapBindInfo is NULL"
-         * (VUID-vkCmdDrawIndexed-None-11308). A CALLBACK RATHER THAN THE HEAP, for the reason `make_environment`
-         * and `push_block` are: the heap is the renderer's, and a pass that held it could take over an image
-         * family.
-         *
-         * THE PASS DOES NOT CALL IT ANY MORE (abi 20): a secondary is begun through the contract now, whose
-         * `command_buffer_begin_info::next` carries the attachment inheritance only - the BACKEND derives the
-         * descriptor-heap inheritance from its own bound heaps, so chaining the two bind infos here would be a
-         * second truth (and a chain the tagged mechanism refuses). The field stays until the frame's publisher
-         * stops filling it.
-         */
-        void (*fill_heap_bind)(void* owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) = nullptr;
+        // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5. It existed to chain the two `VkBindHeapInfoEXT` a
+        //  secondary must inherit, because a secondary is VALIDATED ON ITS OWN and the heap bound on the primary
+        //  does not reach it - but THE PASS STOPPED CALLING IT AT ABI 20: a secondary is begun through the
+        //  contract, whose chain carries the ATTACHMENT inheritance alone, and the BACKEND derives the
+        //  descriptor-heap inheritance from the heaps it owns. The field, the hook that filled it and the two raw
+        //  structs were a second truth with no reader, and the frame's publisher stopped filling them too.)
         /// the attachments a SECONDARY must inherit (dynamic rendering): formats in attachment order + depth
         std::span<::deren::promise::rhi::image_format const> color_formats = {};
         ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;
-        VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+        std::uint32_t samples = 1u;
         /// whether this frame writes the G-buffer (the surface pass) or shades into the HDR target
         bool gbuffer = true;
         deren::promise::rhi::image_extent extent = {0, 0};

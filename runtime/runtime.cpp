@@ -1609,9 +1609,9 @@ namespace deren::vulkan {
         return true;
     }
 
-    void runtime::fill_heap_bind(void* const owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) {
-        contract_heap_bind_infos(static_cast<runtime*>(owner)->rhi_face(), resource, sampler);
-    }
+    // (THE HEAP-BIND HOOK IS GONE - plan X5 B3.5: see runtime.declarations.cppm's note. A secondary inherits the
+    //  descriptor heaps from the BACKEND, which derives them from the heaps it owns; this filled two raw
+    //  `VkBindHeapInfoEXT` for a hook the pass layer stopped calling at abi 20.)
 
     void runtime::structure_record_mask_bake(void* const owner, VkCommandBuffer const command_buffer, pass::mask_bake_request const& request) {
         // THE HOOK'S OPERAND IS THE FRAME'S NATIVE PRIMARY, AND THAT IS STILL THE SEAM (abi 24 changed the ROUTE

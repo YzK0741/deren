@@ -65,11 +65,11 @@ namespace deren::vulkan {
          * `push_block` / `push_at` / `draw_mesh_tasks*` endpoints do that themselves, which is why a leaf never
          * spells a `VkCommandBuffer`).
          */
-        std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer = {};                                    // session's recording target (contract handle)
-        std::string_view default_name = {};                                                                          // this pass's default
-        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, std::string_view)> bind = {};       // injected binder
-        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, bool)> set_depth_write_fn = {};   // injected depth-write setter
-        VkPipelineLayout layout = VK_NULL_HANDLE;                                                                    // shared scene layout
+        std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer = {};                                // session's recording target (contract handle)
+        std::string_view default_name = {};                                                                      // this pass's default
+        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, std::string_view)> bind = {};   // injected binder
+        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, bool)> set_depth_write_fn = {}; // injected depth-write setter
+        VkPipelineLayout layout = VK_NULL_HANDLE;                                                                // shared scene layout
         /**
          * HOW A DRAW SENDS ITS PUSH BLOCK, now that no pipeline has a layout (see
          * `pass::resolved_io::push_endpoint`, which is the same pair for a pass).
@@ -279,8 +279,8 @@ namespace deren::vulkan {
          */
         void set_cull_mode(bool const two_sided_material) {
             deren::promise::rhi::cull_mode const want = this->forced_cull_front
-                                                      ? deren::promise::rhi::cull_mode::front
-                                                      : ((this->two_sided || two_sided_material) ? deren::promise::rhi::cull_mode::none : deren::promise::rhi::cull_mode::back);
+                                                            ? deren::promise::rhi::cull_mode::front
+                                                            : ((this->two_sided || two_sided_material) ? deren::promise::rhi::cull_mode::none : deren::promise::rhi::cull_mode::back);
             if (!this->cull_mode_known || this->cull_mode_recorded != want) {
                 this->set_cull_mode_fn(this->command_buffer, want);
                 this->cull_mode_recorded = want;

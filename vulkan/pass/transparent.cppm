@@ -54,13 +54,9 @@ export namespace deren::vulkan::pass {
         /// the draw state builder (see scene_frame::make_environment: the registry is the renderer's)
         render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
         void* owner = nullptr;
-        /// the heap bind infos this secondary must inherit (see scene_frame::fill_heap_bind: a secondary is
-        /// validated on its own, so the primary's heap bind does not reach it).
-        /// THE PASS DOES NOT CALL IT ANY MORE (abi 20): the secondary is begun through the contract, whose chain
-        /// carries the attachment inheritance, and the BACKEND derives the descriptor-heap inheritance itself - so
-        /// chaining these two bind infos here would be a second truth. The field stays until the frame's publisher
-        /// stops filling it.
-        void (*fill_heap_bind)(void* owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) = nullptr;
+        // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5: the secondary's descriptor-heap inheritance is derived by
+        //  the BACKEND from the heaps it owns, which is why the pass stopped calling the hook at abi 20 - see
+        //  scene_frame's note for the whole reason.)
         /// the ONE colour attachment the secondary inherits, plus the depth format
         ::deren::promise::rhi::image_format color_format = ::deren::promise::rhi::image_format::unknown;
         ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;

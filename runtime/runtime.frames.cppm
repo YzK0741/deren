@@ -1039,7 +1039,7 @@ namespace deren::vulkan {
             .color_format_count = 0,
             .color_formats = nullptr, // depth-only: the shadow map is the one attachment
             .depth_format = static_cast<std::int32_t>(self->depth_attachment_format),
-            .samples = static_cast<std::uint32_t>(VK_SAMPLE_COUNT_1_BIT),
+            .samples = 1u,
             .view_mask = 0,
         };
         rhi::command_buffer_begin_info const begin = {
@@ -2313,10 +2313,9 @@ namespace deren::vulkan {
             .make_environment = &runtime::make_scene_environment,
             .run_tasks = &runtime::run_scene_tasks,
             .owner = this,
-            .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_formats = this->scene_color_formats,
             .depth_format = contract_image_format(this->depth_attachment_format),
-            .samples = VK_SAMPLE_COUNT_1_BIT,
+            .samples = 1u,
             .gbuffer = true,
             .extent = this->render_extent(),
         };
@@ -2491,7 +2490,6 @@ namespace deren::vulkan {
             .secondary = transparent,
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
-            .fill_heap_bind = contract_heap_ready(this->vulkan_core) ? &runtime::fill_heap_bind : nullptr,
             .color_format = contract_image_format(deren::vulkan::render_layout::hdr_format),
             .depth_format = contract_image_format(this->depth_attachment_format),
             .extent = this->render_extent(),

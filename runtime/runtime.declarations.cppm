@@ -295,7 +295,6 @@ namespace deren::vulkan {
     [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, std::uintptr_t address,
                                                   VkDeviceSize size, VkDescriptorType type) noexcept;
     void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer commands) noexcept;
-    void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept;
     [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer commands, std::uint32_t offset,
                                                std::span<std::byte const> data) noexcept;
 
@@ -2110,12 +2109,12 @@ namespace deren::vulkan {
         /// `meshlet_base`), and the counts are written there before the call - so a compute pass can later rewrite
         /// that record with the counts culling left, without the recording path changing at all
         static bool draw_mesh_tasks_indirect(void* owner, rhi::command_buffer& command_buffer, uint32_t command_slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z);
-        /**
-         * @brief hand a SECONDARY the two heap bind infos it must inherit (see scene_frame::fill_heap_bind)
-         * @note the caller owns the storage, because VkCommandBufferInheritanceDescriptorHeapInfoEXT points at the
-         *       infos rather than copying them, and they have to outlive vkBeginCommandBuffer.
-         */
-        static void fill_heap_bind(void* owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler);
+        // (THE HEAP-BIND HOOK IS GONE - plan X5 B3.5: `fill_heap_bind`/`contract_heap_bind_infos` existed to
+        //  chain the two inherited heap bind infos. The pass layer stopped calling it at abi 20, when a secondary
+        //  began going through the contract - whose chain carries the ATTACHMENT inheritance, while the BACKEND
+        //  derives the descriptor-heap inheritance from its own bound heaps (see `begin_recording`'s note). The
+        //  field, the hook and the two raw VkBindHeapInfoEXT it filled were a second truth, and the frame's
+        //  publisher stopped filling them in the same change.)
         static bool structure_skin_ready(void* owner) noexcept;
         static bool structure_record_skin(void* owner, VkCommandBuffer command_buffer, std::span<ray_tracing::caster_level const> casters);
         /** @brief write the structure's and its instance table's heap slots for @p frame_slot */
@@ -2983,7 +2982,7 @@ namespace deren::vulkan {
             std::array<rhi::image_format, deren::vulkan::gbuffer_pass_attachment_count> color_formats = {};
             uint32_t color_count = 0;                                    // formats in use (1 when only the HDR target, 4 for surface targets + HDR)
             rhi::image_format depth_format = rhi::image_format::unknown; // main depth attachment format
-            VkSampleCountFlagBits rasterization_samples = VK_SAMPLE_COUNT_1_BIT;
+            std::uint32_t rasterization_samples = 1u;
             bool gbuffer_pass = false;      // leaves bind the G-buffer pipeline (not the HDR-shading ones)
             runtime const* owner = nullptr; // recording context (scene set / pipeline caches)
             // set to true by operator() when the secondary was actually recorded (begin + end

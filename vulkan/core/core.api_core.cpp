@@ -1972,10 +1972,10 @@ namespace deren::vulkan {
                 return rhi::error::unsupported; // more inherited attachments than this backend serves
             }
             for (std::uint32_t format_index = 0; format_index < rendering.colorAttachmentCount; ++format_index) {
-                native_color_formats[format_index] = native_image_format(static_cast<rhi::image_format>(declared_inheritance.color_formats[format_index]), this->depth_attachment_format);
+                native_color_formats[format_index] = native_image_format(static_cast<rhi::image_format>(declared_inheritance.color_formats[format_index]), this->owner->depth_attachment_format);
             }
             rendering.pColorAttachmentFormats = rendering.colorAttachmentCount == 0 ? nullptr : native_color_formats.data();
-            rendering.depthAttachmentFormat = native_image_format(static_cast<rhi::image_format>(declared_inheritance.depth_format), this->depth_attachment_format);
+            rendering.depthAttachmentFormat = native_image_format(static_cast<rhi::image_format>(declared_inheritance.depth_format), this->owner->depth_attachment_format);
             rendering.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
             rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(declared_inheritance.samples);
             inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;

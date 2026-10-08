@@ -88,8 +88,8 @@ namespace deren::vulkan::pass {
             .color_format_count = static_cast<std::uint32_t>(color_formats.size()),
             .color_formats = color_formats.data(),
             .depth_format = static_cast<std::int32_t>(this->pass_frame.depth_format),
-            .samples = static_cast<std::uint32_t>(VK_SAMPLE_COUNT_1_BIT), // the raw begin's 1x
-            .view_mask = 0,                                               // the raw inheritance built `viewMask = 0`
+            .samples = 1u,  // the raw begin's 1x
+            .view_mask = 0, // the raw inheritance built `viewMask = 0`
         };
         rhi::command_buffer_begin_info const secondary_begin = {
             .struct_size = sizeof(rhi::command_buffer_begin_info),
