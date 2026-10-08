@@ -604,8 +604,8 @@ namespace {
             // ---- THE OWNED COMMAND BUFFER (abi 15), ON THE REAL DEVICE ---------------------------
             // This is the one part of abi 15 that CAN be driven without a frame, and it is driven end
             // to end: two buffers are created (each with its own command pool), both are recorded, the
-            // primary executes the secondary, and the refusals are measured by name. What a frame would
-            // add is submission/presentation, which the engine's frame path and the render gate cover.
+            // primary executes the secondary and submits without a frame. Presentation is covered
+            // by the engine's frame path and the render gate.
             mark("create_command_buffer: an owned primary and secondary, recorded and executed");
             rhi::object_manager<rhi::command_buffer> primary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary})};
             rhi::object_manager<rhi::command_buffer> secondary{core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::secondary})};
@@ -621,12 +621,8 @@ namespace {
                 // frame's own buffer instead: `begin_commands()` answers nothing outside a frame
                 // (checked above), and the owned buffer is a different object from it.
                 CHECK(core->begin_commands() != static_cast<rhi::command_buffer*>(&*primary));
-                // ... AND THE PROVENANCE RULE REACHES THE OWNED BUFFER TOO: the frame's own borrowed
-                // buffer and an owned one are different objects (which is what `recording()`'s view
-                // used to say), so `submit()` refuses the owned one BY NAME - and leaves the frame
-                // open, which is why the check above still holds after this call.
-                CHECK_MSG(core->submit(*primary) == rhi::error::invalid_argument,
-                          "an owned command buffer is not the frame's borrowed one, so submit refuses it by name");
+                // X4 accepts recorded caller-owned primaries; submit is tested after end_recording
+                // below. An allocated but unrecorded native buffer is not valid submission input.
                 rhi::error const timing_open = primary->begin_gpu_timing();
                 CHECK_MSG(timing_open == rhi::error::not_ready,
                           "the frame-scoped timing verbs refuse a list that is not the frame's");
@@ -679,6 +675,9 @@ namespace {
                 CHECK_MSG(primary->execute(*secondary) == rhi::error::ok,
                           "an ended secondary is executed by the recording primary");
                 CHECK(primary->end_recording() == rhi::error::ok);
+                CHECK_MSG(core->submit(*primary) == rhi::error::ok,
+                          "a recorded owned primary submits without acquiring a frame");
+                core->wait_idle(); // keep both buffers alive until execution completes
             }
 
             mark("about to leave the scope: two releases and the DLL's deleter (core teardown) run next");

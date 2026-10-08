@@ -1869,12 +1869,12 @@ export namespace deren::promise::rhi {
         /// context's (see the type's note).
         [[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;
 
-        /// Hand the frame's recorded commands to the queue: the one frame verb the contract was
-        /// missing. The list is the one `begin_commands()` handed out (still recording-or-recorded,
-        /// not yet submitted); the backend owns which image is presented and which semaphores are
-        /// signalled - those are its own acquire state, never caller data. `ok` = submitted;
-        /// `invalid_argument` = a list this backend did not hand out; `not_ready` = no frame is in
-        /// flight; device-level failures travel as their own codes (device_lost, out_of_*_memory).
+        /// Hand recorded commands to the queue. A frame list from `begin_commands()` uses the
+        /// backend's acquire state and presentation semaphores. An ended, caller-owned primary
+        /// from `create_command_buffer()` submits independently of a frame; the caller keeps its
+        /// resources alive until `wait_idle()` completes. `ok` = submitted; `invalid_argument` =
+        /// a list this backend did not hand out; `not_ready` = no acquired frame (for a frame list)
+        /// or no native recording (for an owned list). Device-level failures travel as themselves.
         [[nodiscard]] virtual error submit(command_buffer& commands) = 0;
 
         /// Create a command buffer the caller OWNS (abi 15). `nullptr` = this backend cannot serve the

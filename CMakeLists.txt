@@ -1126,7 +1126,7 @@ if(VR_BUILD_TESTS)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(NAME test_backend_boundary
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover
-                -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p test_backend_boundary.py -v)
+                -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_*boundary.py" -v)
     set_tests_properties(test_backend_boundary PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
         ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
@@ -1416,6 +1416,12 @@ add_dependencies(deren deren_gui_vulkan)
 # test it, then delete the old path" order). The next step is the loader plus the runtime's rewiring.
 # ============================================================================================
 add_library(deren_gui_vulkan SHARED)
+add_executable(test_gui_plugin tests/test_gui_plugin.cpp)
+target_compile_options(test_gui_plugin PRIVATE ${COMPILE_OPTIONS})
+target_compile_definitions(test_gui_plugin PRIVATE VR_GUI_PLUGIN_DLL="$<TARGET_FILE:deren_gui_vulkan>")
+target_link_libraries(test_gui_plugin PRIVATE static_utility vstd_lib)
+add_dependencies(test_gui_plugin deren_gui_vulkan)
+# Like the backend spike, this explicitly loads a graphics plugin and is run locally.
 set_target_properties(deren_gui_vulkan PROPERTIES PREFIX "") # deren_gui_vulkan.dll, beside the executable
 target_sources(deren_gui_vulkan
         PUBLIC

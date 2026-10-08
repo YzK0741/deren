@@ -125,7 +125,14 @@ namespace deren::vulkan::gui {
         /// stay valid across later `add_panel` calls (a vector would move it).
         class overlay_adapter final : public deren::gui::overlay {
         public:
+            ~overlay_adapter() override {
+                this->shutdown();
+            }
+
             [[nodiscard]] bool init(deren::gui::create_info const& info) override {
+                if (this->content.is_active()) {
+                    return true;
+                }
                 if (info.api != deren::gui::api_type::vulkan) {
                     deren::utility::log("gui plugin: this is the VULKAN gui plugin and it was asked for api_type {} - refusing BY NAME",
                                         static_cast<std::uint32_t>(info.api));
@@ -145,12 +152,27 @@ namespace deren::vulkan::gui {
                 translated.color_format = static_cast<VkFormat>(info.color_format);
                 translated.depth_format = static_cast<VkFormat>(info.depth_format);
                 translated.frames_in_flight = info.frames_in_flight;
-                return this->content.init(translated);
+                // GLFW is linked statically into each image. The host's glfwInit() does not
+                // initialize this plugin's copy, whose queries otherwise return zero sizes/scale.
+                if (!glfwInit()) {
+                    deren::utility::log("gui plugin: GLFW initialization failed");
+                    return false;
+                }
+                this->platform_ready = true;
+                if (!this->content.init(translated)) {
+                    this->shutdown();
+                    return false;
+                }
+                return true;
             }
 
             void shutdown() override {
                 this->panels.clear();
                 this->content.shutdown();
+                if (this->platform_ready) {
+                    glfwTerminate();
+                    this->platform_ready = false;
+                }
             }
             [[nodiscard]] bool is_active() const noexcept override {
                 return this->content.is_active();
@@ -200,6 +222,7 @@ namespace deren::vulkan::gui {
 
         private:
             gui_content content;
+            bool platform_ready = false;
             /// the adapters, one per `add_panel` (see the type's note: a deque, because the host keeps
             /// references past later calls)
             std::deque<panel_adapter> panels;
@@ -217,6 +240,9 @@ extern "C" DEREN_API_EXPORT std::shared_ptr<deren::gui::overlay> deren_make_gui(
         return {};
     }
     std::shared_ptr<deren::gui::overlay> overlay = std::make_shared<deren::vulkan::gui::overlay_adapter>();
+    if (!overlay->init(*info)) {
+        return {};
+    }
     deren::utility::log("gui plugin: deren_gui_vulkan is up (api_type {}, frames in flight {})",
                         static_cast<std::uint32_t>(info->api), info->frames_in_flight);
     return overlay;

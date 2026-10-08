@@ -8,8 +8,8 @@ a grep; it is (a) the executable's IMPORT TABLE, (b) the UNRESOLVED SYMBOLS of t
 fails while any of them is non-empty.
 
 THE ENGINE SCOPE is derived from the build system rather than hand-listed: every `.cppm`/`.cpp` under `runtime/`
-or `vulkan/` that is NOT one of `deren_vulkan`'s own sources (parsed out of the `target_sources(deren_vulkan`
-block in CMakeLists.txt) and NOT in ALLOWED below.
+or `vulkan/` that is NOT one of the graphics plugins' sources (parsed out of their `target_sources`
+blocks in CMakeLists.txt) and NOT in ALLOWED below.
 
 ALLOWED is small and each entry has to say why:
   - `vulkan/constant_init/**`, `vulkan/render_layout/**`: constexpr builders and tables. They name Vulkan
@@ -43,6 +43,7 @@ ALLOWED = (
 # they are not in its own `target_sources` block). Read from CMakeLists.txt the same way the DLL's list is, so
 # a file that joins or leaves one of those targets cannot drift out of this gate.
 DLL_LINKED_TARGETS = ("vulkan_error_tables", "vulkan_constant_init")
+PLUGIN_TARGETS = ("deren_vulkan", "deren_gui_vulkan")
 
 # What "touching the API" means in source: a TYPE, a MACRO, an entry point, the escape's native-handle door, or
 # the header itself. Comments are stripped first - this repo's comments discuss Vulkan constantly and on purpose.
@@ -93,10 +94,10 @@ def target_sources(target: str) -> set[str]:
 
 
 def dll_sources() -> set[str]:
-    """Every source compiled into `deren_vulkan.dll`: its own, plus the static libraries it links."""
-    found = target_sources("deren_vulkan")
-    for linked in DLL_LINKED_TARGETS:
-        found |= target_sources(linked)
+    """Graphics plugin sources, including the backend's linked static libraries."""
+    found: set[str] = set()
+    for target in (*PLUGIN_TARGETS, *DLL_LINKED_TARGETS):
+        found |= target_sources(target)
     return found
 
 

@@ -8,6 +8,8 @@ module;
 // 'call to operator new is ambiguous' at allocate.h. Textually including glm here (the same
 // trick vulkan/animation/controller.cpp uses) makes clang merge the two copies, so
 // the allocator instantiations resolve. Do not remove this include to "clean up".
+#include "promise/gui/gui_entry.hpp"
+
 #include <array>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -414,25 +416,25 @@ namespace deren::chores {
                 runtime.register_shader("post.vert.spv", vertex_code);
                 runtime.register_shader("gbuffer_debug.frag.spv", fragment_code);
                 // The deferred lighting stage is a PASS (deren.vulkan.pass.deferred): the app REGISTERS the two
-                    // shaders it builds from and the pass builds its own pipeline from them, which is why one
-                    // register call for each replaces the old `make_deferred_pipeline(vertex_code, fragment_code)`
-                    // call here.
-                    load_shader(shaders_dir, "post.vert.spv", vertex_code);
-                    load_shader(shaders_dir, "deferred.frag.spv", fragment_code);
-                    runtime.register_shader("post.vert.spv", vertex_code);
-                    runtime.register_shader("deferred.frag.spv", fragment_code);
-                    // TAA resolve (deferred-only). IT IS A PASS TOO: the app registers the two shaders and the
-                    // pass builds its own pipeline from them (see deren.vulkan.pass.taa) - the create_passes() call
-                    // below is what runs that step, for every pass at once. The vertex
-                    // stage is post.vert's synthetic triangle, the same one the debug view and the post chain use.
-                    //
-                    // NOTE WHERE THESE TWO REGISTRATIONS SIT: they used to be in the ELSE branch of the deferred
-                    // pipeline's creation, so a machine where that failed silently lost TAA as well. They are
-                    // gated on the DEBUG pipeline now, which is what they actually need (post.vert), and the
-                    // lighting stage's own shaders are registered above it.
-                    load_shader(shaders_dir, "taa.frag.spv", fragment_code);
-                    runtime.register_shader("taa.frag.spv", fragment_code);
-                    deren::utility::log("SUCCESS: gbuffer pipelines created (surface write, debug view)");
+                // shaders it builds from and the pass builds its own pipeline from them, which is why one
+                // register call for each replaces the old `make_deferred_pipeline(vertex_code, fragment_code)`
+                // call here.
+                load_shader(shaders_dir, "post.vert.spv", vertex_code);
+                load_shader(shaders_dir, "deferred.frag.spv", fragment_code);
+                runtime.register_shader("post.vert.spv", vertex_code);
+                runtime.register_shader("deferred.frag.spv", fragment_code);
+                // TAA resolve (deferred-only). IT IS A PASS TOO: the app registers the two shaders and the
+                // pass builds its own pipeline from them (see deren.vulkan.pass.taa) - the create_passes() call
+                // below is what runs that step, for every pass at once. The vertex
+                // stage is post.vert's synthetic triangle, the same one the debug view and the post chain use.
+                //
+                // NOTE WHERE THESE TWO REGISTRATIONS SIT: they used to be in the ELSE branch of the deferred
+                // pipeline's creation, so a machine where that failed silently lost TAA as well. They are
+                // gated on the DEBUG pipeline now, which is what they actually need (post.vert), and the
+                // lighting stage's own shaders are registered above it.
+                load_shader(shaders_dir, "taa.frag.spv", fragment_code);
+                runtime.register_shader("taa.frag.spv", fragment_code);
+                deren::utility::log("SUCCESS: gbuffer pipelines created (surface write, debug view)");
             }
         }
 
@@ -474,7 +476,6 @@ namespace deren::chores {
             std::vector<uint8_t> rt_shadow_any_hit_code;
             load_shader(shaders_dir, "rt_shadow.rahit.spv", rt_shadow_any_hit_code);
             runtime.register_shader("rt_shadow.rahit.spv", rt_shadow_any_hit_code);
-
 
             // The alphaMode MASK bake (shaders/mask_bake.slang) and the compute skinning job
             // (shaders/compute_skin.slang) are TWO JOBS rather than frame passes - one runs once inside the
@@ -564,31 +565,30 @@ namespace deren::chores {
             return;
         }
         runtime.enable_debug_gui();
-        deren::vulkan::gui::debug_panel& panel = runtime.debug_gui().add_panel("deren debug");
+        deren::gui::panel& panel = runtime.debug_gui().add_panel("deren debug");
         panel.set_default_size(settings.gui.panel_width, settings.gui.panel_height);
-        panel.push_back(std::make_unique<deren::vulkan::gui::label_widget>([&bindings] { return std::format("fps: {:>6.1f}", bindings.fps); })); // fixed-width field: a growing number must not re-wrap the panel
+        panel.add_label([&bindings] { return std::format("fps: {:>6.1f}", bindings.fps); }); // fixed-width field: a growing number must not re-wrap the panel
         // per-pass GPU milliseconds (runtime::gpu_timing_summary): the timing that steers the
         // renderer's performance work, so it sits with the fps line at the top of the panel
-        panel.push_back(std::make_unique<deren::vulkan::gui::label_widget>([&runtime] { return runtime.gpu_timing_summary(); }));
+        panel.add_label([&runtime] { return runtime.gpu_timing_summary(); });
         // ... and the CPU phases next to it: above a few hundred fps the frame is CPU/pacing-bound,
         // so the GPU line alone no longer explains the frame time (see runtime::cpu_phase).
-        panel.push_back(std::make_unique<deren::vulkan::gui::label_widget>([&runtime] { return runtime.cpu_timing_summary(); }));
-        panel.push_back(std::make_unique<deren::vulkan::gui::checkbox_widget>(
+        panel.add_label([&runtime] { return runtime.cpu_timing_summary(); });
+        panel.add_checkbox(
             "frustum culling",
             &bindings.cull_enabled,
-            [&runtime](bool const enabled) { runtime.set_frustum_culling(enabled); }));
-        panel.push_back(std::make_unique<deren::vulkan::gui::checkbox_widget>(
+            [&runtime](bool const enabled) { runtime.set_frustum_culling(enabled); });
+        panel.add_checkbox(
             "shadow",
             &bindings.shadow_enabled,
-            [&runtime](bool const enabled) { runtime.set_shadow_enabled(enabled); }));
+            [&runtime](bool const enabled) { runtime.set_shadow_enabled(enabled); });
         // clustered light culling (M5): off = every active light is evaluated per pixel (the
         // brute-force reference), on = only the pixel's cluster list. Mirroring it every frame in
         // main() keeps the config and the checkbox in agreement. Offered only when the cluster
         // compute pipeline exists - without it the switch cannot do anything.
         {
-            auto clustered = std::make_unique<deren::vulkan::gui::checkbox_widget>("clustered lights", &bindings.clustered_lights);
-            clustered->visible_when = [&runtime] { return runtime.feature_available("clustered"); }; // offered whenever the compute pass exists (it works in either path)
-            panel.push_back(std::move(clustered));
+            // offered whenever the compute pass exists (it works in either path)
+            panel.add_checkbox("clustered lights", &bindings.clustered_lights).set_visible_when([&runtime] { return runtime.feature_available("clustered"); });
         }
         // screen-space ambient occlusion (M6): the deferred lighting stage traces the G-buffer, so the
         // whole group (switch + its three knobs) is offered only in a session whose G-buffer pipelines
@@ -598,13 +598,10 @@ namespace deren::chores {
         // which is what they are attached to. The sliders edit the radius (world units), the applied
         // intensity and the sample count.
         {
-            auto ssao = std::make_unique<deren::vulkan::gui::checkbox_widget>("ssao", &bindings.ssao_enabled);
-            ssao->visible_when = [&runtime] { return runtime.feature_available("deferred"); }; // deferred-only, via the feature registry
-            panel.push_back(std::move(ssao));
+            // deferred-only, via the feature registry
+            panel.add_checkbox("ssao", &bindings.ssao_enabled).set_visible_when([&runtime] { return runtime.feature_available("deferred"); });
             auto make_ssao_slider = [&](std::string label, float* value, float lo, float hi) {
-                auto slider = std::make_unique<deren::vulkan::gui::slider_widget>(std::move(label), value, lo, hi);
-                slider->visible_when = [&bindings] { return bindings.ssao_enabled; };
-                panel.push_back(std::move(slider));
+                panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.ssao_enabled; });
             };
             make_ssao_slider("ssao radius", &bindings.ssao_radius, 0.05f, 3.0f);
             make_ssao_slider("ssao intensity", &bindings.ssao_intensity, 0.0f, 1.0f);
@@ -617,67 +614,51 @@ namespace deren::chores {
         // The SAMPLE COUNT is the estimator's ray budget per half-resolution pixel: cost and noise both scale
         // with it, which is why it sits next to the switch rather than in the config alone.
         {
-            auto megalights = std::make_unique<deren::vulkan::gui::checkbox_widget>("megalights", &bindings.megalights_enabled);
             // the SWITCH is gated on AVAILABILITY, never on its own value: the checkbox writes the field its
             // predicate reads, so gating it on bindings.megalights_enabled hides the only way back - the
             // feature defaults off (app_config's render_settings::megalights, and the panel is the only UI
             // that sets it), so the panel would offer megalights exactly never.
-            megalights->visible_when = [&runtime] { return runtime.feature_available("megalights"); };
-            panel.push_back(std::move(megalights));
-            auto samples = std::make_unique<deren::vulkan::gui::slider_widget>("ml samples", &bindings.megalights_samples, 1.0f, 4.0f);
-            auto ml_frames = std::make_unique<deren::vulkan::gui::slider_widget>("ml history", &bindings.megalights_frames, 1.0f, 12.0f);
-            auto ml_tol = std::make_unique<deren::vulkan::gui::slider_widget>("ml tol", &bindings.megalights_history_tolerance, 0.0f, 0.5f);
-            auto ml_bias = std::make_unique<deren::vulkan::gui::slider_widget>("ml bias", &bindings.megalights_bias, 0.0f, 16.0f);
-            auto ml_emitter = std::make_unique<deren::vulkan::gui::slider_widget>("ml emitter", &bindings.megalights_light_angle, 0.0f, 0.1f);
-            ml_emitter->visible_when = [&bindings] { return bindings.megalights_enabled; };
-            panel.push_back(std::move(ml_emitter));
-            ml_bias->visible_when = [&bindings] { return bindings.megalights_enabled; };
-            panel.push_back(std::move(ml_bias));
-            ml_tol->visible_when = [&bindings] { return bindings.megalights_enabled; };
-            panel.push_back(std::move(ml_tol));
-            ml_frames->visible_when = [&bindings] { return bindings.megalights_enabled; };
-            panel.push_back(std::move(ml_frames));
-            auto ml_sigma = std::make_unique<deren::vulkan::gui::slider_widget>("ml sigma", &bindings.megalights_spatial_sigma, 0.0f, 4.0f);
-            ml_sigma->visible_when = [&bindings] { return bindings.megalights_enabled; };
-            panel.push_back(std::move(ml_sigma));
-            samples->visible_when = [&bindings] { return bindings.megalights_enabled; };
-            panel.push_back(std::move(samples));
+            panel.add_checkbox("megalights", &bindings.megalights_enabled).set_visible_when([&runtime] { return runtime.feature_available("megalights"); });
+            panel.add_slider("ml emitter", &bindings.megalights_light_angle, 0.0f, 0.1f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
+            panel.add_slider("ml bias", &bindings.megalights_bias, 0.0f, 16.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
+            panel.add_slider("ml tol", &bindings.megalights_history_tolerance, 0.0f, 0.5f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
+            panel.add_slider("ml history", &bindings.megalights_frames, 1.0f, 12.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
+            panel.add_slider("ml sigma", &bindings.megalights_spatial_sigma, 0.0f, 4.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
+            panel.add_slider("ml samples", &bindings.megalights_samples, 1.0f, 4.0f).set_visible_when([&bindings] { return bindings.megalights_enabled; });
         }
         // render mode: pbr (lit) vs unlit (flat base color, no shading). Default-semantics leaves
         // draw with the runtime's default pipeline, so this only records a combo selection here;
         // main() applies it BETWEEN frames via runtime.set_default_pipeline (the registry may
         // not be mutated while a frame records).
-        panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>(
+        panel.add_combo(
             "render mode",
             std::vector<std::string>{"pbr (lit)", "unlit (flat)"},
-            &bindings.render_mode));
+            &bindings.render_mode);
         // selectable BRDF theory models (pbr.frag): preset 0 is the default GGX + joint-Smith;
         // each other preset differs by exactly one piece (NDF or visibility), so the gui is a
         // live A/B comparison. CPU-side write-through (safe mid-run, see runtime::set_brdf_model).
-        panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>(
+        panel.add_combo(
             "brdf model",
             std::vector<std::string>{"GGX + joint Smith", "GGX + height-corr. Smith", "Beckmann + Smith", "Blinn-Phong + Smith"},
             &bindings.brdf_model,
-            [&runtime](int32_t const index) { runtime.set_brdf_model(index); }));
-        panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>(
+            [&runtime](int32_t const index) { runtime.set_brdf_model(index); });
+        panel.add_combo(
             "diffuse model",
             std::vector<std::string>{"Lambert", "Oren-Nayar"},
             &bindings.diffuse_model,
-            [&runtime](int32_t const index) { runtime.set_diffuse_model(index); }));
+            [&runtime](int32_t const index) { runtime.set_diffuse_model(index); });
         // linear exposure applied before tonemapping (pbr.frag + skybox.frag); main pushes it
         // into the runtime every frame like the light slots
-        panel.push_back(std::make_unique<deren::vulkan::gui::slider_widget>("exposure", &bindings.exposure, 0.1f, 5.0f));
+        panel.add_slider("exposure", &bindings.exposure, 0.1f, 5.0f);
         // bloom (bright-pass threshold + blend weight); 0 intensity disables it
         // the useful ranges: a threshold above ~0.75 leaves almost no pixel over it (so nothing
         // glows), and the intensity needed for a visible glow grows with the threshold - keeping
         // the threshold low is what makes the whole intensity slider effective
-        panel.push_back(std::make_unique<deren::vulkan::gui::checkbox_widget>("bloom", &bindings.bloom_enabled));
+        panel.add_checkbox("bloom", &bindings.bloom_enabled);
         // the two knobs only matter while the chain runs (main pushes a 0 intensity when the box is clear)
         {
             auto bloom_knob = [&](std::string label, float* value, float lo, float hi) {
-                auto slider = std::make_unique<deren::vulkan::gui::slider_widget>(std::move(label), value, lo, hi);
-                slider->visible_when = [&bindings] { return bindings.bloom_enabled; };
-                panel.push_back(std::move(slider));
+                panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.bloom_enabled; });
             };
             bloom_knob("bloom intensity", &bindings.bloom_intensity, 0.0f, 3.0f);
             bloom_knob("bloom threshold", &bindings.bloom_threshold, 0.0f, 0.75f);
@@ -686,13 +667,11 @@ namespace deren::chores {
         // frame). The knobs are genuine effects, not strength padding - "subpixel" trades edge
         // smoothing for the single-pixel sparkle FXAA leaves on near-axis-aligned edges, and the
         // threshold decides how much contrast counts as an edge (lower = softer whole image).
-        panel.push_back(std::make_unique<deren::vulkan::gui::checkbox_widget>("fxaa", &bindings.fxaa_enabled));
+        panel.add_checkbox("fxaa", &bindings.fxaa_enabled);
         {
             // the knobs only matter while FXAA is on (and while the fxaa pipeline exists at all)
             auto make_fxaa_slider = [&](std::string label, float* value, float lo, float hi) {
-                auto slider = std::make_unique<deren::vulkan::gui::slider_widget>(std::move(label), value, lo, hi);
-                slider->visible_when = [&bindings] { return bindings.fxaa_enabled; };
-                panel.push_back(std::move(slider));
+                panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.fxaa_enabled; });
             };
             make_fxaa_slider("fxaa subpixel", &bindings.fxaa_subpixel, 0.0f, 1.0f);
             make_fxaa_slider("fxaa edge threshold", &bindings.fxaa_edge_threshold, 0.05f, 0.5f);
@@ -701,15 +680,13 @@ namespace deren::chores {
         // contents cannot be judged from a shaded screenshot, so it gets a channel selector rather
         // than a strength knob. main() mirrors both fields into the runtime every frame.
         {
-            auto debug_view = std::make_unique<deren::vulkan::gui::checkbox_widget>("gbuffer debug", &bindings.gbuffer_debug);
-            debug_view->visible_when = [&runtime] { return runtime.feature_available("gbuffer-debug"); };
-            panel.push_back(std::move(debug_view));
-            auto channel = std::make_unique<deren::vulkan::gui::combo_widget>(
-                "gbuffer channel",
-                std::vector<std::string>{"albedo", "normal", "roughness", "metallic", "ao", "material id", "depth", "flags", "motion"},
-                &bindings.gbuffer_channel);
-            channel->visible_when = [&bindings] { return bindings.gbuffer_debug; };
-            panel.push_back(std::move(channel));
+            panel.add_checkbox("gbuffer debug", &bindings.gbuffer_debug).set_visible_when([&runtime] { return runtime.feature_available("gbuffer-debug"); });
+
+            panel.add_combo(
+                     "gbuffer channel",
+                     std::vector<std::string>{"albedo", "normal", "roughness", "metallic", "ao", "material id", "depth", "flags", "motion"},
+                     &bindings.gbuffer_channel)
+                .set_visible_when([&bindings] { return bindings.gbuffer_debug; });
         }
         // TAA: the engine's anti-aliasing (there is no MSAA on a G-buffer), with the two
         // history-weight knobs. The static weight decides how smooth a still image gets (higher =
@@ -717,13 +694,10 @@ namespace deren::chores {
         // falls back to (lower = trusts the current frame more, which trades smoothing for less
         // ghosting).
         {
-            auto taa = std::make_unique<deren::vulkan::gui::checkbox_widget>("taa", &bindings.taa_enabled);
-            taa->visible_when = [&runtime] { return runtime.feature_available("taa"); }; // deferred-only, via the feature registry
-            panel.push_back(std::move(taa));
+            // deferred-only, via the feature registry
+            panel.add_checkbox("taa", &bindings.taa_enabled).set_visible_when([&runtime] { return runtime.feature_available("taa"); });
             auto make_taa_slider = [&](std::string label, float* value, float lo, float hi) {
-                auto slider = std::make_unique<deren::vulkan::gui::slider_widget>(std::move(label), value, lo, hi);
-                slider->visible_when = [&bindings] { return bindings.taa_enabled; };
-                panel.push_back(std::move(slider));
+                panel.add_slider(std::move(label), value, lo, hi).set_visible_when([&bindings] { return bindings.taa_enabled; });
             };
             make_taa_slider("taa history (static)", &bindings.taa_blend_static, 0.0f, 0.98f);
             make_taa_slider("taa history (min)", &bindings.taa_blend_min, 0.0f, 0.98f);
@@ -733,27 +707,24 @@ namespace deren::chores {
         // Offered only when the renderer registered the pipeline the stage binds (it needs the mesh stage), so
         // a switch that would draw nothing is not shown at all - the failure mode feature_available exists for.
         {
-            auto character = std::make_unique<deren::vulkan::gui::checkbox_widget>("character forward (toon)", &bindings.character_forward);
-            character->visible_when = [&runtime] { return runtime.feature_available("character_forward"); };
-            panel.push_back(std::move(character));
+            panel.add_checkbox("character forward (toon)", &bindings.character_forward).set_visible_when([&runtime] { return runtime.feature_available("character_forward"); });
             // ... AND WHICH CHAIN IT DRAWS WITH. Offered only while the character stage itself is on, because a
             // switch that selects a shading model for a pass that is not recording is a control with no effect -
             // and offered only when the rewritten pipeline was actually built, on the checkbox above's own terms.
-            auto goo = std::make_unique<deren::vulkan::gui::checkbox_widget>("goo toon (rewritten chain)", &bindings.goo_toon);
-            goo->visible_when = [&runtime, &bindings] { return bindings.character_forward && runtime.goo_toon_ready(); };
-            panel.push_back(std::move(goo));
+
+            panel.add_checkbox("goo toon (rewritten chain)", &bindings.goo_toon).set_visible_when([&runtime, &bindings] { return bindings.character_forward && runtime.goo_toon_ready(); });
         }
         // cel/toon shading: quantize the diffuse falloff (and harden shadows/highlights);
         // 0 steps leaves plain PBR, softness shrinks toward hard comic edges
         // cel/toon shading is discrete: every listed band count gives a visibly different look
         // (more bands converge back to smooth PBR, so a continuous slider had dead zones).
         // Softness stays small - a wide band edge erases the steps entirely.
-        panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>(
+        panel.add_combo(
             "toon shading",
             std::vector<std::string>{"off (plain pbr)", "2 bands (hardest)", "3 bands", "4 bands", "5 bands", "6 bands", "8 bands (softest)"},
-            &bindings.toon_bands_index));
-        panel.push_back(std::make_unique<deren::vulkan::gui::slider_widget>("toon softness", &bindings.toon_softness, 0.01f, 0.25f));
-        panel.push_back(std::make_unique<deren::vulkan::gui::slider_widget>("sun intensity", &bindings.sun_intensity, 0.0f, 3.0f));
+            &bindings.toon_bands_index);
+        panel.add_slider("toon softness", &bindings.toon_softness, 0.01f, 0.25f);
+        panel.add_slider("sun intensity", &bindings.sun_intensity, 0.0f, 3.0f);
         // ---- punctual lights (demo lights; see apply_point_lights): the widgets edit
         //      bindings.point_lights live and main() pushes the enabled set once per frame.
         //      Each slot is a point light or - with `spot` checked - a cone light -------
@@ -766,7 +737,7 @@ namespace deren::chores {
             for (std::size_t i = 0; i < std::size(bindings.point_lights); ++i) {
                 light_items.push_back(std::format("punctual light {}", i + 1));
             }
-            panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>("punctual light", std::move(light_items), &bindings.active_light));
+            panel.add_combo("punctual light", std::move(light_items), &bindings.active_light);
         }
         for (std::size_t i = 0; i < std::size(bindings.point_lights); ++i) {
             gui_bindings::light_slot& slot = bindings.point_lights[i];
@@ -778,86 +749,68 @@ namespace deren::chores {
             auto const selected = [&bindings, i] { return bindings.active_light == static_cast<int32_t>(i); };
             auto const selected_spot = [&bindings, &slot, i] { return bindings.active_light == static_cast<int32_t>(i) && slot.spot; };
             {
-                auto w = std::make_unique<deren::vulkan::gui::checkbox_widget>("  enabled", &slot.enabled);
-                w->visible_when = selected;
-                panel.push_back(std::move(w));
+                panel.add_checkbox("  enabled", &slot.enabled).set_visible_when(selected);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::vec3_widget>("  position", slot.position, 0.1f);
-                w->visible_when = selected;
-                panel.push_back(std::move(w));
+                panel.add_vec3("  position", slot.position, 0.1f).set_visible_when(selected);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::vec3_widget>("  color", slot.color, 0.02f);
-                w->visible_when = selected;
-                panel.push_back(std::move(w));
+                panel.add_vec3("  color", slot.color, 0.02f).set_visible_when(selected);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::slider_widget>("  intensity", &slot.intensity, 0.0f, 50.0f);
-                w->visible_when = selected;
-                panel.push_back(std::move(w));
+                panel.add_slider("  intensity", &slot.intensity, 0.0f, 50.0f).set_visible_when(selected);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::slider_widget>("  range", &slot.range, 0.1f, 100.0f);
-                w->visible_when = selected;
-                panel.push_back(std::move(w));
+                panel.add_slider("  range", &slot.range, 0.1f, 100.0f).set_visible_when(selected);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::checkbox_widget>("  spot", &slot.spot);
-                w->visible_when = selected;
-                panel.push_back(std::move(w));
+                panel.add_checkbox("  spot", &slot.spot).set_visible_when(selected);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::vec3_widget>("  direction", slot.direction, 0.1f);
-                w->visible_when = selected_spot;
-                panel.push_back(std::move(w));
+                panel.add_vec3("  direction", slot.direction, 0.1f).set_visible_when(selected_spot);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::slider_widget>("  inner cone deg", &slot.inner_cone_deg, 0.0f, 89.0f);
-                w->visible_when = selected_spot;
-                panel.push_back(std::move(w));
+                panel.add_slider("  inner cone deg", &slot.inner_cone_deg, 0.0f, 89.0f).set_visible_when(selected_spot);
             }
             {
-                auto w = std::make_unique<deren::vulkan::gui::slider_widget>("  outer cone deg", &slot.outer_cone_deg, 1.0f, 89.0f);
-                w->visible_when = selected_spot;
-                panel.push_back(std::move(w));
+                panel.add_slider("  outer cone deg", &slot.outer_cone_deg, 1.0f, 89.0f).set_visible_when(selected_spot);
             }
         }
         // camera orbit target: dragging it moves what the camera looks at / orbits around
         // (camera.target is a glm::vec3, i.e. three contiguous floats; the runtime rebuilds the
         // camera UBO from it every frame, so no on_change callback is needed)
-        panel.push_back(std::make_unique<deren::vulkan::gui::vec3_widget>("camera target", &runtime.camera.target.x, 0.05f));
+        panel.add_vec3("camera target", &runtime.camera.target.x, 0.05f);
         // playback controls (only when the model carries animations): play/pause toggle bound
         // to the playback state, a time scrubber (pauses on drag so the clock cannot fight the
         // scrub; the play checkbox resumes), and - for multi-animation assets - a dropdown to
         // pick which animation plays. All playback state lives in the animation::controller.
         if (animation.has_active()) {
-            panel.push_back(std::make_unique<deren::vulkan::gui::label_widget>([&animation] {
+            panel.add_label([&animation] {
                 return std::format("animation '{}' ({}s)", animation.active_name(), animation.loop_duration());
-            }));
-            panel.push_back(std::make_unique<deren::vulkan::gui::checkbox_widget>(
+            });
+            panel.add_checkbox(
                 "play",
                 &bindings.anim_playing,
-                [&animation](bool const enabled) { animation.set_playing(enabled); }));
-            panel.push_back(std::make_unique<deren::vulkan::gui::slider_widget>(
+                [&animation](bool const enabled) { animation.set_playing(enabled); });
+            panel.add_slider(
                 "time",
                 &bindings.anim_time,
                 0.0f,
                 animation.playable_max_duration(),
                 [&animation](float const value) {
                     animation.set_time(value); // scrubbing pauses so the clock does not fight the drag
-                }));
+                });
             if (animation.playable_count() > 1) {
                 std::vector<std::string> names;
                 names.reserve(animation.playable_count());
                 for (std::size_t i = 0; i < animation.playable_count(); ++i) {
                     names.push_back(std::string(animation.playable_name(i)));
                 }
-                panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>(
+                panel.add_combo(
                     "animation",
                     std::move(names),
                     &bindings.anim_index,
-                    [&animation](int32_t const index) { animation.select(static_cast<std::size_t>(index)); }));
+                    [&animation](int32_t const index) { animation.select(static_cast<std::size_t>(index)); });
             }
             deren::utility::log("gui: playback controls added ({} animation(s))", animation.playable_count());
         }
@@ -868,34 +821,34 @@ namespace deren::chores {
             items.reserve(camera_names.size() + 1);
             items.push_back("orbit");
             items.insert(items.end(), camera_names.begin(), camera_names.end());
-            panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>(
+            panel.add_combo(
                 "camera",
                 std::move(items),
                 &bindings.current_camera,
-                on_camera_selected));
+                on_camera_selected);
             deren::utility::log("gui: camera selector added ({} camera(s))", camera_names.size());
         }
         // Cascaded shadow maps: how many cascades the sun's shadow pass fills (1 = the historic
         // single map) and how much of a cascade's range fades into the next one. Both are
         // write-through: the runtime refits the cascade boxes on the next frame, and the blend is a
         // shader constant in the light UBO - no pipeline or image rebuild, so they are live.
-        panel.push_back(std::make_unique<deren::vulkan::gui::combo_widget>(
+        panel.add_combo(
             "shadow cascades",
             std::vector<std::string>{"1 (single map)", "2", "3", "4"},
             &bindings.shadow_cascades,
-            [&runtime](int32_t const index) { runtime.set_shadow_cascades(static_cast<uint32_t>(index) + 1u); }));
-        panel.push_back(std::make_unique<deren::vulkan::gui::slider_widget>(
+            [&runtime](int32_t const index) { runtime.set_shadow_cascades(static_cast<uint32_t>(index) + 1u); });
+        panel.add_slider(
             "shadow cascade blend",
             &bindings.shadow_cascade_blend,
             0.0f,
             0.5f,
-            [&runtime](float const value) { runtime.set_shadow_cascade_blend(value); }));
+            [&runtime](float const value) { runtime.set_shadow_cascade_blend(value); });
         // Shadow depth bias (bottom of the panel - a rarely-used tuning aid): the pass's bias
         // is dynamic state applied every frame; the slope factor removes acne on angled
         // surfaces, the constant adds a fixed push. Note it cannot fix geometry that is simply
         // too coarse (e.g. RecursiveSkeletons' sides are large flat triangles - the depth
         // gradient across them is what it is), it only tunes the bias offset.
-        panel.push_back(std::make_unique<deren::vulkan::gui::slider_widget>(
+        panel.add_slider(
             "shadow bias slope",
             &bindings.shadow_bias_slope,
             0.0f,
@@ -903,8 +856,8 @@ namespace deren::chores {
             [&runtime, &bindings](float const value) {
                 bindings.shadow_bias_slope = value;
                 runtime.set_shadow_depth_bias(bindings.shadow_bias_constant, bindings.shadow_bias_slope, 0.0f);
-            }));
-        panel.push_back(std::make_unique<deren::vulkan::gui::slider_widget>(
+            });
+        panel.add_slider(
             "shadow bias constant",
             &bindings.shadow_bias_constant,
             0.0f,
@@ -912,7 +865,7 @@ namespace deren::chores {
             [&runtime, &bindings](float const value) {
                 bindings.shadow_bias_constant = value;
                 runtime.set_shadow_depth_bias(bindings.shadow_bias_constant, bindings.shadow_bias_slope, 0.0f);
-            }));
+            });
         deren::utility::log("gui: Dear ImGui debug overlay enabled");
     }
 
