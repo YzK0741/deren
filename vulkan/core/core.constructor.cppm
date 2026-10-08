@@ -751,6 +751,20 @@ namespace deren::vulkan {
             }
         }
 
+        // ---- THE MICROMAP ENTRY POINTS (tier-1 since abi 27): the same shape, gated on the capability the
+        //      backend already computed (VK_EXT_opacity_micromap), and resolved here for the same reason - one
+        //      lookup at startup, and a null answers "this device cannot" at both call sites.
+        if (capabilities.opacity_micromap_available) {
+            this->micromap_create = reinterpret_cast<PFN_vkCreateMicromapEXT>(vkGetDeviceProcAddr(device, "vkCreateMicromapEXT"));
+            this->micromap_destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(device, "vkDestroyMicromapEXT"));
+            this->micromap_build_sizes = reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>(vkGetDeviceProcAddr(device, "vkGetMicromapBuildSizesEXT"));
+            this->micromap_build = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(device, "vkCmdBuildMicromapsEXT"));
+            if (this->micromap_create == nullptr || this->micromap_destroy == nullptr ||
+                this->micromap_build_sizes == nullptr || this->micromap_build == nullptr) {
+                deren::utility::panic("VK_EXT_opacity_micromap is enabled but one of its four entry points did not resolve through vkGetDeviceProcAddr");
+            }
+        }
+
         // ---- HOST IMAGE COPY: the same shape as the mesh commands above (extension entry points fetched
         //      through vkGetDeviceProcAddr, because the loader's import library does not export them) - and
         //      the OPPOSITE POLICY: VK_EXT_host_image_copy is required, so a name that does not resolve is a

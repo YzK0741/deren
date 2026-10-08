@@ -88,6 +88,9 @@ namespace {
         [[nodiscard]] deren::promise::rhi::error refit_acceleration_structure(deren::promise::rhi::acceleration_structure&) override {
             return deren::promise::rhi::error::unsupported;
         }
+        [[nodiscard]] deren::promise::rhi::error build_micromap(deren::promise::rhi::micromap&) override {
+            return deren::promise::rhi::error::unsupported;
+        }
 
         [[nodiscard]] deren::promise::rhi::error begin_gpu_timing() noexcept override {
             return deren::promise::rhi::error::unsupported;

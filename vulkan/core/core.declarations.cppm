@@ -330,6 +330,7 @@ namespace deren::vulkan {
             /// implementation serves both.
             [[nodiscard]] deren::promise::rhi::error build_acceleration_structure(deren::promise::rhi::acceleration_structure& target) override;
             [[nodiscard]] deren::promise::rhi::error refit_acceleration_structure(deren::promise::rhi::acceleration_structure& target) override;
+            [[nodiscard]] deren::promise::rhi::error build_micromap(deren::promise::rhi::micromap& target) override;
 
             void trace_rays(deren::promise::rhi::shader_binding_table_region const& raygen, deren::promise::rhi::shader_binding_table_region const& miss,
                             deren::promise::rhi::shader_binding_table_region const& hit, deren::promise::rhi::shader_binding_table_region const& callable,
@@ -519,10 +520,41 @@ namespace deren::vulkan {
             void release() noexcept override;
         };
 
+        /// AN OPACITY MICROMAP THIS BACKEND OWNS (tier-1 since abi 27, plan S1's P4): the structure itself, the
+        /// memory it lives in, the scratch a build needs, and THE SETUP BUFFERS THE BUILD READS.
+        ///
+        /// THE SETUP BUFFERS ARE THE POINT OF THIS OBJECT EXISTING: the API requires the `data` and
+        /// `triangleArray` addresses to be 256-BYTE ALIGNED (a requirement on an ADDRESS, which the engine used
+        /// to satisfy by hand: allocate with slack, read the address, compute the first aligned offset inside).
+        /// A backend that owns both the allocation and the address cannot get that wrong, and a caller that
+        /// hands over spans never has to know it exists.
+        ///
+        /// THE ATTACHMENT THE TRAVERSAL READS carries the index array, so THAT buffer lives here too (one
+        /// element per micro-triangle, which is what makes the engine's `micromap_resource` shrink to a handle).
+        struct owned_micromap final : deren::promise::rhi::micromap {
+            core* owner = nullptr;
+            VkMicromapEXT native = VK_NULL_HANDLE;
+            deren::promise::rhi::buffer* storage = nullptr; ///< the micromap's own memory (MICROMAP_STORAGE)
+            deren::promise::rhi::buffer* scratch = nullptr; ///< the build's scratch (only its address is read)
+            VkDeviceAddress scratch_address = 0;
+            deren::promise::rhi::buffer* data = nullptr; ///< the attributes, 256-aligned inside it
+            VkDeviceAddress data_address = 0;
+            deren::promise::rhi::buffer* triangles = nullptr; ///< one record per micro-triangle
+            VkDeviceAddress triangles_address = 0;
+            deren::promise::rhi::buffer* indices = nullptr; ///< the index array the ATTACHMENT points at
+            VkDeviceAddress indices_address = 0;
+            VkDeviceSize triangle_array_stride = 0;
+            std::uint32_t index_stride = 0;
+            std::uint32_t triangle_count = 0;
+            VkMicromapUsageEXT usage = {}; ///< the one usage record the build declares
+
+            void release() noexcept override;
+            ~owned_micromap() noexcept;
+        };
+
         /// AN ACCELERATION STRUCTURE THIS BACKEND OWNS (tier-1 since abi 26): the memory it lives in, the
         /// scratch a build needs, and - for a top-level one - the instance records the CALLER writes through
-        /// `write_instances()`.
-        ///
+        /// `write_instances()`.        ///
         /// WHAT IT REPLACES, AND WHY THE SHAPE IS THIS ONE: the engine's own `vulkan/acceleration_structure`
         /// module used to do all of this itself (a size query, a storage buffer, one shared scratch with
         /// aligned per-geometry ranges, the instance buffers, the recording). All of it moves here, so a caller
@@ -549,6 +581,11 @@ namespace deren::vulkan {
             bool top_level = false;
             bool refittable = false;
             std::vector<VkAccelerationStructureGeometryKHR> geometries = {};
+            /// THE MICROMAP ATTACHMENTS, one per geometry that consults one. `reserve()`d to the geometry count
+            /// before the geometries are built, because a geometry's `triangles.pNext` points INTO this vector and
+            /// the build reads it later, at record time: a reallocation would leave that pointer dangling, and the
+            /// failure mode is a traversal consulting freed memory rather than a compile error.
+            std::vector<VkAccelerationStructureTrianglesOpacityMicromapEXT> micromap_attachments = {};
             VkAccelerationStructureBuildRangeInfoKHR range = {};
             /// TOP LEVEL: the instance records, in the backend's own host-visible buffer
             deren::promise::rhi::buffer* instances = nullptr;
@@ -928,6 +965,13 @@ namespace deren::vulkan {
         PFN_vkGetAccelerationStructureBuildSizesKHR acceleration_structure_build_sizes = nullptr;
         PFN_vkGetAccelerationStructureDeviceAddressKHR acceleration_structure_address = nullptr;
         PFN_vkCmdBuildAccelerationStructuresKHR acceleration_structure_build = nullptr;
+        /// ---- THE MICROMAP ENTRY POINTS (tier-1 since abi 27, plan S1's P4): the same rule and the same shape
+        ///      again, resolved once at startup when the device has VK_EXT_opacity_micromap. All four are null
+        ///      otherwise, `create_micromap` refuses by name, and `build_micromap` answers `unsupported`.
+        PFN_vkCreateMicromapEXT micromap_create = nullptr;
+        PFN_vkDestroyMicromapEXT micromap_destroy = nullptr;
+        PFN_vkGetMicromapBuildSizesEXT micromap_build_sizes = nullptr;
+        PFN_vkCmdBuildMicromapsEXT micromap_build = nullptr;
         /// VK_EXT_host_image_copy (REQUIRED - see host_image_copy_available below): the copy between an
         /// image and HOST memory that the IMPLEMENTATION performs - no command buffer, no staging buffer,
         /// no submission. Resolved through vkGetDeviceProcAddr like the mesh commands above, because the
@@ -947,6 +991,8 @@ namespace deren::vulkan {
         /// one line for the tier-1 acceleration-structure refusal (see that definition): a caller that reads a
         /// `nullptr` has to be able to tell "not served yet" from "this device cannot"
         bool acceleration_structure_refusal_logged = false;
+        /// ... and one for the micromap factory (tier-1 since abi 27), for the same reason
+        bool micromap_refusal_logged = false;
         // called graphics_queue_family_index, not graphics_family_index: the structured binding of that name
         // in core.constructor.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         uint32_t graphics_queue_family_index = 0;
@@ -1007,6 +1053,8 @@ namespace deren::vulkan {
         /// the definition's note for what landing it takes), so a caller gets a logged `nullptr` - the same
         /// answer `create_swapchain` gives - rather than a silent absence.
         [[nodiscard]] deren::promise::rhi::acceleration_structure* create_acceleration_structure(deren::promise::rhi::acceleration_structure_desc const& desc) override;
+        /// TIER-1 SINCE ABI 27 (plan S1's P4), refused by name on a device without VK_EXT_opacity_micromap
+        [[nodiscard]] deren::promise::rhi::micromap* create_micromap(deren::promise::rhi::micromap_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::sampler* create_sampler(deren::promise::rhi::sampler_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::shader* create_shader(deren::promise::rhi::shader_desc const& desc) override;
         [[nodiscard]] deren::promise::rhi::pipeline* create_pipeline(deren::promise::rhi::pipeline_desc const& desc) override;

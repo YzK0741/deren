@@ -91,14 +91,9 @@ namespace deren::vulkan::acceleration_structure {
         if (this->contract == nullptr) {
             return std::unexpected(std::string("acceleration structure: this structure set has no contract face"));
         }
-        // THE ATTACHMENT THE CONTRACT CANNOT CARRY YET (see this file's header): refused LOUDLY rather than
-        // built without it, because a geometry that silently lost its micromap would traverse every
-        // micro-triangle as opaque - a wrong picture with no symptom.
-        if (source.opacity_micromap != VK_NULL_HANDLE || source.opacity_index_address != 0) {
-            return std::unexpected(std::string("acceleration structure: an opacity-micromap attachment cannot ride the tier-1 "
-                                               "interface yet (plan S1's P4) - the geometry was not built"));
-        }
-
+        // THE MICROMAP RIDES THE DESCRIPTION NOW (plan S1's P4): the contract's geometry carries the object, and
+        // nothing here refuses it any more - the BACKEND owns the 256-byte address alignment, the setup buffers
+        // and the index array the traversal reads, which is exactly what made this inexpressible before.
         entry item{};
         item.refittable = refittable;
         std::uint32_t const triangles = triangle_count_of(source);
@@ -120,6 +115,7 @@ namespace deren::vulkan::acceleration_structure {
             .index_address = static_cast<std::uint64_t>(source.index_address),
             .index_format = source.index_type == VK_INDEX_TYPE_UINT16 ? rhi::index_type::uint16 : rhi::index_type::uint32,
             .index_count = source.index_count,
+            .opacity_micromap = source.opacity_micromap,
         };
         item.structure = rhi::object_manager<rhi::acceleration_structure>{this->contract->create_acceleration_structure(
             rhi::acceleration_structure_desc{

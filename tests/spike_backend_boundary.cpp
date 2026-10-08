@@ -144,6 +144,10 @@ namespace {
         [[nodiscard]] rhi::error refit_acceleration_structure(rhi::acceleration_structure&) override {
             return rhi::error::invalid_argument;
         }
+        /// abi 27: the micromap build, refused like the two above (a buffer this fake did not create).
+        [[nodiscard]] rhi::error build_micromap(rhi::micromap&) override {
+            return rhi::error::invalid_argument;
+        }
         [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
             return rhi::error::invalid_argument;
         }

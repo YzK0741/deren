@@ -286,20 +286,11 @@ export namespace deren::vulkan::ray_tracing {
          *       long as this struct lives.
          */
         struct micromap_resource {
-            VkMicromapEXT micromap = VK_NULL_HANDLE;
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> storage = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> data = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> triangles = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> indices = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> scratch = {};
-            VkMicromapUsageEXT usage = {}; // count / subdivisionLevel / format - the geometry attachment repeats it
-            VkDeviceAddress data_address = 0;
-            VkDeviceAddress triangles_address = 0;
-            VkDeviceAddress scratch_address = 0;
-            VkDeviceAddress indices_address = 0;
-            VkDeviceSize triangle_array_stride = 0;
-            VkDeviceSize index_stride = 0;
-            uint32_t triangle_count = 0;
+            /// THE TIER-1 OBJECT (plan S1's P4): it owns the storage, the scratch, the alignment and the
+            /// setup buffers the build reads, so this struct keeps ONE handle where it kept seven members and
+            /// four addresses - which is what the migration bought.
+            deren::promise::rhi::object_manager<deren::promise::rhi::micromap> handle = {};
+            uint32_t triangle_count = 0; ///< for the report line (the attachment no longer repeats the usage)
         };
         /// @brief the micromaps this set owns, one per alphaMode MASK caster (see build())
         [[nodiscard]] std::span<micromap_resource const> micromaps() const noexcept {

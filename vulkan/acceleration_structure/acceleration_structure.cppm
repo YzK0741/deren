@@ -113,11 +113,11 @@ namespace deren::vulkan::acceleration_structure {
          * @note a null handle means no micromap, which is also the state of every geometry on a device without
          *       VK_EXT_opacity_micromap: nothing changes for it.
          */
-        VkMicromapEXT opacity_micromap = VK_NULL_HANDLE;
-        VkDeviceAddress opacity_index_address = 0;
-        VkDeviceSize opacity_index_stride = 0;
-        VkIndexType opacity_index_type = VK_INDEX_TYPE_UINT32;
-        VkMicromapUsageEXT opacity_usage = {};
+        /// TIER-1 SINCE PLAN S1's P4: the micromap is an OBJECT (`rhi::micromap`), and it owns its usage record
+        /// and the index array the traversal reads - so this field is ONE handle where it used to be a driver
+        /// handle plus an index buffer address, a stride and a usage record. A null handle means no micromap,
+        /// which is also the state of every geometry on a device without VK_EXT_opacity_micromap.
+        deren::promise::rhi::micromap* opacity_micromap = nullptr;
     };
 
     /**

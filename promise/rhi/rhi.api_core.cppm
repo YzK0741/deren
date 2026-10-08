@@ -624,8 +624,69 @@ export namespace deren::promise::rhi {
         return (flags & to_bits(flag)) != no_acceleration_structure_flags;
     }
 
-    /// ONE TRIANGLE GEOMETRY of a bottom-level structure: where its vertices and indices are, and how many.
+    /// WHICH OPACITY STATES A MICROMAP'S MICRO-TRIANGLES CARRY. The two the hardware API defines, named the
+    /// contract's way; the backend asserts the values against its own enum (it is the only side that names both).
+    enum class micromap_format : std::uint32_t {
+        two_state = 1,  ///< opaque / transparent, one bit per micro-triangle
+        four_state = 2, ///< opaque / transparent / unknown / ... two bits per micro-triangle
+    };
+
+    /// HOW MANY MICRO-TRIANGLES A MICROMAP RESERVES, and in what format: the record the geometry that consults it
+    /// declares, because the build has to reserve them before the traversal can look any of them up.
+    struct micromap_usage {
+        std::uint32_t count = 0;             ///< micro-triangles in this format
+        std::uint32_t subdivision_level = 0; ///< 0 = one micro-triangle per triangle
+        micromap_format format = micromap_format::four_state;
+    };
+
+    /// ONE MICRO-TRIANGLE'S ATTRIBUTE: where its bits are in the data array, and how they are laid out.
+    /// The layout is the API's own (the backend asserts it), because a caller fills an array of these.
+    struct micromap_triangle {
+        std::uint32_t data_offset = 0;       ///< byte offset of this triangle's attributes in `desc.data`
+        std::uint16_t subdivision_level = 0; ///< 0 = this triangle is not subdivided
+        std::uint16_t format = 0;            ///< a `micromap_format` value
+    };
+    inline constexpr std::uint32_t micromap_triangle_size = sizeof(micromap_triangle);
+
+    /// WHAT TO BUILD: the attributes, the per-triangle records and the index array a micromap is built from.
     ///
+    /// THE MEMORY IS THE BACKEND'S, as it is for an acceleration structure, and so are the setup buffers these
+    /// spans are copied into - including the 256-byte ADDRESS alignment the build requires of them, which is a
+    /// requirement on an address rather than on a buffer and therefore cannot be the caller's problem. The
+    /// `struct_size` guard is the usual one, and every span is borrowed only until the call returns.
+    struct micromap_desc {
+        std::uint32_t struct_size = sizeof(micromap_desc);
+        std::uint32_t triangle_count = 0;                  ///< how many micro-triangles
+        std::span<std::byte const> data = {};              ///< the attributes, `data_stride` bytes apart
+        std::uint32_t data_stride = 4;                     ///< e.g. 4 for one 4-state pair per triangle
+        std::span<micromap_triangle const> triangles = {}; ///< one record per micro-triangle
+        std::span<std::uint32_t const> indices = {};       ///< the micro-triangle indices
+        micromap_format format = micromap_format::four_state;
+    };
+
+    /// AN OPACITY MICROMAP (tier-1, like the acceleration structure it is attached to).
+    ///
+    /// WHAT IT IS FOR: a micro-triangle's opacity becomes the traversal's business instead of a shader's - an
+    /// opaque one is committed without any-hit work, a transparent one is skipped, and an UNKNOWN one invokes
+    /// the any-hit shader. That is why a micromap that says "unknown" everywhere is a no-op and a decisive test
+    /// at the same time, and it is what the mask bake uses it for.
+    ///
+    /// IT OWNS ITS OWN SETUP MEMORY (the attributes, the records and the index array it was built from) and the
+    /// structure's storage: a caller that holds the handle cannot get the alignment or the index array wrong,
+    /// which is exactly what the engine used to do by hand.
+    struct micromap : object {
+        static constexpr interface_type interface_id = interface_type::micromap;
+        micromap() noexcept
+            : object(interface_id) {
+        }
+        virtual ~micromap() noexcept = default;
+
+        /// Release the caller's one reference (see `buffer::release()`): the backend destroys the structure and
+        /// gives its memory back.
+        virtual void release() noexcept = 0;
+    };
+
+    /// ONE TRIANGLE GEOMETRY of a bottom-level structure: where its vertices and indices are, and how many.    ///
     /// THE ADDRESSES ARE DEVICE ADDRESSES (the contract's `uint64_t`, as `shader_binding_table_region` spells
     /// them), which is what a build reads: a caller that wants an address asks `device_address::buffer_address()`
     /// for the buffer it created, so the engine half never names the driver's `VkDeviceAddress`.
@@ -640,6 +701,13 @@ export namespace deren::promise::rhi {
         std::uint64_t index_address = 0;              ///< first index (0 = the geometry is not indexed)
         index_type index_format = index_type::uint32; ///< what an index is
         std::uint32_t index_count = 0;                ///< indices; triangles = index_count / 3
+
+        /// OPTIONAL: THE OPACITY MICROMAP this geometry consults, or null for an opaque one.
+        ///
+        /// ONE HANDLE AND NOTHING ELSE, deliberately: the micromap knows its own usage record and owns the index
+        /// array the traversal reads (the backend built both), so a caller cannot get either wrong - which is
+        /// exactly the pair the engine used to carry across this boundary by hand.
+        micromap* opacity_micromap = nullptr;
     };
 
     /// ONE TOP-LEVEL INSTANCE, as the CALLER writes it. THE LAYOUT IS THE CONTRACT'S, and the backend asserts
@@ -1516,6 +1584,15 @@ export namespace deren::promise::rhi {
         /// is for.
         [[nodiscard]] virtual error refit_acceleration_structure(acceleration_structure& target) = 0;
 
+        /// APPENDED IN ABI 27: record the BUILD of @p target - the attributes, the per-triangle records and the
+        /// index array its description was created from. `ok` = recorded; `not_ready` = this buffer is not
+        /// recording; `invalid_argument` = a handle this backend did not hand out; `unsupported` = a shape it
+        /// cannot serve, refused BY NAME.
+        ///
+        /// A MICROMAP MUST BE BUILT BEFORE THE GEOMETRY THAT CONSULTS IT: that is the order the caller records
+        /// them in, and the ordering this verb owns (the barrier is the backend's, as it is for a build).
+        [[nodiscard]] virtual error build_micromap(micromap& target) = 0;
+
         // dynamic state
         virtual void set_viewport(viewport const& vp) noexcept = 0;
         virtual void set_scissor(rect const& scissor) noexcept = 0;
@@ -1704,6 +1781,11 @@ export namespace deren::promise::rhi {
         /// its instance capacity - and is borrowed only until the call returns. `nullptr` = this backend cannot
         /// serve it, with its own named diagnosis logged, exactly as the other factories answer.
         [[nodiscard]] virtual acceleration_structure* create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
+        /// APPENDED IN ABI 27: allocate an opacity micromap (see the type's own note). The backend owns the
+        /// storage, the scratch AND the setup buffers the build reads - including the 256-byte address alignment
+        /// the API requires of them, which is a requirement on an address and therefore cannot be a caller's
+        /// problem. `nullptr` = this backend cannot serve it, with its own named diagnosis logged.
+        [[nodiscard]] virtual micromap* create_micromap(micromap_desc const& desc) = 0;
         [[nodiscard]] virtual sampler* create_sampler(sampler_desc const& desc) = 0;
         [[nodiscard]] virtual shader* create_shader(shader_desc const& desc) = 0;
         [[nodiscard]] virtual pipeline* create_pipeline(pipeline_desc const& desc) = 0;

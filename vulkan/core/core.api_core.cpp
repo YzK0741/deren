@@ -2875,6 +2875,173 @@ namespace deren::vulkan {
         self->ray_trace_launch(command_buffer, &native_raygen, &native_miss, &native_hit, &native_callable, width, height, depth);
     }
 
+    rhi::micromap* core::create_micromap(rhi::micromap_desc const& declared_desc) {
+        // ---- THE CONTRACT'S LAYOUTS ARE THE API'S, AND THIS IS WHERE THAT IS PROVEN --------------------
+        static_assert(static_cast<std::uint32_t>(rhi::micromap_format::four_state) == VK_OPACITY_MICROMAP_FORMAT_4_STATE_EXT,
+                      "the contract's four-state format IS the API's");
+        static_assert(static_cast<std::uint32_t>(rhi::micromap_format::two_state) == VK_OPACITY_MICROMAP_FORMAT_2_STATE_EXT,
+                      "the contract's two-state format IS the API's");
+        static_assert(sizeof(rhi::micromap_triangle) == sizeof(VkMicromapTriangleEXT),
+                      "a caller fills an array of the contract's records and the build reads the API's");
+        if (this->micromap_create == nullptr || this->micromap_build_sizes == nullptr) {
+            if (!this->micromap_refusal_logged) {
+                this->micromap_refusal_logged = true;
+                deren::utility::log("rhi: create_micromap refused: this device has no VK_EXT_opacity_micromap "
+                                    "(its four entry points did not resolve at startup)");
+            }
+            return nullptr;
+        }
+
+        // THE ABI GUARD, then the description's fields.
+        std::uint32_t const declared = declared_desc.struct_size;
+        std::uint32_t triangle_count = 0;
+        std::span<std::byte const> data = {};
+        std::uint32_t data_stride = 4u;
+        std::span<rhi::micromap_triangle const> triangles = {};
+        std::span<std::uint32_t const> indices = {};
+        rhi::micromap_format format = rhi::micromap_format::four_state;
+        if (covered_by(declared, offsetof(rhi::micromap_desc, triangle_count), sizeof(rhi::micromap_desc::triangle_count))) {
+            triangle_count = declared_desc.triangle_count;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, data), sizeof(rhi::micromap_desc::data))) {
+            data = declared_desc.data;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, data_stride), sizeof(rhi::micromap_desc::data_stride))) {
+            data_stride = declared_desc.data_stride;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, triangles), sizeof(rhi::micromap_desc::triangles))) {
+            triangles = declared_desc.triangles;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, indices), sizeof(rhi::micromap_desc::indices))) {
+            indices = declared_desc.indices;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, format), sizeof(rhi::micromap_desc::format))) {
+            format = declared_desc.format;
+        }
+        if (triangle_count == 0 || data.empty() || triangles.size() < triangle_count || indices.size() < triangle_count) {
+            deren::utility::log("rhi: create_micromap refused: a micromap needs {}+ attributes, {}+ records and {}+ indices for {} triangles",
+                                data.empty() ? 1u : data.size(), triangle_count, triangle_count, triangle_count);
+            return nullptr;
+        }
+        // THE STRIDE IS WHAT SAYS THE ATTRIBUTES ARE ACTUALLY THERE: a span shorter than one record per
+        // micro-triangle would build a micromap whose later lookups read past the data (the format decides how
+        // many bytes a record is, and `data_stride` is how the caller laid them out).
+        if (data_stride == 0u || data.size() < static_cast<std::size_t>(triangle_count) * data_stride) {
+            deren::utility::log("rhi: create_micromap refused: {} bytes of attributes do not cover {} micro-triangles at a stride of {}",
+                                data.size(), triangle_count, data_stride);
+            return nullptr;
+        }
+
+        auto* const out = new owned_micromap{};
+        out->owner = this;
+        out->triangle_count = triangle_count;
+        out->triangle_array_stride = sizeof(VkMicromapTriangleEXT);
+        out->index_stride = static_cast<std::uint32_t>(sizeof(std::uint32_t));
+        out->usage = VkMicromapUsageEXT{.count = triangle_count, .subdivisionLevel = 0u, .format = static_cast<std::uint32_t>(format)};
+
+        // ---- THE SETUP BUFFERS, AND THE ALIGNMENT THE API REQUIRES OF THEIR ADDRESSES --------------------
+        // 256 BYTES ON THE DEVICE ADDRESS, not on the buffer: the allocator gives no such promise and the address
+        // does not exist before the allocation, so each buffer carries one alignment worth of slack and the
+        // payload is written at the first aligned address inside it. THIS IS THE ENGINE'S OLD JOB, and it is the
+        // backend's now - which is the whole reason `micromap` is an object rather than a caller-managed pair.
+        constexpr VkDeviceSize address_alignment = 256u;
+        constexpr rhi::buffer_flags setup_flags =
+            rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_build_input);
+        auto const setup = [this](std::span<std::byte const> const bytes, VkDeviceAddress& address) -> rhi::buffer* {
+            rhi::buffer* const buffer = this->create_buffer(rhi::buffer_desc{
+                .size = static_cast<std::uint64_t>(bytes.size()) + address_alignment,
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = setup_flags});
+            if (buffer == nullptr) {
+                return nullptr;
+            }
+            std::span<std::byte> const mapped = buffer->mapped();
+            std::uint64_t const base = this->address_view.buffer_address(*buffer, 0);
+            if (mapped.data() == nullptr || base == 0) {
+                buffer->release();
+                return nullptr;
+            }
+            std::uint64_t const offset = (address_alignment - (base % address_alignment)) % address_alignment;
+            std::memcpy(mapped.data() + offset, bytes.data(), bytes.size());
+            address = base + offset;
+            return buffer;
+        };
+        out->data = setup(data, out->data_address);
+        std::span<std::byte const> const triangle_bytes{reinterpret_cast<std::byte const*>(triangles.data()),
+                                                        static_cast<std::size_t>(triangle_count) * sizeof(rhi::micromap_triangle)};
+        out->triangles = setup(triangle_bytes, out->triangles_address);
+        std::span<std::byte const> const index_bytes{reinterpret_cast<std::byte const*>(indices.data()),
+                                                     static_cast<std::size_t>(triangle_count) * sizeof(std::uint32_t)};
+        out->indices = setup(index_bytes, out->indices_address);
+        if (out->data == nullptr || out->triangles == nullptr || out->indices == nullptr) {
+            deren::utility::log("rhi: create_micromap refused: a setup buffer could not be allocated or has no device address");
+            delete out;
+            return nullptr;
+        }
+
+        VkMicromapBuildInfoEXT info{};
+        info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
+        info.pNext = nullptr;
+        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+        info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
+        info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
+        info.usageCountsCount = 1u;
+        info.pUsageCounts = &out->usage;
+        info.data.deviceAddress = out->data_address;
+        info.triangleArray.deviceAddress = out->triangles_address;
+        info.triangleArrayStride = out->triangle_array_stride;
+
+        VkMicromapBuildSizesInfoEXT sizes{};
+        sizes.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
+        this->micromap_build_sizes(this->logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
+        if (sizes.micromapSize == 0) {
+            deren::utility::log("rhi: create_micromap refused: the build-size query answered zero bytes");
+            delete out;
+            return nullptr;
+        }
+        out->storage = this->create_buffer(rhi::buffer_desc{
+            .size = sizes.micromapSize,
+            .usage = rhi::buffer_usage::storage_gpu_only,
+            .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_storage)});
+        if (out->storage == nullptr) {
+            deren::utility::log("rhi: create_micromap refused: the micromap storage could not be allocated");
+            delete out;
+            return nullptr;
+        }
+        if (sizes.buildScratchSize != 0) {
+            // only its ADDRESS is read (by the build), so the device-address flag is the whole requirement
+            out->scratch = this->create_buffer(rhi::buffer_desc{
+                .size = sizes.buildScratchSize,
+                .usage = rhi::buffer_usage::storage_gpu_only,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
+            if (out->scratch == nullptr) {
+                deren::utility::log("rhi: create_micromap refused: the micromap scratch could not be allocated");
+                delete out;
+                return nullptr;
+            }
+            out->scratch_address = this->address_view.buffer_address(*out->scratch, 0);
+        }
+
+        auto const* const storage_buffer = static_cast<owned_buffer const*>(out->storage);
+        VkMicromapCreateInfoEXT create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
+        create_info.pNext = nullptr;
+        create_info.createFlags = 0;
+        create_info.buffer = storage_buffer->native;
+        create_info.offset = 0;
+        create_info.size = sizes.micromapSize;
+        create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+        create_info.deviceAddress = 0;
+        if (this->micromap_create(this->logical_device, &create_info, nullptr, &out->native) != VK_SUCCESS || out->native == VK_NULL_HANDLE) {
+            deren::utility::log("rhi: create_micromap refused: vkCreateMicromapEXT failed");
+            delete out;
+            return nullptr;
+        }
+        deren::utility::log("rhi: create_micromap: {} micro-triangles, {} bytes of storage, {} bytes of scratch",
+                            out->triangle_count, sizes.micromapSize, sizes.buildScratchSize);
+        return out;
+    }
+
     rhi::acceleration_structure* core::create_acceleration_structure(rhi::acceleration_structure_desc const& declared_desc) {
         // ---- THE ABI GUARD, THEN WHAT A CREATE ACTUALLY IS (tier-1 since abi 26) ------------------------
         //
@@ -2972,6 +3139,7 @@ namespace deren::vulkan {
             structure->range = VkAccelerationStructureBuildRangeInfoKHR{.primitiveCount = 0u, .primitiveOffset = 0u, .firstVertex = 0u, .transformOffset = 0u};
         } else {
             structure->geometries.reserve(geometry_count);
+            structure->micromap_attachments.reserve(geometry_count);
             for (std::uint32_t index = 0; index < geometry_count; ++index) {
                 rhi::acceleration_structure_geometry const& source = geometries[index];
                 VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
@@ -2984,6 +3152,40 @@ namespace deren::vulkan {
                 triangles.indexType = static_cast<VkIndexType>(source.index_format);
                 triangles.indexData.deviceAddress = source.index_address;
                 triangles.transformData.deviceAddress = 0;
+                // THE OPACITY MICROMAP, CHAINED INTO THE TRIANGLES DATA (not into the geometry: the geometry's own
+                // pNext accepts only the micromap-DATA struct, and validation named exactly that when the engine
+                // first attached it in the wrong place). THE INDEX ARRAY IS THIS BACKEND'S - it built the micromap
+                // and owns the buffer - which is what makes the contract's attachment one handle and a usage record.
+                if (source.opacity_micromap != nullptr) {
+                    if (source.opacity_micromap->type() != rhi::interface_type::micromap) {
+                        deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap is not a handle this backend handed out");
+                        delete structure;
+                        return nullptr;
+                    }
+                    auto& micromap = static_cast<owned_micromap&>(*source.opacity_micromap);
+                    if (micromap.owner != this) {
+                        deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap belongs to another device");
+                        delete structure;
+                        return nullptr;
+                    }
+                    structure->micromap_attachments.push_back(VkAccelerationStructureTrianglesOpacityMicromapEXT{
+                        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT,
+                        .pNext = nullptr,
+                        .indexType = VK_INDEX_TYPE_UINT32,
+                        .indexBuffer = {.deviceAddress = micromap.indices_address},
+                        .indexStride = micromap.index_stride,
+                        .baseTriangle = 0u,
+                        .usageCountsCount = 1u,
+                        .pUsageCounts = nullptr,  // filled below: it has to point INSIDE this vector
+                        .ppUsageCounts = nullptr, // ... and this backend uses the single-record form
+                        .micromap = micromap.native,
+                    });
+                    // `pUsageCounts` points at the MICROMAP's own usage record, which lives as long as the caller
+                    // holds the micromap (the engine's structure set keeps every micromap it built alive for the
+                    // whole session, which is why that is a safe anchor rather than a local).
+                    structure->micromap_attachments.back().pUsageCounts = &micromap.usage;
+                    triangles.pNext = &structure->micromap_attachments.back();
+                }
                 structure->geometries.push_back(VkAccelerationStructureGeometryKHR{
                     .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
                     .pNext = nullptr,
@@ -3066,6 +3268,77 @@ namespace deren::vulkan {
                             top_level ? "top" : "bottom", structure->geometries.size(), structure->structure_size,
                             structure->scratch_size, static_cast<std::uint64_t>(structure->address));
         return structure;
+    }
+
+    rhi::error core::frame_commands::build_micromap(rhi::micromap& target) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (self->micromap_build == nullptr) {
+            return rhi::error::unsupported; // no VK_EXT_opacity_micromap on this device (see the constructor)
+        }
+        if (target.type() != rhi::interface_type::micromap) {
+            return rhi::error::invalid_argument; // a handle this backend did not hand out
+        }
+        auto& micromap = static_cast<owned_micromap&>(target);
+        if (micromap.owner != self || micromap.native == VK_NULL_HANDLE) {
+            return rhi::error::invalid_argument;
+        }
+        // THE BARRIER IS THE BACKEND'S, as it is for an acceleration structure build: the setup buffers were
+        // written by the HOST through their mappings, and the micromap itself is written.
+        VkMemoryBarrier2 const barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
+            .dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT | VK_ACCESS_2_SHADER_READ_BIT,
+        };
+        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                          .pNext = nullptr,
+                                          .dependencyFlags = 0,
+                                          .memoryBarrierCount = 1u,
+                                          .pMemoryBarriers = &barrier,
+                                          .bufferMemoryBarrierCount = 0u,
+                                          .pBufferMemoryBarriers = nullptr,
+                                          .imageMemoryBarrierCount = 0u,
+                                          .pImageMemoryBarriers = nullptr};
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
+
+        VkMicromapBuildInfoEXT info{};
+        info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
+        info.pNext = nullptr;
+        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+        info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
+        info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
+        info.dstMicromap = micromap.native;
+        info.usageCountsCount = 1u;
+        info.pUsageCounts = &micromap.usage;
+        info.data.deviceAddress = micromap.data_address;
+        info.triangleArray.deviceAddress = micromap.triangles_address;
+        info.triangleArrayStride = micromap.triangle_array_stride;
+        info.scratchData.deviceAddress = micromap.scratch_address;
+        self->micromap_build(command_buffer, 1u, &info);
+        return rhi::error::ok;
+    }
+
+    void core::owned_micromap::release() noexcept {
+        delete this;
+    }
+
+    core::owned_micromap::~owned_micromap() noexcept {
+        // THE ORDER IS THE POINT, as it is for an acceleration structure: the micromap first, then the memory it
+        // lives in and the setup buffers the build read.
+        if (this->native != VK_NULL_HANDLE && this->owner != nullptr && this->owner->micromap_destroy != nullptr) {
+            this->owner->micromap_destroy(this->owner->logical_device, this->native, nullptr);
+        }
+        for (deren::promise::rhi::buffer* const buffer : {this->indices, this->triangles, this->data, this->scratch, this->storage}) {
+            if (buffer != nullptr) {
+                buffer->release();
+            }
+        }
     }
 
     rhi::error core::frame_commands::build_acceleration_structure(rhi::acceleration_structure& target) {

@@ -88,7 +88,7 @@ namespace {
 
 int main(int const argc, char** const argv) {
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
-    CHECK(rhi::abi_version == 26u);
+    CHECK(rhi::abi_version == 27u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("as_probe: device path skipped (pass --with-device to run the real instrument)");
@@ -262,10 +262,51 @@ int main(int const argc, char** const argv) {
             deren::vk_test::write_line("as_probe: the module built and refitted through the tier-1 interface: {} geometries",
                                        levels.last_stats().geometry_count);
         }
-        // (b) THE ATTACHMENT THE CONTRACT CANNOT CARRY YET is refused by name rather than built without it
-        //     (plan S1's P4 gives micromaps the same treatment).
-        as::geometry_source const with_micromap{.vertex_count = triangle_vertices, .index_count = triangle_vertices, .opacity_micromap = reinterpret_cast<VkMicromapEXT>(1)};
-        CHECK(!levels.add(with_micromap, /*refittable=*/false).has_value());
+        // (b) THE OPACITY MICROMAP, THROUGH THE SAME INTERFACE (plan S1's P4): one micro-triangle, UNKNOWN, and a
+        //     geometry that consults it. THE ORDER IS THE CALLER'S AND IT MATTERS: the micromap is built before
+        //     the geometry that reads it, which is what the two record calls below do.
+        if (capabilities->mesh_shader() || true) {                        // the micromap path is independent of the mesh one; kept flat on purpose
+            std::vector<std::byte> const attributes(4u, std::byte{0x03}); // the 4-state "unknown" pair
+            rhi::micromap_triangle const record{
+                .data_offset = 0u,
+                .subdivision_level = 0u,
+                .format = static_cast<std::uint16_t>(rhi::micromap_format::four_state),
+            };
+            std::uint32_t const micro_index = 0u;
+            rhi::micromap* const micromap = core->create_micromap(rhi::micromap_desc{
+                .triangle_count = 1u,
+                .data = attributes,
+                .data_stride = 4u,
+                .triangles = std::span<rhi::micromap_triangle const>(&record, 1u),
+                .indices = std::span<std::uint32_t const>(&micro_index, 1u),
+                .format = rhi::micromap_format::four_state,
+            });
+            CHECK(micromap != nullptr); // a device without VK_EXT_opacity_micromap answers null with a named log
+            if (micromap != nullptr) {
+                rhi::acceleration_structure_geometry const with_micromap{
+                    .vertex_address = source.vertex_address,
+                    .vertex_stride = source.vertex_stride,
+                    .vertex_count = triangle_vertices,
+                    .index_address = source.index_address,
+                    .index_format = rhi::index_type::uint32,
+                    .index_count = triangle_vertices,
+                    .opacity_micromap = micromap,
+                };
+                rhi::acceleration_structure* const shaded = core->create_acceleration_structure(rhi::acceleration_structure_desc{
+                    .type = rhi::acceleration_structure_type::bottom_level,
+                    .geometries = &with_micromap,
+                    .geometry_count = 1u,
+                });
+                CHECK(shaded != nullptr);
+                if (shaded != nullptr) {
+                    CHECK(commands->build_micromap(*micromap) == rhi::error::ok); // ... the micromap FIRST
+                    CHECK(commands->build_acceleration_structure(*shaded) == rhi::error::ok);
+                    shaded->release();
+                }
+                micromap->release();
+            }
+            deren::vk_test::write_line("as_probe: an opacity micromap was created, built and consulted by a geometry");
+        }
     }
 
     CHECK(commands->end_recording() == rhi::error::ok);

@@ -280,7 +280,13 @@ export namespace deren::promise::rhi {
     /// acceleration-structure verbs are gone (their operands were never more than forward declarations in the
     /// extension file, so no backend could serve them), its BIT stays unused and its `interface_type` value
     /// stays retired - a bit and a number are never reused (see `rhi.extension.cppm`).
-    inline constexpr std::uint32_t abi_version = 26u;
+    /// 26 -> 27 in the MICROMAP batch (plan S1's P4): the opacity micromap got the SAME tier-1 treatment the
+    /// acceleration structure got one number earlier - `api_core::create_micromap()` and the recording face's
+    /// `command_buffer::build_micromap()` are two APPENDED SLOTS, and the new types (`micromap`,
+    /// `micromap_desc`, `micromap_usage`, `micromap_triangle`) plus `interface_type::micromap = 13` carry no bump
+    /// of their own. The geometry that consults one declares it with `acceleration_structure_geometry::
+    /// opacity_micromap` - a CONTRACT handle, never a driver's.
+    inline constexpr std::uint32_t abi_version = 27u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -433,6 +439,8 @@ export namespace deren::promise::rhi {
         /// APPENDED IN ABI 26: the acceleration-structure handle became TIER-1 furniture (like `buffer` and
         /// `image`) when the `ray_tracing` ability was retired - the number continues the object range.
         acceleration_structure = 12,
+        /// APPENDED IN ABI 27: its micromap sibling, for the same reason (plan S1's P4).
+        micromap = 13,
         device_address = 0x100,
         descriptor_heap = 0x101,
         mesh_shader = 0x102,

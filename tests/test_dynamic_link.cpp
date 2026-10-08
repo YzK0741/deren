@@ -138,6 +138,10 @@ namespace {
         [[nodiscard]] rhi::error refit_acceleration_structure(rhi::acceleration_structure&) override {
             return rhi::error::invalid_argument;
         }
+        /// abi 27: the micromap build, refused like the two above (a foreign buffer records nothing).
+        [[nodiscard]] rhi::error build_micromap(rhi::micromap&) override {
+            return rhi::error::invalid_argument;
+        }
         [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
             return rhi::error::invalid_argument;
         }
@@ -293,7 +297,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 26u);
+        CHECK(rhi::abi_version == 27u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 

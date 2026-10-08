@@ -355,6 +355,10 @@ namespace {
         [[nodiscard]] rhi::error refit_acceleration_structure(rhi::acceleration_structure&) override {
             return rhi::error::unsupported;
         }
+        /// abi 27: the micromap build, refused for the same reason as the two above (no device records here).
+        [[nodiscard]] rhi::error build_micromap(rhi::micromap&) override {
+            return rhi::error::unsupported;
+        }
 
         [[nodiscard]] rhi::error begin_gpu_timing() noexcept override {
             if (!this->frame_scoped) {
@@ -625,6 +629,11 @@ namespace {
         /// (and the answer the retired `ray_tracing` ability got from it: "an engine that asks for ray_tracing
         /// gets a null, not a stub").
         [[nodiscard]] rhi::acceleration_structure* create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
+            return nullptr;
+        }
+
+        /// ABI 27: A MICROMAP IS NULL HERE FOR THE SAME REASON - no device, so nothing to build one in.
+        [[nodiscard]] rhi::micromap* create_micromap(rhi::micromap_desc const&) override {
             return nullptr;
         }
 
