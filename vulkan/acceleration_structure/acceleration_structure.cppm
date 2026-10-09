@@ -311,6 +311,11 @@ namespace deren::vulkan::acceleration_structure {
         build_stats stats = {};
 
     public:
+        /**
+         * @brief create the top level structure for @p face, with one slot per frame in flight
+         * @param face the contract face the structures are created and released through
+         * @param frame_slot_count how many per-frame slots to allocate (the runtime's frame count)
+         */
         explicit top_level_structure(rhi::api_core& face, uint32_t frame_slot_count);
         top_level_structure(top_level_structure const&) = delete;
         top_level_structure& operator=(top_level_structure const&) = delete;

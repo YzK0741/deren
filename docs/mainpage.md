@@ -1,35 +1,65 @@
 # deren
 
-**deren** is a real-time renderer written in modern C++23 (C++20 modules / `.cppm`), built
-with CMake 4.3 + Ninja on MSYS2 clang64. Its graphics backend is being separated out
-behind an RHI - what is the backend versus what is the engine is still an open question
-(see the note below).
-
-> **Renamed on 2026-10-02: this project is `deren`.** It was `vulkan_render` until then, and the
-> executable, the version macros, the reference-frame directory and the git repository were renamed
-> with it; the working directory is renamed last, from outside a session that holds it open. Two things were deliberately left alone: the C++ module
-> namespaces still read `vulkan.*`, and four doxygen groups still read `vulkan_render_*`. Renaming
-> those is a separate, still-open decision - it belongs with the backend-boundary question (what is
-> the Vulkan backend versus what is the engine), and doing it now would settle that question by
-> accident. `ENABLE_VULKAN_RENDERDOC_CAPTURE` also still says what it says: it is RenderDoc's own
-> environment variable, not ours.
+**deren** is a real-time renderer in modern C++23 (C++20 modules / `.cppm`), built with CMake 4.3 +
+Ninja on MSYS2 clang64. The renderer reaches the graphics API through a contract and never through
+Vulkan types: the backend is a DLL the executable resolves **by name** at run time, so a second
+backend (D3D12, null, ...) is a second DLL implementing the same contract - see
+[The dynamic API](#the-dynamic-api) below.
 
 Current version: **0.3.0** - single source is `project(VERSION)` in `CMakeLists.txt`
 (surfaced by `--version`, the startup log banner and the instance's `app_info`); bump it there
 and keep this line in sync.
 
-This page is the map: what is worth reading first, the order the rest of the manual is
-written in, and where the generated reference begins. The reference half of this PDF
-(module / topic / class / file documentation) is mechanical - it is the API surface, not
-the reasoning. The reasoning is in the pages below.
+This page is the map: the dynamic API this build is organised around, what is worth reading first,
+the order the rest of the manual is written in, and where the generated reference begins. The
+reference half of this PDF (module / topic / class / file documentation) is mechanical - it is the
+API surface, not the reasoning. The reasoning is in the pages below.
+
+The project was named `vulkan_render` until 2026-10-02. The C++ module namespaces still read
+`vulkan.*` and four doxygen groups still read `vulkan_render_*`; renaming them is a separate,
+still-open decision. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's own variable, not ours.
+
+## The dynamic API
+
+One contract, and every graphics backend is an implementation of it.
+
+- **The contract** is the module `deren.promise.rhi` (`promise/rhi/`): the `api_core` virtual
+  surface - create and destroy objects, record commands, walk frames, report abilities - plus the
+  creation parameters (`create_info`). Both sides of the boundary compile the SAME interface unit, so
+  the two compilations cannot drift.
+- **The C ABI is one symbol.** `promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
+  the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version`, so a mismatched
+  backend is refused BEFORE an object exists, with the backend's own number in the returned error; it
+  returns an owning `std::shared_ptr<api_core>`, so there is no second destroy entry.
+- **Capabilities are queried, not assumed.** `abilities()` says what the device can do and
+  `query_extension<T>()` hands out the optional interfaces - ray tracing, mesh shaders, the descriptor
+  heap, the raw-handle escape. The engine asks for what it needs and keeps compiling when an answer is
+  "no".
+- **The backends are DLLs resolved BY NAME** out of the executable's own directory, by absolute path
+  (`deren.vulkan.backend_loader` over `deren.utility.dynamic_link`): `deren_vulkan.dll` exports one
+  name and `deren_gui_vulkan.dll` exports one name. The handle is detached and the image is never
+  unloaded, so a missing DLL is a named diagnosis rather than a loader error.
+- **The run-time package is five images plus the C++ runtime.** Beside `deren.exe`:
+  `deren_assets.dll` (glTF/GLB loading, linked through its import library so it loads before `main`),
+  `deren_vulkan.dll`, `deren_gui_vulkan.dll` and `shared_utility.dll` (the process-wide log sink),
+  with `libc++.dll` and the build's compiled `shaders/` directory.
+- **Writing a second backend** means implementing `api_core`, exporting `deren_make_api_core` and
+  answering with the abi number the contract declares. The executable is not rebuilt.
+
+Three instruments keep that true, and all three measure artifacts rather than prose:
+`scripts/check_native_boundary.py` (the executable's import table, the engine objects' unresolved
+symbols and the engine sources' vocabulary), `scripts/check_backend_boundary.py` (the symbol ratchet
+plus the whitelist) and the per-image checks in CI. Measured at this version: **0** graphics-API
+imports in `deren.exe`, **0** unresolved `vk*` symbols in the engine's objects, **0** engine sources
+naming the graphics API.
 
 ## Highlights
 
 The parts of this renderer that carry the most design weight, in the order a reader
 usually meets them. Each one links to the page or module that holds the detail.
 
-- **Deferred-only scene path.** The G-buffer path is the ONLY scene path - the forward one
-  was removed in commit `78b6737`. Every shading stage in the engine calls one function,
+- **Deferred-only scene path.** The G-buffer path is the ONLY scene path; the forward one was
+  removed. Every shading stage in the engine calls one function,
   `shade_surface()` in `shaders/shading.glsl`, and shares the material-surface gather in
   `shaders/surface.glsl`.
 - **Temporal anti-aliasing on a 1x G-buffer.** A Halton(2,3) projection jitter, per-pixel
@@ -41,13 +71,11 @@ usually meets them. Each one links to the page or module that holds the detail.
   three cascades by default, practical split scheme with lambda 0.75, per-pixel cascade
   selection blended across the boundary. A slot's cascades are re-rendered only when the
   fitted matrices, the caster world matrices, the uploaded skin matrices or a morph-scratch
-  revision changed - the skip is byte-identical by construction, and the skin upload has to
-  be part of the signal or an animated model silently keeps a frozen map.
+  revision changed - the skip is byte-identical by construction.
 - **Clustered light culling.** `shaders/light_cluster.slang` sorts up to 128 punctual lights
   into a 64 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter
   per cluster. Measured with 64 lights the forward shading pass drops 1.28 -> 0.44 ms and
-  the deferred lighting pass 0.25 -> 0.08 ms, with a byte-identical image - the cluster test
-  is conservative.
+  the deferred lighting pass 0.25 -> 0.08 ms, with a byte-identical image.
 - **Screen-space occlusion with no extra pass.** A golden-angle hemisphere spiral traced
   against the G-buffer depth and normals, folded into `shade_input.ao` so it scales the IBL
   ambient exactly like a baked AO map. No extra pass, no extra render target.
@@ -76,15 +104,14 @@ usually meets them. Each one links to the page or module that holds the detail.
 
 ## How to read this manual
 
-The pages are ordered as a reading path, not alphabetically: the conventions and the CURRENT runtime
-record first (how the project is organised and how the renderer it is built around works today), then
-the shader contract, the frame structure, the frontier subsystems, the usage guide, and finally the
-migration history - which is where the reasons for the current shape of the code live.
+The pages are ordered as a reading path, not alphabetically: the dynamic API and the code rules
+first, then the shader contract, the frame structure, the frontier subsystems, the usage guide, and
+finally the migration history.
 
 | # | Document | What it answers |
 |---|----------|-----------------|
 | 1 | \subpage md_docs_2conventions "Conventions" | Naming, file layout and the code rules the rest of the manual assumes. |
-| 2 | \subpage md_docs_2dynamic__runtime "Dynamic runtime" | The dynamic-backend migration: the runtime's shape, the loader, the gates and what is still open. |
+| 2 | \subpage md_docs_2dynamic__runtime "The dynamic API" | The contract every backend implements, the loaders that resolve one by name, the run-time package, and how the migration got there. |
 | 3 | \subpage md_docs_2shaders "Shaders" | How shaders are written and bound: the pass chain, the shared scene set, the slot conventions. |
 | 4 | \subpage md_docs_2pass__io__design "Pass I/O design" | The declared contract a pass states about what it reads and writes, and how it is resolved. |
 | 5 | \subpage md_docs_2runtime__split "Runtime split" | How the runtime, the scene tree and the render environment divide the frame between them. |
@@ -153,7 +180,8 @@ you are free to recombine or rewire them.
 Modular composition is the point, not a side effect:
 
 - `deren.gltf_loader`, `deren.app_config` and `deren.utility` are **pure CPU with no Vulkan dependency** -
-  standalone libraries that embed into any host application;
+  standalone libraries that embed into any host application (`deren.gltf_loader` and its toon-material
+  sidecar build into `deren_assets.dll`, so they can also be consumed as one shared image);
 - `deren.vulkan.animation` is **format-neutral and runtime-agnostic**: it drives whatever scene
   storage a caller injects through the `backend` surface and initializes from any loader
   whose data satisfies the structural `source` concept (it imports no loader and no

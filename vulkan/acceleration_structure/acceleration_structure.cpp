@@ -159,7 +159,10 @@ namespace deren::vulkan::acceleration_structure {
 
     // ---- top level structure ------------------------------------------------------------------------------
 
-    top_level_structure::top_level_structure(rhi::api_core& face, std::uint32_t const frame_slot_count)
+    // Spelled exactly as the declaration in the module interface is: doxygen matches a definition against
+    // its declaration by the written signature, and `std::uint32_t` here against `uint32_t` there made it
+    // report "no matching class member found" for this one constructor (the only warning in the doc build).
+    top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count)
         : contract(&face)
         , max_instances(max_instances_of(face))
         , slots(frame_slot_count) {

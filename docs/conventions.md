@@ -1,8 +1,7 @@
 # Conventions
 
-The rules this repository follows when a name has to be chosen, and the measured reasons behind them.
-Everything here was decided against the tree rather than in the abstract; where a rule has exceptions, the
-exception list is the measurement.
+The rules this repository follows when a name has to be chosen, with the reason each one exists.
+Where a rule has exceptions, the exception list is the reason.
 
 ## Module names
 
@@ -20,10 +19,10 @@ The tree has 56 modules. These keep a short spelling, and each one is a NAME rat
 | `vulkan.pass.megalights_*` | a feature of this renderer, not a shortening of one |
 
 The rule renamed `app_config` -> `application_configuration`, `vulkan.gui` ->
-`deren.vulkan.graphical_user_interface`, `vulkan.pass.rt_shadow` -> `deren.vulkan.pass.ray_traced_shadow` and
-`vulkan.pass.gbuffer_debug` -> `deren.vulkan.pass.geometry_buffer_debug`. A module name is not the only thing
-wearing one of those words: the `app_config` STRUCT, the `gui` CLASS and the `gbuffer_debug` / `rt_shadows`
-CONFIG KEYS kept their spelling, because none of them is a module name.
+`deren.vulkan.graphical_user_interface` and `vulkan.pass.{rt_shadow,gbuffer_debug}` ->
+`deren.vulkan.pass.{ray_traced_shadow,geometry_buffer_debug}`. The `app_config` STRUCT, the `gui` CLASS
+and the `gbuffer_debug` / `rt_shadows` CONFIG KEYS kept their spelling, because none of them is a module
+name.
 
 ### The rule that decides whether a submodule becomes a partition
 
@@ -57,30 +56,25 @@ second look.
 
 They are not interchangeable, and the difference is what makes a call site readable at a glance:
 `set_shadow_cascades` is a knob, `ensure_shadow_resources` allocates, `record_shadow_content` draws.
-Counted when the rule was written: `make_` 150, `create_` 93, `build_` 68, `set_` 174, `write_` 32,
-`update_` 21, `ensure_` 24, `record_` 62 across the `.cppm` surfaces.
 
 ## Partitions
 
 **One file per partition.** CMake names a partition's dyndep output after the MODULE, so a named partition
-that also has a separate `.cpp` implementation unit cannot be expressed: with the `.cpp` in the module file
-set ninja reports `multiple rules generate ...<module>-<partition>.pcm`, and with it outside CMake reports
-that the file `provides the ... module but it is not found in a FILE_SET of type CXX_MODULES`. Both were
-measured. A module's own unnamed implementation unit (`utility.cpp`) is fine either way.
+cannot also have a separate `.cpp` implementation unit: both spellings of that pair were measured to fail
+(ninja reports `multiple rules generate ...<partition>.pcm`, or CMake reports that the file is not in a
+`CXX_MODULES` file set). A module's own unnamed implementation unit (`utility.cpp`) is fine either way.
 
 A partition **does not see the primary interface**, and imports are **not transitive**: each partition
-imports `:declarations` and whatever else it calls, even when the interface already imports it.
-
-Under this project's `-Werror`, the primary **may not** import its own implementation partitions - clang 22
-rejects it with `-Wimport-implementation-partition-unit-in-interface-unit`. Listing those partitions in the
-CMake module file set is what gets them compiled, and the linker finds their definitions.
+imports `:declarations` and whatever else it calls. The primary **may not** import its own implementation
+partitions either - clang 22 rejects it with `-Wimport-implementation-partition-unit-in-interface-unit` -
+and listing them in the CMake module file set is what compiles them.
 
 ## Where a helper belongs
 
-Beside the thing it is defined in terms of, and published once. The heap-write helper `core::heap_slot_offset`
-was copied into three translation units because it multiplies `core::heap_slot_stride`; removing the copies
-needed the constant and the helper to live together, and putting the helper in the heap-plumbing partition
-instead would have closed a cycle (`core.declarations.cppm` already re-exports `:descriptor_heap`).
+Beside the thing it is defined in terms of, and published once. Example: `core::heap_slot_offset` existed as
+three copies because it multiplies `core::heap_slot_stride`; the helper and the constant now live together,
+and moving the helper into the heap-plumbing partition instead would have closed a cycle
+(`core.declarations.cppm` already re-exports `:descriptor_heap`).
 
 ## Arithmetic types
 
@@ -88,10 +82,8 @@ instead would have closed a cycle (`core.declarations.cppm` already re-exports `
 `uint64_t`. A bare `int`, `unsigned`, `short`, `unsigned char` or `long long` states its width only by
 convention, and the convention is not the same everywhere this is built.
 
-The change that introduced the rule (83 files) was a **spelling** change and is verified as one: on the platforms
-this builds on `int32_t` IS `int` and `uint8_t` IS `unsigned char` - the standard requires `uint8_t` to be a
-typedef of an 8-bit unsigned integer type, and this ABI's is `unsigned char` - so the render gate is
-byte-identical (10/10 scenarios unchanged, 12/12 unit tests) and nothing about the emitted code moves. What it
+The change that introduced the rule (83 files) was a **spelling** change and is verified as one: on these
+platforms `int32_t` IS `int` and `uint8_t` IS `unsigned char`, so the render gate is byte-identical. What it
 buys is that a width is stated where it used to be implied.
 
 Three exceptions, each because somebody else's interface declares the type:
@@ -102,10 +94,9 @@ Three exceptions, each because somebody else's interface declares the type:
 | `timespec::tv_nsec` as `long` | it IS `long` in POSIX |
 | `std::strtol`'s answer | `long`, whose width IS the platform's (32 bits on Windows, 64 on Linux), so the conversion is an explicit `static_cast<int32_t>` rather than an implicit one |
 
-Two things the rule does NOT reach: `float` and `double`, which have no fixed-width equivalent in `<cstdint>`
-(`<stdfloat>`'s `float32_t` is a different, optional facility); and a bare `char`, which is a CHARACTER type -
-`std::string` is `basic_string<char>` - so only `unsigned char`/`signed char` are spelled `uint8_t`/`int8_t`.
-`third_party/` and `vstd/` are out of scope: the first is vendored, the second is the libc++ mirror.
+The rule does NOT reach `float` / `double` (no fixed-width equivalent in `<cstdint>`) or a bare `char`,
+which is a CHARACTER type: only `unsigned char` / `signed char` are spelled `uint8_t` / `int8_t`.
+`third_party/` and `vstd/` are out of scope - vendored, and the libc++ mirror.
 
 ## Portability
 
