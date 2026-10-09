@@ -147,7 +147,7 @@ jobs:
             utility/BVH/bvh.cppm \
             utility/frame_clock/frame_clock.cppm \
             utility/frame_stats/frame_stats.cppm \
-            utility/better_pmr/better_pmr.cppm \
+            utility/shared/better_pmr.cpp \
             utility/dynamic_link.cppm \
             promise/rhi/rhi.cppm \
             promise/rhi/rhi.contract.cppm \

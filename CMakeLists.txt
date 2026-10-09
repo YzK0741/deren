@@ -378,6 +378,23 @@ target_sources(promise
         promise/gui/gui.cppm
 )
 
+# THE CONTRACT IS UNINSTRUMENTED IN THE SANITIZER JOB, AND THAT IS A LINK REQUIREMENT, NOT A PREFERENCE.
+# Measured in a Debug tree configured exactly like .github/workflows/ci.yml's sanitizers job
+# (-DCMAKE_CXX_FLAGS="-fsanitize=address,undefined ...", -DCMAKE_EXE_LINKER_FLAGS carrying the runtime):
+# linking `probe_backend` failed with
+#     ld.lld: error: undefined symbol: __asan_init / __ubsan_handle_type_mismatch_v1 / ...
+# The DLL is compiled with -fno-sanitize=all on purpose (an instrumented DLL cannot be hosted by an
+# instrumented process - the rule deren_vulkan and probe_backend follow), but the OBJECTS it links out
+# of this archive were instrumented, and the DLL's own link line carries no sanitizer runtime. So the
+# two rules meet here: a DLL that must be clean cannot be built out of instrumented objects.
+#
+# The cost is this archive's own coverage in that job - virtual declarations, PODs and the
+# validate_structure helpers - and it is the cheaper half of the trade: the alternative is an
+# instrumented DLL, which is the shape that aborts when the instrumented test loads it.
+if(NOT MSVC)
+    target_compile_options(promise PRIVATE -fno-sanitize=all)
+endif()
+
 # Startup configuration: parses config.toml (+ --config / argv merging) into app_settings.
 # Uses toml++ (header-only, system package mingw-w64-clang-x86_64-tomlplusplus; under clang64 its
 # headers live on the compiler's own include root, so nothing has to be added here). Pure CPU, no
@@ -481,8 +498,9 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # FLAGS: the shared COMPILE_OPTIONS set (the foreach below), and deliberately NOT deren_vulkan's
 # `-fno-sanitize=all`: that suppression exists because an INSTRUMENTED DLL cannot carry a second ASan
 # runtime, and this target is never the DLL's code path (the DLL is uninstrumented by construction -
-# see deren_vulkan's sanitizer suppression; `promise`, which both halves also share, is not
-# suppressed either).
+# see deren_vulkan's sanitizer suppression; `promise`, which both halves also share, carries the same
+# suppression for the reason stated at its own target - the probe DLL links the contract's objects and
+# cannot be built out of instrumented ones).
 # ============================================================================================
 # Native structure builders belong to the backend; renderer layout is a portable shared module.
 add_library(vulkan_constant_init STATIC)
