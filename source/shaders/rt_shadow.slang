@@ -26,7 +26,7 @@ struct shadow_payload
 };
 
 // The camera and light blocks and the push block the RAYGEN reads. The blocks are declared here rather than
-// taken from shading.glsl because this file shares no body (the same reason shadow.slang declares its own
+// taken from shading.slang because this file shares no body (the same reason shadow.slang declares its own
 // material record); they are named what the shim's `camera_at` / `light_at` accessors expect, and the member
 // lists are the PREFIXES this stage reads - a stage may declare fewer members than the CPU writes as long as
 // the offsets agree (0/64/128 for the camera; the light's matrices exist to keep light_dir at 256).
@@ -40,15 +40,15 @@ struct CameraUBO
 struct LightUBO
 {
     VR_MAT4 light_view_proj[4]; // MAX_SHADOW_CASCADES: not read here, only here to keep light_dir's offset
-    float4 light_dir;           // xyz = surface-to-light direction (see shading.glsl)
+    float4 light_dir;           // xyz = surface-to-light direction (see shading.slang)
 };
 
-// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.glsl`, the one place the
+// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.slang`, the one place the
 // record's std430 layout lives, and this stage includes it. A second copy is a second thing to keep in
 // step with the host's `static_assert(sizeof(material_record) == 80)`, and a copy that drifts indexes
 // every material after the first by the wrong STRIDE - which shows up as a wrong texture on every
 // material but one, not as a build error.
-#include "material_record.glsl"
+#include "material_record.slang"
 
 // The instance table: one record per instance of the top level structure, filled by EVERY structure build
 // (acceleration_structure::instance_record, whose 96-byte std430 layout this mirrors). The two addresses are
@@ -103,7 +103,7 @@ struct RtShadowPush
 float3 rt_world_position_from_depth(float2 uv, float depth)
 {
     const float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
-    const float4 world = pc.inv_view_proj * clip;
+    const float4 world = mul(clip, pc.inv_view_proj);
     return world.xyz / world.w;
 }
 
@@ -201,7 +201,7 @@ void rgen_main()
 // failure, because the frame would still look like a shadow.
 // =============================================================================================================
 
-/// @brief material_record::flags bit4 - "alphaMode MASK", the same bit shaders/surface.glsl tests
+/// @brief material_record::flags bit4 - "alphaMode MASK", the same bit shaders/surface.slang tests
 #define MASK_ALPHA_FLAG 16u
 /// @brief the uv's offset in the interleaved vertex, in floats: position(0-2) normal(3-5) uv(6-7)
 #define MASK_UV_FLOAT_OFFSET 6u
@@ -280,7 +280,7 @@ void ahit_main(inout shadow_payload payload)
     const float v = dot(cross(tv, edge_1), direction_object) * inv_det;
     const float2 uv = uvs[0] * (1.0 - u - v) + uvs[1] * u + uvs[2] * v;
 
-    // THE CUT: the mirror of shaders/shadow.slang's discard and of shaders/surface.glsl's MASK test.
+    // THE CUT: the mirror of shaders/shadow.slang's discard and of shaders/surface.slang's MASK test.
     const float alpha = material.base_color_factor.a * heap_texel_lod0(heap_at<Texture2D<float4>>(heap_slots_textures + material.tex_indices.x), heap_sampler_texture, uv).a;
     if (alpha < material.alpha_cutoff)
     {

@@ -1,8 +1,20 @@
 # Migrating this renderer's shaders to Slang: the binding contract, and what is proven
 
-**STATUS: reconnaissance and the binding contract are settled; the migration itself has not started.**
-This document exists because the migration spans many sessions: the recipe below is what a later pass
-needs to pick the work up, and the two dead ends are recorded so nobody walks into them again.
+**STATUS (2026-10-09): all 39 runtime entry points and their shared bodies are native Slang.**
+The build and both manual scripts no longer enable GLSL compatibility or define `VR_SLANG`.
+Runtime sources live in `source/shaders/`; the original GLSL shared headers, retired stages, and
+upstream reference samples are preserved verbatim under `source/reference/shaders/`.
+
+The native port uses `static const` globals, explicit `mul(vector, matrix)` for the old GLSL
+matrix/vector products, reversed operands for matrix composition, and explicit `SV_IsFrontFace`
+parameters for shared double-sided normal handling. Matrix members retain their proven `ColMajor`
+SPIR-V layout; descriptor strides remain 64/32 bytes. Cluster projection inversion retains the same
+`GLSL.std.450 MatrixInverse` instruction through native Slang SPIR-V interop, rather than introducing
+a numerically different inverse implementation. See the [Slang interop documentation](https://docs.shader-slang.org/en/stable/external/slang/docs/user-guide/a1-04-interop.html).
+
+Release build and the frozen fourteen-scene render gate pass after this conversion. The sections below
+record the earlier migration experiments and intermediate compatibility stage; descriptions of shared
+GLSL and `VR_SLANG` in those sections are historical.
 
 ## 1. Why this is possible at all, and why it looked impossible for an afternoon
 
@@ -539,7 +551,7 @@ done too, and the UBO member lists are shared through the `VR_MAT4` type macro: 
 ## 10. What remained, and how it finished
 
 THE MIGRATION IS COMPLETE. All twenty-four stage outputs are built by slangc; the retired GLSL stage sources
-are in `source/shaders/glsl.old/`; `slangc` is required by `CMakeLists.txt` with no glslc fallback; the compile
+are in `source/reference/shaders/glsl.old/`; `slangc` is required by `CMakeLists.txt` with no glslc fallback; the compile
 scripts and the docs were synced; CI installs a pinned slangc and asserts that CMake found it. The numbered
 list below is kept as the record of HOW each step closed, because the reasons are what a reader needs - not
 just the fact.

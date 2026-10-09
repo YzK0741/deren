@@ -1,6 +1,6 @@
 # Stochastic punctual lighting (MegaLights-style): shadowed point and spot lights at a fixed ray budget
 
-This renderer's punctual lights are unshadowed. `source/shaders/shading.glsl`'s cluster loop accumulates
+This renderer's punctual lights are unshadowed. `source/shaders/shading.slang`'s cluster loop accumulates
 `light.punctual_lights[]` with no visibility term, so a demo light behind a column lights the wall in front
 of it; the sun is the only shadowed light (cascades, or one ray-traced ray per pixel in
 `source/shaders/rt_shadow.comp`). "One shadow ray per light per pixel" fixes the look but costs O(lights) rays per
@@ -29,7 +29,7 @@ staging, and the measurements as they land.
 the pixel's cluster list as candidates, UE's log-compressed target PDF `W = log2(Lum * smoothFalloff(Lum) + 1)`,
 a weighted reservoir over the candidates, one `rayQuery` visibility ray per selected sample, and UE's
 firefly cap on each sample's weight. The BRDF and the attenuation are NOT copies: `punctual_light_radiance`
-and `evaluate_direct_light` are shared with `source/shaders/shading.glsl`, and `cluster_index_at(pixel, pos)` takes
+and `evaluate_direct_light` are shared with `source/shaders/shading.slang`, and `cluster_index_at(pixel, pos)` takes
 the pixel as a parameter so that a compute shader can include that file at all (a `gl_FragCoord` reference
 anywhere in the translation unit - even in a function compute never calls - fails to compile).
 
@@ -326,7 +326,7 @@ accumulation being live, and the motion measurement that would show its value.
   `sponza` `22C2B33B4B6721FA`, `default_gi` `310220DA64A91257` - each identical to its value before the
   refactor, `flaky 0`): `punctual_light_radiance()` is now the one definition of a light's attenuation
   (the cluster loop and the estimator both call it), and `cluster_index_at(pixel, world_pos)` plus
-  `shade_input::pixel` remove the last `gl_FragCoord` from `source/shaders/shading.glsl`, which is what lets a
+  `shade_input::pixel` remove the last `gl_FragCoord` from `source/shaders/shading.slang`, which is what lets a
   COMPUTE shader include it at all.
 * The plumbing that does not move a frame: the `ml_trace` resource family (schema entry, `core` images,
   the runtime's `family(...)` registration), the `megalights_trace_io` declaration (the tracer's shape

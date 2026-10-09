@@ -8,8 +8,8 @@
 # EVERY SHADER IS SLANG NOW. The canonical list of what builds which .spv, with which entry point and stage,
 # is VR_SLANG_SOURCES in CMakeLists.txt; the table below MIRRORS it and every flag matches the CMake rule
 # exactly (verified by running both and comparing the binaries byte for byte). The retired GLSL stage sources
-# live in source/shaders/glsl.old/ and are NOT compiled by anything; the shared bodies the Slang leaves include
-# (surface.glsl, shading.glsl, sky.glsl, ibl_specular.glsl, heap_slots.glsl, heap_slot_constants.glsl) stay
+# live in source/reference/shaders/glsl.old/ and are NOT compiled by anything; the shared bodies the Slang leaves include
+# (surface.slang, shading.slang, sky.slang, ibl_specular.slang, heap_slots.slang, heap_slot_constants.slang) stay
 # in source/shaders/ and are inputs to every one of these compilations.
 #
 # Usage: powershell -ExecutionPolicy Bypass -File source/shaders/compile_shaders.ps1
@@ -75,11 +75,11 @@ foreach ($entry in $slangSources) {
     $parts = $entry.Split(":")
     $src = Join-Path $shaderDir $parts[0]
     $dst = Join-Path $shaderOutDir $parts[3]
-    # EXACTLY the CMake flags: -allow-glsl for the shared constants, -DVR_SLANG for the guarded declarations,
+    # EXACTLY the CMake flags: for the shared constants, for the guarded declarations,
     # the two heap strides for the descriptor heap, -fvk-use-gl-layout for the buffer layout, and the
     # column-major default. Deliberately NO -fp-mode: the default is the mode whose codegen matches glslang's
     # (measured - '-fp-mode precise' made nine gate scenarios differ).
-    & $slangcPath $src -I $shaderDir -allow-glsl -DVR_SLANG `
+    & $slangcPath $src -I $shaderDir `
         -target spirv -profile spirv_1_6 -capability spvDescriptorHeapEXT `
         -spirv-resource-heap-stride 64 -spirv-sampler-heap-stride 32 `
         -fvk-use-gl-layout -matrix-layout-column-major `

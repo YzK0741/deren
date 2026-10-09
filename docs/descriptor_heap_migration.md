@@ -92,7 +92,7 @@ descriptor - without it the validation layer rejects the heap write itself, with
 right), and the shader's declaration.
 
 THE CAMERA AND THE LIGHT ARE STORAGE DESCRIPTORS FOR THIS REASON (see `runtime.constructor.cppm`'s two
-heap writes and `shading.glsl`'s camera/light blocks): Slang's
+heap writes and `shading.slang`'s camera/light blocks): Slang's
 `DescriptorHandle<ConstantBuffer<T>>` always fetches through a `StorageBuffer`-class pointer - a Slang
 `ConstantBuffer` handle never emits `Uniform` - so the GLSL side had to declare those blocks `buffer` as
 well. The layout did not move, and that was CHECKED RATHER THAN ASSUMED: `CameraUBO` keeps its offsets
@@ -105,7 +105,7 @@ section 9.
 ## Shader inventory (the resources each stage reads, and the binding each one came from)
 
 There is no `layout(set = ` left to grep: the `.frag` / `.vert` / `.comp` sources this table was built from
-are retired to `source/shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST USED TO LIVE HERE`), and the
+are retired to `source/reference/shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST USED TO LIVE HERE`), and the
 stages this build compiles are Slang leaves - `docs/slang_migration.md` and `docs/shaders.md` record them.
 So the table below is a RECORD of what each retired file declared (a reader can still check each row against
 the archived source), not a description of any file's current contents: the host keeps the same resources under
@@ -114,8 +114,8 @@ the same classic binding numbers in `source/backends/vulkan/core/core.declaratio
 
 | file (retired) | the bindings it declared | where they live now |
 | --- | --- | --- |
-| `shading.glsl` (shared) | 0 CameraUBO, 2 env cube, 3 irradiance cube, 4 BRDF LUT, 7 LightUBO, 8 shadow array, 11/12 cluster | - |
-| `surface.glsl` (shared) | 1 `textures[]`, 5 materials | - |
+| `shading.slang` (shared) | 0 CameraUBO, 2 env cube, 3 irradiance cube, 4 BRDF LUT, 7 LightUBO, 8 shadow array, 11/12 cluster | - |
+| `surface.slang` (shared) | 1 `textures[]`, 5 materials | - |
 | `pbr.vert` | 0 camera, 6 instance transforms, 13 previous transforms, 9 skin matrices, 10 morph | - |
 | `shadow.vert` | 6, 9, 10, 7 | - |
 | `shadow.frag` | 1, 5 | - |
@@ -422,7 +422,7 @@ than a frame pass, and it only runs under `[render] rt_mask_bake`, which no gate
 could not reach a reference frame. The conversion was written and COMPILED (glslc accepts it first try):
 
 ```glsl
-#include "heap_slots.glsl"
+#include "heap_slots.slang"
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D heap_textures[];
 layout(descriptor_heap) uniform sampler heap_samplers[];
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) readonly buffer MaskMaterials { MaskMaterial materials[]; } heap_material_tables[];
@@ -487,7 +487,7 @@ descriptor heap: slot grid at 1048576 (1024 slots x 64 B; textures 0 materials 5
 ```
 
 - The resource grid's base is **1 MiB** and its stride **64 B**; the slot numbers (relative to that base) are
-  the constants in `source/shaders/heap_slots.glsl` and `core::heap_slots`. 703 of the 1024 slots are named.
+  the constants in `source/shaders/heap_slots.slang` and `core::heap_slots`. 703 of the 1024 slots are named.
 - The SAMPLER heap is a second grid at a **64 KiB** base with the device's 32 B stride: the API caps that heap
   at 128 KiB, so it cannot use the resource grid's 1 MiB. Refused unless the device's reserved window fits
   below the base and its sampler stride is 32 B.

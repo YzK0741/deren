@@ -35,9 +35,9 @@ struct PostPush
 #define heap_frame_slot (pc.frame_slot)
 #define heap_image_index (pc.image_index)
 
-const float FXAA_EDGE_THRESHOLD_MIN = 0.0833; // absolute floor for the contrast test (dark areas)
-const float FXAA_DIR_STEP_CAP = 8.0;          // max length of the edge-direction step, in texels
-const float FXAA_SUBPIXEL_CAP = 1.0;
+static const float FXAA_EDGE_THRESHOLD_MIN = 0.0833; // absolute floor for the contrast test (dark areas)
+static const float FXAA_DIR_STEP_CAP = 8.0;          // max length of the edge-direction step, in texels
+static const float FXAA_SUBPIXEL_CAP = 1.0;
 
 /// @brief perceptual luma of a display-referred colour (Rec.601, the quantity FXAA works on)
 float luma_of(float3 color)
@@ -53,7 +53,7 @@ float3 srgb_to_linear(float3 color)
 {
     float3 low = color / 12.92;
     float3 high = pow(max((color + 0.055) / 1.055, float3(0.0)), float3(2.4));
-    return mix(low, high, step(float3(0.04045), color));
+    return lerp(low, high, step(float3(0.04045), color));
 }
 
 [shader("fragment")]
@@ -117,7 +117,7 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target
         float subpixel = clamp(abs(luma_lowpass - luma_m) / max(range, 1e-5), 0.0, 1.0);
         subpixel = smoothstep(0.0, 1.0, subpixel);
         subpixel = subpixel * subpixel * clamp(pc.fxaa_subpixel, 0.0, FXAA_SUBPIXEL_CAP);
-        rgb_result = mix(rgb_result, rgb_m, subpixel);
+        rgb_result = lerp(rgb_result, rgb_m, subpixel);
     }
 
     // Hand the result back in the encoding the TARGET expects: an sRGB swapchain attachment encodes

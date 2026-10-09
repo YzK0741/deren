@@ -16,18 +16,18 @@
 // `PostEvaluate(...)` -> `return float4(resultColor, 1)`, and the tonemap is the post chain's alone. A
 // stage that encoded sRGB here would be tonemapped a second time by post.slang's ACES composite.
 //
-// THE INCLUDE ORDER IS PART OF THE CONTRACT (see gbuffer.slang): the shim first, then surface.glsl, which
+// THE INCLUDE ORDER IS PART OF THE CONTRACT (see gbuffer.slang): the shim first, then surface.slang, which
 // declares the push-constant block and the heap_frame_slot / heap_image_index aliases the slot macros
-// expand against; then shading.glsl, whose functions address the per-frame arrays through those macros.
-// Compiling a body before surface.glsl reports heap_frame_slot as an undefined identifier - measured.
+// expand against; then shading.slang, whose functions address the per-frame arrays through those macros.
+// Compiling a body before surface.slang reports heap_frame_slot as an undefined identifier - measured.
 //
 // The alphaMode MASK discard is NOT written here because `gather_surface` already performs it (see
-// surface.glsl): it is the material's rule, not the pass's, so no pass can forget it. The BLEND alpha rule
+// surface.slang): it is the material's rule, not the pass's, so no pass can forget it. The BLEND alpha rule
 // IS written here, copied from unlit.slang, because it is the pipeline's coverage contract.
 
 #include "heap_access.slang"
-#include "surface.glsl"
-#include "shading.glsl"
+#include "surface.slang"
+#include "shading.slang"
 
 #include "toon_params.slang"
 
@@ -1026,7 +1026,7 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 // STEP 8: THE REFERENCE'S `DecodeNormal` - THE PORT'S TANGENT-SPACE NORMAL, RECONSTRUCTED FROM X AND Y
 // ============================================================================================================
 //
-// THE DEFECT THIS REPLACES IS MEASURED, NOT SUSPECTED. `surface.glsl`'s decode (which is UNCHANGED by this step)
+// THE DEFECT THIS REPLACES IS MEASURED, NOT SUSPECTED. `surface.slang`'s decode (which is UNCHANGED by this step)
 // samples the normal map as `heap_sample(...).rgb * 2.0 - 1.0`, i.e. it trusts the blue channel to be the tangent
 // normal's `z`. Every normal map this asset ships stores `x` and `y` and a CONSTANT blue - measured per channel over
 // the shipped PNGs: `T_actor_laevat_body_01_N` R uniq 233 / G uniq 136 / B uniq 1 (constant 0), `cloth_01_N` B uniq
@@ -1077,8 +1077,8 @@ float3 toon_shadow_lut(const float3 albedo, const uint lane) {
 // (`character_forward.slang`'s own `main` and `shaders/goo_toon.slang`'s `goo_toon_frag_main`), and the body is
 // compiled out entirely unless `VR_GOO_TOON_CHAIN` is defined - so `outline.slang` and `pbr.slang`, which include
 // this file WITHOUT the define, keep the old argument and the article chain's frames stay byte-identical. THE
-// G-BUFFER'S NORMAL IS DELIBERATELY NOT CHANGED (`shaders/gbuffer.slang` still writes the `surface.glsl` decode's
-// result, and `surface.glsl` itself is untouched): the toon stage takes the geometric normal and reads the map
+// G-BUFFER'S NORMAL IS DELIBERATELY NOT CHANGED (`shaders/gbuffer.slang` still writes the `surface.slang` decode's
+// result, and `surface.slang` itself is untouched): the toon stage takes the geometric normal and reads the map
 // itself, so the two can disagree for a normal-mapped material - a recorded, deliberate asymmetry, because moving
 // the G-buffer's normal would move the article chain, every SSAO/shadow consumer of it and four pinned frames.
 //
@@ -1106,8 +1106,8 @@ static const float goo_normal_strength_default = 1.0;
 /// texture (`mat.flags & 1u` - the port's boolean for "this material reads a normal map at all", see the uncertainty
 /// section of the result document for the reference's `Use NormalTex?` gate this approximates); lane 24 is absent
 /// (the material has no `_GooNormalStrength` row); or the uv-derivative frame is degenerate (`surface_tbn` returns
-/// false, the same fallback `surface.glsl` takes on a collapsed triangle).
-float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, const float2 uv, const float3 port_normal) {
+/// false, the same fallback `surface.slang` takes on a collapsed triangle).
+float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, const float2 uv, const float3 port_normal, bool is_front) {
 #if defined(VR_GOO_TOON_CHAIN)
     const Material mat = material_at(heap_slots_materials, push.material_index);
     if ((mat.flags & 1u) == 0u) {
@@ -1120,7 +1120,7 @@ float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, 
     const float3 normal = normalize(geo_normal);
     float3 sdir = float3(1.0, 0.0, 0.0);
     float3 tdir = float3(0.0, 1.0, 0.0);
-    // THE SAME FRAME `surface.glsl` BUILDS, and the same fallback when the derivatives are degenerate: the article's
+    // THE SAME FRAME `surface.slang` BUILDS, and the same fallback when the derivatives are degenerate: the article's
     // own note says the uv-derivative frame is what the reference's maths corresponds to, so no vertex tangent and no
     // vertex-format change is needed.
     float3 decoded = normal;
@@ -1133,12 +1133,12 @@ float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, 
         // note above. For a strength at or above 1 that is exactly `float3(strength*xy, z1)`, and the `saturate` is
         // kept rather than folded away because it is the engine's own expression, it is what a strength below 1 needs
         // - the hair's `0.5` is one since this step's row landed - and it is what makes `z` strictly positive.
-        const float3 n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))));
-        decoded = normalize(mat3(sdir, tdir, normal) * n_ts);
+        const float3 n_ts = normalize(float3(strength * xy, lerp(1.0, z1, saturate(strength))));
+        decoded = normalize(mul(n_ts, float3x3(sdir, tdir, normal)));
     }
-    // THE DOUBLE-SIDED FLIP IS APPLIED TO THE RESULT AND NOT TO THE FRAME, which is `surface.glsl`'s own order: the
+    // THE DOUBLE-SIDED FLIP IS APPLIED TO THE RESULT AND NOT TO THE FRAME, which is `surface.slang`'s own order: the
     // frame's third axis is the RAW geometric normal and the flip is the last thing that happens to the normal.
-    if ((mat.flags & 8u) != 0u && !gl_FrontFacing) {
+    if ((mat.flags & 8u) != 0u && !is_front) {
         decoded = -decoded;
     }
     return decoded;
@@ -1274,8 +1274,8 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // substitute this repository uses wherever a vertex tangent would be - see its note on mirrored-uv handedness).
     // A DEGENERATE FRAME FALLS BACK TO THE FLAT NORMAL, which the article never needs (a vertex tangent always
     // exists) and a uv-derivative frame does on a collapsed triangle.
-    vec3 eye_tangent = vec3(1.0, 0.0, 0.0);
-    vec3 eye_bitangent = vec3(0.0, 1.0, 0.0);
+    float3 eye_tangent = float3(1.0, 0.0, 0.0);
+    float3 eye_bitangent = float3(0.0, 1.0, 0.0);
     const bool eye_has_tbn = surface_tbn(world_pos, uv, eye_tangent, eye_bitangent);
     float3 shading_normal = n;
     if (toon_indices.w != 0u && eye_has_tbn) {
@@ -1361,7 +1361,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // term in THIS shader quantized into a cel band: the only quantizers here are the SDF half-face
     // expression, the tile-atlas lookup and the eye/emoji UV selection (`ceil`/`floor`/`frac`), none of
     // them a cel band. The knob's leftover effect (the `ndotl` band plus the highlight block) lives inside
-    // `evaluate_direct_light`, whose only callers are the two direct-light sites in `shading.glsl` and the
+    // `evaluate_direct_light`, whose only callers are the two direct-light sites in `shading.slang` and the
     // two in `megalights_trace.slang` - never `character_forward.slang` or `goo_toon.slang` - so on this
     // path it lands on the deferred/pbr path only.
     //
@@ -1463,7 +1463,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     //
     // THE `.zw` PAIR IS THE SMOOTH ONE and it unpacks like any tangent-space normal - two channels plus a
     // reconstructed third - and the frame comes from `surface_tbn`, the SAME function the normal-map path uses
-    // rather than a second copy of that arithmetic (see surface.glsl).
+    // rather than a second copy of that arithmetic (see surface.slang).
     const uint4 toon_lanes2 = toon_lanes2_at(heap_slots_toon_lanes, material_index);
     float3 highlight_normal = n;
     float3 hair_bitangent = float3(0.0, 1.0, 0.0); // the smooth frame's binormal; the hair LUT blends toward it
@@ -1716,7 +1716,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
     // own docstring names - and is why this line is judged on the ASSET-SIDE probe and not on the rendered
     // one. See `deren-ab/remaining_port_spec.md`: item 5's number table and "本节新发现" item 3.
     //
-    // IT IS READ FROM `s.alpha`, which is the SAME product the probe measured: `surface.glsl:193/201` sets it
+    // IT IS READ FROM `s.alpha`, which is the SAME product the probe measured: `surface.slang:193/201` sets it
     // to `base_color_factor.a * albedo_texture.a`. The article's own `mainTex_var.w` has no factor in it, so
     // this is that value AND the material factor the asset states - and on chen's skin the factor is 1.
     //
@@ -2730,7 +2730,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
         // `PBRToonBase` instances carry `MetallicMax = 1.0` (the verifier's B1), and E3 is a no-op because
         // `metallic * (1 - albedo)` stays under the 8-bit floor even amplified 1000x, i.e. `albedo` is 1 (to ~1e-5)
         // wherever `metallic` is not 0. Both arguments are still the reference's own and stay, because the port's
-        // `metallic` (`:1442`) and `albedo` (`surface.glsl`'s `base_color_factor * texture`) are ASSET-DERIVED: an
+        // `metallic` (`:1442`) and `albedo` (`surface.slang`'s `base_color_factor * texture`) are ASSET-DERIVED: an
         // asset whose metal texels are not white does move under E3, and one with `MetallicMax != 1` under E2.
         // `goo_step9_result.md` §4 has the probes.
         const float3 goo_fresnel0 = lerp(float3(goo_fgd_dielectric_f0), albedo * goo_base_colour, metallic * metallic_max);
@@ -3514,7 +3514,7 @@ float3 toon_diffuse(float3 albedo, const float albedo_alpha, const uint family, 
 
     // ---- THE ENVIRONMENT'S SPECULAR HALF: A POLYNOMIAL INSTEAD OF THE ENGINE'S LUT ----
     //
-    // THE ENGINE ALREADY HAS A SPLIT-SUM IBL (`shaders/ibl_specular.glsl`, shared with the deferred path) AND THIS
+    // THE ENGINE ALREADY HAS A SPLIT-SUM IBL (`shaders/ibl_specular.slang`, shared with the deferred path) AND THIS
     // STAGE DELIBERATELY DOES NOT USE ITS BRDF HALF, which is the article's choice rather than an oversight: the
     // game's highlight comes from a FIT of the same integral - the pair of polynomials below, the DFG fit NVIDIA's
     // NRD uses - plus a KULLA-CONTY term for the energy a single-scattering fit loses. A toon character is exactly
@@ -3663,7 +3663,7 @@ float4 main(
     // The same surface the G-buffer pass wrote, gathered by the same function: a normal-map fetch, the
     // double-sided flip and the material's factors cannot disagree with the G-buffer if there is one
     // implementation of them.
-    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv);
+    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
 
     // THE PER-FAMILY RAMP, selected by the family the LOADER classified this material's name into (see
     // gltf_loader's toon_family_of) and carried through the material record. An unclassified material gets
@@ -3681,12 +3681,12 @@ float4 main(
     // `normalize(s.normal)` unchanged unless the Goo chain is the one being compiled, the material reads a normal
     // map and lane 24 states a strength - see its note for the reference's formula, the dump nodes it was read from
     // and the reason the G-buffer's own normal is deliberately left where it is.
-    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal)), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
+    const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front), v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
 
     // ---- THE EMISSIVE TERM, ADDED AFTER THE LIGHTING LIKE EVERY OTHER STAGE'S ----
     //
     // IT WAS BEING GATHERED AND THROWN AWAY, and the loss was invisible rather than absent: `gather_surface`
-    // already fetches `s.emissive` (the material's emissive factor times its emissive map, `surface.glsl`), this
+    // already fetches `s.emissive` (the material's emissive factor times its emissive map, `surface.slang`), this
     // stage simply never read it. What that costs is not "the toon shade is missing a term" but "an emissive
     // toon material lost the emission the G-buffer had already added": the G-buffer pass ADDS emissive into the
     // scene colour (`gbuffer.slang`: `out.scene_color = float4(s.emissive, 1.0)`, blended ONE/ONE), and this
@@ -3694,7 +3694,7 @@ float4 main(
     // character whose material ships one (chen's cloth carries an emissive map and factor 0.57/0.81/0.88) is
     // shaded flat where the engine's own forward path would glow.
     //
-    // THE POSITION IS THE ENGINE'S, NOT AN INVENTION: `shading.glsl` composes `ambient + direct + specular_ibl +
+    // THE POSITION IS THE ENGINE'S, NOT AN INVENTION: `shading.slang` composes `ambient + direct + specular_ibl +
     // s.emissive`, i.e. emission is added after everything that is lit, and it is not attenuated by shadow or
     // ao - it is radiance the surface produces, not light it receives. `_EmissionBrightness` (the game's own
     // scalar, 1.0 on every material of every character in this repository) is deliberately NOT applied here:

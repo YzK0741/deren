@@ -1044,7 +1044,7 @@ WARN_LOGFILE           =
 # NOTE ON `./docs`: THE DESIGN RECORDS ARE LISTED ONE BY ONE RATHER THAN AS A DIRECTORY, and that is deliberate -
 # `docs/` also holds doxygen's own OUTPUT (`docs/html`, `docs/latex`, both gitignored: with RECURSIVE = YES a
 # directory input would make the manual document itself, and its generated `.tex`/`.sty`) and two sets that are NOT
-# this project's prose: `docs/reference/` (third-party technique notes) and `source/shaders/reference/official/` (upstream GLSL,
+# this project's prose: `docs/reference/` (third-party technique notes) and `source/reference/shaders/official/` (upstream GLSL,
 # which EXTENSION_MAPPING would read as C++ and warn about). So the documents below are the durable reasoning, named
 # explicitly; a new one has to be added here, and `./docs/mainpage.md` is also the manual's front page
 # (USE_MDFILE_AS_MAINPAGE).
@@ -1207,7 +1207,7 @@ RECURSIVE              = YES
 # Note that relative paths are relative to the directory from which Doxygen is
 # run.
 
-EXCLUDE                = ./source/shaders/glsl.old
+EXCLUDE                = ./source/reference/shaders/glsl.old
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
 # directories that are symbolic links (a Unix file system feature) are excluded
@@ -1224,7 +1224,7 @@ EXCLUDE_SYMLINKS       = NO
 # exclude all test directories for example use the pattern */test/*
 
 EXCLUDE_PATTERNS       = */source/vstd/std/* \
-                         */source/shaders/reference/official/*
+                         */source/reference/shaders/official/*
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the

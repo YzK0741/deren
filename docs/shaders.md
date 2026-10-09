@@ -13,7 +13,7 @@
  * THE NAMES BELOW ARE STAGE NAMES, and they are also the `.spv` file names the runtime loads. The SOURCES
  * are Slang (`.slang` files, one per shader family - a family with several stages has several entries in one
  * file, which is why this list names stages rather than files). The former GLSL sources are archived in
- * `source/shaders/glsl.old/` and are not built; the four shared bodies still carry GLSL syntax and are `#include`d
+ * `source/reference/shaders/glsl.old/` and are not built; the four shared bodies still carry GLSL syntax and are `#include`d
  * by the Slang leaves (see docs/slang_migration.md for how that works).
  *
  * EVERY GEOMETRY STAGE BELOW IS A MESH STAGE, AND THE MESH FORM IS THE ONLY FORM: `VK_EXT_mesh_shader` is a
@@ -31,8 +31,8 @@
  *                                (one layer per cascade, `[render] shadow_cascades` = 1..4)
  *                                [or shadow.meshlet.spv: one workgroup per meshlet]
  *        |
- *  surface.glsl                  (include) the shared material-surface gather, and
- *  shading.glsl                  (include) the shared lighting - used by the G-buffer path below and
+ *  surface.slang                  (include) the shared material-surface gather, and
+ *  shading.slang                  (include) the shared lighting - used by the G-buffer path below and
  *                                by the transparent pass
  *        |
  *  pbr.mesh.spv + gbuffer.frag   opaque geometry -> three 1x G-buffer targets + a 1x depth image
@@ -42,7 +42,7 @@
  *                                scene color (5th attachment)
  *        |
  *  post.vert + deferred.frag     fullscreen: read the G-buffer + depth, rebuild the world position
- *                                from the depth, light the surface with shading.glsl, add the result
+ *                                from the depth, light the surface with shading.slang, add the result
  *                                into the scene color - sky where no geometry wrote depth
  *        |
  *  pbr.mesh.spv + pbr.frag/unlit.frag  the TRANSPARENT pass: alphaMode BLEND geometry, shaded while it
@@ -112,24 +112,24 @@
  * attachments, so it is only valid inside the G-buffer instance, and the pass hands it to
  * default-semantics leaves under `runtime::gbuffer_pipeline_name` ("gbuffer").
  *
- * @section shader_surface The shared material-surface gather (surface.glsl)
+ * @section shader_surface The shared material-surface gather (surface.slang)
  *
  * `pbr.frag` and `gbuffer.frag` answer the same question - "what is this surface made of?" - and both
- * do it through `gather_surface()` in `source/shaders/surface.glsl`: the material table lookup, the glTF
+ * do it through `gather_surface()` in `source/shaders/surface.slang`: the material table lookup, the glTF
  * alpha tests (the MASK `discard` lives in there, so no pass can forget it), the tangent-space normal
  * map with the double-sided flip, and the texture-derived factors. The include declares the descriptor
  * bindings and the push constant block it depends on (bindings 1 and 5, the shared material push
  * block), so a shader including it must not declare them again.
  *
- * @section shader_shading The shared lighting (shading.glsl)
+ * @section shader_shading The shared lighting (shading.slang)
  *
- * `shade_surface()` in `source/shaders/shading.glsl` is the engine's SINGLE lighting entry point: the
+ * `shade_surface()` in `source/shaders/shading.slang` is the engine's SINGLE lighting entry point: the
  * directional sun through the shadow test, the punctual lights, the split-sum IBL ambient, the
  * selectable BRDF/diffuse presets and the cel-shading bands. It takes a `shade_input` - world position,
  * normal, albedo, emissive, metallic, roughness, AO - which the caller fills from whatever it has (the
  * deferred path from G-buffer texels, a forward-style stage from its interpolated fragment inputs), so
  * the lighting cannot tell where the surface came from. The include reaches the resources it needs
- * through the descriptor heap, with `source/shaders/heap_slots.glsl` naming the slots (the camera UBO, the IBL
+ * through the descriptor heap, with `source/shaders/heap_slots.slang` naming the slots (the camera UBO, the IBL
  * maps, the light UBO and the shadow map).
  *
  * This section used to read ONE FUNCTION, TWO PATHS - `pbr.frag` (forward) and `deferred.frag`
@@ -138,7 +138,7 @@
  * is one path now and nothing to compare it against; the measurements taken while there were two are in
  * `docs/mainpage.md`'s M2 note.
  *
- * @section shader_sky The shared sky (sky.glsl)
+ * @section shader_sky The shared sky (sky.slang)
  *
  * `sky_color()` is a pure function of a world-space direction with no bindings at all, and the deferred
  * path calls it for the pixels whose G-buffer depth is still the far plane. It was shared with a second
@@ -154,7 +154,7 @@
  * and appends every light whose bounding sphere intersects that box to the cluster's fixed-capacity
  * index row (`binding 12`, one atomic counter per cluster in `binding 11`). The shading stage
  * computes the same cluster from `gl_FragCoord` and its view depth - `cluster_slice_of()` in
- * `shading.glsl` and the compute shader MUST agree on the slice boundaries - then loops only that
+ * `shading.slang` and the compute shader MUST agree on the slice boundaries - then loops only that
  * row. The `cluster_grid.w` lane switches between the clustered list and the brute-force loop over
  * `light_count` lights, which is what the clustered path is verified against: the sphere test is
  * conservative, so the two produce byte-identical images. The grid dims and the slice depth range
@@ -248,8 +248,8 @@
  * by walking up from the working directory). **slangc is required, not optional** - every stage is built from
  * a `.slang` source and the rule has no GLSL fallback any more, so a configuration without the compiler
  * fails loudly instead of compiling modules the project no longer uses. The retired GLSL stage sources are
- * archived in `source/shaders/glsl.old/`; the shared bodies (`surface.glsl`, `shading.glsl`, `sky.glsl`,
- * `ibl_specular.glsl`, `heap_slots.glsl`, `heap_slot_constants.glsl`) stay in `source/shaders/`, because the Slang
+ * archived in `source/reference/shaders/glsl.old/`; the shared bodies (`surface.slang`, `shading.slang`, `sky.slang`,
+ * `ibl_specular.slang`, `heap_slots.slang`, `heap_slot_constants.slang`) stay in `source/shaders/`, because the Slang
  * leaves include them.
  *
  * `source/shaders/compile_shaders.ps1` / `.sh` remain as a manual escape hatch for a machine without CMake -
@@ -261,7 +261,7 @@
  * @endcode
  *
  * Both scripts mirror `CMakeLists.txt`'s `VR_SLANG_SOURCES` (source, entry point, stage, output) and pass the
- * same flags, including `-I source/shaders/`, which is what lets a leaf `#include "surface.glsl"`. They are verified
+ * same flags, including `-I source/shaders/`, which is what lets a leaf `#include "surface.slang"`. They are verified
  * by running them and comparing their output with the build's, byte for byte.
  *
  * @section shader_conventions Conventions and pitfalls

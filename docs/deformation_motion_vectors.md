@@ -6,7 +6,7 @@ instrument that has to exist before the fix can be accepted at all.
 > **A NOTE ON THE FILE REFERENCES, since two migrations have moved under them.** Every `source/shaders/pbr.vert` /
 > `source/shaders/shadow.vert` reference below is to the source as it stood when this feature was implemented: the Slang
 > migration moved those bodies into `source/shaders/pbr.slang` / `source/shaders/shadow.slang` (the GLSL originals are in
-> `source/shaders/glsl.old/`), and the mesh-shader migration then removed those files' vertex ENTRIES altogether
+> `source/reference/shaders/glsl.old/`), and the mesh-shader migration then removed those files' vertex ENTRIES altogether
 > (docs/mesh_shaders.md step 4) - the morph/skin/motion code they argue about now lives in the shared
 > `pbr_shade_vertex` body that the mesh entries call. The measurements, the fixtures and the acceptance are
 > unaffected; only the paths changed.
@@ -54,7 +54,7 @@ buffer holding the block that was current one frame ago is reachable as
 `heap_slots_skin_matrices_previous + heap_frame_slot` - and that is exactly how the rigid half already
 reaches its own past. `advance_motion_transforms()` publishes the one-frame-ago state **into the current
 frame slot's** buffer (`source/engine/runtime/runtime.frames.cppm:224,240`) rather than leaving it in the other
-slot, which is why `heap_previous_slot` needs no lane (`source/shaders/heap_slots.glsl:122`), and
+slot, which is why `heap_previous_slot` needs no lane (`source/shaders/heap_slots.slang:122`), and
 `advance_motion_deformations()` does the same by construction (decision 2). The alternative - leave the
 previous data sitting in the other frame slot and address it with a host-resolved `1 - frame_slot` through
 the existing `extra_lane` mechanism (`source/engine/runtime/runtime.cpp:869-871`) - is refused: it would make the
@@ -174,9 +174,9 @@ The half that needs no push-block change, and it covers the assets that skin rat
 
 * **the heap family**: `heap_slots_skin_matrices_previous`, 2 slots (per-frame families span 2 slots,
   `MAX_FRAMES_IN_FLIGHT = 2` at `source/backends/vulkan/core/core.declarations.cppm:607`), declared in **both**
-  `source/shaders/heap_slots.glsl` (beside `:56`) and the `struct heap_slots` in
+  `source/shaders/heap_slots.slang` (beside `:56`) and the `struct heap_slots` in
   `source/backends/vulkan/core/core.declarations.cppm` (beside `:543`), plus a `heap_skin_previous_slot` macro beside
-  `source/shaders/heap_slots.glsl:123`. The grid is `heap_slot_base = 16384`, `heap_slot_stride = 64`,
+  `source/shaders/heap_slots.slang:123`. The grid is `heap_slot_base = 16384`, `heap_slot_stride = 64`,
   `heap_slot_count = 1024` (`core.declarations.cppm:496,513-514`; `core.constructor.cppm:97-110` reserves
   it), the used span is 743 slots, so the free tail is 743..1023 - the two new families belong there
   (743 and 745), not in the middle of a family that would then have to be renumbered. Two ctest rules
@@ -184,7 +184,7 @@ The half that needs no push-block change, and it covers the assets that skin rat
   asserts that the grid's scalars and every array's slot agree (a one-sided edit fails), and `:692-702`
   requires every named shader slot to be referenced as `heap_slots::<name>` by some host unit - which the
   `write_heap_scene_buffer` call below is, and would not be if the family were addressed any other way.
-  One recorded follow-up: the "703 slots are in use" comment in `source/shaders/heap_slots.glsl:89` and
+  One recorded follow-up: the "703 slots are in use" comment in `source/shaders/heap_slots.slang:89` and
   `core.declarations.cppm:514` is stale - it stops at `display_color` + 8 and ignores `tlas` (703,704),
   `rt_visibility_storage` (711..718), `ml_trace_storage` (719..726) and `ml_resolved_storage` (735..742).
 * **the buffers**: `skin_buffers_previous` + its mapped pointer, created beside

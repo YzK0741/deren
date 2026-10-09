@@ -110,8 +110,8 @@ float3 resolve(float2 uv)
 
     // ---- blend, trusting the history less the faster the pixel moves ----
     const float speed = length(motion / texel_size()); // motion in pixels
-    const float history_weight = mix(pc.blend_static, pc.blend_min, clamp(speed, 0.0, 1.0)) * pc.history_valid;
-    return mix(center, history, history_weight);
+    const float history_weight = lerp(pc.blend_static, pc.blend_min, clamp(speed, 0.0, 1.0)) * pc.history_valid;
+    return lerp(center, history, history_weight);
 }
 
 [shader("fragment")]

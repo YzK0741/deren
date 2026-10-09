@@ -4,7 +4,7 @@
 // Ported from shaders/megalights_trace.comp.
 //
 // WHAT IT EXISTS FOR, unchanged by the port: every punctual light in this engine is unshadowed - the cluster
-// loop in shading.glsl accumulates a light's radiance with no visibility term at all, so a demo light behind a
+// loop in shading.slang accumulates a light's radiance with no visibility term at all, so a demo light behind a
 // column lights the wall in front of it. The fix is not one shadow ray per light per pixel (that cost grows
 // with the light count) but the estimator Unreal's MegaLights uses: each pixel picks a few lights
 // STOCHASTICALLY, with a probability proportional to how much each light contributes, and traces one ray per
@@ -52,14 +52,14 @@ struct MlPush
 
 // ... and the scene-set header, INCLUDED ONLY NOW: its functions read the per-frame arrays through the slot
 // macros, which expand to `pc.frame_slot`, so `pc` has to exist first.
-#include "shading.glsl"
+#include "shading.slang"
 
 /// @brief the compile-time bound on samples per pixel: UE supports 1, 2 and 4, and the loop is bounded by the
 ///        constant so the reservoir arrays have a size (the ACTIVE count is a push lane).
-const int ML_MAX_SAMPLES = 4;
+static const int ML_MAX_SAMPLES = 4;
 /// @brief UE's `r.MegaLights.MaxShadingWeight`: how much a single sample may contribute on its own, which is
 ///        what keeps one unblocked sample of an occluded-but-bright light from writing a firefly.
-const float ML_MAX_SHADING_WEIGHT = 20.0;
+static const float ML_MAX_SHADING_WEIGHT = 20.0;
 
 /// @brief a uniform in [0,1) from an integer state (the same PCG-style hash the GI tracer uses)
 uint hash_u32(uint x)
@@ -83,7 +83,7 @@ float next_uniform(inout uint state)
 float3 world_position_from_depth(float2 uv, float depth)
 {
     const float4 clip = float4(uv * 2.0 - 1.0, depth, 1.0);
-    const float4 world = pc.inv_view_proj * clip;
+    const float4 world = mul(clip, pc.inv_view_proj);
     return world.xyz / world.w;
 }
 
@@ -169,7 +169,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
     const float roughness = normal_roughness.w;
     const float3 world_pos = world_position_from_depth(uv, depth);
     const float3 v = normalize(camera_at(heap_camera_slot).camera_pos.xyz - world_pos);
-    const float3 f0 = mix(float3(0.04, 0.04, 0.04), albedo, metallic);
+    const float3 f0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
 
     // The cluster lookup happens at the FULL-resolution pixel this half-resolution texel stands for: the light
     // grid is built in full-resolution tiles, so a half-resolution texel that used its own coordinates would
@@ -207,7 +207,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
         float3 dir;
         float distance;
         const float3 radiance = punctual_light_radiance(pl, world_pos, dir, distance);
-        if (radiance == float3(0.0, 0.0, 0.0))
+    if (all(radiance == float3(0.0, 0.0, 0.0)))
         {
             continue; // out of range, or outside the spot's cone: not a candidate at all
         }
@@ -256,7 +256,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
             // The origin bias shrinks as the light approaches the normal: at grazing incidence the surface and
             // the ray are nearly parallel, and a bias small enough there would let the ray re-hit the triangle
             // it started on. UE's pair.
-            const float offset = mix(pc.bias.y, pc.bias.x, clamp(dot(normal, dir), 0.0, 1.0));
+            const float offset = lerp(pc.bias.y, pc.bias.x, clamp(dot(normal, dir), 0.0, 1.0));
             const float3 origin = world_pos + normal * offset;
 
             // ---- SOFT SHADOWS: the emitter has a size, so the ray aims at a DISC around its centre ----

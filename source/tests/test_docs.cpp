@@ -410,7 +410,7 @@ int32_t main() {
         //    two files that declare them (test_render_resources owns the comparison between those two)
         {
             std::string const grid = read_text((root / "source" / "engine" / "render_layout" / "render_layout.cppm").string()) +
-                                     read_text((root / "source" / "shaders" / "heap_slot_constants.glsl").string());
+                                     read_text((root / "source" / "shaders" / "heap_slot_constants.slang").string());
             std::set<std::string> const declared = slots_named_in(grid);
             for (std::string const& slot : slots_named_in(text)) {
                 if (is_not_a_slot(slot)) {

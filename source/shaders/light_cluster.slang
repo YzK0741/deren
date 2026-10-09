@@ -13,7 +13,7 @@
 // buffers the pass WRITES declared as `RWStructuredBuffer` behind the same heap slots the GLSL declares as
 // `writeonly buffer` (a heap descriptor is an address range, so the read/write direction is the shader's).
 //
-// The shading side of the contract is `cluster_slice_of()` in shaders/shading.glsl: the slice boundaries MUST
+// The shading side of the contract is `cluster_slice_of()` in shaders/shading.slang: the slice boundaries MUST
 // be the same function on both sides, or a fragment lands in a cluster whose list was never built for it.
 // That is why `inverse(camera.proj)` here has to mean exactly what glslang means by it - see the note on
 // cluster_bounds.
@@ -22,8 +22,8 @@
 
 #include "heap_access.slang"
 
-const int MAX_PUNCTUAL_LIGHTS = 128;   // deren::vulkan::max_punctual_lights
-const int CLUSTER_LIGHT_CAPACITY = 32; // deren::vulkan::cluster_light_capacity (lights stored per cluster)
+static const int MAX_PUNCTUAL_LIGHTS = 128;   // deren::vulkan::max_punctual_lights
+static const int CLUSTER_LIGHT_CAPACITY = 32; // deren::vulkan::cluster_light_capacity (lights stored per cluster)
 
 struct PunctualLight
 {
@@ -91,6 +91,13 @@ struct ClusterPush
 ///       inverse inline and Slang expands its own, and two expansions can disagree in the last bit. The gate
 ///       is what decides whether they do here (a cluster box that moves by one ULP can move a light across a
 ///       boundary); if it ever fails on the cluster scenarios, this line is the first place to look.
+// Preserve the old MatrixInverse instruction and its rounding at cluster boundaries.
+// Slang's SPIR-V interop: https://docs.shader-slang.org/en/stable/external/slang/docs/user-guide/a1-04-interop.html
+float4x4 projection_inverse(float4x4 matrix)
+{
+    return spirv_asm { result:$$float4x4 = OpExtInst glsl450 MatrixInverse $matrix; };
+}
+
 void cluster_bounds(uint tile_x, uint tile_y, uint slice, uint3 grid, out float3 out_min, out float3 out_max)
 {
     const float near_depth = max(light_at(heap_light_slot).cluster_depth.x, 1e-4);
@@ -105,7 +112,7 @@ void cluster_bounds(uint tile_x, uint tile_y, uint slice, uint3 grid, out float3
     const float2 ndc_min = px_min / screen * 2.0 - 1.0;
     const float2 ndc_max = px_max / screen * 2.0 - 1.0;
 
-    const mat4 inv_proj = inverse(camera_at(heap_camera_slot).proj);
+    const float4x4 inv_proj = projection_inverse(camera_at(heap_camera_slot).proj);
     out_min = float3(3.4e38, 3.4e38, 3.4e38);
     out_max = float3(-3.4e38, -3.4e38, -3.4e38);
     for (int corner = 0; corner < 4; ++corner)
@@ -114,7 +121,7 @@ void cluster_bounds(uint tile_x, uint tile_y, uint slice, uint3 grid, out float3
         for (int plane = 0; plane < 2; ++plane)
         {
             const float4 clip = float4(ndc, plane == 0 ? 0.0 : 1.0, 1.0);
-            const float4 view_point = inv_proj * clip;
+            const float4 view_point = mul(clip, inv_proj);
             const float3 ray = view_point.xyz / view_point.w; // view-space point on that plane
             // scale the ray so its view depth (positive in front of the camera) is the slice's
             const float depth = plane == 0 ? slice_near : slice_far;
@@ -162,7 +169,7 @@ void main(uint3 cluster_id : SV_DispatchThreadID)
         const float4 position = light_at(heap_light_slot).punctual_lights[i].position;
         const float range = light_at(heap_light_slot).punctual_lights[i].params.x;
         // view-space light sphere vs the cluster box: the closest point of the box to the center
-        const float3 center = (camera_at(heap_camera_slot).view * float4(position.xyz, 1.0)).xyz;
+        const float3 center = (mul(float4(position.xyz, 1.0), camera_at(heap_camera_slot).view)).xyz;
         const float3 closest = clamp(center, box_min, box_max);
         const float3 delta = center - closest;
         // range == 0 is the "no cutoff" light (its falloff never reaches zero): always include it
@@ -174,7 +181,8 @@ void main(uint3 cluster_id : SV_DispatchThreadID)
         // `atomicAdd` returns the PREVIOUS value, which is the slot this light takes in the cluster's list -
         // the same thing the GLSL reads, and the reason the pass needs no prefix sum: the list is fixed
         // capacity and a cluster that overflows simply drops the extra lights.
-        const uint slot = atomicAdd(counts[cluster], 1u);
+        uint slot;
+        InterlockedAdd(counts[cluster], 1u, slot);
         if (slot < uint(CLUSTER_LIGHT_CAPACITY))
         {
             indices[cluster * uint(CLUSTER_LIGHT_CAPACITY) + slot] = i;

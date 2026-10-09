@@ -2214,7 +2214,7 @@ int32_t main() {
     //     texnormal.xy *= strength;
     //     texnormal.z = mix(1.0, texnormal.z, saturate(strength));
     //
-    // i.e. `n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))))`. The assertions below therefore
+    // i.e. `n_ts = normalize(float3(strength * xy, lerp(1.0, z1, saturate(strength))))`. The assertions below therefore
     // do three jobs rather than restating one: (a) the decode half the dump DOES state, (b) that this expression
     // differs from the WEIGHT form `1 + strength*(z1 - 1)` that an earlier revision of this port shipped - at the
     // body's own strength the two are 11.31 degrees apart and only one of them keeps `z` positive - and (c) the
@@ -2868,13 +2868,13 @@ int32_t main() {
                                                "return clamp(mapped, 0.0, goo_depth_rim_clamp_max) / goo_depth_rim_divisor;",
                                                "static const float goo_depth_rim_base_ceiling = 0.5;",
                                                // the offset is a CAMERA-SPACE translation of the point, reprojected
-                                               "const vec3 rim_offset = vec3(goo_rim_width_scale * rim_width_x * n_cam.x, goo_rim_width_scale * rim_width_y * n_cam.y, 0.0);",
-                                               "const vec4 offset_clip = camera_at(heap_camera_slot).proj * vec4(view_pos + rim_offset, 1.0);",
+                                               "const float3 rim_offset = float3(goo_rim_width_scale * rim_width_x * n_cam.x, goo_rim_width_scale * rim_width_y * n_cam.y, 0.0);",
+                                               "const float4 offset_clip = mul(float4(view_pos + rim_offset, 1.0), camera_at(heap_camera_slot).proj);",
                                                // ... and the products are GLSL-spelled on purpose: the round-trip
                                                // test above exists because the HLSL spellings of the same two
                                                // products are NOT matrix products under Slang's GLSL mode
-                                               "const vec4 world = pc.inv_view_proj * vec4(uv * 2.0 - 1.0, depth, 1.0);",
-                                               "const vec3 view_pos = (camera_at(heap_camera_slot).view * vec4(world_pos, 1.0)).xyz;",
+                                               "const float4 world = mul(float4(uv * 2.0 - 1.0, depth, 1.0), pc.inv_view_proj);",
+                                               "const float3 view_pos = (mul(float4(world_pos, 1.0), camera_at(heap_camera_slot).view)).xyz;",
                                                // ... and the two samples are BOTH `-get_view_z_from_depth`
                                                "return pc.proj_32 / (depth + pc.proj_22);",
                                                "const float depth_self = goo_rim_view_depth(stored_depth);",
@@ -3008,14 +3008,14 @@ int32_t main() {
                 // re-check from the dump.
                 for (char const* const spelling : {"static const float goo_normal_z_floor = 1.0000000168623835e-16;",
                                                    "static const float goo_normal_strength_default = 1.0;",
-                                                   "float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, const float2 uv, const float3 port_normal)",
+                                                   "float3 goo_toon_shading_normal(const float3 world_pos, const float3 geo_normal, const float2 uv, const float3 port_normal, bool is_front)",
                                                    "if ((mat.flags & 1u) == 0u) {",
                                                    "if (!(strength > goo_lane_absent_threshold)) {",
                                                    "const float2 xy = heap_sample(mat.tex_indices.z, uv).rg * 2.0 - 1.0;",
                                                    "const float d = clamp(dot(xy, xy), 0.0, 1.0);",
                                                    "const float z1 = max(sqrt(1.0 - d), goo_normal_z_floor);",
-                                                   "const float3 n_ts = normalize(float3(strength * xy, mix(1.0, z1, saturate(strength))));",
-                                                   "decoded = normalize(mat3(sdir, tdir, normal) * n_ts);"}) {
+                                                   "const float3 n_ts = normalize(float3(strength * xy, lerp(1.0, z1, saturate(strength))));",
+                                                   "decoded = normalize(mul(n_ts, float3x3(sdir, tdir, normal)));"}) {
                     CHECK_MSG(character_forward.find(spelling) != std::string::npos, spelling);
                 }
                 // N4: THE LANE INDEX THE DECODE READS. The spellings above pin the FORM of the expression but not WHICH
@@ -3028,9 +3028,9 @@ int32_t main() {
                           "the saturate-folded `normalize(strength*xy, z1)` form is NOT what the port ships - the engine's expression is kept whole");
                 CHECK_MSG(character_forward.find("1.0 + strength * (z1 - 1.0)") == std::string::npos,
                           "and the WEIGHT form this port shipped before the correction is gone from the shader");
-                CHECK_MSG(character_forward.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal))") != std::string::npos,
+                CHECK_MSG(character_forward.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front)") != std::string::npos,
                           "the surface stage's own `main` passes the decoded normal");
-                CHECK_MSG(shader.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal))") != std::string::npos,
+                CHECK_MSG(shader.find("goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front)") != std::string::npos,
                           "and so does `goo_toon_frag_main`, which is the entry point the Goo frame actually runs");
                 // THE GUARD IS THE ANCHOR'S OWN MECHANISM: the two INCLUDE-ONLY readers must keep the argument they
                 // had, so they must not name the helper at all (they compile the `#else` branch of its body).
@@ -3937,7 +3937,7 @@ int32_t main() {
         // (its `_RD` ramps are continuous remaps, not steps; see `deren-ab/goo_debt_s_armA_verify.md` §2.4):
         // the engine's cel knob is port-side and OFF by default, so `calc_shadow_cascade` returns raw visibility.
         {
-            std::string const shading = slurp("source/shaders/shading.glsl");
+            std::string const shading = slurp("source/shaders/shading.slang");
 
             // STRUCTURE PIN: the raw per-cascade visibility is what `calc_shadow_cascade` returns.
             // The anchor pair matters: a bare `find("return shadow;")` is toothless because `:325` in
@@ -3981,7 +3981,7 @@ int32_t main() {
 
             // THE NAMED COST, which is the whole reason this is a fix and not a no-op. The structure pin
             // above proves the quantizer is GONE; this one proves it was DOING something, so that removing
-            // it is a real behaviour change when the knob is on. A C++ mirror of `source/shaders/shading.glsl:223`
+            // it is a real behaviour change when the knob is on. A C++ mirror of `source/shaders/shading.slang:223`
             // (`toon_band`) is the falsifier: at the probe's own settings it must NOT be the identity.
             auto const toon_band_mirror = [](float x, float steps, float softness) {
                 if (steps < 1.5f) {
@@ -4048,19 +4048,19 @@ int32_t main() {
         // Nothing here re-implements the shader: what is pinned is the shape that keeps the SHADOW switchable -
         // the shipped early out inside the kernel, the call-site route, and the ABSENCE of the deleted gain.
         {
-            std::string const shading = slurp("source/shaders/shading.glsl");
+            std::string const shading = slurp("source/shaders/shading.slang");
 
             // 1.2: the two lanes are the LAST members of the struct, in this order, and inside it.
-            std::size_t const cluster_depth = shading.find("vec4 cluster_depth;");
-            std::size_t const area_light = shading.find("vec4 area_light;");
-            std::size_t const area_light_axis = shading.find("vec4 area_light_axis;");
+            std::size_t const cluster_depth = shading.find("float4 cluster_depth;");
+            std::size_t const area_light = shading.find("float4 area_light;");
+            std::size_t const area_light_axis = shading.find("float4 area_light_axis;");
             CHECK_MSG(cluster_depth != std::string::npos && area_light != std::string::npos &&
                           area_light_axis != std::string::npos && cluster_depth < area_light &&
                           area_light < area_light_axis,
                       "AREA LIGHT 1.2: area_light / area_light_axis must be declared AFTER cluster_depth, in order");
             std::size_t const struct_end = shading.find("};", cluster_depth);
             CHECK_MSG(struct_end != std::string::npos &&
-                          shading.substr(cluster_depth, struct_end - cluster_depth).find("vec4 area_light;") !=
+                          shading.substr(cluster_depth, struct_end - cluster_depth).find("float4 area_light;") !=
                               std::string::npos,
                       "AREA LIGHT 1.2: the two lanes must be INSIDE LightUBO (before its closing brace), not appended "
                       "after the struct");
@@ -4077,11 +4077,11 @@ int32_t main() {
             // has been silently reverted and this test says so.
             CHECK_MSG(shading.find("area_light_irradiance_gain") == std::string::npos,
                       "AREA LIGHT 3.1 (v1.1): `area_light_irradiance_gain` was deleted by the A' decision and must "
-                      "not reappear in shading.glsl");
+                      "not reappear in shading.slang");
 
             // 3.2: the shadow kernel. `<= 0` returns the SHIPPED calc_shadow itself, and the tap extent is the
             // world radius converted per cascade - never a constant kernel width.
-            std::size_t const area_fn = shading.find("float calc_shadow_area(vec3 world_pos, vec3 normal) {");
+            std::size_t const area_fn = shading.find("float calc_shadow_area(float3 world_pos, float3 normal) {");
             std::size_t const radius_lane =
                 shading.find("const float radius_world = light_at(heap_light_slot).area_light_axis.w;", area_fn);
             std::size_t const shipped_return = shading.find("return calc_shadow(world_pos, normal);", area_fn);

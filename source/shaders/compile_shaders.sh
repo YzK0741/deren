@@ -8,9 +8,9 @@
 #
 # EVERY SHADER IS SLANG NOW. The canonical list of what builds which .spv, with which entry point and stage,
 # is VR_SLANG_SOURCES in CMakeLists.txt; the table below MIRRORS it and every flag matches the CMake rule
-# exactly. The retired GLSL stage sources live in source/shaders/glsl.old/ and are NOT compiled by anything; the
-# shared bodies the Slang leaves include (surface.glsl, shading.glsl, sky.glsl, ibl_specular.glsl,
-# heap_slots.glsl, heap_slot_constants.glsl) stay in source/shaders/ and are inputs to every one of these
+# exactly. The retired GLSL stage sources live in source/reference/shaders/glsl.old/ and are NOT compiled by anything; the
+# shared bodies the Slang leaves include (surface.slang, shading.slang, sky.slang, ibl_specular.slang,
+# heap_slots.slang, heap_slot_constants.slang) stay in source/shaders/ and are inputs to every one of these
 # compilations. POSIX-sh twin of compile_shaders.ps1, so the two tables must stay identical.
 #
 # Usage:
@@ -47,7 +47,7 @@ fi
 count=0
 while IFS=: read -r src entry_point stage dst; do
     [ -n "$src" ] || continue
-    "$slangc_path" "$script_dir/$src" -I "$script_dir" -allow-glsl -DVR_SLANG \
+    "$slangc_path" "$script_dir/$src" -I "$script_dir" \
         -target spirv -profile spirv_1_6 -capability spvDescriptorHeapEXT \
         -spirv-resource-heap-stride 64 -spirv-sampler-heap-stride 32 \
         -fvk-use-gl-layout -matrix-layout-column-major \

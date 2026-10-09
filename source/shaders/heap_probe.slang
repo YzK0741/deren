@@ -18,12 +18,12 @@
 
 #include "heap_access.slang"
 
-// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.glsl`, the one place the
+// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.slang`, the one place the
 // record's std430 layout lives, and this stage includes it. A second copy is a second thing to keep in
 // step with the host's `static_assert(sizeof(material_record) == 80)`, and a copy that drifts indexes
 // every material after the first by the wrong STRIDE - which shows up as a wrong texture on every
 // material but one, not as a build error.
-#include "material_record.glsl"
+#include "material_record.slang"
 
 // The slot is a PARAMETER rather than a constant, and that is the point: the host pushes it, so the probe can
 // be run a second time with a deliberately WRONG slot - a probe that could only say "fine" would pass every

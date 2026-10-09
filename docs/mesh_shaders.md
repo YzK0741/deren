@@ -246,7 +246,7 @@ vulkan1.3` on every emitted `.spv`, and zero validation findings.
 
 **A NOTE ON NAMES, because every step below is named after the stage it converted.** "`pbr.vert` becomes a mesh
 stage" means "the geometry entry `source/shaders/pbr.slang` used to hold is replaced by its `mesh_main`": the Slang
-migration made every shader source a `.slang` file (the GLSL originals live in `source/shaders/glsl.old/`), and step 4
+migration made every shader source a `.slang` file (the GLSL originals live in `source/reference/shaders/glsl.old/`), and step 4
 deleted those two vertex entries outright. So `pbr.vert` / `shadow.vert` below name A PATH, not a file that exists
 in the tree today - and `source/shaders/pbr.slang` / `source/shaders/shadow.slang` are where the entries actually are.
 

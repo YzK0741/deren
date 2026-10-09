@@ -277,17 +277,23 @@ int32_t main() {
         }
     }
 
-    // ---- 6. No retired GLSL STAGE source is left in source/shaders/ (the migration's own contract) ----
-    // The archive lives in source/shaders/glsl.old/; a .vert/.frag/.comp in source/shaders/ would be a source nothing
-    // compiles and a reader would take for live code. The shared bodies (.glsl, included by the leaves) are
-    // not stage sources and stay.
+    // Runtime sources are entirely Slang. GLSL originals live in source/reference/shaders/.
     for (auto const& file : std::filesystem::directory_iterator(root + "/source/shaders")) {
         if (!file.is_regular_file()) {
             continue;
         }
         std::string const extension = file.path().extension().string();
-        CHECK_MSG(extension != ".vert" && extension != ".frag" && extension != ".comp" && extension != ".mesh",
-                  ("a retired GLSL stage source is in source/shaders/: " + file.path().filename().string()).c_str());
+        CHECK_MSG(extension != ".vert" && extension != ".frag" && extension != ".comp" && extension != ".mesh" && extension != ".glsl",
+                  ("a GLSL source is in the runtime shader directory: " + file.path().filename().string()).c_str());
+    }
+
+    for (std::string const& path : {root + "/CMakeLists.txt", root + "/source/shaders/compile_shaders.ps1", root + "/source/shaders/compile_shaders.sh"}) {
+        for (std::string const& raw : read_lines(path)) {
+            std::string const line = trim(raw);
+            if (!line.empty() && line.front() != '#') {
+                CHECK_MSG(line.find("-allow-glsl") == std::string::npos, ("shader compilation still enables GLSL compatibility: " + path).c_str());
+            }
+        }
     }
 
     return deren::vk_test::finish("test_shader_sources");

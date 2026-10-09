@@ -31,12 +31,12 @@
 
 #include "heap_access.slang"
 
-// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.glsl`, the one place the
+// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.slang`, the one place the
 // record's std430 layout lives, and this stage includes it. A second copy is a second thing to keep in
 // step with the host's `static_assert(sizeof(material_record) == 80)`, and a copy that drifts indexes
 // every material after the first by the wrong STRIDE - which shows up as a wrong texture on every
 // material but one, not as a build error.
-#include "material_record.glsl"
+#include "material_record.slang"
 
 struct MaskBakePush
 {
@@ -142,7 +142,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
                 continue; // outside the triangle (the tolerance absorbs the grid's own rounding)
             }
             // The same coverage the raster path tests: base colour factor alpha times the texture's alpha,
-            // kept when it reaches the cutoff (shadow.frag's and surface.glsl's `alpha < cutoff -> discard`).
+            // kept when it reaches the cutoff (shadow.frag's and surface.slang's `alpha < cutoff -> discard`).
             // THE EXPLICIT-LOD FETCH, and here it is not merely a spelling choice: GLSL's implicit fetch is
             // legal here (the group is 64 wide, a multiple of four) but Slang refuses it - `E31210: derivative
             // group quad thread count error` - because the fetch sits inside non-uniform control flow (the

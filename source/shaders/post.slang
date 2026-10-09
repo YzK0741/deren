@@ -90,7 +90,7 @@ float3 linear_to_srgb(float3 color)
 {
     const float3 low = color * 12.92;
     const float3 high = 1.055 * pow(max(color, float3(0.0, 0.0, 0.0)), float3(1.0 / 2.4, 1.0 / 2.4, 1.0 / 2.4)) - 0.055;
-    return mix(low, high, step(float3(0.0031308, 0.0031308, 0.0031308), color));
+    return lerp(low, high, step(float3(0.0031308, 0.0031308, 0.0031308), color));
 }
 
 /// @brief 13-tap downsample (Karis, "Next Generation Post Processing in Call of Duty"), the filter UE uses for

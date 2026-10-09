@@ -176,7 +176,7 @@ static const uint mesh_stat_mesh_workgroups = 4u; // workgroups of the NON-meshl
 export void mesh_stat_add(const uint frame_slot, const uint counter, const uint value)
 {
     RWStructuredBuffer<uint> stats = heap_at<RWStructuredBuffer<uint>>(heap_slots_meshlet_stats);
-    atomicAdd(stats[frame_slot * mesh_stat_stride + counter], value);
+    InterlockedAdd(stats[frame_slot * mesh_stat_stride + counter], value);
 }
 // =============================================================================================================
 // CULLING HELPERS (docs/mesh_shaders.md step 3): what a stage needs to reject a whole meshlet before emitting any

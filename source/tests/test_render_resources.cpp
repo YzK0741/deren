@@ -584,7 +584,7 @@ int32_t main() {
     }
 
     // ---- the SLOT GRID's two sources of truth, compared: the host reserves it in core::heap_slots and the
-    //      shaders BAKE the same numbers out of source/shaders/heap_slot_constants.glsl. Both are text, neither is generated from
+    //      shaders BAKE the same numbers out of source/shaders/heap_slot_constants.slang. Both are text, neither is generated from
     //      the other, and a drift between them is invisible to validation - it shows up only as a wrong picture,
     //      because a heap-native shader indexes the heap by the number it was compiled with. The capture gate
     //      cannot run in CI at all (its references are tied to one machine's driver) and this can, so the two
@@ -630,21 +630,21 @@ int32_t main() {
 
         std::map<std::string, uint64_t> shader_scalars;
         std::map<std::string, uint64_t> shader_slots; // the `heap_slots_<name>` arrays
-        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/heap_slot_constants.glsl")) {
-            if (line.rfind("const uint ", 0) != 0) {
+        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/shaders/heap_slot_constants.slang")) {
+            if (line.rfind("static const uint ", 0) != 0) {
                 continue;
             }
             std::size_t const eq = line.find('=');
             if (eq == std::string::npos) {
                 continue;
             }
-            std::size_t const name_end = line.find(' ', 11);
+            std::size_t const name_end = line.find(' ', 18);
             std::optional<std::string> const rhs = rhs_after_eq(line, eq);
             CHECK_MSG(name_end != std::string::npos && rhs.has_value(), line.c_str());
             if (name_end == std::string::npos || !rhs.has_value()) {
                 continue;
             }
-            std::string const name = line.substr(11, name_end - 11);
+            std::string const name = line.substr(18, name_end - 18);
             std::optional<uint64_t> const value = value_of(*rhs, shader_scalars);
             CHECK_MSG(value.has_value(), name.c_str());
             if (!value.has_value()) {
@@ -738,20 +738,20 @@ int32_t main() {
             auto const found = shader_scalars.find(std::string(sampler_slots[i]));
             auto const base = shader_scalars.find("heap_sampler_base");
             CHECK_MSG(found != shader_scalars.end(), sampler_slots[i].data());
-            CHECK_MSG(base != shader_scalars.end(), "heap_sampler_base is not declared in source/shaders/heap_slot_constants.glsl");
+            CHECK_MSG(base != shader_scalars.end(), "heap_sampler_base is not declared in source/shaders/heap_slot_constants.slang");
             if (found == shader_scalars.end() || base == shader_scalars.end()) {
                 continue; // a reported failure, not a thrown std::out_of_range from map::at
             }
-            CHECK_MSG(found->second == base->second + i, "a sampler slot is out of order in source/shaders/heap_slot_constants.glsl");
+            CHECK_MSG(found->second == base->second + i, "a sampler slot is out of order in source/shaders/heap_slot_constants.slang");
             shader_scalars.erase(found);
         }
 
         // the scalars a shader bakes: the grid's base, its stride, how many slots it holds, and the sampler grid's
         CHECK(!shader_scalars.empty());
         CHECK(!host_scalars.empty());
-        CHECK_MSG(shader_scalars == host_scalars, "the grid's scalar constants differ between source/shaders/heap_slot_constants.glsl and core.declarations.cppm");
+        CHECK_MSG(shader_scalars == host_scalars, "the grid's scalar constants differ between source/shaders/heap_slot_constants.slang and core.declarations.cppm");
         CHECK_MSG(shader_slots.size() == host_slots.size(), "the grid has a different number of arrays on the two sides");
-        CHECK_MSG(shader_slots == host_slots, "a grid array's slot differs between source/shaders/heap_slot_constants.glsl and core.declarations.cppm");
+        CHECK_MSG(shader_slots == host_slots, "a grid array's slot differs between source/shaders/heap_slot_constants.slang and core.declarations.cppm");
         // ---- ... and every slot the header names must be one the HOST actually WRITES ----
         //
         // The comparison above keeps the two tables equal; this keeps them MEANINGFUL. A slot no host code ever

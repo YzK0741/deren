@@ -62,8 +62,8 @@ usually meets them. Each one links to the page or module that holds the detail.
 
 - **Deferred-only scene path.** The G-buffer path is the ONLY scene path; the forward one was
   removed. Every shading stage in the engine calls one function,
-  `shade_surface()` in `source/shaders/shading.glsl`, and shares the material-surface gather in
-  `source/shaders/surface.glsl`.
+  `shade_surface()` in `source/shaders/shading.slang`, and shares the material-surface gather in
+  `source/shaders/surface.slang`.
 - **Temporal anti-aliasing on a 1x G-buffer.** A Halton(2,3) projection jitter, per-pixel
   camera motion vectors written by the G-buffer, and a reprojected, neighborhood-clamped
   history with a view-depth disocclusion guard. TAA is the engine's anti-aliasing because a
@@ -222,9 +222,9 @@ G-buffer: the opaque pass stores the surface (albedo/metallic, world normal/roug
 material id/AO/flags) in three 1x targets, with a channel debug view. **M2 (done)** is the
 deferred lighting stage: `source/shaders/deferred.slang` shades every pixel from those targets and
 adds the result into the HDR target (sky where no geometry wrote depth), through
-`shade_surface()` - the SINGLE lighting entry point (`source/shaders/shading.glsl`) that every
+`shade_surface()` - the SINGLE lighting entry point (`source/shaders/shading.slang`) that every
 shading stage in the engine now calls - with emissive added by the base pass and the
-material-surface gather shared in `source/shaders/surface.glsl`. While the forward path still
+material-surface gather shared in `source/shaders/surface.slang`. While the forward path still
 existed the two were A/B references and agreed to 0.32/255 mean absolute luminance
 difference on Sponza; that number is a HISTORICAL measurement, not a current comparison -
 there is no longer a second path to compare against, the shared shading code simply IS the

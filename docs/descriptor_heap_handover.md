@@ -14,7 +14,7 @@ The work rode on the `descriptor-heap-migration` branch while it was in flight, 
 ## What is done, and what verifies it
 
 1. **Every descriptor is in the heaps.** A fixed slot grid at a 1 MiB base with a 64 B stride
-   (`core::heap_slots`, mirrored in `source/shaders/heap_slots.glsl`), the sampler grid at 64 KiB with a 32 B
+   (`core::heap_slots`, mirrored in `source/shaders/heap_slots.slang`), the sampler grid at 64 KiB with a 32 B
    stride, and a host write site for every slot the shader header names - `source/tests/test_render_resources.cpp`
    fails if a name appears in one and not the other, and it also pins the values, the scalars and the
    sampler order.
@@ -70,7 +70,7 @@ resolve the source, per frame, per swapchain image:
 | composite (mode 2) | `post_color + io.frame.image_index` (it takes the bloom levels itself, by constant) |
 
 `post_color` is 639 and the bloom chain is 647/655/663/671 - stride 8, those are the
-`core::heap_slots` / `heap_slots.glsl` constants.
+`core::heap_slots` / `heap_slots.slang` constants.
 
 **Why this is not a two-line fix.** A pass may not import `deren.vulkan.core`: no pass does today (they import
 `deren.vulkan.core.handles` and `deren.engine.render_resource`, and the split is deliberate - the grid is the
@@ -291,7 +291,7 @@ the bindless texture array - and the log had read for weeks:
 **Cause.** The 1x1 white fallback texture is created in the runtime's constructor and never passes
 through `register_material`'s heap-write loop, so its slot stayed EMPTY. Every material slot with no
 texture points at that index - Sponza's stone carries no occlusion map - so `s.ao` sampled as 0, and
-`source/shaders/shading.glsl` multiplies BOTH the diffuse ambient and the specular IBL by `s.ao`: those
+`source/shaders/shading.slang` multiplies BOTH the diffuse ambient and the specular IBL by `s.ao`: those
 surfaces were left with the sun's direct light and nothing else. That is also why it looked
 Sponza-only: the assets whose materials DO carry an occlusion map (DamagedHelmet, and the five
 scenarios built on it) were untouched, and the metal sweep was the opposite of insensitive - `s.ao`

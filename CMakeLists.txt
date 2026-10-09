@@ -1202,7 +1202,7 @@ if(VR_BUILD_TESTS)
     # for the same reason test_gltf_loader does - and it asserts the MISSING-file path too, which is a path
     # that must NOT exist, so the root has to be the real one rather than the build tree.
     target_compile_definitions(test_toon_material_sidecar PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # test_render_resources reads source/shaders/heap_slots.glsl and source/backends/vulkan/core/core.declarations.cppm to compare the slot grid's two
+    # test_render_resources reads source/shaders/heap_slots.slang and source/backends/vulkan/core/core.declarations.cppm to compare the slot grid's two
     # sources of truth (see the last block of that test): both are text, neither is generated from the other.
     target_compile_definitions(test_render_resources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_shader_sources parses the FOUR places a .spv is named (VR_SLANG_SOURCES, the two compile scripts, and
@@ -1696,7 +1696,7 @@ target_sources(static_utility PRIVATE
 #    gitignore by hand, or forget to regenerate;
 #  - the runtime finds it without any search-order guesswork, because that directory is a sibling of
 #    the executable and locate_shaders_dir() prefers a sibling of the running binary;
-#  - -I still points at the SOURCE directory, so #include "surface.glsl" resolves against the real
+#  - -I still points at the SOURCE directory, so #include "surface.slang" resolves against the real
 #    sources rather than against copies.
 # A mirror/ POST_BUILD step was tried first and is worse: a POST_BUILD command only runs when the
 # executable is RELINKED, so a shader-only edit recompiled the .spv and left the copy stale (measured).
@@ -1719,7 +1719,7 @@ if(NOT VR_SLANGC_EXECUTABLE)
     message(FATAL_ERROR
         "slangc not found. It ships with a Slang release (the Vulkan SDK's Bin directory carries one too), "
         "and every shader in this project is built from a .slang source - the GLSL FALLBACK THIS RULE USED "
-        "TO HAVE IS GONE, along with the GLSL stage sources themselves (source/shaders/glsl.old/) - so a build "
+        "TO HAVE IS GONE, along with the GLSL stage sources themselves (source/reference/shaders/glsl.old/) - so a build "
         "without it would be the one that silently compiles modules the project no longer uses. Install "
         "Slang or the Vulkan SDK, or add slangc to PATH.")
 endif()
@@ -1727,31 +1727,29 @@ endif()
 # files and glslc takes milliseconds, so recompiling an unaffected shader is cheaper than the
 # dependency bookkeeping that would avoid it.
 set(VR_SHADER_INCLUDES
-    "${VR_SHADER_SRC_DIR}/surface.glsl"
-    # material_record.glsl is the Material LAYOUT, split out of surface.glsl so a FULLSCREEN stage can name
-    # the type it reads from the material table - a fullscreen stage cannot include surface.glsl at all (its
+    "${VR_SHADER_SRC_DIR}/surface.slang"
+    # material_record.slang is the Material LAYOUT, split out of surface.slang so a FULLSCREEN stage can name
+    # the type it reads from the material table - a fullscreen stage cannot include surface.slang at all (its
     # shared scene push block is 144 bytes, over the 128-byte limit). It is here for the same reason the
     # other bodies are: a field added to it must rebuild every stage that reads the table.
-    "${VR_SHADER_SRC_DIR}/material_record.glsl"
+    "${VR_SHADER_SRC_DIR}/material_record.slang"
     # toon_params.slang is the TOON FAMILY TABLE, shared by every stage that shades a character (the
     # character-forward stage and the screen-space rim). It is here for the reason the bodies below are:
     # editing a family's parameters must rebuild every stage that read them, and a stage left on stale SPIR-V
     # would shade with the previous table - which looks like a tuning that did not take rather than like a
     # build error.
     "${VR_SHADER_SRC_DIR}/toon_params.slang"
-    "${VR_SHADER_SRC_DIR}/shading.glsl"
-    "${VR_SHADER_SRC_DIR}/sky.glsl"
-    # ibl_specular.glsl is included by shading.glsl, so it belongs here for the same reason the three above
+    "${VR_SHADER_SRC_DIR}/shading.slang"
+    "${VR_SHADER_SRC_DIR}/sky.slang"
+    # ibl_specular.slang is included by shading.slang, so it belongs here for the same reason the three above
     # do: editing it alone must not leave stale SPIR-V behind.
-    "${VR_SHADER_SRC_DIR}/ibl_specular.glsl"
-    # heap_slot_constants.glsl is the SLOT GRID's shader-side source of truth (core.declarations.cppm is the
+    "${VR_SHADER_SRC_DIR}/ibl_specular.slang"
+    # heap_slot_constants.slang is the SLOT GRID's shader-side source of truth (render_layout.cppm is the
     # host's): a shader that includes it and is not rebuilt after it changes would index the heap by stale
     # numbers, which validation cannot see. The C++ side is compared against it by a test (see
-    # test_render_resources). It is its own file rather than part of heap_slots.glsl because the Slang
-    # migration needs the same numbers - see docs/slang_migration.md - and heap_slots.glsl (the GLSL heap
-    # arrays and the fetch helper) includes it.
-    "${VR_SHADER_SRC_DIR}/heap_slot_constants.glsl"
-    "${VR_SHADER_SRC_DIR}/heap_slots.glsl"
+    # test_render_resources). heap_slots.slang and heap_access.slang include the same constants.
+    "${VR_SHADER_SRC_DIR}/heap_slot_constants.slang"
+    "${VR_SHADER_SRC_DIR}/heap_slots.slang"
     # heap_access.slang and mesh_geometry.slang are the two OTHER includes every leaf pulls in - the shim's heap
     # accessors, and the device-address geometry fetch a mesh stage uses instead of the input assembler. Both were
     # missing from this list, and the mesh one cost a measurement to find: the build tree's pbr.vert.spv and
@@ -1777,13 +1775,13 @@ set(VR_SHADER_INCLUDES
     "${VR_SHADER_SRC_DIR}/goo_toon.slang"
     # goo_rim.slang is THE REWRITTEN CHAIN'S THIRD STAGE and it is listed for the reason the two lines above are:
     # it reads the same two shared tables those stages do (`toon_params.slang`'s family table and
-    # `material_record.glsl`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
+    # `material_record.slang`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
     # on stale SPIR-V would read a material record with different field offsets, which is a wrong texture or a
     # wrong family rather than a build error.
     "${VR_SHADER_SRC_DIR}/goo_rim.slang"
 )
 # (THE GLSL STAGE LIST USED TO LIVE HERE: twenty-four names, glslc's input, kept in step with the sources by
-# hand. Every one of them is in source/shaders/glsl.old/ now and built from Slang instead, so the list is gone -
+# hand. Every one of them is in source/reference/shaders/glsl.old/ now and built from Slang instead, so the list is gone -
 # VR_SLANG_SOURCES below IS the list of what this build compiles.)
 set(VR_SHADER_OUTPUTS "")
 # ---- SLANG SOURCES: the GLSL -> Slang migration, one shader at a time (docs/slang_migration.md) --------
@@ -1793,8 +1791,6 @@ set(VR_SHADER_OUTPUTS "")
 # acceptance for every port is the capture gate staying byte-identical.
 #
 # THE FLAGS ARE THE BINDING CONTRACT, and every one of them was measured rather than guessed:
-#   -allow-glsl                 ... the shared slot constants are a plain `const uint` file (valid GLSL);
-#                                   Slang rejects a non-static global const without this (E31224).
 #   -capability spvDescriptorHeapEXT ... without it Slang emits the descriptor-set model instead of the heap.
 #   -spirv-resource-heap-stride 64 / -spirv-sampler-heap-stride 32 ... this renderer's grid is a flat 64-byte
 #                                   slot grid plus a 32-byte sampler heap, not Slang's per-type default.
@@ -1951,7 +1947,7 @@ foreach(entry IN LISTS VR_SLANG_SOURCES)
     add_custom_command(
         OUTPUT "${VR_SHADER_OUT_DIR}/${slang_output}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${VR_SHADER_OUT_DIR}"
-        COMMAND "${VR_SLANGC_EXECUTABLE}" "${VR_SHADER_SRC_DIR}/${slang_source}" -I "${VR_SHADER_SRC_DIR}" -allow-glsl -DVR_SLANG
+        COMMAND "${VR_SLANGC_EXECUTABLE}" "${VR_SHADER_SRC_DIR}/${slang_source}" -I "${VR_SHADER_SRC_DIR}"
                 -target spirv -profile spirv_1_6 -capability spvDescriptorHeapEXT
                 -spirv-resource-heap-stride 64 -spirv-sampler-heap-stride 32
                 -fvk-use-gl-layout -matrix-layout-column-major
@@ -1973,7 +1969,7 @@ list(APPEND VR_SHADER_OUTPUTS ${VR_SLANG_OUTPUTS})
 # THERE IS NO glslc RULE ANY MORE, and no VR_GLSL_SOURCES to compute: every stage is built from a .slang
 # source above, so the split ("which sources does glslc still have to build?") that this section used to
 # compute while the migration ran has no members left. The retired GLSL stage sources are archived in
-# source/shaders/glsl.old/ and are NOT part of the build - they exist to be read next to their ports.
+# source/reference/shaders/glsl.old/ and are NOT part of the build - they exist to be read next to their ports.
 # the runtime's log names the SOURCE file it is loading the SPIR-V for, and it looks for that name in
 # the same directory: copy the sources there so the log points at a file a reader of the build tree
 # can actually open. Not a correctness requirement - the .spv beside it is what gets loaded. The list is
@@ -1990,7 +1986,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${VR_SHADER_SRC_DIR}" "${VR_SHADER_OUT_DIR}"
     COMMAND ${CMAKE_COMMAND} -E touch "${VR_SHADER_OUT_DIR}/.sources-copied"
     DEPENDS ${VR_SHADER_OUTPUTS} ${VR_SHADER_SOURCE_COPIES} ${VR_SHADER_INCLUDES}
-    COMMENT "copying the GLSL sources beside the compiled shaders"
+    COMMENT "copying the Slang sources beside the compiled shaders"
     VERBATIM
 )
 add_custom_target(shaders ALL DEPENDS ${VR_SHADER_OUTPUTS} "${VR_SHADER_OUT_DIR}/.sources-copied")

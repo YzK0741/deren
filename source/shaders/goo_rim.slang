@@ -116,7 +116,7 @@
 // `goo_step3_result.md` rather than argued here.
 
 #include "heap_access.slang"
-#include "material_record.glsl"
+#include "material_record.slang"
 #include "toon_params.slang"
 
 struct GooRimPush
@@ -139,9 +139,9 @@ struct GooRimPush
 #define heap_image_index (pc.image_index)
 
 // THE INCLUDE ORDER IS THE SAME CONTRACT `deferred.slang` documents: the shim and this stage's own declarations
-// FIRST, and only then `shading.glsl`, whose function bodies address the per-frame arrays through the slot macros
+// FIRST, and only then `shading.slang`, whose function bodies address the per-frame arrays through the slot macros
 // (`heap_camera_slot`, `heap_light_slot`) - so `pc` and the two `#define`s above have to exist before it.
-#include "shading.glsl"
+#include "shading.slang"
 
 /// @brief how many `vec4` lanes `deren::vulkan::toon_colour_lane` has - the stride of the colour table
 ///
@@ -254,7 +254,7 @@ static float goo_rim_depth_at(float2 uv) {
 ///       the frame (0 % of 1 036 800 px) - which read as a rim whose every offset sample landed on the
 ///       background. With these spellings the same round trip recovers the uv over the surface's whole footprint.
 static float3 goo_rim_world_position(float2 uv, float depth) {
-    const vec4 world = pc.inv_view_proj * vec4(uv * 2.0 - 1.0, depth, 1.0);
+    const float4 world = mul(float4(uv * 2.0 - 1.0, depth, 1.0), pc.inv_view_proj);
     return world.xyz / world.w;
 }
 
@@ -452,10 +452,10 @@ float4 main([[vk::location(0)]] float2 v_uv : TEXCOORD0) : SV_Target {
     // a `w = 0` product, exactly as `goo_toon.slang` builds its matcap uv. THE VECTORS ARE THE GLSL SPELLINGS and
     // the products are `*` because that is the only form that is a matrix product here (see
     // `goo_rim_world_position`'s note - the HLSL spellings silently made the round trip fail).
-    const vec3 view_pos = (camera_at(heap_camera_slot).view * vec4(world_pos, 1.0)).xyz;
-    const vec3 n_cam = (camera_at(heap_camera_slot).view * vec4(n_world, 0.0)).xyz;
-    const vec3 rim_offset = vec3(goo_rim_width_scale * rim_width_x * n_cam.x, goo_rim_width_scale * rim_width_y * n_cam.y, 0.0);
-    const vec4 offset_clip = camera_at(heap_camera_slot).proj * vec4(view_pos + rim_offset, 1.0);
+    const float3 view_pos = (mul(float4(world_pos, 1.0), camera_at(heap_camera_slot).view)).xyz;
+    const float3 n_cam = (mul(float4(n_world, 0.0), camera_at(heap_camera_slot).view)).xyz;
+    const float3 rim_offset = float3(goo_rim_width_scale * rim_width_x * n_cam.x, goo_rim_width_scale * rim_width_y * n_cam.y, 0.0);
+    const float4 offset_clip = mul(float4(view_pos + rim_offset, 1.0), camera_at(heap_camera_slot).proj);
     // The offset uv is SATURATED into the frame, which is what the reference's clamp-addressed HiZ buffer does:
     // a sample outside the image reads the edge texel there and would read the edge texel here (the G-buffer
     // sampler is clamp-addressed too), so the saturation states the same behaviour rather than changing it.

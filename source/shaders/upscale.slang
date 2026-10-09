@@ -42,7 +42,7 @@ struct UpscalePush
     // it LINEAR values. Composed on the C++ side from the surface's format, exactly as fxaa_pass::record does.
     float encode_gamma;
     // THE HEAP INDICES AT THE END, appended by the host (`runtime::push_stage_block`) so a pass never has to
-    // know the frame slot or the swapchain image (see shaders/heap_slots.glsl).
+    // know the frame slot or the swapchain image (see shaders/heap_slots.slang).
     uint frame_slot;
     uint image_index;
 };
@@ -58,7 +58,7 @@ float3 srgb_to_linear(float3 color)
 {
     float3 low = color / 12.92;
     float3 high = pow(max((color + 0.055) / 1.055, float3(0.0)), float3(2.4));
-    return mix(low, high, step(float3(0.04045), color));
+    return lerp(low, high, step(float3(0.04045), color));
 }
 
 // =====================================================================================================

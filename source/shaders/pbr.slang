@@ -9,7 +9,7 @@
 //   - the entry point's varyings and its output carry `[[vk::location(n)]]` / `SV_Target` instead of
 //     `layout(location = n)`;
 //   - `gl_FragCoord.xy` becomes the `SV_Position` parameter's `.xy`, which is the same value (pixel
-//     centres, y down) - and it is why shading.glsl takes the pixel as a PARAMETER rather than reading
+//     centres, y down) - and it is why shading.slang takes the pixel as a PARAMETER rather than reading
 //     gl_FragCoord itself: the same shade path runs in compute stages on the deferred side, where that
 //     builtin does not exist;
 //   - the heap is reached through the shared accessors, which is the shim's whole job.
@@ -21,12 +21,12 @@
 // heap_access.slang, in the order a lit pixel reaches them.
 //
 // THE INCLUDE ORDER IS PART OF THE CONTRACT (see docs/slang_migration.md section 8): the shim first, then
-// surface.glsl, which declares the push-constant block and the heap_frame_slot / heap_image_index aliases
-// the slot macros in heap_slot_constants.glsl expand against.
+// surface.slang, which declares the push-constant block and the heap_frame_slot / heap_image_index aliases
+// the slot macros in heap_slot_constants.slang expand against.
 
 #include "heap_access.slang"
-#include "surface.glsl"
-#include "shading.glsl"
+#include "surface.slang"
+#include "shading.slang"
 
 // -------------------------------------------------------------------------------------------------------------
 // A DOXYGEN GUARD, and it is for the documentation tool rather than for any compiler.
@@ -53,9 +53,9 @@ float4 main(
     [[vk::location(0)]] float3 v_world_pos : TEXCOORD0,
     [[vk::location(1)]] float3 v_normal : TEXCOORD1,
     [[vk::location(2)]] float2 v_uv : TEXCOORD2,
-    float4 sv_position : SV_Position) : SV_Target
+    float4 sv_position : SV_Position, bool v_is_front : SV_IsFrontFace) : SV_Target
 {
-    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv);
+    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
 
     shade_input si;
     si.pixel = int2(sv_position.xy); // gl_FragCoord.xy: the cluster grid's tile coordinate (see shade_input)
@@ -76,7 +76,7 @@ float4 main(
 
 // =============================================================================================================
 // THE VERTEX STAGE, in the same file because it is the same CPU/GPU contract: the push block carries the
-// per-draw state (it is declared by surface.glsl above, which is why `motion_base` lives in it) and the heap
+// per-draw state (it is declared by surface.slang above, which is why `motion_base` lives in it) and the heap
 // arrays carry the per-frame one. THIS IS THE STAGE THE G-BUFFER PASS LOADS FOR EVERY OPAQUE DRAW, so unlike
 // `pbr.frag` - which only the transparent pass's forward pipeline records - this entry point is on the gate's
 // path in all fourteen scenarios.
@@ -162,21 +162,21 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
         float4 pos = float4(0.0, 0.0, 0.0, 0.0);
         float4 prev_pos = float4(0.0, 0.0, 0.0, 0.0);
         float3 nrm = float3(0.0, 0.0, 0.0);
-        pos += v.weights.x * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x) * local_pos);
-        pos += v.weights.y * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y) * local_pos);
-        pos += v.weights.z * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z) * local_pos);
-        pos += v.weights.w * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w) * local_pos);
+        pos += v.weights.x * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x)));
+        pos += v.weights.y * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y)));
+        pos += v.weights.z * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z)));
+        pos += v.weights.w * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w)));
         // ... and the SAME blend through the matrices the previous frame drew with, applied to the position
         // the previous frame morphed to: the two halves compose as skin_previous(morph_previous(v)), which is
         // the deformation term for a mesh that both morphs and skins.
-        prev_pos += v.weights.x * (skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.x) * prev_local_pos);
-        prev_pos += v.weights.y * (skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.y) * prev_local_pos);
-        prev_pos += v.weights.z * (skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.z) * prev_local_pos);
-        prev_pos += v.weights.w * (skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.w) * prev_local_pos);
-        nrm += v.weights.x * mat3(skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x)) * morph_normal;
-        nrm += v.weights.y * mat3(skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y)) * morph_normal;
-        nrm += v.weights.z * mat3(skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z)) * morph_normal;
-        nrm += v.weights.w * mat3(skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w)) * morph_normal;
+        prev_pos += v.weights.x * (mul(prev_local_pos, skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.x)));
+        prev_pos += v.weights.y * (mul(prev_local_pos, skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.y)));
+        prev_pos += v.weights.z * (mul(prev_local_pos, skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.z)));
+        prev_pos += v.weights.w * (mul(prev_local_pos, skin_matrix_previous_at(heap_skin_previous_slot, push.skin_base + v.joints.w)));
+        nrm += v.weights.x * mul(morph_normal, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x)));
+        nrm += v.weights.y * mul(morph_normal, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y)));
+        nrm += v.weights.z * mul(morph_normal, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z)));
+        nrm += v.weights.w * mul(morph_normal, ((float3x3)skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w)));
         local_pos = pos / wsum;
         prev_local_pos = prev_pos / wsum;
         skinned_normal = nrm / wsum;
@@ -186,11 +186,11 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
     // row-major-declared matrix into a differently-declared local is a conversion, and that conversion is a
     // transpose (the same trap as the push block's `model` above).
     const VR_MAT4 world = (push.flags & 1u) != 0u ? instance_transform_at(heap_instance_slot, push.instance_base + instance_index) : push.model;
-    const float4 world_pos = world * local_pos;
+    const float4 world_pos = mul(local_pos, world);
 
     pbr_vertex_output o;
     o.world_pos = world_pos.xyz;
-    o.normal = normalize(mat3(world) * skinned_normal);
+    o.normal = normalize(mul(skinned_normal, ((float3x3)world)));
     o.uv = v.uv;
 
     // The previous LOCAL position through the previous frame's world matrix. The node's rigid motion comes
@@ -201,9 +201,9 @@ pbr_vertex_output pbr_shade_vertex(const MeshVertex v, const uint vertex_index, 
     // NOT COVERED HERE, and not by anything in this stage: alpha-blended geometry, which is composited
     // outside the G-buffer and so writes no motion vector at all.
     const uint motion_index = push.motion_base + (((push.flags & 1u) != 0u) ? instance_index : 0u);
-    o.prev_world_pos = (previous_transform_at(heap_previous_slot, motion_index) * prev_local_pos).xyz;
+    o.prev_world_pos = (mul(prev_local_pos, previous_transform_at(heap_previous_slot, motion_index))).xyz;
 
-    o.position = camera_at(heap_camera_slot).proj * camera_at(heap_camera_slot).view * world_pos;
+    o.position = mul(world_pos, mul(camera_at(heap_camera_slot).view, camera_at(heap_camera_slot).proj));
     return o;
 }
 
@@ -289,9 +289,8 @@ void mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgroup]
 //  2. THE VIEW SPACE NORMAL IS `mat3(view) * o.normal`. The author's `UNITY_MATRIX_IT_MV` is the inverse
 //     transpose of the model-view matrix applied to an OBJECT-space normal; this port's normal is already world
 //     space, and for the rigid view transform the inverse transpose of its 3x3 IS its 3x3. THE SPELLING MATTERS
-//     AND WAS MEASURED: `mat3(M) * v` is the GLSL product and `mul(M, v)` on this port's `row_major float4x4`
-//     emits the TRANSPOSED one (see the note beside VR_SLANG_SOURCES' flags) - the same reason
-//     `pbr_shade_vertex`'s projection reads `proj * view * world_pos` and not `mul`.
+//     Native mul(normal, (float3x3)matrix) retains that GLSL product.
+//     Projection composition similarly reverses operands to preserve column-vector semantics.
 //
 // `ScaleX`: the author's `GetScaledScreenParams()` is the RENDER-TARGET size, which this renderer does not
 // publish to a shader; what it does publish is the projection the frame is built with, and for a perspective
@@ -379,7 +378,7 @@ void outline_mesh_main(out vertices pbr_vertex_output verts[mesh_vertices_per_wo
             if (outline_width > 0.0)
             {
                 // ---- THE AUTHOR'S EXPANSION, in clip space (`:152-170`) ----
-                const float3 n_view = mat3(outline_view) * o.normal;
+                const float3 n_view = mul(o.normal, ((float3x3)outline_view));
                 // `(float2x3)UNITY_MATRIX_P * n`: the projection's first two rows against the view normal. This
                 // engine's projection has no shear - its upper-left 3x3 is diagonal - so this is the same pair of
                 // products the author's cast produces.
@@ -447,8 +446,8 @@ void meshlet_main(out vertices pbr_vertex_output verts[mesh_vertices_per_workgro
     // left to a measurement: what a meshlet path wants for deformable geometry is bounds per FRAME, not per draw.
     const bool deforming = push.morph_targets > 0u || push.skin_base != 0u;
     const VR_MAT4 world = (push.flags & 1u) != 0u ? instance_transform_at(heap_instance_slot, push.instance_base + group_id.y) : push.model;
-    const VR_MAT4 view_proj = camera_at(heap_camera_slot).proj * camera_at(heap_camera_slot).view;
-    const float4 clip = view_proj * (world * float4(meshlet.center, 1.0));
+    const VR_MAT4 view_proj = mul(camera_at(heap_camera_slot).view, camera_at(heap_camera_slot).proj);
+    const float4 clip = mul((mul(float4(meshlet.center, 1.0), world)), view_proj);
     const float radius = meshlet.radius * matrix_max_axis_scale(world) * matrix_max_axis_scale(view_proj);
     if (!deforming && !clip_sphere_visible(clip, radius))
     {

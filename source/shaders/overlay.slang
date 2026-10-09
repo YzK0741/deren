@@ -10,7 +10,7 @@
 // THE GEOMETRY STAGE IS `pbr.mesh.spv`, UNCHANGED (see chores.cpp): an overlay mesh is a normal mesh with a
 // normal world transform - it is skinned, morphed and placed exactly like the face it darkens, which is what
 // keeps a mask registered to the surface as the character animates. So the varyings below are pbr's, and the
-// push block is `surface.glsl`'s, declared once for every entry of that pipeline.
+// push block is `surface.slang`'s, declared once for every entry of that pipeline.
 //
 // THE TWO CHANNELS SHARE THIS STAGE AND DIFFER BY THE RECORD'S FLAGS (bits 6 and 7, see `deren::gltf::overlay_kind`
 // and `material_record::flags`), which is a decision rather than an economy: the two masks read DIFFERENT
@@ -29,7 +29,7 @@
 //    expressed; the geometry's own coverage stands in for it (see `core::make_overlay_pipeline`).
 
 #include "heap_access.slang"
-#include "surface.glsl"
+#include "surface.slang"
 
 /// THE TOON LIGHT RIG, declared here exactly as `character_forward.slang` declares it - the layout must match
 /// `deren::vulkan::toon_rig` (nine `float4`s) and `runtime::set_toon_rig` is the only writer.

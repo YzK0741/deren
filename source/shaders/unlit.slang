@@ -13,14 +13,14 @@
 // The grid's numbers come from the SHARED constants file the GLSL side includes too, so there is one
 // source of truth for the slots (tests/test_render_resources.cpp compares it against core::heap_slots).
 
-#include "heap_slot_constants.glsl"
+#include "heap_slot_constants.slang"
 
-// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.glsl`, the one place the
+// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.slang`, the one place the
 // record's std430 layout lives, and this stage includes it. A second copy is a second thing to keep in
 // step with the host's `static_assert(sizeof(material_record) == 80)`, and a copy that drifts indexes
 // every material after the first by the wrong STRIDE - which shows up as a wrong texture on every
 // material but one, not as a build error.
-#include "material_record.glsl"
+#include "material_record.slang"
 
 // Push constant block: identical layout to pbr.vert / pbr.frag (only material_index is read here).
 // -fvk-use-gl-layout gives std430, which is what the GLSL block and the CPU struct use.
@@ -46,7 +46,7 @@ DescriptorHandle<T> heap_at<T>(uint slot) where T : IOpaqueDescriptor
 
 // The GLSL's `heap_texel(tex, sampler_slot, uv)`: one texel through the sampler heap entry named. Written
 // as a function here rather than a macro because Slang has no such restriction - the GLSL's macro exists
-// because a `texture2D` PARAMETER does not survive a function boundary in SPIR-V (see heap_slots.glsl).
+// because a `texture2D` PARAMETER does not survive a function boundary in SPIR-V (see heap_slots.slang).
 float4 heap_texel(DescriptorHandle<Texture2D<float4>> texture, uint sampler_slot, float2 uv)
 {
     return texture.Sample(heap_at<SamplerState>(sampler_slot), uv);

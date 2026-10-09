@@ -320,7 +320,7 @@ float4 goo_toon_frag_main(
     [[vk::location(1)]] float3 v_normal : TEXCOORD1,
     [[vk::location(2)]] float2 v_uv : TEXCOORD2,
     bool v_is_front : SV_IsFrontFace) : SV_Target {
-    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv);
+    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
     const toon_params params = toon_params_for(s.toon_family);
 
     // ---- THE IRIS: THE REFERENCE GROUP, WHOSE WHOLE OUTPUT IS EMISSION ----
@@ -377,7 +377,7 @@ float4 goo_toon_frag_main(
     // `goo_toon_shading_normal(...)` would be a second `normalize` of the same three inputs and a second read of the
     // normal map, which is exactly the kind of "second normal" the port must not grow. The value is unchanged: the
     // call is evaluated once, exactly where it was, and passed by value.
-    const float3 toon_shading_normal = goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal));
+    const float3 toon_shading_normal = goo_toon_shading_normal(v_world_pos, v_normal, v_uv, normalize(s.normal), v_is_front);
     const float3 colour = toon_diffuse(s.albedo, s.alpha, s.toon_family, toon_shading_normal, v_world_pos, s.ao, params, s.toon_indices, v_uv, toon_lanes, push.material_index, desaturation);
     // THE EMISSIVE TERM IS ADDED HERE RATHER THAN INSIDE THE `goo_hsv_desaturate` ARGUMENT so that the RS pass
     // below has something to be the LEFT operand of. It is the same sum the old entry point performs at the same
@@ -554,7 +554,7 @@ float4 goo_toon_frag_main(
                 // `image_user.extension = "EXTEND"` (`gooblender/nodes.json:93653-93659`, the same six lines that
                 // name `T_actor_aurora_cloth_03_RS.png`), i.e. CLAMP, NOT REPEAT. THIS PORT CANNOT HONOUR A
                 // PER-IMAGE ADDRESS MODE: the heap hands every texture ONE sampler, `heap_sampler_texture`
-                // (`shaders/heap_slot_constants.glsl:166-175`), whose address mode is REPEAT
+                // (`shaders/heap_slot_constants.slang:166-175`), whose address mode is REPEAT
                 // (`vulkan/core/core.cpp:436-437`), and there is no per-image sampler slot. So the reference's
                 // SEMANTICS are reproduced instead of its setting: `u` is pulled into the interval where REPEAT
                 // and CLAMP return the same texel. They are pointwise equal for this sheet - LINEAR filtering,
@@ -618,8 +618,8 @@ float4 goo_toon_frag_main(
         } else {
             rs_eff = rs_mask * rs_tint_lane.rgb;                                                                // `混合.038`, armB, UNCHANGED
         }
-        const float3 mixed029 = mix(lit_base, max(lit_base, rs_eff), saturate(rs_scalars.y));                   // `混合.029`, LIGHTEN
-        rs_final = mix(lit_base, mixed029, saturate(rs_use));                                                   // `混合.030`, MIX
+        const float3 mixed029 = lerp(lit_base, max(lit_base, rs_eff), saturate(rs_scalars.y));                   // `混合.029`, LIGHTEN
+        rs_final = lerp(lit_base, mixed029, saturate(rs_use));                                                   // `混合.030`, MIX
     }
 
     const float3 lit_final = goo_hsv_desaturate(rs_final, desaturation);

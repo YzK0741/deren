@@ -23,7 +23,7 @@
 // WHY THE OFFSET IS SIGN-FREE, and this is a deliberate departure worth stating. The reference picks the
 // offset's direction from the sign of the view-space normal's X (`normalExtendLeftOffset = normalVS.x > 0 ?
 // 1 : -1`) and always offsets in SCREEN X. Reproducing that needs the view matrix, and the view matrix lives
-// in `CameraUBO`, which `shading.glsl` declares - and `shading.glsl` expands the slot macros in its function
+// in `CameraUBO`, which `shading.slang` declares - and `shading.slang` expands the slot macros in its function
 // bodies, so a stage that includes it must already have defined `heap_frame_slot`. That is satisfiable, but
 // the sign rule buys nothing that this does not: sampling BOTH sides and keeping the larger depth increase
 // finds the silhouette on whichever side it lies, and it is strictly more robust where `normalVS.x` is near
@@ -32,14 +32,14 @@
 // `1 / (eye_depth + 3)` so it shrinks with distance the way the reference's does.
 //
 // WHAT IT CANNOT DO YET, and this is the constraint recorded when the family table was made shared: it
-// cannot read the MATERIAL TABLE, because the `Material` struct is declared by `surface.glsl` - along with
+// cannot read the MATERIAL TABLE, because the `Material` struct is declared by `surface.slang` - along with
 // the shared scene push block, which is 144 bytes and over this path's 128-byte limit, so a fullscreen stage
 // cannot include it. The rim therefore takes its colour and strength from its own push block: ONE set for
 // every character rather than one per family. The per-family refinement needs either a family id in the
 // G-buffer or a material struct declared where a fullscreen stage can reach it.
 
 #include "heap_access.slang"
-#include "material_record.glsl"
+#include "material_record.slang"
 #include "toon_params.slang"
 
 struct ToonRimPush

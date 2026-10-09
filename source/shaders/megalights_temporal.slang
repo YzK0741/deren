@@ -48,14 +48,14 @@ struct MlTemporalPush
 #define heap_image_index (pc.image_index)
 
 /// @brief UE's `r.MegaLights.Temporal.MaxFramesAccumulated`: where a still pixel's running mean stops.
-const float ML_MAX_FRAMES = 12.0;
+static const float ML_MAX_FRAMES = 12.0;
 /// @brief how many taps the neighbourhood statistics take: a 3x3, the same window the GI resolve clamps against.
-const int ML_CLAMP_RADIUS = 1;
+static const int ML_CLAMP_RADIUS = 1;
 /// @brief the accumulated count a history is cut to when the reprojected depth disagrees (a soft rejection: the
 ///        pixel keeps a short average instead of restarting from one raw frame).
-const float ML_DISAGREE_FRAMES = 2.0;
+static const float ML_DISAGREE_FRAMES = 2.0;
 /// @brief the spatial pre-filter's radius (a 3x3: the same window the clamp above uses).
-const int SPATIAL_RADIUS = 1;
+static const int SPATIAL_RADIUS = 1;
 
 /// @brief view-space distance of a depth-buffer value (the inversion every pass in this chain uses)
 float view_depth(float z_ndc)
@@ -210,7 +210,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
     const float cap = max(pc.params.z, 1.0);
     const float next_frames = min(frames + 1.0, cap);
     const float alpha = 1.0 / next_frames;
-    float3 resolved = mix(history, current, alpha);
+    float3 resolved = lerp(history, current, alpha);
     // A NaN or an infinity anywhere in the chain (a degenerate light, a zero-length ray) must not be
     // accumulated: it would poison the pixel for as long as the history survives.
     if (any(isnan(resolved)) || any(isinf(resolved)))

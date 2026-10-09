@@ -86,14 +86,14 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
     {
         float4 blended = float4(0.0, 0.0, 0.0, 0.0);
         float3 blended_normal = float3(0.0, 0.0, 0.0);
-        blended += weights.x * (skin_matrix_at(heap_skin_slot, pc.skin_base + joints.x) * local);
-        blended += weights.y * (skin_matrix_at(heap_skin_slot, pc.skin_base + joints.y) * local);
-        blended += weights.z * (skin_matrix_at(heap_skin_slot, pc.skin_base + joints.z) * local);
-        blended += weights.w * (skin_matrix_at(heap_skin_slot, pc.skin_base + joints.w) * local);
-        blended_normal += weights.x * mat3(skin_matrix_at(heap_skin_slot, pc.skin_base + joints.x)) * normal;
-        blended_normal += weights.y * mat3(skin_matrix_at(heap_skin_slot, pc.skin_base + joints.y)) * normal;
-        blended_normal += weights.z * mat3(skin_matrix_at(heap_skin_slot, pc.skin_base + joints.z)) * normal;
-        blended_normal += weights.w * mat3(skin_matrix_at(heap_skin_slot, pc.skin_base + joints.w)) * normal;
+        blended += weights.x * (mul(local, skin_matrix_at(heap_skin_slot, pc.skin_base + joints.x)));
+        blended += weights.y * (mul(local, skin_matrix_at(heap_skin_slot, pc.skin_base + joints.y)));
+        blended += weights.z * (mul(local, skin_matrix_at(heap_skin_slot, pc.skin_base + joints.z)));
+        blended += weights.w * (mul(local, skin_matrix_at(heap_skin_slot, pc.skin_base + joints.w)));
+        blended_normal += weights.x * mul(normal, ((float3x3)skin_matrix_at(heap_skin_slot, pc.skin_base + joints.x)));
+        blended_normal += weights.y * mul(normal, ((float3x3)skin_matrix_at(heap_skin_slot, pc.skin_base + joints.y)));
+        blended_normal += weights.z * mul(normal, ((float3x3)skin_matrix_at(heap_skin_slot, pc.skin_base + joints.z)));
+        blended_normal += weights.w * mul(normal, ((float3x3)skin_matrix_at(heap_skin_slot, pc.skin_base + joints.w)));
         skinned_position = (blended / weight_sum).xyz;
         skinned_normal = blended_normal / weight_sum;
     }

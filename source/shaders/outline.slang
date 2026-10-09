@@ -86,8 +86,8 @@
 // THE INCLUDE IS A STAGE FILE, deliberately: `toon_diffuse` - the chain this stage's whole body is - lives in
 // `character_forward.slang`, and a second copy of it here is the duplicate this repository refuses everywhere (a
 // per-family ramp read in two places drifts silently, and the drift shows only as an outline whose colour does
-// not match the surface under it). `character_forward.slang` pulls in the shim, `surface.glsl` and
-// `shading.glsl` in the order they must be included in, so including it alone is also the correct include order.
+// not match the surface under it). `character_forward.slang` pulls in the shim, `surface.slang` and
+// `shading.slang` in the order they must be included in, so including it alone is also the correct include order.
 //
 // ITS `main` COMES WITH IT, and that is why this file's entry is named `frag_main` rather than `main`: two
 // `[shader("fragment")]` functions cannot share a name in one translation unit, and the same shape already
@@ -113,7 +113,7 @@ static const float outline_strength = 1.0;
 ///        `character_forward.slang`'s entry declares, because the hull is the same mesh through the same body
 /// @param v_is_front the rasterizer's facing flag, declared for interface parity and read by nothing: the
 ///        article's fragment does not branch on it either, and the double-sided flip a normal needs is
-///        `gather_surface`'s (see surface.glsl) rather than a stage's
+///        `gather_surface`'s (see surface.slang) rather than a stage's
 /// @param sv_position the pixel coordinate, used to address the G-buffer at the fragment's own pixel
 /// @return the outline's LINEAR colour with alpha 1.0 - the article's own return (`:312`) is opaque, because an
 ///         outline is geometry and not a decal over the surface
@@ -128,7 +128,7 @@ float4 frag_main(
     // The same surface the G-buffer pass wrote and the character stage shades, gathered by the same function:
     // the albedo, its alpha (which the article's chain reads as a MATERIAL weight and not as coverage), the
     // engine's occlusion, the material's family and its lane words.
-    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv);
+    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
     const toon_params params = toon_params_for(s.toon_family);
     const uint4 toon_lanes = toon_lanes_at(heap_slots_toon_lanes, push.material_index);
 

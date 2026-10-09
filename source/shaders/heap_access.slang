@@ -1,33 +1,16 @@
-// shaders/heap_access.slang - THE SLANG HALF OF THE BINDING MODEL.
-//
-// A shared body (surface.glsl, shading.glsl, sky.glsl, ibl_specular.glsl) is included by both languages and
-// touches the heap ONLY through the names defined here or in heap_slots.glsl's GLSL branch. This file is
-// that GLSL branch's counterpart, and the two are the only place the languages differ.
-//
-// WHY IT IS NEEDED AT ALL, measured: Slang's GLSL mode parses every function, type, macro and constant in
-// the shared code, and rejects exactly one construct - `layout(descriptor_heap, ...)` (E31217,
-// "unrecognized GLSL layout qualifier"). So the DECLARATIONS cannot cross, and this side reaches the same
-// descriptors through Slang's `DescriptorHandle<T>` instead.
-//
-// HOW THE TWO HEAPS MAP, and this is the part that makes the port small: a `DescriptorHandle<T>` is a
-// uint2 whose `.x` is an index into the RESOURCE heap and, for a CombinedTextureSampler, whose `.y` is an
-// index into the SAMPLER heap - Slang then emits the OpSampledImage at the point of use. That is exactly
-// this renderer's model (one flat 64-byte resource grid, one 32-byte sampler grid, the two halves bound
-// separately), so every fetch helper the GLSL files already have keeps its name and its signature and only
-// its BODY differs.
-//
-// THE ACCESSOR NAMES MUST MATCH heap_slots.glsl's GLSL definitions, because both sides have to satisfy the
-// same shared bodies. A drift is not silent: the capture gate compares every stage's frame against the
-// same references, and the two sides render the same scenes.
-
-// THE GRID'S NUMBERS come from the same file the GLSL side includes, so the two cannot drift (and a stage
-// that also includes heap_slots.glsl does not define them twice - that file has its own guard).
-#include "heap_slot_constants.glsl"
+// Native Slang descriptor-heap accessors for every runtime stage.
+// DescriptorHandle<T>.x addresses the 64-byte resource grid. Combined
+// texture/sampler handles use .y for the separate 32-byte sampler grid.
+// Shared surface and lighting code access resources only through these helpers.
+#include "heap_slot_constants.slang"
 
 // A MATRIX MEMBER'S TYPE on this side: `row_major` is what emits SPIR-V ColMajor, which is what the GLSL
 // `mat4` members and the host's column-major glm::mat4 are (the keyword reads backwards - `column_major`
-// emits RowMajor). heap_slots.glsl defines the GLSL half.
+// emits RowMajor). The host uploads column-major glm::mat4 bytes.
 #define VR_MAT4 row_major float4x4
+
+// Host matrices are column-major; this representation stores their columns as rows.
+// mul(vector, matrix) preserves the previous GLSL matrix * vector operation.
 
 // A handle for an absolute slot: `.x` is the resource heap index, or - for a SamplerState - the sampler
 // heap index (Slang uses the same component for both; only a combined sampler uses `.y`).
@@ -42,7 +25,7 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
     return (DescriptorHandle<Sampler2D>)uint2(texture_slot, sampler_slot);
 }
 
-// ---- THE ACCESSORS (the GLSL definitions live in heap_slots.glsl) ----
+// ---- THE ACCESSORS (the GLSL definitions live in heap_slots.slang) ----
 //
 // The struct types in these macros (`Material`, `CameraUBO`, `LightUBO`) are declared by the shared bodies
 // themselves, which is fine because a macro is text: it is expanded at the USE site, by which time the
@@ -94,7 +77,7 @@ DescriptorHandle<Sampler2D> combined_at(uint texture_slot, uint sampler_slot)
 // index, y its `_MetallicGlossMap`'s, z and w reserved - with 0 in a component meaning "do not read", the same
 // contract the record's four lanes use. It is a structured buffer rather than members of the material record
 // because the record is INLINE in the per-draw push block and a word added to it moves every offset in
-// `surface.glsl` and `shadow.slang` - see core::heap_slots::toon_lanes.
+// `surface.slang` and `shadow.slang` - see core::heap_slots::toon_lanes.
 /// THE FIRST BLOCK of the toon lane table (lanes 4..7), read at `material * blocks + 0`.
 ///
 /// THE STRIDE IS THE WHOLE POINT OF THIS MACRO AND IT WAS WRONG FOR THREE ROUNDS: the table holds
@@ -159,7 +142,7 @@ float2 heap_size(DescriptorHandle<Texture2D<float4>> texture, uint lod)
     return float2(float(width), float(height));
 }
 
-/// the bindless-array fetch the shared bodies call by name (the GLSL definition is in surface.glsl): the
+/// the bindless-array fetch the shared bodies call by name (the GLSL definition is in surface.slang): the
 /// material's own image through the shared texture sampler. The GLSL side builds `sampler2D(tex, samp)` at
 /// the point of use; here the two slots travel in ONE combined handle instead.
 float4 heap_sample(uint texture_index, float2 uv)
@@ -167,7 +150,7 @@ float4 heap_sample(uint texture_index, float2 uv)
     return combined_at(heap_slots_textures + texture_index, heap_sampler_texture).Sample(uv);
 }
 
-// ---- THE IBL FETCHES (the GLSL definitions live in ibl_specular.glsl) ----
+// ---- THE IBL FETCHES (the GLSL definitions live in ibl_specular.slang) ----
 
 /// the prefiltered chain's mip count, QUERIED from the texture rather than hardcoded
 int env_cube_levels()
@@ -189,7 +172,7 @@ float2 brdf_lut_sample(float2 uv)
     return heap_at<Texture2D<float4>>(heap_slots_brdf_lut).Sample(heap_at<SamplerState>(heap_sampler_texture), uv).rg;
 }
 
-// ---- THE SHADOW AND IRRADIANCE FETCHES (the GLSL definitions live in shading.glsl) ----
+// ---- THE SHADOW AND IRRADIANCE FETCHES (the GLSL definitions live in shading.slang) ----
 
 /// one comparison fetch from the cascade array (GLSL's `sampler2DArrayShadow` + `texture(...)`): Slang
 /// names the comparison sampler as a type instead, and `SampleCmpLevelZero` is the comparison fetch.

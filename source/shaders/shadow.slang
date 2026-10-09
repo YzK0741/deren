@@ -18,12 +18,12 @@
 #include "heap_access.slang"
 #include "mesh_geometry.slang"
 
-// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.glsl`, the one place the
+// THE MATERIAL LAYOUT IS NOT DECLARED HERE ANY MORE: it is `material_record.slang`, the one place the
 // record's std430 layout lives, and this stage includes it. A second copy is a second thing to keep in
 // step with the host's `static_assert(sizeof(material_record) == 80)`, and a copy that drifts indexes
 // every material after the first by the wrong STRIDE - which shows up as a wrong texture on every
 // material but one, not as a build error.
-#include "material_record.glsl"
+#include "material_record.slang"
 
 // ONE block for both entries, and it is the VERTEX stage's shape that is the complete one: the host pushes
 // the material fields (96 bytes) and then appends its lanes, so the fragment entry reads material_index at
@@ -136,22 +136,22 @@ shadow_vertex_output shadow_shade_vertex(const MeshVertex v, const uint vertex_i
     if (wsum > 0.0)
     {
         float4 pos = float4(0.0, 0.0, 0.0, 0.0);
-        pos += v.weights.x * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x) * local_pos);
-        pos += v.weights.y * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y) * local_pos);
-        pos += v.weights.z * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z) * local_pos);
-        pos += v.weights.w * (skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w) * local_pos);
+        pos += v.weights.x * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.x)));
+        pos += v.weights.y * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.y)));
+        pos += v.weights.z * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.z)));
+        pos += v.weights.w * (mul(local_pos, skin_matrix_at(heap_skin_slot, push.skin_base + v.joints.w)));
         local_pos = pos / wsum;
     }
 
     // VR_MAT4 for the local as well, so the ternary is between two values of the same type (a mismatch is a
     // conversion, and that conversion is a transpose - see docs/slang_migration.md section 6).
     const VR_MAT4 world = (push.flags & 1u) != 0u ? instance_transform_at(heap_instance_slot, push.instance_base + instance_index) : push.model;
-    const float4 world_pos = world * local_pos;
+    const float4 world_pos = mul(local_pos, world);
 
     shadow_vertex_output o;
     // light_matrix_at, not `light_at(...).light_view_proj[...]`: see heap_access.slang (a matrix ARRAY inside
     // a Slang block loses its majorness decoration, and the block read came back unusable).
-    o.position = light_matrix_at(heap_light_slot, push.cascade) * world_pos;
+    o.position = mul(world_pos, light_matrix_at(heap_light_slot, push.cascade));
     o.uv = v.uv;
 
     // Keep the input without a role in the depth pass (the normal) alive so the vertex input layout - and
@@ -265,7 +265,7 @@ void meshlet_main(out vertices shadow_vertex_output verts[mesh_vertices_per_work
     const bool deforming = push.morph_targets > 0u || push.skin_base != 0u;
     const VR_MAT4 world = (push.flags & 1u) != 0u ? instance_transform_at(heap_instance_slot, push.instance_base + group_id.y) : push.model;
     const VR_MAT4 light = light_matrix_at(heap_light_slot, push.cascade);
-    const float4 clip = light * (world * float4(meshlet.center, 1.0));
+    const float4 clip = mul((mul(float4(meshlet.center, 1.0), world)), light);
     const float radius = meshlet.radius * matrix_max_axis_scale(world) * matrix_max_axis_scale(light);
     if (!deforming && !clip_sphere_visible(clip, radius))
     {

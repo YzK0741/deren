@@ -6,14 +6,14 @@
 // struct carry `[[vk::location(n)]]` instead of `layout(location = n)`, and the heap is reached through
 // the shared accessors (see docs/slang_migration.md).
 //
-// THE INCLUDE ORDER IS PART OF THE CONTRACT: the shim first, then surface.glsl (which declares the push
+// THE INCLUDE ORDER IS PART OF THE CONTRACT: the shim first, then surface.slang (which declares the push
 // constant block and the heap_frame_slot / heap_image_index aliases that the slot macros expand against),
-// then the rest of the shared bodies. Compiling a body before surface.glsl reports heap_frame_slot as an
+// then the rest of the shared bodies. Compiling a body before surface.slang reports heap_frame_slot as an
 // undefined identifier - measured.
 
 #include "heap_access.slang"
-#include "surface.glsl"
-#include "shading.glsl"
+#include "surface.slang"
+#include "shading.slang"
 
 struct gbuffer_output
 {
@@ -41,8 +41,8 @@ float2 motion_vector(float3 world_pos, float3 prev_world_pos)
     // matrix still loads from the right bytes (the member offsets and MatrixStride were verified equal)
     // and only the velocity comes out wrong, which showed up as a black motion channel. See
     // docs/slang_migration.md section 9, "the first leaf port: two traps, both measured, both fixed".
-    const float4 current_clip = camera_at(heap_camera_slot).view_proj_unjittered * float4(world_pos, 1.0);
-    const float4 previous_clip = camera_at(heap_camera_slot).prev_view_proj * float4(prev_world_pos, 1.0);
+    const float4 current_clip = mul(float4(world_pos, 1.0), camera_at(heap_camera_slot).view_proj_unjittered);
+    const float4 previous_clip = mul(float4(prev_world_pos, 1.0), camera_at(heap_camera_slot).prev_view_proj);
     const float2 current_uv = (current_clip.xy / current_clip.w) * 0.5 + 0.5;
     const float2 previous_uv = (previous_clip.xy / previous_clip.w) * 0.5 + 0.5;
     return current_uv - previous_uv;
@@ -56,9 +56,9 @@ gbuffer_output main(
     [[vk::location(0)]] float3 v_world_pos : TEXCOORD0,
     [[vk::location(1)]] float3 v_normal : TEXCOORD1,
     [[vk::location(2)]] float2 v_uv : TEXCOORD2,
-    [[vk::location(3)]] float3 v_prev_world_pos : TEXCOORD3)
+    [[vk::location(3)]] float3 v_prev_world_pos : TEXCOORD3, bool v_is_front : SV_IsFrontFace)
 {
-    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv);
+    const surface_sample s = gather_surface(v_world_pos, v_normal, v_uv, v_is_front);
 
     gbuffer_output out;
     // the world normal needs no encoding in an RGBA16F target (see the GLSL file's docs)
