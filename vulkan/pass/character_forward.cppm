@@ -44,16 +44,16 @@ module;
 
 #include <array>
 #include <cstdint>
+#include <memory> // std::shared_ptr: a session's target is the contract handle (see make_environment)
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.character_forward;
 
+import deren.promise.rhi; // the contract command buffer a session's target is
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
-import deren.vulkan.constant_init;
 import deren.vulkan.primitive;
 import deren.vulkan.render_environment;
 
@@ -105,7 +105,7 @@ export namespace deren::vulkan::pass {
          * state. Both are fields of the environment rather than callback arguments, which is what lets this
          * pass state its own raster rules without the renderer having to know them.
          */
-        render_environment (*make_environment)(void* owner, VkCommandBuffer command_buffer, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
         void* owner = nullptr;
         /**
          * The pipeline name every leaf of this session binds.
@@ -135,9 +135,9 @@ export namespace deren::vulkan::pass {
          */
         std::string_view outline_pipeline_name = {};
         /// the two declared targets' formats and the extent (the pass opens its own instance)
-        VkFormat color_format = VK_FORMAT_UNDEFINED;
-        VkFormat depth_format = VK_FORMAT_UNDEFINED;
-        VkExtent2D extent = {0, 0};
+        ::deren::promise::rhi::image_format color_format = ::deren::promise::rhi::image_format::unknown;
+        ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;
+        deren::promise::rhi::image_extent extent = {0, 0};
     };
 
     /**

@@ -769,7 +769,7 @@ export namespace deren::vulkan::render_resource {
      * index), pushed through the draw path the primitive owns, so this declaration has no push block.
      *
      * `scene_color` IS AN ALIAS, and deliberately: the resolver maps it to the image the frame's scene pass
-     * accumulates emissive into, which is `runtime::scene_target_view()` - the HDR target normally, and the
+     * accumulates emissive into, which selects the HDR target normally, and the
      * TAA resolve's input while that resolve runs (it takes the HDR target for its own output). That is a
      * FRAME decision, not a resource fact, so the declaration names what it means and the renderer decides
      * which image that is. It also means the scene pass and the TAA resolve agree by construction about which

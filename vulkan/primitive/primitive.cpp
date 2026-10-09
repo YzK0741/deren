@@ -9,7 +9,6 @@ module;
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.primitive;
 
@@ -25,9 +24,14 @@ namespace deren::vulkan {
         /// constants. The environment's endpoint appends the two heap indices - the frame slot and the swapchain
         /// image - as the block's last fields, so what is pushed here is the block alone. See
         /// `render_environment::push_block` and shaders/heap_slots.glsl.
+        ///
+        /// THE SESSION'S BUFFER IS THE CONTRACT HANDLE NOW (abi 21), and the endpoint takes it BY REFERENCE - so
+        /// the one thing this file has to be careful about is the EMPTY session (a test or a session built with
+        /// no target): dereferencing an empty shared_ptr would be UB where the old null `VkCommandBuffer` was
+        /// merely a rejected call. Hence the guard, once, here.
         void push_stage_block(render_environment const& env, auto const& block) {
-            if (env.push_block != nullptr) {
-                [[maybe_unused]] bool const pushed = env.push_block(env.push_owner, env.command_buffer, std::as_bytes(std::span(&block, 1)), 0u);
+            if (env.push_block != nullptr && static_cast<bool>(env.command_buffer)) {
+                [[maybe_unused]] bool const pushed = env.push_block(env.push_owner, *env.command_buffer, std::as_bytes(std::span(&block, 1)), 0u);
             }
         }
     } // namespace
@@ -114,7 +118,7 @@ namespace deren::vulkan {
     }
 
     void primitive::push_geometry_lanes_impl(render_environment const& env, primitive const& geometry, uint32_t const first_index, uint32_t const index_count, int32_t const base_vertex, bool const host_culled, bool const backface_legal) const {
-        if (env.push_at == nullptr || env.buffer_address == nullptr || env.mesh_geometry_push_offset == 0u) {
+        if (env.push_at == nullptr || env.buffer_address == nullptr || env.mesh_geometry_push_offset == 0u || !static_cast<bool>(env.command_buffer)) {
             return; // a session that does not use the shared scene block (or a test one) has nothing to fill
         }
         // ---- the geometry lanes: what the input assembler used to consume, as data ----
@@ -138,7 +142,7 @@ namespace deren::vulkan {
         lanes.base_vertex = env.meshlets ? ((host_culled ? 1 : 0) | (backface_legal ? 2 : 0)) : base_vertex;
         // the buffer's own index type, which the shader needs because a raw load has no format: 4 for UINT32,
         // 2 for UINT16 (the shader reads the 16-bit case as the half of a 32-bit word its index falls in)
-        lanes.index_width = geometry.index_type == VK_INDEX_TYPE_UINT16 ? 2u : 4u;
+        lanes.index_width = geometry.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u;
         if (lanes.vertex_address == 0 || lanes.index_address == 0) {
             // A buffer without a device address cannot be fetched by a mesh stage at all, and dispatching anyway
             // would read address 0. The primitive upload asks for SHADER_DEVICE_ADDRESS_BIT whenever the device
@@ -169,7 +173,7 @@ namespace deren::vulkan {
         std::array<std::byte, payload_size> payload = {};
         std::memcpy(payload.data() + lanes_at, &lanes, sizeof(lanes));
         std::size_t const bytes = static_cast<std::size_t>(mesh_stage_block_size) - env.mesh_geometry_push_offset;
-        [[maybe_unused]] bool const pushed = env.push_at(env.push_owner, env.command_buffer, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
+        [[maybe_unused]] bool const pushed = env.push_at(env.push_owner, *env.command_buffer, env.mesh_geometry_push_offset, std::span<std::byte const>(payload.data(), bytes));
     }
 
     void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t const index_count, uint32_t const instance_count, uint32_t const survivors) const {
@@ -187,7 +191,7 @@ namespace deren::vulkan {
         uint32_t const groups = survivors != not_culled
                                     ? survivors
                                     : (env.meshlets ? geometry.meshlet_count : (triangles + triangles_per_workgroup - 1u) / triangles_per_workgroup);
-        if (groups != 0u) {
+        if (groups != 0u && static_cast<bool>(env.command_buffer)) {
             // A MESHLET SESSION DISPATCHES THROUGH THE INDIRECT ENTRY POINT (docs/mesh_shaders.md step 3, second
             // mechanism): the counts travel in the command table at the primitive's OWN slot (`meshlet_base`), so a
             // COMPUTE culling pass can rewrite that record with the counts culling left and the dispatch picks them
@@ -198,9 +202,9 @@ namespace deren::vulkan {
                 // (the shadow pass) dispatch the same primitive with DIFFERENT counts, so they cannot share a
                 // command - whichever wrote last would be the count both passes got.
                 uint32_t const slot = geometry.meshlet_base + (survivors != not_culled ? deren::vulkan::meshlet_capacity : 0u);
-                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_owner, env.command_buffer, slot, groups, instance_count, 1u);
+                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks_indirect(env.push_owner, *env.command_buffer, slot, groups, instance_count, 1u);
             } else {
-                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_owner, env.command_buffer, groups, instance_count, 1u);
+                [[maybe_unused]] bool const dispatched = env.draw_mesh_tasks(env.push_owner, *env.command_buffer, groups, instance_count, 1u);
             }
         }
     }

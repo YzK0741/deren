@@ -66,8 +66,10 @@ int main(int const argc, char** const argv) {
     // done inside the runtime), so there is no `deren_abi_version()` to ask any more - the handshake
     // below is that the contract's own constant is what every caller passes, checked where it is
     // refused (`check_core_contract` in tests/test_dynamic_link.cpp drives the mismatch case).
+    // abi 21 is the recording face's owner half (`api_core::make_command_buffer`); this pin moves with the
+    // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's own note).
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
-    CHECK(rhi::abi_version == 20u);
+    CHECK(rhi::abi_version == 28u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -110,13 +112,10 @@ int main(int const argc, char** const argv) {
         CHECK(rhi::has_ability(abilities, rhi::extension_kind::vulkan_escape));
         CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));
 
-        rhi::vulkan_escape& escape = dynamic.escape();
-        CHECK(escape.kind() == rhi::extension_kind::vulkan_escape);
-        CHECK(escape.native_device() != nullptr);
         CHECK(face.frame_swapchain() != nullptr);
-
-        deren::vk_test::write_line("runtime_dyn: constructed through deren_make_api_core(); native_device() = {}",
-                                   escape.native_device());
+        CHECK(face.frame_swapchain()->format() != rhi::image_format::unknown);
+        deren::vk_test::write_line("runtime_dyn: constructed through deren_make_api_core(); presentation format = {}",
+                                   static_cast<std::uint32_t>(face.frame_swapchain()->format()));
     }
     deren::vk_test::write_line("runtime_dyn: torn down (the backend's own deleter ran)");
 

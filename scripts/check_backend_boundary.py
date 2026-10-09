@@ -48,7 +48,7 @@ THE SECOND NUMBER: OWNING STL ACROSS THE BOUNDARY
     A symbol whose signature carries `std::vector` / `std::string` / an allocator is an
     allocation that one image makes and the other frees (today:
     `init_utils::create_host_buffers(..., std::vector<vk_buffer>&, ...)`). The contract
-    forbids it (plan_rhi_v4.md §4.2: no STL across the boundary), so the count is tracked
+    forbids it (no STL across the boundary), so the count is tracked
     as a ratchet of its own - it is the one part of the migration where "it links" is not
     the same as "it is safe".
 
@@ -250,7 +250,10 @@ MEMBER_RE = re.compile(r"^(?P<member>[^:\[\]]+\.(?:obj|o)):\s*$")
 CPP_RUNTIME_DLL = "libc++.dll"
 # Every image that must import it, WHEN IT EXISTS. `deren_vulkan.dll` is the backend's SHARED spelling
 # (abi 18): the rule is symmetric, so the day that DLL is built this check covers it with no edit.
-CPP_RUNTIME_IMAGES = ("deren.exe", "deren_vulkan.dll")
+# `deren_assets.dll` joined in the binary-balance batch: the asset-loading stack is a third image with
+# its own copy of the C++ runtime and its own calls into the process-wide sink, so it is held to the
+# same two premises as the other two (measured on it: libc++.dll + shared_utility.dll both imported).
+CPP_RUNTIME_IMAGES = ("deren.exe", "deren_vulkan.dll", "deren_assets.dll")
 
 
 def image_dll_imports(image: str) -> list[str] | None:

@@ -12,14 +12,12 @@ module;
 #include <new> // ::operator new's aligned overloads must be VISIBLE here: the deferred
                // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.upscale;
 
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw go through
 // the contract, so this file names no `vkCmd*` at all - the same six-site shape fxaa.cpp migrated.
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
 import deren.utility;
 
@@ -55,13 +53,13 @@ namespace deren::vulkan::pass {
     }
 
     void upscale_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -72,7 +70,7 @@ namespace deren::vulkan::pass {
             return;
         }
         // The surface's format is the pipeline's declared colour format (the resolve writes the swapchain).
-        auto built = pipelines::build_upscale_owned(*context.face, context.device, context.swap_chain_format, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_upscale_owned(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("upscale disabled: {}", built.error());
             this->release_owned();
@@ -93,8 +91,8 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline upscale_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* upscale_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
     void upscale_pass::set_frame(upscale_frame const& frame) noexcept {
@@ -161,7 +159,7 @@ namespace deren::vulkan::pass {
     }
 
     void upscale_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
@@ -213,7 +211,7 @@ namespace deren::vulkan::pass {
             .con2 = {es.con2[0], es.con2[1], es.con2[2], es.con2[3]},
             .con3 = {es.con3[0], es.con3[1], es.con3[2], es.con3[3]},
             .mode = this->filter_kind == upscale_filter::easu ? 1.0f : 0.0f,
-            .encode_gamma = deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
+            .encode_gamma = is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f,
         };
         // THE RENDERING SCOPE RIDES THE CONTRACT (abi 20): one colour attachment, CLEAR + STORE (what the raw
         // helper spelled), zero clear colour, no depth - the scope this pass opens.
@@ -235,14 +233,14 @@ namespace deren::vulkan::pass {
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // The source is a heap slot (see upscale.slang): the appended index lane names it, and the frame bound
         // the heaps for this command buffer, so there is no set to bind here.
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it
         // runs, so the overlay belongs here and NOT in the composite's instance - the composite drew into the
         // render-extent LDR image this pass is about to resample, so a UI drawn there would be scaled up with
         // the scene (see upscale_frame::after_draw and the composite's frame for the other case).
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
     }

@@ -32,9 +32,9 @@ module;
 #include <optional>
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.megalights_trace;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -90,8 +90,7 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief the compile-time bound on samples per pixel, which is the shader's own constant
         static constexpr uint32_t max_samples = 4;
@@ -142,11 +141,11 @@ export namespace deren::vulkan::pass {
          * every frame instead of an average of different ones.
          */
         uint32_t frame_index = 0;
-        VkDevice device = VK_NULL_HANDLE;
-        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        deren::promise::rhi::api_core* built_against = nullptr;
+        // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    };
+    }; // namespace deren::vulkan::pass
 
     static_assert(sizeof(megalights_trace_pass::push_constants) == render_resource::megalights_trace_io.push->size,
                   "the pass's composed push block must be the size its declaration pins");

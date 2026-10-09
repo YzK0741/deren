@@ -5,6 +5,11 @@
 
 - Language standard: C++23 (C++20 module)
 - Public interface: `gltf_loader/gltf_loader.cppm` (`import deren.gltf_loader;`)
+- Built as: the `deren_assets` target - one DLL (`deren_assets.dll`) carrying this module, the
+  toon-material sidecar and the vendored fastgltf/simdjson/stb code. A host links the target and the
+  Windows loader brings the image in before `main`, so the loader code is not compiled into the host.
+  The module name and the interface below are unchanged by that packaging; see the `deren_assets`
+  banner in `CMakeLists.txt`.
 - Entry point: `deren::gltf::load_model(path)` -> `std::expected<deren::gltf::scenes, deren::gltf::error_code>`
 
 ---
@@ -229,9 +234,10 @@ Vertex buffers can be uploaded by memcpy'ing the raw bytes directly, provided th
 ## 7. Notes and Limitations
 
 - The module is compiled with `-fno-exceptions`: fastgltf reports errors via `Expected` and never throws.
-- Runtime dependencies: none beyond the OS  -  fastgltf/simdjson are compiled into the executable from `third_party/`, and the Windows Release exe is fully static.
+- Runtime dependencies: this module and its vendored parser (fastgltf + simdjson, from `third_party/`) build
+  into `deren_assets.dll`, which the host links; nothing else is needed beyond the OS and the C++ runtime.
 - Static render data (meshes, vertices/indices, textures, materials), **keyframe animations** (section 8), **skins** (section 9) and **morph targets** (section 10) are exported. Non-indexed glTF primitives are supported: the loader synthesizes a sequential uint32 index buffer.
-- Cameras and punctual lights (KHR_lights_punctual) are exported too: `scenes.cameras` / `scenes.lights` hold the file's cameras and lights in glTF order, and each node records its attachment through `camera_index` / `light_index`. Authored cameras are consumed in `main.cpp` as orbit-camera viewpoint seeds (gui "camera" selector); point/spot lights are loaded by `main.cpp` into the runtime's editable gui light slots (up to the GPU cap, fixed to the node's base-pose world transform, position offset by the scene import shift), so they light the scene and stay adjustable in the overlay. KHR *directional* lights are not mapped: the engine's sun is the shadow-casting analytic light configured by `enable_shadows()`, so the loader logs them as ignored.
+- Cameras and punctual lights (KHR_lights_punctual) are exported too: `scenes.cameras` / `scenes.lights` hold the file's cameras and lights in glTF order, and each node records its attachment through `camera_index` / `light_index`. `main.cpp` consumes authored cameras as orbit-camera viewpoint seeds and loads point/spot lights into the runtime's editable light slots (up to the GPU cap), so they light the scene and stay adjustable in the overlay. KHR *directional* lights are not mapped: the engine's sun is the shadow-casting analytic light configured by `enable_shadows()`, so the loader logs them as ignored.
 - `log_scene_diagnostics(scenes)` is a one-call diagnostic dump: it logs the contents summary (textures/materials/primitives), the world AABB framing numbers (min/max/center/radius), the retained hierarchy shape (per-node tree lines) and the animations/skins/morph targets/cameras/lights present in the file, and returns the `scene_bounds` (panics when the model has no drawable primitives). `main.cpp` calls it once after loading, before framing the orbit camera.
 - All `asset.scenes` are loaded; `asset.defaultScene` is not separately marked yet.
 - Verified samples (in `main.cpp`): the glTF/GLB variants of `glTF-Sample-Assets/Models/{Box, BoxInterleaved, BoxTextured}`, covering ASCII + external bin, binary containers, interleaved byteStride, embedded textures, and the missing-file error code.

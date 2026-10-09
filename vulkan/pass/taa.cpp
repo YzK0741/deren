@@ -10,13 +10,11 @@ module;
 #include <cstring>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.taa;
 
 import deren.promise.rhi;
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines;
 import deren.utility;
 
@@ -48,8 +46,8 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline taa_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* taa_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
     bool taa_pass::wrote_history() const noexcept {
@@ -78,13 +76,13 @@ namespace deren::vulkan::pass {
     }
 
     void taa_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -94,7 +92,7 @@ namespace deren::vulkan::pass {
             deren::utility::log("taa disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
             return;
         }
-        auto built = pipelines::build_taa(*context.face, context.device, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_taa(*context.face, rhi::image_format::r16g16b16a16_sfloat, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("taa disabled: {}", built.error());
             this->release_owned();
@@ -109,6 +107,12 @@ namespace deren::vulkan::pass {
         if (io.own.size() < own_binding_count || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
+        // THE CONTRACT'S OWN HANDLES (abi 20): the record series takes the handles the resolved binding
+        // publishes BESIDE the raw lanes, so the guard speaks the vocabulary every call below does.
+        if (io.list == nullptr || io.own[0].image_handle == nullptr || io.own[1].image_handle == nullptr ||
+            io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
+            return; // the handles this frame's publication left empty: the resolve cannot record
+        }
         uint32_t const index = io.frame.image_index;
         if (this->valid_history.size() != io.frame.image_count) {
             this->valid_history.assign(io.frame.image_count, false);
@@ -122,9 +126,11 @@ namespace deren::vulkan::pass {
         // use for this image) the history become inputs, and the HDR target - still untouched this frame -
         // becomes the resolve's attachment. The history is left in SHADER_READ_ONLY by the previous frame's
         // copy and is only ever read as a texture, so it needs no barrier once it is valid.
-        std::array<VkImageMemoryBarrier2, 4> barriers = {};
-        barriers[0] = deren::vulkan::hdr_sampling_transition; // scene_color: COLOR_ATTACHMENT -> SHADER_READ
-        barriers[0].image = io.own[0].image;
+        std::array<rhi::image_barrier, 2> barriers = {};
+        barriers[0] = rhi::image_barrier{.resource = io.own[0].image_handle,
+                                         .from = rhi::image_use::color_attachment,
+                                         .to = rhi::image_use::shader_read,
+                                         .range = {}}; // scene_color: COLOR_ATTACHMENT -> SHADER_READ
         // THE MOTION VECTORS ARE NOT THIS PASS'S BARRIER ANY MORE, and they were the bug: this batch used to
         // transition io.own[2] unconditionally, on the assumption that the TAA resolve is the frame's first
         // sampler of the velocity (the assumption `require_velocity_publish`'s call site documents). Once an
@@ -136,12 +142,17 @@ namespace deren::vulkan::pass {
         // consumes it, so the first sampler in the frame publishes and the rest are no-ops.
         uint32_t barrier_count = 1;
         if (!history_valid) {
-            barriers[barrier_count] = deren::vulkan::undefined_to_sampling_transition;
-            barriers[barrier_count].image = io.own[1].image;
+            barriers[barrier_count] = rhi::image_barrier{.resource = io.own[1].image_handle,
+                                                         .from = rhi::image_use::undefined,
+                                                         .to = rhi::image_use::shader_read,
+                                                         .range = {}}; // the history's first use: UNDEFINED -> SHADER_READ
             ++barrier_count;
         }
-        VkDependencyInfo const dependency = make_image_dependency_info(barrier_count, barriers.data());
-        vkCmdPipelineBarrier2(io.cmd, &dependency);
+        // THE PAIR RIDES THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
+        // roles, and the batch stays ONE call - `barrier_group` is what the raw `vkCmdPipelineBarrier2` was.
+        if (io.list->barrier(rhi::barrier_group{.images = std::span(barriers.data(), barrier_count)}) != rhi::error::ok) {
+            return; // a refused barrier would leave an input in a state nobody declared
+        }
 
         // NOTE: the G-buffer depth the disocclusion guard samples is transitioned by the HOST, just before
         // this stage (see runtime::record_scene_tail): it is a shared per-image transition whose flag belongs
@@ -149,19 +160,36 @@ namespace deren::vulkan::pass {
         // preserve is "after this batch, before the draw" only in the sense that the barrier must precede the
         // draw - the barrier commands are independent of this batch, so the host places them first.
 
-        std::array<VkImageMemoryBarrier2, 1> output_barrier = {deren::vulkan::color_attachment_transition};
-        output_barrier[0].image = io.targets[0].image;
-        VkDependencyInfo const output_dependency = make_image_dependency_info(1, output_barrier.data());
-        vkCmdPipelineBarrier2(io.cmd, &output_dependency);
+        // THE TARGET'S PAIR, also the contract's (abi 20): UNDEFINED -> COLOR_ATTACHMENT, the shipped
+        // `color_attachment_transition` recipe the raw spelling used.
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
+                                                .from = rhi::image_use::undefined,
+                                                .to = rhi::image_use::color_attachment,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the target in a state nobody declared
+        }
 
         // The runner has bound the pipeline and set the viewport and scissor from io.extent (this pass
         // declared resync_viewport); what a fullscreen pass still owns is its instance - the load op is its
         // knowledge - and the state the viewport fields do not cover.
-        VkClearValue clear = {};
-        VkRenderingAttachmentInfo const color_attachment = make_color_attachment_info(io.targets[0].view, clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &color_attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE);
+        // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, CLEAR + STORE (what
+        // `make_color_attachment_info` spelled), zero clear colour, no depth and no secondary contents.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // the resolve records straight into the primary; no secondary contents
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none);
         // No set to bind: the history and the surface are heap slots, one pair per swapchain image, and the frame
         // bound the heaps for this command buffer (see begin_recording).
         // THE PUSH BLOCK IS THE PASS'S OWN (S3): every lane of it is a fact this pass has - its two blend
@@ -176,41 +204,52 @@ namespace deren::vulkan::pass {
         push.depth_scale = io.constants.proj[2][2];
         push.depth_offset = io.constants.proj[3][2];
         push.history_valid = history_valid ? 1.0f : 0.0f;
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(io.cmd);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->draw(3, 1, 0, 0);
+        io.list->end_rendering();
 
         // ---- the resolved frame becomes the next frame's history ----
         // A copy rather than a ping-pong: the resolve necessarily writes the image the post chain reads, so
         // the history has to be a separate image, and copying into it keeps every heap slot in the frame
         // stable (no per-frame descriptor rewrites). The barriers move the HDR target out to TRANSFER_SRC and back - the
         // post chain still finds it in GENERAL, exactly where it expects it.
-        std::array<VkImageMemoryBarrier2, 2> copy_barriers = {};
-        copy_barriers[0] = deren::vulkan::color_attachment_to_transfer_transition; // HDR -> TRANSFER_SRC
-        copy_barriers[0].image = io.targets[0].image;
-        copy_barriers[1] = deren::vulkan::sampling_to_transfer_dst_transition; // history: SHADER_READ -> TRANSFER_DST
-        copy_barriers[1].image = io.own[1].image;
-        VkDependencyInfo const copy_dependency = make_image_dependency_info(static_cast<uint32_t>(copy_barriers.size()), copy_barriers.data());
-        vkCmdPipelineBarrier2(io.cmd, &copy_dependency);
-
-        VkImageCopy const region = {
-            .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-            .srcOffset = {0, 0, 0},
-            .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-            .dstOffset = {0, 0, 0},
-            .extent = {io.extent.width, io.extent.height, 1},
+        std::array<rhi::image_barrier, 2> const copy_barriers = {
+            rhi::image_barrier{.resource = io.targets[0].image_handle,
+                               .from = rhi::image_use::color_attachment,
+                               .to = rhi::image_use::transfer_source,
+                               .range = {}}, // HDR -> TRANSFER_SRC
+            rhi::image_barrier{.resource = io.own[1].image_handle,
+                               .from = rhi::image_use::shader_read,
+                               .to = rhi::image_use::transfer_destination,
+                               .range = {}}, // history: SHADER_READ -> TRANSFER_DST
         };
-        vkCmdCopyImage(io.cmd, io.targets[0].image, VK_IMAGE_LAYOUT_GENERAL, io.own[1].image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
+        if (io.list->barrier(rhi::barrier_group{.images = copy_barriers}) != rhi::error::ok) {
+            return; // a refused barrier would leave an operand of the copy in a state nobody declared
+        }
+
+        rhi::image_copy_region const region = {.extent = {io.extent.width, io.extent.height, 1}};
+        if (io.list->copy_image(rhi::image_copy{.source = io.targets[0].image_handle,
+                                                .destination = io.own[1].image_handle,
+                                                .source_region = region,
+                                                .destination_region = region}) != rhi::error::ok) {
+            return; // the history was not written, so this frame's resolve must not claim one
+        }
 
         // hand both images on: the HDR target back to the post chain, the history copy to the next frame's
         // resolve (which will find it in TRANSFER_DST and transition it from there)
-        std::array<VkImageMemoryBarrier2, 2> hand_back = {};
-        hand_back[0] = deren::vulkan::transfer_to_color_attachment_transition; // HDR -> COLOR_ATTACHMENT
-        hand_back[0].image = io.targets[0].image;
-        hand_back[1] = deren::vulkan::transfer_dst_to_sampling_transition; // history -> SHADER_READ
-        hand_back[1].image = io.own[1].image;
-        VkDependencyInfo const hand_back_dependency = make_image_dependency_info(static_cast<uint32_t>(hand_back.size()), hand_back.data());
-        vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
+        std::array<rhi::image_barrier, 2> const hand_back = {
+            rhi::image_barrier{.resource = io.targets[0].image_handle,
+                               .from = rhi::image_use::transfer_source,
+                               .to = rhi::image_use::color_attachment,
+                               .range = {}}, // HDR -> COLOR_ATTACHMENT
+            rhi::image_barrier{.resource = io.own[1].image_handle,
+                               .from = rhi::image_use::transfer_destination,
+                               .to = rhi::image_use::shader_read,
+                               .range = {}}, // history -> SHADER_READ
+        };
+        if (io.list->barrier(rhi::barrier_group{.images = hand_back}) != rhi::error::ok) {
+            return; // a refused hand-back would leave both images in a state nobody declared
+        }
 
         this->valid_history[index] = true;
         this->history_written = true;

@@ -32,9 +32,9 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.cluster;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -80,7 +80,7 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         /// @brief build this pass's frame from the published facts (see frame_pass::prepare_frame)
         void prepare_frame(frame_facts const& facts) noexcept override;
@@ -112,14 +112,13 @@ export namespace deren::vulkan::pass {
             .resync_viewport = false,
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
-        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        deren::promise::rhi::api_core* built_against = nullptr;
+        // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         // called pass_frame, not frame: set_frame()'s frame parameter in cluster.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         cluster_frame pass_frame = {};
-    };
+    }; // namespace deren::vulkan::pass
 
 } // namespace deren::vulkan::pass

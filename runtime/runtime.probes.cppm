@@ -15,25 +15,23 @@ module;
 #include <algorithm> // std::min in the resource publication
 #include <bit>       // std::bit_cast for the caster world-matrix hash
 #include <chrono>
-#include <cstring> // std::memcpy, for composing a pass's push block
+#include <cstring>  // std::memcpy, for composing a pass's push block
+#include <expected> // std::expected: `image::get_content()` answers the content or the named reason
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
 #include <thread> // std::this_thread::yield in the frame limiter
 #include <vector> // the destination of a host image copy, when that read-back path is taken
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.runtime:probes;
 
 import :declarations;
 import deren.vulkan.profiling;
 import deren.vulkan.pipelines;
-import deren.vulkan.bindings;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
@@ -43,6 +41,36 @@ import deren.vulkan.frame_constants; // one frame's shared constants (see update
 [[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace deren::vulkan {
+    std::shared_ptr<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
+        // ONE PROBE'S OWN RECORDING SESSION, THROUGH THE CONTRACT (abi 22): a primary command buffer the backend
+        // owns, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
+        // queue family and the submission are the backend's now - the probe keeps what it always had, which is a
+        // buffer of its own that nothing else records into (the mask bake looked isolated too and turned out to
+        // record into the frame's buffer; this one really is).
+        std::shared_ptr<rhi::command_buffer> commands = this->rhi_face().make_command_buffer({.kind = rhi::command_buffer_kind::primary});
+        if (commands == nullptr) {
+            deren::utility::log("descriptor heap: {} could not allocate a contract command buffer", what);
+            return nullptr;
+        }
+        rhi::command_buffer_begin_info const begin = {.struct_size = sizeof(rhi::command_buffer_begin_info),
+                                                      .usage = rhi::to_bits(rhi::command_buffer_usage::one_time_submit),
+                                                      .next = nullptr};
+        if (commands->begin_recording(begin) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: {} could not begin recording", what);
+            return nullptr;
+        }
+        return commands;
+    }
+
+    bool runtime::submit_probe_commands(rhi::command_buffer& commands) {
+        // THE CONTRACT SUBMITS IT (plan X4): `api_core::submit()` takes a list the CALLER owns as well as the
+        // frame's, so an isolated probe buffer no longer goes to the queue through the escape - the raw
+        // `vkQueueSubmit` that stood here was this file's second and last Vulkan call. NOTHING IS PRESENTED for an
+        // owned list (no swapchain image, no acquire state), and the wait afterwards is still the contract's
+        // `wait_idle()`, which the callers already perform.
+        return this->rhi_face().submit(commands) == rhi::error::ok;
+    }
+
     void runtime::run_heap_probe(uint32_t const texture_slot) {
         // ---- THE HEAP-NATIVE PROBE (see shaders/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
         //
@@ -61,7 +89,7 @@ namespace deren::vulkan {
         if (!contract_heap_ready(vk) || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
         }
-        auto const built = pipelines::build_heap_probe(vk, runtime_detail::native_device_of(vk), spirv);
+        auto const built = pipelines::build_heap_probe(vk, spirv);
         if (!built.has_value()) {
             deren::utility::log("descriptor heap: the heap-native probe's pipeline was refused: {}", built.error());
             return;
@@ -83,43 +111,57 @@ namespace deren::vulkan {
         }
         uint64_t const answer_address = this->buffer_address(*answer);
 
-        VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = this->graphics_queue_family_index};
-        VkCommandPool pool = VK_NULL_HANDLE;
-        vkCreateCommandPool(runtime_detail::native_device_of(vk), &pool_info, nullptr, &pool);
-        VkCommandBufferAllocateInfo const allocate = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .pNext = nullptr, .commandPool = pool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1};
-        VkCommandBuffer command_buffer = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(runtime_detail::native_device_of(vk), &allocate, &command_buffer);
-        VkCommandBufferBeginInfo const begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = nullptr, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, .pInheritanceInfo = nullptr};
-        vkBeginCommandBuffer(command_buffer, &begin);
-        // The heaps first: they are command-buffer state, and this buffer holds nothing else.
-        contract_record_heap_bind(vk, command_buffer);
-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, built->trace->get_pipeline());
+        // ---- THE RECORDING, THROUGH THE CONTRACT (abi 22) ----
+        // A contract command buffer of its own, the heap bind and the push through the `descriptor_heap` ability's
+        // OWN verbs, a contract `dispatch`, a contract `submit` and a device idle. The hand-made
+        // `VkCommandPool`/`VkCommandBuffer`/`VkFence`/`vkQueueSubmit`/`vkWaitForFences` that stood here named a
+        // device and a queue the contract already owns, and the pipeline arrives as the CONTRACT object the
+        // builder returned (no `get_pipeline()`).
+        std::shared_ptr<rhi::command_buffer> const commands = this->make_probe_commands("the heap-native probe");
+        if (commands == nullptr) {
+            return;
+        }
+        rhi::descriptor_heap* const heap = rhi::query_extension<rhi::descriptor_heap>(vk);
+        if (heap == nullptr) {
+            deren::utility::log("descriptor heap: the heap-native probe has no descriptor_heap ability to bind");
+            return;
+        }
+        rhi::heap_bind_info const heap_bind{.commands = commands.get()};
+        if (heap->bind(heap_bind) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native probe could not bind the heaps on its own command buffer");
+            return;
+        }
+        if (commands->bind_pipeline(*built->trace->contract) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native probe's pipeline was refused by the command buffer");
+            return;
+        }
         // The parameters, THROUGH PUSH DATA: there is no pipeline layout to push constants to, which is the flag's
-        // requirement and the reason this function exists.
+        // requirement and the reason this function exists - and the push is the ability's verb now, not the raw
+        // entry point's.
         std::array<uint32_t, 4> const push = {
             static_cast<uint32_t>(answer_address & 0xFFFFFFFFu),
             static_cast<uint32_t>(answer_address >> 32u),
             texture_slot,
             sampler_slot, // the host's choice of sampler, not the shader's
         };
-        [[maybe_unused]] bool const pushed = contract_push_heap_data(vk, command_buffer, 0u, std::as_bytes(std::span(push)));
-        vkCmdDispatch(command_buffer, 1u, 1u, 1u);
-        vkEndCommandBuffer(command_buffer);
-
-        VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
-        VkFence fence = VK_NULL_HANDLE;
-        vkCreateFence(runtime_detail::native_device_of(vk), &fence_info, nullptr, &fence);
-        VkSubmitInfo const submit = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                     .pNext = nullptr,
-                                     .waitSemaphoreCount = 0,
-                                     .pWaitSemaphores = nullptr,
-                                     .pWaitDstStageMask = nullptr,
-                                     .commandBufferCount = 1,
-                                     .pCommandBuffers = &command_buffer,
-                                     .signalSemaphoreCount = 0,
-                                     .pSignalSemaphores = nullptr};
-        vkQueueSubmit(static_cast<VkQueue>(runtime_detail::native_queue_of(vk)), 1, &submit, fence);
-        vkWaitForFences(runtime_detail::native_device_of(vk), 1, &fence, VK_TRUE, UINT64_MAX);
+        rhi::heap_push_info const push_info{.commands = commands.get(), .offset = 0u, .data = std::as_bytes(std::span(push))};
+        if (heap->push_data(push_info) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native probe's push data was refused");
+            return;
+        }
+        commands->dispatch(1u, 1u, 1u);
+        if (commands->end_recording() != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native probe could not close its recording");
+            return;
+        }
+        if (!this->submit_probe_commands(*commands)) {
+            deren::utility::log("descriptor heap: the heap-native probe's submission was refused");
+            return;
+        }
+        // THE IDLE IS THE PROBE'S OWN REQUIREMENT, not a synchronisation shortcut: the answer is read out of HOST
+        // memory below, so the work has to be DONE - and the contract's `wait_idle()` says exactly that. It runs
+        // once, at scene setup, with nothing else in flight (the fence this replaced waited for the same thing).
+        vk.wait_idle();
 
         uint32_t const readback = *reinterpret_cast<uint32_t const*>(answer_bytes.data());
         uint32_t const material_readback = reinterpret_cast<uint32_t const*>(answer_bytes.data())[1];
@@ -130,9 +172,6 @@ namespace deren::vulkan {
                             readback & 0xFFFFu,
                             readback >> 16u,
                             material_readback & 0xFFFFu);
-
-        vkDestroyFence(runtime_detail::native_device_of(vk), fence, nullptr);
-        vkDestroyCommandPool(runtime_detail::native_device_of(vk), pool, nullptr);
     }
 
     void runtime::run_heap_graphics_probe(uint32_t const material_slot, bool const mesh_shader) {
@@ -153,20 +192,8 @@ namespace deren::vulkan {
         if (!contract_heap_ready(vk) || vertex_code.empty() || fragment_code.empty()) {
             return;
         }
-        constexpr VkFormat probe_format = VK_FORMAT_R8G8B8A8_UNORM;
-        auto const built = pipelines::build_heap_probe_graphics(vk, runtime_detail::native_device_of(vk), contract_image_format(probe_format), vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
-        // vkCmdDrawMeshTasksEXT IS AN EXTENSION ENTRY POINT and is loaded the way this project loads every other
-        // one (see acceleration_structure.cpp): the loader's import library does not export it, so it arrives
-        // through vkGetDeviceProcAddr - and a null there is the honest "this device cannot run this probe"
-        // instead of a link error. It is fetched only for the mesh arm, so the vertex arm cannot be affected.
-        PFN_vkCmdDrawMeshTasksEXT draw_mesh_tasks = nullptr;
-        if (mesh_shader) {
-            draw_mesh_tasks = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(runtime_detail::native_device_of(vk), "vkCmdDrawMeshTasksEXT"));
-            if (draw_mesh_tasks == nullptr) {
-                deren::utility::log("descriptor heap: the MESH probe is skipped - vkGetDeviceProcAddr returned null for vkCmdDrawMeshTasksEXT");
-                return;
-            }
-        }
+        constexpr rhi::image_format probe_format = rhi::image_format::rgba8_unorm;
+        auto const built = pipelines::build_heap_probe_graphics(vk, probe_format, vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
         if (!built.has_value()) {
             deren::utility::log("descriptor heap: the heap-native graphics probe's pipeline was refused: {}", built.error());
             return;
@@ -177,12 +204,15 @@ namespace deren::vulkan {
         // of the app's own memory: the target needs the HOST_TRANSFER usage instead of TRANSFER_SRC, no staging
         // buffer is created and no copy command is recorded. The capability is REQUIRED of the device now, so
         // there is no second path to choose between and no predicate for later branches to disagree about.
-        constexpr VkDeviceSize probe_bytes = static_cast<VkDeviceSize>(pipelines::heap_probe_extent) * pipelines::heap_probe_extent * 4u;
+        //
+        // THE SIZE IS NO LONGER THIS SIDE'S BUSINESS (abi 25): `image::get_content()` answers the bytes AND the
+        // shape they cover (`rhi::image_content`), so the probe no longer computes
+        // `extent * extent * 4` from a format assumption - the backend knows what it created.
         rhi::image_desc target_desc{};
         target_desc.extent = rhi::image_extent{.width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent, .depth = 1u};
         target_desc.mip_levels = 1;
         target_desc.array_layers = 1;
-        target_desc.format = contract_image_format(probe_format);
+        target_desc.format = probe_format;
         target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::host_transfer);
         target_desc.debug_name = "heap probe target";
         rhi::object_manager<rhi::image> target{this->rhi_face().create_image(target_desc)};
@@ -190,7 +220,6 @@ namespace deren::vulkan {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not allocate its target");
             return;
         }
-        VkImage const target_native = static_cast<VkImage>(this->escape().native_image(*target));
         rhi::image_view_desc target_view_range{};
         target_view_range.layer_count = 0;
         target_view_range.mip_count = 0;
@@ -199,121 +228,106 @@ namespace deren::vulkan {
             deren::utility::log("descriptor heap: the heap-native graphics probe could not prepare its target view");
             return;
         }
-        VkImageView const target_view_native = static_cast<VkImageView>(this->escape().native_image_view(*target_view));
 
-        VkCommandPoolCreateInfo const pool_info = {.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO, .pNext = nullptr, .flags = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT, .queueFamilyIndex = this->graphics_queue_family_index};
-        VkCommandPool pool = VK_NULL_HANDLE;
-        vkCreateCommandPool(runtime_detail::native_device_of(vk), &pool_info, nullptr, &pool);
-        VkCommandBufferAllocateInfo const allocate = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO, .pNext = nullptr, .commandPool = pool, .level = VK_COMMAND_BUFFER_LEVEL_PRIMARY, .commandBufferCount = 1};
-        VkCommandBuffer command_buffer = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(runtime_detail::native_device_of(vk), &allocate, &command_buffer);
-        VkCommandBufferBeginInfo const begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO, .pNext = nullptr, .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT, .pInheritanceInfo = nullptr};
-        vkBeginCommandBuffer(command_buffer, &begin);
-        contract_record_heap_bind(vk, command_buffer);
-
-        VkImageMemoryBarrier2 to_colour = {};
-        to_colour.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        to_colour.srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT;
-        to_colour.dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        to_colour.dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        to_colour.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
-        to_colour.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_colour.image = target_native;
-        to_colour.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkDependencyInfo const to_colour_dependency = make_image_dependency_info(1, &to_colour);
-        vkCmdPipelineBarrier2(command_buffer, &to_colour_dependency);
-
-        VkRenderingAttachmentInfo const attachment = {.sType = VK_STRUCTURE_TYPE_RENDERING_ATTACHMENT_INFO,
-                                                      .pNext = nullptr,
-                                                      .imageView = target_view_native,
-                                                      .imageLayout = VK_IMAGE_LAYOUT_GENERAL,
-                                                      .resolveMode = VK_RESOLVE_MODE_NONE,
-                                                      .resolveImageView = VK_NULL_HANDLE,
-                                                      .resolveImageLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-                                                      .loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-                                                      .storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-                                                      .clearValue = {.color = {.float32 = {0.0f, 0.0f, 0.0f, 1.0f}}}};
-        VkRenderingInfo const rendering = {.sType = VK_STRUCTURE_TYPE_RENDERING_INFO,
-                                           .pNext = nullptr,
-                                           .flags = 0,
-                                           .renderArea = {{0, 0}, {pipelines::heap_probe_extent, pipelines::heap_probe_extent}},
-                                           .layerCount = 1,
-                                           .viewMask = 0,
-                                           .colorAttachmentCount = 1,
-                                           .pColorAttachments = &attachment,
-                                           .pDepthAttachment = nullptr,
-                                           .pStencilAttachment = nullptr};
-        vkCmdBeginRendering(command_buffer, &rendering);
+        // ---- THE RECORDING, THROUGH THE CONTRACT (abi 22) ----
+        // The same shape the compute probe took: a contract command buffer of its own, the heap bind + the push
+        // through the `descriptor_heap` verbs, the rendering scope / dynamic state / pipeline bind / draw through
+        // the record series (the MESH arm is `draw_mesh_tasks`, NOT a resolved entry point - the contract has that
+        // verb, so no `vkGetDeviceProcAddr` is involved), and a contract submit + idle.
+        std::shared_ptr<rhi::command_buffer> const commands = this->make_probe_commands(mesh_shader ? "the heap-native MESH probe" : "the heap-native GRAPHICS probe");
+        if (commands == nullptr) {
+            return;
+        }
+        rhi::descriptor_heap* const heap = rhi::query_extension<rhi::descriptor_heap>(vk);
+        if (heap == nullptr) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe has no descriptor_heap ability to bind");
+            return;
+        }
+        rhi::heap_bind_info const heap_bind{.commands = commands.get()};
+        if (heap->bind(heap_bind) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe could not bind the heaps on its own command buffer");
+            return;
+        }
+        // THE TARGET'S FIRST TRANSITION IS A CONTRACT ROLE PAIR: `undefined -> color_attachment` is what the raw
+        // barrier spelled (TOP_OF_PIPE -> COLOR_ATTACHMENT_OUTPUT, no source access, UNDEFINED -> GENERAL).
+        // THE TARGET'S FIRST TRANSITION IS A CONTRACT BARRIER (the general `barrier(image_barrier)` form, not
+        // `use()`): `use()` declares the FRAME image's role pair and REFUSES a buffer that records into a buffer
+        // the caller created (its own doc), while `barrier` resolves any image the backend handed out and records
+        // into whatever list is recording. `undefined -> color_attachment` is what the raw barrier spelled
+        // (TOP_OF_PIPE -> COLOR_ATTACHMENT_OUTPUT, no source access, UNDEFINED -> GENERAL).
+        rhi::image_barrier const to_colour{.resource = target.get(),
+                                           .from = rhi::image_use::undefined,
+                                           .to = rhi::image_use::color_attachment,
+                                           .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}};
+        if (commands->barrier(to_colour) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe's target transition was refused");
+            return;
+        }
+        std::array<rhi::color_attachment, 1> const colors = {rhi::color_attachment{.view = target_view.get(), .load = rhi::load_op::clear, .store = rhi::store_op::store, .clear = {0.0f, 0.0f, 0.0f, 1.0f}}};
+        rhi::rendering_info const rendering = {
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = rhi::rect{.offset_x = 0, .offset_y = 0, .width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // recorded into its own primary, not a secondary
+        };
+        if (commands->begin_rendering(rendering) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe's rendering scope was refused");
+            return;
+        }
+        // THE DYNAMIC STATE THE CONTRACT'S GRAPHICS PIPELINES DECLARE (abi 21): `create_pipeline`'s graphics recipe
+        // declares viewport, scissor and cull mode dynamic for every recipe, so the probe states them - and it
+        // states them through the record series now instead of through raw commands.
+        constexpr float probe_edge = static_cast<float>(pipelines::heap_probe_extent);
+        commands->set_viewport(rhi::viewport{.x = 0.0f, .y = 0.0f, .width = probe_edge, .height = probe_edge, .min_depth = 0.0f, .max_depth = 1.0f});
+        commands->set_scissor(rhi::rect{.offset_x = 0, .offset_y = 0, .width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent});
+        commands->set_cull_mode(rhi::cull_mode::none); // the probe's subject is the fragment stage reading the heap
         // The slot, THROUGH PUSH DATA: the pipeline has no layout (the flag requires that), so this is the only
         // way a parameter reaches the fragment stage - and running the probe with a wrong value here is the
         // negative proof (see the caller).
         std::array<uint32_t, 4> const push = {material_slot, 0u, 0u, 0u};
-        [[maybe_unused]] bool const pushed = contract_push_heap_data(vk, command_buffer, 0u, std::as_bytes(std::span(push)));
-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS, built->get_pipeline());
+        rhi::heap_push_info const push_info{.commands = commands.get(), .offset = 0u, .data = std::as_bytes(std::span(push))};
+        if (heap->push_data(push_info) != rhi::error::ok || commands->bind_pipeline(*built->contract) != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe's push or pipeline bind was refused");
+            return;
+        }
         if (mesh_shader) {
             // ONE workgroup, ONE triangle: the mesh entry emits three vertices and one index triple, and the
             // launch size is the dispatch's business (the shader's own [numthreads(1, 1, 1)] sizes the group).
-            // This call is the whole host-side difference between the two probes - there is no vertex buffer,
-            // no vertex input and no layout either way.
-            draw_mesh_tasks(command_buffer, 1u, 1u, 1u);
+            // This call is the whole host-side difference between the two probes - there is no vertex buffer, no
+            // vertex input and no layout either way, and the verb is the same one the passes use.
+            commands->draw_mesh_tasks(1u, 1u, 1u);
         } else {
-            vkCmdDraw(command_buffer, 3u, 1u, 0u, 0u); // the fullscreen triangle the vertex entry builds from SV_VertexID
+            commands->draw(3u, 1u, 0u, 0u); // the fullscreen triangle the vertex entry builds from SV_VertexID
         }
-        vkCmdEndRendering(command_buffer);
+        commands->end_rendering();
 
-        VkImageMemoryBarrier2 to_copy = {};
-        to_copy.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
-        to_copy.srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT;
-        to_copy.srcAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT;
-        // The consumer of the render's writes is the HOST stage: the implementation performs the copy between
-        // image memory and the app's pointer, so this barrier is what makes those writes visible to it.
-        to_copy.dstStageMask = VK_PIPELINE_STAGE_2_HOST_BIT;
-        to_copy.dstAccessMask = VK_ACCESS_2_HOST_READ_BIT;
-        to_copy.oldLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_copy.newLayout = VK_IMAGE_LAYOUT_GENERAL;
-        to_copy.image = target_native;
-        to_copy.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
-        VkDependencyInfo const to_copy_dependency = make_image_dependency_info(1, &to_copy);
-        vkCmdPipelineBarrier2(command_buffer, &to_copy_dependency);
-
-        vkEndCommandBuffer(command_buffer);
-
-        VkFenceCreateInfo const fence_info = {.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
-        VkFence fence = VK_NULL_HANDLE;
-        vkCreateFence(runtime_detail::native_device_of(vk), &fence_info, nullptr, &fence);
-        VkSubmitInfo const submit = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-                                     .pNext = nullptr,
-                                     .waitSemaphoreCount = 0,
-                                     .pWaitSemaphores = nullptr,
-                                     .pWaitDstStageMask = nullptr,
-                                     .commandBufferCount = 1,
-                                     .pCommandBuffers = &command_buffer,
-                                     .signalSemaphoreCount = 0,
-                                     .pSignalSemaphores = nullptr};
-        vkQueueSubmit(static_cast<VkQueue>(runtime_detail::native_queue_of(vk)), 1, &submit, fence);
-        vkWaitForFences(runtime_detail::native_device_of(vk), 1, &fence, VK_TRUE, UINT64_MAX);
-
-        // ---- the host copy itself: no command records it and no queue runs it, and it is legal HERE because the
-        //      barrier above has been submitted and waited on (the render's writes are visible to the host stage and
-        //      the image is in GENERAL, the layout this renderer keeps every image in). The region is the whole image
-        //      tightly packed (memoryRowLength and memoryImageHeight 0 - both a multiple of the texel block extent,
-        //      and the destination large enough for it).
-        //
-        // THE COPY IS THE CONTRACT'S `host_image_copy` ABILITY (③-D/E step 2), and that is a shape change rather
-        // than a spelling one: this used to call the DEVICE'S entry point (`core::copy_image_to_memory`, a
-        // `PFN_vkCopyImageToMemoryEXT`) with a raw `VkCopyImageToMemoryInfo`. The contract has carried the ability
-        // since abi 1 and nobody served it; the backend serves it now (it announces the bit exactly when the
-        // device has the extension, the feature and GENERAL among the source layouts), and the region is the
-        // contract's own `image_copy_region` - whose fields are its OWN names (`extent`, `mip_level`,
-        // `base_array_layer`, `array_layer_count`, `offset_*`), NOT the API's.
-        std::vector<uint8_t> host_pixels(static_cast<std::size_t>(probe_bytes));
-        rhi::host_image_copy* const host_copy = rhi::query_extension<rhi::host_image_copy>(this->rhi_face());
-        if (host_copy == nullptr) {
-            deren::utility::log("descriptor heap: the heap-native {} probe's HOST image copy is unavailable - this backend does not serve host_image_copy", mesh_shader ? "MESH" : "GRAPHICS");
-            vkDestroyFence(runtime_detail::native_device_of(vk), fence, nullptr);
-            vkDestroyCommandPool(runtime_detail::native_device_of(vk), pool, nullptr);
+        if (commands->end_recording() != rhi::error::ok) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe could not close its recording");
             return;
         }
+        if (!this->submit_probe_commands(*commands)) {
+            deren::utility::log("descriptor heap: the heap-native graphics probe's submission was refused");
+            return;
+        }
+        // the probe reads HOST memory below (and the host copy is a host-side call): the work has to be DONE
+        vk.wait_idle();
+
+        // ---- THE READ-BACK IS `image::get_content()` NOW (abi 25): the SAME host image copy, in ONE call.
+        //
+        // WHY THE SHAPE CHANGED (and what it replaced): this used to query the `host_image_copy` ABILITY, size a
+        // vector from the format, build the region by hand and call
+        // `copy_image_to_memory(image, span, region)` - three steps a caller had to get right (the size, the
+        // region's meaning, the ability's presence). `image::get_content()` answers the CONTENT
+        // (`rhi::image_content`: the bytes PLUS the extent and bytes-per-pixel they cover), so the caller sizes
+        // nothing and strides nothing, and the backend keeps ONE implementation of the copy
+        // (`vkCopyImageToMemoryEXT`, no staging buffer and no copy command) behind it.
+        //
+        // IT IS LEGAL HERE for the reason it always was: the barrier above has been submitted and waited on, so
+        // the render's writes are visible to the host stage and the image is in GENERAL (the layout this
+        // renderer keeps every image in). The region is the whole image, tightly packed.
         rhi::image_copy_region const host_region = {
             .extent = rhi::image_extent{.width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent, .depth = 1u},
             .mip_level = 0,
@@ -323,14 +337,19 @@ namespace deren::vulkan {
             .offset_y = 0,
             .offset_z = 0,
         };
-        rhi::error const copied = host_copy->copy_image_to_memory(*target, std::as_writable_bytes(std::span(host_pixels)), host_region);
-        if (copied != rhi::error::ok) {
-            deren::utility::log("descriptor heap: the heap-native {} probe's HOST image copy failed (rhi::error {})", mesh_shader ? "MESH" : "GRAPHICS", static_cast<std::uint32_t>(copied));
-            vkDestroyFence(runtime_detail::native_device_of(vk), fence, nullptr);
-            vkDestroyCommandPool(runtime_detail::native_device_of(vk), pool, nullptr);
+        std::expected<rhi::image_content, rhi::error> const content = target->get_content(host_region);
+        if (!content) {
+            deren::utility::log("descriptor heap: the heap-native {} probe's read-back failed (rhi::error {})", mesh_shader ? "MESH" : "GRAPHICS",
+                                static_cast<std::uint32_t>(content.error()));
             return;
         }
-        uint8_t const* const pixel = host_pixels.data();
+        std::vector<std::byte> const& host_pixels = content->bytes;
+        if (host_pixels.size() < 4u) {
+            deren::utility::log("descriptor heap: the heap-native {} probe's read-back came back short ({} bytes)", mesh_shader ? "MESH" : "GRAPHICS",
+                                host_pixels.size());
+            return;
+        }
+        auto const* const pixel = reinterpret_cast<std::uint8_t const*>(host_pixels.data());
         deren::utility::log("descriptor heap: the heap-native {} probe rendered grid slot {} into a {}x{} target and read back rgba {},{},{},{} (the default material's white base colour is 255,255,255,255, so the WRONG slot proves the index selects the descriptor)",
                             mesh_shader ? "MESH" : "GRAPHICS",
                             material_slot,
@@ -342,9 +361,6 @@ namespace deren::vulkan {
                             pixel[3]);
         deren::utility::log("descriptor heap: the heap-native {} probe read that pixel back through the HOST IMAGE COPY (no staging buffer, no copy command)",
                             mesh_shader ? "MESH" : "GRAPHICS");
-
-        vkDestroyFence(runtime_detail::native_device_of(vk), fence, nullptr);
-        vkDestroyCommandPool(runtime_detail::native_device_of(vk), pool, nullptr);
     }
 
 } // namespace deren::vulkan

@@ -15,13 +15,11 @@ module;
 #include <new> // ::operator new's aligned overloads must be VISIBLE here: the deferred
                // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.toon_screen_rim;
 
 import deren.promise.rhi;
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 // (③-D/E A1.0: the `import deren.vulkan.core;` that used to sit here was VESTIGIAL - its own comment
 //  named `deren::vulkan::hdr_format` as the reason, and this file never spells it. The formats themselves
 //  live in the shared `deren.vulkan.render_layout` now, which is where a pass that DOES name one reaches
@@ -64,13 +62,13 @@ namespace deren::vulkan::pass {
     }
 
     void toon_screen_rim_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -102,8 +100,8 @@ namespace deren::vulkan::pass {
             this->release_owned();
             return;
         }
-        built->viewport = {0.0f, 0.0f, 1.0f, 1.0f, 0.0f, 1.0f}; // the runner resyncs it from io.extent
-        built->scissor = {{0, 0}, {1u, 1u}};
+        built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = 1.0f, .height = 1.0f, .min_depth = 0.0f, .max_depth = 1.0f}; // the runner resyncs it from io.extent
+        built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = 1u, .height = 1u};
         this->pass_pipeline = std::move(*built);
         deren::utility::log("SUCCESS: toon screen rim pipeline created (a fullscreen additive contour from the depth)");
     }
@@ -125,8 +123,8 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline toon_screen_rim_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* toon_screen_rim_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
     void toon_screen_rim_pass::set_shape(float const width, float const scale, float const strength) noexcept {
@@ -145,15 +143,31 @@ namespace deren::vulkan::pass {
         if (!this->pipeline_ready() || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
-        VkImageView const target_view = io.targets[0].view;
-        if (target_view == VK_NULL_HANDLE) {
+        // THE CONTRACT VIEW IS THE GUARD (plan X5 B2): the raw lane is gone, and a null handle is exactly the
+        // "this frame has no target" this refusal is about.
+        deren::promise::rhi::image_view* const target_view = io.targets[0].view_handle;
+        if (target_view == nullptr) {
             return;
         }
-        // LOAD, not clear: this instance ADDS to the frame the character-forward stage wrote.
-        VkRenderingAttachmentInfo const attachment = make_load_color_attachment_info(target_view);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
+        // LOAD, not clear: this instance ADDS to the frame the character-forward stage wrote. THE RENDERING SCOPE
+        // RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw helper spelled), no
+        // depth - the whole scope this pass opens.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // nothing here executes a secondary command buffer
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // NO SET TO BIND: the depth and the albedo are per-swapchain-image heap slots the shader indexes with
         // the image index its push block carries. The two projection terms are the frame's (they are the same
         // pair the debug view's depth channel linearizes with), and the rest is this pass's own parameter.
@@ -168,9 +182,9 @@ namespace deren::vulkan::pass {
             .pad2 = 0.0f,
             .rim_colour = {this->rim_colour[0], this->rim_colour[1], this->rim_colour[2], 1.0f},
         };
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(io.cmd);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->draw(3, 1, 0, 0);
+        io.list->end_rendering();
     }
 
 } // namespace deren::vulkan::pass

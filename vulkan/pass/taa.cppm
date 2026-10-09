@@ -35,13 +35,12 @@ module;
 #include <optional>
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.taa;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
 export namespace deren::vulkan::pass {
@@ -95,8 +94,7 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
         /**
          * @brief whether the last record actually resolved and wrote a new history
          *
@@ -137,9 +135,8 @@ export namespace deren::vulkan::pass {
             .resync_viewport = true, // the runner sets the viewport and scissor: the hazard this field exists for
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
-        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        deren::promise::rhi::api_core* built_against = nullptr;
+        // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
         // called valid_history, not history_valid: the local named history_valid in taa.cpp would hide a member of that name
@@ -154,7 +151,7 @@ export namespace deren::vulkan::pass {
         /// historical defaults so a session that never calls `set_taa` resolves exactly as it did before
         float blend_static = 0.9f;
         float blend_min = 0.5f;
-    };
+    }; // namespace deren::vulkan::pass
 
     /// THE DECLARATION'S NUMBER AND THE PASS'S STRUCT CANNOT DRIFT: the declared push block is what the
     /// pipeline layout's range is built from and what the host composes into.

@@ -46,8 +46,11 @@
 module;
 
 #include <cstdint>
+#include <expected>    // std::expected: `image::get_content()` answers the bytes OR the named reason
+#include <memory>      // std::shared_ptr: the ownership `make_command_buffer` hands over
 #include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
 #include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
+#include <vector>      // std::vector: the CONTENT `image::get_content()` returns
 
 export module deren.promise.rhi:api_core;
 
@@ -162,8 +165,7 @@ export namespace deren::promise::rhi {
     /// layout `GENERAL` is deliberately NOT a member (it is a Vulkan spelling, not a use).
     enum class image_use : std::uint32_t {
         color_attachment = 0, ///< written as a render target (and read back as one)
-        transfer_source = 1,  ///< read by a copy out of the image
-        /// APPENDED for the recording face (RECORDING_FACE_PLAN.md §3): the state an image is in
+        transfer_source = 1,  ///< read by a copy out of the image        /// APPENDED for the recording face: the state an image is in
         /// before anything has declared a use for it, which is what a barrier's `from` says at the top
         /// of a pass. A new VALUE, never a renumbering - the rule at `abi_version`.
         undefined = 2,
@@ -204,6 +206,12 @@ export namespace deren::promise::rhi {
                                   ///< map read back after being written)
         present = 9,              ///< handed to the presentation engine: `present_transition`,
                                   ///< `undefined_to_present_transition`
+        /// APPENDED for plan X4: READ BY THE HOST - the state a written target is handed to the
+        /// IMPLEMENTATION's own copy-out (`image::get_content()`) or to a read-back. IT IS THE ROLE THE CENSUS
+        /// FOUND MISSING ("no HOST-access masks ... stay in the escape bucket, runtime.probes.cppm /
+        /// ray_tracing.cpp"), and it is why a probe that records its own read-back needed a raw
+        /// `vkCmdPipelineBarrier2`: the pair (color_attachment, host_read) is declared in the backend's table now.
+        host_read = 10,
     };
 
     /// One subresource of one image, tightly packed: what a copy reads.
@@ -217,13 +225,31 @@ export namespace deren::promise::rhi {
         std::uint32_t offset_z = 0;
     };
 
+    /// THE CONTENT OF AN IMAGE, IN HOST MEMORY: what `image::get_content()` answers with.
+    ///
+    /// THE LAYOUT IS PART OF THE CONTRACT, because the caller has to be able to unpack it without asking
+    /// the backend anything else: ROW-MAJOR, TIGHTLY PACKED (`row_pitch == extent.width * bytes_per_pixel`,
+    /// which is why there is no pitch field), TOP-LEFT origin, channel order decided by the image's
+    /// `image_format` (so `bgra8_*` really is B,G,R,A in memory), and layers/mips laid out in the order the
+    /// region asked for them.
+    ///
+    /// THE INVARIANT: `bytes.size() == extent.width * extent.height * extent.depth * bytes_per_pixel`.
+    /// A backend that cannot answer exactly that must answer an ERROR instead of a partial buffer - the
+    /// caller's unpacking loop trusts this and nothing else.
+    struct image_content {
+        image_extent extent = {};          ///< the texels `bytes` covers
+        std::uint32_t bytes_per_pixel = 0; ///< `bytes_per_pixel(image_format)`, repeated here so the caller does
+                                           ///< not have to look up the image's format to stride the rows
+        std::vector<std::byte> bytes = {}; ///< the content, row-major and tightly packed
+    };
+
     // ================================================================================================
-    // THE RECORDING FACE'S DESCRIPTORS (RECORDING_FACE_PLAN.md §3, §4, §6). They are plain contract
+    // THE RECORDING FACE'S DESCRIPTORS. They are plain contract
     // PODs: ADDING THEM CHANGES NO INTERFACE, so no abi bump follows from this block - the verbs that
-    // take them are the interface change (plan §6's last bullet) and land with the backend that
+    // take them are the interface change and land with the backend that
     // translates them.
     //
-    // WHAT THE VOCABULARY DELIBERATELY DOES NOT CARRY, each one the plan's measured verdict rather
+    // WHAT THE VOCABULARY DELIBERATELY DOES NOT CARRY, each one a MEASURED verdict rather
     // than an omission: no HOST-ACCESS masks (the two host-visible barrier sites stay in the escape
     // bucket, runtime.probes.cppm / ray_tracing.cpp), no QUEUE-FAMILY ownership-transfer field (there
     // is no cross-queue submission; the 46 VK_QUEUE_FAMILY_* tokens are IGNORED initialisations), no
@@ -257,7 +283,7 @@ export namespace deren::promise::rhi {
         std::uint32_t layer_count = 0;
     };
 
-    /// One image's transition, in the vocabulary `command_list::use()` already speaks: THE PAIR is the
+    /// One image's transition, in the vocabulary `command_buffer::use()` already speaks: THE PAIR is the
     /// information (the caller knows what it recorded, the backend knows what the pair costs), which is
     /// why this is not a single "new state". `resource` is a contract handle, not a native one.
     struct image_barrier {
@@ -277,6 +303,32 @@ export namespace deren::promise::rhi {
         shader_write,
         transfer_source,
         transfer_destination,
+        /// APPENDED (abi 21, and adding VALUES is explicitly not an abi change - see `abi_version`): the one
+        /// reader whose stage is not a shader stage. The renderer's compute-skinning job writes vertices and
+        /// the ACCELERATION-STRUCTURE BUILD reads them back, and no existing role named that reader - the
+        /// measured site is `vulkan/pass/compute_skin.cpp`'s build-ordering barrier, whose raw masks were
+        /// COMPUTE_SHADER/SHADER_WRITE -> ACCELERATION_STRUCTURE_BUILD/SHADER_READ.
+        acceleration_structure_read,
+        /// APPENDED WITH ITS MEASUREMENT (the ninth/tenth batch, adding a VALUE - no abi change): the
+        /// ACCELERATION-STRUCTURE BUILD as a WRITER. `vulkan/ray_tracing/ray_tracing.cpp`'s build-ordering barrier
+        /// waits for every bottom level one build wrote before the next build reads them, and its raw masks were
+        /// ACCELERATION_STRUCTURE_BUILD/ACCELERATION_STRUCTURE_WRITE_KHR -> the same stage/ACCELERATION_STRUCTURE_READ.
+        /// `acceleration_structure_read` named the reader alone; a pair needs both halves, and neither
+        /// `shader_write` (a compute stage) nor `transfer_destination` says "a build wrote this".
+        acceleration_structure_write,
+        /// APPENDED WITH THEIR MEASUREMENT (the SBT batch, values again - no abi change): the OPACITY MICROMAP
+        /// BUILD as a writer and the ACCELERATION-STRUCTURE BUILD as its reader. `vulkan/ray_tracing/ray_tracing.cpp`
+        /// records the spec's own ordering barrier between them, whose raw masks are
+        /// MICROMAP_BUILD_BIT_EXT/MICROMAP_WRITE_BIT_EXT -> ACCELERATION_STRUCTURE_BUILD_BIT_KHR/MICROMAP_READ_BIT_EXT.
+        /// Neither half is a shader stage and neither is a transfer, so no earlier role named them - the same
+        /// measurement rule that produced `acceleration_structure_read`/`acceleration_structure_write`.
+        ///
+        /// THE MICROMAP'S *OTHER* BARRIER STAYS IN THE ESCAPE BUCKET, and that is a deliberate split rather than an
+        /// omission: its SOURCE is HOST_WRITE, and this enum carries no host role (the contract's `image_use` census
+        /// lists the host-visible barriers as the escape bucket's, because a host write is not a stage the recording
+        /// series can order).
+        micromap_write,
+        micromap_read,
     };
 
     /// One buffer's transition. `size == 0` means "the whole buffer" (the plan's spelling).
@@ -288,7 +340,44 @@ export namespace deren::promise::rhi {
         std::uint64_t size = 0;
     };
 
-    /// A batch of transitions recorded together - what `vkCmdPipelineBarrier2` receives as two arrays.
+    /// A GLOBAL memory barrier's two roles: NO resource, because the ordering rule is about every write and
+    /// every read of a stage pair rather than about one buffer or image.
+    ///
+    /// WHY A ROLE PAIR AND NOT A MASK: the same argument the image pair carries - the caller knows WHICH WAY
+    /// the memory moved (it recorded it), the backend knows what that costs. The measured site is the
+    /// compute-skinning job's build-ordering barrier (see `buffer_use::acceleration_structure_read`), and it
+    /// is the ONLY global barrier in the engine: a second one should be added here only with its own
+    /// measurement, the way the roles above were.
+    struct memory_barrier {
+        buffer_use from = buffer_use::undefined;
+        buffer_use to = buffer_use::undefined;
+    };
+
+    /// WHICH SHADER STAGE a pair's shader side belongs to, for the sites whose producer or consumer is NOT the
+    /// stage the shipped recipe names.
+    ///
+    /// ADDED WITH ITS MEASUREMENT (abi 21), which is what the barrier model's own note demands: the 20
+    /// transition recipes name the stage their shader side runs at (the storage-image recipes say
+    /// COMPUTE_SHADER), and the ray-traced shadow's visibility image is written by a traceRays LAUNCH rather
+    /// than by a dispatch - a barrier whose masks do not cover the stage that actually ran leaves the writes
+    /// unsynchronised, and the measured symptom was "half the model lost its sun". The pair is still the
+    /// vocabulary (WHICH WAY the image moves); this says only WHICH STAGE did it, so it does not re-open the
+    /// question the pair answers.
+    ///
+    /// `none` IS THE DEFAULT AND THE OVERWHELMING CASE: every site but one uses the recipe's own stages, and a
+    /// hint of `none` is what an older caller's bytes decode to (the field is behind `struct_size`).
+    enum class stage_hint : std::uint32_t {
+        none = 0,
+        vertex,
+        fragment,
+        compute,
+        /// the mesh stage, which carries the TASK stage with it: a mesh pipeline that dispatches work runs both
+        /// entry points, and no site separates them.
+        mesh,
+        ray_tracing,
+    };
+
+    /// A batch of transitions recorded together - what `vkCmdPipelineBarrier2` receives as three arrays.
     ///
     /// GROWS BY `struct_size` (plan §6): it is its FIRST member, and the backend reads a field only when
     /// the caller's declared size covers it (the `covered_by` rule `sanitize_sampler_desc` already uses),
@@ -298,6 +387,15 @@ export namespace deren::promise::rhi {
         std::uint32_t struct_size = sizeof(barrier_group);
         std::span<image_barrier const> images = {};
         std::span<buffer_barrier const> buffers = {};
+        /// WHICH STAGE the images' shader side is (see `stage_hint`); `none` = the recipes' own stages.
+        /// APPENDED, so a caller that declares the older prefix keeps `none` and the shipped behaviour.
+        stage_hint stage = stage_hint::none;
+        /// THE GLOBAL MEMORY BARRIER of this batch, recorded WITH the resource barriers above and in the same
+        /// `vkCmdPipelineBarrier2` (the call takes the three arrays at once). `has_memory` is the "present"
+        /// flag, because an all-`undefined` pair is a legal refusal rather than "no barrier": a batch with
+        /// neither images, buffers nor memory is a no-op the backend answers `ok` for.
+        bool has_memory = false;
+        memory_barrier memory = {};
     };
 
     /// What a rendering scope does with an attachment it does not need to keep.
@@ -391,7 +489,7 @@ export namespace deren::promise::rhi {
     /// APPENDED: the one decision the engine makes from a format is the BGRA/RGBA swizzle of a
     /// screenshot and whether it can be encoded at all.
     ///
-    /// 7 appends the creation formats (§17's survey, DYNAMIC_LINK_V2.md): the values whose BYTE LAYOUT
+    /// 7 appends the creation formats: the values whose BYTE LAYOUT
     /// matters to the caller (CPU-uploaded content that a sampler interprets) are named one by one, and
     /// `depth` is a ROLE, not a byte layout - "a depth attachment" is all a caller needs to say, because
     /// which concrete depth format a device serves is the backend's capability question, not the
@@ -416,16 +514,51 @@ export namespace deren::promise::rhi {
     /// ENUMERATOR'S NUMBER MOVES, which is the entire content of "values are only ever APPENDED". Where an
     /// enum's values are contiguous there is nothing to mark (see `error`: its six general values continue
     /// the run at 13-18); the rule is about the numbers, not about the syntax.
+    ///
+    /// EVERY VALUE IS WRITTEN OUT, which is the belt to that braces: with the sequence implicit, inserting
+    /// a value in the middle would renumber everything after it and the "only appended" rule would be
+    /// broken by a one-line edit that looks harmless. It also answers clang-tidy's
+    /// `readability-enum-initial-value`, which the mixture of implicit and explicit values tripped.
     enum class image_format : std::uint32_t { unknown = 0,
-                                              rgba8_unorm,
-                                              rgba8_srgb,
-                                              bgra8_unorm,
-                                              bgra8_srgb,
-                                              r16g16_sfloat,              ///< two half-float channels (BRDF LUT)
-                                              r16g16b16a16_sfloat,        ///< four half-float channels (environment/irradiance cubes)
-                                              r32g32b32_sfloat,           ///< three 32-bit float channels
+                                              rgba8_unorm = 1,
+                                              rgba8_srgb = 2,
+                                              bgra8_unorm = 3,
+                                              bgra8_srgb = 4,
+                                              r16g16_sfloat = 5,          ///< two half-float channels (BRDF LUT)
+                                              r16g16b16a16_sfloat = 6,    ///< four half-float channels (environment/irradiance cubes)
+                                              r32g32b32_sfloat = 7,       ///< three 32-bit float channels
                                               depth = 0x7FFFFFFFu,        ///< ROLE: a depth attachment the backend shapes
                                               r16_sfloat = 0x80000000u }; ///< APPENDED: one half-float channel (ray-traced visibility)
+
+    /// How many bytes ONE texel of @p format takes in host memory. `unknown` answers 0 (a format the
+    /// contract cannot describe), and `depth` answers 0 as well: a depth ROLE has no host spelling here,
+    /// which is the same answer `image::get_content()` gives that content a named error for.
+    ///
+    /// IT LIVES IN THE CONTRACT because it is a fact about the FORMAT, not about any API: a caller that
+    /// receives `image_content` needs it to stride rows, and a backend that fills `bytes_per_pixel` must
+    /// agree with every reader. The channel counts here are the enum's own, and a format added to the enum
+    /// must give its size here in the same change - `image_content`'s invariant is
+    /// `bytes.size() == width * height * depth * bytes_per_pixel`.
+    [[nodiscard]] constexpr std::uint32_t bytes_per_pixel(image_format const format) noexcept {
+        switch (format) {
+        case image_format::rgba8_unorm:
+        case image_format::rgba8_srgb:
+        case image_format::bgra8_unorm:
+        case image_format::bgra8_srgb:    // 4 x 8-bit
+        case image_format::r16g16_sfloat: // 2 x half-float: the same four bytes, so one branch
+            return 4u;
+        case image_format::r16g16b16a16_sfloat:
+            return 8u; // four half-floats
+        case image_format::r32g32b32_sfloat:
+            return 12u; // three 32-bit floats
+        case image_format::r16_sfloat:
+            return 2u; // one half-float
+        case image_format::unknown:
+        case image_format::depth:
+            break;
+        }
+        return 0u;
+    }
 
     // ---- OWNERSHIP: WHAT `release()` IS, AND WHAT IT IS NOT ---------------------------------------
     //
@@ -463,7 +596,7 @@ export namespace deren::promise::rhi {
     // answer with objects the BACKEND owns and lends for a window (a frame, or until the next
     // acquire). Those answer `release()` with a ONE-TIME NAMED LOG and release nothing - the
     // alternative, a silent no-op, would hide a caller that thinks it holds a reference it does not.
-    // `command_list` therefore carries no `release()` at all: it is only ever a borrowed view.
+    // `command_buffer` therefore carries no `release()` at all: it is only ever a borrowed view.
     //
     // WHAT A BORROWED IMAGE MAY STILL HAND OUT, AND THE RULE THAT COMES WITH IT (③-D/E item B, abi 16):
     // `frame_image()->make_view(desc)` answers an OWNED view - the image is borrowed, the view is a new
@@ -480,6 +613,192 @@ export namespace deren::promise::rhi {
     // ----------------------------------------------------------------------------------------------
 
     /// A buffer, owned by the backend and released by the caller through `release()`.
+    /// WHAT KIND OF ACCELERATION STRUCTURE: the two levels the hardware API has, named the contract's way.
+    enum class acceleration_structure_type : std::uint32_t {
+        bottom_level = 0, ///< one geometry's own structure (a BLAS), built from triangles
+        top_level = 1,    ///< the instance list a ray launch traverses (a TLAS)
+    };
+
+    /// What a description may ask for beyond its type.
+    enum class acceleration_structure_flag : std::uint32_t {
+        allow_update = 1u << 0, ///< the structure may be REFIT in place (addresses and counts stay fixed)
+    };
+    /// The bits an `acceleration_structure_desc` carries (the same shape `buffer_flags` has).
+    using acceleration_structure_flags = std::uint32_t;
+    inline constexpr acceleration_structure_flags no_acceleration_structure_flags = 0u;
+    [[nodiscard]] constexpr auto to_bits(acceleration_structure_flag const flag) noexcept -> acceleration_structure_flags {
+        return static_cast<acceleration_structure_flags>(flag);
+    }
+    [[nodiscard]] constexpr auto has_flag(acceleration_structure_flags const flags, acceleration_structure_flag const flag) noexcept -> bool {
+        return (flags & to_bits(flag)) != no_acceleration_structure_flags;
+    }
+
+    /// WHICH OPACITY STATES A MICROMAP'S MICRO-TRIANGLES CARRY. The two the hardware API defines, named the
+    /// contract's way; the backend asserts the values against its own enum (it is the only side that names both).
+    enum class micromap_format : std::uint32_t {
+        two_state = 1,  ///< opaque / transparent, one bit per micro-triangle
+        four_state = 2, ///< opaque / transparent / unknown / ... two bits per micro-triangle
+    };
+
+    /// HOW MANY MICRO-TRIANGLES A MICROMAP RESERVES, and in what format: the record the geometry that consults it
+    /// declares, because the build has to reserve them before the traversal can look any of them up.
+    struct micromap_usage {
+        std::uint32_t count = 0;             ///< micro-triangles in this format
+        std::uint32_t subdivision_level = 0; ///< 0 = one micro-triangle per triangle
+        micromap_format format = micromap_format::four_state;
+    };
+
+    /// ONE MICRO-TRIANGLE'S ATTRIBUTE: where its bits are in the data array, and how they are laid out.
+    /// The layout is the API's own (the backend asserts it), because a caller fills an array of these.
+    struct micromap_triangle {
+        std::uint32_t data_offset = 0;       ///< byte offset of this triangle's attributes in `desc.data`
+        std::uint16_t subdivision_level = 0; ///< 0 = this triangle is not subdivided
+        std::uint16_t format = 0;            ///< a `micromap_format` value
+    };
+    inline constexpr std::uint32_t micromap_triangle_size = sizeof(micromap_triangle);
+
+    /// WHAT TO BUILD: the attributes, the per-triangle records and the index array a micromap is built from.
+    ///
+    /// THE MEMORY IS THE BACKEND'S, as it is for an acceleration structure, and so are the setup buffers these
+    /// spans are copied into - including the 256-byte ADDRESS alignment the build requires of them, which is a
+    /// requirement on an address rather than on a buffer and therefore cannot be the caller's problem. The
+    /// `struct_size` guard is the usual one, and every span is borrowed only until the call returns.
+    struct micromap_desc {
+        std::uint32_t struct_size = sizeof(micromap_desc);
+        std::uint32_t triangle_count = 0;                  ///< how many micro-triangles
+        std::span<std::byte const> data = {};              ///< the attributes, `data_stride` bytes apart
+        std::uint32_t data_stride = 4;                     ///< e.g. 4 for one 4-state pair per triangle
+        std::span<micromap_triangle const> triangles = {}; ///< one record per micro-triangle
+        std::span<std::uint32_t const> indices = {};       ///< the micro-triangle indices
+        micromap_format format = micromap_format::four_state;
+    };
+
+    /// AN OPACITY MICROMAP (tier-1, like the acceleration structure it is attached to).
+    ///
+    /// WHAT IT IS FOR: a micro-triangle's opacity becomes the traversal's business instead of a shader's - an
+    /// opaque one is committed without any-hit work, a transparent one is skipped, and an UNKNOWN one invokes
+    /// the any-hit shader. That is why a micromap that says "unknown" everywhere is a no-op and a decisive test
+    /// at the same time, and it is what the mask bake uses it for.
+    ///
+    /// IT OWNS ITS OWN SETUP MEMORY (the attributes, the records and the index array it was built from) and the
+    /// structure's storage: a caller that holds the handle cannot get the alignment or the index array wrong,
+    /// which is exactly what the engine used to do by hand.
+    struct micromap : object {
+        static constexpr interface_type interface_id = interface_type::micromap;
+        micromap() noexcept
+            : object(interface_id) {
+        }
+        virtual ~micromap() noexcept = default;
+
+        /// Release the caller's one reference (see `buffer::release()`): the backend destroys the structure and
+        /// gives its memory back.
+        virtual void release() noexcept = 0;
+    };
+
+    /// ONE TRIANGLE GEOMETRY of a bottom-level structure: where its vertices and indices are, and how many.    ///
+    /// THE ADDRESSES ARE DEVICE ADDRESSES (the contract's `uint64_t`, as `shader_binding_table_region` spells
+    /// them), which is what a build reads: a caller that wants an address asks `device_address::buffer_address()`
+    /// for the buffer it created, so the engine half never names the driver's `VkDeviceAddress`.
+    ///
+    /// THE STRUCTURE IS BUILT ONCE FROM THIS (the addresses and counts are part of its identity); a structure
+    /// whose BYTES change behind the same addresses is REFIT, which is what `acceleration_structure_flag::
+    /// allow_update` declares at creation.
+    struct acceleration_structure_geometry {
+        std::uint64_t vertex_address = 0;             ///< first vertex, already offset into its buffer
+        std::uint32_t vertex_stride = 0;              ///< bytes per vertex (the caller's layout)
+        std::uint32_t vertex_count = 0;               ///< vertices the geometry spans
+        std::uint64_t index_address = 0;              ///< first index (0 = the geometry is not indexed)
+        index_type index_format = index_type::uint32; ///< what an index is
+        std::uint32_t index_count = 0;                ///< indices; triangles = index_count / 3
+
+        /// OPTIONAL: THE OPACITY MICROMAP this geometry consults, or null when no micromap is attached.
+        /// A missing micromap still permits the hit group's any-hit alpha test.
+        ///
+        /// ONE HANDLE AND NOTHING ELSE, deliberately: the micromap knows its own usage record and owns the index
+        /// array the traversal reads (the backend built both), so a caller cannot get either wrong - which is
+        /// exactly the pair the engine used to carry across this boundary by hand.
+        micromap* opacity_micromap = nullptr;
+    };
+
+    /// ONE TOP-LEVEL INSTANCE, as the CALLER writes it. THE LAYOUT IS THE CONTRACT'S, and the backend asserts
+    /// it against the driver's own structure (the same rule `mesh_task_command` follows): the caller is the one
+    /// that fills these records, so their shape cannot live only in one API's header.
+    struct acceleration_structure_instance {
+        float transform[12] = {};                             ///< 3x4 ROW-major (the fourth column is implicit)
+        std::uint32_t instance_custom_index = 0;              ///< what a shader reads back through the hit
+        std::uint32_t mask = 0xFFu;                           ///< the visibility mask the traversal tests
+        std::uint32_t shader_binding_table_record_offset = 0; ///< which hit record this instance's hits use
+        std::uint32_t flags = 0;                              ///< the caller's own instance bits
+        std::uint64_t structure_reference = 0;                ///< `acceleration_structure::device_address()`
+    };
+    inline constexpr std::uint32_t acceleration_structure_instance_size = sizeof(acceleration_structure_instance);
+
+    /// THE INSTANCE BIT A SHADOW CASTER NEEDS: a shadow ray must be blocked by a surface it approaches from
+    /// behind, which is what the raster shadow pass does for the casters whose pipeline disables culling - so
+    /// the traversal must disable facing culling for the same instances, or every plane and every open mesh
+    /// leaks light.
+    ///
+    /// IT IS A CONTRACT VALUE, NOT THE API'S MACRO, and the backend asserts the two agree (it is the only side
+    /// that names both). The engine writes it into `acceleration_structure_instance::flags`.
+    inline constexpr std::uint32_t acceleration_structure_instance_facing_cull_disable = 1u;
+
+    /// WHAT TO BUILD: the geometries of a bottom-level structure, or the capacity of a top-level one.
+    ///
+    /// `struct_size` is the same ABI guard `buffer_desc` carries, so a caller compiled against an older
+    /// description is read only as far as it declared.
+    struct acceleration_structure_desc {
+        std::uint32_t struct_size = sizeof(acceleration_structure_desc);
+        acceleration_structure_type type = acceleration_structure_type::bottom_level;
+        acceleration_structure_flags flags = no_acceleration_structure_flags;
+        acceleration_structure_geometry const* geometries = nullptr; ///< BOTTOM: borrowed until the call returns
+        std::uint32_t geometry_count = 0;                            ///< BOTTOM: how many
+        std::uint32_t instance_capacity = 0;                         ///< TOP: how many instances it must hold
+    };
+
+    /// AN ACCELERATION STRUCTURE (tier-1, like `buffer` and `image`).
+    ///
+    /// WHY TIER-1 RATHER THAN AN ABILITY: the ability mechanism answers "can this backend serve this optional
+    /// feature, or not", and an acceleration structure is not optional furniture to a renderer that has one -
+    /// it is a RESOURCE the caller creates, reads an address from, and destroys, exactly as a buffer is. The
+    /// `ray_tracing` ability carried these verbs until abi 26 and announced them for nobody (its shapes were
+    /// forward declarations); with the object here, the ability is RETIRED and the capability question ("can
+    /// this device run ray queries / a ray-tracing pipeline") is asked through `device_capabilities`.
+    ///
+    /// WHO OWNS THE MEMORY: the BACKEND. This is the whole point of the tier-1 shape - the storage the
+    /// structure lives in, the scratch a build needs, its alignment and the per-geometry offsets are the
+    /// backend's business, and a caller that never sees them cannot depend on them. A second backend with no
+    /// explicit acceleration structures at all can therefore answer `create_acceleration_structure` and
+    /// `build_acceleration_structure` however it must.
+    ///
+    /// ONE REFERENCE, dropped through `release()`, like every owned handle in this contract.
+    struct acceleration_structure : object {
+        static constexpr interface_type interface_id = interface_type::acceleration_structure;
+        acceleration_structure() noexcept
+            : object(interface_id) {
+        }
+        virtual ~acceleration_structure() noexcept = default;
+
+        /// Release the caller's one reference (see `buffer::release()`).
+        virtual void release() noexcept = 0;
+
+        /// THE ADDRESS a shader (or an instance record's `structure_reference`) uses to reach this structure.
+        /// Zero means the backend could not report one - which a top-level structure never means, since an
+        /// address is exactly what an instance stores.
+        [[nodiscard]] virtual std::uint64_t device_address() const noexcept = 0;
+
+        /// THE BYTES this structure occupies. A caller needs it to describe the structure to something that
+        /// carries address ranges (the descriptor heap's own address-range descriptor is the measured case);
+        /// zero means the backend did not answer.
+        [[nodiscard]] virtual std::uint64_t size_bytes() const noexcept = 0;
+
+        /// TOP LEVEL ONLY: replace the instance list the NEXT build reads. Host work on memory the backend
+        /// owns, and the records are `acceleration_structure_instance` - so the caller of a top-level structure
+        /// never allocates the array the traversal reads, which is the same ownership rule as everywhere else
+        /// here. Refused by name when the structure is a bottom-level one or the list is longer than the
+        /// capacity it was created with.
+        [[nodiscard]] virtual error write_instances(std::span<acceleration_structure_instance const> instances) = 0;
+    };
+
     struct buffer : object {
         static constexpr interface_type interface_id = interface_type::buffer;
         buffer() noexcept
@@ -547,6 +866,28 @@ export namespace deren::promise::rhi {
         /// APPENDED IN ABI 7 (§17's image face): a new virtual on an existing interface moves the
         /// vtable's shape, which is exactly the case `abi_version` exists to number.
         [[nodiscard]] virtual image_view* make_view(image_view_desc const& desc) = 0;
+
+        /// READ THIS IMAGE BACK INTO HOST MEMORY - the image's CONTENT, not a handle to it.
+        ///
+        /// THE MECHANISM IS THE BACKEND'S, AND IT IS `VK_EXT_host_image_copy` IN THIS ONE: the implementation
+        /// performs the copy (`vkCopyImageToMemoryEXT`), so there is NO staging buffer, NO copy command and NO
+        /// submission in the caller's path - the bytes come back directly. A caller that must not allocate can
+        /// still use the `host_image_copy` ability's span-shaped verb; this is the convenience the ENGINE uses,
+        /// and it is the ONLY read-back shape the engine sees.
+        ///
+        /// @param region WHICH subresource and which texels of it; the default is the whole mip 0, every layer.
+        /// @return the content, row-major and tightly packed with the invariant `image_content` states - or a
+        ///         NAMED error, never a partial buffer. `error::unsupported` is the honest answer for an image
+        ///         the backend cannot copy out of (not created for host transfer, a device without the
+        ///         extension) and for a format the contract cannot describe; it is also the answer for the
+        ///         FRAME image on a surface whose swapchain usage has no `HOST_TRANSFER` bit, which is a
+        ///         property of the SURFACE and not of this backend.
+        ///
+        /// APPENDED IN ABI 25: a new virtual on an existing interface, the case `abi_version` numbers.
+        /// The default argument is spelled here rather than in the backend for the reason every other
+        /// contract default is: a caller compiled against an older contract and a callee compiled against a
+        /// newer one must agree on what "no region" means, and that can only be the header's text.
+        [[nodiscard]] virtual std::expected<image_content, error> get_content(image_copy_region const& region = {}) const = 0;
     };
 
     /// A view of an image, owned by the backend: the contract's substitute for a raw `VkImageView`.
@@ -667,6 +1008,16 @@ export namespace deren::promise::rhi {
         mesh = 1, ///< the stage that REPLACES the vertex stage (docs/mesh_shaders.md)
         fragment = 2,
         compute = 3,
+        /// THE RAY-TRACING STAGES, APPENDED (abi 21 - adding VALUES is explicitly not an abi change, see
+        /// `abi_version`). They name the five entry points a ray-tracing pipeline is built from, and they exist
+        /// so a ray-tracing shader module is NOT mislabeled as a compute one: the module itself is stage-less,
+        /// but the pipeline's stage info is what the group table indexes, and a caller that cannot say
+        /// "raygen" cannot build a group table at all.
+        ray_generation = 4,
+        miss = 5,
+        closest_hit = 6,
+        any_hit = 7,
+        intersection = 8,
     };
 
     /// How a shader is created: its stage and its SPIR-V. Same append-only `struct_size` guard.
@@ -694,7 +1045,54 @@ export namespace deren::promise::rhi {
         equal = 1,
     };
 
-    /// How a graphics pipeline is created - `make_pipeline`'s parameters in the contract's vocabulary.
+    /// ONE STAGE OF A RAY-TRACING PIPELINE (appended with the ray-tracing spelling, abi 21).
+    ///
+    /// A ray-tracing pipeline is built from several entry points at once, and its GROUPS index this list - so
+    /// the stage kind and the code travel together, and the ORDER here is what `ray_tracing_group`'s indices
+    /// mean. `debug_name` is the backend's log text for a stage it refuses, exactly as it is for a shader.
+    struct ray_tracing_stage {
+        shader_stage stage = shader_stage::ray_generation;
+        std::span<std::byte const> code;
+        char const* debug_name = nullptr;
+    };
+
+    /// "THIS GROUP SLOT NAMES NO STAGE", the spelling a `ray_tracing_group` uses for the slots it leaves empty
+    /// (`VK_SHADER_UNUSED_KHR` in the API's own vocabulary, as a value so the descriptor stays portable).
+    inline constexpr std::uint32_t shader_group_none = 0xFFFFFFFFu;
+
+    /// ONE SHADER GROUP of a ray-tracing pipeline: the STAGE INDICES it binds, in the order
+    /// `ray_tracing_stages` lists them.
+    ///
+    /// A GENERAL group names ONE shader (`general`: a raygen, a miss or an intersection entry); a HIT group
+    /// names up to three (`closest_hit`, `any_hit`, `intersection`) and its geometry kind. WHICH KIND a group is
+    /// follows from which slots are filled, which is the rule the API's own group type states - so the
+    /// descriptor does not carry a group-type enumerator that could disagree with the slots.
+    ///
+    /// THE GROUP ORDER IS THE CALLER'S SHADER BINDING TABLE ORDER: the caller fills its SBT regions in exactly
+    /// this order (see `pass::rt_shadow_pass`), which is why the count travels back with the pipeline.
+    struct ray_tracing_group {
+        std::uint32_t general = shader_group_none;
+        std::uint32_t closest_hit = shader_group_none;
+        std::uint32_t any_hit = shader_group_none;
+        std::uint32_t intersection = shader_group_none;
+        /// whether a HIT group's geometry is TRIANGLES (the only kind this renderer traces); ignored by a
+        /// general group. It exists because the API makes the caller state it, and this renderer's answer is
+        /// the same at every site.
+        bool triangles = true;
+    };
+
+    /// A shader AS binding backed by an existing descriptor heap range. No descriptor set is allocated.
+    /// The backend translates the binding to its own heap mapping; array elements are stride bytes apart.
+    struct acceleration_structure_heap_binding {
+        shader_stage stage = shader_stage::ray_generation;
+        std::uint32_t descriptor_set = 0;
+        std::uint32_t binding = 0;
+        std::uint32_t byte_offset = 0;
+        std::uint32_t array_stride = 0;
+        std::uint32_t array_count = 1;
+    };
+
+    /// How a pipeline is created - `make_pipeline`'s parameters in the contract's vocabulary.
     /// The COLOR and DEPTH formats are contract formats (a named value, or the `depth` ROLE for the
     /// depth attachment; `unknown` as the depth format means the pipeline has NO depth attachment).
     /// The blend modes are per color attachment in attachment order; EMPTY means every target is
@@ -714,6 +1112,49 @@ export namespace deren::promise::rhi {
         std::span<blend_mode const> blend_modes; ///< per color attachment; empty = all opaque
         depth_compare compare = depth_compare::less_or_equal;
         char const* debug_name = nullptr; ///< what the backend logs on refusal; not retained
+        /**
+         * THE COMPUTE SPELLING (APPENDED, guarded by `struct_size`, so an older caller keeps the graphics
+         * meaning it compiled against).
+         *
+         * WHY A FIELD AND NOT A SECOND DESCRIPTOR: a compute pipeline is the SAME request with ONE stage and
+         * no attachment state, and `first_stage == shader_stage::compute` is what selects it - the colour
+         * formats, the depth format, the blend modes, the sample count and the depth test are then IGNORED,
+         * exactly as `fragment_code` is ignored for a stage that has no fragment shader. The name says what
+         * the bytes ARE rather than reusing `vertex_code` for a shader that is not a vertex stage: the two
+         * graphics fields are named for their stages, and this one is named for its own.
+         *
+         * THE ENTRY POINT IS NOT HERE, on purpose: every shader this renderer builds is entered at "main"
+         * (the graphics path hardcodes the same name in `make_pipeline`), so a field for it would carry one
+         * value forever. A backend that sees no entry-point field uses "main"; a caller with a differently
+         * named entry point is not a case this engine has.
+         *
+         * THE HEAP FLAG IS THE BACKEND'S: a heap-native pipeline is created with a NULL layout (validation
+         * refuses the alternative), and a create call in that shape must carry
+         * `VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT` - a descriptor-heap capability of the backend, not a
+         * caller decision, so the contract does not spell it.
+         */
+        std::span<std::byte const> compute_code;
+        /**
+         * THE RAY-TRACING SPELLING (APPENDED in the same batch, `struct_size`-guarded).
+         *
+         * NON-EMPTY `ray_tracing_stages` IS THE WHOLE SWITCH: a ray-tracing pipeline is the only kind built
+         * from SEVERAL named entry points and a GROUP TABLE, so the presence of the stages is what says which
+         * of the three paths `create_pipeline` takes (graphics, compute, ray tracing) - the colour, depth,
+         * compute and blend fields are ignored, exactly as the compute spelling ignores the attachment state.
+         *
+         * WHAT IS NOT HERE: the SHADER BINDING TABLE. Its handles are per-pipeline data read back after
+         * creation, and its regions are the CALLER's memory with the device's own stride rules - both are the
+         * caller's side of the boundary (see the pass that fills one), and a descriptor carrying them would be
+         * promising a lifetime this contract cannot state.
+         */
+        std::span<ray_tracing_stage const> ray_tracing_stages;
+        /// ONE GROUP PER SHADER BINDING TABLE REGION, in the caller's order; empty = not a ray-tracing pipeline.
+        std::span<ray_tracing_group const> ray_tracing_groups;
+        /// the pipeline's ray recursion depth (`maxPipelineRayRecursionDepth`); 1 = "a ray may hit once".
+        std::uint32_t max_ray_recursion = 1u;
+        /// Optional AS shader bindings into the heap. Appended and guarded by struct_size;
+        /// older callers keep an empty list. Currently supported by ray-tracing pipelines.
+        std::span<acceleration_structure_heap_binding const> acceleration_structure_bindings;
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).
@@ -786,6 +1227,9 @@ export namespace deren::promise::rhi {
         /// scales it to its own render resolution (a render scale is a RENDERER decision, not a
         /// presentation fact, so the contract does not pre-multiply it).
         [[nodiscard]] virtual image_extent extent() const noexcept = 0;
+
+        /// Presentation format available before acquiring an image (ABI 28).
+        [[nodiscard]] virtual image_format format() const noexcept = 0;
     };
 
     struct query : object {
@@ -811,7 +1255,7 @@ export namespace deren::promise::rhi {
     /// manager must never be given is a BORROWED view - `frame_image()`, `frame_readback_buffer()` and
     /// `begin_commands()` answer with objects the backend owns and lends, and wrapping one here drops a
     /// reference the caller never had (the borrowed views answer that with a one-time named log).
-    /// `command_list` has no `release()`, so it cannot even be managed: the type system refuses it.
+    /// `command_buffer` has no `release()`, so it cannot even be managed: the type system refuses it.
     ///
     /// WHY IT IS HERE RATHER THAN WRITTEN OUT IN THE ENGINE: `release()` is a contract virtual and this
     /// wrapper is a dozen inline lines, so both sides compiling it costs nothing and the engine gets one
@@ -898,122 +1342,9 @@ export namespace deren::promise::rhi {
         object* owned_ = nullptr;
     };
 
-    struct command_list : object {
-        static constexpr interface_type interface_id = interface_type::command_list;
-        command_list() noexcept
-            : object(interface_id) {
-        }
-        virtual ~command_list() noexcept = default;
-
-        /// Declare that `resource` moves from one role to the other, and let the backend record what that
-        /// needs. THE PAIR, not a single use, is deliberate: this is plan §6.4 option (a) ("explicit
-        /// barrier") spelled in option (c)'s vocabulary - the caller knows what it just did (it recorded
-        /// it), the backend knows what the pair costs. A single-use form cannot be derived here: the
-        /// backend does not record the pass that wrote the image yet (the engine still records its frame
-        /// through `vulkan_escape`), so it cannot know the "from".
-        ///
-        /// THE CALLER OWNS THE CORRECTNESS: a missing pair, or a reversed one, is a WRONG barrier - the
-        /// one failure this contract cannot catch for you. The shadow gate compares the barriers this
-        /// produces, field by field, against the recipes the renderer ships with.
-        ///
-        /// IT ANSWERS, IT DOES NOT DROP SILENTLY: a barrier that was not recorded leaves the image in a
-        /// state nobody declared, which is exactly the validation failure this surface was built to avoid
-        /// (task-148's). So the answer is an `error` and the caller has to look at it (`[[nodiscard]]`).
-        /// `not_ready` = no frame is being recorded, or the list is not this frame's (the same window
-        /// `begin_commands()` answers in); `unsupported` = a role pair this backend cannot spell;
-        /// `invalid_argument` = an image this backend did not hand out.
-        [[nodiscard]] virtual error use(image const& resource, image_use from, image_use to) noexcept = 0;
-
-        /// Record a copy of `region` of `source` into `destination`, at the source's CURRENT layout (this
-        /// renderer keeps every image in GENERAL - docs/unified_image_layouts.md).
-        ///
-        /// The destination is a DEVICE buffer, not host memory: "record it into this frame" and "read it
-        /// on the host" are two moments, and the second one is `buffer::mapped()` once the frame lands.
-        [[nodiscard]] virtual error copy_image_to_buffer(buffer& destination, image const& source, image_copy_region const& region) noexcept = 0;
-
-        // ---- the GPU timing recording verbs (abi 14) -------------------------------------------
-        // One mark's duration is the interval it OPENS: stage i runs from mark i to mark i + 1 and is
-        // named by the name mark i carries (read back through `gpu_profiler`). WHICH PIPELINE STAGE a
-        // timestamp resolves at is a MEASUREMENT detail of the backend that owns the query pool, not
-        // a caller decision - the caller marks pass boundaries in order and names them; the contract
-        // deliberately does not carry a pipeline-stage vocabulary (that would import one API's
-        // execution model into every backend).
-        /// Open the frame's timing range: reset this frame slot's queries on the recorded timeline.
-        /// Call once per frame, before any mark. `unsupported` = this device cannot timestamp;
-        /// `not_ready` = no frame is being recorded (the same window `use()` refuses in).
-        [[nodiscard]] virtual error begin_gpu_timing() noexcept = 0;
-
-        /// Write one timing mark into the frame's range, named for the stage it opens. @p mark_index
-        /// must be the marks this frame has already written (the marks are POSITIONAL: an
-        /// out-of-order index would mislabel every later interval, so it is refused with
-        /// `invalid_argument` rather than accepted silently). `stage_name` is the caller's STATIC
-        /// text - a literal outliving the frame (the same rule as the creation descriptor's
-        /// `window_title`); the backend stores the view and reports it verbatim.
-        [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
-
-        // ---- the portable record series (abi 20) ------------------------------------------------
-        // THE RECORDING SURFACE'S OWN VOCABULARY (RECORDING_FACE_PLAN.md §2, as corrected by §9): the
-        // verbs this renderer's passes actually record, replacing 140 raw `vkCmd*` call sites in the
-        // engine's sources. Defined ONCE here, on the borrowed view; the owning `command_buffer`
-        // reaches the same series through `recording()` - a second declaration would be a second
-        // truth to keep in step. `push_data` is deliberately NOT here: the descriptor-heap face's
-        // `push_data(heap_push_info)` already takes the list and is the one heap verb that is a
-        // command-buffer operation, and a second spelling would be exactly the double declaration
-        // this block refuses.
-        //
-        // THE ANSWERING RULE, and the one place it deviates from the plan's sketch: a verb that
-        // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
-        // real, checkable refusal (`invalid_argument`), the same answer `use()` and
-        // `copy_image_to_buffer()` already give, and a barrier or a binding that was silently not
-        // recorded is the corruption this surface exists to make impossible. A verb that receives
-        // ONLY VALUES has nothing to refuse and answers `void` (the plan's sketch, unchanged): a
-        // wrong-state call on a non-recording buffer is the validation layer's catch, exactly as it
-        // is for the raw calls today. `not_ready` on an answering verb means this list is not
-        // currently recording; `unsupported` means a mechanism this backend cannot serve.
-        //
-        // EVERY DESCRIPTOR here is the plan's measured vocabulary: what the 140 sites name, nothing
-        // more. Layouts are the images' current ones (GENERAL - docs/unified_image_layouts.md); the
-        // host-visible mask pairs and the queue-family transfers stay in the escape bucket (the
-        // plan's §0 verdicts).
-
-        // render scope
-        [[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;
-        virtual void end_rendering() noexcept = 0;
-
-        // binding
-        [[nodiscard]] virtual error bind_pipeline(pipeline const& handle) = 0;
-        [[nodiscard]] virtual error bind_vertex_buffer(buffer const& handle, std::uint64_t offset) = 0;
-        [[nodiscard]] virtual error bind_index_buffer(buffer const& handle, std::uint64_t offset, index_type type) = 0;
-
-        // draw
-        virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept = 0;
-        virtual void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept = 0;
-
-        // compute + geometry
-        virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
-        virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
-        [[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
-
-        // dynamic state
-        virtual void set_viewport(viewport const& vp) noexcept = 0;
-        virtual void set_scissor(rect const& scissor) noexcept = 0;
-        virtual void set_cull_mode(cull_mode mode) noexcept = 0;
-        virtual void set_depth_write(bool enable) noexcept = 0;
-        virtual void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept = 0;
-
-        // synchronisation
-        [[nodiscard]] virtual error barrier(barrier_group const& group) = 0;
-        [[nodiscard]] virtual error barrier(image_barrier const& one) = 0;
-
-        // copy + clear
-        [[nodiscard]] virtual error copy_image(image_copy const& copy) = 0;
-        [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;
-        [[nodiscard]] virtual error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) = 0;
-    };
-
     // ---- THE COMMAND BUFFER: THE OWNED RECORDING HANDLE (abi 15) ------------------------------------
     //
-    // `command_list` is a BORROWED view of a recording (abi 1/2/14: it has no `release()`, and the
+    // `command_buffer` is a BORROWED view of a recording (abi 1/2/14: it has no `release()`, and the
     // ownership note above says why); what the contract never had was the RESOURCE behind it - a
     // command buffer the caller can create, keep, begin, end and execute, which is what the engine's
     // per-slot primaries, its per-cascade and per-worker secondaries and the read-back's one-shot
@@ -1088,11 +1419,43 @@ export namespace deren::promise::rhi {
     ///
     /// `struct_size` is the same ABI guard `command_buffer_desc` carries; `next` is borrowed only
     /// until the call returns.
+    /// Attachment compatibility for a secondary recording. Formats use RHI values;
+    /// `depth` requests the backend's chosen depth format, `unknown` means no depth.
+    /// Borrowed only until begin_recording returns. Appending a tagged POD changes no vtable.
+    struct command_buffer_inheritance_info {
+        structure_header header{structure_type::command_buffer_inheritance, sizeof(command_buffer_inheritance_info), nullptr};
+        std::uint32_t color_format_count = 0;
+        image_format const* color_formats = nullptr;
+        image_format depth_format = image_format::unknown;
+        std::uint32_t samples = 1;
+        std::uint32_t view_mask = 0;
+    };
+
     struct command_buffer_begin_info {
         std::uint32_t struct_size = sizeof(command_buffer_begin_info); ///< size of this structure as the CALLER compiled it
         command_buffer_flags usage = no_command_buffer_flags;          ///< see command_buffer_usage
         structure_header const* next = nullptr;                        ///< optional tagged backend parameters
     };
+
+    /// ONE INDIRECT MESH-TASK RECORD: the three group counts, and nothing else.
+    ///
+    /// WHY THE LAYOUT IS THE CONTRACT'S: `command_buffer::draw_mesh_tasks_indirect()` takes a STRIDE, and the
+    /// caller that fills the argument buffer is the one that has to know what a record looks like. Leaving that
+    /// shape to the caller put the driver's own structure (`VkDrawMeshTasksIndirectCommandEXT` - which the
+    /// engine named both to size its buffer and to write its slot) in the engine half, so the shape lives here,
+    /// where both halves can name it. The backend that serves the verb static_asserts its own structure against
+    /// `mesh_task_command_size`: it is the only side that names BOTH, and that assert is what keeps the two from
+    /// drifting apart silently.
+    ///
+    /// A FIELD ADDED HERE IS NOT A FREE CHANGE: this value is what a caller passes as the stride, so the layout
+    /// is as frozen as the verb that consumes it.
+    struct mesh_task_command {
+        std::uint32_t groups_x = 0;
+        std::uint32_t groups_y = 0;
+        std::uint32_t groups_z = 0;
+    };
+    inline constexpr std::uint32_t mesh_task_command_size = 12u;
+    static_assert(sizeof(mesh_task_command) == mesh_task_command_size, "the record's size IS the stride callers pass");
 
     /// A command buffer the caller OWNS (abi 15).
     ///
@@ -1123,14 +1486,6 @@ export namespace deren::promise::rhi {
         /// (a primary) or by `execute()` (a secondary).
         [[nodiscard]] virtual error end_recording() noexcept = 0;
 
-        /// THIS buffer's borrowed recording view: the same `command_list` type `begin_commands()` hands
-        /// out for the frame, and the same object every call. The FRAME-scoped verbs on that list
-        /// (`use`, `copy_image_to_buffer`, the timing pair) answer `not_ready` when the list is not the
-        /// frame's - the window their own notes already name - so what the view is for on any other
-        /// buffer is the native-handle escape (`vulkan_escape::native_command_buffer`), with the
-        /// portable recording verbs arriving as the passes migrate onto the contract.
-        [[nodiscard]] virtual command_list* recording() noexcept = 0;
-
         /// Record @p secondary's commands into THIS buffer, which must be recording.
         ///
         /// ONE secondary per call: that is the unit every API in this family executes (Vulkan
@@ -1140,6 +1495,158 @@ export namespace deren::promise::rhi {
         /// holds no reference. The backend owns the compatibility rules (inheritance, layouts) and
         /// reports what it cannot serve.
         [[nodiscard]] virtual error execute(command_buffer& secondary) = 0;
+
+        // ---- THE RECORDING SERIES, NOW ON THE OWNER (user's ruling) ------------------------------
+        // command_list is GONE: the recording verbs live on the one handle a caller holds, so a
+        // call site is uffer->draw(...) / ->barrier(...) with no borrowed view in between. The
+        // non-virtual forwarders this type used to carry are gone with it: these ARE the series.
+
+        /// Declare that `resource` moves from one role to the other, and let the backend record what that
+        /// needs. THE PAIR, not a single use, is deliberate: this is plan §6.4 option (a) ("explicit
+        /// barrier") spelled in option (c)'s vocabulary - the caller knows what it just did (it recorded
+        /// it), the backend knows what the pair costs. A single-use form cannot be derived here: the
+        /// backend does not record the pass that wrote the image yet (the engine still records its frame
+        /// through `vulkan_escape`), so it cannot know the "from".
+        ///
+        /// THE CALLER OWNS THE CORRECTNESS: a missing pair, or a reversed one, is a WRONG barrier - the
+        /// one failure this contract cannot catch for you. The shadow gate compares the barriers this
+        /// produces, field by field, against the recipes the renderer ships with.
+        ///
+        /// IT ANSWERS, IT DOES NOT DROP SILENTLY: a barrier that was not recorded leaves the image in a
+        /// state nobody declared, which is exactly the validation failure this surface was built to avoid
+        /// (task-148's). So the answer is an `error` and the caller has to look at it (`[[nodiscard]]`).
+        /// `not_ready` = no frame is being recorded, or the list is not this frame's (the same window
+        /// `begin_commands()` answers in); `unsupported` = a role pair this backend cannot spell;
+        /// `invalid_argument` = an image this backend did not hand out.
+        [[nodiscard]] virtual error use(image const& resource, image_use from, image_use to) noexcept = 0;
+
+        /// Record a copy of `region` of `source` into `destination`, at the source's CURRENT layout (this
+        /// renderer keeps every image in GENERAL - docs/unified_image_layouts.md).
+        ///
+        /// The destination is a DEVICE buffer, not host memory: "record it into this frame" and "read it
+        /// on the host" are two moments, and the second one is `buffer::mapped()` once the frame lands.
+        [[nodiscard]] virtual error copy_image_to_buffer(buffer& destination, image const& source, image_copy_region const& region) noexcept = 0;
+
+        // ---- the GPU timing recording verbs (abi 14) -------------------------------------------
+        // One mark's duration is the interval it OPENS: stage i runs from mark i to mark i + 1 and is
+        // named by the name mark i carries (read back through `gpu_profiler`). WHICH PIPELINE STAGE a
+        // timestamp resolves at is a MEASUREMENT detail of the backend that owns the query pool, not
+        // a caller decision - the caller marks pass boundaries in order and names them; the contract
+        // deliberately does not carry a pipeline-stage vocabulary (that would import one API's
+        // execution model into every backend).
+        /// Open the frame's timing range: reset this frame slot's queries on the recorded timeline.
+        /// Call once per frame, before any mark. `unsupported` = this device cannot timestamp;
+        /// `not_ready` = no frame is being recorded (the same window `use()` refuses in).
+        [[nodiscard]] virtual error begin_gpu_timing() noexcept = 0;
+
+        /// Write one timing mark into the frame's range, named for the stage it opens. @p mark_index
+        /// must be the marks this frame has already written (the marks are POSITIONAL: an
+        /// out-of-order index would mislabel every later interval, so it is refused with
+        /// `invalid_argument` rather than accepted silently). `stage_name` is the caller's STATIC
+        /// text - a literal outliving the frame (the same rule as the creation descriptor's
+        /// `window_title`); the backend stores the view and reports it verbatim.
+        [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
+
+        // ---- the portable record series (abi 20) ------------------------------------------------
+        // THE RECORDING SURFACE'S OWN VOCABULARY (the verbs the passes actually record): the
+        // verbs this renderer's passes actually record, replacing 140 raw `vkCmd*` call sites in the
+        // engine's sources. Defined ONCE here, on the borrowed view; the owning `command_buffer`
+        // reaches the same series through `recording()` - a second declaration would be a second
+        // truth to keep in step. `push_data` is deliberately NOT here: the descriptor-heap face's
+        // `push_data(heap_push_info)` already takes the list and is the one heap verb that is a
+        // command-buffer operation, and a second spelling would be exactly the double declaration
+        // this block refuses.
+        //
+        // THE ANSWERING RULE, and the one place it deliberately deviates from the obvious shape: a verb that
+        // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
+        // real, checkable refusal (`invalid_argument`), the same answer `use()` and
+        // `copy_image_to_buffer()` already give, and a barrier or a binding that was silently not
+        // recorded is the corruption this surface exists to make impossible. A verb that receives
+        // ONLY VALUES has nothing to refuse and answers `void` (the plan's sketch, unchanged): a
+        // wrong-state call on a non-recording buffer is the validation layer's catch, exactly as it
+        // is for the raw calls today. `not_ready` on an answering verb means this list is not
+        // currently recording; `unsupported` means a mechanism this backend cannot serve.
+        //
+        // EVERY DESCRIPTOR here is the plan's measured vocabulary: what the 140 sites name, nothing
+        // more. Layouts are the images' current ones (GENERAL - docs/unified_image_layouts.md); the
+        // host-visible mask pairs and the queue-family transfers stay in the escape bucket (the
+        // plan's §0 verdicts).
+
+        // render scope
+        [[nodiscard]] virtual error begin_rendering(rendering_info const& info) = 0;
+        virtual void end_rendering() noexcept = 0;
+
+        // binding
+        [[nodiscard]] virtual error bind_pipeline(pipeline const& handle) = 0;
+        [[nodiscard]] virtual error bind_vertex_buffer(buffer const& handle, std::uint64_t offset) = 0;
+        [[nodiscard]] virtual error bind_index_buffer(buffer const& handle, std::uint64_t offset, index_type type) = 0;
+
+        // draw
+        virtual void draw(std::uint32_t vertex_count, std::uint32_t instance_count, std::uint32_t first_vertex, std::uint32_t first_instance) noexcept = 0;
+        virtual void draw_indexed(std::uint32_t index_count, std::uint32_t instance_count, std::uint32_t first_index, std::int32_t vertex_offset, std::uint32_t first_instance) noexcept = 0;
+
+        // compute + geometry
+        virtual void dispatch(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
+        virtual void draw_mesh_tasks(std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) noexcept = 0;
+        [[nodiscard]] virtual error draw_mesh_tasks_indirect(buffer const& argument_buffer, std::uint64_t offset, std::uint32_t count, std::uint32_t stride) = 0;
+        /// Record a ray-tracing LAUNCH over `width` x `height` pixels, `depth` rays deep, reading the shader
+        /// binding table the CALLER built: one region per table - ray generation, miss, hit - plus the callable
+        /// table a shader may invoke (an all-zero region when there are none).
+        ///
+        /// WHY THE LAUNCH IS A RECORD VERB AND NOT PART OF THE `ray_tracing` ABILITY: it is a recorded command
+        /// exactly like `draw`, `dispatch` and `draw_mesh_tasks` - it takes a command buffer, it is ordered with
+        /// the rest of a frame's commands, and it needs nothing the recording face does not already have. The
+        /// `ray_tracing` ability declares the ACCELERATION-STRUCTURE half, whose descriptor shapes are still the
+        /// S1 design surface and are deliberately incomplete - and a launch reachable only through an ANNOUNCED
+        /// ability would be unreachable on a backend that serves the recording face but has not frozen those
+        /// shapes yet, which is exactly this renderer's state.
+        ///
+        /// APPENDED IN ABI 24 (a tier-1 slot). The regions are the contract's own
+        /// `shader_binding_table_region`; the verb answers NOTHING (`void`), like `draw` and `draw_mesh_tasks`, and
+        /// a backend whose device published no `vkCmdTraceRaysKHR` records nothing - a pass that launches rays is
+        /// only built when its pipeline could be created, which needs that extension.
+        virtual void trace_rays(shader_binding_table_region const& raygen, shader_binding_table_region const& miss, shader_binding_table_region const& hit,
+                                shader_binding_table_region const& callable, std::uint32_t width, std::uint32_t height, std::uint32_t depth) noexcept = 0;
+
+        /// APPENDED IN ABI 26: record the BUILD of @p target - its geometries (a bottom-level structure) or its
+        /// instance list (a top-level one), whichever it was created with, over the memory the backend owns.
+        /// `ok` = recorded; `not_ready` = this buffer is not recording; `invalid_argument` = a handle this
+        /// backend did not hand out; `unsupported` = a level or a shape it cannot serve (REFUSED BY NAME, never
+        /// silently skipped - a missing build would produce an empty traversal, which is a wrong picture rather
+        /// than a missing one).
+        [[nodiscard]] virtual error build_acceleration_structure(acceleration_structure& target) = 0;
+
+        /// APPENDED IN ABI 26: REFIT @p target in place, for the structures whose description declared
+        /// `acceleration_structure_flag::allow_update` - the addresses and counts are unchanged and only the
+        /// memory they point at has been rewritten (the zero-copy shape a compute-skinning frame produces).
+        /// Refused by name when the structure was not created refittable, which is exactly what declaring it
+        /// is for.
+        [[nodiscard]] virtual error refit_acceleration_structure(acceleration_structure& target) = 0;
+
+        /// APPENDED IN ABI 27: record the BUILD of @p target - the attributes, the per-triangle records and the
+        /// index array its description was created from. `ok` = recorded; `not_ready` = this buffer is not
+        /// recording; `invalid_argument` = a handle this backend did not hand out; `unsupported` = a shape it
+        /// cannot serve, refused BY NAME.
+        ///
+        /// A MICROMAP MUST BE BUILT BEFORE THE GEOMETRY THAT CONSULTS IT: that is the order the caller records
+        /// them in, and the ordering this verb owns (the barrier is the backend's, as it is for a build).
+        [[nodiscard]] virtual error build_micromap(micromap& target) = 0;
+
+        // dynamic state
+        virtual void set_viewport(viewport const& vp) noexcept = 0;
+        virtual void set_scissor(rect const& scissor) noexcept = 0;
+        virtual void set_cull_mode(cull_mode mode) noexcept = 0;
+        virtual void set_depth_write(bool enable) noexcept = 0;
+        virtual void set_depth_bias(float constant_factor, float slope_factor, float clamp) noexcept = 0;
+
+        // synchronisation
+        [[nodiscard]] virtual error barrier(barrier_group const& group) = 0;
+        [[nodiscard]] virtual error barrier(image_barrier const& one) = 0;
+
+        // copy + clear
+        [[nodiscard]] virtual error copy_image(image_copy const& copy) = 0;
+        [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;
+        [[nodiscard]] virtual error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) = 0;
     };
 
     /// What starting a frame hands back.
@@ -1200,7 +1707,7 @@ export namespace deren::promise::rhi {
     /// `swapchain::image_count()` route is for.
     inline constexpr std::uint32_t max_swapchain_images = 4u;
 
-    /// The frame ring's cursor, as a BORROWED VIEW - the `command_list` shape, not the owned-handle
+    /// The frame ring's cursor, as a BORROWED VIEW - the `command_buffer` shape, not the owned-handle
     /// one: no `release()`, so `object_manager` cannot wrap it (the type system refuses), and the
     /// `api_core` hands out the same object every call.
     ///
@@ -1307,6 +1814,17 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual swapchain* create_swapchain(swapchain_desc const& desc) = 0;
         [[nodiscard]] virtual buffer* create_buffer(buffer_desc const& desc) = 0;
         [[nodiscard]] virtual image* create_image(image_desc const& desc) = 0;
+        /// APPENDED IN ABI 26: allocate an acceleration structure (see the type's own note for why this is
+        /// tier-1 furniture rather than an ability). The BACKEND owns the storage and the scratch a build needs;
+        /// `desc` carries what the structure IS - its level, whether it may be refitted, and its geometries or
+        /// its instance capacity - and is borrowed only until the call returns. `nullptr` = this backend cannot
+        /// serve it, with its own named diagnosis logged, exactly as the other factories answer.
+        [[nodiscard]] virtual acceleration_structure* create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
+        /// APPENDED IN ABI 27: allocate an opacity micromap (see the type's own note). The backend owns the
+        /// storage, the scratch AND the setup buffers the build reads - including the 256-byte address alignment
+        /// the API requires of them, which is a requirement on an address and therefore cannot be a caller's
+        /// problem. `nullptr` = this backend cannot serve it, with its own named diagnosis logged.
+        [[nodiscard]] virtual micromap* create_micromap(micromap_desc const& desc) = 0;
         [[nodiscard]] virtual sampler* create_sampler(sampler_desc const& desc) = 0;
         [[nodiscard]] virtual shader* create_shader(shader_desc const& desc) = 0;
         [[nodiscard]] virtual pipeline* create_pipeline(pipeline_desc const& desc) = 0;
@@ -1324,7 +1842,7 @@ export namespace deren::promise::rhi {
         /// The NAME is the plan's and is kept; the verb is not literal yet - the frame's own
         /// begin/end/submit still belong to the engine (only the engine knows the present recipe), so
         /// this call starts nothing. It hands out the list the engine's frame is recording into.
-        [[nodiscard]] virtual command_list* begin_commands() = 0;
+        [[nodiscard]] virtual command_buffer* begin_commands() = 0;
 
         /// The image the LAST acquire returned, as a BORROWED view - or nullptr BEFORE THE FIRST ONE: a
         /// backend that has never acquired has no "last" image to name, and the answer is not image 0
@@ -1362,7 +1880,7 @@ export namespace deren::promise::rhi {
         /// covers. A presentation that failed SILENTLY was information loss, the exact kind the error
         /// mechanism exists to end: the caller cannot distinguish "shown" from "the swapchain just
         /// expired" (out_of_date => rebuild) from "the device is gone" (device_lost => fatal), and
-        /// `command_list::use` set the style for frame verbs that answer.
+        /// `command_buffer::use` set the style for frame verbs that answer.
         [[nodiscard]] virtual error present() = 0;
 
         /// Block until nothing is in flight.
@@ -1385,13 +1903,13 @@ export namespace deren::promise::rhi {
         /// context's (see the type's note).
         [[nodiscard]] virtual swapchain* frame_swapchain() noexcept = 0;
 
-        /// Hand the frame's recorded commands to the queue: the one frame verb the contract was
-        /// missing. The list is the one `begin_commands()` handed out (still recording-or-recorded,
-        /// not yet submitted); the backend owns which image is presented and which semaphores are
-        /// signalled - those are its own acquire state, never caller data. `ok` = submitted;
-        /// `invalid_argument` = a list this backend did not hand out; `not_ready` = no frame is in
-        /// flight; device-level failures travel as their own codes (device_lost, out_of_*_memory).
-        [[nodiscard]] virtual error submit(command_list& commands) = 0;
+        /// Hand recorded commands to the queue. A frame list from `begin_commands()` uses the
+        /// backend's acquire state and presentation semaphores. An ended, caller-owned primary
+        /// from `create_command_buffer()` submits independently of a frame; the caller keeps its
+        /// resources alive until `wait_idle()` completes. `ok` = submitted; `invalid_argument` =
+        /// a list this backend did not hand out; `not_ready` = no acquired frame (for a frame list)
+        /// or no native recording (for an owned list). Device-level failures travel as themselves.
+        [[nodiscard]] virtual error submit(command_buffer& commands) = 0;
 
         /// Create a command buffer the caller OWNS (abi 15). `nullptr` = this backend cannot serve the
         /// descriptor (a kind it does not have; the reason is on the record, the contract's named-
@@ -1400,6 +1918,14 @@ export namespace deren::promise::rhi {
         /// it (the API's own pool/allocator) stays the backend's, so nothing but the handle crosses
         /// this boundary.
         [[nodiscard]] virtual command_buffer* create_command_buffer(command_buffer_desc const& desc) = 0;
+
+        /// CREATE A COMMAND BUFFER THE CALLER OWNS, AS A `std::shared_ptr` (abi 21).
+        ///
+        /// THE SAME OWNERSHIP SHAPE THE ENTRY POINT USES for `api_core`: the control block owns the
+        /// deleter, so the last reference destroys the session inside the backend and NO call site needs
+        /// a `release()`. An EMPTY pointer is the named refusal (the descriptor this backend cannot
+        /// serve), exactly as `create_command_buffer` answers `nullptr`.
+        [[nodiscard]] virtual std::shared_ptr<command_buffer> make_command_buffer(command_buffer_desc const& desc) = 0;
 
         /// THE OBJECT'S OWN ABI NUMBER, ASKED OF THE OBJECT (abi 19).
         ///

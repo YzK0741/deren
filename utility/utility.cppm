@@ -193,7 +193,7 @@ namespace deren::utility {
      * @ingroup utility
      * @brief the engine-side failure type: a value or a fully described failure
      * @note the CONTRACT does not grow an `expected` - its two failure styles (factories answering
-     *       nullptr, `command_list::use` answering rhi::error) stay what they are; this alias is the
+     *       nullptr, `command_buffer::use` answering rhi::error) stay what they are; this alias is the
      *       SAME BINARY's richer channel, where std::string and a location are free because nothing
      *       crosses a boundary carrying it
      */

@@ -74,6 +74,9 @@ struct RtShadowPush
 [[vk::push_constant]] ConstantBuffer<RtShadowPush> pc;
 #define heap_frame_slot (pc.frame_slot)
 #define heap_image_index (pc.image_index)
+// Read the existing per-frame heap slots through a backend mapping. Heap-native AS conversion
+// loses the device during traversal on affected drivers; images and buffers keep their heap access.
+[[vk::binding(16, 0)]] RaytracingAccelerationStructure mapped_tlas[2];
 
 // =============================================================================================================
 // THE RAYGEN (entry `rgen_main`): ray-traced sun visibility, one traced ray per pixel.
@@ -150,7 +153,7 @@ void rgen_main()
     // device (see the any-hit entry for the three-arm test); it is left off so that the alpha test does not
     // rest on a driver over-invoking a stage a conforming one would skip.
     shadow_payload payload;
-    TraceRay(heap_at<RaytracingAccelerationStructure>(heap_slots_tlas + heap_frame_slot),
+    TraceRay(mapped_tlas[heap_frame_slot],
              // GLSL's `gl_RayFlagsTerminateOnFirstHitEXT` is Slang's RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH
              // (the DXR name for the same flag - the GLSL spelling does not exist here, which cost one build).
              RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH,

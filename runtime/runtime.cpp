@@ -7,25 +7,31 @@ module;
 #include <cstring> // std::memcpy, for composing a pass's push block
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
+#include <memory>          // std::shared_ptr: the frame's borrowed command buffer (see frame_command_buffer)
 #include <source_location> // the panic sites of the graphics-queue-family derivation
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
 #include <thread>          // std::this_thread::yield in the frame limiter
 #include <vector>          // the queue-family list the graphics-queue derivation walks
-#include <vulkan/vulkan.h>
+
+// THE GUI PLUGIN'S BOUNDARY (plan X2): `create_info`, `api_type` and `overlay` live in a header the plugin
+// and the host share. In the GLOBAL MODULE FRAGMENT because the header declares `GLFWwindow` itself and pulls
+// standard headers in - inside the module purview it would make the module redeclare names the global module
+// already has (the trap the plugin's own file records).
 
 module deren.vulkan.runtime;
 
+import deren.promise.gui;
+
 import deren.vulkan.profiling;
 import deren.vulkan.pipelines;
-import deren.vulkan.bindings;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
 import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
+import deren.vulkan.gui_loader;      // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
@@ -34,81 +40,46 @@ import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md 
 [[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
 namespace deren::vulkan {
-    // ---- runtime_detail::graphics_queue_family_of: THE DERIVATION, AND WHY IT IS EXACT ---------------
+    // ---- runtime_detail::graphics_queue_family_of: ONE QUESTION TO THE BACKEND -------------------------
     //
-    // DEFINED HERE rather than beside the other runtime_detail helpers (`:constructor`) because it is the
-    // ONE of them that needs the frame-time TU's Vulkan surface and nothing else, and because the probes'
-    // use of it is the only caller.
+    // WHAT STOOD HERE, AND WHY IT IS GONE: this walked the device's queue families, fetched each graphics
+    // family's queue with `vkGetDeviceQueue` and compared it against the escape's own queue handle, in order to
+    // RECOVER a family index the backend had chosen for itself (`init_utils.cppm` takes the first family with
+    // `VK_QUEUE_GRAPHICS_BIT`, queue index 0). The argument for the walk was that it needed no contract addition
+    // - and the contract has since grown the shape that answers it directly (`device_capabilities::
+    // graphics_queue_family()`, answered from the backend's own `graphics_queue_family_index`), so the engine
+    // asks that instead of re-deriving it, and this TU keeps no Vulkan surface at all.
     //
-    // THE ARGUMENT IN ONE PARAGRAPH: the backend takes the FIRST family with `VK_QUEUE_GRAPHICS_BIT`
-    // (`init_utils.cppm:1148`) and gets its queue with queue index 0 (`:1125`), so
-    // `vkGetDeviceQueue(device, family, 0)` answers the escape's own queue handle for that family and for
-    // no other family. Walking the families and comparing against `escape().native_queue()` therefore
-    // recovers the backend's choice without naming a family index anywhere, without a contract addition
-    // (which would renumber the ABI for a fact the escape already implies) and without a write of any
-    // kind - `vkGetDeviceQueue` has no side effects on a created device.
-    //
-    // A FAILURE PANICS. The alternative - answering 0 - would put the probes' command pools on a family
-    // that does not own the queue they submit to, which is a validation error at best and an undefined
-    // submission at worst; a device whose own queue handle cannot be found through its own family list is
-    // a broken invariant, not a case to paper over.
+    // THE PANIC THE WALK ENDED WITH IS NOW THE BACKEND'S BUSINESS: a device whose own queue handle cannot be
+    // found through its own family list is a broken invariant, and the backend is the object that can see it.
     namespace runtime_detail {
         std::uint32_t graphics_queue_family_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = rhi::query_extension<rhi::vulkan_escape>(face);
-            VkDevice const device = escape == nullptr ? VK_NULL_HANDLE : static_cast<VkDevice>(escape->native_device());
-            VkPhysicalDevice const physical = escape == nullptr ? VK_NULL_HANDLE : static_cast<VkPhysicalDevice>(escape->native_physical_device());
-            VkQueue const expected = escape == nullptr ? VK_NULL_HANDLE : static_cast<VkQueue>(escape->native_queue());
-            if (device == VK_NULL_HANDLE || physical == VK_NULL_HANDLE || expected == VK_NULL_HANDLE) {
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            if (capabilities == nullptr) {
                 deren::utility::panic(std::source_location::current(),
-                                      "runtime: the escape cannot answer the device, its physical device and its queue - the graphics queue's family cannot be derived");
+                                      "runtime: the backend does not serve device_capabilities, so the graphics queue's family cannot be asked for");
             }
-            uint32_t family_count = 0;
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, nullptr);
-            if (family_count == 0) {
-                deren::utility::panic(std::source_location::current(), "runtime: the device reports no queue families at all");
-            }
-            std::vector<VkQueueFamilyProperties> families(family_count);
-            vkGetPhysicalDeviceQueueFamilyProperties(physical, &family_count, families.data());
-            for (uint32_t family = 0; family < family_count; ++family) {
-                if ((families[family].queueFlags & VK_QUEUE_GRAPHICS_BIT) == 0u) {
-                    continue;
-                }
-                VkQueue queue = VK_NULL_HANDLE;
-                vkGetDeviceQueue(device, family, 0, &queue);
-                if (queue == expected) {
-                    return family;
-                }
-            }
-            deren::utility::panic(std::source_location::current(),
-                                  "runtime: none of the {} queue families answered the backend's own graphics queue - the family derivation has no answer",
-                                  family_count);
+            return capabilities->graphics_queue_family();
         }
     } // namespace runtime_detail
 
-    void runtime::write_rt_structure_binding(VkAccelerationStructureKHR const tlas, uint32_t const frame_slot) {
+    void runtime::write_rt_structure_binding(deren::promise::rhi::acceleration_structure* const tlas, uint32_t const frame_slot) {
         // The top level structure is a HEAP slot now, and this is the one thing this function still does: a heap
         // descriptor for an acceleration structure is an ADDRESS RANGE carrying the structure's device address
         // (the heap's payload union has no AS member - see docs/descriptor_heap_migration.md), and it is
         // per FRAME SLOT because the structure is rebuilt every frame - which is why heap_slots::tlas is a
-        // two-slot array. The size is the one the structure was created with (published through
-        // ray_tracing::structure_set): a heap range must carry a real size, a lesson this renderer already paid
-        // for on the material table.
-        if (!contract_heap_ready(this->rhi_face()) || tlas == VK_NULL_HANDLE) {
+        // two-slot array. The size is the one the structure was created with: a heap range must carry a real
+        // size, a lesson this renderer already paid for on the material table.
+        //
+        // BOTH NUMBERS COME FROM THE OBJECT (tier-1 since abi 26): this function used to resolve
+        // `vkGetAccelerationStructureDeviceAddressKHR` through `vkGetDeviceProcAddr` and fill a
+        // `VkAccelerationStructureDeviceAddressInfoKHR` to read the address out of the handle - the LAST Vulkan
+        // reference this file had, and the reason its census entry was `vkGetDeviceProcAddr`.
+        if (!contract_heap_ready(this->rhi_face()) || tlas == nullptr) {
             return;
         }
-        // RESOLVED PER DEVICE, not linked: the loader exports the core entry points and not this
-        // extension one (the link failed with `undefined symbol:
-        // vkGetAccelerationStructureDeviceAddressKHR`, which is the same reason the acceleration
-        // structure module loads its own entry points through vkGetDeviceProcAddr).
-        static PFN_vkGetAccelerationStructureDeviceAddressKHR const get_structure_address =
-            reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(runtime_detail::native_device_of(this->rhi_face()), "vkGetAccelerationStructureDeviceAddressKHR"));
-        VkAccelerationStructureDeviceAddressInfoKHR const tlas_address_info = {
-            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR,
-            .pNext = nullptr,
-            .accelerationStructure = tlas,
-        };
-        VkDeviceAddress const tlas_address = get_structure_address != nullptr ? get_structure_address(runtime_detail::native_device_of(this->rhi_face()), &tlas_address_info) : 0;
-        if (!contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::tlas + frame_slot), tlas_address, this->structures.structure_size(frame_slot), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
+        std::uint64_t const tlas_address = tlas->device_address();
+        if (!contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::tlas + frame_slot), tlas_address, tlas->size_bytes(), rhi::descriptor_type::acceleration_structure)) {
             deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::tlas + frame_slot);
         }
 
@@ -121,69 +92,111 @@ namespace deren::vulkan {
         // out of the escape - the same path every other converted site takes. The pointer is BORROWED from the
         // structure's own slot (see that accessor's note): it is read here and nothing keeps it.
         if (rhi::buffer const* const instance_table = this->structures.instance_table_buffer(frame_slot); instance_table != nullptr) {
-            if (!this->write_heap_buffer(*instance_table, deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot, this->structures.instance_table_size(frame_slot), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+            if (!this->write_heap_buffer(*instance_table, deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot, this->structures.instance_table_size(frame_slot), rhi::descriptor_type::storage_buffer)) {
                 deren::utility::log("descriptor heap: the instance table did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot);
             }
         }
     }
 
-    void runtime::begin_rendering(VkCommandBuffer const command_buffer, uint32_t const image_index, VkRenderingFlags const flags) const {
+    void runtime::begin_rendering(uint32_t const image_index, bool const secondary_contents) const {
         // Dynamic rendering (Vulkan 1.3 core, the only path the engine supports): attachments are
         // described inline, no render pass / framebuffer objects exist. The scene instance is always
         // the G-buffer pass: the opaque pass writes the surface instead of shading it, into three
         // single-sampled targets + the motion-vector target + the G-buffer's own 1x depth image, and
         // adds the emissive into the scene color target. The lighting stage then shades it into the
         // image the post chain reads (scene_target_view).
+        //
+        // THE SCOPE RIDES THE CONTRACT NOW (no vkCmdBeginRendering here): the attachments are the
+        // CONTRACT views the engine owns, the load/store/clear roles are what the raw helpers spelled,
+        // and the matching close is `command_buffer->end_rendering()` in the caller
+        // (`record_scene`'s empty-instance path); the native parameter is kept for the call shape.
+        rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
+        if (frame_commands == nullptr) {
+            return; // no frame is in flight: there is no recording buffer to open an instance on
+        }
         if (this->gbuffer_pass_active()) {
-            std::array<VkRenderingAttachmentInfo, deren::vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
-            VkClearValue clear = {}; // the surface + motion targets clear to zero: no geometry, no motion
-            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every view below comes through the
-            // contract's escape, and the depth is the engine's `depth`-ROLE image.
+            std::array<rhi::color_attachment, deren::vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
+            // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every view below is the CONTRACT
+            // view, and the depth is the engine's `depth`-ROLE image.
             for (uint32_t target = 0; target < deren::vulkan::render_layout::gbuffer_target_count; ++target) {
-                gbuffer_attachments[target] = make_color_attachment_info(
-                    static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_image_views[target][image_index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+                gbuffer_attachments[target] = rhi::color_attachment{.view = this->gbuffer_image_views[target][image_index].get(),
+                                                                    .load = rhi::load_op::clear, // make_color_attachment_info's loadOp
+                                                                    .store = rhi::store_op::store,
+                                                                    .clear = {}}; // the surface + motion targets clear to zero: no geometry, no motion
             }
-            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count] = make_color_attachment_info(
-                static_cast<VkImageView>(this->escape().native_image_view(*this->velocity_image_views[image_index])), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count] = rhi::color_attachment{.view = this->velocity_image_views[image_index].get(),
+                                                                                                            .load = rhi::load_op::clear,
+                                                                                                            .store = rhi::store_op::store,
+                                                                                                            .clear = {}};
             // the last attachment is the scene color, CLEARed to zero: it accumulates only the
             // emissive here. The lighting stage then adds the lighting (and the sky, for pixels no
             // geometry wrote) on top, so a lit pixel is emissive + lighting and a background pixel is
             // sky - with no background pass anywhere. Under TAA the scene color is the resolve's input
             // image, and the resolve writes the HDR target the post chain reads (see
             // runtime::scene_target_view).
-            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count + 1] = make_color_attachment_info(this->scene_target_view(image_index), clear, VK_RESOLVE_MODE_NONE, VK_NULL_HANDLE);
+            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count + 1] =
+                rhi::color_attachment{.view = this->taa_active() ? this->scene_color_image_views[image_index].get() : this->hdr_image_views[image_index].get(),
+                                      .load = rhi::load_op::clear,
+                                      .store = rhi::store_op::store,
+                                      .clear = {}};
             // the G-buffer depth clears to the far plane (1.0) - but unlike the old forward path's
             // main depth, its contents must SURVIVE the instance: the lighting stage, the transparent
             // pass, the TAA resolve and the debug view all read this image later in the same
             // submission (the G-buffer depth heap slot, which all four of them read). STORE_OP_DONT_CARE would
             // leave the contents undefined, which is exactly what those four read.
-            VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(
-                static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_depth_image_views[image_index])), VK_ATTACHMENT_STORE_OP_STORE);
-            VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, this->render_extent()}, gbuffer_attachments.data(), static_cast<uint32_t>(gbuffer_attachments.size()), &depth_attachment);
-            vkCmdBeginRendering(command_buffer, &rendering_info);
+            rhi::depth_attachment const depth_attachment = {.view = this->gbuffer_depth_image_views[image_index].get(),
+                                                            .load = rhi::load_op::clear, // make_depth_attachment_info's loadOp
+                                                            .store = rhi::store_op::store,
+                                                            .read_only = false,
+                                                            .has_stencil = false,
+                                                            .clear_depth = 1.0f,
+                                                            .clear_stencil = 0};
+            rhi::rendering_info const rendering_info{
+                .struct_size = sizeof(rhi::rendering_info),
+                .area = {.offset_x = 0, .offset_y = 0, .width = this->render_extent().width, .height = this->render_extent().height},
+                .layer_count = 1, // the raw make_rendering_info's layerCount, which is 1 at every site in this engine
+                .colors = gbuffer_attachments,
+                .depth = depth_attachment,
+                .has_depth = true,
+                .secondary_contents = secondary_contents, // the one flag bit the raw call passed
+            };
+            (void)frame_commands->begin_rendering(rendering_info);
             return;
         }
 
         // No G-buffer pipeline: no scene can be drawn. Open an empty instance anyway, so every frame
-        // still has a matching vkCmdEndRendering and the post chain samples a defined target.
-        // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3): the view comes through the contract's escape.
-        VkClearValue clear_color = {};
-        clear_color.color = {{this->background_color.r, this->background_color.g, this->background_color.b, 1.0f}};
-        VkImageView const hdr_view = image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
-                                         ? static_cast<VkImageView>(this->escape().native_image_view(*this->hdr_image_views[image_index]))
-                                         : VK_NULL_HANDLE;
-        VkRenderingAttachmentInfo const color_attachment = make_color_attachment_info(
-            hdr_view,
-            clear_color,
-            VK_RESOLVE_MODE_NONE,
-            VK_NULL_HANDLE);
+        // still has a matching end and the post chain samples a defined target.
+        // THE HDR TARGET IS THE ENGINE'S OWN (③-D/E A1.3): the view is the CONTRACT view.
+        rhi::image_view* const hdr_view = image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
+                                              ? this->hdr_image_views[image_index].get()
+                                              : nullptr;
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = hdr_view,
+                                  .load = rhi::load_op::clear, // make_color_attachment_info's loadOp
+                                  .store = rhi::store_op::store,
+                                  .clear = {this->background_color.r, this->background_color.g, this->background_color.b, 1.0f}},
+        };
 
         // depth clears to the far plane (1.0): make_depth_attachment_info. DONT_CARE is correct here -
         // nothing samples this depth (the G-buffer depth above is the one that is read back).
-        VkRenderingAttachmentInfo const depth_attachment = make_depth_attachment_info(static_cast<VkImageView>(this->escape().native_image_view(*this->gbuffer_depth_image_views[image_index])), VK_ATTACHMENT_STORE_OP_DONT_CARE);
+        rhi::depth_attachment const depth_attachment = {.view = this->gbuffer_depth_image_views[image_index].get(),
+                                                        .load = rhi::load_op::clear,       // make_depth_attachment_info's loadOp
+                                                        .store = rhi::store_op::dont_care, // VK_ATTACHMENT_STORE_OP_DONT_CARE
+                                                        .read_only = false,
+                                                        .has_stencil = false,
+                                                        .clear_depth = 1.0f,
+                                                        .clear_stencil = 0};
 
-        VkRenderingInfo const rendering_info = make_rendering_info(flags, {{0, 0}, this->render_extent()}, true, &color_attachment, &depth_attachment);
-        vkCmdBeginRendering(command_buffer, &rendering_info);
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = this->render_extent().width, .height = this->render_extent().height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = depth_attachment,
+            .has_depth = true,
+            .secondary_contents = secondary_contents,
+        };
+        (void)frame_commands->begin_rendering(rendering_info);
     }
 
     frame_status runtime::poll_events() {
@@ -203,7 +216,7 @@ namespace deren::vulkan {
         // it on demand, so the key also brings the ui back after a disable.
         bool const f1_down = glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS;
         if (f1_down && !this->gui_toggle_down) {
-            if (!this->debug_overlay.is_active()) {
+            if (this->debug_overlay == nullptr || !this->debug_overlay->is_active()) {
                 this->debug_gui_shown = this->enable_debug_gui();
             } else {
                 this->debug_gui_shown = !this->debug_gui_shown;
@@ -315,7 +328,9 @@ namespace deren::vulkan {
         //    (VUID-vkUpdateDescriptorSets-None-03047), and with two frames in flight the other slot's
         //    frame can still be running - a freshly allocated set is referenced by nothing, so
         //    allocating instead of updating sidesteps that entirely.
-        this->debug_overlay.on_swapchain_recreated();
+        if (this->debug_overlay != nullptr) {
+            this->debug_overlay->on_swapchain_recreated();
+        }
         // NOTHING OF THIS CLASS IS RETIRED HERE ANY MORE: the G-buffer and post descriptor families it used to
         // retire are gone with the sets (every stage reaches its images through the heap, whose slots name images
         // rather than sets), so the only per-generation state left is the PASSES' - and they are told below.
@@ -366,7 +381,7 @@ namespace deren::vulkan {
         // backend's images have (it does not pre-multiply any scale - that is a renderer decision).
         rhi::swapchain* const surface = this->rhi_face().frame_swapchain();
         rhi::image_extent const output = surface != nullptr ? surface->extent() : rhi::image_extent{};
-        this->output_extent = VkExtent2D{output.width, output.height};
+        this->output_extent = rhi::image_extent{output.width, output.height};
         // ... and the frame's resolution is that EXTENT times this engine's own scale, ROUNDED to
         // nearest rather than truncated: at half scale the floor would take a pixel off an odd output
         // width ON TOP of the halving, and both the images and the passes have to agree on the
@@ -377,7 +392,7 @@ namespace deren::vulkan {
             uint32_t const value = static_cast<uint32_t>(static_cast<float>(axis) * this->render_scale + 0.5f);
             return value == 0u ? 1u : value; // a zero extent is not a small frame, it is an invalid one
         };
-        this->render_extent_value = VkExtent2D{scaled(output.width), scaled(output.height)};
+        this->render_extent_value = rhi::image_extent{scaled(output.width), scaled(output.height)};
     }
 
     bool runtime::gpu_timings_available() const noexcept {
@@ -393,14 +408,14 @@ namespace deren::vulkan {
         if (!this->gpu_timings_enabled) {
             return;
         }
-        // THE MARK GOES THROUGH THE FRAME'S OWN RECORDING VIEW (abi 14): `command_list` is where the
+        // THE MARK GOES THROUGH THE FRAME'S OWN RECORDING VIEW (abi 14): `command_buffer` is where the
         // timing range and its marks live now, and the backend owns both the POSITIONAL check (an
         // out-of-order index is refused by name - the read of `gpu_timing_marks` this function used
         // to make is gone with it) and WHICH PIPELINE STAGE the timestamp resolves at (a measurement
         // detail of the query pool's owner, so the engine no longer names a VkPipelineStageFlagBits
         // here at all). No list means no frame in flight: nothing to record into, and the frame's
         // marks are written only inside a recording window anyway.
-        rhi::command_list* const commands = this->rhi_face().begin_commands();
+        rhi::command_buffer* const commands = this->rhi_face().begin_commands();
         if (commands == nullptr) {
             return;
         }
@@ -493,31 +508,40 @@ namespace deren::vulkan {
     }
 
     bool runtime::enable_debug_gui() {
-        if (this->debug_overlay.is_active()) {
+        // THE PLUGIN IS LOADED ON DEMAND (plan X2): the GUI lives in `deren_gui_<api>.dll`, resolved BY NAME
+        // through the loader, so the engine has no link-time dependency on it at all - and this is the one
+        // place that decides which API it asks for (the renderer this runtime drives).
+        if (this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
             return true;
         }
         // The overlay draws into the runtime's OPEN main rendering instance via dynamic
         // rendering (the backend is initialized with UseDynamicRendering=true).
         rhi::api_core& vk = this->vulkan_core;
-        gui::gui_create_info info = {};
+        deren::gui::create_info info = {};
+        info.api = deren::gui::api_type::vulkan;
         info.window = static_cast<GLFWwindow*>(this->create_options.native_window);
-        info.instance = static_cast<VkInstance>(this->escape().native_instance());
-        info.physical_device = static_cast<VkPhysicalDevice>(this->escape().native_physical_device());
-        info.device = runtime_detail::native_device_of(vk);
-        info.graphics_queue_family = static_cast<std::uint32_t>(this->graphics_queue_family_index);
-        info.graphics_queue = static_cast<VkQueue>(runtime_detail::native_queue_of(vk));
-        info.color_format = this->swap_chain_image_format;
-        info.depth_format = VK_FORMAT_UNDEFINED; // the post/gui pass has no depth attachment
-        info.frames_in_flight = this->frame_ring().slot_count();
-        return this->debug_overlay.init(info);
+        info.core = &vk;
+        this->debug_overlay = deren::vulkan::load_gui(info);
+        if (this->debug_overlay == nullptr) {
+            deren::utility::log("gui overlay: no plugin answered (the loader's own line says which step failed) - the overlay stays off");
+            return false;
+        }
+        return this->debug_overlay->is_active();
     }
 
     bool runtime::debug_gui_wants_mouse() const noexcept {
-        return this->debug_gui_shown && this->debug_overlay.is_active() && this->debug_overlay.wants_mouse();
+        return this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active() && this->debug_overlay->wants_mouse();
     }
 
-    gui::gui_content& runtime::debug_gui() noexcept {
-        return this->debug_overlay;
+    deren::gui::overlay& runtime::debug_gui() noexcept {
+        // A DEFAULT-CONSTRUCTED PLACEHOLDER WOULD BE A LIE: `enable_debug_gui()` is the one creator, and a
+        // caller that reaches this WITHOUT it has a bug the contract cannot paper over - so a null plugin is a
+        // named panic (the app's own order guarantees it, and `debug_gui_wants_mouse` above is the guarded path
+        // every frame-time caller uses).
+        if (this->debug_overlay == nullptr) {
+            deren::utility::panic(std::source_location::current(), "runtime::debug_gui() was called before enable_debug_gui() brought the plugin up");
+        }
+        return *this->debug_overlay;
     }
 
     std::expected<void, std::string> runtime::make_pipeline(std::string_view pipeline_name, std::span<uint8_t const> fragment_shader_code,
@@ -546,7 +570,7 @@ namespace deren::vulkan {
         // exactly what a caller that is not the runtime (a pass, whose create step has a device and its own
         // layout) cannot do. The four facts are read here instead, and they are the ones that entry point used,
         // so this is a re-expression: same layout, same formats, same single-sampled pipeline.
-        std::array<rhi::image_format, 1> const color_formats = {contract_image_format(this->swap_chain_image_format)};
+        std::array<rhi::image_format, 1> const color_formats = {this->swap_chain_image_format};
         // ... AND THE BLEND STATE, which the old entry point got from the convenience overload: the FORWARD
         // pipelines' convention is src-alpha blending (alpha is coverage, and an opaque draw's alpha of one
         // reduces the blend math to the source colour), while the span-based form's default is "overwrite".
@@ -574,8 +598,8 @@ namespace deren::vulkan {
             if (built) {
                 // the two cached values every named pipeline needs (begin_pipeline re-emits them, and
                 // update_pass_geometry resyncs every registered pipeline once per frame)
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->render_extent()};
+                built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(this->render_extent().width), .height = static_cast<float>(this->render_extent().height), .min_depth = 0.0f, .max_depth = 1.0f};
+                built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (this->render_extent()).width, .height = (this->render_extent()).height};
                 mesh_result = std::move(*built);
             } else {
                 // NO FALLBACK LEFT (docs/mesh_shaders.md step 4): the caller sees this as the pipeline's failure
@@ -601,8 +625,8 @@ namespace deren::vulkan {
                                                            std::span<rhi::blend_mode const>(blend_attachments),
                                                            rhi::shader_stage::mesh);
             if (built) {
-                built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
-                built->scissor = {{0, 0}, this->render_extent()};
+                built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(this->render_extent().width), .height = static_cast<float>(this->render_extent().height), .min_depth = 0.0f, .max_depth = 1.0f};
+                built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (this->render_extent()).width, .height = (this->render_extent()).height};
                 meshlet_result = std::move(*built);
             } else {
                 deren::utility::log("pipeline '{}': no meshlet form ({}), so its leaves stay on the mesh pipeline", pipeline_name, built.error());
@@ -652,8 +676,8 @@ namespace deren::vulkan {
                                                        what);
         if (built) {
             // the fullscreen viewport/scissor default the frame path re-syncs on every swapchain recreation
-            built->viewport = {0.0f, 0.0f, static_cast<float>(this->render_extent().width), static_cast<float>(this->render_extent().height), 0.0f, 1.0f};
-            built->scissor = {{0, 0}, this->render_extent()};
+            built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = static_cast<float>(this->render_extent().width), .height = static_cast<float>(this->render_extent().height), .min_depth = 0.0f, .max_depth = 1.0f};
+            built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = (this->render_extent()).width, .height = (this->render_extent()).height};
         }
         // 工厂的错误文本属于 built；返回拥有文本的 string，避免 string_view 随局部对象失效。
         return built;
@@ -908,7 +932,7 @@ namespace deren::vulkan {
             // would drop it. See `character_forward_pass::record`, which makes the same test from its side.
             .character_forward_pending = this->character_forward_on && (!this->frame_visible.empty() || !this->frame_overlay.empty()),
             .gbuffer_pipeline = this->gbuffer_pipeline_mesh.has_value() || this->gbuffer_pipeline_meshlet.has_value(),
-            .structures_ready = this->structures.ready() && this->structures.handle(this->frame_ring().position()) != VK_NULL_HANDLE,
+            .structures_ready = this->structures.ready() && this->structures.handle(this->frame_ring().position()) != nullptr,
             .furnace = this->furnace,
             .punctual_lights = this->light_state.light_count.x,
         };
@@ -1063,7 +1087,7 @@ namespace deren::vulkan {
         if (enabled && !(this->mesh_pipelines.contains(character_forward_pipeline_name) || this->meshlet_pipelines.contains(character_forward_pipeline_name))) {
             // The knob is on but there is no pipeline to draw with: say why rather than leaving a frame that
             // silently keeps the deferred shading (the same answer `warn_missing_feature` gives elsewhere).
-            this->warn_missing_feature("character_forward", "the toon character stage has no effect: the character-forward pipeline was not created (see the startup log - it needs the mesh stage and the device's VK_EXT_mesh_shader)");
+            this->warn_missing_feature("character_forward", "the toon character stage has no effect: the character-forward pipeline was not created (see the startup log - it needs the mesh stage and the device's mesh shader feature)");
         }
     }
 
@@ -1077,7 +1101,7 @@ namespace deren::vulkan {
             // like the old chain and no line explaining why. NOTE WHAT THIS IS NOT: it is not a warning that the
             // character stage is missing. With `character_forward` also on, that stage still runs - it simply
             // draws with the OLD pipeline, which is a valid frame and a wrong experiment.
-            this->warn_missing_feature("goo_toon", "the rewritten toon chain has no effect: the goo_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's VK_EXT_mesh_shader), so the character stage draws with character_forward.slang");
+            this->warn_missing_feature("goo_toon", "the rewritten toon chain has no effect: the goo_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's mesh shader feature), so the character stage draws with character_forward.slang");
         }
     }
 
@@ -1095,7 +1119,7 @@ namespace deren::vulkan {
     // BUFFERS come from the frame's resource table (per-frame-slot instance), its shared scene block from the owner,
     // its pipeline from the PASS (which owns it), its extent from the declaration's `none` rule and its push block
     // from nowhere - it has none. Its old gates are answered by the two mechanisms that own those questions: "the
-    // pipeline exists" is `pass.pipeline()` (a null pipeline is what the generic resolution fails on), "the
+    // pipeline exists" is `pass.pipeline_handle()` (a null handle is what the generic resolution fails on), "the
     // buffers are there" is the resource table, "the scene block is there" is the shared-set rule, and "the grid was
     // computed this frame" is the pass's own `frame_.cluster_count == 0` guard, which its `record` already had.
 
@@ -1258,7 +1282,10 @@ namespace deren::vulkan {
         // afterwards because it holds their array view. Shrinking keeps the layers (no second
         // rebuild when the user cycles the combo, and the spare ones simply go unused).
         if (!this->shadow_images.empty() && clamped > this->shadow_allocated_layers) {
-            vkDeviceWaitIdle(runtime_detail::native_device_of(this->rhi_face()));
+            // THE WAIT IS THE CONTRACT'S (the native device tear-down the frame's in-flight work needed): `wait_idle()`'s
+            // doc says exactly this - the backend owns the device, so the engine asks it to be idle rather than
+            // calling an entry point on a handle it borrowed from it.
+            (void)this->rhi_face().wait_idle();
             this->shadow_images.clear();
             this->shadow_array_views.clear();
             this->shadow_layer_views.clear();
@@ -1370,7 +1397,7 @@ namespace deren::vulkan {
         /// Push @p bytes and then @p lanes index lanes (see runtime::push_stage_block). The three endpoints differ
         /// only in that count, because a stage's shader declares exactly as many lanes as it reads: the post chain
         /// three (its source slot included), everything else two, the mask bake none.
-        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, VkCommandBuffer const command_buffer,
+        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, rhi::command_buffer& command_buffer,
                              std::span<std::byte const> const bytes, uint32_t const extra_lane, std::size_t const lanes) {
             constexpr std::size_t window = 256; // maxPushDataSize on this device (see heap_limits)
             std::array<std::byte, window> staging = {};
@@ -1386,7 +1413,7 @@ namespace deren::vulkan {
         }
     } // namespace
 
-    bool runtime::push_stage_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+    bool runtime::push_stage_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         // THE INDICES ARE APPENDED HERE, and that placement is the whole trick: the renderer knows the frame slot and
         // the swapchain image, a pass knows neither, and a converted stage's shader declares them as its block's
         // LAST two fields (see shaders/heap_slots.glsl). Doing it here is what keeps every pass's push struct - and
@@ -1406,12 +1433,12 @@ namespace deren::vulkan {
         return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, source_slot, 3u);
     }
 
-    bool runtime::push_index_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
+    bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
         return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
     }
 
-    bool runtime::push_raw_block(void* const owner, VkCommandBuffer const command_buffer, std::span<std::byte const> const bytes) {
+    bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
         return push_with_lanes(self->rhi_face(), 0u, 0u, command_buffer, bytes, 0u, 0u);
     }
@@ -1419,7 +1446,7 @@ namespace deren::vulkan {
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
     //      needs and only the device's owner can answer. ----
 
-    VkDeviceAddress runtime::mesh_buffer_address(void* const owner, rhi::buffer const& buffer) {
+    std::uintptr_t runtime::mesh_buffer_address(void* const owner, rhi::buffer const& buffer) {
         runtime* const self = static_cast<runtime*>(owner);
         // THE HOOK TAKES A CONTRACT BUFFER (render_environment's own note says why: the primitive's geometry is
         // `object_manager` members now, and a hook that demanded a raw handle would force every primitive to keep
@@ -1431,24 +1458,32 @@ namespace deren::vulkan {
         return self->buffer_address(buffer);
     }
 
-    bool runtime::push_geometry_block(void* const owner, VkCommandBuffer const command_buffer, uint32_t const offset, std::span<std::byte const> const bytes) {
+    bool runtime::push_geometry_block(void* const owner, rhi::command_buffer& command_buffer, uint32_t const offset, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
+        // The descriptor heap validates the contract buffer and resolves its backend recording target.
         return contract_push_heap_data(self->rhi_face(), command_buffer, offset, bytes);
     }
 
-    bool runtime::draw_mesh_tasks(void* const owner, VkCommandBuffer const command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+    bool runtime::draw_mesh_tasks(void* const owner, rhi::command_buffer& command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(owner);
-        if (self->mesh_dispatch == nullptr) {
-            // Unreachable while the mesh path is gated on the capability (see runtime::create_passes), and answered
-            // rather than asserted: a dispatch that cannot be recorded draws NOTHING, which is the same picture a
-            // caster with no geometry produces - and it is logged, so it cannot pass unnoticed.
-            deren::utility::log("mesh dispatch: the device has no vkCmdDrawMeshTasksEXT, so the dispatch was skipped");
+        // THE CONTRACT VERB RECORDS IT (abi 26's sibling - the verb has existed since abi 15): the two
+        // `vkCmdDrawMeshTasks*` entry points are the BACKEND's, resolved at ITS startup and reached through
+        // `draw_mesh_tasks()` / `draw_mesh_tasks_indirect()`. The engine used to resolve the same two pointers
+        // again, call them with a native handle borrowed back out of `command_buffer` (`native_handle()`), and
+        // keep two `PFN_` members alive to do it - a second resolution of one entry point, and the raw-handle
+        // borrow that this whole effort removes.
+        //
+        // THE GATE IS THE CAPABILITY, ASKED THROUGH THE ABILITY THAT OWNS IT (it used to be "is my PFN null",
+        // which is the same question asked of a copy): a dispatch that cannot be recorded draws NOTHING, which
+        // is the picture a caster with no geometry produces - and it is logged, so it cannot pass unnoticed.
+        if (!runtime_detail::mesh_shader_available_of(self->rhi_face())) {
+            deren::utility::log("mesh dispatch: this device cannot run a mesh pipeline, so the dispatch was skipped");
             return false;
         }
-        self->mesh_dispatch(command_buffer, groups_x, groups_y, groups_z);
+        command_buffer.draw_mesh_tasks(groups_x, groups_y, groups_z);
         return true;
     }
 
@@ -1460,19 +1495,19 @@ namespace deren::vulkan {
     // IT ANSWERS RATHER THAN ASSERTS when the route is unavailable, and the reasons are all logged once: a silent
     // fall-back is a seam nobody tests, which is exactly how the first version of this (entry point resolved,
     // buffer never bound) went unnoticed for a whole round.
-    bool runtime::draw_mesh_tasks_indirect(void* const owner, VkCommandBuffer const command_buffer, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
+    bool runtime::draw_mesh_tasks_indirect(void* const owner, rhi::command_buffer& command_buffer, uint32_t const command_slot, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {
         runtime* const self = static_cast<runtime*>(owner);
         auto const direct = [&]() {
             self->mesh_indirect_direct_fallbacks.fetch_add(1u, std::memory_order_relaxed);
             return runtime::draw_mesh_tasks(owner, command_buffer, groups_x, groups_y, groups_z);
         };
-        if (self->mesh_dispatch_indirect == nullptr || self->mesh_indirect_mapped == nullptr || self->mesh_indirect_table == VK_NULL_HANDLE) {
+        if (!runtime_detail::mesh_shader_available_of(self->rhi_face()) || self->mesh_indirect_mapped == nullptr || !self->mesh_indirect_buffer) {
             if (!self->mesh_indirect_route_logged) {
                 self->mesh_indirect_route_logged = true;
-                deren::utility::log("mesh indirect: entry point {}, table {}, mapped {} - the meshlet dispatches go through the DIRECT call",
-                                    self->mesh_dispatch_indirect != nullptr ? "resolved" : "MISSING",
-                                    self->mesh_indirect_table != VK_NULL_HANDLE ? "bound" : "missing",
-                                    self->mesh_indirect_mapped != nullptr ? "yes" : "no");
+                deren::utility::log("mesh indirect: the device {}, the argument buffer is {}, the mapping {} - the meshlet dispatches go through the DIRECT call",
+                                    runtime_detail::mesh_shader_available_of(self->rhi_face()) ? "can run mesh pipelines" : "cannot run mesh pipelines",
+                                    static_cast<bool>(self->mesh_indirect_buffer) ? "bound" : "missing",
+                                    self->mesh_indirect_mapped != nullptr ? "present" : "missing");
             }
             return direct();
         }
@@ -1485,7 +1520,7 @@ namespace deren::vulkan {
             }
             return direct();
         }
-        auto* const commands = static_cast<VkDrawMeshTasksIndirectCommandEXT*>(self->mesh_indirect_mapped);
+        auto* const commands = static_cast<rhi::mesh_task_command*>(self->mesh_indirect_mapped);
         // THE WRITE IS UNCONDITIONAL, and that is a measured decision rather than a shortcut. A slot belongs to one
         // primitive, and every writer of it writes the SAME bytes: the group count is the primitive's meshlet run
         // (cut once, at import) and the instance count is set when the draw primitive is created - so the shadow
@@ -1503,13 +1538,26 @@ namespace deren::vulkan {
         // needs one command per (frame, draw) instead of per primitive, which is exactly what the COMPUTE culling
         // pass this seam exists for will write.
         commands[static_cast<std::size_t>(self->frame_ring().position()) * runtime::mesh_command_capacity + command_slot] =
-            VkDrawMeshTasksIndirectCommandEXT{.groupCountX = groups_x, .groupCountY = groups_y, .groupCountZ = groups_z};
-        VkDeviceSize const offset = static_cast<VkDeviceSize>(self->frame_ring().position() * runtime::mesh_command_capacity + command_slot) * sizeof(VkDrawMeshTasksIndirectCommandEXT);
-        self->mesh_dispatch_indirect(command_buffer, self->mesh_indirect_table, offset, 1u, sizeof(VkDrawMeshTasksIndirectCommandEXT));
+            rhi::mesh_task_command{.groups_x = groups_x, .groups_y = groups_y, .groups_z = groups_z};
+        uint64_t const offset = static_cast<uint64_t>(self->frame_ring().position() * runtime::mesh_command_capacity + command_slot) * rhi::mesh_task_command_size;
+        // THE RECORD'S LAYOUT AND SIZE ARE THE CONTRACT'S, and the call is the contract's verb: `mesh_task_command`
+        // is what was written above, `mesh_task_command_size` is the stride, and the buffer is the handle this
+        // class already owns. The native triple this used to pass (`native_handle(command_buffer)`, the derived
+        // `VkBuffer`, `sizeof(VkDrawMeshTasksIndirectCommandEXT)`) is gone.
+        if (rhi::error const recorded = command_buffer.draw_mesh_tasks_indirect(*self->mesh_indirect_buffer, offset, 1u, rhi::mesh_task_command_size); recorded != rhi::error::ok) {
+            // THE VERB ANSWERS RATHER THAN ASSERTS, and the answer is honoured: the capability check above says
+            // the device CAN, so a refusal here is a backend/provenance problem - announced once, then the
+            // dispatch goes down the direct call rather than being lost.
+            if (!self->mesh_indirect_route_logged) {
+                self->mesh_indirect_route_logged = true;
+                deren::utility::log("mesh indirect: the backend refused the indirect record ({}) - the meshlet dispatches go through the DIRECT call", static_cast<std::uint32_t>(recorded));
+            }
+            return direct();
+        }
         self->mesh_indirect_dispatches.fetch_add(1u, std::memory_order_relaxed);
         if (!self->mesh_indirect_route_logged) {
             self->mesh_indirect_route_logged = true;
-            deren::utility::log("mesh indirect: the meshlet dispatches go through vkCmdDrawMeshTasksIndirectEXT (table bound, {} records per frame in flight - two command classes - a slot is the primitive's meshlet_base)", runtime::mesh_command_capacity);
+            deren::utility::log("mesh indirect: the meshlet dispatches go through the contract's draw_mesh_tasks_indirect (argument buffer bound, {} records per frame in flight - two command classes - a slot is the primitive's meshlet_base)", runtime::mesh_command_capacity);
         }
         return true;
     }
@@ -1549,20 +1597,34 @@ namespace deren::vulkan {
         return true;
     }
 
-    void runtime::fill_heap_bind(void* const owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) {
-        contract_heap_bind_infos(static_cast<runtime*>(owner)->rhi_face(), resource, sampler);
-    }
+    // (THE HEAP-BIND HOOK IS GONE - plan X5 B3.5: see runtime.declarations.cppm's note. A secondary inherits the
+    //  descriptor heaps from the BACKEND, which derives them from the heaps it owns; this filled two raw
+    //  `VkBindHeapInfoEXT` for a hook the pass layer stopped calling at abi 20.)
 
-    void runtime::structure_record_mask_bake(void* const owner, VkCommandBuffer const command_buffer, pass::mask_bake_request const& request) {
-        static_cast<runtime*>(owner)->mask_bake.record(command_buffer, request, owner, &runtime::push_raw_block);
+    void runtime::structure_record_mask_bake(void* const owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) {
+        // Bake and structure commands must target this frame's same contract buffer.
+        runtime& self = *static_cast<runtime*>(owner);
+        std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
+        if (!commands || commands.get() != &command_buffer) {
+            deren::utility::log("mask bake: the structure hook was called with a command buffer that is not this frame's primary - the bake is skipped");
+            return;
+        }
+        self.mask_bake.record(*commands, request, owner, &runtime::push_raw_block);
     }
 
     bool runtime::structure_skin_ready(void* const owner) noexcept {
         return static_cast<runtime*>(owner)->compute_skin.ready();
     }
 
-    bool runtime::structure_record_skin(void* const owner, VkCommandBuffer const command_buffer, std::span<ray_tracing::caster_level const> const casters) {
-        return static_cast<runtime*>(owner)->record_compute_skin_pass(command_buffer, casters);
+    bool runtime::structure_record_skin(void* const owner, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> const casters) {
+        // Skin dispatches must share the structure build's recording target.
+        runtime& self = *static_cast<runtime*>(owner);
+        std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
+        if (!commands || commands.get() != &command_buffer) {
+            deren::utility::log("compute skin: the structure hook was called with a command buffer that is not this frame's primary - the skin dispatches are skipped");
+            return false;
+        }
+        return self.record_compute_skin_pass(*commands, casters);
     }
 
     void runtime::set_shadow_enabled(bool const enabled) {
@@ -1857,7 +1919,7 @@ namespace deren::vulkan {
             .vertex_stride = info.vertex_stride,
             .vertex_count = info.vertex_count,
             .index_data = info.index_data,
-            .index_width = info.index_type == VK_INDEX_TYPE_UINT16 ? 2u : 4u,
+            .index_width = info.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u,
             .first_index = 0u,
             .index_count = info.index_count,
             .base_vertex = 0,

@@ -49,7 +49,7 @@ export namespace deren::promise::rhi {
     ///
     /// 1 -> 2 in the recording-surface batch: SIX virtuals were added to EXISTING tier-1 types
     /// (`api_core::frame_image`/`frame_readback_buffer`, `image::format`, `buffer::mapped`,
-    /// `command_list::use`/`copy_image_to_buffer`), which shifts the vtable every caller reaches
+    /// `command_buffer::use`/`copy_image_to_buffer`), which shifts the vtable every caller reaches
     /// through. Appending `error` values or adding a NEW interface does not move this number; a
     /// virtual on an existing type does. FROM S2 ON THIS IS STRICTER: the DLL ABI promise is live
     /// then, so a renumbering breaks binaries in the field rather than only recompiling this tree.
@@ -90,7 +90,7 @@ export namespace deren::promise::rhi {
     /// was removed is a PROSE requirement (the gate walks abilities() bits against objects, not
     /// symbols), not a virtual, an entry point, or any type the ABI numbers exist to compare - no
     /// vtable shape moves, so the rule above gives no reason for a bump.
-    /// 6 -> 7 in the image face (DYNAMIC_LINK_V2.md §17's decided design, landed):
+    /// 6 -> 7 in the image face (the decided design, landed):
     /// `image` GAINED `make_view()` and with it the owned `image_view` interface, `image_desc` /
     /// `sampler_desc` / `image_view_desc` became defined types, `image_format` grew the creation
     /// formats and the `depth` role, and `vulkan_escape` grew `native_image` / `native_image_view` /
@@ -127,9 +127,9 @@ export namespace deren::promise::rhi {
     /// renumbering for one batch): the C entry's SIGNATURE is what the number protects, and an engine
     /// built for 12 calling 13's symbol would read a 40-byte diagnostic where it wrote a 4-byte enum.
     /// 13 -> 14 in the frame verbs' completion (the boundary batch, one renumbering for one batch):
-    /// `api_core` appended `submit(command_list&)` and `frame_swapchain()`, `present()` changed
+    /// `api_core` appended `submit(command_buffer&)` and `frame_swapchain()`, `present()` changed
     /// `void` -> `error` (a presentation that failed silently was the information loss the error
-    /// mechanism exists to end), `command_list` appended the GPU timing recording verbs
+    /// mechanism exists to end), `command_buffer` appended the GPU timing recording verbs
     /// (`begin_gpu_timing()` / `mark_gpu_timing(index, name)`), and `swapchain` appended
     /// `recreate()` / `extent()` - every one an append or a return-type change on a tier-1 vtable,
     /// which is the case the number exists for. The swapchain verbs live on the SWAPCHAIN, not on
@@ -176,7 +176,7 @@ export namespace deren::promise::rhi {
     /// the one escape accessor the slice adds: the swapchain image's format as the backend resolved it,
     /// asked of the context rather than of an image. (The withdrawn entry at this number was
     /// `graphics_queue_family_index()`; that one was replaced by a read-only runtime derivation and is
-    /// NOT coming back - see DYNAMIC_LINK_PROGRESS.md §14.)
+    /// NOT coming back.)
     /// 17 -> 18 in the SHARED flip (the last batch of the dynamic-backend migration): the C entry
     /// surface goes from THREE symbols to ONE. `deren_make_api_core` RETURNS a
     /// `std::shared_ptr<api_core>` instead of a raw pointer, and `deren_destroy_api_core` plus
@@ -203,8 +203,8 @@ export namespace deren::promise::rhi {
     /// protects. The same batch moves the loading and the acquisition of the device root out of the
     /// runtime into `deren.vulkan.backend_loader`, called by `main.cpp` (`runtime` now takes the
     /// `shared_ptr` and refuses an empty one), which is a construction-path change in the same breath.
-    /// 19 -> 20 in the RECORDING FACE's verbs (RECORDING_FACE_PLAN.md §2/§6, step 1's verbs half -
-    /// the descriptors half landed unbumped a batch earlier): `command_list` APPENDED the portable
+    /// 19 -> 20 in the RECORDING FACE's verbs (step 1's verbs half -
+    /// the descriptors half landed unbumped a batch earlier): `command_buffer` APPENDED the portable
     /// record series the engine's passes record with - begin_rendering/end_rendering,
     /// bind_pipeline/bind_vertex_buffer/bind_index_buffer, draw/draw_indexed, dispatch/
     /// draw_mesh_tasks/draw_mesh_tasks_indirect, the five dynamic-state verbs, barrier (group and
@@ -216,7 +216,78 @@ export namespace deren::promise::rhi {
     /// interface half and nothing else. `push_data` is deliberately NOT in the series: the
     /// descriptor-heap face's `push_data(heap_push_info)` already takes the list and is the one heap
     /// verb that is a command-buffer operation - a second spelling would declare the verb twice.
-    inline constexpr std::uint32_t abi_version = 20u;
+    /// NOT BUMPED AGAIN BY THE OWNER'S CONVENIENCE ENTRY POINTS (added after this line, unchanged number):
+    /// `command_buffer` gained NON-VIRTUAL inline forwarders for the series - `buffer->draw(...)`,
+    /// `buffer->barrier(...)` and the rest - each delegating to the same `recording()` object the note
+    /// above names. The series is still declared ONCE (on the borrowed view, where the pure virtuals and
+    /// their implementations live); an owner-side entry point that is not virtual appends NO vtable slot,
+    /// no dispatch crosses the boundary through it, and `command_buffer`'s shape and implementers are
+    /// untouched. The number moves for an APPENDED tier-1 slot, which this is not.
+    /// 20 -> 21 in the RECORDING FACE's owner half (the append the note above anticipated): `api_core`
+    /// APPENDED the pure virtual `make_command_buffer(command_buffer_desc) ->
+    /// std::shared_ptr<command_buffer>` - a NEW vtable slot on an existing tier-1 interface, which is
+    /// exactly the case the number exists for - and `command_list` was DELETED rather than renumbered
+    /// (its `interface_type` enumerator and its number stay retired in place, and the series it carried
+    /// is declared on `command_buffer` itself). The same batch's PODs are additive and carry NO bump:
+    /// `pipeline_desc::compute_code`, `barrier_group`'s stage hint and its global memory barrier, and the
+    /// appended `buffer_use` VALUE the last of those needed - the first two are guarded by `struct_size`,
+    /// and adding a value never renumbers anything (the rule stated above).
+    /// 21 -> 22 in the BASIC-HANDLE batch: `vulkan_escape` APPENDED three slots - `get_basis()`,
+    /// `device_proc(api_basis&, char const*)` and `shader_group_handles(api_basis&, pipeline const&, ...)` -
+    /// which is a tier-2 interface growing, the same shape as 5 -> 6 and 7 -> 8 above. The new `api_basis` type
+    /// is an EMPTY, VIRTUAL-FREE tag struct (`s_type` only) that no boundary crosses by value and no interface
+    /// gets a slot for, so the type alone moves nothing; the three appends are the whole reason for the number.
+    /// (`device_proc` WAS REMOVED AGAIN IN ABI 24 - see below - so that escape now carries two of the three.)
+    /// 22 -> 23 in the SHADER-BINDING-TABLE batch: the `ray_tracing` ability's `trace_rays` slot CHANGED SHAPE
+    /// rather than being appended to - it takes four `shader_binding_table_region` parameters now, because the
+    /// shape it had (`commands, width, height, depth`) could not describe a launch at all and had no implementer
+    /// and no caller. That is the case the number exists for: a caller compiled against the old spelling would
+    /// pass three integers where the callee reads four regions. The new `shader_binding_table_region` type is a
+    /// plain by-value POD (adding a TYPE moves nothing on its own - it is the slot it appears in), and it is
+    /// FROZEN once shipped, like `image_copy_region`.
+    /// 23 -> 24 in the RAY-TRACING LAUNCH batch, and THREE THINGS MOVED - all of them interface changes, because
+    /// this batch moved a verb to the face it belongs on and deleted what that left behind:
+    ///  * `command_buffer` (tier 1) GAINED `trace_rays(...)` as an APPENDED slot - the launch is an ordered
+    ///    recording command like `draw`/`dispatch`/`draw_mesh_tasks`, and the backend serves it against the
+    ///    `vkCmdTraceRaysKHR` pointer it resolves once at startup.
+    ///  * the `ray_tracing` ability LOST its `trace_rays` (moved to the recording face): a launch reachable only
+    ///    through an ANNOUNCED ability is unreachable on a backend that serves the recording face without having
+    ///    frozen the ability's acceleration-structure shapes - which is this backend's state, because those
+    ///    shapes are still the S1 design surface. Its remaining three slots did NOT move (the removed one was
+    ///    last).
+    ///  * `vulkan_escape` LOST `device_proc(...)`, whose last caller was that launch: the BACKEND resolves the
+    ///    entry point now, so nothing in the engine asks a device for one through a basis. Its `shader_group_handles`
+    ///    SHIFTED DOWN one slot - which is precisely the case the number exists for, and why the removal is
+    ///    recorded here rather than done quietly.
+    /// TWO PODs JOINED with no bump of their own (a type moves nothing until a slot carries it): the general
+    /// `shader_binding_table_region` and the session's `shader_binding_table_properties`, the three numbers a pass
+    /// builds a table from. A third `buffer_use`/`buffer_flag`-style addition is a VALUE and, by the rule above,
+    /// renumbers nothing.
+    /// 24 -> 25 in the HOST-IMAGE-COPY batch: `image` GAINED one APPENDED virtual, `get_content()`, which
+    /// answers the image's CONTENT in host memory (`image_content`) instead of a handle to it. It is the
+    /// read-back shape the engine sees from now on, and the backend serves it with `VK_EXT_host_image_copy`
+    /// (no staging buffer, no copy command, no submission). The two new TYPES (`image_content`, and the
+    /// `bytes_per_pixel(image_format)` helper they rely on) move nothing on their own - it is the slot that
+    /// carries them - and `image_content`'s invariant is FROZEN with it: a backend that cannot fill it exactly
+    /// answers an error rather than a partial buffer.
+    /// 25 -> 26 in the ACCELERATION-STRUCTURE batch: the acceleration structure became TIER-1 FURNITURE (like
+    /// `buffer` and `image`), which is two APPENDED SLOTS on two existing interfaces -
+    /// `api_core::create_acceleration_structure()` and the recording face's
+    /// `command_buffer::build_acceleration_structure()` / `refit_acceleration_structure()`. The new TYPES
+    /// (`acceleration_structure`, `acceleration_structure_desc`, `acceleration_structure_geometry`,
+    /// `acceleration_structure_instance`) and the new `interface_type::acceleration_structure` value carry no
+    /// bump of their own. THE `ray_tracing` ABILITY IS RETIRED in the same number: its three
+    /// acceleration-structure verbs are gone (their operands were never more than forward declarations in the
+    /// extension file, so no backend could serve them), its BIT stays unused and its `interface_type` value
+    /// stays retired - a bit and a number are never reused (see `rhi.extension.cppm`).
+    /// 26 -> 27 in the MICROMAP batch (plan S1's P4): the opacity micromap got the SAME tier-1 treatment the
+    /// acceleration structure got one number earlier - `api_core::create_micromap()` and the recording face's
+    /// `command_buffer::build_micromap()` are two APPENDED SLOTS, and the new types (`micromap`,
+    /// `micromap_desc`, `micromap_usage`, `micromap_triangle`) plus `interface_type::micromap = 13` carry no bump
+    /// of their own. The geometry that consults one declares it with `acceleration_structure_geometry::
+    /// opacity_micromap` - a CONTRACT handle, never a driver's.
+    /// 27 -> 28: swapchain::format() appends the pre-acquire presentation format query.
+    inline constexpr std::uint32_t abi_version = 28u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -364,14 +435,23 @@ export namespace deren::promise::rhi {
         pipeline = 7,
         swapchain = 8,
         query = 9,
-        command_list = 10,
+        command_list = 10,   ///< RETIRED: the face was absorbed into `command_buffer`; the NUMBER stays (never renumber).
         command_buffer = 11, ///< appended in abi 15: the owned recording handle `create_command_buffer()` hands out
+        /// APPENDED IN ABI 26: the acceleration-structure handle became TIER-1 furniture (like `buffer` and
+        /// `image`) when the `ray_tracing` ability was retired - the number continues the object range.
+        acceleration_structure = 12,
+        /// APPENDED IN ABI 27: its micromap sibling, for the same reason (plan S1's P4).
+        micromap = 13,
         device_address = 0x100,
         descriptor_heap = 0x101,
         mesh_shader = 0x102,
         ray_tracing = 0x103,
         host_image_copy = 0x104,
         vulkan_escape = 0x105,
+        /// APPENDED: the tier-2 `device_capabilities` ability - what the DEVICE can do, asked once through the
+        /// extension mechanism instead of the engine re-deriving it from the API (see the ability's own note).
+        device_capabilities = 0x106,
+        shader_group_access = 0x107,
     };
 
     /// 只用于接口识别/调试，不是设备归属、对象存活或具体实现布局的证明。
@@ -397,12 +477,17 @@ export namespace deren::promise::rhi {
         heap_buffer_write = 2,
         heap_bind = 3,
         heap_push = 4,
+        command_buffer_inheritance = 5, ///< attachment formats in the portable RHI vocabulary
         vulkan_heap_image = 0x10000,
         vulkan_command_buffer = 0x10001,
         /// appended in abi 15: the attachment inheritance a SECONDARY recording declares (see
         /// `vulkan_command_buffer_inheritance_info`) - a value, not a vtable, so appending it does not
         /// move `abi_version` (the same rule the appended `error` values follow)
         vulkan_command_buffer_inheritance = 0x10002,
+        /// appended in abi 22: the BASIS a Vulkan backend hands out (see `api_basis`) - the tag that says "the
+        /// basic handles this token stands for belong to a Vulkan logical device". Appending a VALUE moves no
+        /// `abi_version`; the three `vulkan_escape` slots that USE it are what moved the number 21 -> 22.
+        vulkan_device_basis = 0x10003,
     };
 
     /// next只借用到同步调用结束；当前只接受明确支持的一层后端参数，不静默丢链。

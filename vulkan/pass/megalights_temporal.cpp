@@ -14,14 +14,16 @@ module;
 #include <glm/glm.hpp>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.megalights_temporal;
 
+import deren.promise.rhi; // the record series (abi 20): the barriers, the copy and the dispatch
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_megalights_temporal: the compute pipeline this pass owns
 import deren.utility;
+
+// The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -51,8 +53,8 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline megalights_temporal_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* megalights_temporal_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
     bool megalights_temporal_pass::resolved() const noexcept {
@@ -89,13 +91,13 @@ namespace deren::vulkan::pass {
     }
 
     void megalights_temporal_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->ready()) {
             return; // already built for this device
         }
@@ -104,7 +106,7 @@ namespace deren::vulkan::pass {
             deren::utility::log("stochastic punctual lighting's temporal resolve disabled (the chain will stay off): the owner has no {}", shader_name);
             return;
         }
-        auto built = pipelines::build_resolve_pipeline(*context.face, context.device, spirv);
+        auto built = pipelines::build_resolve_pipeline(*context.face, spirv);
         if (!built) {
             deren::utility::log("stochastic punctual lighting's temporal resolve disabled (the chain will stay off): {}", built.error());
             this->release_owned();
@@ -117,28 +119,40 @@ namespace deren::vulkan::pass {
     void megalights_temporal_pass::record(resolved_io const& io) {
         this->accumulation_resolved = false;
         if (!this->ready() || io.barrier_images.size() < render_resource::megalights_temporal_barriers.size() || io.frame.image_count == 0 || io.pipelines.empty() ||
-            io.pipelines[0] == VK_NULL_HANDLE || io.extent.width == 0 || io.extent.height == 0) {
+            io.pipelines[0] == nullptr || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (the declaration's own gates are the table's)
         }
-        VkImage const resolve_image = io.barrier_images[barrier_resolve].image;
-        VkImage const history_image = io.barrier_images[barrier_history].image;
+        // THE CONTRACT'S OWN HANDLES (abi 20): the record series names the handles the resolved binding
+        // publishes BESIDE the raw lanes, so the guard and every call below speak one vocabulary.
+        rhi::image* const resolve_image = io.barrier_images[barrier_resolve].image_handle;
+        rhi::image* const history_image = io.barrier_images[barrier_history].image_handle;
+        if (io.list == nullptr || resolve_image == nullptr || history_image == nullptr) {
+            return; // the handles this frame's publication left empty: the resolve cannot record
+        }
 
         // Layouts, all before the dispatch. The accumulation is READ across frames (the lighting stage samples
         // it after this pass) and the history only by the resolve, which is a copy's destination first.
-        std::array<VkImageMemoryBarrier2, 2> barriers = {};
+        // THE PAIRS RIDE THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
+        // roles, and the batch stays ONE call - `barrier_group` is what the raw `vkCmdPipelineBarrier2` was.
+        std::array<rhi::image_barrier, 2> barriers = {};
         uint32_t count = 0;
-        barriers[count] = deren::vulkan::undefined_to_general_transition; // the accumulation is fully overwritten
-        barriers[count].image = resolve_image;
+        barriers[count] = rhi::image_barrier{.resource = resolve_image,
+                                             .from = rhi::image_use::undefined,
+                                             .to = rhi::image_use::shader_write,
+                                             .range = {}}; // the accumulation is fully overwritten
         ++count;
         if (!this->pass_frame.history_valid) {
             // FIRST USE for this image: the history's contents are whatever the allocation held, so the
             // descriptor has to be legal without their being readable - UNDEFINED -> SHADER_READ.
-            barriers[count] = deren::vulkan::undefined_to_sampling_transition;
-            barriers[count].image = history_image;
+            barriers[count] = rhi::image_barrier{.resource = history_image,
+                                                 .from = rhi::image_use::undefined,
+                                                 .to = rhi::image_use::shader_read,
+                                                 .range = {}};
             ++count;
         }
-        VkDependencyInfo const dependency = make_image_dependency_info(count, barriers.data());
-        vkCmdPipelineBarrier2(io.cmd, &dependency);
+        if (io.list->barrier(rhi::barrier_group{.images = std::span(barriers.data(), count)}) != rhi::error::ok) {
+            return; // a refused barrier would leave an input in a state nobody declared
+        }
 
         // No set is bound: the history and the accumulation images are heap slots (one per swapchain image), and
         // the frame bound the heaps for this command buffer.
@@ -147,39 +161,50 @@ namespace deren::vulkan::pass {
         push.params = glm::vec4(io.constants.proj[2][2], io.constants.proj[3][2], this->accumulation_frames, this->temporal_depth_tolerance);
         push.extents = glm::vec4(static_cast<float>(io.extent.width), static_cast<float>(io.extent.height), this->denoise_sigma, 0.0f);
         static_assert(sizeof(push) <= pass::max_push_bytes, "the resolve's push block must fit the guaranteed minimum");
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDispatch(io.cmd, (io.extent.width + group_size - 1u) / group_size, (io.extent.height + group_size - 1u) / group_size, 1);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->dispatch((io.extent.width + group_size - 1u) / group_size, (io.extent.height + group_size - 1u) / group_size, 1);
 
         // ---- the accumulation becomes the next frame's history ----
         // A copy rather than a ping-pong, exactly like the GI resolve: the accumulation is what the lighting
         // stage samples, so the history has to be a second image and copying into it keeps every heap slot
         // in the frame stable.
-        std::array<VkImageMemoryBarrier2, 2> copy_barriers = {};
-        copy_barriers[0] = deren::vulkan::general_to_transfer_src_transition; // resolve: GENERAL -> TRANSFER_SRC
-        copy_barriers[0].image = resolve_image;
-        copy_barriers[1] = deren::vulkan::sampling_to_transfer_dst_transition;
-        copy_barriers[1].image = history_image;
-        VkDependencyInfo const copy_dependency = make_image_dependency_info(static_cast<uint32_t>(copy_barriers.size()), copy_barriers.data());
-        vkCmdPipelineBarrier2(io.cmd, &copy_dependency);
-
-        VkImageCopy const region = {
-            .srcSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-            .srcOffset = {0, 0, 0},
-            .dstSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
-            .dstOffset = {0, 0, 0},
-            .extent = {io.extent.width, io.extent.height, 1},
+        std::array<rhi::image_barrier, 2> const copy_barriers = {
+            rhi::image_barrier{.resource = resolve_image,
+                               .from = rhi::image_use::shader_write,
+                               .to = rhi::image_use::transfer_source,
+                               .range = {}}, // resolve: GENERAL -> TRANSFER_SRC
+            rhi::image_barrier{.resource = history_image,
+                               .from = rhi::image_use::shader_read,
+                               .to = rhi::image_use::transfer_destination,
+                               .range = {}},
         };
-        vkCmdCopyImage(io.cmd, resolve_image, VK_IMAGE_LAYOUT_GENERAL, history_image, VK_IMAGE_LAYOUT_GENERAL, 1, &region);
+        if (io.list->barrier(rhi::barrier_group{.images = copy_barriers}) != rhi::error::ok) {
+            return; // a refused barrier would leave an operand of the copy in a state nobody declared
+        }
+
+        rhi::image_copy_region const region = {.extent = {io.extent.width, io.extent.height, 1}};
+        if (io.list->copy_image(rhi::image_copy{.source = resolve_image,
+                                                .destination = history_image,
+                                                .source_region = region,
+                                                .destination_region = region}) != rhi::error::ok) {
+            return; // the history was not written, so this frame's resolve must not claim one
+        }
 
         // Hand both on: the accumulation to the lighting stage that adds it (SHADER_READ, which its binding 17
         // declares) and the history copy to the next frame's resolve.
-        std::array<VkImageMemoryBarrier2, 2> hand_back = {};
-        hand_back[0] = deren::vulkan::transfer_src_to_sampling_transition; // resolve -> SHADER_READ
-        hand_back[0].image = resolve_image;
-        hand_back[1] = deren::vulkan::transfer_dst_to_sampling_transition; // history -> SHADER_READ
-        hand_back[1].image = history_image;
-        VkDependencyInfo const hand_back_dependency = make_image_dependency_info(static_cast<uint32_t>(hand_back.size()), hand_back.data());
-        vkCmdPipelineBarrier2(io.cmd, &hand_back_dependency);
+        std::array<rhi::image_barrier, 2> const hand_back = {
+            rhi::image_barrier{.resource = resolve_image,
+                               .from = rhi::image_use::transfer_source,
+                               .to = rhi::image_use::shader_read,
+                               .range = {}}, // resolve -> SHADER_READ
+            rhi::image_barrier{.resource = history_image,
+                               .from = rhi::image_use::transfer_destination,
+                               .to = rhi::image_use::shader_read,
+                               .range = {}}, // history -> SHADER_READ
+        };
+        if (io.list->barrier(rhi::barrier_group{.images = hand_back}) != rhi::error::ok) {
+            return; // a refused hand-back would leave both images in a state nobody declared
+        }
 
         this->accumulation_resolved = true;
     }

@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.ray_tracing
-// module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // THE STRUCTURE PHASE: the acceleration structures every traced effect casts rays against, the map that says
 // which caster each one was built from, and the COPIES the hit-shading path reads that geometry through (the
@@ -31,7 +31,6 @@ module;
 #include <span>
 #include <string>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.ray_tracing;
 
@@ -85,9 +84,9 @@ export namespace deren::vulkan::ray_tracing {
         primitive const* caster = nullptr;
         uint32_t blas_index = 0;
         uint32_t mask_stride = 0;
-        VkDeviceAddress mask_vertex_address = 0;
-        VkDeviceAddress skin_source_address = 0;
-        VkDeviceAddress skin_destination_address = 0;
+        std::uintptr_t mask_vertex_address = 0;
+        std::uintptr_t skin_source_address = 0;
+        std::uintptr_t skin_destination_address = 0;
         uint32_t skin_source_stride = 0;
         uint32_t skin_destination_stride = 0; // 32 (position, normal, uv)
         uint32_t skin_vertex_count = 0;
@@ -110,7 +109,7 @@ export namespace deren::vulkan::ray_tracing {
         /// whether the MASK bake can take a request (its pipeline exists)
         bool (*mask_ready)(void* owner) = nullptr;
         /// bake ONE caster's alphaMode MASK into an expanded vertex buffer (the job owns the pipeline and the set)
-        void (*record_mask_bake)(void* owner, VkCommandBuffer command_buffer, pass::mask_bake_request const& request) = nullptr;
+        void (*record_mask_bake)(void* owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) = nullptr;
         /// whether the skinning job can take a request (its pipeline and sets exist)
         bool (*skin_ready)(void* owner) = nullptr;
         /**
@@ -120,7 +119,7 @@ export namespace deren::vulkan::ray_tracing {
          * `skin_destination_address` is non-zero - the same walk, and the same "which casters are skinned"
          * answer, the build itself used.
          */
-        bool (*record_skin)(void* owner, VkCommandBuffer command_buffer, std::span<caster_level const> casters) = nullptr;
+        bool (*record_skin)(void* owner, rhi::command_buffer& command_buffer, std::span<caster_level const> casters) = nullptr;
     };
 
     /**
@@ -171,12 +170,15 @@ export namespace deren::vulkan::ray_tracing {
 
         /**
          * @brief build the bottom levels, once, from @p inputs (the frame that first wants the structures)
+         * @param commands the frame's CONTRACT primary (abi 24): every ordering barrier this build records goes
+         *        through it, and the ONE native handle still needed - the acceleration-structure build entry
+         *        points - is derived inside from the escape
          * @return the reason it was refused, with the object left EMPTY - which is what makes the passes that
          *         read the structures gate themselves off rather than traverse a half-built set
          * @note a second call does nothing: a device that refused the build is not asked again, and a build that
          *       succeeded is not repeated (the geometry is the primitive's own memory)
          */
-        [[nodiscard]] std::expected<void, failure> build(VkCommandBuffer command_buffer, build_inputs const& inputs);
+        [[nodiscard]] std::expected<void, failure> build(rhi::command_buffer& commands, build_inputs const& inputs);
         /**
          * @brief re-skin and REFIT the skinned structures, then rebuild this slot's instance list and structure
          *
@@ -184,31 +186,26 @@ export namespace deren::vulkan::ray_tracing {
          * would be rewritten by the frame being recorded while the previous one still reads it), and the caller
          * is what paces frames.
          */
-        [[nodiscard]] std::expected<void, failure> update(VkCommandBuffer command_buffer, uint32_t frame_slot, build_inputs const& inputs);
+        [[nodiscard]] std::expected<void, failure> update(rhi::command_buffer& commands, uint32_t frame_slot, build_inputs const& inputs);
 
         /// @brief whether a build was attempted, success or failure (there is no retry - see build)
         [[nodiscard]] bool attempted() const noexcept;
         /// @brief whether both structures exist, i.e. whether anything can be traversed
         [[nodiscard]] bool ready() const noexcept;
         /// @brief this slot's top level structure, or `VK_NULL_HANDLE` (the scene block's binding 16)
-        [[nodiscard]] VkAccelerationStructureKHR handle(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] deren::promise::rhi::acceleration_structure* handle(uint32_t frame_slot) const noexcept;
         /**
          * @brief the size this slot's top level structure was created with (see top_level_structure::structure_size)
          * @note forwarded rather than re-derived: the structure is `top_level`'s, and the descriptor heap writes
          *       it as an address RANGE whose size has to be real (docs/descriptor_heap_migration.md).
          */
-        [[nodiscard]] VkDeviceSize structure_size(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] std::uint64_t structure_size(uint32_t frame_slot) const noexcept;
         /// @brief the size of this slot's instance table, for the heap's address-range descriptor (binding 17)
-        [[nodiscard]] VkDeviceSize instance_table_size(uint32_t frame_slot) const noexcept;
-        /// @brief this slot's instance table buffer, whose device ADDRESS the GI frame constants carry
-        [[nodiscard]] VkBuffer instance_table(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] std::uint64_t instance_table_size(uint32_t frame_slot) const noexcept;
         /**
          * @brief this slot's instance table as the CONTRACT buffer it is, or nullptr when there is no top
          *        level structure for that slot yet
-         * @note ADDITIVE to `instance_table()` above (the raw-handle form) and forwarded for the same reason
-         *       it is: the buffer is `top_level`'s. This is the form a caller uses to reach the buffer's
-         *       device ADDRESS through the contract's `device_address` ability instead of narrowing it and
-         *       calling `vkGetBufferDeviceAddress` itself.
+         * @note The device address is queried through the contract's device_address ability.
          */
         [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
         /// @brief the casters that were built, in the order they were added (see caster_level)
@@ -236,18 +233,16 @@ export namespace deren::vulkan::ray_tracing {
         /// drop everything: the structures, the map and the copies they were built from (all four are one fact)
         void abandon() noexcept;
         [[nodiscard]] acceleration_structure::geometry_source caster_geometry(primitive const& caster,
-                                                                              VkDeviceAddress source_vertex_address,
-                                                                              VkDeviceAddress source_index_address,
-                                                                              VkDeviceAddress mask_address,
+                                                                              std::uintptr_t source_vertex_address,
+                                                                              std::uintptr_t source_index_address,
+                                                                              std::uintptr_t mask_address,
                                                                               uint32_t mask_stride,
-                                                                              VkDeviceAddress skin_address,
+                                                                              std::uintptr_t skin_address,
                                                                               uint32_t skin_stride,
                                                                               micromap_resource const* micromap) const noexcept;
 
-        /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b), plus the one raw handle this phase
-        /// resolves its own entry points with - obtained through the escape, never read out of `core`.
+        /// The injected backend-independent device root.
         rhi::api_core* contract = nullptr;
-        VkDevice device = VK_NULL_HANDLE;
         std::optional<acceleration_structure::bottom_level_structures> bottom = {};
         /// named `top_level` rather than `top`: `build` keeps a local `auto& top`, and a member of that name
         /// would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
@@ -283,20 +278,11 @@ export namespace deren::vulkan::ray_tracing {
          *       long as this struct lives.
          */
         struct micromap_resource {
-            VkMicromapEXT micromap = VK_NULL_HANDLE;
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> storage = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> data = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> triangles = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> indices = {};
-            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> scratch = {};
-            VkMicromapUsageEXT usage = {}; // count / subdivisionLevel / format - the geometry attachment repeats it
-            VkDeviceAddress data_address = 0;
-            VkDeviceAddress triangles_address = 0;
-            VkDeviceAddress scratch_address = 0;
-            VkDeviceAddress indices_address = 0;
-            VkDeviceSize triangle_array_stride = 0;
-            VkDeviceSize index_stride = 0;
-            uint32_t triangle_count = 0;
+            /// THE TIER-1 OBJECT (plan S1's P4): it owns the storage, the scratch, the alignment and the
+            /// setup buffers the build reads, so this struct keeps ONE handle where it kept seven members and
+            /// four addresses - which is what the migration bought.
+            deren::promise::rhi::object_manager<deren::promise::rhi::micromap> handle = {};
+            uint32_t triangle_count = 0; ///< for the report line (the attachment no longer repeats the usage)
         };
         /// @brief the micromaps this set owns, one per alphaMode MASK caster (see build())
         [[nodiscard]] std::span<micromap_resource const> micromaps() const noexcept {

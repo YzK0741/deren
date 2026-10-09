@@ -2,7 +2,7 @@
 // ============================================================================
 // file: vulkan/core/core.api_core.cpp
 //
-// THE RHI CONTRACT'S VIRTUALS, DEFINED FOR THE REAL BACKEND (plan_rhi_v4.md §11.4, S1-C; the
+// THE RHI CONTRACT'S VIRTUALS, DEFINED FOR THE REAL BACKEND (S1-C; the
 // recording surface, the escape and the read-back slot are S2 batch 2).
 // `core` derives from `deren::promise::rhi::api_core` (vulkan/core/core.declarations.cppm), so the
 // object that owns the instance / device / swapchain IS the object a host gets from
@@ -45,6 +45,7 @@ module;
 #include <cstdint>
 #include <expected>
 #include <format>
+#include <memory> // std::shared_ptr: make_command_buffer's control block
 #include <optional>
 #include <span>
 #include <string>
@@ -134,6 +135,9 @@ namespace deren::vulkan {
             pair_of(rhi::image_use::color_attachment, rhi::image_use::shader_read, deren::vulkan::hdr_sampling_transition),
             pair_of(rhi::image_use::color_attachment, rhi::image_use::transfer_source, deren::vulkan::color_attachment_to_transfer_transition),
             pair_of(rhi::image_use::color_attachment, rhi::image_use::present, deren::vulkan::present_transition),
+            // PLAN X4: the host-access role the census said the contract had none of. The probe reads its own
+            // render back through `image::get_content()`, and this is the pair that says so.
+            pair_of(rhi::image_use::color_attachment, rhi::image_use::host_read, deren::vulkan::color_attachment_to_host_transition),
             // THE DEPENDENCY (no layout change, store -> load inside one frame): see the note above
             pair_of(rhi::image_use::color_attachment, rhi::image_use::color_attachment, deren::vulkan::color_attachment_dependency),
             // ---- the shader-written family ----
@@ -161,19 +165,21 @@ namespace deren::vulkan {
         // covered. The numbers below are the histogram output of `scripts/recording_face_census.py`, quoted
         // so a reader can re-run it:
         //
-        //     measured pairs: 21   role values: 10   combinations: 100   unsupported: 79
+        //     measured pairs: 22   role values: 11   combinations: 121   unsupported: 99
         //
-        // and 21 + 79 = 100 is asserted, so the three cannot drift apart silently.
+        // and 22 + 99 = 121 is asserted, so the three cannot drift apart silently. THE HOST-READ PAIR MOVED ALL
+        // FOUR NUMBERS (plan X4): `image_use::host_read` is a new VALUE, so the census's role set grew with it -
+        // and this line is the record of re-running the census rather than of a hand count.
         // ============================================================================================
-        inline constexpr std::size_t image_use_pair_count_from_census = 21;
-        inline constexpr std::size_t unsupported_pair_count_from_census = 79;
-        inline constexpr std::uint32_t image_use_value_count = 10; // the enum's values, contiguous 0..9
+        inline constexpr std::size_t image_use_pair_count_from_census = 22;   // 21 + the host-read pair (plan X4)
+        inline constexpr std::size_t unsupported_pair_count_from_census = 99; // 121 combinations - 22 measured
+        inline constexpr std::uint32_t image_use_value_count = 11;            // the enum's values, contiguous 0..10
         static_assert(image_use_pairs.size() == image_use_pair_count_from_census,
                       "the declaration table must be exactly the pairs the CENSUS measured "
-                      "(scripts/recording_face_census.py: 'measured pairs: 21'); a hand count is not evidence");
+                      "(scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
         static_assert(image_use_pair_count_from_census + unsupported_pair_count_from_census ==
                           image_use_value_count * image_use_value_count,
-                      "21 measured pairs + 79 unsupported must be exactly the 100 role combinations the census "
+                      "22 measured pairs + 99 unsupported must be exactly the 121 role combinations the census "
                       "reports - if the enum grows, both numbers are re-read from the same run");
 
         /// The barrier one (from, to) role pair needs: the TABLE's row, with the caller's image filled in.
@@ -264,6 +270,8 @@ namespace deren::vulkan {
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::shader_read},
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::transfer_source},
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::present},
+            // PLAN X4: the host-read pair, from `color_attachment_to_host_transition` (the recipe the census counts too).
+            role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::host_read},
             role_pair_expected{rhi::image_use::color_attachment, rhi::image_use::color_attachment},
             role_pair_expected{rhi::image_use::shader_write, rhi::image_use::shader_read},
             role_pair_expected{rhi::image_use::shader_write, rhi::image_use::transfer_source},
@@ -700,6 +708,26 @@ namespace deren::vulkan {
             if (covered_by(declared, offsetof(rhi_pipeline_desc, debug_name), sizeof(rhi_pipeline_desc::debug_name))) {
                 options.debug_name = desc.debug_name;
             }
+            // THE COMPUTE SPELLING (appended): a caller that declares only the graphics prefix keeps an EMPTY
+            // `compute_code`, which the compute branch below refuses by name - an older caller cannot ask for a
+            // compute pipeline by accident, and a newer one is read exactly as far as it declared.
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, compute_code), sizeof(rhi_pipeline_desc::compute_code))) {
+                options.compute_code = desc.compute_code;
+            }
+            // THE RAY-TRACING SPELLING (appended with it): same rule - an older caller's prefix keeps the three
+            // fields empty, which is "not a ray-tracing pipeline" rather than a mis-read.
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, ray_tracing_stages), sizeof(rhi_pipeline_desc::ray_tracing_stages))) {
+                options.ray_tracing_stages = desc.ray_tracing_stages;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, ray_tracing_groups), sizeof(rhi_pipeline_desc::ray_tracing_groups))) {
+                options.ray_tracing_groups = desc.ray_tracing_groups;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, max_ray_recursion), sizeof(rhi_pipeline_desc::max_ray_recursion))) {
+                options.max_ray_recursion = desc.max_ray_recursion;
+            }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, acceleration_structure_bindings), sizeof(rhi_pipeline_desc::acceleration_structure_bindings))) {
+                options.acceleration_structure_bindings = desc.acceleration_structure_bindings;
+            }
             return options;
         }
 
@@ -779,7 +807,12 @@ namespace deren::vulkan {
         // consumer this bit was waiting for.
         return rhi::to_bits(rhi::extension_kind::vulkan_escape) | rhi::to_bits(rhi::extension_kind::device_address) |
                (this->heap_view.ready() ? rhi::to_bits(rhi::extension_kind::descriptor_heap) : 0u) |
-               (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u);
+               (this->host_image_copy_available ? rhi::to_bits(rhi::extension_kind::host_image_copy) : 0u) |
+               // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
+               // ANSWERS false - that is an answer, not an unserved ability), which is why this bit carries no
+               // device condition while the two above it do.
+               rhi::to_bits(rhi::extension_kind::device_capabilities) |
+               (this->ray_tracing_pipeline_available ? rhi::to_bits(rhi::extension_kind::shader_group_access) : 0u);
     }
 
     bool core::frame_heap::ready() const noexcept {
@@ -832,7 +865,7 @@ namespace deren::vulkan {
         static_assert(heap_descriptor_type(rhi::descriptor_type::uniform_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
         static_assert(heap_descriptor_type(rhi::descriptor_type::storage_buffer_dynamic) == VK_DESCRIPTOR_TYPE_MAX_ENUM);
 
-        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_list* const commands,
+        [[nodiscard]] VkCommandBuffer heap_commands(core& owner, rhi::command_buffer* const commands,
                                                     rhi::structure_header const* const next, rhi::error& result) noexcept {
             if (next != nullptr) {
                 if (next->s_type != rhi::structure_type::vulkan_command_buffer) {
@@ -851,8 +884,21 @@ namespace deren::vulkan {
                 return static_cast<VkCommandBuffer>(native.commands);
             }
             if (commands != &owner.commands_view) {
-                result = rhi::error::invalid_argument;
-                return VK_NULL_HANDLE;
+                // ANY OTHER COMMAND BUFFER THIS BACKEND HANDED OUT IS ACCEPTED TOO (a correction to the refusal
+                // that stood here): `create_command_buffer` / `make_command_buffer` produce
+                // `owned_command_buffer`s - the probes' own isolated buffers are exactly that - and
+                // `frame_commands::native()` answers for EITHER shape (the frame's slot buffer or an owned
+                // buffer's, per `target`). The guard was written when the frame's borrowed view was the only
+                // `command_buffer` the engine could pass to a heap verb.
+                //
+                // THE CAST IS THIS BACKEND'S ESTABLISHED CONVENTION for a handle IT handed out (`native_buffer`
+                // / `native_image` / `native_sampler` / `native_pipeline` all cast the contract reference back to
+                // the owned type without RTTI), and a foreign pointer would be a caller bug rather than a case to
+                // survive: the contract's ownership note says touching a released handle is undefined, and
+                // nothing on the engine side can obtain one of these without going through this backend.
+                auto* const buffer = static_cast<core::frame_commands*>(commands);
+                result = rhi::error::ok;
+                return buffer->native();
             }
             if (!owner.frame_in_flight) {
                 result = rhi::error::not_ready;
@@ -1007,6 +1053,15 @@ namespace deren::vulkan {
         }
         if (kind == rhi::extension_kind::host_image_copy && this->host_image_copy_available) {
             return &this->host_copy_view;
+        }
+        if (kind == rhi::extension_kind::device_capabilities) {
+            // UNCONDITIONAL, and that is the difference from host_image_copy just above: every method of this
+            // ability is answerable once the device exists (a device with no mesh shader answers false), so no
+            // device fact can make it unserved.
+            return &this->capabilities_view;
+        }
+        if (kind == rhi::extension_kind::shader_group_access && this->ray_tracing_pipeline_available) {
+            return &this->shader_groups_view;
         }
         return nullptr;
     }
@@ -1387,6 +1442,10 @@ namespace deren::vulkan {
     }
 
     void core::owned_pipeline::release() noexcept {
+        if (this->owner != nullptr) {
+            std::lock_guard const lock(this->owner->contract_pipelines_mutex);
+            this->owner->contract_pipelines.erase(this);
+        }
         delete this;
     }
 
@@ -1408,6 +1467,24 @@ namespace deren::vulkan {
         case rhi::shader_stage::compute:
             stage = VK_SHADER_STAGE_COMPUTE_BIT;
             break;
+        // THE RAY-TRACING STAGES (appended with the ray-tracing pipeline spelling, abi 21): the module is
+        // stage-less, so this mapping is only what a caller's stage value MEANS - but a switch that silently
+        // fell through to the vertex default would be a wrong answer at the one place the contract states it.
+        case rhi::shader_stage::ray_generation:
+            stage = VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+            break;
+        case rhi::shader_stage::miss:
+            stage = VK_SHADER_STAGE_MISS_BIT_KHR;
+            break;
+        case rhi::shader_stage::closest_hit:
+            stage = VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+            break;
+        case rhi::shader_stage::any_hit:
+            stage = VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+            break;
+        case rhi::shader_stage::intersection:
+            stage = VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+            break;
         }
         (void)stage; // the module itself is stage-less; the stage rides the pipeline's stage info
 
@@ -1427,6 +1504,28 @@ namespace deren::vulkan {
     rhi::pipeline* core::create_pipeline(rhi::pipeline_desc const& declared_desc) {
         rhi::pipeline_desc const desc = sanitize_pipeline_desc(declared_desc);
         char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed pipeline";
+
+        // ---- THE COMPUTE SPELLING IS ITS OWN PATH (abi 21) ---------------------------------------
+        // ONE stage, no attachment state: `first_stage == compute` is the whole difference the caller
+        // states, and everything the graphics path below derives from formats and blends is meaningless
+        // here. The branch is FIRST so the graphics field reads below cannot be reached with a compute
+        // descriptor (a compute pipeline whose `color_formats` names `unknown` would be refused for the
+        // wrong reason).
+        if (!desc.acceleration_structure_bindings.empty() &&
+            (desc.first_stage == rhi::shader_stage::compute || desc.ray_tracing_stages.empty())) {
+            deren::utility::log("rhi: create_pipeline {} refused: acceleration-structure bindings require a ray-tracing pipeline", what);
+            return nullptr;
+        }
+        if (desc.first_stage == rhi::shader_stage::compute) {
+            return this->create_compute_pipeline(desc, what);
+        }
+        // ---- AND THE RAY-TRACING SPELLING (abi 21) ------------------------------------------------
+        // The switch is the STAGES, not a first stage: a ray-tracing pipeline is the only kind built from
+        // several named entry points and a group table (see the descriptor's own note), so their presence is
+        // what says which path this is.
+        if (!desc.ray_tracing_stages.empty()) {
+            return this->create_ray_tracing_pipeline(desc, what);
+        }
 
         // ---- THE CONTRACT'S VOCABULARY IN THE BACKEND'S ------------------------------------------
         // Color formats one to one; the `depth` ROLE resolves to the device's own depth attachment
@@ -1490,8 +1589,266 @@ namespace deren::vulkan {
             return nullptr;
         }
         auto* const answer = new owned_pipeline();
+        answer->owner = this;
+        {
+            std::lock_guard const lock(this->contract_pipelines_mutex);
+            this->contract_pipelines.insert(answer);
+        }
         answer->owned.emplace(std::move(pipeline.value()));
         answer->native_handle = answer->owned->get_pipeline();
+        return answer;
+    }
+
+    /// THE COMPUTE PIPELINE, in the shape the engine's raw builders had (pipelines.cppm's
+    /// `vkCreateComputePipelines` sites) - the same heap-native rules, moved to the side that owns them.
+    ///
+    /// TWO FACTS MAKE IT A SEPARATE PATH rather than a branch inside the graphics one:
+    ///
+    ///  * A COMPUTE PIPELINE HAS NO ATTACHMENT STATE. Everything the graphics path derives (the vertex-input
+    ///    interface, the colour formats, the blend attachments, the sample count, the depth test and bias) is
+    ///    absent: the module is built from `compute_code` and the create info carries one stage, one NULL
+    ///    layout and nothing else.
+    ///  * THE BIND POINT IS DECIDED HERE, ONCE. `owned_pipeline::bind_point` is what `bind_pipeline` (abi 20)
+    ///    hands the API, and the graphics path leaves it at its GRAPHICS default - a compute pipeline that
+    ///    forgot to set it would be bound to the wrong point with no error anywhere. (`create_pipeline`'s
+    ///    own note explains why the contract made the bind point the backend's business.)
+    rhi::pipeline* core::create_compute_pipeline(rhi::pipeline_desc const& desc, char const* const what) {
+        // THE ONE REFUSAL OF THIS PATH, and it is the ABI guard's own consequence: a caller that declared only
+        // the graphics prefix has no `compute_code`, so "compute without SPIR-V" is refused by name instead of
+        // being built from whatever the empty span points at.
+        if (desc.compute_code.empty()) {
+            deren::utility::log("rhi: create_pipeline {} refused: a compute pipeline names its SPIR-V in compute_code", what);
+            return nullptr;
+        }
+        std::optional<vk_shader_module> module = ::deren::vulkan::make_shader_module(
+            std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(desc.compute_code.data()), desc.compute_code.size()),
+            this->logical_device);
+        if (!module.has_value()) {
+            deren::utility::log("rhi: create_pipeline {} refused: vkCreateShaderModule failed", what);
+            return nullptr;
+        }
+        VkPipelineShaderStageCreateInfo const stage = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = 0,
+            .stage = VK_SHADER_STAGE_COMPUTE_BIT,
+            .module = module->get(),
+            .pName = "main", // every stage this renderer builds is entered at "main" (see the descriptor's note)
+            .pSpecializationInfo = nullptr,
+        };
+        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL: validation's rule is "both or neither" -
+        // "pCreateInfos[0].flags (VkPipelineCreateFlags2(0)) does not include
+        // VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT while layout is VK_NULL_HANDLE"
+        // (VUID-VkComputePipelineCreateInfo-None-11367). The bit lives past the classic 32-bit `flags` field,
+        // so it rides VkPipelineCreateFlags2CreateInfo - the shape the engine's raw builders used.
+        VkPipelineCreateFlags2CreateInfo const heap_flags = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
+        };
+        VkComputePipelineCreateInfo const info = {
+            .sType = VK_STRUCTURE_TYPE_COMPUTE_PIPELINE_CREATE_INFO,
+            .pNext = &heap_flags,
+            .flags = 0,
+            .stage = stage,
+            .layout = VK_NULL_HANDLE, // heap-native stages: a layout would contradict them (see docs)
+            .basePipelineHandle = VK_NULL_HANDLE,
+            .basePipelineIndex = -1,
+        };
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (vkCreateComputePipelines(this->logical_device, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
+            deren::utility::log("rhi: create_pipeline {} refused: vkCreateComputePipelines failed", what);
+            return nullptr;
+        }
+        auto* const answer = new owned_pipeline();
+        answer->owner = this;
+        {
+            std::lock_guard const lock(this->contract_pipelines_mutex);
+            this->contract_pipelines.insert(answer);
+        }
+        // THE MODULE DIES WITH THIS CALL, the pipeline does not: a VkShaderModule is only needed while the
+        // pipeline is being created, and holding one per pipeline would keep N modules alive for nothing. The
+        // RAII wrapper above destroys it when this function returns, whatever the path out.
+        answer->owned.emplace(pipeline, this->logical_device);
+        answer->native_handle = pipeline;
+        answer->bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+        return answer;
+    }
+
+    /// THE RAY-TRACING PIPELINE, in the shape the engine's raw builder had (pipelines.cppm's
+    /// `vkCreateRayTracingPipelinesKHR` site) - the same heap-native rules, on the side that owns them.
+    ///
+    /// THREE THINGS MAKE IT ITS OWN PATH: it is built from SEVERAL named entry points (one module each), its
+    /// executor is a GROUP TABLE rather than a single stage (the group indices are positions in the stage
+    /// list), and its entry point is not exported by the loader's import library - so it is resolved through
+    /// `vkGetDeviceProcAddr` here, where the device is, rather than at the caller.
+    ///
+    /// THE SHADER BINDING TABLE IS NOT THIS FUNCTION'S: the group HANDLES are read back by the caller after
+    /// creation, and the regions are the caller's memory with the device's stride rules (see the pass that
+    /// fills one). What this returns is the pipeline, with `bind_point` set to the ray-tracing one - which is
+    /// what makes `bind_pipeline` work for it like any other pipeline.
+    rhi::pipeline* core::create_ray_tracing_pipeline(rhi::pipeline_desc const& desc, char const* const what) {
+        if (desc.ray_tracing_groups.empty()) {
+            deren::utility::log("rhi: create_pipeline {} refused: a ray-tracing pipeline names the groups its shader binding table is built from", what);
+            return nullptr;
+        }
+        // THE ENTRY POINT IS RESOLVED, never linked: the import library exports no extension command, so a
+        // direct call would be an undefined symbol rather than a missing feature. A device that announces no
+        // ray-tracing pipeline answers null here, which is this path's refusal by name.
+        auto const create_ray_tracing = reinterpret_cast<PFN_vkCreateRayTracingPipelinesKHR>(vkGetDeviceProcAddr(this->logical_device, "vkCreateRayTracingPipelinesKHR"));
+        if (create_ray_tracing == nullptr) {
+            deren::utility::log("rhi: create_pipeline {} refused: the device did not publish vkCreateRayTracingPipelinesKHR", what);
+            return nullptr;
+        }
+        auto const native_stage_kind = [](rhi::shader_stage const stage) -> std::optional<VkShaderStageFlagBits> {
+            switch (stage) {
+            case rhi::shader_stage::ray_generation:
+                return VK_SHADER_STAGE_RAYGEN_BIT_KHR;
+            case rhi::shader_stage::miss:
+                return VK_SHADER_STAGE_MISS_BIT_KHR;
+            case rhi::shader_stage::closest_hit:
+                return VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR;
+            case rhi::shader_stage::any_hit:
+                return VK_SHADER_STAGE_ANY_HIT_BIT_KHR;
+            case rhi::shader_stage::intersection:
+                return VK_SHADER_STAGE_INTERSECTION_BIT_KHR;
+            default:
+                return std::nullopt; // a graphics/compute stage is not a ray-tracing stage, and guessing is worse
+            }
+        };
+        // ONE MODULE PER STAGE, each destroyed when this function returns (a module is needed only while the
+        // pipeline is created): the RAII wrappers below cover every path out, refusals included.
+        // Ordinary AS bindings still read the same heap. This avoids heap-native integer-to-AS
+        // conversion, which loses the device on affected NVIDIA drivers during traversal.
+        // Own all stage mapping arrays until pipeline creation has consumed them.
+        std::vector<std::vector<VkDescriptorSetAndBindingMappingEXT>> mappings(desc.ray_tracing_stages.size());
+        std::vector<VkShaderDescriptorSetAndBindingMappingInfoEXT> mapping_infos(desc.ray_tracing_stages.size());
+        for (auto const& binding : desc.acceleration_structure_bindings) {
+            auto const capacity = this->descriptor_heaps.resource_size();
+            auto const descriptor_size = this->descriptor_heaps.descriptor_stride(VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR);
+            std::uint64_t const last_offset = binding.array_count == 0 ? 0 : static_cast<std::uint64_t>(binding.array_count - 1) * binding.array_stride;
+            if (!this->descriptor_heaps.ready() || descriptor_size == 0 || binding.array_count == 0 || binding.array_stride < descriptor_size ||
+                binding.byte_offset > capacity || descriptor_size > capacity - binding.byte_offset ||
+                last_offset > capacity - binding.byte_offset - descriptor_size ||
+                binding.byte_offset % descriptor_size != 0 || binding.array_stride % descriptor_size != 0) {
+                deren::utility::log("rhi: create_pipeline {} refused: invalid acceleration-structure heap range", what);
+                return nullptr;
+            }
+            bool found_stage = false;
+            for (std::size_t index = 0; index < desc.ray_tracing_stages.size(); ++index) {
+                if (desc.ray_tracing_stages[index].stage != binding.stage) {
+                    continue;
+                }
+                found_stage = true;
+                for (auto const& prior : mappings[index]) {
+                    if (prior.descriptorSet == binding.descriptor_set && prior.firstBinding == binding.binding) {
+                        deren::utility::log("rhi: create_pipeline {} refused: duplicate acceleration-structure shader binding", what);
+                        return nullptr;
+                    }
+                }
+                VkDescriptorSetAndBindingMappingEXT mapping{};
+                mapping.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_AND_BINDING_MAPPING_EXT;
+                mapping.descriptorSet = binding.descriptor_set;
+                mapping.firstBinding = binding.binding;
+                mapping.bindingCount = 1;
+                mapping.resourceMask = VK_SPIRV_RESOURCE_TYPE_ACCELERATION_STRUCTURE_BIT_EXT;
+                mapping.source = VK_DESCRIPTOR_MAPPING_SOURCE_HEAP_WITH_CONSTANT_OFFSET_EXT;
+                mapping.sourceData.constantOffset.heapOffset = binding.byte_offset;
+                mapping.sourceData.constantOffset.heapArrayStride = binding.array_stride;
+                mappings[index].push_back(mapping);
+            }
+            if (!found_stage) {
+                deren::utility::log("rhi: create_pipeline {} refused: acceleration-structure binding has no matching stage", what);
+                return nullptr;
+            }
+        }
+        for (std::size_t index = 0; index < mappings.size(); ++index) {
+            mapping_infos[index].sType = VK_STRUCTURE_TYPE_SHADER_DESCRIPTOR_SET_AND_BINDING_MAPPING_INFO_EXT;
+            mapping_infos[index].mappingCount = static_cast<std::uint32_t>(mappings[index].size());
+            mapping_infos[index].pMappings = mappings[index].data();
+        }
+        std::vector<std::optional<vk_shader_module>> modules(desc.ray_tracing_stages.size());
+        std::vector<VkPipelineShaderStageCreateInfo> stages;
+        stages.reserve(desc.ray_tracing_stages.size());
+        for (std::size_t index = 0; index < desc.ray_tracing_stages.size(); ++index) {
+            rhi::ray_tracing_stage const& declared = desc.ray_tracing_stages[index];
+            std::optional<VkShaderStageFlagBits> const kind = native_stage_kind(declared.stage);
+            if (!kind.has_value()) {
+                deren::utility::log("rhi: create_pipeline {} refused: ray-tracing stage {} is not a ray-tracing entry point", what, index);
+                return nullptr;
+            }
+            if (declared.code.empty()) {
+                deren::utility::log("rhi: create_pipeline {} refused: ray-tracing stage {} carries no SPIR-V", what, index);
+                return nullptr;
+            }
+            modules[index] = ::deren::vulkan::make_shader_module(
+                std::span<uint8_t const>(reinterpret_cast<uint8_t const*>(declared.code.data()), declared.code.size()), this->logical_device);
+            if (!modules[index].has_value()) {
+                deren::utility::log("rhi: create_pipeline {} refused: vkCreateShaderModule failed for ray-tracing stage {}", what, index);
+                return nullptr;
+            }
+            stages.push_back(VkPipelineShaderStageCreateInfo{.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
+                                                             .pNext = mappings[index].empty() ? nullptr : &mapping_infos[index],
+                                                             .flags = 0,
+                                                             .stage = kind.value(),
+                                                             .module = modules[index]->get(),
+                                                             .pName = "main", // every entry point this renderer builds is "main"
+                                                             .pSpecializationInfo = nullptr});
+        }
+        // THE GROUP TABLE, with the kind following from WHICH SLOTS ARE FILLED (the descriptor's own rule):
+        // any hit slot makes it a hit group, and `triangles` says whether its geometry is triangles. This is the
+        // one place the two spellings meet, and it is a translation rather than a second vocabulary.
+        std::vector<VkRayTracingShaderGroupCreateInfoKHR> groups;
+        groups.reserve(desc.ray_tracing_groups.size());
+        for (rhi::ray_tracing_group const& group : desc.ray_tracing_groups) {
+            bool const hit_group = group.closest_hit != rhi::shader_group_none || group.any_hit != rhi::shader_group_none || group.intersection != rhi::shader_group_none;
+            groups.push_back(VkRayTracingShaderGroupCreateInfoKHR{.sType = VK_STRUCTURE_TYPE_RAY_TRACING_SHADER_GROUP_CREATE_INFO_KHR,
+                                                                  .pNext = nullptr,
+                                                                  .type = !hit_group        ? VK_RAY_TRACING_SHADER_GROUP_TYPE_GENERAL_KHR
+                                                                          : group.triangles ? VK_RAY_TRACING_SHADER_GROUP_TYPE_TRIANGLES_HIT_GROUP_KHR
+                                                                                            : VK_RAY_TRACING_SHADER_GROUP_TYPE_PROCEDURAL_HIT_GROUP_KHR,
+                                                                  .generalShader = group.general,
+                                                                  .closestHitShader = group.closest_hit,
+                                                                  .anyHitShader = group.any_hit,
+                                                                  .intersectionShader = group.intersection,
+                                                                  .pShaderGroupCaptureReplayHandle = nullptr});
+        }
+        // THE HEAP FLAG IS NOT OPTIONAL WHEN THE LAYOUT IS NULL (VUID-VkRayTracingPipelineCreateInfoKHR-...):
+        // the same "both or neither" rule the compute path states, through the same flags2 structure.
+        VkPipelineCreateFlags2CreateInfo const heap_flags = {
+            .sType = VK_STRUCTURE_TYPE_PIPELINE_CREATE_FLAGS_2_CREATE_INFO,
+            .pNext = nullptr,
+            .flags = VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT,
+        };
+        VkRayTracingPipelineCreateInfoKHR const info = {.sType = VK_STRUCTURE_TYPE_RAY_TRACING_PIPELINE_CREATE_INFO_KHR,
+                                                        .pNext = &heap_flags,
+                                                        .flags = 0,
+                                                        .stageCount = static_cast<std::uint32_t>(stages.size()),
+                                                        .pStages = stages.data(),
+                                                        .groupCount = static_cast<std::uint32_t>(groups.size()),
+                                                        .pGroups = groups.data(),
+                                                        .maxPipelineRayRecursionDepth = desc.max_ray_recursion == 0u ? 1u : desc.max_ray_recursion,
+                                                        .pLibraryInfo = nullptr,
+                                                        .pLibraryInterface = nullptr,
+                                                        .pDynamicState = nullptr,
+                                                        .layout = VK_NULL_HANDLE, // heap-native stages: a layout would contradict them
+                                                        .basePipelineHandle = VK_NULL_HANDLE,
+                                                        .basePipelineIndex = -1};
+        VkPipeline pipeline = VK_NULL_HANDLE;
+        if (create_ray_tracing(this->logical_device, VK_NULL_HANDLE, VK_NULL_HANDLE, 1, &info, nullptr, &pipeline) != VK_SUCCESS) {
+            deren::utility::log("rhi: create_pipeline {} refused: vkCreateRayTracingPipelinesKHR failed", what);
+            return nullptr;
+        }
+        auto* const answer = new owned_pipeline();
+        answer->owner = this;
+        {
+            std::lock_guard const lock(this->contract_pipelines_mutex);
+            this->contract_pipelines.insert(answer);
+        }
+        answer->owned.emplace(pipeline, this->logical_device);
+        answer->native_handle = pipeline;
+        answer->bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+        answer->group_count = info.groupCount;
         return answer;
     }
 
@@ -1499,7 +1856,7 @@ namespace deren::vulkan {
         return nullptr;
     }
 
-    rhi::command_list* core::begin_commands() {
+    rhi::command_buffer* core::begin_commands() {
         // THE RECORDING VIEW OF THE FRAME IN FLIGHT, OR nullptr WHEN THERE IS NONE. The verb is not
         // literal yet: the frame's own vkBeginCommandBuffer/vkEndCommandBuffer still belong to the
         // engine, which also decides the present recipe - this call starts nothing, it hands out the
@@ -1541,10 +1898,10 @@ namespace deren::vulkan {
             return nullptr;
         }
         // ITS RECORDING VIEW IS THIS BUFFER'S OWN (abi 15): the list the contract hands back knows which
-        // buffer it records into, which is what keeps one `command_list` type serving both the frame's
+        // buffer it records into, which is what keeps one `command_buffer` type serving both the frame's
         // list and every owned buffer.
-        answer->list.owner = this;
-        answer->list.target = *answer->buffer;
+        answer->owner = this;
+        answer->target = *answer->buffer;
         {
             // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: `execute()` and the
             // escape's native-handle answer must tell a buffer this backend made from a pointer a
@@ -1556,6 +1913,21 @@ namespace deren::vulkan {
                             kind == rhi::command_buffer_kind::secondary ? "secondary" : "primary",
                             reinterpret_cast<std::uintptr_t>(*answer->buffer));
         return answer;
+    }
+
+    std::shared_ptr<rhi::command_buffer> core::make_command_buffer(rhi::command_buffer_desc const& desc) {
+        rhi::command_buffer* const raw = this->create_command_buffer(desc);
+        if (raw == nullptr) {
+            return {}; // the refusal was named where it happened; an empty shared_ptr is the same answer
+        }
+        // THE CONTROL BLOCK OWNS THE DROP, and the drop IS `release()`: this introduces no second
+        // lifetime rule - it is the contract's one-reference drop, called from the deleter instead of
+        // from a call site.
+        return std::shared_ptr<rhi::command_buffer>(raw, [](rhi::command_buffer* const p) noexcept {
+            if (p != nullptr) {
+                p->release();
+            }
+        });
     }
 
     void core::owned_command_buffer::release() noexcept {
@@ -1585,33 +1957,70 @@ namespace deren::vulkan {
             return rhi::error::not_ready; // this handle holds no reference any more
         }
 
+        // The contract's colour formats, converted once into the API's own spelling (see the note below):
+        // eight is this backend's ceiling for inherited attachments, and a larger declaration is refused.
+        std::array<VkFormat, 8> native_color_formats = {};
         VkCommandBufferInheritanceRenderingInfo rendering = {};
+        VkCommandBufferInheritanceDescriptorHeapInfoEXT heap_inheritance = {};
+        VkBindHeapInfoEXT resource_bind = {};
+        VkBindHeapInfoEXT sampler_bind = {};
         VkCommandBufferInheritanceInfo inheritance = {};
         bool const inherits = next != nullptr;
         if (inherits) {
-            // THE CHAIN IS READ, NEVER DROPPED (the rule the heap requests live by). Today's one
-            // structure is the Vulkan attachment inheritance a `render_pass_continue` secondary MUST
-            // declare; anything else is refused BY NAME below.
-            if (next->s_type != rhi::structure_type::vulkan_command_buffer_inheritance ||
-                rhi::validate_structure(*next, rhi::structure_type::vulkan_command_buffer_inheritance, sizeof(rhi::vulkan_command_buffer_inheritance_info)) != rhi::error::ok) {
+            rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
+            if (next->s_type == rhi::structure_type::command_buffer_inheritance) {
+                auto const valid = rhi::validate_structure(*next, next->s_type, sizeof(rhi::command_buffer_inheritance_info));
+                if (valid != rhi::error::ok) {
+                    return valid;
+                }
+                auto const& attachment = *reinterpret_cast<rhi::command_buffer_inheritance_info const*>(next);
+                if (attachment.color_format_count > native_color_formats.size()) {
+                    return rhi::error::unsupported;
+                }
+                if ((attachment.color_format_count != 0 && attachment.color_formats == nullptr) ||
+                    attachment.samples == 0 || attachment.samples > 64 || (attachment.samples & (attachment.samples - 1)) != 0 ||
+                    (attachment.depth_format != rhi::image_format::unknown && attachment.depth_format != rhi::image_format::depth)) {
+                    return rhi::error::invalid_argument;
+                }
+                for (std::uint32_t index = 0; index < attachment.color_format_count; ++index) {
+                    auto const format = attachment.color_formats[index];
+                    native_color_formats[index] = native_image_format(format, this->owner->depth_attachment_format);
+                    if (format == rhi::image_format::depth || native_color_formats[index] == VK_FORMAT_UNDEFINED) {
+                        return rhi::error::invalid_argument;
+                    }
+                }
+                rendering.colorAttachmentCount = attachment.color_format_count;
+                rendering.depthAttachmentFormat = native_image_format(attachment.depth_format, this->owner->depth_attachment_format);
+                rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(attachment.samples);
+                rendering.viewMask = attachment.view_mask;
+            } else if (next->s_type == rhi::structure_type::vulkan_command_buffer_inheritance) {
+                // Keep the existing native extension's meaning: these are Vulkan numbers.
+                auto const valid = rhi::validate_structure(*next, next->s_type, sizeof(rhi::vulkan_command_buffer_inheritance_info));
+                if (valid != rhi::error::ok) {
+                    return valid;
+                }
+                auto const& attachment = *reinterpret_cast<rhi::vulkan_command_buffer_inheritance_info const*>(next);
+                if (attachment.color_format_count > native_color_formats.size()) {
+                    return rhi::error::unsupported;
+                }
+                if (attachment.color_format_count != 0 && attachment.color_formats == nullptr) {
+                    return rhi::error::invalid_argument;
+                }
+                for (std::uint32_t index = 0; index < attachment.color_format_count; ++index) {
+                    native_color_formats[index] = static_cast<VkFormat>(attachment.color_formats[index]);
+                }
+                rendering.colorAttachmentCount = attachment.color_format_count;
+                rendering.depthAttachmentFormat = static_cast<VkFormat>(attachment.depth_format);
+                rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(attachment.samples);
+                rendering.viewMask = attachment.view_mask;
+            } else {
                 if (!this->refused_chain_logged) {
                     this->refused_chain_logged = true;
-                    deren::utility::log("rhi: begin_recording refused a parameter chain of type {:#x} - this backend serves only "
-                                        "vulkan_command_buffer_inheritance (a chain is never dropped silently)",
-                                        static_cast<std::uint32_t>(next->s_type));
+                    deren::utility::log("rhi: begin_recording refused a parameter chain of type {:#x}", static_cast<std::uint32_t>(next->s_type));
                 }
                 return rhi::error::unsupported;
             }
-            auto const& declared_inheritance = *reinterpret_cast<rhi::vulkan_command_buffer_inheritance_info const*>(next);
-            rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
-            rendering.pNext = nullptr;
-            rendering.flags = 0;
-            rendering.viewMask = declared_inheritance.view_mask;
-            rendering.colorAttachmentCount = declared_inheritance.color_format_count;
-            rendering.pColorAttachmentFormats = reinterpret_cast<VkFormat const*>(declared_inheritance.color_formats);
-            rendering.depthAttachmentFormat = static_cast<VkFormat>(declared_inheritance.depth_format);
-            rendering.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
-            rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(declared_inheritance.samples);
+            rendering.pColorAttachmentFormats = rendering.colorAttachmentCount == 0 ? nullptr : native_color_formats.data();
             inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
             inheritance.pNext = &rendering;
         } else if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
@@ -1619,6 +2028,38 @@ namespace deren::vulkan {
             // declare the attachments it continues (dynamic rendering), and the backend cannot invent
             // them. Refused by name rather than begun into an unvalidated state.
             return rhi::error::unsupported;
+        }
+        // ---- THE DESCRIPTOR HEAPS A CONTINUATION INHERITS (VUID-vkCmdDrawIndexed-None-11308) -----------
+        //
+        // WHY THE BACKEND DERIVES THIS INSTEAD OF THE CALLER HANDING IT OVER: a descriptor heap is the
+        // BACKEND's own state - this class owns both heaps, `heap_inheritance`'s two bind infos come
+        // straight out of `descriptor_heaps` (the same two `record_bind` binds for a primary), and the
+        // CONTRACT's `begin_recording` says so in its own words: the parameter chain carries what the
+        // caller knows (which attachment formats the instance has), and "the backend owns the
+        // compatibility rules" - which heap state a secondary is validated against is exactly such a
+        // rule. Asking every caller to reach for `VkCommandBufferInheritanceDescriptorHeapInfoEXT`
+        // would put this backend's heap layout into the engine half (the boundary this whole face
+        // exists to hold), and a caller that forgot it would produce a BLACK secondary with the only
+        // symptom being a VUID nobody reads.
+        //
+        // A SECONDARY IS VALIDATED ON ITS OWN, so the bind the primary recorded never reaches it - and
+        // an inherited heap is only meaningful for a continuation, which is the one case where the
+        // secondary's draws are validated against the instance the primary opened. It is chained in
+        // FRONT of whatever the caller's own chain put in `pNext` (the attachment inheritance above),
+        // because a chain is a list and this entry is the backend's, not the caller's. Only when the
+        // heap face is ACTIVE: a device without VK_EXT_descriptor_heap leaves both heaps unusable, the
+        // bind infos stay zero, and chaining a heap the device never got would be worse than leaving it
+        // out - the same "the heap is simply unused" state every other heap path in this file accepts.
+        if (this->owner->descriptor_heaps.ready() && (inherits || rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue))) {
+            this->owner->descriptor_heaps.bind_infos(resource_bind, sampler_bind);
+            heap_inheritance = VkCommandBufferInheritanceDescriptorHeapInfoEXT{
+                .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
+                .pNext = inheritance.pNext,
+                .pSamplerHeapBindInfo = &sampler_bind,
+                .pResourceHeapBindInfo = &resource_bind,
+            };
+            inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
+            inheritance.pNext = &heap_inheritance;
         }
 
         VkCommandBufferUsageFlags flags = 0;
@@ -1636,7 +2077,10 @@ namespace deren::vulkan {
             .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
             .pNext = nullptr,
             .flags = flags,
-            .pInheritanceInfo = inherits ? &inheritance : nullptr,
+            // The inheritance info is passed whenever ANY of it was filled: the caller's attachment chain
+            // or this backend's own heap entry (see above). When neither applies - a primary, or a
+            // secondary begun for inline recording - `pInheritanceInfo` must be NULL.
+            .pInheritanceInfo = (inherits || inheritance.pNext != nullptr) ? &inheritance : nullptr,
         };
         return generic_error(vkBeginCommandBuffer(*this->buffer, &begin));
     }
@@ -1648,13 +2092,91 @@ namespace deren::vulkan {
         return generic_error(vkEndCommandBuffer(*this->buffer));
     }
 
-    rhi::command_list* core::owned_command_buffer::recording() noexcept {
-        if (*this->buffer == VK_NULL_HANDLE) {
-            return nullptr; // no reference held: there is no view to lend
+    // ---- THE FRAME'S BORROWED BUFFER: the four lifecycle verbs, refused BY NAME (see the note in
+    //      core.declarations.cppm). release() is the one that must not be silent - a caller that wrapped
+    //      this view in object_manager<> has a bug - so it says so once, exactly as frame_image_slot does.
+
+    void core::frame_commands::release() noexcept {
+        if (!this->borrowed_lifecycle_logged) {
+            this->borrowed_lifecycle_logged = true;
+            deren::utility::log("core: release() on the FRAME's command buffer - the core owns it and this view carries no reference to drop (logged once)");
         }
-        return &this->list;
     }
 
+    rhi::error core::frame_commands::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
+        // THE FRAME'S OWN RECORDING RIDES THE CONTRACT NOW (abi 26), and the two verbs under this comment are
+        // why the frame loop stopped calling `vkBeginCommandBuffer`/`vkEndCommandBuffer` itself: the buffer is
+        // the CORE's (`frame_command_buffer()`), the API's state machine behind it is exactly what the
+        // recording face exists to own, and the engine half must not name an entry point to open a frame.
+        //
+        // WHAT THE REFUSAL THAT STOOD HERE WAS PROTECTING: "the frame loop begins the frame's recording, not a
+        // pass". That rule is still true and is now the CALLER's to keep - the contract's own `begin_recording`
+        // doc has always said a buffer's lifecycle is begun once and by its owner - while the pass layer never
+        // reaches this verb at all (a pass records into `resolved_io::list`, whose recording the RUNNER opened).
+        // A usage bit this backend cannot serve is still refused BY NAME, exactly as the owned form refuses it.
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // no frame in flight: the same window `begin_commands()` answers in
+        }
+        rhi::command_buffer_flags usage = rhi::no_command_buffer_flags;
+        if (covered_by(declared_info.struct_size, offsetof(rhi::command_buffer_begin_info, usage), sizeof(rhi::command_buffer_begin_info::usage))) {
+            usage = declared_info.usage;
+        }
+        VkCommandBufferUsageFlags flags = 0;
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::one_time_submit)) {
+            flags |= VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        }
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::simultaneous_use)) {
+            flags |= VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT;
+        }
+        // `render_pass_continue` is a SECONDARY's bit and the frame's buffer is a primary: the owned form refuses
+        // the combination it cannot spell rather than passing a flag the API rejects on a primary.
+        if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
+            return rhi::error::unsupported;
+        }
+        VkCommandBufferBeginInfo const begin = {
+            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+            .pNext = nullptr,
+            .flags = flags,
+            .pInheritanceInfo = nullptr, // a primary has no inheritance
+        };
+        return generic_error(vkBeginCommandBuffer(command_buffer, &begin));
+    }
+
+    rhi::error core::frame_commands::end_recording() noexcept {
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        return generic_error(vkEndCommandBuffer(command_buffer));
+    }
+
+    rhi::error core::frame_commands::execute(rhi::command_buffer& secondary) {
+        // THE FRAME'S OWN RECORDING EXECUTES SECONDARIES TOO, AND THAT IS THE PASS LAYER'S `execute`: the
+        // borrowed frame buffer IS a recording buffer, so `io.list->execute(*secondary)` (scene, shadow,
+        // transparent) arrives here. Only begin/end/submit stay the frame loop's (the three verbs above);
+        // the provenance rule and the one-secondary-per-call unit are the same as
+        // `owned_command_buffer::execute` below.
+        VkCommandBuffer const command_buffer = this->native();
+        if (command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // no frame is in flight: the window `begin_commands()` answers in
+        }
+        {
+            // PROVENANCE FIRST, exactly as the owned form: a buffer this backend did not hand out is a
+            // caller bug refused by name, and no pointer is cast before that is known.
+            std::lock_guard const lock(this->owner->contract_command_buffers_mutex);
+            if (!this->owner->contract_command_buffers.contains(&secondary)) {
+                return rhi::error::invalid_argument;
+            }
+        }
+        auto const& other = static_cast<core::owned_command_buffer const&>(secondary);
+        VkCommandBuffer const native_secondary = *other.buffer;
+        if (native_secondary == VK_NULL_HANDLE) {
+            return rhi::error::not_ready; // the secondary was released
+        }
+        vkCmdExecuteCommands(command_buffer, 1, &native_secondary);
+        return rhi::error::ok;
+    }
     rhi::error core::owned_command_buffer::execute(rhi::command_buffer& secondary) {
         if (*this->buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -1702,7 +2224,7 @@ namespace deren::vulkan {
         // THE BACKEND'S HOST-VISIBLE READ-BACK SLOT, at least one texel per frame pixel at four bytes
         // each (the formats the contract can unpack are all 8-bit RGBA/BGRA). Grown on demand: this is
         // the slot the read-back copy is recorded into, and its size follows the swapchain extent.
-        VkExtent2D const extent = this->swap_chain_extent;
+        rhi::image_extent const extent = this->swap_chain_extent;
         VkDeviceSize const needed = static_cast<VkDeviceSize>(extent.width) * static_cast<VkDeviceSize>(extent.height) * 4u;
         if (needed == 0) {
             return nullptr; // no swapchain extent yet: there is nothing a copy could write into
@@ -1753,7 +2275,7 @@ namespace deren::vulkan {
     // view object is a member of that core, so it can never outlive it).
 
     rhi::image_extent core::frame_image_slot::extent() const noexcept {
-        VkExtent2D const extent = this->owner->swap_chain_extent;
+        rhi::image_extent const extent = this->owner->swap_chain_extent;
         return rhi::image_extent{.width = extent.width, .height = extent.height, .depth = 1};
     }
 
@@ -1822,21 +2344,7 @@ namespace deren::vulkan {
     }
 
     rhi::image_format core::frame_image_slot::format() const noexcept {
-        // The four 8-bit shapes a screenshot can be unpacked from; anything else is `unknown`, and the
-        // engine's read stage turns that into the one-time "unsupported swapchain format" it already
-        // had (runtime.readback.cppm).
-        switch (this->owner->swap_chain_image_format) {
-        case VK_FORMAT_B8G8R8A8_SRGB:
-            return rhi::image_format::bgra8_srgb;
-        case VK_FORMAT_B8G8R8A8_UNORM:
-            return rhi::image_format::bgra8_unorm;
-        case VK_FORMAT_R8G8B8A8_SRGB:
-            return rhi::image_format::rgba8_srgb;
-        case VK_FORMAT_R8G8B8A8_UNORM:
-            return rhi::image_format::rgba8_unorm;
-        default:
-            return rhi::image_format::unknown;
-        }
+        return this->owner->swapchain_view_.format();
     }
 
     VkImage core::frame_image_slot::handle() const noexcept {
@@ -1965,7 +2473,7 @@ namespace deren::vulkan {
             static_cast<void const*>(&source) != static_cast<void const*>(&self->frame_image_view)) {
             return rhi::error::invalid_argument;
         }
-        VkExtent2D const extent = self->swap_chain_extent;
+        rhi::image_extent const extent = self->swap_chain_extent;
         if (region.extent.width == 0 || region.extent.height == 0 || region.extent.depth != 1) {
             return rhi::error::invalid_argument;
         }
@@ -2026,10 +2534,67 @@ namespace deren::vulkan {
                 stage = VK_PIPELINE_STAGE_2_TRANSFER_BIT;
                 access = VK_ACCESS_2_TRANSFER_WRITE_BIT;
                 return true;
+            case rhi::buffer_use::acceleration_structure_read:
+                // THE READER IS NOT A SHADER STAGE (abi 21): the acceleration-structure BUILD reads the vertex
+                // data a compute dispatch wrote. The access bit is the same SHADER_READ every consumer of
+                // shader-written data uses - what differs, and what no other role named, is the STAGE.
+                //
+                // IT CARRIES A SECOND ACCESS BIT SINCE THE RT BATCH, AND MEASUREMENT PUT IT THERE: the same ROLE
+                // ("an acceleration-structure build reads") also has to cover a build reading the STRUCTURE
+                // another build wrote - `vulkan/ray_tracing/ray_tracing.cpp`'s top-level build-ordering barrier,
+                // whose raw destination access was `VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR`. With only
+                // SHADER_READ the two builds were NOT ordered against each other, and the symptom was exactly
+                // what an unsynchronised structure read looks like: the next frame's refit read half-written
+                // bottom levels, the GPU faulted, and `wait_and_acquire()` reported a device loss (measured: the
+                // rt_shadows smoke run panicked "waiting the frame slot's timeline failed" until this bit was
+                // added). Widening a DESTINATION access mask is the safe direction - it can only order more - so
+                // one role serves both sites instead of two values saying nearly the same thing.
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_SHADER_READ_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
+                return true;
+            case rhi::buffer_use::acceleration_structure_write:
+                // THE WRITER IS NOT A SHADER STAGE EITHER (the appended value): a bottom level the BUILD wrote
+                // must finish before the next build reads it (ray_tracing.cpp's build-ordering barrier). The
+                // access bit is the extension's own ACCELERATION_STRUCTURE_WRITE_KHR.
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
+                return true;
+            case rhi::buffer_use::micromap_write:
+                // THE MICROMAP BUILD AS A WRITER (the appended value, and the spec's own pair): the opacity
+                // micromap a build wrote must finish before the acceleration-structure build reads it.
+                stage = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT;
+                access = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT;
+                return true;
+            case rhi::buffer_use::micromap_read:
+                stage = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
+                access = VK_ACCESS_2_MICROMAP_READ_BIT_EXT;
+                return true;
             case rhi::buffer_use::undefined:
                 return false;
             }
             return false;
+        }
+
+        /// THE STAGE HINT, in one place (abi 21): the recipes name the stage their SHADER side runs at (the
+        /// storage-image recipes say COMPUTE_SHADER), and a site whose producer or consumer is another shader
+        /// stage replaces exactly those bits. THE NON-SHADER BITS AND THE ACCESS HALF ARE THE PAIR'S and stay:
+        /// a hint is about WHICH STAGE the engine ran, never about what the transition costs.
+        ///
+        /// A SIDE THAT NAMES NO SHADER STAGE IS RETURNED UNTOUCHED, which is what keeps a transfer side of a
+        /// pair (a copy's destination, say) exactly as the recipe spelled it.
+        [[nodiscard]] constexpr VkPipelineStageFlags2 with_stage_hint(VkPipelineStageFlags2 const mask, rhi::stage_hint const hint) noexcept {
+            constexpr VkPipelineStageFlags2 shader_stages = VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT | VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT |
+                                                            VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT | VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT |
+                                                            VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            if (hint == rhi::stage_hint::none || (mask & shader_stages) == 0) {
+                return mask;
+            }
+            VkPipelineStageFlags2 const stage = hint == rhi::stage_hint::vertex     ? VK_PIPELINE_STAGE_2_VERTEX_SHADER_BIT
+                                                : hint == rhi::stage_hint::fragment ? VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT
+                                                : hint == rhi::stage_hint::compute  ? VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT
+                                                : hint == rhi::stage_hint::mesh     ? (VK_PIPELINE_STAGE_2_TASK_SHADER_BIT_EXT | VK_PIPELINE_STAGE_2_MESH_SHADER_BIT_EXT)
+                                                                                    : VK_PIPELINE_STAGE_2_RAY_TRACING_SHADER_BIT_KHR;
+            return (mask & ~shader_stages) | stage;
         }
 
         /// The subresource range a barrier covers: all-zero means "the whole image", which Vulkan
@@ -2118,8 +2683,20 @@ namespace deren::vulkan {
 
         std::array<VkImageMemoryBarrier2, 8> image_barriers = {};
         std::array<VkBufferMemoryBarrier2, 8> buffer_barriers = {};
+        std::array<VkMemoryBarrier2, 1> memory_barriers = {};
+        // THE TWO APPENDED FIELDS ARE READ ONLY AS FAR AS THE CALLER DECLARED (the `struct_size` rule the
+        // whole descriptor family lives by): an older caller's bytes decode to "the recipes' stages, no global
+        // barrier", which is exactly the behaviour it compiled against.
+        rhi::stage_hint const hint = covered_by(group.struct_size, offsetof(rhi::barrier_group, stage), sizeof(rhi::barrier_group::stage))
+                                         ? group.stage
+                                         : rhi::stage_hint::none;
+        bool const memory_used = covered_by(group.struct_size, offsetof(rhi::barrier_group, has_memory), sizeof(rhi::barrier_group::has_memory)) && group.has_memory;
+        rhi::memory_barrier const memory = memory_used && covered_by(group.struct_size, offsetof(rhi::barrier_group, memory), sizeof(rhi::barrier_group::memory))
+                                               ? group.memory
+                                               : rhi::memory_barrier{};
         std::uint32_t image_count = 0;
         std::uint32_t buffer_count = 0;
+        std::uint32_t memory_count = 0;
         for (rhi::image_barrier const& one : group.images) {
             if (image_count >= image_barriers.size()) {
                 return rhi::error::invalid_argument; // one group, eight images: far past every real site
@@ -2133,6 +2710,12 @@ namespace deren::vulkan {
             if (barrier.srcStageMask == 0 && barrier.srcAccessMask == 0 && barrier.dstStageMask == 0 && barrier.dstAccessMask == 0) {
                 return rhi::error::unsupported; // a pair nobody has defined - the same honest answer `use()` gives
             }
+            // THE STAGE HINT ON TOP OF THE PAIR (abi 21): the recipes name the stage their shader side runs at,
+            // and a site whose producer or consumer is ANOTHER shader stage replaces exactly those bits - the
+            // non-shader bits (TRANSFER) and the whole access/layout half stay the pair's. `none` is a no-op,
+            // which is why this is one line and not a second table.
+            barrier.srcStageMask = with_stage_hint(barrier.srcStageMask, hint);
+            barrier.dstStageMask = with_stage_hint(barrier.dstStageMask, hint);
             barrier.image = native;
             barrier.subresourceRange = subresource_of(aspect_for(format), one.range);
             image_barriers[image_count++] = barrier;
@@ -2166,12 +2749,32 @@ namespace deren::vulkan {
                 .size = one.size == 0 ? (owned->size_bytes - one.offset) : one.size,
             };
         }
+        // THE GLOBAL MEMORY BARRIER OF THE BATCH (abi 21), if the caller declared one: the same role-pair
+        // derivation the buffer loop uses, with NO operand - which is the whole reason the field exists. A
+        // pair the roles cannot spell is refused by name, exactly as a buffer pair is.
+        if (memory_used) {
+            VkPipelineStageFlags2 source_stage = 0;
+            VkAccessFlags2 source_access = 0;
+            VkPipelineStageFlags2 destination_stage = 0;
+            VkAccessFlags2 destination_access = 0;
+            if (!buffer_masks_for(memory.from, source_stage, source_access) || !buffer_masks_for(memory.to, destination_stage, destination_access)) {
+                return rhi::error::unsupported;
+            }
+            memory_barriers[memory_count++] = VkMemoryBarrier2{
+                .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+                .pNext = nullptr,
+                .srcStageMask = source_stage,
+                .srcAccessMask = source_access,
+                .dstStageMask = destination_stage,
+                .dstAccessMask = destination_access,
+            };
+        }
         VkDependencyInfo const dependency = {
             .sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
             .pNext = nullptr,
             .dependencyFlags = 0,
-            .memoryBarrierCount = 0,
-            .pMemoryBarriers = nullptr,
+            .memoryBarrierCount = memory_count,
+            .pMemoryBarriers = memory_count != 0 ? memory_barriers.data() : nullptr,
             .bufferMemoryBarrierCount = buffer_count,
             .pBufferMemoryBarriers = buffer_barriers.data(),
             .imageMemoryBarrierCount = image_count,
@@ -2207,7 +2810,12 @@ namespace deren::vulkan {
             }
             return static_cast<owned_image_view const*>(view)->native_view;
         };
-        std::array<VkRenderingAttachmentInfo, 4> attachments = {};
+        // THE BOUND IS THE PASS FRAMEWORK'S, NOT THIS FUNCTION'S: `pass::max_render_targets` is 8 and the
+        // SCENE instance is the widest site (three surface targets + velocity + the scene colour + depth),
+        // so a 4-slot array refused the scene's own scope and the frame recorded no geometry. The contract
+        // places no bound of its own on `rendering_info::colors`; a scope wider than the widest DECLARED
+        // site is refused rather than silently truncated.
+        std::array<VkRenderingAttachmentInfo, 8> attachments = {};
         std::uint32_t color_count = 0;
         for (rhi::color_attachment const& one : info.colors) {
             if (color_count >= attachments.size()) {
@@ -2351,7 +2959,695 @@ namespace deren::vulkan {
         }
     }
 
+    void core::frame_commands::trace_rays(rhi::shader_binding_table_region const& raygen, rhi::shader_binding_table_region const& miss,
+                                          rhi::shader_binding_table_region const& hit, rhi::shader_binding_table_region const& callable,
+                                          std::uint32_t const width, std::uint32_t const height, std::uint32_t const depth) noexcept {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE || self->ray_trace_launch == nullptr) {
+            // NOTHING IS RECORDED rather than a launch through an entry point the device did not publish: a pass
+            // that launches rays is only built when its ray-tracing pipeline could be created, which needs the
+            // extension - so this is the "no device support" answer, not a silent skip of a frame's work that
+            // could have run (the extension command is resolved once at startup, see `core::init_device`).
+            return;
+        }
+        // THE ONE CONVERSION FROM THE CONTRACT'S REGION TO THE DRIVER'S STRUCTURE, field for field: the contract
+        // type is three numbers (address, size, stride) and Vulkan's is the same three under its own names.
+        auto const as_native = [](rhi::shader_binding_table_region const& region) {
+            return VkStridedDeviceAddressRegionKHR{.deviceAddress = region.address, .stride = region.stride, .size = region.size};
+        };
+        VkStridedDeviceAddressRegionKHR const native_raygen = as_native(raygen);
+        VkStridedDeviceAddressRegionKHR const native_miss = as_native(miss);
+        VkStridedDeviceAddressRegionKHR const native_hit = as_native(hit);
+        VkStridedDeviceAddressRegionKHR const native_callable = as_native(callable);
+        self->ray_trace_launch(command_buffer, &native_raygen, &native_miss, &native_hit, &native_callable, width, height, depth);
+    }
+
+    rhi::micromap* core::create_micromap(rhi::micromap_desc const& declared_desc) {
+        // ---- THE CONTRACT'S LAYOUTS ARE THE API'S, AND THIS IS WHERE THAT IS PROVEN --------------------
+        static_assert(static_cast<std::uint32_t>(rhi::micromap_format::four_state) == VK_OPACITY_MICROMAP_FORMAT_4_STATE_EXT,
+                      "the contract's four-state format IS the API's");
+        static_assert(static_cast<std::uint32_t>(rhi::micromap_format::two_state) == VK_OPACITY_MICROMAP_FORMAT_2_STATE_EXT,
+                      "the contract's two-state format IS the API's");
+        static_assert(sizeof(rhi::micromap_triangle) == sizeof(VkMicromapTriangleEXT),
+                      "a caller fills an array of the contract's records and the build reads the API's");
+        if (this->micromap_create == nullptr || this->micromap_build_sizes == nullptr) {
+            if (!this->micromap_refusal_logged) {
+                this->micromap_refusal_logged = true;
+                deren::utility::log("rhi: create_micromap refused: this device has no VK_EXT_opacity_micromap "
+                                    "(its four entry points did not resolve at startup)");
+            }
+            return nullptr;
+        }
+
+        // THE ABI GUARD, then the description's fields.
+        std::uint32_t const declared = declared_desc.struct_size;
+        std::uint32_t triangle_count = 0;
+        std::span<std::byte const> data = {};
+        std::uint32_t data_stride = 4u;
+        std::span<rhi::micromap_triangle const> triangles = {};
+        std::span<std::uint32_t const> indices = {};
+        rhi::micromap_format format = rhi::micromap_format::four_state;
+        if (covered_by(declared, offsetof(rhi::micromap_desc, triangle_count), sizeof(rhi::micromap_desc::triangle_count))) {
+            triangle_count = declared_desc.triangle_count;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, data), sizeof(rhi::micromap_desc::data))) {
+            data = declared_desc.data;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, data_stride), sizeof(rhi::micromap_desc::data_stride))) {
+            data_stride = declared_desc.data_stride;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, triangles), sizeof(rhi::micromap_desc::triangles))) {
+            triangles = declared_desc.triangles;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, indices), sizeof(rhi::micromap_desc::indices))) {
+            indices = declared_desc.indices;
+        }
+        if (covered_by(declared, offsetof(rhi::micromap_desc, format), sizeof(rhi::micromap_desc::format))) {
+            format = declared_desc.format;
+        }
+        if (triangle_count == 0 || data.empty() || triangles.size() < triangle_count || indices.size() < triangle_count) {
+            deren::utility::log("rhi: create_micromap refused: a micromap needs {}+ attributes, {}+ records and {}+ indices for {} triangles",
+                                data.empty() ? 1u : data.size(), triangle_count, triangle_count, triangle_count);
+            return nullptr;
+        }
+        // THE STRIDE IS WHAT SAYS THE ATTRIBUTES ARE ACTUALLY THERE: a span shorter than one record per
+        // micro-triangle would build a micromap whose later lookups read past the data (the format decides how
+        // many bytes a record is, and `data_stride` is how the caller laid them out).
+        if (data_stride == 0u || data.size() < static_cast<std::size_t>(triangle_count) * data_stride) {
+            deren::utility::log("rhi: create_micromap refused: {} bytes of attributes do not cover {} micro-triangles at a stride of {}",
+                                data.size(), triangle_count, data_stride);
+            return nullptr;
+        }
+
+        auto* const out = new owned_micromap{};
+        out->owner = this;
+        out->triangle_count = triangle_count;
+        out->triangle_array_stride = sizeof(VkMicromapTriangleEXT);
+        out->index_stride = static_cast<std::uint32_t>(sizeof(std::uint32_t));
+        out->usage = VkMicromapUsageEXT{.count = triangle_count, .subdivisionLevel = 0u, .format = static_cast<std::uint32_t>(format)};
+
+        // ---- THE SETUP BUFFERS, AND THE ALIGNMENT THE API REQUIRES OF THEIR ADDRESSES --------------------
+        // 256 BYTES ON THE DEVICE ADDRESS, not on the buffer: the allocator gives no such promise and the address
+        // does not exist before the allocation, so each buffer carries one alignment worth of slack and the
+        // payload is written at the first aligned address inside it. THIS IS THE ENGINE'S OLD JOB, and it is the
+        // backend's now - which is the whole reason `micromap` is an object rather than a caller-managed pair.
+        constexpr VkDeviceSize address_alignment = 256u;
+        constexpr rhi::buffer_flags setup_flags =
+            rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_build_input);
+        auto const setup = [this](std::span<std::byte const> const bytes, std::uintptr_t& address) -> rhi::buffer* {
+            rhi::buffer* const buffer = this->create_buffer(rhi::buffer_desc{
+                .size = static_cast<std::uint64_t>(bytes.size()) + address_alignment,
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = setup_flags});
+            if (buffer == nullptr) {
+                return nullptr;
+            }
+            std::span<std::byte> const mapped = buffer->mapped();
+            std::uint64_t const base = this->address_view.buffer_address(*buffer, 0);
+            if (mapped.data() == nullptr || base == 0) {
+                buffer->release();
+                return nullptr;
+            }
+            std::uint64_t const offset = (address_alignment - (base % address_alignment)) % address_alignment;
+            std::memcpy(mapped.data() + offset, bytes.data(), bytes.size());
+            address = base + offset;
+            return buffer;
+        };
+        out->data = setup(data, out->data_address);
+        std::span<std::byte const> const triangle_bytes{reinterpret_cast<std::byte const*>(triangles.data()),
+                                                        static_cast<std::size_t>(triangle_count) * sizeof(rhi::micromap_triangle)};
+        out->triangles = setup(triangle_bytes, out->triangles_address);
+        std::span<std::byte const> const index_bytes{reinterpret_cast<std::byte const*>(indices.data()),
+                                                     static_cast<std::size_t>(triangle_count) * sizeof(std::uint32_t)};
+        out->indices = setup(index_bytes, out->indices_address);
+        if (out->data == nullptr || out->triangles == nullptr || out->indices == nullptr) {
+            deren::utility::log("rhi: create_micromap refused: a setup buffer could not be allocated or has no device address");
+            delete out;
+            return nullptr;
+        }
+
+        VkMicromapBuildInfoEXT info{};
+        info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
+        info.pNext = nullptr;
+        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+        info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
+        info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
+        info.usageCountsCount = 1u;
+        info.pUsageCounts = &out->usage;
+        info.data.deviceAddress = out->data_address;
+        info.triangleArray.deviceAddress = out->triangles_address;
+        info.triangleArrayStride = out->triangle_array_stride;
+
+        VkMicromapBuildSizesInfoEXT sizes{};
+        sizes.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
+        this->micromap_build_sizes(this->logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
+        if (sizes.micromapSize == 0) {
+            deren::utility::log("rhi: create_micromap refused: the build-size query answered zero bytes");
+            delete out;
+            return nullptr;
+        }
+        out->storage = this->create_buffer(rhi::buffer_desc{
+            .size = sizes.micromapSize,
+            .usage = rhi::buffer_usage::storage_gpu_only,
+            .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_storage)});
+        if (out->storage == nullptr) {
+            deren::utility::log("rhi: create_micromap refused: the micromap storage could not be allocated");
+            delete out;
+            return nullptr;
+        }
+        if (sizes.buildScratchSize != 0) {
+            // only its ADDRESS is read (by the build), so the device-address flag is the whole requirement
+            out->scratch = this->create_buffer(rhi::buffer_desc{
+                .size = sizes.buildScratchSize,
+                .usage = rhi::buffer_usage::storage_gpu_only,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
+            if (out->scratch == nullptr) {
+                deren::utility::log("rhi: create_micromap refused: the micromap scratch could not be allocated");
+                delete out;
+                return nullptr;
+            }
+            out->scratch_address = this->address_view.buffer_address(*out->scratch, 0);
+        }
+
+        auto const* const storage_buffer = static_cast<owned_buffer const*>(out->storage);
+        VkMicromapCreateInfoEXT create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
+        create_info.pNext = nullptr;
+        create_info.createFlags = 0;
+        create_info.buffer = storage_buffer->native;
+        create_info.offset = 0;
+        create_info.size = sizes.micromapSize;
+        create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+        create_info.deviceAddress = 0;
+        if (this->micromap_create(this->logical_device, &create_info, nullptr, &out->native) != VK_SUCCESS || out->native == VK_NULL_HANDLE) {
+            deren::utility::log("rhi: create_micromap refused: vkCreateMicromapEXT failed");
+            delete out;
+            return nullptr;
+        }
+        deren::utility::log("rhi: create_micromap: {} micro-triangles, {} bytes of storage, {} bytes of scratch",
+                            out->triangle_count, sizes.micromapSize, sizes.buildScratchSize);
+        return out;
+    }
+
+    rhi::acceleration_structure* core::create_acceleration_structure(rhi::acceleration_structure_desc const& declared_desc) {
+        // ---- THE ABI GUARD, THEN WHAT A CREATE ACTUALLY IS (tier-1 since abi 26) ------------------------
+        //
+        //   1. THE GEOMETRY, in the driver's words, built ONCE: the caller's records are PODs of the CONTRACT's
+        //      layout, and this is the ONE place the two spellings meet - the backend owns the conversion, the
+        //      same rule `mesh_task_command` follows.
+        //   2. THE SIZES (`vkGetAccelerationStructureBuildSizesKHR`) and the memory: the storage the structure
+        //      lives in, allocated through this backend's own factory. The caller never sees the number.
+        //   3. THE HANDLE (`vkCreateAccelerationStructureKHR`) and its ADDRESS
+        //      (`vkGetAccelerationStructureDeviceAddressKHR`), which is what a shader and an instance record use.
+        //
+        // THE SCRATCH IS ALLOCATED HERE TOO, not at a later first build: both sizes are known at creation (a
+        // bottom level's geometry is fixed; a top level is sized for its capacity), so recording a build never
+        // allocates - which is what keeps the recording verbs free of a failure mode in the middle of a frame.
+        if (this->acceleration_structure_create == nullptr || this->acceleration_structure_build_sizes == nullptr ||
+            this->acceleration_structure_address == nullptr || this->acceleration_structure_build == nullptr) {
+            if (!this->acceleration_structure_refusal_logged) {
+                this->acceleration_structure_refusal_logged = true;
+                deren::utility::log("rhi: create_acceleration_structure refused: this device has no "
+                                    "VK_KHR_acceleration_structure (its five entry points did not resolve at startup)");
+            }
+            return nullptr;
+        }
+
+        // THE ABI GUARD: only the prefix the caller declared is read (the rule every descriptor here follows).
+        std::uint32_t const declared = declared_desc.struct_size;
+        rhi::acceleration_structure_type type = rhi::acceleration_structure_type::bottom_level;
+        rhi::acceleration_structure_flags flags = rhi::no_acceleration_structure_flags;
+        rhi::acceleration_structure_geometry const* geometries = nullptr;
+        std::uint32_t geometry_count = 0;
+        std::uint32_t instance_capacity = 0;
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, type), sizeof(rhi::acceleration_structure_desc::type))) {
+            type = declared_desc.type;
+        }
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, flags), sizeof(rhi::acceleration_structure_desc::flags))) {
+            flags = declared_desc.flags;
+        }
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, geometries), sizeof(rhi::acceleration_structure_desc::geometries))) {
+            geometries = declared_desc.geometries;
+        }
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, geometry_count), sizeof(rhi::acceleration_structure_desc::geometry_count))) {
+            geometry_count = declared_desc.geometry_count;
+        }
+        if (covered_by(declared, offsetof(rhi::acceleration_structure_desc, instance_capacity), sizeof(rhi::acceleration_structure_desc::instance_capacity))) {
+            instance_capacity = declared_desc.instance_capacity;
+        }
+
+        bool const top_level = type == rhi::acceleration_structure_type::top_level;
+        if (!top_level && (geometries == nullptr || geometry_count == 0)) {
+            deren::utility::log("rhi: create_acceleration_structure refused: a bottom-level structure needs at least one geometry");
+            return nullptr; // a structure with nothing to trace is a caller bug, refused by name
+        }
+        if (top_level && instance_capacity == 0) {
+            deren::utility::log("rhi: create_acceleration_structure refused: a top-level structure needs an instance capacity");
+            return nullptr;
+        }
+
+        auto* const structure = new owned_acceleration_structure{};
+        structure->owner = this;
+        structure->top_level = top_level;
+        structure->refittable = rhi::has_flag(flags, rhi::acceleration_structure_flag::allow_update);
+        structure->instance_capacity = instance_capacity;
+
+        // ---- 1. THE GEOMETRY ---------------------------------------------------------------------------
+        if (top_level) {
+            rhi::buffer* const records = this->create_buffer(rhi::buffer_desc{
+                .size = static_cast<std::uint64_t>(instance_capacity) * sizeof(rhi::acceleration_structure_instance),
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)});
+            if (records == nullptr || records->mapped().data() == nullptr) {
+                deren::utility::log("rhi: create_acceleration_structure refused: the instance buffer could not be allocated");
+                delete structure;
+                return nullptr;
+            }
+            structure->instances = records;
+            structure->instances_mapped = records->mapped().data();
+            std::uint64_t const records_address = this->address_view.buffer_address(*records, 0);
+            if (records_address == 0) {
+                deren::utility::log("rhi: create_acceleration_structure refused: the instance buffer has no device address");
+                delete structure;
+                return nullptr;
+            }
+            VkAccelerationStructureGeometryInstancesDataKHR instances_data{};
+            instances_data.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
+            instances_data.pNext = nullptr;
+            instances_data.arrayOfPointers = VK_FALSE;
+            instances_data.data.deviceAddress = records_address;
+            structure->geometries.push_back(VkAccelerationStructureGeometryKHR{
+                .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+                .pNext = nullptr,
+                .geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR,
+                .geometry = {.instances = instances_data},
+                .flags = 0,
+            });
+            structure->range = VkAccelerationStructureBuildRangeInfoKHR{.primitiveCount = 0u, .primitiveOffset = 0u, .firstVertex = 0u, .transformOffset = 0u};
+        } else {
+            structure->geometries.reserve(geometry_count);
+            structure->micromap_attachments.reserve(geometry_count);
+            for (std::uint32_t index = 0; index < geometry_count; ++index) {
+                rhi::acceleration_structure_geometry const& source = geometries[index];
+                VkAccelerationStructureGeometryTrianglesDataKHR triangles{};
+                triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+                triangles.pNext = nullptr;
+                triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT; // the contract's geometry is positions
+                triangles.vertexData.deviceAddress = source.vertex_address;
+                triangles.vertexStride = source.vertex_stride;
+                triangles.maxVertex = source.vertex_count == 0 ? 0u : source.vertex_count - 1u;
+                // Zero index address denotes triangle soup (for example the MASK bake's output).
+                triangles.indexType = source.index_address == 0 ? VK_INDEX_TYPE_NONE_KHR : static_cast<VkIndexType>(source.index_format);
+                triangles.indexData.deviceAddress = source.index_address;
+                triangles.transformData.deviceAddress = 0;
+                // THE OPACITY MICROMAP, CHAINED INTO THE TRIANGLES DATA (not into the geometry: the geometry's own
+                // pNext accepts only the micromap-DATA struct, and validation named exactly that when the engine
+                // first attached it in the wrong place). THE INDEX ARRAY IS THIS BACKEND'S - it built the micromap
+                // and owns the buffer - which is what makes the contract's attachment one handle and a usage record.
+                if (source.opacity_micromap != nullptr) {
+                    if (source.opacity_micromap->type() != rhi::interface_type::micromap) {
+                        deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap is not a handle this backend handed out");
+                        delete structure;
+                        return nullptr;
+                    }
+                    auto& micromap = static_cast<owned_micromap&>(*source.opacity_micromap);
+                    if (micromap.owner != this) {
+                        deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap belongs to another device");
+                        delete structure;
+                        return nullptr;
+                    }
+                    structure->micromap_attachments.push_back(VkAccelerationStructureTrianglesOpacityMicromapEXT{
+                        .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT,
+                        .pNext = nullptr,
+                        .indexType = VK_INDEX_TYPE_UINT32,
+                        .indexBuffer = {.deviceAddress = micromap.indices_address},
+                        .indexStride = micromap.index_stride,
+                        .baseTriangle = 0u,
+                        .usageCountsCount = 1u,
+                        .pUsageCounts = nullptr,  // filled below: it has to point INSIDE this vector
+                        .ppUsageCounts = nullptr, // ... and this backend uses the single-record form
+                        .micromap = micromap.native,
+                    });
+                    // `pUsageCounts` points at the MICROMAP's own usage record, which lives as long as the caller
+                    // holds the micromap (the engine's structure set keeps every micromap it built alive for the
+                    // whole session, which is why that is a safe anchor rather than a local).
+                    structure->micromap_attachments.back().pUsageCounts = &micromap.usage;
+                    triangles.pNext = &structure->micromap_attachments.back();
+                }
+                structure->geometries.push_back(VkAccelerationStructureGeometryKHR{
+                    .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR,
+                    .pNext = nullptr,
+                    .geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR,
+                    .geometry = {.triangles = triangles},
+                    // Preserve the engine's any-hit alpha test, including geometries without a micromap.
+                    .flags = 0,
+                });
+                structure->range = VkAccelerationStructureBuildRangeInfoKHR{
+                    .primitiveCount = (source.index_address == 0 ? source.vertex_count : source.index_count) / 3u,
+                    .primitiveOffset = 0u,
+                    .firstVertex = 0u,
+                    .transformOffset = 0u,
+                };
+            }
+        }
+
+        // ---- 2. THE SIZES, THEN THE MEMORY --------------------------------------------------------------
+        VkAccelerationStructureBuildGeometryInfoKHR size_info{};
+        size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        size_info.pNext = nullptr;
+        size_info.type = top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        size_info.flags = (top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                          (structure->refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
+        size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        size_info.geometryCount = static_cast<std::uint32_t>(structure->geometries.size());
+        size_info.pGeometries = structure->geometries.data();
+        std::uint32_t const primitive_count = top_level ? instance_capacity : structure->range.primitiveCount;
+        VkAccelerationStructureBuildSizesInfoKHR sizes{};
+        sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
+        this->acceleration_structure_build_sizes(this->logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &primitive_count, &sizes);
+        if (sizes.accelerationStructureSize == 0) {
+            deren::utility::log("rhi: create_acceleration_structure refused: the build-size query answered zero bytes");
+            delete structure;
+            return nullptr;
+        }
+
+        structure->storage = this->create_buffer(
+            rhi::buffer_desc{.size = sizes.accelerationStructureSize, .usage = rhi::buffer_usage::acceleration_structure_storage});
+        if (structure->storage == nullptr) {
+            deren::utility::log("rhi: create_acceleration_structure refused: the structure's storage could not be allocated ({} bytes)", sizes.accelerationStructureSize);
+            delete structure;
+            return nullptr;
+        }
+        structure->structure_size = sizes.accelerationStructureSize;
+
+        std::uint64_t const scratch_size = std::max(sizes.buildScratchSize, structure->refittable ? sizes.updateScratchSize : 0u);
+        if (scratch_size != 0) {
+            std::uint64_t const alignment = std::max<std::uint64_t>(this->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1u);
+            structure->scratch = this->create_buffer(rhi::buffer_desc{.size = scratch_size + alignment - 1u,
+                                                                      .usage = rhi::buffer_usage::acceleration_structure_scratch,
+                                                                      .flags = rhi::to_bits(rhi::buffer_flag::device_address)});
+            if (structure->scratch == nullptr) {
+                deren::utility::log("rhi: create_acceleration_structure refused: the build scratch could not be allocated ({} bytes)", scratch_size);
+                delete structure;
+                return nullptr;
+            }
+            structure->scratch_size = scratch_size;
+            std::uint64_t const base = this->address_view.buffer_address(*structure->scratch, 0);
+            if (base == 0) {
+                delete structure;
+                return nullptr;
+            }
+            // The requirement applies to the device address, rather than merely an offset in the buffer.
+            structure->scratch_address = base + (alignment - base % alignment) % alignment;
+        }
+
+        // ---- 3. THE HANDLE AND ITS ADDRESS --------------------------------------------------------------
+        auto const* const storage_buffer = static_cast<owned_buffer const*>(structure->storage);
+        VkAccelerationStructureCreateInfoKHR create_info{};
+        create_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+        create_info.pNext = nullptr;
+        create_info.createFlags = 0;
+        create_info.buffer = storage_buffer->native;
+        create_info.offset = 0;
+        create_info.size = sizes.accelerationStructureSize;
+        create_info.type = size_info.type;
+        create_info.deviceAddress = 0;
+        if (this->acceleration_structure_create(this->logical_device, &create_info, nullptr, &structure->native) != VK_SUCCESS) {
+            deren::utility::log("rhi: create_acceleration_structure refused: vkCreateAccelerationStructureKHR failed");
+            delete structure;
+            return nullptr;
+        }
+        VkAccelerationStructureDeviceAddressInfoKHR address_info{};
+        address_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR;
+        address_info.pNext = nullptr;
+        address_info.accelerationStructure = structure->native;
+        structure->address = this->acceleration_structure_address(this->logical_device, &address_info);
+        deren::utility::log("rhi: create_acceleration_structure: {} level, {} geometries, {} bytes of storage, {} bytes of scratch, address {:#x}",
+                            top_level ? "top" : "bottom", structure->geometries.size(), structure->structure_size,
+                            structure->scratch_size, static_cast<std::uint64_t>(structure->address));
+        return structure;
+    }
+
+    rhi::error core::frame_commands::build_micromap(rhi::micromap& target) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (self->micromap_build == nullptr) {
+            return rhi::error::unsupported; // no VK_EXT_opacity_micromap on this device (see the constructor)
+        }
+        if (target.type() != rhi::interface_type::micromap) {
+            return rhi::error::invalid_argument; // a handle this backend did not hand out
+        }
+        auto& micromap = static_cast<owned_micromap&>(target);
+        if (micromap.owner != self || micromap.native == VK_NULL_HANDLE) {
+            return rhi::error::invalid_argument;
+        }
+        // THE BARRIER IS THE BACKEND'S, as it is for an acceleration structure build: the setup buffers were
+        // written by the HOST through their mappings, and the micromap itself is written.
+        VkMemoryBarrier2 const barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT,
+            .srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT,
+            .dstStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
+            .dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT | VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT | VK_ACCESS_2_SHADER_READ_BIT,
+        };
+        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                          .pNext = nullptr,
+                                          .dependencyFlags = 0,
+                                          .memoryBarrierCount = 1u,
+                                          .pMemoryBarriers = &barrier,
+                                          .bufferMemoryBarrierCount = 0u,
+                                          .pBufferMemoryBarriers = nullptr,
+                                          .imageMemoryBarrierCount = 0u,
+                                          .pImageMemoryBarriers = nullptr};
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
+
+        VkMicromapBuildInfoEXT info{};
+        info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
+        info.pNext = nullptr;
+        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
+        info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
+        info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
+        info.dstMicromap = micromap.native;
+        info.usageCountsCount = 1u;
+        info.pUsageCounts = &micromap.usage;
+        info.data.deviceAddress = micromap.data_address;
+        info.triangleArray.deviceAddress = micromap.triangles_address;
+        info.triangleArrayStride = micromap.triangle_array_stride;
+        info.scratchData.deviceAddress = micromap.scratch_address;
+        self->micromap_build(command_buffer, 1u, &info);
+        return rhi::error::ok;
+    }
+
+    void core::owned_micromap::release() noexcept {
+        delete this;
+    }
+
+    core::owned_micromap::~owned_micromap() noexcept {
+        // THE ORDER IS THE POINT, as it is for an acceleration structure: the micromap first, then the memory it
+        // lives in and the setup buffers the build read.
+        if (this->native != VK_NULL_HANDLE && this->owner != nullptr && this->owner->micromap_destroy != nullptr) {
+            this->owner->micromap_destroy(this->owner->logical_device, this->native, nullptr);
+        }
+        for (deren::promise::rhi::buffer* const buffer : {this->indices, this->triangles, this->data, this->scratch, this->storage}) {
+            if (buffer != nullptr) {
+                buffer->release();
+            }
+        }
+    }
+
+    rhi::error core::frame_commands::build_acceleration_structure(rhi::acceleration_structure& target) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (self->acceleration_structure_build == nullptr) {
+            return rhi::error::unsupported; // no VK_KHR_acceleration_structure on this device (see the constructor)
+        }
+        if (target.type() != rhi::interface_type::acceleration_structure) {
+            return rhi::error::invalid_argument; // a handle this backend did not hand out (the provenance rule)
+        }
+        auto& structure = static_cast<owned_acceleration_structure&>(target);
+        if (structure.owner != self) {
+            return rhi::error::invalid_argument;
+        }
+        if (structure.top_level && structure.instance_count == 0) {
+            // An empty top level is a legal but useless object; recording a build for it would make the driver
+            // read zero instances while `ok` claimed a build happened. Refused by name instead.
+            return rhi::error::invalid_argument;
+        }
+        // THE BARRIER IS THE BACKEND'S NOW (the engine's module used to record its own): everything the build
+        // READS was written by the host (the caller's vertex/index/instance writes, and this frame's transfers)
+        // and the structure itself is written - one conservative memory barrier covers both.
+        VkMemoryBarrier2 const barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        };
+        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                          .pNext = nullptr,
+                                          .dependencyFlags = 0,
+                                          .memoryBarrierCount = 1u,
+                                          .pMemoryBarriers = &barrier,
+                                          .bufferMemoryBarrierCount = 0u,
+                                          .pBufferMemoryBarriers = nullptr,
+                                          .imageMemoryBarrierCount = 0u,
+                                          .pImageMemoryBarriers = nullptr};
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
+
+        VkAccelerationStructureBuildGeometryInfoKHR build_info{};
+        build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        build_info.pNext = nullptr;
+        build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        build_info.flags = (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                           (structure.refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
+        build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+        build_info.srcAccelerationStructure = VK_NULL_HANDLE;
+        build_info.dstAccelerationStructure = structure.native;
+        build_info.geometryCount = static_cast<std::uint32_t>(structure.geometries.size());
+        build_info.pGeometries = structure.geometries.data();
+        build_info.ppGeometries = nullptr;
+        build_info.scratchData.deviceAddress = structure.scratch_address;
+        VkAccelerationStructureBuildRangeInfoKHR range = structure.range;
+        if (structure.top_level) {
+            range.primitiveCount = structure.instance_count; // the build reads what the caller last wrote
+        }
+        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {&range};
+        self->acceleration_structure_build(command_buffer, 1u, &build_info, ranges);
+        return rhi::error::ok;
+    }
+
+    rhi::error core::frame_commands::refit_acceleration_structure(rhi::acceleration_structure& target) {
+        core* const self = this->owner;
+        VkCommandBuffer const command_buffer = this->native();
+        if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
+            return rhi::error::not_ready;
+        }
+        if (self->acceleration_structure_build == nullptr) {
+            return rhi::error::unsupported;
+        }
+        if (target.type() != rhi::interface_type::acceleration_structure) {
+            return rhi::error::invalid_argument;
+        }
+        auto& structure = static_cast<owned_acceleration_structure&>(target);
+        if (structure.owner != self) {
+            return rhi::error::invalid_argument;
+        }
+        if (!structure.refittable) {
+            // THE ONE REFUSAL THE FLAG EXISTS FOR: a structure built without ALLOW_UPDATE has no in-place mode,
+            // and a "refit" that silently rebuilt it would be a different operation than the caller asked for.
+            return rhi::error::unsupported;
+        }
+        VkMemoryBarrier2 const barrier{
+            .sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
+            .pNext = nullptr,
+            .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT | VK_PIPELINE_STAGE_2_TRANSFER_BIT | VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT | VK_ACCESS_2_TRANSFER_WRITE_BIT | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+            .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
+            .dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR | VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR,
+        };
+        VkDependencyInfo const dependency{.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
+                                          .pNext = nullptr,
+                                          .dependencyFlags = 0,
+                                          .memoryBarrierCount = 1u,
+                                          .pMemoryBarriers = &barrier,
+                                          .bufferMemoryBarrierCount = 0u,
+                                          .pBufferMemoryBarriers = nullptr,
+                                          .imageMemoryBarrierCount = 0u,
+                                          .pImageMemoryBarriers = nullptr};
+        vkCmdPipelineBarrier2(command_buffer, &dependency);
+
+        VkAccelerationStructureBuildGeometryInfoKHR build_info{};
+        build_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
+        build_info.pNext = nullptr;
+        build_info.type = structure.top_level ? VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR : VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+        build_info.flags = (structure.top_level ? VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR : VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR) |
+                           VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
+        build_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR; // the whole difference from a build
+        build_info.srcAccelerationStructure = structure.native;
+        build_info.dstAccelerationStructure = structure.native;
+        build_info.geometryCount = static_cast<std::uint32_t>(structure.geometries.size());
+        build_info.pGeometries = structure.geometries.data();
+        build_info.ppGeometries = nullptr;
+        build_info.scratchData.deviceAddress = structure.scratch_address;
+        VkAccelerationStructureBuildRangeInfoKHR range = structure.range;
+        if (structure.top_level) {
+            range.primitiveCount = structure.instance_count;
+        }
+        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {&range};
+        self->acceleration_structure_build(command_buffer, 1u, &build_info, ranges);
+        return rhi::error::ok;
+    }
+
+    // ---- the owned acceleration structure's own verbs -----------------------------------------------------
+
+    std::uint64_t core::owned_acceleration_structure::device_address() const noexcept {
+        return this->address;
+    }
+
+    std::uint64_t core::owned_acceleration_structure::size_bytes() const noexcept {
+        return this->structure_size;
+    }
+
+    rhi::error core::owned_acceleration_structure::write_instances(std::span<rhi::acceleration_structure_instance const> records) {
+        if (!this->top_level || this->instances_mapped == nullptr) {
+            return rhi::error::unsupported; // a bottom-level structure has no instance list to write
+        }
+        if (records.size() > this->instance_capacity) {
+            return rhi::error::invalid_argument; // past the capacity it was CREATED with (and sized for)
+        }
+        auto* const destination = static_cast<VkAccelerationStructureInstanceKHR*>(this->instances_mapped);
+        for (std::size_t index = 0; index < records.size(); ++index) {
+            rhi::acceleration_structure_instance const& source = records[index];
+            VkAccelerationStructureInstanceKHR record{};
+            std::memcpy(&record.transform, source.transform, sizeof(record.transform)); // 3x4 row-major: same layout
+            record.instanceCustomIndex = source.instance_custom_index;
+            record.mask = source.mask;
+            record.instanceShaderBindingTableRecordOffset = source.shader_binding_table_record_offset;
+            record.flags = source.flags;
+            record.accelerationStructureReference = source.structure_reference;
+            destination[index] = record;
+        }
+        this->instance_count = static_cast<std::uint32_t>(records.size());
+        return rhi::error::ok;
+    }
+
+    void core::owned_acceleration_structure::release() noexcept {
+        delete this;
+    }
+
+    core::owned_acceleration_structure::~owned_acceleration_structure() noexcept {
+        // THE ORDER IS THE POINT (see the type's note): the structure first, then the memory it lives in.
+        if (this->native != VK_NULL_HANDLE && this->owner != nullptr && this->owner->acceleration_structure_destroy != nullptr) {
+            this->owner->acceleration_structure_destroy(this->owner->logical_device, this->native, nullptr);
+        }
+        if (this->instances != nullptr) {
+            this->instances->release();
+        }
+        if (this->scratch != nullptr) {
+            this->scratch->release();
+        }
+        if (this->storage != nullptr) {
+            this->storage->release();
+        }
+    }
     rhi::error core::frame_commands::draw_mesh_tasks_indirect(rhi::buffer const& argument_buffer, std::uint64_t const offset, std::uint32_t const count, std::uint32_t const stride) {
+        // THE CONTRACT'S RECORD LAYOUT IS THE API'S, AND THIS IS WHERE THAT IS PROVEN: callers write
+        // `rhi::mesh_task_command` records into their argument buffer and pass `mesh_task_command_size` as the
+        // stride, so the two structures must be the same bytes. The backend is the only side that can assert it
+        // (it is the only one that names both).
+        static_assert(sizeof(VkDrawMeshTasksIndirectCommandEXT) == rhi::mesh_task_command_size,
+                      "the argument buffer's record IS the contract's layout, and the stride its size");
+        static_assert(sizeof(VkDrawMeshTasksIndirectCommandEXT) == sizeof(rhi::mesh_task_command),
+                      "the contract's record and the API's structure must agree");
         core* const self = this->owner;
         VkCommandBuffer const command_buffer = this->native();
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
@@ -2407,7 +3703,15 @@ namespace deren::vulkan {
     void core::frame_commands::set_depth_bias(float const constant_factor, float const slope_factor, float const clamp) noexcept {
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer != VK_NULL_HANDLE) {
-            vkCmdSetDepthBias(command_buffer, clamp, slope_factor, constant_factor); // Vulkan's own argument order, spelled once here
+            // THE TWO ORDERS ARE NOT THE SAME, and this line is where that is spelled once: the CONTRACT states
+            // `set_depth_bias(constant, slope, clamp)` (the order a reader of the record series expects, and the
+            // order `rhi::command_buffer::set_depth_bias` documents), while VULKAN states
+            // `vkCmdSetDepthBias(cb, depthBiasConstantFactor, depthBiasClamp, depthBiasSlopeFactor)`. This call
+            // had them as (clamp, slope, constant) - ALL THREE WRONG - and the comment claimed to be Vulkan's own
+            // order, so nothing but a frame that reads the number back could catch it. The shadow map's live depth
+            // bias is what does: the 14-hash render gate took 12 mismatches the first time the shadow cascade
+            // recorded its bias through this verb instead of through vkCmdSetDepthBias directly.
+            vkCmdSetDepthBias(command_buffer, constant_factor, clamp, slope_factor);
         }
     }
 
@@ -2562,7 +3866,7 @@ namespace deren::vulkan {
         return reinterpret_cast<void*>(this->owner->graphics_queue_handle);
     }
 
-    void* core::frame_escape::native_command_buffer(rhi::command_list& commands) const noexcept {
+    void* core::frame_escape::native_command_buffer(rhi::command_buffer& commands) const noexcept {
         // THE SAME WINDOW `begin_commands()` ANSWERS IN for the FRAME's list: outside the frame there is
         // no command buffer to name, and answering with "the slot that would be next" would be a lie an
         // escaping pass could record into.
@@ -2581,7 +3885,10 @@ namespace deren::vulkan {
         std::lock_guard const lock(self.contract_command_buffers_mutex);
         for (deren::promise::rhi::command_buffer const* const candidate : self.contract_command_buffers) {
             auto const* const owned = static_cast<owned_command_buffer const*>(candidate);
-            if (static_cast<void const*>(&owned->list) == static_cast<void const*>(&commands)) {
+            // THE BUFFER **IS** THE LIST NOW (the recording face absorbed `command_list`), so this is an
+            // object-identity question rather than the member-address comparison the borrowed view needed:
+            // one inheritance chain, so the two pointers name the same object.
+            if (static_cast<void const*>(owned) == static_cast<void const*>(&commands)) {
                 return reinterpret_cast<void*>(*owned->buffer);
             }
         }
@@ -2667,7 +3974,173 @@ namespace deren::vulkan {
         return reinterpret_cast<void*>(owned->native_handle);
     }
 
+    // ---- abi 22: the BASIC-HANDLE basis ------------------------------------------------------------
+    //
+    // THE TOKEN CARRIES THE TAG AND NOTHING ELSE (see `api_basis`): what a caller passes is "the device this
+    // work belongs to", and the two escape methods below take it back and read the device from THIS core's own
+    // state. That is the whole reason the base has no interface - the handle never travels in it, so nothing
+    // about it can go stale, and an implementer of the contract owes the type nothing at all.
+    rhi::api_basis* core::get_basis() noexcept {
+        return &this->basis_object;
+    }
+
+    bool core::owns_basis(rhi::api_basis const& basis) const noexcept {
+        // THE CHECK IS THE TAG, NOT A dynamic_cast: this build is `-fno-rtti`, and the tag is the stronger
+        // question anyway (it says "a Vulkan device basis", which is exactly what the methods below need to
+        // know). A token from a NON-Vulkan backend is refused here; a token from another Vulkan core in the same
+        // process is indistinguishable by tag and is resolved against THIS core's device - the engine obtains
+        // the token from the face it is recording with, so a mixed-core call would be a caller bug, and the
+        // failure it can produce is bounded: a device proc resolved on the wrong device, not a mis-cast.
+        return basis.s_type == rhi::structure_type::vulkan_device_basis;
+    }
+
+    rhi::api_basis* core::frame_escape::get_basis() const noexcept {
+        return this->owner != nullptr ? this->owner->get_basis() : nullptr;
+    }
+
+    bool core::frame_escape::shader_group_handles(rhi::api_basis& basis, rhi::pipeline const& resource, std::uint32_t const first_group, std::uint32_t const group_count,
+                                                  std::span<std::uint8_t> const out) const noexcept {
+        core* const self = this->owner;
+        if (self == nullptr || !self->owns_basis(basis) || self->logical_device == VK_NULL_HANDLE) {
+            return false;
+        }
+        void* const native = this->native_pipeline(resource);
+        if (native == nullptr || out.empty()) {
+            return false;
+        }
+        auto const query = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(self->logical_device, "vkGetRayTracingShaderGroupHandlesKHR"));
+        if (query == nullptr) {
+            return false;
+        }
+        // `out.size()` IS THE QUERY'S dataSize, exactly as Vulkan wants it: the CALLER sized the destination from
+        // the device's own handle size (the pass reads it off `ray_tracing_properties`), so this side needs no
+        // second opinion about the layout - and a caller that sized it wrong gets a failed call rather than a
+        // truncated write.
+        return query(self->logical_device, static_cast<VkPipeline>(native), first_group, group_count, out.size(), out.data()) == VK_SUCCESS;
+    }
+
+    rhi::error core::frame_shader_group_access::read(rhi::pipeline const& resource, std::uint32_t const first_group,
+                                                     std::uint32_t const group_count, std::span<std::uint8_t> const out) const noexcept {
+        if (this->owner == nullptr || !this->owner->ray_tracing_pipeline_available) {
+            return rhi::error::unsupported;
+        }
+        core& self = *this->owner;
+        std::lock_guard const lock(self.contract_pipelines_mutex);
+        if (!self.contract_pipelines.contains(&resource)) {
+            return rhi::error::invalid_argument;
+        }
+        auto const& owned = static_cast<owned_pipeline const&>(resource);
+        std::uint64_t const required = static_cast<std::uint64_t>(group_count) * self.ray_tracing_pipeline_properties.shaderGroupHandleSize;
+        if (owned.bind_point != VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR || group_count == 0 ||
+            first_group >= owned.group_count || group_count > owned.group_count - first_group || required == 0 || required > out.size()) {
+            return rhi::error::invalid_argument;
+        }
+        auto const query = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(self.logical_device, "vkGetRayTracingShaderGroupHandlesKHR"));
+        if (query == nullptr) {
+            return rhi::error::unsupported;
+        }
+        VkResult const result = query(self.logical_device, owned.native_handle, first_group, group_count,
+                                      static_cast<std::size_t>(required), out.data());
+        return generic_error(result);
+    }
+
     // ---- tier-2 host_image_copy (③-D/E step 2) ------------------------------------------------------
+    //
+    // THE ONE MECHANISM, IN ONE PLACE (abi 25): the ability's span-shaped verb and `image::get_content()`
+    // are two SPELLINGS of the same host copy - `vkCopyImageToMemoryEXT`, with no staging buffer, no copy
+    // command and no submission - so both build the same `VkImageToMemoryCopy` through this helper. A
+    // device fact (`host_image_copy_available`) gates both, which is what keeps them from disagreeing.
+    namespace {
+        [[nodiscard]] rhi::error host_copy_image_out(core& self, VkImage const source, std::span<std::byte> const destination,
+                                                     rhi::image_copy_region const& region) noexcept {
+            if (!self.host_image_copy_available || source == VK_NULL_HANDLE) {
+                return rhi::error::unsupported;
+            }
+            // THE REGION IS THE CALLER'S, TIGHTLY PACKED: the contract's `image_copy_region` says WHERE in
+            // the image (texels, subresource, offsets) and this maps it onto the API's own structure with the
+            // row/image strides left zero - which is the API's own spelling of "the region is tightly
+            // packed", i.e. exactly extent.width texels per row and extent.height rows deep. The aspect is
+            // COLOUR: the contract's region carries no aspect, and every image this renderer copies out of
+            // is a colour one.
+            VkImageToMemoryCopy memory_copy = {};
+            memory_copy.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT;
+            memory_copy.pNext = nullptr;
+            memory_copy.pHostPointer = destination.data();
+            memory_copy.memoryRowLength = 0;
+            memory_copy.memoryImageHeight = 0;
+            // THE CONVERSIONS ARE EXPLICIT because the API's own structure is less wide here than the
+            // contract's region: `mipLevel` and the offsets are `int32_t` in Vulkan and `uint32_t` in the
+            // region. A braced initializer would refuse the narrowing outright (-Wc++11-narrowing), which is
+            // the compiler asking for the cast - and a region whose values do not fit is a caller bug the
+            // backend cannot repair.
+            memory_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+            memory_copy.imageSubresource.mipLevel = static_cast<std::int32_t>(region.mip_level);
+            memory_copy.imageSubresource.baseArrayLayer = region.base_array_layer;
+            memory_copy.imageSubresource.layerCount = region.array_layer_count;
+            memory_copy.imageOffset = {static_cast<std::int32_t>(region.offset_x),
+                                       static_cast<std::int32_t>(region.offset_y),
+                                       static_cast<std::int32_t>(region.offset_z)};
+            memory_copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
+            VkCopyImageToMemoryInfo copy_info = {};
+            copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT;
+            copy_info.pNext = nullptr;
+            copy_info.flags = 0;
+            copy_info.srcImage = source;
+            // GENERAL, AND THAT IS THIS RENDERER'S OWN CONVENTION rather than a choice made here: every image
+            // it creates is kept in GENERAL (the heap-native shaders index the grid directly), and the
+            // device's host-copy source layouts list GENERAL among what it can read from - which is exactly
+            // what `host_image_copy_available` verifies at startup.
+            copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
+            copy_info.regionCount = 1;
+            copy_info.pRegions = &memory_copy;
+            return generic_error(self.copy_image_to_memory(self.logical_device, &copy_info));
+        }
+    } // namespace
+
+    // ---- tier-2 device_capabilities: THE DEVICE'S OWN FACTS, ANSWERED FROM WHAT THE CONSTRUCTOR QUERIED ----
+    //
+    // NOT ONE OF THESE METHODS ASKS THE DEVICE ANYTHING. Every value is a member the constructor filled while it
+    // decided what to enable (`gate G2` in init_utils.cppm verified the four-part capability sets), so the
+    // engine's questions are answered from the record of the decision rather than by repeating its queries -
+    // which is also what makes the answers UNABLE to disagree with the enabling they describe.
+    //
+    // A MISSING DEVICE (`owner == nullptr`, a released core) answers the same defaults an unqueried device
+    // struct would have: false for the features, zero for the numbers - the callers' own guard rails treat a
+    // zero limit as "visibly not a device" (the note `physical_properties_of` used to carry).
+    bool core::frame_device_capabilities::mesh_shader() const noexcept {
+        return this->owner != nullptr && this->owner->mesh_shader_available;
+    }
+
+    bool core::frame_device_capabilities::ray_query() const noexcept {
+        return this->owner != nullptr && this->owner->ray_query_available;
+    }
+
+    std::uint32_t core::frame_device_capabilities::max_push_constants_size() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->device_properties.limits.maxPushConstantsSize;
+    }
+
+    std::uint32_t core::frame_device_capabilities::graphics_queue_family() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->graphics_queue_family_index;
+    }
+
+    rhi::shader_binding_table_properties core::frame_device_capabilities::shader_binding_table() const noexcept {
+        if (this->owner == nullptr) {
+            return {};
+        }
+        auto const& properties = this->owner->ray_tracing_pipeline_properties;
+        return rhi::shader_binding_table_properties{.handle_size = properties.shaderGroupHandleSize,
+                                                    .handle_alignment = properties.shaderGroupHandleAlignment,
+                                                    .base_alignment = properties.shaderGroupBaseAlignment};
+    }
+
+    std::uint64_t core::frame_device_capabilities::acceleration_structure_scratch_alignment() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment;
+    }
+
+    std::uint64_t core::frame_device_capabilities::max_acceleration_structure_instances() const noexcept {
+        return this->owner == nullptr ? 0u : this->owner->acceleration_structure_properties.maxInstanceCount;
+    }
+
     rhi::error core::frame_host_copy::copy_image_to_memory(rhi::image const& source, std::span<std::byte> destination,
                                                            rhi::image_copy_region const& region) noexcept {
         core* const self = this->owner;
@@ -2678,9 +4151,10 @@ namespace deren::vulkan {
             return rhi::error::unsupported;
         }
         // ONLY AN IMAGE THIS BACKEND CREATED, which is the contract's precondition for every borrowed
-        // native handle. The frame image (a BORROWED view) is deliberately NOT served here: a host copy
-        // out of the presentation image is not what this ability is for today, and reinterpreting the
-        // borrowed object as an owned one is the bug the escape's pointer-identity tests exist to avoid.
+        // native handle. The frame image (a BORROWED view) is NOT served HERE, and that is deliberate: this
+        // ability's contract is "an image a caller made", and reinterpreting the borrowed object as an owned
+        // one is the bug the escape's pointer-identity tests exist to avoid. The FRAME image has its own
+        // spelling now (`frame_image_slot::get_content()`), so nothing is lost by keeping this refusal.
         if (static_cast<void const*>(&source) == static_cast<void const*>(&self->frame_image_view)) {
             return rhi::error::invalid_argument;
         }
@@ -2688,44 +4162,65 @@ namespace deren::vulkan {
         if (owned->native_handle == VK_NULL_HANDLE) {
             return rhi::error::invalid_argument;
         }
-        // THE REGION IS THE CALLER'S, TIGHTLY PACKED: the contract's `image_copy_region` says WHERE in
-        // the image (texels, subresource, offsets) and this maps it onto the API's own structure with the
-        // row/image strides left zero - which is the API's own spelling of "the region is tightly
-        // packed", i.e. exactly extent.width texels per row and extent.height rows deep. The aspect is
-        // COLOUR: the contract's region carries no aspect, and the image this renderer copies out of (a
-        // probe's colour target) is a colour attachment.
-        VkImageToMemoryCopy memory_copy = {};
-        memory_copy.sType = VK_STRUCTURE_TYPE_IMAGE_TO_MEMORY_COPY_EXT;
-        memory_copy.pNext = nullptr;
-        memory_copy.pHostPointer = destination.data();
-        memory_copy.memoryRowLength = 0;
-        memory_copy.memoryImageHeight = 0;
-        // THE CONVERSIONS ARE EXPLICIT because the API's own structure is less wide here than the
-        // contract's region: `mipLevel` and the offsets are `int32_t` in Vulkan and `uint32_t` in the
-        // region. A braced initializer would refuse the narrowing outright (-Wc++11-narrowing), which is
-        // the compiler asking for the cast - and a region whose values do not fit is a caller bug the
-        // backend cannot repair.
-        memory_copy.imageSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-        memory_copy.imageSubresource.mipLevel = static_cast<std::int32_t>(region.mip_level);
-        memory_copy.imageSubresource.baseArrayLayer = region.base_array_layer;
-        memory_copy.imageSubresource.layerCount = region.array_layer_count;
-        memory_copy.imageOffset = {static_cast<std::int32_t>(region.offset_x),
-                                   static_cast<std::int32_t>(region.offset_y),
-                                   static_cast<std::int32_t>(region.offset_z)};
-        memory_copy.imageExtent = {region.extent.width, region.extent.height, region.extent.depth};
-        VkCopyImageToMemoryInfo copy_info = {};
-        copy_info.sType = VK_STRUCTURE_TYPE_COPY_IMAGE_TO_MEMORY_INFO_EXT;
-        copy_info.pNext = nullptr;
-        copy_info.flags = 0;
-        copy_info.srcImage = owned->native_handle;
-        // GENERAL, AND THAT IS THIS RENDERER'S OWN CONVENTION rather than a choice made here: every image
-        // it creates is kept in GENERAL (the heap-native shaders index the grid directly), and the
-        // device's host-copy source layouts list GENERAL among what it can read from - which is exactly
-        // what `host_image_copy_available` verifies at startup.
-        copy_info.srcImageLayout = VK_IMAGE_LAYOUT_GENERAL;
-        copy_info.regionCount = 1;
-        copy_info.pRegions = &memory_copy;
-        return generic_error(self->copy_image_to_memory(self->logical_device, &copy_info));
+        return host_copy_image_out(*self, owned->native_handle, destination, region);
+    }
+
+    // ---- image::get_content (abi 25): THE CONTENT, NOT A HANDLE --------------------------------------
+    std::expected<rhi::image_content, rhi::error> core::owned_image::get_content(rhi::image_copy_region const& region) const {
+        core* const self = this->owner;
+        if (self == nullptr || this->native_handle == VK_NULL_HANDLE) {
+            return std::unexpected(rhi::error::invalid_argument);
+        }
+        // THE IMAGE MUST HAVE BEEN MADE FOR HOST TRANSFER: the contract's `image_flag::host_transfer`, which
+        // the descriptor declared and this backend kept in `declared_flags`. An image without it is refused by
+        // nature (VUID-vkCopyImageToMemoryEXT-srcImage-09460), so the answer is a NAMED error, not the call.
+        if (!rhi::has_flag(this->declared_flags, rhi::image_flag::host_transfer) || !self->host_image_copy_available) {
+            return std::unexpected(rhi::error::unsupported);
+        }
+        // The region: what the caller asked for, or the whole mip 0 of every layer.
+        rhi::image_extent const whole{this->width, this->height, 1u};
+        bool const whole_image = region.extent.width == 0u || region.extent.height == 0u;
+        rhi::image_extent const extent = whole_image ? whole : region.extent;
+        rhi::image_copy_region const asked = whole_image
+                                                 ? rhi::image_copy_region{.extent = whole, .array_layer_count = this->array_layers}
+                                                 : region;
+        std::uint32_t const bpp = rhi::bytes_per_pixel(this->declared_format);
+        if (bpp == 0u) {
+            // A format with no host spelling here (a depth ROLE, `unknown`): the caller would not be able to
+            // unpack what it received, so the honest answer is the refusal.
+            return std::unexpected(rhi::error::unsupported);
+        }
+        std::size_t const texels = static_cast<std::size_t>(extent.width) * extent.height * extent.depth * asked.array_layer_count;
+        rhi::image_content content{};
+        content.extent = extent;
+        content.bytes_per_pixel = bpp;
+        content.bytes.resize(texels * bpp);
+        rhi::error const copied = host_copy_image_out(*self, this->native_handle, std::span<std::byte>(content.bytes), asked);
+        if (copied != rhi::error::ok) {
+            return std::unexpected(copied);
+        }
+        return content;
+    }
+
+    // ---- the FRAME image's content (abi 25): REFUSED, WITH THE MEASURED REASON ------------------------
+    //
+    // A swapchain image can only be host-copied when the surface listed `VK_IMAGE_USAGE_HOST_TRANSFER_BIT_EXT`
+    // - the swapchain's usage has to be a subset of the surface's `supportedUsageFlags`
+    // (VUID-VkSwapchainCreateInfoKHR-imageUsage-01276) - and the swapchain here does not include that bit. On
+    // every surface this renderer has been run on the bit is ABSENT (the constructor logs the fact, and
+    // docs/host_image_copy.md records why the screenshot's read-back is the recorded copy command instead).
+    //
+    // SO THIS ANSWERS `unsupported` RATHER THAN FAKING IT, and the day a surface lists the bit the honest fix
+    // is two lines in the constructor (add the usage bit, remember the answer) plus the body below - the
+    // refusal is a MEASURED property of the surface, not a gap in this backend. A caller that wants pixels on
+    // such a surface reads an image this backend created (`image_flag::host_transfer`), which is what the
+    // probes do.
+    std::expected<rhi::image_content, rhi::error> core::frame_image_slot::get_content(rhi::image_copy_region const& region) const {
+        static_cast<void>(region);
+        if (this->owner == nullptr) {
+            return std::unexpected(rhi::error::invalid_argument);
+        }
+        return std::unexpected(rhi::error::unsupported);
     }
 
     VkResult core::acquire_next_image(uint32_t& image_index) {
@@ -2790,11 +4285,40 @@ namespace deren::vulkan {
         return &this->swapchain_view_;
     }
 
-    rhi::error core::submit(rhi::command_list& commands) {
-        // The list must be THIS frame's recording view - the same two-way check every frame verb
-        // makes (a foreign list is a caller bug, refused by name, never guessed at).
-        if (&commands != static_cast<rhi::command_list*>(&this->commands_view)) {
-            return rhi::error::invalid_argument;
+    rhi::error core::submit(rhi::command_buffer& commands) {
+        // THE FRAME'S OWN LIST first, which is the shape this verb had from the start.
+        if (&commands != static_cast<rhi::command_buffer*>(&this->commands_view)) {
+            // ---- AND THE CALLER'S OWN LIST (plan X4) ------------------------------------------------------
+            //
+            // WHAT THIS WIDENING IS FOR, and it is a WIDENING rather than a new slot (the signature does not
+            // move, so abi 27 stands): the probes record their read-back into a buffer THEY created
+            // (`create_command_buffer()`), and they handed it to the queue through the escape with a raw
+            // `vkQueueSubmit` - the last Vulkan reference the engine half had. A one-shot list the caller owns is
+            // the same operation the frame's list is (record -> submit to the graphics queue); what differs is
+            // that NOTHING IS PRESENTED, so the acquire state, the swapchain image and the semaphores are not
+            // involved. THE ORDERING STAYS THE CALLER'S (`wait_idle()`), exactly as it was when it submitted by
+            // hand - the contract has no fence for an owned buffer, and inventing one is not this batch's call.
+            {
+                std::lock_guard const lock(this->contract_command_buffers_mutex);
+                if (!this->contract_command_buffers.contains(&commands)) {
+                    return rhi::error::invalid_argument; // a list this backend did not hand out (provenance)
+                }
+            }
+            auto const& owned = static_cast<core::owned_command_buffer const&>(commands);
+            VkCommandBuffer const native = *owned.buffer;
+            if (native == VK_NULL_HANDLE || this->graphics_queue_handle == VK_NULL_HANDLE) {
+                return rhi::error::not_ready;
+            }
+            VkSubmitInfo const one_shot = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+                                           .pNext = nullptr,
+                                           .waitSemaphoreCount = 0,
+                                           .pWaitSemaphores = nullptr,
+                                           .pWaitDstStageMask = nullptr,
+                                           .commandBufferCount = 1,
+                                           .pCommandBuffers = &native,
+                                           .signalSemaphoreCount = 0,
+                                           .pSignalSemaphores = nullptr};
+            return generic_error(vkQueueSubmit(this->graphics_queue_handle, 1, &one_shot, VK_NULL_HANDLE));
         }
         if (!this->frame_in_flight) {
             return rhi::error::not_ready;

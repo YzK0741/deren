@@ -15,12 +15,15 @@ module;
 #include <cstdint>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.cluster;
 
+import deren.promise.rhi;      // the record series (abi 20): the dispatch and the two buffer barriers
 import deren.vulkan.pipelines; // build_cluster: the compute pipeline this pass owns
 import deren.utility;
+
+// The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -50,8 +53,8 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline cluster_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* cluster_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
     void cluster_pass::set_frame(cluster_frame const& frame) noexcept {
@@ -65,13 +68,13 @@ namespace deren::vulkan::pass {
     }
 
     void cluster_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -82,7 +85,7 @@ namespace deren::vulkan::pass {
         }
         // NO SET LAYOUT IS ASKED FOR: the pipeline is heap-native (a null layout plus the heap flag), so the
         // pass's descriptors come from the frame's bound heap and not from a set handed over by the owner.
-        auto built = pipelines::build_cluster(*context.face, context.device, spirv);
+        auto built = pipelines::build_cluster(*context.face, spirv);
         if (!built) {
             deren::utility::log("clustered lights disabled: {}", built.error());
             this->release_owned();
@@ -98,13 +101,15 @@ namespace deren::vulkan::pass {
     }
 
     void cluster_pass::record(resolved_io const& io) {
-        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pass_pipeline.has_value() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.barrier_buffers.size() < render_resource::cluster_barriers.size() || this->pass_frame.cluster_count == 0) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_cluster_pass)
         }
-        VkBuffer const counts = io.barrier_buffers[barrier_counts].buffer;
-        VkBuffer const indices = io.barrier_buffers[barrier_indices].buffer;
-        if (counts == VK_NULL_HANDLE || indices == VK_NULL_HANDLE) {
+        // THE CONTRACT'S OWN HANDLES (abi 20): the record series names the handles the resolved binding
+        // publishes BESIDE the raw lanes, so the guard and the barrier below speak one vocabulary.
+        rhi::buffer* const counts = io.barrier_buffers[barrier_counts].buffer_handle;
+        rhi::buffer* const indices = io.barrier_buffers[barrier_indices].buffer_handle;
+        if (io.list == nullptr || counts == nullptr || indices == nullptr) {
             return;
         }
 
@@ -112,34 +117,28 @@ namespace deren::vulkan::pass {
         // buffers - and it needs no bind to do it: the frame bound the heaps once, and the two indices its push
         // block carries pick the slot. A compute stage is not part of a rendering instance, so this still records
         // before vkCmdBeginRendering.
-        vkCmdBindPipeline(io.cmd, VK_PIPELINE_BIND_POINT_COMPUTE, io.pipelines[0]);
-        vkCmdDispatch(io.cmd, (this->pass_frame.cluster_count + group_size - 1u) / group_size, 1, 1);
+        // NO BIND IS RECORDED HERE ANY MORE (abi 21): this pass NAMES its pipeline in `behaviour::pipelines`,
+        // so the RUNNER binds it before record() is called - and since the pipeline migration it binds it
+        // through the contract (`bind_pipeline`), which carries the compute bind point the backend decided. The
+        // guard above still asks whether the frame HAS the pipeline (a frame that cannot resolve it does not
+        // record the pass at all), and the raw `vkCmdBindPipeline` this spot used to issue was a second bind of
+        // the same object.
+        io.list->dispatch((this->pass_frame.cluster_count + group_size - 1u) / group_size, 1, 1);
 
         // Hand the two buffers to the fragment stages that read them later in this submission (forward shading
         // inside the main instance, and the deferred lighting pass): a compute SHADER_WRITE is not visible to a
-        // later SHADER_READ without this barrier. One barrier per buffer, because VkBufferMemoryBarrier2 covers a
+        // later SHADER_READ without this barrier. One entry per buffer, because a buffer barrier covers a
         // single buffer - and the two handles come from the DECLARATION, which is what makes this the writer's
         // own ordering rather than something the host has to remember on the pass's behalf.
-        std::array<VkBufferMemoryBarrier2, 2> barriers = {};
-        barriers[0].buffer = counts;
-        barriers[1].buffer = indices;
-        for (VkBufferMemoryBarrier2& barrier : barriers) {
-            barrier.sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER_2;
-            barrier.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            barrier.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-            barrier.dstStageMask = VK_PIPELINE_STAGE_2_FRAGMENT_SHADER_BIT;
-            barrier.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            // the shader reads counts/indices as storage buffers, not as sampled images
-            barrier.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-            barrier.offset = 0;
-            barrier.size = VK_WHOLE_SIZE;
+        // THE ROLES RIDE THE CONTRACT NOW (abi 20): (shader_write, shader_read) is the pair the raw masks spelled
+        // (COMPUTE_SHADER/SHADER_WRITE -> the shader stages/SHADER_READ), and the batch is the one call.
+        std::array<rhi::buffer_barrier, 2> const barriers = {
+            rhi::buffer_barrier{.resource = counts, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
+            rhi::buffer_barrier{.resource = indices, .from = rhi::buffer_use::shader_write, .to = rhi::buffer_use::shader_read, .offset = 0, .size = 0},
+        };
+        if (io.list->barrier(rhi::barrier_group{.buffers = barriers}) != rhi::error::ok) {
+            return; // a refused barrier would hand the fragment stages buffers nobody declared readable
         }
-        VkDependencyInfo dependency = {};
-        dependency.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
-        dependency.bufferMemoryBarrierCount = static_cast<uint32_t>(barriers.size());
-        dependency.pBufferMemoryBarriers = barriers.data();
-        vkCmdPipelineBarrier2(io.cmd, &dependency);
     }
 
 } // namespace deren::vulkan::pass

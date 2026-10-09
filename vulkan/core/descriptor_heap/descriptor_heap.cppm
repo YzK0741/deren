@@ -112,10 +112,10 @@ namespace deren::vulkan {
             return this->write_resource_descriptors != nullptr && this->bind_resource_heap != nullptr && this->bind_sampler_heap != nullptr && this->resource_heap_address != 0;
         }
         /// @brief where the resource heap begins, i.e. what a mapping's heapOffset is relative to
-        [[nodiscard]] VkDeviceAddress resource_address() const noexcept {
+        [[nodiscard]] std::uintptr_t resource_address() const noexcept {
             return this->resource_heap_address;
         }
-        [[nodiscard]] VkDeviceAddress sampler_address() const noexcept {
+        [[nodiscard]] std::uintptr_t sampler_address() const noexcept {
             return this->sampler_heap_address;
         }
         [[nodiscard]] VkDeviceSize resource_size() const noexcept {
@@ -210,7 +210,7 @@ namespace deren::vulkan {
          */
         [[nodiscard]] bool write_image(VkDeviceSize offset_bytes, VkImageViewCreateInfo const& view, VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
         /// @brief write ONE buffer descriptor (its device address range) into the resource heap
-        [[nodiscard]] bool write_buffer(VkDeviceSize offset_bytes, VkDeviceAddress address, VkDeviceSize size, VkDescriptorType type) noexcept;
+        [[nodiscard]] bool write_buffer(VkDeviceSize offset_bytes, std::uintptr_t address, VkDeviceSize size, VkDescriptorType type) noexcept;
 
         /**
          * @brief reserve @p count descriptors of @p type in the resource heap and return their byte offset
@@ -263,9 +263,9 @@ namespace deren::vulkan {
         /// the same for the sampler heap, whose descriptors are written by vkWriteSamplerDescriptorsEXT
         void* sampler_mapped = nullptr;
         // called resource_heap_address, not resource_address: the resource_address() accessor of this class would collide with a member of that name
-        VkDeviceAddress resource_heap_address = 0;
+        std::uintptr_t resource_heap_address = 0;
         // called sampler_heap_address, not sampler_address: the sampler_address() accessor of this class would collide with a member of that name
-        VkDeviceAddress sampler_heap_address = 0;
+        std::uintptr_t sampler_heap_address = 0;
         // called resource_heap_size, not resource_size: the resource_size() accessor of this class would collide with a member of that name
         VkDeviceSize resource_heap_size = 0;
         // called sampler_heap_size, not sampler_size: the sampler_size() accessor of this class would collide with a member of that name
@@ -305,7 +305,7 @@ namespace deren::vulkan {
             return detail != nullptr ? detail->buffer : VK_NULL_HANDLE;
         }
 
-        VkDeviceAddress address_of(vma_allocator& allocator, VkDevice device, vk_buffer const& buffer) noexcept {
+        std::uintptr_t address_of(vma_allocator& allocator, VkDevice device, vk_buffer const& buffer) noexcept {
             VkBuffer const handle = buffer_of(allocator, buffer);
             if (handle == VK_NULL_HANDLE) {
                 return 0;
@@ -504,7 +504,7 @@ namespace deren::vulkan {
         return this->write_descriptors(offset_bytes, std::span<VkResourceDescriptorInfoEXT const>(&info, 1));
     }
 
-    bool descriptor_heap::write_buffer(VkDeviceSize const offset_bytes, VkDeviceAddress const address, VkDeviceSize const size, VkDescriptorType const type) noexcept {
+    bool descriptor_heap::write_buffer(VkDeviceSize const offset_bytes, std::uintptr_t const address, VkDeviceSize const size, VkDescriptorType const type) noexcept {
         VkDeviceAddressRangeEXT const range = {.address = address, .size = size};
         VkResourceDescriptorInfoEXT const info = {.sType = VK_STRUCTURE_TYPE_RESOURCE_DESCRIPTOR_INFO_EXT,
                                                   .pNext = nullptr,

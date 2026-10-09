@@ -101,7 +101,7 @@ jobs:
       - name: Build all targets (incl. tests + deren.exe)
         run: cmake --build build
 
-      # THE FLIP GATE (DYNAMIC_LINK_V2.md §2): how many symbols on the engine side still reach into
+      # THE FLIP GATE: how many symbols on the engine side still reach into
       # deren_vulkan - measured from the ARCHIVES, because the object directories hold pre-split
       # objects and report 130 where the archive truth is 78. The number has to reach 0 before
       # deren_vulkan can become a resolved-at-run-time DLL.
@@ -147,7 +147,7 @@ jobs:
             utility/BVH/bvh.cppm \
             utility/frame_clock/frame_clock.cppm \
             utility/frame_stats/frame_stats.cppm \
-            utility/better_pmr/better_pmr.cppm \
+            utility/shared/better_pmr.cpp \
             utility/dynamic_link.cppm \
             promise/rhi/rhi.cppm \
             promise/rhi/rhi.contract.cppm \
@@ -162,11 +162,44 @@ jobs:
           done
           clang-tidy -p build --warnings-as-errors='*' $TIDY_FILES
 
-      - name: Upload the Release executable
+      # THE ARTIFACT IS THE RUN-TIME PACKAGE, NOT JUST THE EXECUTABLE, AND THAT IS THE FIX IN THIS STEP:
+      # since the dynamic-backend flip the product is no longer one file. deren.exe loads deren_assets.dll
+      # through its import library BEFORE main, resolves deren_vulkan.dll and deren_gui_vulkan.dll BY NAME
+      # out of its own directory, imports shared_utility.dll for the process-wide sink, takes the C++
+      # runtime from libc++.dll, and finds the compiled SPIR-V by walking up from the working directory to
+      # `shaders/` (deren::chores::analyse_config). Uploading `build/deren.exe` alone - what this job did
+      # before - shipped a download that could not start, and nothing said so.
+      #
+      # THE LIST IS CHECKED, NOT ASSUMED, for the same reason the clang-tidy list above is: a package that
+      # silently loses one file is the failure mode this step exists to prevent. libc++.dll is not a build
+      # output, so it is taken from the directory of the compiler that produced the exe instead of a
+      # hard-coded toolchain path (`command -v clang++` -> /clang64/bin).
+      #
+      # WHAT IS NOT HERE: a model and a config.toml. The repository ships neither (the sample assets live
+      # outside the tree), so this is the program plus its runtime, not a ready-to-run demo.
+      - name: Stage the Windows runtime package
+        run: |
+          mkdir -p stage
+          cp -r build/shaders stage/
+          for f in build/deren.exe \
+                   build/deren_assets.dll \
+                   build/deren_vulkan.dll \
+                   build/deren_gui_vulkan.dll \
+                   build/shared_utility.dll \
+                   "$(dirname "$(command -v clang++)")/libc++.dll"; do
+            if [ ! -f "$f" ]; then
+              echo "the runtime package needs a file that is not there: $f"
+              exit 1
+            fi
+            cp "$f" stage/
+          done
+          ls -l stage
+
+      - name: Upload the Windows runtime package
         uses: actions/upload-artifact@v5
         with:
           name: deren-windows-x64
-          path: build/deren.exe
+          path: stage/
           if-no-files-found: error
 
   sanitizers:
@@ -287,8 +320,19 @@ jobs:
         #     flag rather than a bug). It is off by default on this platform anyway.
         #   - `abort_on_error` stays 0, so a finding produces a non-zero exit code from the test
         #     binary (which is what ctest reads) rather than a crash dump.
+        #
+        # ONE TEST IS DELIBERATELY NOT RUN HERE, AND IT IS NOT A COVERAGE CONCESSION: the gate's third
+        # check reads the EXECUTABLE's import table (P-Import), and this job builds test targets only -
+        # by design, "the binary is never run here, so compiling and linking it under the sanitizers
+        # would cost minutes to produce an artifact nobody executes". There is therefore no deren.exe in
+        # this tree to read, and the gate says exactly that instead of reporting a boundary finding
+        # (measured, run 37897477982: "imports: ...build-asan\deren.exe does not exist (build first, or
+        # pass --exe)"). The Release job builds that executable and runs the same gate unfiltered, which
+        # is where the finding it exists to catch would come from; this job's value is the other half,
+        # the memory errors in the loader / utility / config paths, which is why it keeps running the
+        # other nineteen tests.
         env:
           ASAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build-asan --output-on-failure
+        run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero
 

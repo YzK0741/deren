@@ -294,8 +294,8 @@ endif()
 # DLL is what prevents it: the executable and deren_vulkan.dll both import THIS image, so the OS loads
 # one copy of the sink for the whole process. The rotation claim
 # (utility/shared/log_rotation_claim.cpp, an OS-named object keyed by the process id) stays as the
-# second line of defence, and this batch is where it is first genuinely needed - see
-# DYNAMIC_LINK_PROGRESS.md §18 for the one-rotation measurement.
+# second line of defence, and this batch is where it is first genuinely needed - and where it was
+# MEASURED, on the artifacts: one rotation for the whole process, not one per image.
 add_library(shared_utility SHARED)
 # THE FILE NAME IS PART OF THE DESIGN: the process-wide half ships as `shared_utility.dll`, because
 # BOTH the executable and deren_vulkan.dll import it BY THAT NAME. MinGW's default `lib` prefix would
@@ -336,7 +336,7 @@ target_sources(static_utility
         utility/frame_clock/frame_clock.cppm
         utility/frame_stats/frame_stats.cppm
         utility/thread_pool/thread_pool.cppm
-        # The loader the RHI boundary is built on (plan_rhi_v4.md 7.4): the only place in the tree that
+        # The loader the RHI boundary is built on: the only place in the tree that
         # asks the platform for a library. It is a module of its own rather than a `utility:` partition
         # because a partition cannot be imported by another target's module without dragging `deren.utility`
         # in, and the boundary rule is that ONE module owns the platform load path. It declares the
@@ -350,7 +350,7 @@ target_sources(static_utility
         utility/utility.cpp
 )
 
-# The RHI boundary's contract (plan_rhi_v4.md §3.1, §4.1; m03159): a module of virtual base classes,
+# The RHI boundary's contract (m03159): a module of virtual base classes,
 # deren.promise.rhi, which lives in promise/rhi/ - the outer segment names the family of contract
 # interfaces and the inner one the graphics-API instance of it (m03716, corrected by m03931). It is a
 # module rather than a directory of headers because BOTH
@@ -375,7 +375,25 @@ target_sources(promise
         promise/rhi/rhi.core_desc.cppm
         promise/rhi/rhi.extension.cppm
         promise/rhi/rhi.api_core.cppm
+        promise/gui/gui.cppm
 )
+
+# THE CONTRACT IS UNINSTRUMENTED IN THE SANITIZER JOB, AND THAT IS A LINK REQUIREMENT, NOT A PREFERENCE.
+# Measured in a Debug tree configured exactly like .github/workflows/ci.yml's sanitizers job
+# (-DCMAKE_CXX_FLAGS="-fsanitize=address,undefined ...", -DCMAKE_EXE_LINKER_FLAGS carrying the runtime):
+# linking `probe_backend` failed with
+#     ld.lld: error: undefined symbol: __asan_init / __ubsan_handle_type_mismatch_v1 / ...
+# The DLL is compiled with -fno-sanitize=all on purpose (an instrumented DLL cannot be hosted by an
+# instrumented process - the rule deren_vulkan and probe_backend follow), but the OBJECTS it links out
+# of this archive were instrumented, and the DLL's own link line carries no sanitizer runtime. So the
+# two rules meet here: a DLL that must be clean cannot be built out of instrumented objects.
+#
+# The cost is this archive's own coverage in that job - virtual declarations, PODs and the
+# validate_structure helpers - and it is the cheaper half of the trade: the alternative is an
+# instrumented DLL, which is the shape that aborts when the instrumented test loads it.
+if(NOT MSVC)
+    target_compile_options(promise PRIVATE -fno-sanitize=all)
+endif()
 
 # Startup configuration: parses config.toml (+ --config / argv merging) into app_settings.
 # Uses toml++ (header-only, system package mingw-w64-clang-x86_64-tomlplusplus; under clang64 its
@@ -422,10 +440,10 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # facade + scene tree + the debug GUI + the format-neutral animation controller
 # (vulkan.animation: plays keyframe clips / skins / morphs onto the runtime scene; it never
 # imports a loader - deren::gltf::scenes satisfies its structural source concept at the call site).
-# This library does NOT depend on gltf_loader (pure CPU, used by the demo layer only).
+# This library does NOT depend on deren_assets (pure CPU, used by the demo layer only).
 # ============================================================================================
 # ============================================================================================
-# deren_vulkan - THE BACKEND HALF AS A TARGET OF ITS OWN (plan_rhi_v4.md §11.2, S1-A).
+# deren_vulkan - THE BACKEND HALF AS A TARGET OF ITS OWN (S1-A).
 #
 # The minimum cut, measured with deren-ab/rhi/_s1_import_graph.py: the import closure of the seed
 # {deren.vulkan.core, deren.vulkan.init_utils} is 7 modules with ZERO edges leaving the closure.
@@ -450,7 +468,7 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 #
 # -DDEREN_BACKEND_SPIKE RETIRED IN THIS BATCH, and it retired by SUCCEEDING: it existed to build this
 # target SHARED in a throwaway tree so the boundary's four known-unknowns were measured before the
-# migration was paid for (plan_rhi_v4.md §9 items 14-17). SHARED is the main configuration now, so the
+# migration was paid for. SHARED is the main configuration now, so the
 # option and its `if()` branches are deleted rather than left as a switch that means "the same thing,
 # but hidden". Two things it carried become permanent instead of conditional: the dllexport half of
 # the boundary (DEREN_API_SHARED + DEREN_API_BUILD) and the sanitizer suppression below. The spike
@@ -480,23 +498,20 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # FLAGS: the shared COMPILE_OPTIONS set (the foreach below), and deliberately NOT deren_vulkan's
 # `-fno-sanitize=all`: that suppression exists because an INSTRUMENTED DLL cannot carry a second ASan
 # runtime, and this target is never the DLL's code path (the DLL is uninstrumented by construction -
-# see deren_vulkan's sanitizer suppression; `promise`, which both halves also share, is not
-# suppressed either).
+# see deren_vulkan's sanitizer suppression; `promise`, which both halves also share, carries the same
+# suppression for the reason stated at its own target - the probe DLL links the contract's objects and
+# cannot be built out of instrumented ones).
 # ============================================================================================
+# Native structure builders belong to the backend; renderer layout is a portable shared module.
 add_library(vulkan_constant_init STATIC)
-target_sources(vulkan_constant_init
-    PUBLIC
-        FILE_SET CXX_MODULES
-        FILES
-        vulkan/constant_init/constant_init.cppm
-        # The renderer's slot grid (③-D/E batch, ruling D): the engine names it in ~95 places and must
-        # not do so through the backend's class any more. Both halves compile it HERE, so the grid
-        # cannot drift, and `core::heap_slots` / the `core::heap_slot_*` constants become aliases into
-        # it - with the backend's frozen numbers `static_assert`ed against the module (see
-        # core.declarations.cppm), which is the drift guard ruling D asked for.
-        vulkan/render_layout/render_layout.cppm
-)
+target_sources(vulkan_constant_init PUBLIC FILE_SET CXX_MODULES FILES
+    vulkan/constant_init/constant_init.cppm)
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
+
+add_library(renderer_layout STATIC)
+target_sources(renderer_layout PUBLIC FILE_SET CXX_MODULES FILES
+    vulkan/render_layout/render_layout.cppm)
+target_link_libraries(renderer_layout PUBLIC promise)
 
 # ============================================================================================
 # vulkan_error_tables - THE ERROR TRANSLATORS, CARRIED BY A TARGET BOTH SIDES LINK (the SHARED
@@ -599,6 +614,7 @@ target_link_libraries(deren_vulkan
         # The Vulkan constexpr builders both halves compile (see the target's comment above): the
         # backend keeps using them unchanged, they simply stop being a backend-owned module.
         vulkan_constant_init
+        renderer_layout
         Vulkan::Vulkan
         glfw
         static_utility
@@ -659,7 +675,6 @@ target_sources(vulkancorekit
         vulkan/core/filter/filters.cppm
         vulkan/math/math.cppm
         ${VR_RUNTIME_MODULES}
-        vulkan/bindings/bindings.cppm
         vulkan/pipelines/pipelines.cppm
         vulkan/render_resource/render_resource.cppm
         vulkan/render_resource/shared.cppm
@@ -687,14 +702,15 @@ target_sources(vulkancorekit
         ${VR_FULL_API_MODULES}
         vulkan/profiling/profiling.cppm
         vulkan/shadow_fit/shadow_fit.cppm
-        vulkan/readback/readback.cppm
         vulkan/acceleration_structure/acceleration_structure.cppm
         vulkan/ray_tracing/ray_tracing.cppm
         vulkan/scene_tree/scene_tree.cppm
         vulkan/meshlet/meshlet.cppm
         vulkan/primitive/primitive.cppm
         vulkan/render_environment/render_environment.cppm
-        vulkan/graphical_user_interface/graphical_user_interface.cppm
+        # (the GUI module MOVED to deren_gui_vulkan - see that target's comment) and the loader the
+        # engine uses instead: it resolves deren_gui_<api>.dll by name through the boundary header.
+        runtime/gui_loader.cppm
         vulkan/animation/controller.cppm
         vulkan/animation/mmd_motion.cppm
     PRIVATE
@@ -721,17 +737,62 @@ target_sources(vulkancorekit
         vulkan/pass/shadow.cpp
         ${VR_FULL_API_SOURCES}
         vulkan/shadow_fit/shadow_fit.cpp
-        vulkan/readback/readback.cpp
         vulkan/acceleration_structure/acceleration_structure.cpp
         vulkan/ray_tracing/ray_tracing.cpp
         vulkan/scene_tree/scene_tree.cpp
         vulkan/primitive/primitive.cpp
-        vulkan/graphical_user_interface/graphical_user_interface.cpp
         vulkan/animation/controller.cpp
         vulkan/animation/mmd_motion.cpp
 )
-add_library(gltf_loader STATIC)
-target_sources(gltf_loader
+# ================================================================================================
+# deren_assets - THE ASSET-LOADING STACK, AS AN AUTO-IMPORTED DLL (the binary-balance batch).
+#
+# WHY THIS AND NOTHING ELSE MOVED. Measured in Release (the per-target object bytes in
+# `CMakeFiles/<target>.dir/**/*.obj`, which under -flto are LLVM bitcode and therefore a code-volume
+# proxy): the executable carried ~7.1 MB of NON-rendering code, and this target plus its vendored
+# implementation is 3.4 MB of it (gltf_loader 1.73 + fastgltf_vendored 1.65, simdjson included).
+# It is the only large non-rendering block that CAN move, because it depends on nothing in
+# `vulkancorekit` - and a DLL cannot import a symbol out of the executable, so anything that names
+# the engine (`chores`) or IS the executable (`main.cpp`) has to stay. `backend_loader` was left
+# alone too: it links glfw, and a DLL would put a THIRD copy of GLFW's global state in the process.
+#
+# AUTO-IMPORT, DELIBERATELY - THE OPPOSITE RULE FROM THE TWO GRAPHICS PLUGINS. The backend and the
+# GUI plugin are resolved BY NAME through deren.utility.dynamic_link so that a missing or wrong
+# plugin is a NAMED refusal rather than a loader error, and so the application can choose one at run
+# time. An asset loader has neither property to preserve: there is exactly one of it, nothing selects
+# it, and a missing loader fails startup under either regime. The executable therefore links the
+# IMPORT LIBRARY and the image is loaded before main - the shape that would be a defect for a
+# graphics plugin is the right shape here.
+#
+# NO `dllexport` ANYWHERE IN THIS TARGET, AND THAT IS LOAD-BEARING: MinGW's ld auto-exports every
+# global symbol of a `-shared` link unless the link carries at least one explicit `dllexport`, which
+# switches auto-export off. `shared_utility.dll` is the measured precedent for the first shape (623
+# exports, no macro in the module); `deren_vulkan.dll` / `deren_gui_vulkan.dll` export exactly one
+# name each because their C entry is marked. This target takes the shared_utility shape on purpose,
+# so the module SOURCE does not have to know it is in a DLL and no declaration needs a per-symbol
+# macro. The cost is stated rather than hidden: everything global is exported, the vendored
+# fastgltf/simdjson objects linked PRIVATE below included.
+#
+# WHAT DOES NOT CHANGE: the module names (`deren.gltf_loader`, `deren.toon_material_sidecar`), the
+# sources, the flags (the "compile options" foreach below still names this target, by its new name),
+# and the types passed across the seam (`deren::gltf::scenes`). Both images compile `deren.vstd`
+# from the same interface unit and both import libc++.dll - the premise the utility split already
+# rests on, and the one scripts/check_backend_boundary.py checks on the artifacts.
+#
+# NO SANITIZER SUPPRESSION, AND THAT IS MEASURED RATHER THAN ASSUMED. The CI sanitizers job builds
+# these tests with -fsanitize=address,undefined and then RUNS them, which is the shape that made
+# deren_vulkan and probe_backend carry -fno-sanitize=all (an instrumented `-shared` link was not a
+# shape that toolchain could make). This target does not need it: measured in a Debug tree configured
+# exactly like that job, an instrumented test_gltf_loader links, loads this instrumented DLL, and
+# passes 183/0, and the DLL carries no unresolved `asan*` symbol. Copying the suppression here would
+# cost the loader's sanitizer coverage and buy nothing.
+# ================================================================================================
+add_library(deren_assets SHARED)
+# The file NAME is part of the design, like shared_utility's: MinGW's default `lib` prefix would
+# produce libderen_assets.dll, so it is removed on purpose (the import library keeps its
+# conventional spelling through IMPORT_PREFIX).
+set_target_properties(deren_assets PROPERTIES PREFIX "")
+target_sources(deren_assets
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
@@ -751,9 +812,9 @@ target_sources(gltf_loader
 # THE EXTRAS PARSE CALLBACK'S ONE HEADER, and it is SYSTEM on purpose: fastgltf reports a material's `extras`
 # block by CALLING BACK with a `simdjson::dom::object*` (see its `ExtrasParseCallback`), so the loader's own
 # translation unit has to know that type - and `simdjson.h` is upstream code whose warnings this project does
-# not own, exactly like the vendored libraries above. PRIVATE, because nothing that CONSUMES gltf_loader ever
+# not own, exactly like the vendored libraries above. PRIVATE, because nothing that CONSUMES this DLL ever
 # sees a simdjson type: the extras are copied out into `deren::gltf::material`'s own maps before `load_model` returns.
-target_include_directories(gltf_loader
+target_include_directories(deren_assets
     SYSTEM PRIVATE
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader
 )
@@ -875,7 +936,11 @@ if(WIN32)
     target_link_libraries(mimalloc_vendored PUBLIC psapi shell32 user32 advapi32 bcrypt)
 endif()
 
-target_link_libraries(gltf_loader
+# PRIVATE throughout, and that is what the DLL shape changes: the vendored loader, stb and the
+# per-half toolkit are compiled INTO deren_assets.dll, so no consumer of theirs is a consumer of this
+# target's link interface any more. `vstd_lib` stays here because the module's own interface re-exports
+# it (`export import deren.vstd`), and the consumers that import the module link vstd_lib themselves.
+target_link_libraries(deren_assets
         PRIVATE
         fastgltf_vendored
         stb_vendored
@@ -883,23 +948,33 @@ target_link_libraries(gltf_loader
         static_utility
 )
 
-# gltf_loader is deliberately absent here: the engine core is loader-agnostic (see the
-# library comment above). The executable links gltf_loader itself (main.cpp is its only
-# consumer) and passes the parsed deren::gltf::scenes down to the runtime at the call site.
+# deren_assets is deliberately absent from vulkancorekit's link interface: the engine core is
+# loader-agnostic (see the library comment above). The executable links deren_assets itself - the
+# import library, so the image is loaded before main - and main.cpp is its only consumer, passing the
+# parsed deren::gltf::scenes down to the runtime at the call site.
 target_link_libraries(vulkancorekit
         PUBLIC
-        Vulkan::Vulkan
         glfw
         static_utility
         glm::glm
         ${CMAKE_DL_LIBS}
         vstd_lib
-        imgui
+        # (imgui MOVED OUT: deren_gui_vulkan links it PRIVATE and the engine resolves the plugin by name
+        #  through deren.vulkan.gui_loader - see that target below. No engine target links it any more.)
         # The constexpr builders the engine imports directly (26 sites): the module is
         # neutral (compiled once for both halves), which is what takes those imports off the flip
         # gate's meter - see the target's comment above deren_vulkan.
-        vulkan_constant_init
+        renderer_layout
 )
+
+option(DEREN_VERIFY_ENGINE_NO_VULKAN "Reject Vulkan headers while compiling the engine" ON)
+if(DEREN_VERIFY_ENGINE_NO_VULKAN)
+    set(_engine_header_guard "${CMAKE_CURRENT_BINARY_DIR}/engine-vulkan-deny")
+    file(MAKE_DIRECTORY "${_engine_header_guard}/vulkan")
+    file(WRITE "${_engine_header_guard}/vulkan/vulkan.h"
+        "#error Vulkan headers are forbidden in engine translation units\n")
+    target_include_directories(vulkancorekit BEFORE PRIVATE "${_engine_header_guard}")
+endif()
 
 # Vendored VMA (third_party/vma/vk_mem_alloc.h): vma.cppm includes <vma/vk_mem_alloc.h>,
 # resolved against this third_party include root. The header also ships in the Vulkan SDK's
@@ -937,7 +1012,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Rel
 # static_utility: the per-half toolkit. utility.cpp implements the xxHash-based hash functions
 # (deren::utility::xxh3_128bits) on top of the vendored xxhash library, so the dependency is
 # declared here, on the library that actually uses the XXH3_128bits symbol. It propagates to
-# consumers (vulkancorekit / gltf_loader / deren) at link time, so the executable does not need to
+# consumers (vulkancorekit / deren_assets / deren) at link time, so the executable does not need to
 # link xxhash itself. The platform_* TUs live here too - they are per-half by nature (no state).
 target_link_libraries(static_utility
         # The verdict family (pass_failure / fatal) carries the contract's error_info as a value, so
@@ -1036,11 +1111,15 @@ target_link_libraries(${PROJECT_NAME}
         static_utility
         vulkancorekit
         chores
-        gltf_loader
+        # AUTO-IMPORT, and it is the opposite rule from the two graphics plugins, which are resolved
+        # BY NAME at run time and are not in this link line at all (see the add_dependencies below).
+        # Linking deren_assets' import library is what makes the image load before main. Its banner
+        # states why an asset loader, unlike a backend, has nothing to gain from the manual regime.
+        deren_assets
         app_config
         vstd_lib
         glm::glm
-        imgui
+        # (imgui is NOT linked here: the GUI is a plugin loaded by name - see deren_gui_vulkan.)
 )
 # BUILD ORDER, NOT LINKAGE: the runtime resolves deren_make_api_core out of deren_vulkan.dll at run
 # time (runtime/runtime.constructor.cppm), so the DLL has to exist beside the executable - but the
@@ -1124,9 +1203,13 @@ option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 if(VR_BUILD_TESTS)
     enable_testing()
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_native_boundary_zero
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_native_boundary.py"
+                --build-dir "${CMAKE_CURRENT_BINARY_DIR}" --require-zero)
+
     add_test(NAME test_backend_boundary
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover
-                -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p test_backend_boundary.py -v)
+                -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_*boundary.py" -v)
     set_tests_properties(test_backend_boundary PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
         ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
@@ -1140,12 +1223,17 @@ if(VR_BUILD_TESTS)
 
     set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
+    # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
+    # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
+    # directory `ctest -j` made two of them read each other's files (measured: 18/19 in parallel, 19/19
+    # serial). They cannot collide now.
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
         add_executable(${test_target} tests/${test_target}.cpp)
         add_test(NAME ${test_target} COMMAND $<TARGET_FILE:${test_target}>)
+        file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${test_target}")
         set_tests_properties(${test_target} PROPERTIES
-                WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
+        WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${test_target}"
                 TIMEOUT 120)
     endforeach()
 
@@ -1237,17 +1325,17 @@ if(VR_BUILD_TESTS)
             glm::glm
             vstd_lib
     )
-    # gltf_loader is pure CPU (fastgltf + stb vendored, linked by the library itself); the
+    # deren_assets is pure CPU (fastgltf + stb vendored, linked PRIVATE into that DLL); the
     # test loads the repo's gltf_model/DamagedHelmet sample from the working directory.
     target_link_libraries(test_gltf_loader
-            gltf_loader
+            deren_assets
             glm::glm
             vstd_lib
     )
-    # The sidecar reader lives in the gltf_loader TARGET (it is a model-loading concern) but not in the
+    # The sidecar reader lives in the deren_assets TARGET (it is a model-loading concern) but not in the
     # gltf_loader MODULE, so this test links the same library and imports a different module.
     target_link_libraries(test_toon_material_sidecar
-            gltf_loader
+            deren_assets
             vstd_lib
     )
     # deren.vulkan.shadow_fit is pure CPU arithmetic (no Vulkan object is touched), and the module lives in
@@ -1274,7 +1362,8 @@ if(VR_BUILD_TESTS)
     # not be sanitized itself; the static half is linked into the test and IS instrumented.
     add_library(probe_backend SHARED tests/probe_backend.cpp)
     target_compile_definitions(probe_backend PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
-    target_compile_options(probe_backend PRIVATE ${COMPILE_OPTIONS})
+    # The project's compile options are NOT repeated here: the project-wide sweep near the end of this
+    # file covers every first-party target, this one included. Only the sanitizer exception stays local.
     target_link_libraries(probe_backend PRIVATE promise)
     if(NOT MSVC)
         target_compile_options(probe_backend PRIVATE -fno-sanitize=all)
@@ -1288,7 +1377,6 @@ if(VR_BUILD_TESTS)
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
     add_library(probe_backend_static STATIC tests/probe_backend.cpp)
-    target_compile_options(probe_backend_static PRIVATE ${COMPILE_OPTIONS})
     # The same promise module the DLL half reads: the two halves compile one interface unit each,
     # which is the "both sides compile the contract" rule in §4.1, not a shared binary.
     target_link_libraries(probe_backend_static PRIVATE promise)
@@ -1332,13 +1420,12 @@ if(VR_BUILD_TESTS)
             vstd_lib
     )
 
-    # ---- the boundary spike (DYNAMIC_LINK_V2.md §4 step 1b) -------------------------------------
+    # ---- the boundary spike ---------------------------------------------------------------------
     # NOT in VR_TEST_TARGETS on purpose: it loads a DLL and (with --with-device) creates a real
     # context, so it cannot belong to the headless ctest set - and tests/test_docs.cpp compares that
     # list against the workflow, so putting it there would be a lie in CI. It is registered as a test
     # only in the spike tree, where the option is on and CI is not the consumer.
     add_executable(test_backend_boundary_spike tests/spike_backend_boundary.cpp)
-    target_compile_options(test_backend_boundary_spike PRIVATE ${COMPILE_OPTIONS})
     # The ABSOLUTE path of the library under test: the spike's whole Q5 is that loading by
     # absolute path uses LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS and
     # therefore never searches %PATH%.
@@ -1367,7 +1454,6 @@ endif()
 # real device (so it cannot be in the headless ctest set, and tests/test_docs.cpp compares that list
 # against the workflow) and it is NOT in VR_TEST_TARGETS.
 add_executable(test_runtime_dyn tests/test_runtime_dyn.cpp)
-target_compile_options(test_runtime_dyn PRIVATE ${COMPILE_OPTIONS})
 target_link_libraries(test_runtime_dyn
         backend_loader   # the scaffold calls load_api_core() explicitly (batch ⑥)
         vulkancorekit
@@ -1379,12 +1465,124 @@ target_link_libraries(test_runtime_dyn
 # has to exist first (it does not link it).
 add_dependencies(test_runtime_dyn deren_vulkan)
 
-# ---- compile options: one shared flag set on every first-party C++ target (vendored code is
-# deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
-# project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit shared_utility static_utility backend_loader promise gltf_loader app_config ${VR_TEST_TARGETS})
-    target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
+# ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
+#
+# SPIKE-SHAPED LIKE `test_runtime_dyn` ABOVE, for the same reason (it creates a real device, so it cannot
+# belong to the headless ctest set) - and it is the SMALL instrument the acceleration-structure migration runs
+# against: a three-vertex triangle, one instance, a hidden 64x64 window and VALIDATION ON, where the repo's
+# only other ray-tracing instrument is the full Sponza scene at 1080x960 (see the file's own header comment).
+add_executable(test_acceleration_structures tests/test_acceleration_structures.cpp)
+# This GPU probe calls native fence/queue functions itself.
+target_link_libraries(test_acceleration_structures Vulkan::Vulkan)
+target_link_libraries(test_acceleration_structures
+        backend_loader   # load_api_core() explicitly, exactly as the scaffold test does
+        vulkancorekit
+        promise
+        static_utility
+        vstd_lib
+)
+# Same build-order rule again: this probe resolves deren_vulkan.dll at run time (it does not link it).
+add_dependencies(test_acceleration_structures deren_vulkan)
+
+# THE GUI PLUGIN IS BUILT BESIDE THE EXECUTABLE like the renderer backend, and for the same build-order
+# reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.vulkan.gui_loader, so the file
+# has to exist, but the executable must NOT link it (an import library would bind the GUI before main).
+add_dependencies(deren deren_gui_vulkan)
+
+# ============================================================================================
+# deren_gui_vulkan: THE GUI AS ITS OWN PLUGIN (plan X2, the user's ruling: one DLL per API).
+#
+# WHAT LIVES HERE: the vendored ImGui sources (through the `imgui` static library, PRIVATE) and the whole
+# `deren.vulkan.graphical_user_interface` module, plus the C entry that adapts the module's overlay to the
+# `deren::gui::overlay` boundary (vulkan/graphical_user_interface/gui_dll.cpp). THE DLL IS WHAT LINKS
+# `vulkan-1`: the host resolves `deren_make_gui` by NAME through its loader and links nothing of this target,
+# so `deren.exe` stops importing vulkan-1.dll - every one of those imports came from
+# `imgui_impl_vulkan.cpp`, which is compiled in here.
+#
+# IT IS NOT IN ANY `add_dependencies` YET: the engine still uses the module directly (the "write it, wire it,
+# test it, then delete the old path" order). The next step is the loader plus the runtime's rewiring.
+# ============================================================================================
+add_library(deren_gui_vulkan SHARED)
+add_executable(test_gui_plugin tests/test_gui_plugin.cpp)
+target_compile_definitions(test_gui_plugin PRIVATE VR_GUI_PLUGIN_DLL="$<TARGET_FILE:deren_gui_vulkan>")
+target_link_libraries(test_gui_plugin PRIVATE static_utility vstd_lib promise)
+add_dependencies(test_gui_plugin deren_gui_vulkan)
+# Like the backend spike, this explicitly loads a graphics plugin and is run locally.
+set_target_properties(deren_gui_vulkan PROPERTIES PREFIX "") # deren_gui_vulkan.dll, beside the executable
+target_sources(deren_gui_vulkan
+        PUBLIC
+        FILE_SET CXX_MODULES
+        FILES
+        vulkan/graphical_user_interface/graphical_user_interface.cppm
+        PRIVATE
+        vulkan/graphical_user_interface/graphical_user_interface.cpp
+        vulkan/graphical_user_interface/gui_dll.cpp
+)
+# The project's compile options are not repeated here either - the sweep near the end of this file
+# covers this DLL like every other first-party target; only the boundary macros are target-specific.
+target_compile_definitions(deren_gui_vulkan PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
+target_link_libraries(deren_gui_vulkan
+        PRIVATE
+        imgui
+        glfw
+        Vulkan::Vulkan
+        vulkan_constant_init
+        static_utility
+        vstd_lib
+        promise
+)
+
+
+# ================================================================================================
+# COMPILE OPTIONS: EVERY FIRST-PARTY TARGET, BY ENUMERATION RATHER THAN BY A HAND-KEPT LIST.
+#
+# WHAT THIS REPLACES, AND WHY IT IS A FIX RATHER THAN A TIDY-UP: the shared set used to be attached to
+# a target list spelled out here plus SEVEN explicit `target_compile_options(... ${COMPILE_OPTIONS})`
+# calls at the targets that were not on it (probe_backend, probe_backend_static,
+# test_backend_boundary_spike, test_runtime_dyn, test_acceleration_structures, deren_gui_vulkan,
+# test_gui_plugin). Two mechanisms for one rule means a target added to this file and to NEITHER list
+# builds without -Werror, without -fno-exceptions and without the Release flags, and nothing says so.
+# The measured cost of that shape here: renaming one target (gltf_loader -> deren_assets) needed an
+# edit in two separate lists, and missing either would have been silent. This is also the list the
+# MSVC branch's dialect table is written against, so a silent omission would have meant an MSVC-only
+# difference nobody could see.
+#
+# THE RULE IS NOW INVERTED - COVERED UNLESS EXCLUDED. `BUILDSYSTEM_TARGETS` is the directory's own
+# list of targets, read here after every target in this file exists, so a new first-party target is
+# covered the moment it is added. The ONLY opt-out is VR_VENDORED_TARGETS, and it is policy rather
+# than oversight: imgui / fastgltf+simdjson / xxhash / mimalloc are upstream code whose warnings this
+# project does not own, which is why they get their own Release-only set below instead of the
+# project's -Werror set (see their targets above). Targets that compile nothing of their own are
+# skipped by TYPE - INTERFACE libraries (the glm/glfw/stb headers) and custom targets (shaders,
+# clang-format, check-backend-boundary).
+#
+# THE PER-TARGET EXCEPTIONS STAY EXPLICIT further down, each with its own measured reason: vstd_lib's
+# /wd4996 (MSVC re-export of deprecated STL names), deren_assets' -Wno-unused-parameter (vendored
+# fastgltf templates under -fno-exceptions), app_config's -fno-sanitize=float-cast-overflow (toml++'s
+# own UB), and -fno-sanitize=all on the two images that cannot be instrumented (deren_vulkan,
+# probe_backend). Every one of them is a flag this project-wide set must NOT carry.
+#
+# VERIFIED FLAG-NEUTRAL: `ninja -t commands` before and after the refactor differs on exactly one
+# edge - probe_backend's compile line, whose flags are the same SET in a different ORDER, because its
+# -fno-sanitize=all used to be appended before this block ran. The two flag families are independent,
+# so the meaning is unchanged, and the build recompiled exactly that one object and relinked its image
+# before reporting `ninja: no work to do`.
+# ================================================================================================
+set(VR_VENDORED_TARGETS imgui fastgltf_vendored xxhash mimalloc_vendored)
+get_property(_deren_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(_deren_target IN LISTS _deren_targets)
+    if(_deren_target IN_LIST VR_VENDORED_TARGETS)
+        continue()
+    endif()
+    get_target_property(_deren_type ${_deren_target} TYPE)
+    if(NOT _deren_type OR _deren_type STREQUAL "INTERFACE_LIBRARY" OR _deren_type STREQUAL "UTILITY")
+        continue()
+    endif()
+    target_compile_options(${_deren_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
+unset(_deren_targets)
+unset(_deren_target)
+unset(_deren_type)
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
 # vstd re-exports the standard library's surface, which necessarily includes the names C++17/20/23
 # deprecated (std::iterator, std::wbuffer_convert/wstring_convert, std::rel_ops, std::is_pod,
@@ -1403,9 +1601,9 @@ endif()
 # warning is /wd4100, and it is only needed there because the MSVC branch has no -fno-exceptions - the
 # unused-parameter chatter can also come from /W4 itself.
 if(MSVC)
-    target_compile_options(gltf_loader PRIVATE /wd4100)
+    target_compile_options(deren_assets PRIVATE /wd4100)
 else()
-    target_compile_options(gltf_loader PRIVATE -Wno-unused-parameter)
+    target_compile_options(deren_assets PRIVATE -Wno-unused-parameter)
 endif()
 
 # toml++ is a SYSTEM header-only package, so its code is compiled into OUR translation unit and a
@@ -1439,13 +1637,17 @@ endif()
 # linker cannot see into their translation units, so cross-TU dead code stays. Both cost build
 # time only - runtime speed is unaffected (LTO is at worst neutral).
 # Under MSVC the sections half is /Gy /Gw and the LTO half does not exist (see the dialect table).
+#
+# THE TARGET LIST IS `VR_VENDORED_TARGETS`, the same variable the project-wide sweep reads: the
+# excluded set and the specially-treated set are one list, so a vendored library can never be given
+# the -Werror set by accident and a first-party one can never be quietly left out of both.
 if(MSVC)
     set(VR_VENDORED_RELEASE_OPTIONS $<$<CONFIG:Release>:/Gy;/Gw>)
 else()
     set(VR_VENDORED_RELEASE_OPTIONS $<$<CONFIG:Release>:-flto;-ffunction-sections;-fdata-sections>)
 endif()
 
-foreach(vendored_target IN ITEMS imgui fastgltf_vendored xxhash mimalloc_vendored)
+foreach(vendored_target IN LISTS VR_VENDORED_TARGETS)
     target_compile_options(${vendored_target} PRIVATE ${VR_VENDORED_RELEASE_OPTIONS})
 endforeach()
 
@@ -1517,7 +1719,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit gltf_loader ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables vulkancorekit deren_assets ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -1790,6 +1992,15 @@ set(VR_SLANG_SOURCES
     # docs/slang_migration.md section 9, "the last stage, and the one-pixel re-baseline".
     deferred.slang:main:fragment:deferred.frag.spv
 )
+# These entries belong to the GPU test, rather than the application's shader catalogue.
+if(TARGET test_acceleration_structures)
+    list(APPEND VR_SLANG_SOURCES
+        rt_traversal_probe.slang:rgen_main:raygeneration:rt_traversal_probe.rgen.spv
+        rt_traversal_probe.slang:native_main:raygeneration:rt_traversal_probe.native.spv
+        rt_traversal_probe.slang:chit_main:closesthit:rt_traversal_probe.rchit.spv
+        rt_traversal_probe.slang:miss_main:miss:rt_traversal_probe.rmiss.spv
+    )
+endif()
 set(VR_SLANG_OUTPUTS "")
 foreach(entry IN LISTS VR_SLANG_SOURCES)
     string(REPLACE ":" ";" parts "${entry}")
@@ -1843,6 +2054,9 @@ add_custom_command(
     VERBATIM
 )
 add_custom_target(shaders ALL DEPENDS ${VR_SHADER_OUTPUTS} "${VR_SHADER_OUT_DIR}/.sources-copied")
+if(TARGET test_acceleration_structures)
+    add_dependencies(test_acceleration_structures shaders)
+endif()
 if(TARGET deren)
     add_dependencies(deren shaders)
 endif()

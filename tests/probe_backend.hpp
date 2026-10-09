@@ -30,5 +30,5 @@ namespace deren::vk_test {
     /// (what the C entry always does) or anything else to drive the engine's refusal. The rest of the
     /// object behaves exactly like the one the entry hands out - it is the same `impl`.
     [[nodiscard]] std::shared_ptr<deren::promise::rhi::api_core>
-    probe_make_core(deren::promise::rhi::create_info const& desc, std::uint32_t reported_api_version);
+    probe_make_core(deren::promise::rhi::create_info const& desc, std::uint32_t reported_api_version, bool portable_mode = false);
 } // namespace deren::vk_test

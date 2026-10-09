@@ -12,14 +12,12 @@ module;
 #include <cstring>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.fxaa;
 
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw now
 // go through the contract, so this file names no `vkCmd*` at all (plan §1 step 4, one pass per commit).
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_fxaa_owned: the pass's own pipeline, built from its two shaders and the surface's format
 import deren.utility;
 
@@ -54,13 +52,13 @@ namespace deren::vulkan::pass {
     }
 
     void fxaa_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -71,7 +69,7 @@ namespace deren::vulkan::pass {
             return;
         }
         // The surface's format is the pipeline's declared colour format (the filter writes the swapchain).
-        auto built = pipelines::build_fxaa_owned(*context.face, context.device, context.swap_chain_format, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_fxaa_owned(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("fxaa disabled: {}", built.error());
             this->release_owned();
@@ -91,8 +89,8 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline fxaa_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* fxaa_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
     void fxaa_pass::set_frame(fxaa_frame const& frame) noexcept {
@@ -110,7 +108,7 @@ namespace deren::vulkan::pass {
     }
 
     void fxaa_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
@@ -160,7 +158,7 @@ namespace deren::vulkan::pass {
             // Same meaning as in the composite: 0 = the swapchain attachment encodes to display values in
             // hardware, so FXAA must hand it LINEAR values; 1 = the target is a UNORM format and FXAA's own
             // display-encoded result is what should be stored.
-            .encode_gamma = deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f,
+            .encode_gamma = is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f,
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -184,13 +182,13 @@ namespace deren::vulkan::pass {
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // The post chain's source is a heap slot now (see shaders/post.slang): the third push lane names it, and
         // the frame bound the heaps for this command buffer, so there is no set to bind here.
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: this pass is the frame's LAST writer whenever it runs,
         // so the overlay belongs here - drawing it in the composite's instance instead would let the edge filter
         // blur the UI text into mush (see fxaa_frame::after_draw, and the composite's frame for the other case).
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
     }

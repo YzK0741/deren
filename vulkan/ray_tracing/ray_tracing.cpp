@@ -14,7 +14,6 @@ module;
 #include <string>
 #include <utility>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.ray_tracing;
 
@@ -25,53 +24,33 @@ namespace deren::vulkan::ray_tracing {
     namespace rhi = deren::promise::rhi;
 
     namespace {
-        /// The contract's view of the device, and the reason EVERY factory and ability call in this file
-        /// goes through one of these helpers. This module no longer knows the backend's class AT ALL
-        /// (③-D/E step 1b): it holds the contract's `api_core` face, so every factory and ability call is a
-        /// virtual call that emits no backend symbol, and the device it needs comes from the escape.
-        /// The escape, obtained from the contract face once and then used through ITS pointer.
-        rhi::vulkan_escape* escape_of(rhi::api_core& face) {
-            return static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        }
-
         /// ... and the address ability the same way (`device_address` is its own tier-2 ability).
         rhi::device_address* address_of(rhi::api_core& face) {
             return static_cast<rhi::device_address*>(face.query_extension(rhi::extension_kind::device_address));
         }
 
-        /// The borrowed VkBuffer behind a contract buffer; null when the buffer carries none.
-        VkBuffer native_buffer_of(rhi::api_core& face, rhi::buffer const& buffer) {
-            auto* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
-        }
+        // `native_buffer_of` STOOD HERE, and its callers were the micromap's storage and the two structure
+        // storages - all of them the BACKEND's own objects since plan S1's P2/P4, so this module never narrows a
+        // buffer handle any more.
 
         /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
         /// the address could not be answered (the flag was not set, or the ability is not announced).
-        VkDeviceAddress buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
+        std::uintptr_t buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
             auto* const addresses = address_of(face);
-            return addresses == nullptr ? 0 : static_cast<VkDeviceAddress>(addresses->buffer_address(buffer, 0));
-        }
-
-        /// THE DEVICE THE ENTRY POINTS ARE RESOLVED AGAINST, TAKEN FROM THE ESCAPE (③-D/E step 1b): the same
-        /// value the backend's class used to hand out (`core::logical_device`), without naming `core`.
-        VkDevice device_of(rhi::api_core& face) {
-            auto* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkDevice>(escape->native_device());
+            return addresses == nullptr ? 0 : static_cast<std::uintptr_t>(addresses->buffer_address(buffer, 0));
         }
 
         /// The pair every buffer this module builds a structure FROM carries: an address, and the
         /// acceleration-structure build-input capability (the renderer's own `build_input_usage`).
         constexpr rhi::buffer_flags build_input_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
 
-        /// ... and the single flag a buffer whose address is read but which a build does not read needs.
-        constexpr rhi::buffer_flags addressable_flag = rhi::to_bits(rhi::buffer_flag::device_address);
+        // `addressable_flag` STOOD HERE for the micromap scratch and storage; the BACKEND allocates both now
+        // (and it knows which flags they need), so this module declares only `build_input_flags` below - what a
+        // CALLER's geometry buffer must carry.
     } // namespace
 
     structure_set::structure_set(rhi::api_core& face) noexcept
         : contract(&face) {
-        // The one raw handle this phase needs for its own entry points (`vkGetDeviceProcAddr`), taken from the
-        // escape: the same value `core` used to hand out, without naming `core` (③-D/E step 1b).
-        this->device = device_of(face);
     }
 
     bool structure_set::attempted() const noexcept {
@@ -82,31 +61,30 @@ namespace deren::vulkan::ray_tracing {
         return this->bottom.has_value() && this->top_level.has_value();
     }
 
-    VkDeviceSize structure_set::structure_size(uint32_t const frame_slot) const noexcept {
+    std::uint64_t structure_set::structure_size(uint32_t const frame_slot) const noexcept {
         // The top level is `top_level`'s object (see the member block in the header): this is the forwarding half,
         // for the descriptor heap, whose acceleration-structure descriptor is an address range that must carry a
         // REAL size (see docs/descriptor_heap_migration.md - the heap's payload union has no AS member).
         return this->top_level.has_value() ? this->top_level->structure_size(frame_slot) : 0;
     }
 
-    VkDeviceSize structure_set::instance_table_size(uint32_t const frame_slot) const noexcept {
+    std::uint64_t structure_set::instance_table_size(uint32_t const frame_slot) const noexcept {
         // ... and the same for the instance table at binding 17, which the set path may write with VK_WHOLE_SIZE
         // and a heap range may not.
         return this->top_level.has_value() ? this->top_level->instance_table_size(frame_slot) : 0;
     }
 
-    VkAccelerationStructureKHR structure_set::handle(uint32_t const frame_slot) const noexcept {
-        return this->top_level.has_value() ? this->top_level->handle(frame_slot) : VK_NULL_HANDLE;
-    }
-
-    VkBuffer structure_set::instance_table(uint32_t const frame_slot) const noexcept {
-        return this->top_level.has_value() ? this->top_level->instance_table(frame_slot) : VK_NULL_HANDLE;
+    deren::promise::rhi::acceleration_structure* structure_set::handle(uint32_t const frame_slot) const noexcept {
+        // TIER-1 SINCE ABI 26: the handle IS the object now, so a caller that needs its address or its size asks
+        // `device_address()` / `size_bytes()` instead of narrowing a `VkAccelerationStructureKHR` and resolving
+        // an entry point to read an address out of it - which is exactly what runtime.cpp used to do.
+        return this->top_level.has_value() ? this->top_level->structure(frame_slot) : nullptr;
     }
 
     rhi::buffer const* structure_set::instance_table_buffer(uint32_t const frame_slot) const noexcept {
         // Forwarded, not re-derived (the table is `top_level`'s), and nullable for the same reason the
         // accessor it forwards is: "this slot has no top level structure yet" is a state the caller has to
-        // be able to see, and it is what `instance_table()` spells VK_NULL_HANDLE.
+        // be able to see through the nullable contract buffer.
         return this->top_level.has_value() ? this->top_level->instance_table_buffer(frame_slot) : nullptr;
     }
 
@@ -115,19 +93,12 @@ namespace deren::vulkan::ray_tracing {
     }
 
     void structure_set::release_micromaps() noexcept {
-        if (this->device != nullptr) {
-            auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(this->device, "vkDestroyMicromapEXT"));
-            if (destroy != nullptr) {
-                for (micromap_resource const& resource : this->micromap_resources) {
-                    if (resource.micromap != VK_NULL_HANDLE) {
-                        destroy(this->device, resource.micromap, nullptr);
-                    }
-                }
-            }
-        }
+        // THE OBJECTS RELEASE THEMSELVES NOW (plan S1's P4): each `micromap_resource` holds a contract owner, so
+        // its destruction is the backend's `release()` - the structure, its storage, its scratch and the setup
+        // buffers all go with it. What stood here was a `vkDestroyMicromapEXT` loop over an entry point this
+        // module resolved itself.
         this->micromap_resources.clear();
     }
-
     structure_set::~structure_set() {
         this->release_micromaps();
     }
@@ -166,146 +137,57 @@ namespace deren::vulkan::ray_tracing {
      * @param triangle_count the caster's triangles; 0 makes this a no-op that returns nothing
      * @return the resource, or nullopt when the device does not publish the entry points or an allocation fails
      */
+    // ---- ONE MICROMAP, THROUGH THE TIER-1 INTERFACE (plan S1's P4) ---------------------------------------
+    //
+    // WHAT THIS FUNCTION IS NOW: it decides WHAT the micromap says - every micro-triangle UNKNOWN, which is
+    // what makes the any-hit shader decide (see the note above) - and hands the contract's description to the
+    // backend. The parts that used to be here and are NOT any more: the entry points, the 256-byte address
+    // alignment, the three setup buffers and their mappings, the size queries, the storage and the scratch.
+    // The backend owns all of it, so a caller cannot get the alignment wrong and a second backend can lay the
+    // whole thing out differently.
     std::optional<structure_set::micromap_resource> make_micromap(rhi::api_core& vk, uint32_t const triangle_count) {
         if (triangle_count == 0) {
             return std::nullopt;
         }
-        auto const get_sizes = reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>(vkGetDeviceProcAddr(device_of(vk), "vkGetMicromapBuildSizesEXT"));
-        auto const create = reinterpret_cast<PFN_vkCreateMicromapEXT>(vkGetDeviceProcAddr(device_of(vk), "vkCreateMicromapEXT"));
-        auto const destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(device_of(vk), "vkDestroyMicromapEXT"));
-        if (get_sizes == nullptr || create == nullptr || destroy == nullptr) {
-            return std::nullopt;
-        }
-
         // The two attribute records, both 4-byte-per-triangle so the dataOffsets are aligned: 0x03 is the 4-state
         // "unknown" pair (see the spec's Ray Opacity Micromap table), one micro-triangle per triangle.
         constexpr uint32_t data_stride = 4u;
         constexpr uint8_t unknown_state = 0x03u;
-        std::vector<uint8_t> const data(static_cast<std::size_t>(triangle_count) * data_stride, unknown_state);
-        std::vector<VkMicromapTriangleEXT> triangles = [triangle_count] {
-            std::vector<VkMicromapTriangleEXT> records(static_cast<std::size_t>(triangle_count));
+        std::vector<std::byte> const data(static_cast<std::size_t>(triangle_count) * data_stride, static_cast<std::byte>(unknown_state));
+        std::vector<deren::promise::rhi::micromap_triangle> const triangles = [triangle_count] {
+            std::vector<deren::promise::rhi::micromap_triangle> records(static_cast<std::size_t>(triangle_count));
             for (uint32_t i = 0; i < triangle_count; ++i) {
-                records[i] = VkMicromapTriangleEXT{.dataOffset = i * data_stride,
-                                                   .subdivisionLevel = 0u,
-                                                   .format = static_cast<uint16_t>(VK_OPACITY_MICROMAP_FORMAT_4_STATE_EXT)};
+                records[i] = deren::promise::rhi::micromap_triangle{
+                    .data_offset = i * data_stride,
+                    .subdivision_level = 0u,
+                    .format = static_cast<std::uint16_t>(deren::promise::rhi::micromap_format::four_state),
+                };
             }
             return records;
         }();
-        std::vector<uint32_t> indices(static_cast<std::size_t>(triangle_count), 0u); // identity is not needed: one micromap triangle each
+        std::vector<uint32_t> const indices(static_cast<std::size_t>(triangle_count), 0u); // identity is not needed: one micromap triangle each
 
         structure_set::micromap_resource out;
-        out.usage = VkMicromapUsageEXT{.count = triangle_count, .subdivisionLevel = 0u, .format = VK_OPACITY_MICROMAP_FORMAT_4_STATE_EXT};
-        out.triangle_array_stride = sizeof(VkMicromapTriangleEXT);
-        out.index_stride = sizeof(uint32_t);
+        out.handle = deren::promise::rhi::object_manager<deren::promise::rhi::micromap>{vk.create_micromap(deren::promise::rhi::micromap_desc{
+            .triangle_count = triangle_count,
+            .data = data,
+            .data_stride = data_stride,
+            .triangles = triangles,
+            .indices = indices,
+            .format = deren::promise::rhi::micromap_format::four_state,
+        })};
+        if (!out.handle) {
+            return std::nullopt; // the backend logged why (no VK_EXT_opacity_micromap, or an allocation failed)
+        }
         out.triangle_count = triangle_count;
-
-        // The inputs and the scratch: `data` and `triangleArray` must carry MICROMAP_BUILD_INPUT_READ_ONLY and a
-        // device address, the scratch must be STORAGE, and the micromap's own memory must carry MICROMAP_STORAGE.
-        //
-        // THE ADDRESS ALIGNMENT IS 256 BYTES and it is a requirement on the ADDRESS rather than on the buffer
-        // (VUID-vkCmdBuildMicromapsEXT-pInfos-07515, which validation reported the first time this ran): the
-        // allocator's addresses are aligned to nothing in particular and no address exists until after the
-        // allocation, so each setup buffer is allocated with a quarter-kilobyte of slack and the payload is
-        // written through its MAPPING at the first 256-aligned address inside it - which is why `initial_bytes`
-        // stays empty here even though the content is known when the buffer is created.
-        constexpr VkDeviceSize micromap_address_alignment = 256u;
-        // THE SETUP BUFFERS CARRY TWO CAPABILITIES, and both are load-bearing: the build reads them (so
-        // MICROMAP_BUILD_INPUT_READ_ONLY) and it is handed their device ADDRESSES (so SHADER_DEVICE_ADDRESS).
-        // The contract names the pair `micromap_build_input` + `device_address`; `storage_coherent` is what
-        // makes them mappable at all.
-        constexpr rhi::buffer_flags setup_flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::micromap_build_input);
-        auto const create_setup_buffer = [&vk](std::vector<uint8_t> const& bytes) -> std::pair<rhi::object_manager<rhi::buffer>, VkDeviceAddress> {
-            rhi::object_manager<rhi::buffer> buffer{vk.create_buffer(
-                rhi::buffer_desc{.size = bytes.size() + micromap_address_alignment, .usage = rhi::buffer_usage::storage_coherent, .flags = setup_flags})};
-            VkDeviceAddress const base = buffer ? buffer_address_of(vk, *buffer) : 0;
-            std::span<std::byte> const mapped = buffer ? buffer->mapped() : std::span<std::byte>{};
-            if (base == 0 || mapped.data() == nullptr) {
-                return {std::move(buffer), 0};
-            }
-            VkDeviceSize const offset = (micromap_address_alignment - (base % micromap_address_alignment)) % micromap_address_alignment;
-            std::memcpy(mapped.data() + offset, bytes.data(), bytes.size());
-            return {std::move(buffer), base + offset};
-        };
-
-        std::vector<uint8_t> const data_bytes(data);
-        auto [data_buffer, data_address] = create_setup_buffer(data_bytes);
-        out.data = std::move(data_buffer);
-        out.data_address = data_address;
-        std::vector<uint8_t> triangle_bytes(triangles.size() * sizeof(VkMicromapTriangleEXT));
-        std::memcpy(triangle_bytes.data(), triangles.data(), triangle_bytes.size());
-        auto [triangle_buffer, triangle_address] = create_setup_buffer(triangle_bytes);
-        out.triangles = std::move(triangle_buffer);
-        out.triangles_address = triangle_address;
-        std::vector<uint8_t> index_bytes(indices.size() * sizeof(uint32_t));
-        std::memcpy(index_bytes.data(), indices.data(), index_bytes.size());
-        auto [index_buffer, index_address] = create_setup_buffer(index_bytes);
-        out.indices = std::move(index_buffer);
-        out.indices_address = index_address;
-        if (!out.data || !out.triangles || !out.indices || out.data_address == 0 || out.triangles_address == 0 || out.indices_address == 0) {
-            return std::nullopt;
-        }
-        if (out.data_address == 0 || out.triangles_address == 0 || out.indices_address == 0) {
-            return std::nullopt;
-        }
-
-        VkMicromapBuildInfoEXT info = {};
-        info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
-        info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-        info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
-        info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
-        info.usageCountsCount = 1;
-        info.pUsageCounts = &out.usage;
-        info.data.deviceAddress = out.data_address;
-        info.triangleArray.deviceAddress = out.triangles_address;
-        info.triangleArrayStride = out.triangle_array_stride;
-
-        VkMicromapBuildSizesInfoEXT sizes = {};
-        sizes.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_SIZES_INFO_EXT;
-        get_sizes(device_of(vk), VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &sizes);
-        if (sizes.micromapSize == 0) {
-            return std::nullopt;
-        }
-        // The micromap's own memory: MICROMAP_STORAGE is what the create call needs of it, and the build
-        // receives its ADDRESS, so the contract's device_address flag rides along. It is GPU-only.
-        out.storage = rhi::object_manager<rhi::buffer>{vk.create_buffer(
-            rhi::buffer_desc{.size = sizes.micromapSize, .usage = rhi::buffer_usage::storage_gpu_only, .flags = addressable_flag | rhi::to_bits(rhi::buffer_flag::micromap_storage)})};
-        if (sizes.buildScratchSize != 0) {
-            // only its ADDRESS is read (by the build), so it needs the device-address flag and nothing else
-            out.scratch = rhi::object_manager<rhi::buffer>{vk.create_buffer(
-                rhi::buffer_desc{.size = sizes.buildScratchSize, .usage = rhi::buffer_usage::storage_gpu_only, .flags = addressable_flag})};
-            out.scratch_address = out.scratch ? buffer_address_of(vk, *out.scratch) : 0;
-            if (out.scratch_address == 0) {
-                return std::nullopt;
-            }
-        }
-        VkDeviceAddress const storage_address = out.storage ? buffer_address_of(vk, *out.storage) : 0;
-        if (storage_address == 0) {
-            return std::nullopt;
-        }
-        VkBuffer const storage_native = out.storage ? native_buffer_of(vk, *out.storage) : VK_NULL_HANDLE;
-        if (storage_native == VK_NULL_HANDLE) {
-            return std::nullopt;
-        }
-
-        VkMicromapCreateInfoEXT create_info = {};
-        create_info.sType = VK_STRUCTURE_TYPE_MICROMAP_CREATE_INFO_EXT;
-        create_info.buffer = storage_native;
-        create_info.offset = 0;
-        create_info.size = sizes.micromapSize;
-        create_info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-        create_info.deviceAddress = 0;
-        if (create(device_of(vk), &create_info, nullptr, &out.micromap) != VK_SUCCESS || out.micromap == VK_NULL_HANDLE) {
-            return std::nullopt;
-        }
         return out;
     }
-
     acceleration_structure::geometry_source structure_set::caster_geometry(primitive const& caster,
-                                                                           VkDeviceAddress const source_vertex_address,
-                                                                           VkDeviceAddress const source_index_address,
-                                                                           VkDeviceAddress const mask_address,
+                                                                           std::uintptr_t const source_vertex_address,
+                                                                           std::uintptr_t const source_index_address,
+                                                                           std::uintptr_t const mask_address,
                                                                            uint32_t const mask_stride,
-                                                                           VkDeviceAddress const skin_address,
+                                                                           std::uintptr_t const skin_address,
                                                                            uint32_t const skin_stride,
                                                                            micromap_resource const* const micromap) const noexcept {
         // The three cases, in the order they take precedence: a MASK bake replaces the geometry entirely (an
@@ -339,16 +221,15 @@ namespace deren::vulkan::ray_tracing {
         // it applies to the baked, the skinned and the plain case alike. That is also why the micromap is built
         // from the CASTER's triangle count rather than from either of those buffers' vertex count.
         if (micromap != nullptr) {
-            source.opacity_micromap = micromap->micromap;
-            source.opacity_index_address = micromap->indices_address;
-            source.opacity_index_stride = micromap->index_stride;
-            source.opacity_index_type = VK_INDEX_TYPE_UINT32;
-            source.opacity_usage = micromap->usage;
+            // ONE HANDLE (plan S1's P4): the micromap owns its usage record and the index array the traversal
+            // reads, so the four fields this used to copy across - an address, a stride, an index type and a
+            // usage record - are gone from the contract and from this line.
+            source.opacity_micromap = micromap->handle.get();
         }
         return source;
     }
 
-    std::expected<void, failure> structure_set::build(VkCommandBuffer const command_buffer, build_inputs const& inputs) {
+    std::expected<void, failure> structure_set::build(rhi::command_buffer& commands, build_inputs const& inputs) {
         // BUILT ONCE, SUCCESS OR FAILURE: a device that refused the build is not asked again, and no log repeats.
         if (this->build_attempted) {
             return {};
@@ -356,6 +237,7 @@ namespace deren::vulkan::ray_tracing {
         this->build_attempted = true;
 
         rhi::api_core& vk = *this->contract;
+        // Builds, barriers and bake callbacks share the caller-owned contract buffer.
         auto const start = std::chrono::steady_clock::now();
         this->bottom.emplace(vk);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
@@ -395,8 +277,8 @@ namespace deren::vulkan::ray_tracing {
                 ++skipped_no_stride;
                 continue;
             }
-            VkDeviceAddress const source_vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
-            VkDeviceAddress const source_index_address = buffer_address_of(vk, *caster->index_buffer);
+            std::uintptr_t const source_vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
+            std::uintptr_t const source_index_address = buffer_address_of(vk, *caster->index_buffer);
 
             // alphaMode MASK: bake the material's holes into an EXPANDED copy of this caster's vertices and build
             // the structure from that. An inline ray query has no any-hit stage, so a traversal cannot run the
@@ -451,7 +333,7 @@ namespace deren::vulkan::ray_tracing {
                 }
             }
 
-            VkDeviceAddress mask_address = 0;
+            std::uintptr_t mask_address = 0;
             uint32_t mask_stride = 0;
             if (inputs.mask_bake && inputs.hooks.mask_ready != nullptr && inputs.hooks.mask_ready(inputs.hooks.owner)) {
                 // material_record::flags bit 4 is alphaMode MASK (see vulkan/primitive.cppm; the bits are literals
@@ -473,7 +355,7 @@ namespace deren::vulkan::ray_tracing {
                         mask_address = buffer_address_of(vk, *expanded);
                         mask_stride = mask_vertex_stride;
                         inputs.hooks.record_mask_bake(inputs.hooks.owner,
-                                                      command_buffer,
+                                                      commands,
                                                       pass::mask_bake_request{
                                                           .source_vertices = source_vertex_address,
                                                           .source_indices = source_index_address,
@@ -504,7 +386,7 @@ namespace deren::vulkan::ray_tracing {
             // 64-byte interleaved vertex, so a caster whose vertices are packed differently is REFUSED (it keeps
             // its bind pose and is counted in the log) rather than skinned with the wrong words.
             constexpr uint32_t skin_source_stride_expected = 64u;
-            VkDeviceAddress skin_address = 0;
+            std::uintptr_t skin_address = 0;
             uint32_t skin_stride = 0;
             uint32_t skin_source_stride = 0;
             uint32_t skin_vertex_count = 0;
@@ -571,7 +453,7 @@ namespace deren::vulkan::ray_tracing {
                     this->skin_levels.push_back(built.blas_index);
                 }
             }
-            static_cast<void>(inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->caster_list));
+            static_cast<void>(inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list));
         }
 
         // Every bake wrote a buffer the build below reads: one barrier covers them all, because every dispatch is
@@ -579,22 +461,23 @@ namespace deren::vulkan::ray_tracing {
         // WRITE is not visible to an acceleration structure build without it, and the symptom would be a structure
         // built from an empty buffer - i.e. geometry that stops casting.
         if (mask_bakes_recorded) {
-            VkMemoryBarrier2 bake_order = {};
-            bake_order.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-            bake_order.srcStageMask = VK_PIPELINE_STAGE_2_COMPUTE_SHADER_BIT;
-            bake_order.srcAccessMask = VK_ACCESS_2_SHADER_WRITE_BIT;
-            bake_order.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-            bake_order.dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT;
-            VkDependencyInfo const bake_dependency = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                      .pNext = nullptr,
-                                                      .dependencyFlags = 0,
-                                                      .memoryBarrierCount = 1,
-                                                      .pMemoryBarriers = &bake_order,
-                                                      .bufferMemoryBarrierCount = 0,
-                                                      .pBufferMemoryBarriers = nullptr,
-                                                      .imageMemoryBarrierCount = 0,
-                                                      .pImageMemoryBarriers = nullptr};
-            vkCmdPipelineBarrier2(command_buffer, &bake_dependency);
+            // THE BUILD ORDERING RIDES THE CONTRACT NOW (the tenth batch): the pair is the measurement, and it
+            // is the SAME pair `vulkan/pass/compute_skin.cpp` records - (shader_write, acceleration_structure_read)
+            // is exactly the raw masks this replaced (COMPUTE_SHADER/SHADER_WRITE ->
+            // ACCELERATION_STRUCTURE_BUILD/SHADER_READ). `command_buffer` is the contract buffer this build
+            // records into, so the memory barrier is a `barrier_group` with `has_memory`.
+            deren::promise::rhi::barrier_group const bake_order{
+                .struct_size = sizeof(deren::promise::rhi::barrier_group),
+                .images = {},
+                .buffers = {},
+                .stage = deren::promise::rhi::stage_hint::none,
+                .has_memory = true,
+                .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::shader_write,
+                                                              .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+            };
+            if (commands.barrier(bake_order) != deren::promise::rhi::error::ok) {
+                deren::utility::log("ray tracing: the mask bake's build-ordering barrier was refused");
+            }
         }
 
         // ---- THE MICROMAP BUILDS, recorded here because the structure builds below READ them ----
@@ -606,66 +489,45 @@ namespace deren::vulkan::ray_tracing {
         // makes the attachment in the next step legal. Getting the first one wrong reads a micromap built from
         // memory the host had not published; getting the second wrong reads a micromap that is still being built.
         if (!this->micromap_resources.empty()) {
-            auto const build_micromaps = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(device_of(vk), "vkCmdBuildMicromapsEXT"));
-            if (build_micromaps != nullptr) {
-                std::vector<VkMicromapBuildInfoEXT> infos(this->micromap_resources.size());
-                for (std::size_t i = 0; i < this->micromap_resources.size(); ++i) {
-                    micromap_resource const& resource = this->micromap_resources[i];
-                    VkMicromapBuildInfoEXT& info = infos[i];
-                    info = VkMicromapBuildInfoEXT{};
-                    info.sType = VK_STRUCTURE_TYPE_MICROMAP_BUILD_INFO_EXT;
-                    info.type = VK_MICROMAP_TYPE_OPACITY_MICROMAP_EXT;
-                    info.flags = VK_BUILD_MICROMAP_PREFER_FAST_TRACE_BIT_EXT;
-                    info.mode = VK_BUILD_MICROMAP_MODE_BUILD_EXT;
-                    info.dstMicromap = resource.micromap;
-                    info.usageCountsCount = 1;
-                    info.pUsageCounts = &this->micromap_resources[i].usage;
-                    info.data.deviceAddress = resource.data_address;
-                    info.triangleArray.deviceAddress = resource.triangles_address;
-                    info.triangleArrayStride = resource.triangle_array_stride;
-                    info.scratchData.deviceAddress = resource.scratch_address;
+            // THE BUILDS ARE THE CONTRACT'S NOW (plan S1's P4): one `build_micromap` per micromap, and the
+            // backend records its own HOST_WRITE -> MICROMAP_BUILD barrier - which is why the raw
+            // `vkCmdPipelineBarrier2` that stood here is gone (it was this module's last Vulkan call).
+            // THE ORDER IS THE CALLER'S AND IT MATTERS: every micromap is built before the geometry that
+            // consults it, which is the order below.
+            bool micromap_build_refused = false;
+            for (micromap_resource const& resource : this->micromap_resources) {
+                if (!resource.handle) {
+                    continue;
                 }
-                VkMemoryBarrier2 const inputs_ready = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-                                                       .pNext = nullptr,
-                                                       .srcStageMask = VK_PIPELINE_STAGE_2_HOST_BIT,
-                                                       .srcAccessMask = VK_ACCESS_2_HOST_WRITE_BIT,
-                                                       .dstStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
-                                                       .dstAccessMask = VK_ACCESS_2_SHADER_READ_BIT};
-                VkDependencyInfo const before = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                 .pNext = nullptr,
-                                                 .dependencyFlags = 0,
-                                                 .memoryBarrierCount = 1,
-                                                 .pMemoryBarriers = &inputs_ready,
-                                                 .bufferMemoryBarrierCount = 0,
-                                                 .pBufferMemoryBarriers = nullptr,
-                                                 .imageMemoryBarrierCount = 0,
-                                                 .pImageMemoryBarriers = nullptr};
-                vkCmdPipelineBarrier2(command_buffer, &before);
-                build_micromaps(command_buffer, static_cast<uint32_t>(infos.size()), infos.data());
-                VkMemoryBarrier2 const micromaps_ready = {.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2,
-                                                          .pNext = nullptr,
-                                                          .srcStageMask = VK_PIPELINE_STAGE_2_MICROMAP_BUILD_BIT_EXT,
-                                                          .srcAccessMask = VK_ACCESS_2_MICROMAP_WRITE_BIT_EXT,
-                                                          .dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR,
-                                                          .dstAccessMask = VK_ACCESS_2_MICROMAP_READ_BIT_EXT};
-                VkDependencyInfo const after = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                .pNext = nullptr,
-                                                .dependencyFlags = 0,
-                                                .memoryBarrierCount = 1,
-                                                .pMemoryBarriers = &micromaps_ready,
-                                                .bufferMemoryBarrierCount = 0,
-                                                .pBufferMemoryBarriers = nullptr,
-                                                .imageMemoryBarrierCount = 0,
-                                                .pImageMemoryBarriers = nullptr};
-                vkCmdPipelineBarrier2(command_buffer, &after);
-                deren::utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
-                                    this->micromap_resources.size(),
-                                    micromap_triangles,
-                                    skipped_micromaps);
+                if (commands.build_micromap(*resource.handle) != deren::promise::rhi::error::ok) {
+                    micromap_build_refused = true;
+                }
             }
+            // THE SECOND HALF RIDES THE CONTRACT (the micromap roles are values the `buffer_use` enum carries):
+            // (micromap_write, micromap_read) is exactly this barrier's mask pair
+            // (MICROMAP_BUILD/MICROMAP_WRITE -> ACCELERATION_STRUCTURE_BUILD/MICROMAP_READ), and it is what makes
+            // the attachment legal in the build that follows.
+            deren::promise::rhi::barrier_group const micromaps_ready{
+                .struct_size = sizeof(deren::promise::rhi::barrier_group),
+                .images = {},
+                .buffers = {},
+                .stage = deren::promise::rhi::stage_hint::none,
+                .has_memory = true,
+                .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::micromap_write,
+                                                              .to = deren::promise::rhi::buffer_use::micromap_read},
+            };
+            if (commands.barrier(micromaps_ready) != deren::promise::rhi::error::ok) {
+                deren::utility::log("ray tracing: the micromap build-ordering barrier was refused");
+            }
+            if (micromap_build_refused) {
+                deren::utility::log("ray tracing: a micromap build was refused - the casters that consult one fall back to opaque");
+            }
+            deren::utility::log("ray-traced shadows: built {} opacity micromaps ({} triangles, subdivision level 0, 4-state, every micro-triangle UNKNOWN, {} casters skipped - so this step cannot change a pixel)",
+                                this->micromap_resources.size(),
+                                micromap_triangles,
+                                skipped_micromaps);
         }
-
-        if (auto const built = structures.record_build(command_buffer); !built) {
+        if (auto const built = structures.record_build(commands); !built) {
             // The two structures go, the COPIES stay: this is the same asymmetry the renderer had, and it is kept
             // deliberately - a failed record of a build does not invalidate the buffers the map points at, and
             // dropping them would be a second, unrelated change of behaviour.
@@ -702,11 +564,12 @@ namespace deren::vulkan::ray_tracing {
         return {};
     }
 
-    std::expected<void, failure> structure_set::update(VkCommandBuffer const command_buffer, uint32_t const frame_slot, build_inputs const& inputs) {
+    std::expected<void, failure> structure_set::update(rhi::command_buffer& commands, uint32_t const frame_slot, build_inputs const& inputs) {
         if (!this->ready()) {
             return {}; // nothing was built (or the build failed): there is nothing to refit or to instance
         }
         rhi::api_core& vk = *this->contract;
+        // Builds, barriers and bake callbacks share the caller-owned contract buffer.
         auto& levels = *this->bottom;
         auto& top = *this->top_level;
 
@@ -715,8 +578,8 @@ namespace deren::vulkan::ray_tracing {
         // recorded before this frame writes the scene block's binding 16, the ordering the mask bake's own-set
         // comment explains).
         if (inputs.skin_bake && !this->skin_levels.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner)) {
-            if (inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->caster_list)) {
-                if (auto const updated = levels.record_update(command_buffer, this->skin_levels); !updated) {
+            if (inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list)) {
+                if (auto const updated = levels.record_update(commands, this->skin_levels); !updated) {
                     // Once, and off: a failure here would otherwise log every frame, and a refit is not something
                     // to keep attempting against structures the device refused. The knob is the CALLER's, so the
                     // decision travels back with the failure.
@@ -742,8 +605,8 @@ namespace deren::vulkan::ray_tracing {
             // A baked or skinned caster is read from the copy its structure was built from: the mask bake's
             // expanded, non-indexed one (zero index address = a flat vertex list), or the skinned one, which keeps
             // the primitive's own index buffer because its vertex ORDER is unchanged.
-            VkDeviceAddress vertex_address = built.mask_vertex_address != 0 ? built.mask_vertex_address : built.skin_destination_address;
-            VkDeviceAddress index_address = 0;
+            std::uintptr_t vertex_address = built.mask_vertex_address != 0 ? built.mask_vertex_address : built.skin_destination_address;
+            std::uintptr_t index_address = 0;
             uint32_t vertex_stride = built.mask_vertex_address != 0 ? built.mask_stride : built.skin_destination_stride;
             if (vertex_address == 0) {
                 vertex_address = buffer_address_of(vk, *caster->vertex_buffer);
@@ -773,24 +636,24 @@ namespace deren::vulkan::ray_tracing {
         // build's reads against writes the first one has not published. It costs a no-op on every later frame
         // (nothing wrote a bottom level in this buffer), which is cheaper than a flag that would have to track
         // "which frame built them".
-        VkMemoryBarrier2 build_order = {};
-        build_order.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER_2;
-        build_order.srcStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        build_order.srcAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_WRITE_BIT_KHR;
-        build_order.dstStageMask = VK_PIPELINE_STAGE_2_ACCELERATION_STRUCTURE_BUILD_BIT_KHR;
-        build_order.dstAccessMask = VK_ACCESS_2_ACCELERATION_STRUCTURE_READ_BIT_KHR;
-        VkDependencyInfo const build_order_info = {.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO,
-                                                   .pNext = nullptr,
-                                                   .dependencyFlags = 0,
-                                                   .memoryBarrierCount = 1,
-                                                   .pMemoryBarriers = &build_order,
-                                                   .bufferMemoryBarrierCount = 0,
-                                                   .pBufferMemoryBarriers = nullptr,
-                                                   .imageMemoryBarrierCount = 0,
-                                                   .pImageMemoryBarriers = nullptr};
-        vkCmdPipelineBarrier2(command_buffer, &build_order_info);
+        // THE CONTRACT'S PAIR, AND THE VALUE IT NEEDED: (acceleration_structure_write,
+        // acceleration_structure_read) is the measured mask pair (ACCELERATION_STRUCTURE_BUILD with the
+        // extension's WRITE access -> the same stage with the READ access). `acceleration_structure_read` named
+        // the reader already; the WRITER is the value appended with this site.
+        deren::promise::rhi::barrier_group const build_order{
+            .struct_size = sizeof(deren::promise::rhi::barrier_group),
+            .images = {},
+            .buffers = {},
+            .stage = deren::promise::rhi::stage_hint::none,
+            .has_memory = true,
+            .memory = deren::promise::rhi::memory_barrier{.from = deren::promise::rhi::buffer_use::acceleration_structure_write,
+                                                          .to = deren::promise::rhi::buffer_use::acceleration_structure_read},
+        };
+        if (commands.barrier(build_order) != deren::promise::rhi::error::ok) {
+            deren::utility::log("ray tracing: the top-level build-ordering barrier was refused");
+        }
 
-        if (auto const built = top.record_build(command_buffer); !built) {
+        if (auto const built = top.record_build(commands); !built) {
             return std::unexpected(failure{.message = built.error()});
         }
 

@@ -88,6 +88,9 @@ def census_recipes(files):
 # which is a number this script prints - not a claim someone wrote down.
 RECIPE_ROLES = {
     "color_attachment_transition": ("undefined", "color_attachment"),
+    # PLAN X4: the host-access pair the engine used to record by hand (the probes read-back). It is a RECIPE
+    # like the others - the census counts what constant_init DECLARES, which is why it joins this table.
+    "color_attachment_to_host_transition": ("color_attachment", "host_read"),
     "depth_attachment_transition": ("undefined", "depth_attachment"),
     "undefined_to_sampling_transition": ("undefined", "shader_read"),
     "undefined_to_depth_sampling_transition": ("undefined", "depth_read"),

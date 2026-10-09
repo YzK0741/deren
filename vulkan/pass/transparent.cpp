@@ -7,14 +7,16 @@ module;
 
 #include <array>
 #include <cstdint>
+#include <memory> // std::shared_ptr: the frame's secondary is the contract handle
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.transparent;
 
+import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.utility;
+
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -47,83 +49,114 @@ namespace deren::vulkan::pass {
     }
 
     void transparent_pass::record(resolved_io const& io) {
-        if (this->pass_frame.make_environment == nullptr || this->pass_frame.secondary == VK_NULL_HANDLE || this->pass_frame.leaves.empty() || io.targets.size() < 2) {
+        if (this->pass_frame.make_environment == nullptr || !this->pass_frame.secondary || this->pass_frame.leaves.empty() || io.targets.size() < 2 || io.list == nullptr) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_transparent_pass)
         }
-        VkImageView const target_view = io.targets[0].view; // the scene colour target (declaration order)
-        VkImage const target_image = io.targets[0].image;
-        VkImageView const depth_view = io.targets[1].view; // the surface depth
-        VkImage const depth_image = io.targets[1].image;
 
         // The lighting stage sampled the surface depth, so it is in SHADER_READ_ONLY: hand it back to the
         // attachment layout for the depth test. The scene target is already in COLOR_ATTACHMENT (the lighting
         // instance ended as an attachment write), but dynamic rendering inserts no dependency between two
         // instances, so that store still has to be published before this instance LOADs the same image.
-        std::array<VkImageMemoryBarrier2, 2> barriers = {};
-        barriers[0] = deren::vulkan::sampling_to_depth_attachment_transition;
-        barriers[0].image = depth_image;
-        barriers[1] = deren::vulkan::color_attachment_dependency;
-        barriers[1].image = target_image;
-        VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
-        vkCmdPipelineBarrier2(io.cmd, &dependency);
+        // THE BATCH RIDES THE CONTRACT (abi 20): two images, the same two pairs and the same order the raw
+        // barriers carried - `sampling_to_depth_attachment_transition` on the depth, then
+        // `color_attachment_dependency` on the scene target, in ONE barrier call.
+        std::array<rhi::image_barrier, 2> const barriers = {
+            rhi::image_barrier{.resource = io.targets[1].image_handle,
+                               .from = rhi::image_use::shader_read,
+                               .to = rhi::image_use::depth_attachment,
+                               .range = {}},
+            rhi::image_barrier{.resource = io.targets[0].image_handle,
+                               .from = rhi::image_use::color_attachment,
+                               .to = rhi::image_use::color_attachment,
+                               .range = {}},
+        };
+        if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
+            return; // a refused barrier would leave an attachment in a state nobody declared
+        }
 
         // The leaves go into the frame slot's transparent secondary, with inheritance matching the instance
         // below: ONE colour attachment at 1x. A secondary does not inherit state from its primary, so it binds
         // the shared scene block for itself - the same bind the scene pass's segments make.
-        std::array<VkFormat, 1> const color_formats = {this->pass_frame.color_format};
-        VkCommandBufferInheritanceRenderingInfo const inheritance =
-            make_inheritance_rendering_info(color_formats.data(), 1, this->pass_frame.depth_format, VK_SAMPLE_COUNT_1_BIT);
-        // The heaps are inherited (see scene.cpp's segment begin): a secondary is validated on its own, so the
-        // primary's heap bind does not reach it.
-        VkBindHeapInfoEXT resource_bind = {};
-        VkBindHeapInfoEXT sampler_bind = {};
-        bool const inherit_heaps = this->pass_frame.fill_heap_bind != nullptr;
-        if (inherit_heaps) {
-            this->pass_frame.fill_heap_bind(this->pass_frame.owner, resource_bind, sampler_bind);
-        }
-        VkCommandBufferInheritanceDescriptorHeapInfoEXT const heap_inheritance = {
-            .sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_DESCRIPTOR_HEAP_INFO_EXT,
-            .pNext = &inheritance,
-            .pSamplerHeapBindInfo = inherit_heaps ? &sampler_bind : nullptr,
-            .pResourceHeapBindInfo = inherit_heaps ? &resource_bind : nullptr,
+        // THE LIFECYCLE RIDES THE CONTRACT NOW (abi 20): the inheritance is the contract's own tagged structure
+        // (native colour formats, the depth format, the sample count and the view mask the raw
+        // VkCommandBufferInheritanceRenderingInfo carried), and the BACKEND derives the descriptor-heap half
+        // itself - chaining it here is not possible and not needed.
+        std::array<rhi::image_format, 1> const color_formats = {this->pass_frame.color_format};
+        rhi::command_buffer_inheritance_info const inheritance = {
+            .color_format_count = static_cast<std::uint32_t>(color_formats.size()),
+            .color_formats = color_formats.data(),
+            .depth_format = this->pass_frame.depth_format,
+            .samples = 1u,  // the raw begin's 1x
+            .view_mask = 0, // the raw inheritance built `viewMask = 0`
         };
-        VkCommandBufferInheritanceInfo const secondary_inherit = make_inheritance_info(&heap_inheritance);
-        VkCommandBufferBeginInfo const secondary_begin = make_command_buffer_begin_info(VK_COMMAND_BUFFER_USAGE_RENDER_PASS_CONTINUE_BIT, &secondary_inherit);
+        rhi::command_buffer_begin_info const secondary_begin = {
+            .struct_size = sizeof(rhi::command_buffer_begin_info),
+            .usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue),
+            .next = &inheritance.header,
+        };
         bool recorded = false;
-        if (vkBeginCommandBuffer(this->pass_frame.secondary, &secondary_begin) == VK_SUCCESS) {
+        if (this->pass_frame.secondary->begin_recording(secondary_begin) == rhi::error::ok) {
             render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, this->pass_frame.secondary, /*gbuffer=*/false);
             // No set to bind (see scene_pass::record_segment): every slot these leaves read comes from the heaps,
             // which the runtime binds on this same secondary before executing it.
             for (primitive const* const leaf : this->pass_frame.leaves) {
                 leaf->draw(env);
             }
-            vkEndCommandBuffer(this->pass_frame.secondary);
-            recorded = true;
+            // A SECONDARY IS ONLY EXECUTABLE ONCE IT HAS ENDED: a failed end is the same hazard as a failed
+            // begin, so it leaves `recorded` false and nothing is executed.
+            if (this->pass_frame.secondary->end_recording() == rhi::error::ok) {
+                recorded = true;
+            } else {
+                deren::utility::log("transparent pass: secondary end failed - transparent leaves skipped this frame");
+            }
         } else {
             deren::utility::log("transparent pass: secondary begin failed - transparent leaves skipped this frame");
         }
 
         // loadOp LOAD on both attachments: the scene target holds the shaded frame and the depth holds the
         // opaque surface, and neither may be cleared.
-        VkRenderingAttachmentInfo const color_attachment = make_load_color_attachment_info(target_view);
-        VkRenderingAttachmentInfo const depth_attachment = make_load_depth_attachment_info(depth_view);
-        VkRenderingInfo const rendering_info =
-            make_rendering_info(VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT, {{0, 0}, this->pass_frame.extent}, &color_attachment, 1, &depth_attachment);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
-        if (recorded) {
-            vkCmdExecuteCommands(io.cmd, 1, &this->pass_frame.secondary);
+        // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one colour attachment and the depth, both LOAD + STORE, and
+        // the raw call's flags word is the `secondary_contents` bit.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,
+                                             .load = rhi::load_op::load, // make_load_depth_attachment_info's loadOp
+                                             .store = rhi::store_op::store,
+                                             .read_only = false,
+                                             .has_stencil = false,
+                                             .clear_depth = 1.0f,
+                                             .clear_stencil = 0};
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height},
+            .layer_count = 1, // the raw make_rendering_info's layerCount, which is 1 at every site in this engine
+            .colors = colors,
+            .depth = depth,
+            .has_depth = true,
+            .secondary_contents = true, // the raw call passed VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return; // a refused scope would leave the attachments in a state nobody declared
         }
-        vkCmdEndRendering(io.cmd);
+        if (recorded) {
+            if (io.list->execute(*this->pass_frame.secondary) != rhi::error::ok) {
+                deren::utility::log("transparent pass: executing the secondary was refused - the blended leaves are missing this frame");
+            }
+        }
+        io.list->end_rendering();
 
         // Hand the depth back to the layout everything downstream samples it in: this pass took it out of
         // SHADER_READ to depth-test against it, and TWO later stages read the same image (the resolve's
         // disocclusion guard and the composite's edge test). Nothing else would move it - the flag-driven
         // transition was already consumed by the lighting stage - so a frame with blended geometry would leave
         // the image as an attachment and every read after it would be a layout error.
-        VkImageMemoryBarrier2 to_sampling = deren::vulkan::shadow_map_sampling_transition; // attachment -> SHADER_READ
-        to_sampling.image = depth_image;
-        VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-        vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
+                                                .from = rhi::image_use::depth_attachment,
+                                                .to = rhi::image_use::shader_read,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the depth in a state nobody declared
+        }
     }
 
 } // namespace deren::vulkan::pass

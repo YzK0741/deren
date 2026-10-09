@@ -1,8 +1,8 @@
 module;
 
-#include <cstddef>         // std::byte: the push block is bytes now (see push_block below)
-#include <span>            // std::span: what the endpoint takes
-#include <vulkan/vulkan.h> // VkCommandBuffer / VkPipelineLayout handle typedefs only
+#include <cstddef> // std::byte: the push block is bytes now (see push_block below)
+#include <memory>  // std::shared_ptr: the session's recording target is the contract handle
+#include <span>    // std::span: what the endpoint takes
 
 export module deren.vulkan.render_environment;
 
@@ -55,11 +55,19 @@ namespace deren::vulkan {
      * @endcode
      */
     export struct render_environment {
-        VkCommandBuffer command_buffer = VK_NULL_HANDLE;                        // session's recording target
-        std::string_view default_name = {};                                     // this pass's default
-        std::function<void(VkCommandBuffer, std::string_view)> bind = {};       // injected binder
-        std::function<void(VkCommandBuffer, VkBool32)> set_depth_write_fn = {}; // injected depth-write setter
-        VkPipelineLayout layout = VK_NULL_HANDLE;                               // shared scene layout
+        /**
+         * THE SESSION'S RECORDING TARGET (abi 21). `std::shared_ptr<deren::promise::rhi::command_buffer>` -
+         * the same BORROWED handle `resolved_io::cmd` carries, or the caller-owned secondary the pass is
+         * recording into. `bind`, `set_depth_write_fn` and `set_cull_mode_fn` take it by value, so a session
+         * that was handed a secondary keeps that secondary alive for exactly as long as it can record into it;
+         * a primitive that needs the raw handle derives it through the runtime's escape (the runtime's
+         * `push_block` / `push_at` / `draw_mesh_tasks*` endpoints do that themselves, which is why a leaf never
+         * spells a `VkCommandBuffer`).
+         */
+        std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer = {};                                // session's recording target (contract handle)
+        std::string_view default_name = {};                                                                      // this pass's default
+        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, std::string_view)> bind = {};   // injected binder
+        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, bool)> set_depth_write_fn = {}; // injected depth-write setter
         /**
          * HOW A DRAW SENDS ITS PUSH BLOCK, now that no pipeline has a layout (see
          * `pass::resolved_io::push_endpoint`, which is the same pair for a pass).
@@ -67,14 +75,19 @@ namespace deren::vulkan {
          * `vkCmdPushConstants` needs a layout to push to, and every heap-native pipeline is created with
          * `layout = VK_NULL_HANDLE`, so a stage block travels as DATA through `vkCmdPushDataEXT` instead - read
          * by the shader exactly as it always read push constants. A primitive's draw() has no access to the
-         * heap, and this session object is what it does have, so the runtime fills these two where it fills
-         * `layout`, and the endpoint appends the heap's two indices (frame slot, swapchain image) to the block.
+         * heap, and this session object is what it does have, so the runtime supplies these two recording endpoints. The endpoint appends the heap's two indices
+         * (frame slot, swapchain image) to the block.
          *
          * NOT a `std::function`: this is copied into every worker's session every frame, and a raw owner plus a
          * function pointer is what a per-draw call can afford.
+         *
+         * IT TAKES THE CONTRACT'S `command_buffer&`, not a native handle (abi 21): the session's target is a
+         * contract buffer now (see `command_buffer` above), and the endpoint that implements this - the runtime's
+         * `push_stage_block` - derives the raw handle it needs through the escape itself. A native parameter here
+         * would put that conversion in `primitive.cpp`, which is exactly where the contract does not belong.
          */
         void* push_owner = nullptr;
-        bool (*push_block)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+        bool (*push_block)(void* owner, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
         /**
          * MESH RECORDING, in the three pieces a draw without an input assembler needs (docs/mesh_shaders.md
          * step 1). A mesh pipeline replaces the vertex stage AND the input assembler, so `vkCmdDrawIndexed`
@@ -89,10 +102,13 @@ namespace deren::vulkan {
          * - `buffer_address`: the device address of a bound buffer. The primitive knows WHICH buffer and the
          *   runtime knows the device, and `vkGetBufferDeviceAddress` is the latter's to call.
          * - `push_at`: a push at a raw block offset, for the geometry lanes that sit past the block
-         *   `push_block` sends (which appends the heap indices at its own end and cannot place them).
+         *   `push_block` sends (which appends the heap indices at its own end and cannot place them). It takes
+         *   the contract's `command_buffer&` for the same reason `push_block` does.
          * - `draw_mesh_tasks`: the dispatch itself. The entry point is not exported by the loader's import
          *   library (`vkCmdDrawMeshTasksEXT` is an extension command), so the runtime resolves it once and
-         *   answers null when the device has none - which is the answer "draw nothing" rather than a crash.
+         *   answers null when the device has none - which is the answer "draw nothing" rather than a crash. It
+         *   takes the contract's `command_buffer&` too: the resolved entry point's own argument is the runtime's
+         *   to convert.
          */
         bool mesh_stage = false;
         /**
@@ -145,9 +161,9 @@ namespace deren::vulkan {
         /// one - i.e. to keep reaching into the backend for exactly the thing the migration removes. The
         /// `owner` void* is the runtime's own state, and the address comes back through
         /// `native_buffer()` + `device_address::buffer_address()` on that side.
-        VkDeviceAddress (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
-        bool (*push_at)(void* owner, VkCommandBuffer command_buffer, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
-        bool (*draw_mesh_tasks)(void* owner, VkCommandBuffer command_buffer, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        std::uintptr_t (*buffer_address)(void* owner, deren::promise::rhi::buffer const& buffer) = nullptr;
+        bool (*push_at)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t offset, std::span<std::byte const> bytes) = nullptr;
+        bool (*draw_mesh_tasks)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         /**
          * THE SAME DISPATCH, WITH ITS COUNTS IN A BUFFER (docs/mesh_shaders.md step 3, second mechanism). `slot` is
          * the primitive's own command record - its `meshlet_base` - so a COMPUTE culling pass can rewrite that
@@ -155,11 +171,11 @@ namespace deren::vulkan {
          * `draw_mesh_tasks` wherever a mesh session is built; null means the device has no indirect entry point, and
          * the dispatch then goes through the direct call (which the runtime logs once rather than hiding).
          */
-        bool (*draw_mesh_tasks_indirect)(void* owner, VkCommandBuffer command_buffer, uint32_t slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
+        bool (*draw_mesh_tasks_indirect)(void* owner, deren::promise::rhi::command_buffer& command_buffer, uint32_t slot, uint32_t groups_x, uint32_t groups_y, uint32_t groups_z) = nullptr;
         std::string_view bound = {}; // currently bound name
         // injected cull-mode setter (core dynamic state since Vulkan 1.3, so one pipeline serves
         // single- and double-sided materials)
-        std::function<void(VkCommandBuffer, VkCullModeFlags)> set_cull_mode_fn = {};
+        std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, deren::promise::rhi::cull_mode)> set_cull_mode_fn = {};
         // Session-wide two-sided rasterization. The SHADOW pass sets it, and it is not a nicety: a
         // caster must never be dropped for facing it away from the light. A single-sided wall plane
         // whose only face points into the room (Sponza is full of them) is back-facing as seen from
@@ -168,13 +184,13 @@ namespace deren::vulkan {
         // sunlight pours straight through it. Front-face culling fails on exactly the same geometry,
         // so the depth pass draws both sides (the depth test still keeps the nearest surface).
         bool two_sided = false;
-        VkCullModeFlags cull_mode_recorded = VK_CULL_MODE_BACK_BIT;
+        deren::promise::rhi::cull_mode cull_mode_recorded = deren::promise::rhi::cull_mode::back;
         bool cull_mode_known = false;
         // depth-write state actually recorded so far. Starts "unknown" (nothing recorded yet):
         // the first set_depth_write() must ALWAYS emit vkCmdSetDepthWriteEnable even when the
         // requested state matches the pipeline default - a dynamic state that is never set is
         // invalid (VUID). known == true once any set has been recorded.
-        VkBool32 depth_write_recorded = VK_TRUE;
+        bool depth_write_recorded = true;
         bool depth_write_known = false;
         /**
          * WHETHER THE SESSION, RATHER THAN THE LEAF, OWNS THE DEPTH-WRITE STATE.
@@ -226,7 +242,7 @@ namespace deren::vulkan {
             if (this->depth_write_locked) {
                 return;
             }
-            VkBool32 const want = enabled ? VK_TRUE : VK_FALSE;
+            bool const want = enabled;
             if (!this->depth_write_known || this->depth_write_recorded != want) {
                 this->set_depth_write_fn(this->command_buffer, want);
                 this->depth_write_recorded = want;
@@ -253,16 +269,16 @@ namespace deren::vulkan {
          * @brief record the cull mode for a material, honoring the session's two-sided flag
          * @param two_sided_material the primitive's own glTF `doubleSided` flag (renders both faces)
          * @note callers pass their material flag and let the session decide: the shadow pass forces
-         *       VK_CULL_MODE_NONE regardless (see two_sided), the main pass keeps back-face culling
+         *       the contract's `cull_mode::none` regardless (see two_sided), the main pass keeps back-face culling
          *       for single-sided materials. Deduplicated like set_depth_write(), so consecutive
          *       leaves sharing a cull mode emit the state once.
          * @note `forced_cull_front` outranks both session and material (see its own note): it is how the inverted
          *       hull states Cull Front for a group of leaves that would otherwise each put BACK/NONE back.
          */
         void set_cull_mode(bool const two_sided_material) {
-            VkCullModeFlags const want = this->forced_cull_front
-                                             ? VK_CULL_MODE_FRONT_BIT
-                                             : ((this->two_sided || two_sided_material) ? VK_CULL_MODE_NONE : VK_CULL_MODE_BACK_BIT);
+            deren::promise::rhi::cull_mode const want = this->forced_cull_front
+                                                            ? deren::promise::rhi::cull_mode::front
+                                                            : ((this->two_sided || two_sided_material) ? deren::promise::rhi::cull_mode::none : deren::promise::rhi::cull_mode::back);
             if (!this->cull_mode_known || this->cull_mode_recorded != want) {
                 this->set_cull_mode_fn(this->command_buffer, want);
                 this->cull_mode_recorded = want;

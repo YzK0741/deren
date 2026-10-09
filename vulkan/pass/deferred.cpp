@@ -13,12 +13,10 @@ module;
 #include <glm/glm.hpp> // the push block's ssao lane and the frame's inverse view-projection
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.deferred;
 
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_deferred: the pipeline this pass owns
 import deren.utility;
 
@@ -50,8 +48,8 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline deferred_pass::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* deferred_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
     }
 
     void deferred_pass::set_frame(deferred_frame const& frame) noexcept {
@@ -66,13 +64,13 @@ namespace deren::vulkan::pass {
     }
 
     void deferred_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->pass_pipeline.has_value()) {
             return; // already built for this device
         }
@@ -85,7 +83,7 @@ namespace deren::vulkan::pass {
         // The blend state is the stage's own: the attachment is LOADed and the lighting ADDS to the emissive the
         // G-buffer pass wrote.
         std::array<rhi::blend_mode, 1> const blend = {rhi::blend_mode::additive};
-        auto built = pipelines::build_deferred(*context.face, context.device,
+        auto built = pipelines::build_deferred(*context.face,
                                                std::span<rhi::blend_mode const>(blend), vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("deferred lighting disabled: {}", built.error());
@@ -123,31 +121,52 @@ namespace deren::vulkan::pass {
     }
 
     void deferred_pass::record(resolved_io const& io) {
-        if (!this->pass_pipeline.has_value() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pass_pipeline.has_value() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
         }
-        VkImage const target = io.targets[0].image;
-        VkImageView const target_view = io.targets[0].view;
-        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE) {
+        // THE CONTRACT HANDLES ARE THE GUARD (plan X5 B2): the raw lane is gone, so this reads the lane the pass
+        // records through - a null one is exactly "this frame has no target".
+        deren::promise::rhi::image* const target = io.targets[0].image_handle;
+        deren::promise::rhi::image_view* const target_view = io.targets[0].view_handle;
+        if (target == nullptr || target_view == nullptr) {
             return;
         }
         // The scene-colour dependency, which cannot be folded into the sampling transitions below: it does not
         // change layout, and its consumer is this instance's LOAD - a color-attachment access, not the
         // FRAGMENT_SHADER read those transitions publish. Dynamic rendering inserts no dependency of its own between
         // two instances, so without it the load is not ordered after the G-buffer pass's store.
-        VkImageMemoryBarrier2 dependency_barrier = deren::vulkan::color_attachment_dependency;
-        dependency_barrier.image = target;
-        VkDependencyInfo const dependency = make_image_dependency_info(1, &dependency_barrier);
-        vkCmdPipelineBarrier2(io.cmd, &dependency);
+        // THE PAIR RIDES THE CONTRACT NOW (abi 20): the backend derives the masks and the layouts from the
+        // (color_attachment, color_attachment) recipe this site has always used - a dependency that does not
+        // change layout, and the one table pair that spells exactly that.
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[0].image_handle,
+                                                .from = rhi::image_use::color_attachment,
+                                                .to = rhi::image_use::color_attachment,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the target in a state nobody declared
+        }
         // The three stored targets and the G-buffer depth became samples in this STAGE's preamble, in the
         // renderer - the frame's ordering rule about images the G-buffer pass wrote (see deferred_frame's note).
-        VkRenderingAttachmentInfo const color_attachment = make_load_color_attachment_info(target_view);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, io.extent}, true, &color_attachment, nullptr);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
+        // THE RENDERING SCOPE RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw
+        // helper spelled), no depth - the whole scope this pass opens.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // no secondary command buffers: the lighting draw records straight into the primary
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
         // No set to bind: the stored targets and the G-buffer depth are heap slots, and the frame bound the heaps
         // on this command buffer (see begin_recording); the pass's push block carries the two indices.
-        vkCmdSetCullMode(io.cmd, VK_CULL_MODE_NONE); // the synthetic triangle has no facing to cull
+        io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
         // THE PUSH BLOCK IS THE PASS'S OWN (S3): its shape was always the pass's (`push_constants`, `static_assert`ed
         // against the declaration), and its VALUES are now the pass's too - the SSAO parameters and the flat-render
         // flag it owns, the frame's inverse view-projection from `resolved_io::constants`, and the frame's answer to
@@ -157,9 +176,9 @@ namespace deren::vulkan::pass {
         push.ssao = glm::vec4(this->ssao_radius, this->ssao_active ? this->ssao_intensity : 0.0f, static_cast<float>(this->ssao_samples), this->ssao_bias);
         push.unlit = this->unlit_shading ? 1.0f : 0.0f;
         push.punctual_replaced = this->pass_frame.punctual_replaced ? 1.0f : 0.0f;
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
-        vkCmdDraw(io.cmd, 3, 1, 0, 0);
-        vkCmdEndRendering(io.cmd);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->draw(3, 1, 0, 0);
+        io.list->end_rendering();
     }
 
 } // namespace deren::vulkan::pass

@@ -55,7 +55,7 @@ import deren.vulkan.constant_init;
 // THE ABI GUARD, AND WHY THERE IS NO LONGER A TRANSLATION HERE.
 //
 // `deren::promise::rhi::create_info` is the contract's ONE creation structure and the backend's
-// constructor takes it directly (plan_rhi_v4.md §4.1 item 3: the renderer's creation parameters
+// constructor takes it directly (the renderer's creation parameters
 // cross as a POD structure). It used to be two structures plus a `to_backend_create_info()` mapping
 // between them - the portable shape and this backend's own `core_create_info` - and that pair is
 // gone: one structure means one place to add the next field, and the initialisation run below reads
@@ -314,6 +314,12 @@ namespace deren::vulkan {
         this->heap_view.owner = this;
         this->address_view.owner = this;
         this->host_copy_view.owner = this;
+        // THE DEVICE-CAPABILITY VIEW READS THIS CORE'S CACHED FACTS, so it needs the owner exactly as the views
+        // above do - and the omission is not silent: with no owner every method answers its zero/false default,
+        // which gated the MESH path off (measured: 'pipeline pbr has no mesh stage to build from' - the vertex
+        // form is gone, so the app cannot start at all).
+        this->capabilities_view.owner = this;
+        this->shader_groups_view.owner = this;
         this->frame_command_buffers.reserve(static_cast<std::size_t>(MAX_FRAMES_IN_FLIGHT));
         for (int32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
             // EACH ONE BRINGS ITS OWN POOL: make_command_buffer() creates a pool per buffer (see
@@ -718,6 +724,48 @@ namespace deren::vulkan {
             this->mesh_dispatch_indirect = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
         }
 
+        // ---- THE RAY-TRACING LAUNCH: the same rule and the same shape as the mesh commands above. It is the
+        //      extension entry point the recording face's `command_buffer::trace_rays` records through (abi 24),
+        //      and it is resolved ONCE here rather than per launch - so a device without the ray-tracing pipeline
+        //      extension answers null and the verb records nothing (see the member's own note).
+        this->ray_trace_launch = reinterpret_cast<PFN_vkCmdTraceRaysKHR>(vkGetDeviceProcAddr(device, "vkCmdTraceRaysKHR"));
+
+        // ---- THE ACCELERATION-STRUCTURE ENTRY POINTS (tier-1 since abi 26): the same rule and the same shape
+        //      again, and they are resolved HERE rather than per create/build for the same reason the mesh
+        //      commands are - one lookup at startup, and a null answers "this device cannot" at every call site
+        //      instead of a per-call lookup that could fail quietly. A device without VK_KHR_acceleration_structure
+        //      leaves all five null, `create_acceleration_structure` refuses by name, and the two recording verbs
+        //      answer `unsupported`.
+        if (capabilities.ray_query_available) {
+            this->acceleration_structure_create = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkCreateAccelerationStructureKHR"));
+            this->acceleration_structure_destroy = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR"));
+            this->acceleration_structure_build_sizes = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureBuildSizesKHR"));
+            this->acceleration_structure_address = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureDeviceAddressKHR"));
+            this->acceleration_structure_build = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR"));
+            // "THE EXTENSION IS ENABLED" HAS TO MEAN ALL FIVE ARE CALLABLE (the rule host image copy states
+            // above): the extension is what the backend ENABLED at startup, so a name that does not resolve is
+            // a startup fact worth naming rather than a create-time surprise.
+            if (this->acceleration_structure_create == nullptr || this->acceleration_structure_destroy == nullptr ||
+                this->acceleration_structure_build_sizes == nullptr || this->acceleration_structure_address == nullptr ||
+                this->acceleration_structure_build == nullptr) {
+                deren::utility::panic("VK_KHR_acceleration_structure is enabled but one of its five entry points did not resolve through vkGetDeviceProcAddr");
+            }
+        }
+
+        // ---- THE MICROMAP ENTRY POINTS (tier-1 since abi 27): the same shape, gated on the capability the
+        //      backend already computed (VK_EXT_opacity_micromap), and resolved here for the same reason - one
+        //      lookup at startup, and a null answers "this device cannot" at both call sites.
+        if (capabilities.opacity_micromap_available) {
+            this->micromap_create = reinterpret_cast<PFN_vkCreateMicromapEXT>(vkGetDeviceProcAddr(device, "vkCreateMicromapEXT"));
+            this->micromap_destroy = reinterpret_cast<PFN_vkDestroyMicromapEXT>(vkGetDeviceProcAddr(device, "vkDestroyMicromapEXT"));
+            this->micromap_build_sizes = reinterpret_cast<PFN_vkGetMicromapBuildSizesEXT>(vkGetDeviceProcAddr(device, "vkGetMicromapBuildSizesEXT"));
+            this->micromap_build = reinterpret_cast<PFN_vkCmdBuildMicromapsEXT>(vkGetDeviceProcAddr(device, "vkCmdBuildMicromapsEXT"));
+            if (this->micromap_create == nullptr || this->micromap_destroy == nullptr ||
+                this->micromap_build_sizes == nullptr || this->micromap_build == nullptr) {
+                deren::utility::panic("VK_EXT_opacity_micromap is enabled but one of its four entry points did not resolve through vkGetDeviceProcAddr");
+            }
+        }
+
         // ---- HOST IMAGE COPY: the same shape as the mesh commands above (extension entry points fetched
         //      through vkGetDeviceProcAddr, because the loader's import library does not export them) - and
         //      the OPPOSITE POLICY: VK_EXT_host_image_copy is required, so a name that does not resolve is a
@@ -814,7 +862,7 @@ namespace deren::vulkan {
         // asked glfwCreateWindow for two calls up, and it is what choose_swap_extent uses when the surface
         // leaves the extent to the application AND the window reports no framebuffer (a hidden or not yet
         // mapped window can). See that function: the value is the caller's, not one invented there.
-        VkExtent2D const extent = choose_swap_extent(capabilities, this->window, this->create_options.window_width, this->create_options.window_height);
+        ::deren::promise::rhi::image_extent const extent = choose_swap_extent(capabilities, this->window, this->create_options.window_width, this->create_options.window_height);
 
         uint32_t image_count = capabilities.minImageCount + 1;
 
@@ -831,7 +879,7 @@ namespace deren::vulkan {
         create_info.minImageCount = image_count;
         create_info.imageFormat = format;
         create_info.imageColorSpace = color_space;
-        create_info.imageExtent = extent;
+        create_info.imageExtent = VkExtent2D{.width = extent.width, .height = extent.height};
         create_info.imageArrayLayers = 1;
         create_info.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
         // The F12 screenshot read-back copies FROM a swapchain image (vkCmdCopyImageToBuffer), which
@@ -937,7 +985,9 @@ namespace deren::vulkan {
 
     void core::create_depth_image(VkImage& image, VkDeviceMemory& image_memory, VkImageView& image_view) const noexcept {
         // Use the swapchain size stored in the class
-        auto const& [width, height] = this->render_extent();
+        auto const& extent = this->render_extent();
+        auto const width = extent.width;
+        auto const height = extent.height;
 
         // 1. Create images
         VkImageCreateInfo image_info = {};

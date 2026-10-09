@@ -73,7 +73,7 @@ export namespace deren::promise::rhi {
     struct heap_bind_info;
     struct heap_push_info;
     struct buffer;
-    struct command_list;
+    struct command_buffer;
     struct image;
     struct image_view;
     struct sampler;
@@ -84,8 +84,10 @@ export namespace deren::promise::rhi {
     // §6.4's usage/barrier decisions). A reference to an incomplete type is all a
     // virtual declaration needs, which is what lets the abilities be reviewed before
     // the shapes they carry are frozen.
-    struct acceleration_structure;
-    struct acceleration_structure_desc;
+    // `acceleration_structure` AND `acceleration_structure_desc` WERE FORWARD-DECLARED HERE, for the
+    // `ray_tracing` ability's three acceleration-structure verbs. Both moved to TIER-1 in abi 26 (they are
+    // `rhi.api_core` furniture now, next to `buffer` and `image`), so this file needs neither name - and
+    // the ability that carried them is retired where its bit is defined.
     struct image_copy_region;
 
     /// One bit per ability a backend can report through `api_core::abilities()`.
@@ -98,9 +100,19 @@ export namespace deren::promise::rhi {
         device_address = 1u << 0,  ///< buffer/acceleration-structure addresses (plan §5: 35 mentions, 9 files)
         descriptor_heap = 1u << 1, ///< VK_EXT_descriptor_heap: push data, write descriptors, bind heaps
         mesh_shader = 1u << 2,     ///< vkCmdDrawMeshTasksEXT and its indirect form
-        ray_tracing = 1u << 3,     ///< acceleration structures, RT pipelines, trace
+        ray_tracing = 1u << 3,     ///< RETIRED in abi 26: the acceleration-structure half became TIER-1 (`acceleration_structure` + the recording verbs), and "can this device trace rays" is answered by `device_capabilities`. The BIT stays (never reused).
         host_image_copy = 1u << 4, ///< vkCopyImageToMemoryEXT
         vulkan_escape = 1u << 5,   ///< raw Vulkan handles, for the code the contract cannot express yet
+        /// APPENDED (a new BIT; the six before it do not move - see the static_assert below): WHAT THE DEVICE
+        /// CAN DO, in the contract's own vocabulary. A backend announces it when it can answer every method,
+        /// the same "a set bit is a promise about service" rule the others live by. The engine used to derive
+        /// these facts ITSELF - `vkGetPhysicalDeviceFeatures2` for the two features,
+        /// `vkGetPhysicalDeviceProperties` for the push-constant limit, `vkGetPhysicalDeviceQueueFamilyProperties`
+        /// + `vkGetDeviceQueue` to recover the graphics queue's family, and a second properties query for the
+        /// acceleration-structure numbers - while the BACKEND had already made the same queries to decide what
+        /// to enable. Asking it is both the smaller code and the only shape a second backend can serve.
+        device_capabilities = 1u << 6,
+        shader_group_access = 1u << 7, ///< portable SBT group data for a pipeline
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -119,26 +131,31 @@ export namespace deren::promise::rhi {
         return (abilities & to_bits(kind)) != no_abilities;
     }
 
-    /// Every bit defined here: what a backend with all six abilities reports, and the
+    /// Every bit defined here: what a backend with all seven abilities reports, and the
     /// set the plan's §8 consistency gate iterates.
     [[nodiscard]] constexpr auto all_abilities() noexcept -> ability_bits {
+        // `extension_kind::ray_tracing` IS NOT HERE ANY MORE (abi 26): its whole shape moved to tier-1, so no
+        // bit of the retired kind is defined. The ENUMERATOR stays (bits are never reused), which is why this
+        // set is no longer "every enumerator" - the note on that enumerator says so.
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
-               to_bits(extension_kind::mesh_shader) | to_bits(extension_kind::ray_tracing) |
-               to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape);
+               to_bits(extension_kind::mesh_shader) |
+               to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access);
     }
 
-    /// The same six, as a LIST: what a gate walks to check one bit at a time.
+    /// The same seven, as a LIST: what a gate walks to check one bit at a time.
     ///
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
-    /// list of six is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 6> {
+    /// list is spelled in ONE place instead of per caller.
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 7> {
         return {extension_kind::device_address, extension_kind::descriptor_heap, extension_kind::mesh_shader,
-                extension_kind::ray_tracing, extension_kind::host_image_copy, extension_kind::vulkan_escape};
+                extension_kind::host_image_copy, extension_kind::vulkan_escape,
+                extension_kind::device_capabilities, extension_kind::shader_group_access};
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x3fu, "six abilities, six bits, one bit each (plan §3.5)");
+    static_assert(all_abilities() == 0xF7u, "seven active abilities: `ray_tracing` (bit 3 = 0x08) is RETIRED in abi 26 and a retired bit is never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -184,6 +201,22 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual std::uint64_t buffer_address(buffer const& resource, std::uint64_t offset) const noexcept = 0;
     };
 
+    /// Backend-specific SBT record bytes queried through a portable pipeline operand.
+    /// Record size comes from device_capabilities::shader_binding_table(). Zero groups,
+    /// out-of-range groups, insufficient output and foreign/non-RT pipelines are invalid_argument.
+    struct shader_group_access : extension {
+        static constexpr interface_type interface_id = interface_type::shader_group_access;
+        static constexpr extension_kind extension_id = extension_kind::shader_group_access;
+        shader_group_access() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        [[nodiscard]] virtual error read(pipeline const& resource, std::uint32_t first_group,
+                                         std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept = 0;
+    };
+
     /// 可选的bindless heap服务；使用通用资源/地址/命令语义。原生参数只能显式放在next中。
     /// 不承诺所有后端支持；广播此能力必须提供可用实现，不能用空操作冒充。
     struct descriptor_heap : extension {
@@ -204,6 +237,53 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error push_data(heap_push_info const& info) const noexcept = 0;
     };
 
+    /// ONE SHADER-BINDING-TABLE REGION: where a ray-tracing launch reads one table's records, how many bytes
+    /// that table spans, and how far apart consecutive records are.
+    ///
+    /// WHY THIS IS A GENERAL RHI TYPE RATHER THAN A BACKEND STRUCT: the three numbers are the whole of what a
+    /// launch must be told about a table, and every API in this family has a spelling of them - Vulkan's
+    /// `VkStridedDeviceAddressRegionKHR` is one, and it is the type this was promoted FROM (the engine's
+    /// ray-traced shadow pass held four of those as native members, which put a Vulkan type in a pass's own state
+    /// for no reason: the DATA is a device range, not a driver structure). A region is also the unit the CALLER
+    /// BUILDS - the records come from a pipeline's shader-group handles, which only the pipeline's creator can
+    /// read back - so it has to travel through the contract's vocabulary like every other descriptor.
+    ///
+    /// IT LIVES IN THIS PARTITION (not `:api_core`) because `:extension` is the module's VOCABULARY partition -
+    /// the one `:api_core` imports rather than the other way round - the same reason `descriptor_type` and the
+    /// heap write PODs are here. Its consumers are the recording face's `command_buffer::trace_rays` (abi 24) and
+    /// the pass that builds the table; the `ray_tracing` ability's own copy of the launch was MOVED to the
+    /// recording face rather than kept here (see that verb's note).
+    ///
+    /// AN ALL-ZERO REGION (`address == 0`) IS THE "NO RECORDS" SPELLING, and it is the honest one for a table a
+    /// given pipeline has no shaders for: a caller of `command_buffer::trace_rays` passes it rather than a null
+    /// pointer, and the backend decides what a launch does with it (Vulkan DEREFERENCES the region pointer, so
+    /// "empty table" is a zeroed region, never nullptr).
+    ///
+    /// FROZEN LIKE THE OTHER PODs ONCE SHIPPED (`image_copy_region`, `submit_info`): it is passed BY VALUE, so a
+    /// field addition moves `abi_version`.
+    struct shader_binding_table_region {
+        std::uint64_t address = 0; ///< device address of this region's first record (0 = no records)
+        std::uint64_t size = 0;    ///< bytes this region spans
+        std::uint64_t stride = 0;  ///< bytes between consecutive records (the device's own alignment asks for it)
+    };
+
+    /// THE THREE DEVICE FACTS A SHADER BINDING TABLE IS BUILT FROM: how many bytes one shader-group handle is,
+    /// how far apart consecutive handles are in the table, and how the table itself must be aligned.
+    ///
+    /// IT TRAVELS WITH THE REGION TYPE and for the same reason: a pass that builds a table needs the numbers, and
+    /// it has no physical device to ask (the pass layer deliberately holds none) - so the SESSION carries them,
+    /// exactly as it carries `swap_chain_image_format` and `depth_format`. Vulkan spells them inside
+    /// `VkPhysicalDeviceRayTracingPipelinePropertiesKHR`; naming that structure in a pass is what this type
+    /// removes, and it is what let the ray-traced shadow pass stop including a Vulkan header at all.
+    ///
+    /// ZEROED IS THE "NO RAY TRACING" SPELLING: a device without the pipeline extension answers zeros, which the
+    /// one caller reads as "build no table" (its own check, because zero is a legal value in no other sense).
+    struct shader_binding_table_properties {
+        std::uint32_t handle_size = 0;      ///< bytes per shader-group handle
+        std::uint32_t handle_alignment = 0; ///< bytes between consecutive handles in the table
+        std::uint32_t base_alignment = 0;   ///< the table's own alignment
+    };
+
     /// tier-2 ability: mesh and task shaders.
     struct mesh_shader : extension {
         static constexpr interface_type interface_id = interface_type::mesh_shader;
@@ -216,38 +296,26 @@ export namespace deren::promise::rhi {
         }
         /// Record `groups_x` x `groups_y` x `groups_z` mesh workgroups into `commands`
         /// (plan §5: 19 `vkCmdDrawMeshTasksEXT` calls plus 4 indirect ones).
-        virtual void dispatch_mesh(command_list& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
+        virtual void dispatch_mesh(command_buffer& commands, std::uint32_t groups_x, std::uint32_t groups_y, std::uint32_t groups_z) = 0;
     };
 
-    /// tier-2 ability: acceleration structures and ray tracing.
-    struct ray_tracing : extension {
-        static constexpr interface_type interface_id = interface_type::ray_tracing;
-        static constexpr extension_kind extension_id = extension_kind::ray_tracing;
-        ray_tracing() noexcept
-            : extension(interface_id) {
-        }
-        [[nodiscard]] extension_kind kind() const noexcept final {
-            return extension_id;
-        }
-        /// Allocate an acceleration structure (plan §5: 47 creates and 21 destroys go
-        /// through the generic `create`/`destroy` members, which is why the census
-        /// undercounts this ability by name).
-        [[nodiscard]] virtual acceleration_structure* create_acceleration_structure(acceleration_structure_desc const& desc) = 0;
-
-        /// The device address of `structure`, as the backend reports it for
-        /// `vkGetAccelerationStructureDeviceAddressKHR` - HERE RATHER THAN IN `device_address`, because
-        /// this is the only ability that can hand out the operand it takes (see `device_address`'s note).
-        [[nodiscard]] virtual std::uint64_t acceleration_structure_address(acceleration_structure const& structure) const noexcept = 0;
-
-        /// Record the build of `target` into `commands`.
-        virtual void build_acceleration_structure(command_list& commands, acceleration_structure& target) = 0;
-
-        /// Record a trace of `width` x `height` pixels, `depth` rays deep.
-        virtual void trace_rays(command_list& commands, std::uint32_t width, std::uint32_t height, std::uint32_t depth) = 0;
-
-        // Micromaps (3 mentions), RT pipeline creation (3) and shader group handles (1)
-        // are the remaining entries in §5's row for this ability; they land with S1.
-    };
+    // ---- `struct ray_tracing : extension` STOOD HERE, AND IT IS RETIRED (abi 26) ---------------------
+    //
+    // IT CARRIED THREE ACCELERATION-STRUCTURE VERBS whose operands (`acceleration_structure` /
+    // `acceleration_structure_desc`) were never more than FORWARD DECLARATIONS in this file - so the ability
+    // announced a service no backend could implement, and its own note admitted it ("the backend still does
+    // not serve the verb"). The launch left first (abi 24, it is a recording command); now the rest has:
+    //
+    //   * `acceleration_structure` is TIER-1 FURNITURE (`rhi.api_core`, next to `buffer` and `image`), with
+    //     `api_core::create_acceleration_structure()` and the recording face's
+    //     `command_buffer::build_acceleration_structure()` / `refit_acceleration_structure()`;
+    //   * "CAN THIS DEVICE TRACE RAYS" - the only question the ability still answered - is a device fact, and
+    //     `device_capabilities` answers it (`ray_query()` today, a pipeline bit when a caller needs one);
+    //   * the `extension_kind::ray_tracing` BIT and the `interface_type::ray_tracing` VALUE stay, marked
+    //     RETIRED in place: a bit and a number are never reused.
+    //
+    // The micromap half this note used to promise arrives with the same tier-1 treatment (plan S1's P4): a
+    // micromap is a resource a caller creates, exactly as an acceleration structure is.
 
     /// tier-2 ability: copying an image into memory the app chose.
     ///
@@ -268,6 +336,67 @@ export namespace deren::promise::rhi {
         /// large as the region the backend resolves.
         [[nodiscard]] virtual error copy_image_to_memory(image const& source, std::span<std::byte> destination,
                                                          image_copy_region const& region) noexcept = 0;
+    };
+
+    /// tier-2 ability: WHAT THE DEVICE CAN DO, in the contract's own vocabulary.
+    ///
+    /// WHY AN ABILITY RATHER THAN A METHOD ON `api_core`: the extension mechanism already IS the channel for
+    /// "a capability a backend may or may not serve" - `abilities()` announces it with a bit, `query_extension()`
+    /// hands back the object, and "a set bit is a promise about service" holds for it exactly as it does for
+    /// `vulkan_escape` or `descriptor_heap`. It also keeps the TIER-1 vtable untouched: a new ability moves no
+    /// existing slot, which is why this batch needs no `abi_version` change while a `facts()` method on
+    /// `api_core` would have.
+    ///
+    /// EVERY METHOD IS A SEMANTIC FACT, NOT AN API QUERY, and the distinction is the whole point:
+    /// `ray_query()` means "this device can run ray queries", which in this backend is "the extension is
+    /// ENABLED and its feature is present" - the TWO halves the engine used to re-derive itself from the
+    /// enabled-extension list (by naming `VK_KHR_ray_query`) and from `vkGetPhysicalDeviceFeatures2`. Asking
+    /// the backend for the answer it already computed to make its own enabling decision is smaller, cannot
+    /// disagree with it, and is the only shape a second backend can serve: a D3D12 backend answers the same
+    /// seven questions from ITS own caps, and the engine keeps compiling.
+    ///
+    /// THE METHODS ARE THE MEASURED SET, not a device dump: each one is read by the engine today. A fact nobody reads is dead
+    /// vocabulary, so a later need adds a method rather than this type carrying a `VkPhysicalDeviceProperties`.
+    struct device_capabilities : extension {
+        static constexpr interface_type interface_id = interface_type::device_capabilities;
+        static constexpr extension_kind extension_id = extension_kind::device_capabilities;
+        device_capabilities() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+
+        /// Whether this device can run a MESH pipeline: the engine gates `evaluate_mesh_shaders()` and the
+        /// mesh-dispatch path on it (the vertex form is gone - docs/mesh_shaders.md step 4).
+        [[nodiscard]] virtual bool mesh_shader() const noexcept = 0;
+
+        /// Whether this device can run RAY QUERIES: the ray-traced lighting path's gate, and what the
+        /// acceleration-structure input usage on a buffer is decided by.
+        [[nodiscard]] virtual bool ray_query() const noexcept = 0;
+
+        /// The largest push block the device accepts, in bytes: the stage block's own limit (a mesh stage
+        /// needs more than a vertex one, so this is the number its availability is checked against).
+        [[nodiscard]] virtual std::uint32_t max_push_constants_size() const noexcept = 0;
+
+        /// The queue family the backend's GRAPHICS queue belongs to. A command pool created by anyone else
+        /// (the probes' pools are the measured example) must name this family, and the backend is the only
+        /// object that knows it - the engine used to walk the device's families and compare each one's queue
+        /// against the escape's, which is a derivation of a fact the backend already had.
+        [[nodiscard]] virtual std::uint32_t graphics_queue_family() const noexcept = 0;
+
+        /// The shader-binding-table numbers a pass builds its table from: the same POD the pass context
+        /// carries, answered here so a caller that is NOT a pass (and has no context) can ask for it.
+        [[nodiscard]] virtual shader_binding_table_properties shader_binding_table() const noexcept = 0;
+
+        /// The alignment an acceleration structure's scratch offset must obey. The acceleration-structure
+        /// module reads it when it sizes and offsets its scratch buffers; zero means "the device did not
+        /// answer", which its callers already treat as 1.
+        [[nodiscard]] virtual std::uint64_t acceleration_structure_scratch_alignment() const noexcept = 0;
+
+        /// The largest number of instances one acceleration structure may hold: the module refuses a frame
+        /// whose instance count passes it rather than asking the driver to fail.
+        [[nodiscard]] virtual std::uint64_t max_acceleration_structure_instances() const noexcept = 0;
     };
 
     /// ABI9: heap 查询只返回值，不暴露后端 heap_limits 类型或引用。
@@ -341,11 +470,11 @@ export namespace deren::promise::rhi {
     };
     struct heap_bind_info {
         structure_header header{structure_type::heap_bind, sizeof(heap_bind_info), nullptr};
-        command_list* commands = nullptr;
+        command_buffer* commands = nullptr;
     };
     struct heap_push_info {
         structure_header header{structure_type::heap_push, sizeof(heap_push_info), nullptr};
-        command_list* commands = nullptr;
+        command_buffer* commands = nullptr;
         std::uint32_t offset = 0;
         std::span<std::byte const> data;
     };
@@ -404,12 +533,16 @@ export namespace deren::promise::rhi {
             return interface_type::descriptor_heap;
         case extension_kind::mesh_shader:
             return interface_type::mesh_shader;
-        case extension_kind::ray_tracing:
+        case extension_kind::ray_tracing: // RETIRED: no interface answers to it any more (see its bit's note)
             return interface_type::ray_tracing;
         case extension_kind::host_image_copy:
             return interface_type::host_image_copy;
         case extension_kind::vulkan_escape:
             return interface_type::vulkan_escape;
+        case extension_kind::device_capabilities:
+            return interface_type::device_capabilities;
+        case extension_kind::shader_group_access:
+            return interface_type::shader_group_access;
         }
         return interface_type::unknown;
     }
@@ -432,6 +565,39 @@ export namespace deren::promise::rhi {
     /// Vulkan backend that did not announce this bit would make the engine fail at startup by name.
     /// Once the passes record through the contract, the escape shrinks to the few calls the contract has
     /// no concept for.
+    /**
+     * @brief THE BASIS OF A BACKEND: the token that carries a BASIC HANDLE (a device above all) through the
+     *        engine without naming it - `core::get_basis()` answers one, and a method that needs a basic handle
+     *        takes `api_basis&` and passes it back to the backend that owns it.
+     *
+     * NO INTERFACE AT ALL, AND THAT IS THE POINT: there is no virtual, no ownership, no data beyond the TAG -
+     * an implementer owes this type NOTHING (a backend derives an empty struct, sets `s_type`, and is done).
+     * The fact being passed is "which device owns this work", and the contract deliberately does not name
+     * `VkDevice`: it is a dispatchable pointer whose type belongs to the backend. `void*` was the previous
+     * carrier, and it costs nothing and checks nothing; a TAGGED token is the improvement - the receiver asks
+     * the same question every other tagged structure in this contract is asked (`structure_header`'s `s_type`
+     * convention, one level up in the skeleton rather than in a pNext chain).
+     *
+     * WHY NOT A VIRTUAL: this build is `-fno-rtti`, and a virtual would buy nothing that the tag does not -
+     * the callee is the BACKEND, which already knows what it handed out and only has to check that the token is
+     * the one it expects. An empty base + `s_type` is also the only shape that keeps the contract free of a
+     * vtable it would then have to keep stable across releases.
+     *
+     * IT IS NOT A BASE OF `api_core` AND NOT A BASE OF THE BACKEND'S OWN TYPE (the ruling this was built
+     * under): the backend COMPOSES one and hands it out by name, so a signature that takes the contract does
+     * not also take "the thing handles hang off". The handle itself never travels IN the token (that would make
+     * it the native type leaking through the contract again) - the backend reads it from its own state.
+     *
+     * `struct_size` AND `next` ARE DELIBERATELY ABSENT, unlike `structure_header`: nothing crosses a boundary
+     * by value here (the token is passed by reference between engine and backend), so there is no caller/callee
+     * layout to guard, and there is no chain to walk.
+     */
+    struct api_basis {
+        /// WHICH KIND OF BASIS THIS IS - the tag a receiver checks (`structure_type::vulkan_device_basis` for
+        /// the Vulkan backend's logical device). The only content this type has.
+        structure_type s_type = structure_type::unknown;
+    };
+
     struct vulkan_escape : extension {
         static constexpr interface_type interface_id = interface_type::vulkan_escape;
         static constexpr extension_kind extension_id = extension_kind::vulkan_escape;
@@ -453,7 +619,7 @@ export namespace deren::promise::rhi {
         /// The PRIMARY command buffer of the frame `commands` belongs to, as VkCommandBuffer; nullptr
         /// when no frame is in flight. This is what lets an escaping pass record raw Vulkan into the
         /// frame it is part of.
-        [[nodiscard]] virtual void* native_command_buffer(command_list& commands) const noexcept = 0;
+        [[nodiscard]] virtual void* native_command_buffer(command_buffer& commands) const noexcept = 0;
 
         /// The instance/device extensions this context ENABLED, NUL-terminated names, in the backend's
         /// own storage (valid for the context's lifetime). The escape's guard rail: a pass checks the
@@ -528,6 +694,34 @@ export namespace deren::promise::rhi {
         /// APPENDED IN ABI 17 with the contract-only runtime's merged slice (③-D/E step 2): a virtual on
         /// an existing tier-2 interface, which is the case the abi number exists for.
         [[nodiscard]] virtual std::uint32_t native_swapchain_image_format() const noexcept = 0;
+
+        /// THE BASIS THIS ESCAPE HANDS OUT (abi 22), as the contract's tagged `api_basis` - see its own note for
+        /// why the base carries no handle and no interface. A caller that has to pass "the device this work
+        /// belongs to" passes THIS, and the method below takes it back. Null before the device exists.
+        [[nodiscard]] virtual api_basis* get_basis() const noexcept = 0;
+
+        // THE `device_proc` SLOT IS GONE (abi 24), AND ITS LAST CALLER IS THE MEASUREMENT: it resolved an
+        // allocated entry point against the basis's device (`vkCmdTraceRaysKHR` above all), and the ray-tracing
+        // launch is the recording face's verb now - the BACKEND resolves that pointer once at startup
+        // (`core::ray_trace_launch`), so nothing in the engine asks a device for an entry point any more. The
+        // engine's own ray-tracing module resolves the acceleration-structure and micromap commands through
+        // `native_device`, which is a raw handle it already holds rather than a basis round trip. Removing it is
+        // an interface change - `shader_group_handles` below shifts down one slot - which is what the abi number
+        // is for; a facility nobody calls is dead vocabulary, and this file has deleted one before
+        // (`pass::native_commands`) rather than keep it "in case".
+
+        /// THE SHADER-BINDING-TABLE GROUPS of a ray-tracing `pipeline`: `group_count` handles starting at
+        /// `first_group`, written into `out` (the device-side query `vkGetRayTracingShaderGroupHandlesKHR`).
+        /// false when the basis carries the wrong tag, the pipeline has no native handle, or the query failed.
+        ///
+        /// APPENDED IN ABI 22 WITH `get_basis` AND `device_proc`, and it is the SBT half of the same escape
+        /// bucket: the group handles are per-pipeline DEVICE data whose layout (size, alignment, the regions a
+        /// launch is given) is exactly what the contract has no vocabulary for. `pass::shader_group_handles` is
+        /// the pass-layer spelling of this call, and it is what let `ray_traced_shadow.cpp` stop naming a
+        /// `VkDevice` - and, with the region and properties types promoted in abi 24, stop including a Vulkan
+        /// header at all.
+        [[nodiscard]] virtual bool shader_group_handles(api_basis& basis, pipeline const& resource, std::uint32_t first_group, std::uint32_t group_count,
+                                                        std::span<std::uint8_t> out) const noexcept = 0;
     };
 
 } // namespace deren::promise::rhi

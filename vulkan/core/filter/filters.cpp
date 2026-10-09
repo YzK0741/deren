@@ -8,7 +8,6 @@ module;
 #include <cstdint>
 #include <memory>
 #include <utility>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.core.filters;
 

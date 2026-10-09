@@ -33,19 +33,16 @@ module;
 #include <string>      // the panic messages below build their text through std::format
 #include <string_view> // the enabled-extension lookup in runtime_detail (see device_extension_enabled)
 #include <thread>      // std::this_thread::yield in the frame limiter
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.runtime:constructor;
 
 import :declarations;
 import deren.vulkan.profiling;
 import deren.vulkan.pipelines;
-import deren.vulkan.bindings;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
 import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
@@ -137,32 +134,7 @@ namespace deren::vulkan {
         return heap != nullptr ? heap->properties() : rhi::descriptor_heap_properties{};
     }
 
-    namespace {
-        [[nodiscard]] constexpr rhi::descriptor_type contract_descriptor_type(VkDescriptorType const type) noexcept {
-            switch (type) {
-            case VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE:
-                return rhi::descriptor_type::sampled_image;
-            case VK_DESCRIPTOR_TYPE_STORAGE_IMAGE:
-                return rhi::descriptor_type::storage_image;
-            case VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER:
-                return rhi::descriptor_type::combined_image_sampler;
-            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER:
-                return rhi::descriptor_type::uniform_buffer;
-            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER:
-                return rhi::descriptor_type::storage_buffer;
-            case VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR:
-                return rhi::descriptor_type::acceleration_structure;
-            case VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC:
-                return rhi::descriptor_type::uniform_buffer_dynamic;
-            case VK_DESCRIPTOR_TYPE_STORAGE_BUFFER_DYNAMIC:
-                return rhi::descriptor_type::storage_buffer_dynamic;
-            default:
-                return static_cast<rhi::descriptor_type>(UINT32_MAX);
-            }
-        }
-    } // namespace
-
-    bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize const offset, rhi::image const& resource,
+    bool contract_write_heap_image(rhi::api_core& face, std::uint64_t const offset, rhi::image const& resource,
                                    rhi::image_view_desc const& view, rhi::descriptor_type const type) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
         rhi::heap_image_write_info info{};
@@ -173,89 +145,37 @@ namespace deren::vulkan {
         return heap != nullptr && heap->write_image(info) == rhi::error::ok;
     }
 
-    bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize const offset, VkImageViewCreateInfo const& view,
-                                   VkImageLayout const layout, VkDescriptorType const type) noexcept {
-        // 不支持的扩展链要明确拒绝，不能转换时悄悄丢掉 pNext。
-        if (view.sType != VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO || view.pNext != nullptr) {
-            return false;
-        }
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        if (heap == nullptr || view.sType != VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO || view.pNext != nullptr) {
-            return false;
-        }
-        rhi::vulkan_heap_image_desc const desc{
-            .native_image = static_cast<void*>(view.image),
-            .view_flags = view.flags,
-            .view_type = static_cast<std::uint32_t>(view.viewType),
-            .format = static_cast<std::uint32_t>(view.format),
-            .components = {static_cast<std::uint32_t>(view.components.r), static_cast<std::uint32_t>(view.components.g),
-                           static_cast<std::uint32_t>(view.components.b), static_cast<std::uint32_t>(view.components.a)},
-            .aspect_mask = view.subresourceRange.aspectMask,
-            .base_mip = view.subresourceRange.baseMipLevel,
-            .mip_count = view.subresourceRange.levelCount,
-            .base_layer = view.subresourceRange.baseArrayLayer,
-            .layer_count = view.subresourceRange.layerCount,
-        };
-        rhi::vulkan_heap_image_info native{};
-        native.view = desc;
-        native.layout = static_cast<std::uint32_t>(layout);
-        native.context = &face;
-        rhi::heap_image_write_info info{};
-        info.header.next = &native.header;
-        info.offset = offset;
-        info.type = contract_descriptor_type(type);
-        return heap->write_image(info) == rhi::error::ok;
-    }
-
-    bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize const offset, VkDeviceAddress const address,
-                                    VkDeviceSize const size, VkDescriptorType const type) noexcept {
+    bool contract_write_heap_buffer(rhi::api_core& face, std::uint64_t const offset, std::uintptr_t const address,
+                                    std::uint64_t const size, rhi::descriptor_type const type) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
         rhi::heap_buffer_write_info info{};
         info.offset = offset;
         info.address = address;
         info.size = size;
-        info.type = contract_descriptor_type(type);
+        info.type = type;
         return heap != nullptr && heap->write_buffer(info) == rhi::error::ok;
     }
 
-    void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer const commands) noexcept {
+    void contract_record_heap_bind(rhi::api_core& face, rhi::command_buffer& commands) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
         if (heap != nullptr) {
-            rhi::vulkan_command_buffer_info native{};
-            native.commands = static_cast<void*>(commands);
-            native.context = &face;
             rhi::heap_bind_info info{};
-            info.header.next = &native.header;
+            info.commands = &commands;
             [[maybe_unused]] rhi::error const result = heap->bind(info);
         }
     }
 
-    void contract_heap_bind_infos(rhi::api_core& face, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) noexcept {
-        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
-        rhi::heap_bindings const bindings = heap != nullptr ? heap->bindings() : rhi::heap_bindings{};
-        // 二级命令缓冲的继承信息仍在原来的录制点构造，逐字段保留两个 heap 的范围。
-        resource = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
-                    .pNext = nullptr,
-                    .heapRange = {bindings.resource.address, bindings.resource.size},
-                    .reservedRangeOffset = bindings.resource.reserved_offset,
-                    .reservedRangeSize = bindings.resource.reserved_size};
-        sampler = {.sType = VK_STRUCTURE_TYPE_BIND_HEAP_INFO_EXT,
-                   .pNext = nullptr,
-                   .heapRange = {bindings.sampler.address, bindings.sampler.size},
-                   .reservedRangeOffset = bindings.sampler.reserved_offset,
-                   .reservedRangeSize = bindings.sampler.reserved_size};
-    }
+    // (THE HEAP-BIND HOOK IS GONE - plan X5 B3.5: it mirrored the contract's `heap_bindings()` into the two raw
+    //  `VkBindHeapInfoEXT` a secondary used to inherit. The pass layer stopped calling it at abi 20 and the
+    //  BACKEND derives that inheritance from its own bound heaps now, so this was a second truth with no reader.)
 
-    bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer const commands, std::uint32_t const offset,
+    bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer& commands, std::uint32_t const offset,
                                  std::span<std::byte const> const data) noexcept {
         auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
         if (heap == nullptr)
             return false;
-        rhi::vulkan_command_buffer_info native{};
-        native.commands = static_cast<void*>(commands);
-        native.context = &face;
         rhi::heap_push_info info{};
-        info.header.next = &native.header;
+        info.commands = &commands;
         info.offset = offset;
         info.data = data;
         return heap->push_data(info) == rhi::error::ok;
@@ -269,55 +189,9 @@ namespace deren::vulkan {
     // - which is what the boundary meter counts. The declaration is in `:declarations` so every partition
     // can call them; the definitions are here, in the one partition every runtime already links.
     namespace runtime_detail {
-        namespace {
-            /// the escape, or null when the backend announced none (the startup gate refuses that)
-            [[nodiscard]] rhi::vulkan_escape* escape_of(rhi::api_core& face) noexcept {
-                return rhi::query_extension<rhi::vulkan_escape>(face);
-            }
-
-            /// whether `name` is one of the device extensions this context ENABLED
-            [[nodiscard]] bool device_extension_enabled(rhi::vulkan_escape& escape, char const* const name) noexcept {
-                for (char const* const enabled : escape.enabled_device_extensions()) {
-                    if (enabled != nullptr && std::string_view(enabled) == std::string_view(name)) {
-                        return true;
-                    }
-                }
-                return false;
-            }
-        } // namespace
-
-        VkDevice native_device_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkDevice>(escape->native_device());
-        }
-
-        VkInstance native_instance_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkInstance>(escape->native_instance());
-        }
-
-        VkPhysicalDevice native_physical_device_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkPhysicalDevice>(escape->native_physical_device());
-        }
-
-        VkQueue native_queue_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkQueue>(escape->native_queue());
-        }
-
-        VkPhysicalDeviceProperties physical_properties_of(rhi::api_core& face) noexcept {
-            // THE DEVICE'S OWN LIMITS, re-queried rather than cached: `vkGetPhysicalDeviceProperties` is a
-            // pure query, and the two call sites (the push-constant limit) are startup/rare. Answering a
-            // zeroed structure when the escape is missing keeps the callers' own guard rails meaningful -
-            // a zero limit is visibly not a device.
-            VkPhysicalDeviceProperties properties = {};
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceProperties(physical, &properties);
-            }
-            return properties;
-        }
+        // `physical_properties_of` STOOD HERE, and the push-constant limit was the only field anyone read out of
+        // it - so it is `max_push_constants_of` below now: one integer, from the ability that already holds the
+        // query's answer, instead of a whole `VkPhysicalDeviceProperties` fetched per call site.
 
         std::uint32_t heap_max_push_data(rhi::api_core& face) noexcept {
             // THE HEAP'S PUSH BUDGET, from the ability's own value-only POD - never from the backend's
@@ -325,58 +199,41 @@ namespace deren::vulkan {
             return contract_heap_properties(face).max_push_data;
         }
 
-        VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties_of(rhi::api_core& face) noexcept {
-            // THE SHADER-BINDING-TABLE NUMBERS: the alignment facts a pass cannot query itself (it has no
-            // physical device), read off the same chain `VkPhysicalDeviceProperties2` carries. Zeroed on a
-            // device without the extension - which the pass reads as "build no table".
-            VkPhysicalDeviceRayTracingPipelinePropertiesKHR properties = {};
-            properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_TRACING_PIPELINE_PROPERTIES_KHR;
-            VkPhysicalDeviceProperties2 query = {};
-            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            query.pNext = &properties;
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceProperties2(physical, &query);
-            }
-            return properties;
+        deren::promise::rhi::shader_binding_table_properties ray_tracing_properties_of(rhi::api_core& face) noexcept {
+            // THE SHADER-BINDING-TABLE NUMBERS, from the device-capability ability: three integers a pass cannot
+            // query itself (it has no physical device). This used to build a `VkPhysicalDeviceProperties2` chain,
+            // ask the device and copy the three fields out - and the BACKEND made exactly that query at startup
+            // to decide whether ray tracing was available at all, so it already holds the answer. Asking it is
+            // both shorter and the only shape a second backend can serve. Zeroed on a device without the
+            // extension, which the pass reads as "build no table".
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities == nullptr ? deren::promise::rhi::shader_binding_table_properties{} : capabilities->shader_binding_table();
         }
 
         bool ray_query_available_of(rhi::api_core& face) noexcept {
-            // TWO FACTS, BOTH THE BACKEND'S OWN GATE: the extension has to be ENABLED (the escape answers
-            // the enabled list) and the device has to support the feature - which is the pair the backend
-            // enables it under, so this answers exactly what its own `ray_query_available` flag answers.
-            rhi::vulkan_escape* const escape = escape_of(face);
-            if (escape == nullptr || !device_extension_enabled(*escape, VK_KHR_RAY_QUERY_EXTENSION_NAME)) {
-                return false;
-            }
-            VkPhysicalDeviceRayQueryFeaturesKHR features = {};
-            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_RAY_QUERY_FEATURES_KHR;
-            VkPhysicalDeviceFeatures2 query = {};
-            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-            query.pNext = &features;
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceFeatures2(physical, &query);
-            }
-            return features.rayQuery == VK_TRUE;
+            // THE DEVICE'S OWN ANSWER, ASKED THROUGH THE ABILITY THAT EXISTS FOR IT (see
+            // `rhi::device_capabilities`). This used to be TWO engine-side halves - "is VK_KHR_ray_query in the
+            // ESCAPE's enabled list" and "does `vkGetPhysicalDeviceFeatures2` report the feature" - which is
+            // the same pair the backend enables the extension under, re-derived every call (this helper has
+            // SIX call sites, several per frame). The backend recorded that decision when it made it; asking it
+            // cannot disagree with the enabling, and it removes both the entry point and the `VK_KHR_` spelling
+            // from this half.
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities != nullptr && capabilities->ray_query();
         }
 
         bool mesh_shader_available_of(rhi::api_core& face) noexcept {
-            // the same pair for the mesh stage (see ray_query_available_of)
-            rhi::vulkan_escape* const escape = escape_of(face);
-            if (escape == nullptr || !device_extension_enabled(*escape, VK_EXT_MESH_SHADER_EXTENSION_NAME)) {
-                return false;
-            }
-            VkPhysicalDeviceMeshShaderFeaturesEXT features = {};
-            features.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_MESH_SHADER_FEATURES_EXT;
-            VkPhysicalDeviceFeatures2 query = {};
-            query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
-            query.pNext = &features;
-            VkPhysicalDevice const physical = native_physical_device_of(face);
-            if (physical != VK_NULL_HANDLE) {
-                vkGetPhysicalDeviceFeatures2(physical, &query);
-            }
-            return features.meshShader == VK_TRUE;
+            // the same question for the mesh stage (see `ray_query_available_of`)
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities != nullptr && capabilities->mesh_shader();
+        }
+
+        std::uint32_t max_push_constants_of(rhi::api_core& face) noexcept {
+            // THE STAGE BLOCK'S OWN LIMIT, from the same ability: it used to be
+            // `physical_properties_of(face).limits.maxPushConstantsSize`, a whole `VkPhysicalDeviceProperties`
+            // fetched (and re-fetched) to read ONE integer out of it.
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities == nullptr ? 0u : capabilities->max_push_constants_size();
         }
     } // namespace runtime_detail
 
@@ -444,12 +301,6 @@ namespace deren::vulkan {
         return this->vulkan_core;
     }
 
-    rhi::vulkan_escape& runtime::escape() const noexcept {
-        // query_extension is a CONTRACT virtual: this call emits no backend symbol no matter which
-        // side of the boundary the object lives on.
-        return *rhi::query_extension<rhi::vulkan_escape>(this->rhi_face());
-    }
-
     // THE ONE CONSTRUCTION ENTRY (batch ⑥): the APPLICATION acquires the device root
     // (`deren.vulkan.backend_loader::load_api_core`, called by main.cpp and by the scaffold test) and
     // hands it over together with the SAME `create_info` that produced it - one descriptor, no second
@@ -486,7 +337,7 @@ namespace deren::vulkan {
         // and the pipelines that render into the presentation image are created up front (see the
         // contract's own note on the accessor). Asked here, in the constructor, and read from this member
         // by `make_pipeline` and `make_pass_context`.
-        this->swap_chain_image_format = static_cast<VkFormat>(this->escape().native_swapchain_image_format());
+        this->swap_chain_image_format = this->rhi_face().frame_swapchain()->format();
         // THE DEVICE'S CAPABILITIES: a device fact does not change while the device lives, so the five
         // legacy `core::ray_query_available` / `core::mesh_shader_available` reads become one query each.
         // The two derivations are the ENGINE's, from facts the escape exposes (the enabled device
@@ -499,17 +350,16 @@ namespace deren::vulkan {
         // the probes allocate their own command pools outside the frame ring, and a pool's family index
         // must be the one the backend's queue belongs to. A failure inside the derivation PANICS there.
         this->graphics_queue_family_index = runtime_detail::graphics_queue_family_of(this->rhi_face());
-        // ... AND THE TWO MESH-DISPATCH ENTRY POINTS, resolved once the repository's documented way
-        // (`vkGetDeviceProcAddr` on the native device; the loader's import library does not export them).
-        // Null on a device without VK_EXT_mesh_shader, which is exactly what the mesh path is gated on -
-        // the callers answer "cannot record" rather than drawing nothing silently (see draw_mesh_tasks).
-        {
-            VkDevice const device = runtime_detail::native_device_of(this->rhi_face());
-            if (device != VK_NULL_HANDLE) {
-                this->mesh_dispatch = reinterpret_cast<PFN_vkCmdDrawMeshTasksEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksEXT"));
-                this->mesh_dispatch_indirect = reinterpret_cast<PFN_vkCmdDrawMeshTasksIndirectEXT>(vkGetDeviceProcAddr(device, "vkCmdDrawMeshTasksIndirectEXT"));
-            }
-        }
+        // THE TWO MESH-DISPATCH ENTRY POINTS ARE THE BACKEND'S, AND THEY ALWAYS WERE: this block used to resolve
+        // `vkCmdDrawMeshTasksEXT`/`...Indirect` through `vkGetDeviceProcAddr` and call them from `runtime.cpp`
+        // through `native_handle()`. The BACKEND had resolved the same two pointers at its own startup (its
+        // `mesh_dispatch` members) and serves them as the contract's `draw_mesh_tasks()` /
+        // `draw_mesh_tasks_indirect()`, so the engine's copy was a second resolution of one entry point - and
+        // the only reason the engine could call it at all was the raw handle it borrowed back for the argument
+        // (see `runtime::draw_mesh_tasks`). Two `PFN_` members, two `reinterpret_cast`s, one `VkBuffer` table
+        // and `sizeof(VkDrawMeshTasksIndirectCommandEXT)` are gone with it.
+        // The capability that GATES the path is asked once, through the ability that answers it
+        // (`device_capabilities::mesh_shader()` - see `runtime_detail::mesh_shader_available_of`).
 
         // ---- THE FRAME'S RESOLUTION IS THE ENGINE'S OWN FROM HERE ON (abi 14) ---------------------
         // The scale both halves use was clamped ONCE above (the option is startup-only: `render_scale` is
@@ -579,14 +429,6 @@ namespace deren::vulkan {
         // table names them per frame) and AFTER `refresh_frame_extents()` above, which is where the render
         // extent it sizes them by comes from.
         this->create_render_chain_targets();
-        // ... AND THE DEPTH FORMAT, WHICH ONLY THE BACKEND CAN RESOLVE (③-D/E step 2): the engine created
-        // its G-buffer depth through the contract's `depth` ROLE, so the concrete VkFormat is the device's
-        // answer rather than a constant - and this is the ONE query that turns it back into the spelling a
-        // depth-attachment pipeline needs. Read from the image the engine ITSELF created, so it needs no
-        // backend member and no pre-frame accessor: the role was resolved when the image was made, and
-        // every image in this family has the same format. (The legacy runtime read the backend's
-        // `core::depth_attachment_format`, which is the same value.)
-        this->depth_attachment_format = static_cast<VkFormat>(this->escape().native_image_format(*this->gbuffer_depth_images[0]));
         // Every per-image flag that describes this generation starts where the generation's images do.
         // The core has already built the groups it still owns (its constructor ran
         // create_render_targets), so the flags can be sized HERE, before any frame records; every
@@ -640,7 +482,13 @@ namespace deren::vulkan {
         // Shut the debug overlay down explicitly while the VkDevice is still alive (its ImGui
         // Vulkan backend owns device resources); member destruction would also run it before
         // vulkan_core, but doing it here keeps the order obvious.
-        this->debug_overlay.shutdown();
+        // THE PLUGIN IS RELEASED HERE TOO (plan X2): dropping the last reference destroys the overlay inside
+        // `deren_gui_vulkan.dll`, the image that allocated it - and it has to happen while the device is
+        // alive, which is why this is explicit rather than left to member order.
+        if (this->debug_overlay != nullptr) {
+            this->debug_overlay->shutdown();
+            this->debug_overlay.reset();
+        }
     }
 
     // THE SESSION'S MESH CULLING TOTALS (docs/mesh_shaders.md step 3, "what the culling buys"). Read from the
@@ -685,7 +533,7 @@ namespace deren::vulkan {
         // per-primitive per-frame UBO updates
         //
         // THE BUFFER IS USABLE AS A STORAGE BUFFER TOO, because the heap descriptor written for it is a
-        // VK_DESCRIPTOR_TYPE_STORAGE_BUFFER (see write_heap_scene_buffer's note below): a descriptor's type has
+        // rhi::descriptor_type::storage_buffer (see write_heap_scene_buffer's note below): a descriptor's type has
         // to be backed by the matching USAGE bit on the buffer, and the validation layer says so out loud -
         // "vkWriteResourceDescriptorsEXT(): ... has no buffer(s) associated that are valid" - while the render
         // itself still produced the right picture, which is exactly the kind of finding this project treats as
@@ -717,8 +565,11 @@ namespace deren::vulkan {
         if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
             deren::utility::panic("failed to create the white fallback texture");
         }
-        this->white_texture_index = static_cast<uint32_t>(this->texture_array_views.size());
-        this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
+        // NO NATIVE VIEW CACHE (the `texture_array_views` vector that stood here is GONE): its elements were
+        // never read - every use was `.size()`, which is `owned_texture_views.size()`, and the two pushes were
+        // the only readers of the escape's `native_image_view` in this file. The heap write below is the
+        // contract's own, so nothing ever needed the raw handle.
+        this->white_texture_index = static_cast<uint32_t>(this->owned_texture_views.size() - 1);
 
         // THE WHITE ELEMENT NEEDS ITS OWN HEAP DESCRIPTOR HERE, and its absence was a class of black frames.
         // Every texture that reaches the bindless array through register_material has its heap slot written
@@ -733,20 +584,15 @@ namespace deren::vulkan {
         // @note deren::vulkan::render_layout::heap_slot_offset() is defined below this constructor, so the arithmetic is spelled out: a slot
         //       number is already absolute and the stride is the one every heap array agrees on.
         if (contract_heap_ready(this->rhi_face())) {
-            VkImage const white_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
-            {
-                VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                                                         .pNext = nullptr,
-                                                         .flags = 0,
-                                                         .image = white_native,
-                                                         .viewType = VK_IMAGE_VIEW_TYPE_2D,
-                                                         .format = VK_FORMAT_R8G8B8A8_UNORM,
-                                                         .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-                                                         .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
-                VkDeviceSize const white_offset = static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index) * deren::vulkan::render_layout::heap_slot_stride;
-                if (!contract_write_heap_image(this->rhi_face(), white_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
-                    deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index);
-                }
+            // THE DESCRIPTOR IS THE CONTRACT'S (item d of the escape-shrink plan): the image AND its view are
+            // the contract objects created six lines above (`owned_textures.back()` / `owned_texture_views.back()`),
+            // so the descriptor is an `image_view_desc` - all remaining layers and mips, which is the view those
+            // lines made. The hand-built `VkImageViewCreateInfo` and the `native_image` read that fed it are gone
+            // with it: this was the last escape use in this function.
+            rhi::image_view_desc const white_heap_view{};
+            std::uint64_t const white_offset = static_cast<std::uint64_t>(deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index) * deren::vulkan::render_layout::heap_slot_stride;
+            if (!contract_write_heap_image(this->rhi_face(), white_offset, *this->owned_textures.back(), white_heap_view, rhi::descriptor_type::sampled_image)) {
+                deren::utility::log("descriptor heap: the white fallback texture did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::textures + this->white_texture_index);
             }
         }
 
@@ -777,16 +623,16 @@ namespace deren::vulkan {
         // heap-native shader bakes as `heap_slots_materials` (shaders/heap_slots.glsl): the write and the read are
         // the same number by construction rather than by review.
         if (contract_heap_ready(this->rhi_face())) {
-            VkDeviceAddress const address = this->buffer_address(*this->material_buffer);
+            std::uintptr_t const address = this->buffer_address(*this->material_buffer);
             bool const written = this->write_heap_buffer(*this->material_buffer,
                                                          deren::vulkan::render_layout::heap_slots::materials,
-                                                         static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * sizeof(material_record),
-                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                                                         static_cast<std::uint64_t>(deren::vulkan::material_capacity) * sizeof(material_record),
+                                                         rhi::descriptor_type::storage_buffer);
             deren::utility::log("descriptor heap: material table {} (address 0x{:x}, {} records, offset {})",
                                 written ? "written" : "NOT written",
                                 address,
                                 deren::vulkan::material_capacity,
-                                static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::materials) * deren::vulkan::render_layout::heap_slot_stride);
+                                static_cast<std::uint64_t>(deren::vulkan::render_layout::heap_slots::materials) * deren::vulkan::render_layout::heap_slot_stride);
         }
 
         // ---- THE MATERIAL COLOURS: ONE `vec4` PER LANE PER MATERIAL, WHITE to begin with ----
@@ -981,17 +827,17 @@ namespace deren::vulkan {
                           this->toon_colour_buffer,
                           &this->toon_colour_mapped);
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceAddress const address = this->buffer_address(*this->toon_colour_buffer);
+                std::uintptr_t const address = this->buffer_address(*this->toon_colour_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_colour_buffer,
                                                              deren::vulkan::render_layout::heap_slots::toon_colours,
                                                              std::as_bytes(std::span(neutral_colours)).size(),
-                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                                                             rhi::descriptor_type::storage_buffer);
                 deren::utility::log("descriptor heap: toon colour table {} (address 0x{:x}, {} lanes x {} materials, offset {})",
                                     written ? "written" : "NOT written",
                                     address,
                                     static_cast<uint32_t>(deren::vulkan::toon_colour_lane::count),
                                     deren::vulkan::material_capacity,
-                                    static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::toon_colours) * deren::vulkan::render_layout::heap_slot_stride);
+                                    static_cast<std::uint64_t>(deren::vulkan::render_layout::heap_slots::toon_colours) * deren::vulkan::render_layout::heap_slot_stride);
             }
         }
 
@@ -1019,16 +865,16 @@ namespace deren::vulkan {
                       this->toon_lane_buffer,
                       &this->toon_lane_mapped);
         if (contract_heap_ready(this->rhi_face())) {
-            VkDeviceAddress const address = this->buffer_address(*this->toon_lane_buffer);
+            std::uintptr_t const address = this->buffer_address(*this->toon_lane_buffer);
             bool const written = this->write_heap_buffer(*this->toon_lane_buffer,
                                                          deren::vulkan::render_layout::heap_slots::toon_lanes,
-                                                         static_cast<VkDeviceSize>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
-                                                         VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                                                         static_cast<std::uint64_t>(deren::vulkan::material_capacity) * deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4),
+                                                         rhi::descriptor_type::storage_buffer);
             deren::utility::log("descriptor heap: toon lane table {} (address 0x{:x}, {} lanes, offset {})",
                                 written ? "written" : "NOT written",
                                 address,
                                 deren::vulkan::material_capacity,
-                                static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::toon_lanes) * deren::vulkan::render_layout::heap_slot_stride);
+                                static_cast<std::uint64_t>(deren::vulkan::render_layout::heap_slots::toon_lanes) * deren::vulkan::render_layout::heap_slot_stride);
         }
 
         // ---- THE TOON LIGHT RIG: ONE BLOCK FOR THE RUN, and it is not a per-frame pair for the reason the two
@@ -1045,16 +891,16 @@ namespace deren::vulkan {
                           this->toon_rig_buffer,
                           &this->toon_rig_mapped);
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceAddress const address = this->buffer_address(*this->toon_rig_buffer);
+                std::uintptr_t const address = this->buffer_address(*this->toon_rig_buffer);
                 bool const written = this->write_heap_buffer(*this->toon_rig_buffer,
                                                              deren::vulkan::render_layout::heap_slots::toon_rig,
-                                                             static_cast<VkDeviceSize>(sizeof(deren::vulkan::toon_rig)),
-                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                                                             static_cast<std::uint64_t>(sizeof(deren::vulkan::toon_rig)),
+                                                             rhi::descriptor_type::storage_buffer);
                 deren::utility::log("descriptor heap: toon light rig {} (address 0x{:x}, {} B, offset {})",
                                     written ? "written" : "NOT written",
                                     address,
                                     sizeof(deren::vulkan::toon_rig),
-                                    static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::toon_rig) * deren::vulkan::render_layout::heap_slot_stride);
+                                    static_cast<std::uint64_t>(deren::vulkan::render_layout::heap_slots::toon_rig) * deren::vulkan::render_layout::heap_slot_stride);
             }
         }
 
@@ -1074,29 +920,34 @@ namespace deren::vulkan {
                           this->meshlet_buffer,
                           &this->meshlet_mapped);
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceAddress const address = this->buffer_address(*this->meshlet_buffer);
+                std::uintptr_t const address = this->buffer_address(*this->meshlet_buffer);
                 bool const written = this->write_heap_buffer(*this->meshlet_buffer,
                                                              deren::vulkan::render_layout::heap_slots::meshlets,
-                                                             static_cast<VkDeviceSize>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),
-                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                                                             static_cast<std::uint64_t>(deren::vulkan::meshlet_capacity) * sizeof(deren::vulkan::meshlet),
+                                                             rhi::descriptor_type::storage_buffer);
                 deren::utility::log("descriptor heap: meshlet table {} (address 0x{:x}, {} records of {} B, offset {})",
                                     written ? "written" : "NOT written",
                                     address,
                                     deren::vulkan::meshlet_capacity,
                                     sizeof(deren::vulkan::meshlet),
-                                    static_cast<VkDeviceSize>(deren::vulkan::render_layout::heap_slots::meshlets) * deren::vulkan::render_layout::heap_slot_stride);
+                                    static_cast<std::uint64_t>(deren::vulkan::render_layout::heap_slots::meshlets) * deren::vulkan::render_layout::heap_slot_stride);
             }
         }
 
         // ---- THE INDIRECT MESH COMMANDS (docs/mesh_shaders.md step 3, second mechanism): one
-        //      VkDrawMeshTasksIndirectCommandEXT per (frame in flight, primitive), written by whichever thread
-        //      records that primitive's meshlet dispatch and read by the GPU. THE SLOT IS THE PRIMITIVE'S OWN
-        //      `meshlet_base`, which is what removes the cursor the first attempt used - and with it the flakiness
-        //      that cursor caused (see the member's note in runtime.declarations.cppm). Not on the heap: it is
-        //      command data, not a resource any shader reads.
+        //      `rhi::mesh_task_command` per (frame in flight, primitive), written by whichever thread records
+        //      that primitive's meshlet dispatch and read by the GPU. THE SLOT IS THE PRIMITIVE'S OWN
+        //      `meshlet_base`, which is what removes the cursor the first attempt used - and with it the
+        //      flakiness that cursor caused (see the member's note in runtime.declarations.cppm). Not on the
+        //      heap: it is command data, not a resource any shader reads.
+        //
+        //      THE RECORD AND ITS SIZE ARE THE CONTRACT'S (`rhi::mesh_task_command` /
+        //      `mesh_task_command_size`): the engine WRITES these records and passes the size as the stride, so
+        //      the layout has to be nameable by both halves - the backend static_asserts its own structure
+        //      against it.
         {
             constexpr std::size_t commands_per_frame = runtime::mesh_command_capacity;
-            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(this->frame_ring().slot_count()) * commands_per_frame * sizeof(VkDrawMeshTasksIndirectCommandEXT), 0);
+            std::vector<uint8_t> const zeroed_commands(static_cast<size_t>(this->frame_ring().slot_count()) * commands_per_frame * rhi::mesh_task_command_size, 0);
             create_buffer(this->vulkan_core,
                           rhi::buffer_usage::storage_coherent,
                           rhi::to_bits(rhi::buffer_flag::indirect),
@@ -1104,10 +955,9 @@ namespace deren::vulkan {
                           "mesh indirect command table",
                           this->mesh_indirect_buffer,
                           &this->mesh_indirect_mapped);
-            // the raw handle the command takes: `vk_buffer::handle()` was the allocator's id rather than a
-            // `VkBuffer`, and a null here is what silently sent every dispatch down the DIRECT path in the
-            // first version of this seam. It comes from the escape now, off the handle this class owns.
-            this->mesh_indirect_table = this->buffer_of(*this->mesh_indirect_buffer);
+            // THE NATIVE TABLE IS GONE: the dispatch takes the CONTRACT handle this class already owns
+            // (`mesh_indirect_buffer`), so nothing here derives a `VkBuffer` for it any more - the derivation
+            // was the reason a null handle could silently send every dispatch down the DIRECT path.
         }
 
         // ---- THE MESH CULLING COUNTERS (docs/mesh_shaders.md step 3, "what the culling buys"): one lane of eight
@@ -1125,8 +975,8 @@ namespace deren::vulkan {
             if (contract_heap_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_stats_buffer,
                                                              deren::vulkan::render_layout::heap_slots::meshlet_stats,
-                                                             static_cast<VkDeviceSize>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t),
-                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                                                             static_cast<std::uint64_t>(this->frame_ring().slot_count()) * 8u * sizeof(uint32_t),
+                                                             rhi::descriptor_type::storage_buffer);
                 if (!written) {
                     deren::utility::log("descriptor heap: the mesh culling counters were NOT written - the counters stay zero");
                 }
@@ -1149,8 +999,8 @@ namespace deren::vulkan {
             if (contract_heap_ready(this->rhi_face())) {
                 bool const written = this->write_heap_buffer(*this->meshlet_culled_buffer,
                                                              deren::vulkan::render_layout::heap_slots::meshlet_culled,
-                                                             static_cast<VkDeviceSize>(this->frame_ring().slot_count()) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
-                                                             VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+                                                             static_cast<std::uint64_t>(this->frame_ring().slot_count()) * deren::vulkan::meshlet_capacity * sizeof(deren::vulkan::meshlet),
+                                                             rhi::descriptor_type::storage_buffer);
                 if (!written) {
                     deren::utility::log("descriptor heap: the culled meshlet table was NOT written - the draws stay unculled");
                 }
@@ -1310,40 +1160,48 @@ namespace deren::vulkan {
     void runtime::init_recording_resources() {
         // THE FRAME'S PRIMARY COMMAND BUFFERS STAY THE BACKEND'S (abi 15): core allocates one per frame
         // slot in its own constructor, `begin_commands()` hands out that slot's borrowed recording view,
-        // and this runtime asks for the raw handle it begins, ends and submits through the contract's
-        // native-handle path (see frame_primary_handle()). Nothing of that is held here any more - the
-        // span that used to alias the core's container is gone with the type it named.
+        // and this runtime takes the raw handle it begins, ends and submits from the contract handle
+        // `frame_command_buffer()` answers (see `native_frame_commands()`). Nothing of that is held here any
+        // more - the span that used to alias the core's container is gone with the type it named.
         //
         // One secondary command buffer per frame slot (stage 2/3 of parallel recording),
         // pre-allocated with the primaries so the GPU can read them while this slot's primary
         // executes. Stage 3 additionally gives the main pass one parallel segment per task-pool worker.
-        // EVERY ONE OF THEM IS A CONTRACT-OWNED `command_buffer` (abi 15) THAT OWNS ITS OWN COMMAND POOL
-        // (handles/handles.cppm): a VkCommandPool is not thread safe, so the workers must never begin
-        // buffers of a shared pool concurrently - the backend keeps the pool behind the handle, and the
-        // engine's owner here is `rhi::object_manager`.
+        // EVERY ONE OF THEM IS A CALLER-OWNED `std::shared_ptr<rhi::command_buffer>` (abi 21), MADE BY
+        // `api_core::make_command_buffer`: the control block's deleter IS the contract's one drop
+        // (`release()`), so no call site here spells it and no second lifetime rule exists. Each buffer
+        // also owns its own command pool (handles/handles.cppm): a VkCommandPool is not thread safe, so the
+        // workers must never begin buffers of a shared pool concurrently - which is exactly why this
+        // factory (one pool per buffer) is the safe spelling rather than a cost.
+        //
+        // THE FACTORY IS CALLED THROUGH THE CONTRACT INTERFACE, and that is a boundary rule rather than a
+        // preference: `rhi_face()` is the `rhi::api_core&` the whole engine speaks, so this emits no backend
+        // symbol (a call on the concrete `core` would join the boundary worklist). `vulkan_core` IS that
+        // object, but naming it as the interface is what keeps the call site inside the rule.
+        rhi::api_core& face = this->rhi_face();
         this->secondary_command_buffers.reserve(this->frame_ring().slot_count());
         this->main_segments.reserve(this->frame_ring().slot_count());
         uint32_t const record_workers = static_cast<uint32_t>(std::max(1, this->task_pool_threads()));
         for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             // one entry: the alpha-blended pass's secondary (see secondary_pass). The shadow cascades
             // and the main-pass segments own their buffers elsewhere, because they record concurrently.
-            std::array<rhi::object_manager<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
-                rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})}, // transparent
+            std::array<std::shared_ptr<rhi::command_buffer>, static_cast<std::size_t>(secondary_pass::count)> pair = {
+                face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}), // transparent
             };
             this->secondary_command_buffers.push_back(std::move(pair));
 
             // Shadow cascades record on the task pool, so each cascade gets its OWN buffer - and its
             // own pool with it (M9).
-            std::vector<rhi::object_manager<rhi::command_buffer>> cascade_recording;
+            std::vector<std::shared_ptr<rhi::command_buffer>> cascade_recording;
             cascade_recording.reserve(deren::vulkan::max_shadow_cascades);
             for (uint32_t cascade = 0; cascade < deren::vulkan::max_shadow_cascades; ++cascade) {
-                cascade_recording.push_back(rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})});
+                cascade_recording.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary}));
             }
             this->shadow_recording.push_back(std::move(cascade_recording));
-            std::vector<rhi::object_manager<rhi::command_buffer>> segments;
+            std::vector<std::shared_ptr<rhi::command_buffer>> segments;
             segments.reserve(record_workers);
             for (uint32_t s = 0; s < record_workers; ++s) {
-                segments.push_back(rhi::object_manager<rhi::command_buffer>{this->vulkan_core.create_command_buffer({.kind = rhi::command_buffer_kind::secondary})}); // one per worker
+                segments.push_back(face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary})); // one per worker
             }
             this->main_segments.push_back(std::move(segments));
         }
@@ -1369,7 +1227,7 @@ namespace deren::vulkan {
         // frame of the new generation takes the attachment -> sampled transition (see
         // ensure_velocity_sampled).
         this->velocity_written.assign(image_count, false);
-        this->rt_binding_written.assign(image_count, VK_NULL_HANDLE);
+        this->rt_binding_written.assign(image_count, nullptr);
         this->gbuffer_targets_written.assign(image_count, false);
         // a generation has nothing to blend with, and it is reset HERE rather than only on the off -> on
         // vector reads as "no history" for every frame, which silently turns the temporal resolve into a
@@ -1422,7 +1280,7 @@ namespace deren::vulkan {
         this->furnace_cube_view = {};
         this->furnace_cube_image = {};
 
-        VkExtent2D const render = this->render_extent();
+        rhi::image_extent const render = this->render_extent();
         std::size_t const image_count = static_cast<std::size_t>(rhi::max_swapchain_images);
         // THE CONTRACT'S BOUND IS THE ARRAY SIZE, so the backend keeps the promise (it refuses a driver
         // that reports more) and this is the engine's side of it: a count past `rhi::max_swapchain_images`
@@ -1482,7 +1340,7 @@ namespace deren::vulkan {
             history_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             history_desc.mip_levels = 1;
             history_desc.array_layers = 1;
-            history_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            history_desc.format = deren::vulkan::render_layout::hdr_format;
             history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
             history_desc.debug_name = "TAA history image";
             create_sampled_target(history_desc, deren::vulkan::render_layout::heap_slots::taa_history + static_cast<uint32_t>(i),
@@ -1499,7 +1357,7 @@ namespace deren::vulkan {
             hdr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             hdr_desc.mip_levels = 1;
             hdr_desc.array_layers = 1;
-            hdr_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            hdr_desc.format = deren::vulkan::render_layout::hdr_format;
             hdr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled) |
                              rhi::to_bits(rhi::image_flag::transfer_source);
             hdr_desc.debug_name = "HDR scene target";
@@ -1513,7 +1371,7 @@ namespace deren::vulkan {
             ldr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             ldr_desc.mip_levels = 1;
             ldr_desc.array_layers = 1;
-            ldr_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            ldr_desc.format = deren::vulkan::render_layout::hdr_format;
             ldr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
             ldr_desc.debug_name = "display-referred target";
             create_sampled_target(ldr_desc, deren::vulkan::render_layout::heap_slots::display_color + static_cast<uint32_t>(i),
@@ -1533,7 +1391,7 @@ namespace deren::vulkan {
                 target_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
                 target_desc.mip_levels = 1;
                 target_desc.array_layers = 1;
-                target_desc.format = contract_image_format(deren::vulkan::render_layout::gbuffer_formats[target]);
+                target_desc.format = deren::vulkan::render_layout::gbuffer_formats[target];
                 target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
                 target_desc.debug_name = "G-buffer target";
                 uint32_t const target_slot = target == 0u ? deren::vulkan::render_layout::heap_slots::gbuffer_albedo : (target == 1u ? deren::vulkan::render_layout::heap_slots::gbuffer_normal : deren::vulkan::render_layout::heap_slots::gbuffer_material);
@@ -1546,7 +1404,7 @@ namespace deren::vulkan {
             velocity_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             velocity_desc.mip_levels = 1;
             velocity_desc.array_layers = 1;
-            velocity_desc.format = contract_image_format(deren::vulkan::render_layout::gbuffer_velocity_format);
+            velocity_desc.format = deren::vulkan::render_layout::gbuffer_velocity_format;
             velocity_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
             velocity_desc.debug_name = "motion-vector target";
             create_sampled_target(velocity_desc, deren::vulkan::render_layout::heap_slots::gbuffer_velocity + static_cast<uint32_t>(i),
@@ -1557,7 +1415,7 @@ namespace deren::vulkan {
             scene_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             scene_desc.mip_levels = 1;
             scene_desc.array_layers = 1;
-            scene_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            scene_desc.format = deren::vulkan::render_layout::hdr_format;
             scene_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
             scene_desc.debug_name = "scene-colour target";
             create_sampled_target(scene_desc, deren::vulkan::render_layout::heap_slots::taa_current + static_cast<uint32_t>(i),
@@ -1592,7 +1450,7 @@ namespace deren::vulkan {
             trace_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
             trace_desc.mip_levels = 1;
             trace_desc.array_layers = 1;
-            trace_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            trace_desc.format = deren::vulkan::render_layout::hdr_format;
             trace_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
             trace_desc.debug_name = "megalights trace image";
             create_sampled_target(trace_desc, deren::vulkan::render_layout::heap_slots::ml_trace + image_slot,
@@ -1605,7 +1463,7 @@ namespace deren::vulkan {
             resolve_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
             resolve_desc.mip_levels = 1;
             resolve_desc.array_layers = 1;
-            resolve_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            resolve_desc.format = deren::vulkan::render_layout::hdr_format;
             resolve_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_source);
             resolve_desc.debug_name = "megalights resolve image";
             create_sampled_target(resolve_desc, deren::vulkan::render_layout::heap_slots::ml_resolved + image_slot,
@@ -1618,7 +1476,7 @@ namespace deren::vulkan {
             history_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
             history_desc.mip_levels = 1;
             history_desc.array_layers = 1;
-            history_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            history_desc.format = deren::vulkan::render_layout::hdr_format;
             history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
             history_desc.debug_name = "megalights history image";
             create_sampled_target(history_desc, deren::vulkan::render_layout::heap_slots::ml_history + image_slot,
@@ -1636,7 +1494,7 @@ namespace deren::vulkan {
                 level_desc.extent = rhi::image_extent{.width = level_width, .height = level_height, .depth = 1u};
                 level_desc.mip_levels = 1;
                 level_desc.array_layers = 1;
-                level_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+                level_desc.format = deren::vulkan::render_layout::hdr_format;
                 level_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
                 level_desc.debug_name = "bloom level target";
                 create_sampled_target(level_desc, deren::vulkan::render_layout::heap_slots::bloom_l0 + level * deren::vulkan::render_layout::heap_image_capacity + static_cast<uint32_t>(i),
@@ -1654,7 +1512,7 @@ namespace deren::vulkan {
         furnace_desc.extent = rhi::image_extent{.width = 1u, .height = 1u, .depth = 1u};
         furnace_desc.mip_levels = 1;
         furnace_desc.array_layers = 6;
-        furnace_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+        furnace_desc.format = deren::vulkan::render_layout::hdr_format;
         furnace_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination) | rhi::to_bits(rhi::image_flag::cube_compatible);
         furnace_desc.debug_name = "furnace environment cube";
         this->furnace_cube_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(furnace_desc)};
@@ -1784,12 +1642,12 @@ namespace deren::vulkan {
         /// deren::vulkan::make_image_view_info in deren.vulkan.constant_init): a heap image descriptor carries a CREATE INFO
         /// rather than a view, and the driver makes the view inside it. That is why this is called where the image
         /// and its view are created - only that site knows the format, the view type and the range.
-        bool write_heap_grid_image(rhi::api_core& vk, uint32_t const slot, VkImage const image, VkFormat const format, VkImageViewType const type, VkImageAspectFlags const aspect = VK_IMAGE_ASPECT_COLOR_BIT) {
-            if (!contract_heap_ready(vk) || image == VK_NULL_HANDLE) {
+        bool write_heap_grid_image(rhi::api_core& vk, uint32_t const slot, rhi::image const* const image) {
+            if (!contract_heap_ready(vk) || image == nullptr) {
                 return false;
             }
-            VkImageViewCreateInfo const view_info = make_image_view_info(image, format, type, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-            return contract_write_heap_image(vk, deren::vulkan::render_layout::heap_slot_offset(slot), view_info, VK_IMAGE_LAYOUT_GENERAL);
+            return contract_write_heap_image(vk, deren::vulkan::render_layout::heap_slot_offset(slot),
+                                             *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         }
 
         /**
@@ -1802,13 +1660,13 @@ namespace deren::vulkan {
          * neighbours). The heap is the only path now, so "the heap is not in use" is a startup
          * failure rather than a quiet fall back to a descriptor set.
          */
-        void write_heap_scene_buffer(rhi::api_core& vk, std::vector<rhi::object_manager<rhi::buffer>> const& buffers, uint32_t const slot_base, VkDeviceSize const size, VkDescriptorType const type) {
+        void write_heap_scene_buffer(rhi::api_core& vk, std::vector<rhi::object_manager<rhi::buffer>> const& buffers, uint32_t const slot_base, std::uint64_t const size, rhi::descriptor_type const type) {
             if (!contract_heap_ready(vk)) {
                 return;
             }
             uint32_t written = 0;
             for (uint32_t slot = 0; slot < buffers.size(); ++slot) {
-                VkDeviceSize const offset = deren::vulkan::render_layout::heap_slot_offset(slot_base + slot);
+                std::uint64_t const offset = deren::vulkan::render_layout::heap_slot_offset(slot_base + slot);
                 if (contract_write_heap_buffer(vk, offset, buffer_address(vk, *buffers[slot]), size, type)) {
                     ++written;
                 } else {
@@ -1861,31 +1719,31 @@ namespace deren::vulkan {
         // The sizes are the buffers' REAL sizes, not VK_WHOLE_SIZE: a heap buffer descriptor is an
         // address RANGE, and validation states the rule as VUID-VkDeviceAddressRangeKHR-address-11365 - address plus
         // size must stay inside the buffer, which VK_WHOLE_SIZE cannot satisfy.
-        write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, deren::vulkan::render_layout::heap_slots::cluster_counts, static_cast<VkDeviceSize>(deren::vulkan::max_cluster_count) * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        write_heap_scene_buffer(this->vulkan_core, this->cluster_index_buffers, deren::vulkan::render_layout::heap_slots::cluster_indices, static_cast<VkDeviceSize>(deren::vulkan::max_cluster_count) * deren::vulkan::cluster_light_capacity * sizeof(uint32_t), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->cluster_count_buffers, deren::vulkan::render_layout::heap_slots::cluster_counts, static_cast<std::uint64_t>(deren::vulkan::max_cluster_count) * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->vulkan_core, this->cluster_index_buffers, deren::vulkan::render_layout::heap_slots::cluster_indices, static_cast<std::uint64_t>(deren::vulkan::max_cluster_count) * deren::vulkan::cluster_light_capacity * sizeof(uint32_t), rhi::descriptor_type::storage_buffer);
         // A STORAGE DESCRIPTOR, NOT A UNIFORM ONE, and the shaders declare it as a `buffer` block: the storage
         // class a shader reads a heap descriptor through must match the descriptor's type, and a mismatch reads
         // as zeros with NO validation finding. Slang's `DescriptorHandle<ConstantBuffer<T>>` always fetches
-        // through a StorageBuffer-class pointer, so a VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER here made the Slang
+        // through a StorageBuffer-class pointer, so a rhi::descriptor_type::uniform_buffer here made the Slang
         // G-buffer read a zero camera matrix (velocity NaN, motion channel black) while glslc's Uniform read of
         // the same slot worked. See docs/slang_migration.md, "the storage class that has to match".
-        write_heap_scene_buffer(this->vulkan_core, this->camera_buffers, deren::vulkan::render_layout::heap_slots::scene_camera, sizeof(camera_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->camera_buffers, deren::vulkan::render_layout::heap_slots::scene_camera, sizeof(camera_ubo), rhi::descriptor_type::storage_buffer);
         // ... and the rest of the per-frame arrays, from the same place and with the SAME sizes the scene block
         // writes them with (see ensure_scene_heap_slots's write_buffer_binding calls): motion (binding 13), skin (9) and
         // morph (10), each a two-slot array whose slot is the frame's. Bound here rather than in the per-slot loop
         // because a heap descriptor is an ADDRESS: the buffers are allocated once, so their addresses do not
         // change per frame, and only the CONTENTS are rewritten (see the per-frame slot rule in runtime.cppm).
-        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, deren::vulkan::render_layout::heap_slots::previous_transforms, static_cast<VkDeviceSize>(deren::vulkan::scene_motion_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, deren::vulkan::render_layout::heap_slots::skin_matrices, static_cast<VkDeviceSize>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->motion_buffers, deren::vulkan::render_layout::heap_slots::previous_transforms, static_cast<std::uint64_t>(deren::vulkan::scene_motion_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers, deren::vulkan::render_layout::heap_slots::skin_matrices, static_cast<std::uint64_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
         // ... and the previous-frame twin of the skin block, whose CONTENTS advance_motion_deformations()
         // rewrites per frame slot - so it is registered here, from the same size, for the same reason.
-        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, deren::vulkan::render_layout::heap_slots::skin_matrices_previous, static_cast<VkDeviceSize>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
-        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, deren::vulkan::render_layout::heap_slots::morph_data, static_cast<VkDeviceSize>(deren::vulkan::scene_morph_capacity) * sizeof(float), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER);
+        write_heap_scene_buffer(this->vulkan_core, this->skin_buffers_previous, deren::vulkan::render_layout::heap_slots::skin_matrices_previous, static_cast<std::uint64_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer);
+        write_heap_scene_buffer(this->vulkan_core, this->morph_buffers, deren::vulkan::render_layout::heap_slots::morph_data, static_cast<std::uint64_t>(deren::vulkan::scene_morph_capacity) * sizeof(float), rhi::descriptor_type::storage_buffer);
         // THE INSTANCE TRANSFORM TABLE (set 0 binding 6) is the odd one: a SINGLE buffer rather than one per frame
         // slot (see runtime.cppm's member), so it takes ONE grid slot instead of a two-slot array - which is what
         // heap_slots::instance_transforms reserved. Written from the same size the scene block gives it.
         if (contract_heap_ready(this->rhi_face())) {
-            if (!this->write_heap_buffer(*this->instance_buffer, deren::vulkan::render_layout::heap_slots::instance_transforms, static_cast<VkDeviceSize>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+            if (!this->write_heap_buffer(*this->instance_buffer, deren::vulkan::render_layout::heap_slots::instance_transforms, static_cast<std::uint64_t>(deren::vulkan::instance_capacity) * sizeof(glm::mat4), rhi::descriptor_type::storage_buffer)) {
                 deren::utility::log("descriptor heap: the instance transform table did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::instance_transforms);
             }
         }
@@ -1914,14 +1772,13 @@ namespace deren::vulkan {
         // (and the shadow map into its grid slot) rather than into a descriptor set.
         for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             rhi::image& shadow_image = *this->shadow_images[static_cast<std::size_t>(slot)];
-            VkImage const shadow_native = static_cast<VkImage>(this->escape().native_image(shadow_image));
 
             // THE SHADOW MAP GOES ONTO THE GRID HERE, because an image binding cannot be written the way a buffer
             // binding is: its heap descriptor is a CREATE INFO, rebuilt from the same arguments
             // core::make_depth_array_view uses - this slot's image, the depth format, a 2D-array view and the DEPTH
             // aspect (a colour aspect here would be a validation error, not a wrong picture). Which slot it
             // occupies is the frame's, matching shadow_images[slot].
-            if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot), shadow_native, static_cast<VkFormat>(this->escape().native_image_format(shadow_image)), VK_IMAGE_VIEW_TYPE_2D_ARRAY, VK_IMAGE_ASPECT_DEPTH_BIT)) {
+            if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot), &shadow_image)) {
                 deren::utility::log("descriptor heap: the shadow map for frame slot {} did not reach grid slot {}", slot, deren::vulkan::render_layout::heap_slots::shadow_map + static_cast<uint32_t>(slot));
             }
 
@@ -1933,8 +1790,8 @@ namespace deren::vulkan {
             // carries a VkImageViewCreateInfo while a VkDescriptorImageInfo carries a view, not the image and range
             // that create info is made of - which is why the shadow map above is written where its image is known.
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceSize const heap_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::scene_light + slot);
-                if (!this->write_heap_buffer(*this->light_buffers[static_cast<std::size_t>(slot)], deren::vulkan::render_layout::heap_slots::scene_light + slot, sizeof(light_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                std::uint64_t const heap_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::scene_light + slot);
+                if (!this->write_heap_buffer(*this->light_buffers[static_cast<std::size_t>(slot)], deren::vulkan::render_layout::heap_slots::scene_light + slot, sizeof(light_ubo), rhi::descriptor_type::storage_buffer)) {
                     deren::utility::log("descriptor heap: the light UBO did not fit slot {}'s block at offset {}", slot, heap_offset);
                 }
             }
@@ -1946,8 +1803,8 @@ namespace deren::vulkan {
             // because it is per-frame-slot for the same reason: on a model whose head turns it changes every
             // frame, so each slot needs its own copy.
             if (contract_heap_ready(this->rhi_face())) {
-                VkDeviceSize const head_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::scene_head + slot);
-                if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], deren::vulkan::render_layout::heap_slots::scene_head + slot, sizeof(head_ubo), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+                std::uint64_t const head_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::scene_head + slot);
+                if (!this->write_heap_buffer(*this->head_buffers[static_cast<std::size_t>(slot)], deren::vulkan::render_layout::heap_slots::scene_head + slot, sizeof(head_ubo), rhi::descriptor_type::storage_buffer)) {
                     deren::utility::log("descriptor heap: the head frame did not fit slot {}'s block at offset {}", slot, head_offset);
                 }
             }
@@ -2050,7 +1907,7 @@ namespace deren::vulkan {
         if (!static_cast<bool>(this->post_lut_view)) {
             deren::utility::panic("failed to create the post LUT view");
         }
-        if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::post_lut, static_cast<VkImage>(this->escape().native_image(*this->post_lut_image)), VK_FORMAT_R8G8B8A8_SRGB, VK_IMAGE_VIEW_TYPE_2D)) {
+        if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::post_lut, this->post_lut_image.get())) {
             deren::utility::log("descriptor heap: the post LUT did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::post_lut);
         }
         deren::utility::log("post LUT uploaded: {}x{}, {} bytes -> grid slot {}", width, height, pixels.size_bytes(), deren::vulkan::render_layout::heap_slots::post_lut);
@@ -2060,7 +1917,7 @@ namespace deren::vulkan {
     // `write_heap_grid_image` triple as the two LUTs above, from the reference's own PNG bytes. WHAT DIFFERS FROM
     // BOTH OF THEM IS ONE FIELD, AND IT IS THE WHOLE POINT OF THIS FUNCTION:
     //
-    //     `VK_FORMAT_R8G8B8A8_UNORM`, NOT `_SRGB`.
+    //     `rhi::image_format::rgba8_unorm`, NOT `_SRGB`.
     //
     // The reference's image data-block is `colorspace = 'Non-Color'` - the ONLY such image in this project, every
     // `_RD` / `_D` map being `'sRGB'` - so Blender's texture node hands the graph the texel's raw bytes and the
@@ -2100,7 +1957,7 @@ namespace deren::vulkan {
         if (!static_cast<bool>(this->goo_fgd_view)) {
             deren::utility::panic("failed to create the goo FGD LUT view");
         }
-        if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::goo_fgd_lut, static_cast<VkImage>(this->escape().native_image(*this->goo_fgd_image)), VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_VIEW_TYPE_2D)) {
+        if (!write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::goo_fgd_lut, this->goo_fgd_image.get())) {
             deren::utility::log("descriptor heap: the goo FGD LUT did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::goo_fgd_lut);
         }
         deren::utility::log("goo FGD LUT uploaded: {}x{}, {} bytes, R8G8B8A8_UNORM -> grid slot {}", width, height, pixels.size_bytes(), deren::vulkan::render_layout::heap_slots::goo_fgd_lut);
@@ -2113,12 +1970,12 @@ namespace deren::vulkan {
         //         glTF image, so a raw data pointer is NOT a stable identity; the digest lookup
         //         below is what actually dedups); missing slots point at the white fallback
         //         (element 0).
-        std::array<std::pair<texture_input const*, VkFormat>, 5 + static_cast<std::size_t>(toon_slot::count)> const slots = {
-            std::pair{&info.albedo, VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.metallic_roughness, VK_FORMAT_R8G8B8A8_UNORM},
-            std::pair{&info.normal, VK_FORMAT_R8G8B8A8_UNORM},
-            std::pair{&info.occlusion, VK_FORMAT_R8G8B8A8_UNORM},
-            std::pair{&info.emissive, VK_FORMAT_R8G8B8A8_SRGB}, // glTF emissive textures are sRGB
+        std::array<std::pair<texture_input const*, rhi::image_format>, 5 + static_cast<std::size_t>(toon_slot::count)> const slots = {
+            std::pair{&info.albedo, rhi::image_format::rgba8_srgb},
+            std::pair{&info.metallic_roughness, rhi::image_format::rgba8_unorm},
+            std::pair{&info.normal, rhi::image_format::rgba8_unorm},
+            std::pair{&info.occlusion, rhi::image_format::rgba8_unorm},
+            std::pair{&info.emissive, rhi::image_format::rgba8_srgb}, // glTF emissive textures are sRGB
             // ---- THE TOON SLOTS, in `toon_slot` order ----
             // THE FOUR COLOUR LANES ARE sRGB. They are colour data the reference decodes before using (its ramp
             // lookup is followed by `srgbToLinear(rd.rgb)`), so uploading them as linear would double-decode
@@ -2135,28 +1992,28 @@ namespace deren::vulkan {
             // `{nullptr, VK_FORMAT_UNDEFINED}` - and the loop below dereferences `slots[i].first`. Measured: the
             // renderer died with an access violation inside `register_material` and the log stopped one stage
             // earlier, which is what sent the search to the descriptor writes instead of here.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::diffuse_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::shadow_lut)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::specular_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::matcap)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_lightmap)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::diffuse_ramp)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::shadow_lut)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::specular_ramp)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::matcap)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_lightmap)], rhi::image_format::rgba8_unorm},
             // THE METALLIC/GLOSS LANE IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are
             // metallic, reflectivity, occlusion and smoothness - NUMBERS, not colour - so an sRGB decode would
             // bend every one of them, and roughness read out of a decoded smoothness would be wrong everywhere on
             // the surface rather than at one band edge.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::metallic_gloss)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::metallic_gloss)], rhi::image_format::rgba8_unorm},
             // THE FACE MASK IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are REGION
             // WEIGHTS and a normal term - numbers, not colour - so an sRGB decode would bend every one of them.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_mask)], rhi::image_format::rgba8_unorm},
             // THE EMOTION ATLAS IS COLOUR - it is a painting of eyebrows and a mouth that REPLACES the albedo where
             // its alpha says so - so it takes the sRGB treatment the ramps do, not the mask's.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::emotion)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::emotion)], rhi::image_format::rgba8_srgb},
             // THE SPLIT NORMAL IS UNORM: its two packed tangent-space normals are DATA (`* 2 - 1` on the way in),
             // so an sRGB decode would bend both of them.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], rhi::image_format::rgba8_unorm},
             // THE GOO IRIS BALL IS COLOUR, so it takes the ramps' treatment rather than the masks': the reference
             // samples it and adds it to the albedo (`shaders/goo_toon.slang`), i.e. it is light, not a number.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], rhi::image_format::rgba8_srgb},
             // THE GOO BASE RAMP IS COLOUR, so it takes the treatment the reference gives it rather than the
             // masks': `images[...].colorspace = 'sRGB'` on all seven `_RD` images means Blender LINEARIZES each
             // texel before its node graph sees it (spec §5.3), so uploading this lane as `_SRGB` is what makes the
@@ -2164,23 +2021,23 @@ namespace deren::vulkan {
             // bright, which on a mid-grey ramp entry is the difference between a shadow and a highlight. ITS
             // ALPHA IS UNAFFECTED BY EITHER (Blender's colour management does not touch it), which is why the same
             // upload serves `RampAlpha` and the spec's §8-A6 asset-bound assertion.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_base_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_base_ramp)], rhi::image_format::rgba8_srgb},
             // ---- STEP 7'S THREE FACE LANES, AND THE FORMAT OF EACH ONE IS A STATEMENT ABOUT ITS CHANNELS ----
             //
             // THE FACE'S SDF IS UNORM, for the article's `sdf_lightmap` above and NOT for the `_RD` ramps': the
             // reference reads it as `(R + G) / 2` and feeds that NUMBER to a `SigmoidSharp` whose `center` is
             // `0.10000000894069672` - a threshold on a distance field, not a colour - so an sRGB decode would bend
             // the very quantity the sigmoid thresholds, by 2.2 gamma, in the region where its slope is steepest.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_sdf)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_sdf)], rhi::image_format::rgba8_unorm},
             // `cm_M` IS UNORM TOO, and it is the same kind of statement: its three channels are a LAYER SELECTOR
             // (`G`, compared against 0 and 1 exactly - `混合.002`'s factor), a WEIGHT (`R`, raised to `Front R Pow`
             // and smoothstepped) and a GATE (`A`, a multiply). None of them is light, so none of them may be
             // gamma-decoded; a `_SRGB` upload would turn a mask's "1.0" into "1.0" but its 0.2 into 0.033.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_cm)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_cm)], rhi::image_format::rgba8_unorm},
             // `CsutmMask` IS UNORM FOR THE SAME REASON ONE STEP FURTHER: the only channel the Face container reads
             // is `G`, and it is read through a `GREATER_THAN(·, 0.5)` - a comparison whose whole answer is the
             // comparison, so the upload's transfer function decides which side of 0.5 a texel lands on.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_csumt)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_csumt)], rhi::image_format::rgba8_unorm},
             // `_M` IS UNORM AS WELL, and for the same statement once more: the `RS EFF` mask of mechanism table #14
             // is a MASK (`_M（非色彩）` in the reference's own node name), read through a luminance dot and then a
             // smoothstep, and its image's colorspace is Non-Color. A `_SRGB` upload would gamma-decode the very
@@ -2190,7 +2047,7 @@ namespace deren::vulkan {
             // the enum lane above without this line value-initialises the LAST element to `{nullptr,
             // VK_FORMAT_UNDEFINED}` and the loop below dereferences `slots[i].first`. Measured: the renderer died
             // with an access violation inside `register_material` (see the block comment above this array).
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_mask)], rhi::image_format::rgba8_unorm},
             // ---- STEP 15'S ONE, AND IT IS THE LANE THAT SPENDS THE TABLE'S LAST SLOT ----
             //
             // THE SHEET IS SRGB, AND THE STATEMENT IS THE OPPOSITE OF THE MASK LINE ABOVE RATHER THAN A COPY OF
@@ -2204,7 +2061,7 @@ namespace deren::vulkan {
             // to `{nullptr, VK_FORMAT_UNDEFINED}` - which the loop below dereferences. Step 15 raises `count` from 15
             // to 16, so omitting this line is the same access violation inside `register_material` the RS mask's own
             // note records.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], rhi::image_format::rgba8_srgb},
         };
 
         std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
@@ -2223,14 +2080,14 @@ namespace deren::vulkan {
             deren::utility::xxh3_digest const digest = deren::utility::xxh3_128bits(std::span<uint8_t const>(tex.data.data(), tex.data.size_bytes()));
             // key on the digest data_block itself (not a raw byte array): data_block carries the
             // equality/ordering the std::map key needs
-            auto const key = std::tuple<deren::utility::xxh3_digest, VkFormat, std::uint32_t, std::uint32_t, std::uint32_t>{
+            auto const key = std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>{
                 digest, slots[i].second, tex.width, tex.height, tex.mip_levels};
             auto const cached = this->texture_slot_cache.find(key);
             if (cached != this->texture_slot_cache.end()) {
                 texture_indices[i] = cached->second; // shared texture: reuse its slot
                 continue;
             }
-            if (this->texture_array_views.size() >= runtime_detail::scene_texture_capacity) {
+            if (this->owned_texture_views.size() >= runtime_detail::scene_texture_capacity) {
                 // Array full (pathological scene with > scene_texture_capacity distinct images):
                 // degrade this texture slot to the white element instead of crashing - the
                 // material still renders untextured. Same policy as the material-table overflow
@@ -2248,7 +2105,7 @@ namespace deren::vulkan {
             image_info.extent = rhi::image_extent{.width = tex.width, .height = tex.height, .depth = 1u};
             image_info.mip_levels = tex.mip_levels; // the caller uploads a full mip-major chain
             image_info.array_layers = 1;
-            image_info.format = contract_image_format(slots[i].second);
+            image_info.format = slots[i].second;
             image_info.flags = rhi::to_bits(rhi::image_flag::sampled);
             image_info.initial_bytes = std::as_bytes(tex.data);
             image_info.debug_name = "material texture";
@@ -2260,8 +2117,10 @@ namespace deren::vulkan {
             if (!static_cast<bool>(this->owned_textures.back()) || !static_cast<bool>(this->owned_texture_views.back())) {
                 deren::utility::panic("failed to create material texture");
             }
-            uint32_t const index = static_cast<uint32_t>(this->texture_array_views.size());
-            this->texture_array_views.push_back(static_cast<VkImageView>(this->escape().native_image_view(*this->owned_texture_views.back())));
+            // THE INDEX IS THE VIEW JUST APPENDED (see where the white element sets `white_texture_index` the
+            // same way): the native cache that used to be counted here held the same views in the same order, so
+            // its `size()` - taken before its own push - was this index.
+            uint32_t const index = static_cast<uint32_t>(this->owned_texture_views.size() - 1);
             this->texture_slot_cache.emplace(key, index);
             texture_indices[i] = index;
 
@@ -2278,18 +2137,9 @@ namespace deren::vulkan {
             // Nothing READS the heap yet, so a failure here is a log line and not a wrong frame - but it is the
             // write path that has to work first.
             if (contract_heap_ready(this->rhi_face())) {
-                VkImage const texture_native = static_cast<VkImage>(this->escape().native_image(*this->owned_textures.back()));
                 {
-                    VkImageViewCreateInfo const heap_view = {.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-                                                             .pNext = nullptr,
-                                                             .flags = 0,
-                                                             .image = texture_native,
-                                                             .viewType = VK_IMAGE_VIEW_TYPE_2D,
-                                                             .format = slots[i].second,
-                                                             .components = {VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY, VK_COMPONENT_SWIZZLE_IDENTITY},
-                                                             .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, VK_REMAINING_MIP_LEVELS, 0, VK_REMAINING_ARRAY_LAYERS}};
-                    VkDeviceSize const heap_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::textures + index);
-                    if (contract_write_heap_image(this->rhi_face(), heap_offset, heap_view, VK_IMAGE_LAYOUT_GENERAL)) {
+                    std::uint64_t const heap_offset = deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::textures + index);
+                    if (contract_write_heap_image(this->rhi_face(), heap_offset, *this->owned_textures.back(), tex_range, rhi::descriptor_type::sampled_image)) {
                         ++heap_texture_descriptors;
                     } else {
                         deren::utility::log("descriptor heap: texture {} did not fit the resource heap at offset {}", index, heap_offset);
@@ -2553,7 +2403,7 @@ namespace deren::vulkan {
                             toon_lanes_extra2.x,
                             toon_lanes_extra2.y,
                             toon_lanes_extra2.z,
-                            this->texture_array_views.size());
+                            this->owned_texture_views.size());
         // ... AND THE SPECULAR STRENGTH, WHICH IS THE ONE LANE WHOSE "NOTHING STATED" IS A SENTINEL RATHER THAN
         // THE TABLE'S NEUTRAL (`-1`, see `toon_colour_lane::specular_strength`), so a log line is the only place
         // the difference between "the asset said 0.0" and "no source spoke" is visible at all: both reach the

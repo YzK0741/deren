@@ -13,12 +13,10 @@ module;
 #include <cstring>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.post;
 
-import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the draw
-import deren.vulkan.constant_init;
+import deren.promise.rhi;      // the record series (abi 20): the barriers, the rendering scope, the draw
 import deren.vulkan.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
 import deren.utility;
 
@@ -57,13 +55,13 @@ namespace deren::vulkan::pass {
     }
 
     void post_composite_pass::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return;
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         if (this->composite.has_value()) {
             return; // already built for this device
         }
@@ -76,7 +74,7 @@ namespace deren::vulkan::pass {
         // The SURFACE's format is one of the two pipelines' (the other renders into R16F bloom levels and into
         // the LDR image FXAA reads), and it is a session-stable device fact the context carries for exactly this
         // kind of reason (see pass_context::swap_chain_image_format).
-        auto built = pipelines::build_post(*context.face, context.device, context.swap_chain_format, vertex_spirv, fragment_spirv);
+        auto built = pipelines::build_post(*context.face, context.swap_chain_format, vertex_spirv, fragment_spirv);
         if (!built) {
             deren::utility::log("post chain disabled: {}", built.error());
             this->release_owned();
@@ -101,22 +99,24 @@ namespace deren::vulkan::pass {
         return this->composite.has_value() && this->hdr.has_value();
     }
 
-    VkPipeline post_composite_pass::pipeline() const noexcept {
-        return this->composite_pipeline();
+    deren::promise::rhi::pipeline* post_composite_pass::pipeline_handle() const noexcept {
+        // THE DEFAULT VARIANT, the `composite` one (the swapchain/LDR target's R16F-format pipeline); the HDR
+        // variant is published by NAME (see named_pipeline below), never by this accessor.
+        return this->composite.has_value() ? this->composite->contract : nullptr;
     }
 
     owned_pipeline post_composite_pass::named_pipeline(std::string_view const name) const noexcept {
         // THE ONE NAME THIS PASS PUBLISHES TO ITS SIBLINGS: the bloom levels' `post_hdr` (see the class note and
-        // frame_pass::named_pipeline). Its own name is answered by `pipeline()` above.
-        return name == bloom_pipeline_name ? owned_pipeline{.pipeline = this->hdr_pipeline()} : owned_pipeline{};
+        // frame_pass::named_pipeline). Its own name is answered by `pipeline_handle()` above.
+        return name == bloom_pipeline_name ? owned_pipeline{.contract = this->hdr.has_value() ? this->hdr->contract : nullptr} : owned_pipeline{};
     }
 
-    VkPipeline post_composite_pass::composite_pipeline() const noexcept {
-        return this->composite.has_value() ? this->composite->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* post_composite_pass::composite_pipeline() const noexcept {
+        return this->composite.has_value() ? this->composite->contract : nullptr;
     }
 
-    VkPipeline post_composite_pass::hdr_pipeline() const noexcept {
-        return this->hdr.has_value() ? this->hdr->get_pipeline() : VK_NULL_HANDLE;
+    deren::promise::rhi::pipeline* post_composite_pass::hdr_pipeline() const noexcept {
+        return this->hdr.has_value() ? this->hdr->contract : nullptr;
     }
 
     void post_composite_pass::set_frame(composite_frame const& frame) noexcept {
@@ -160,11 +160,16 @@ namespace deren::vulkan::pass {
             return false;
         }
         resolved_binding const target = context.resources->find(resource_id::ldr, 0, instance_for(ldr->scope, out.frame));
-        if (target.view == VK_NULL_HANDLE || target.image == VK_NULL_HANDLE) {
+        // THE CONTRACT LANE IS THE GUARD (plan X5 B2): the raw lane is gone, and "no LDR image this generation"
+        // is exactly "no contract handle was published for it".
+        if (target.view_handle == nullptr || target.image_handle == nullptr) {
             return false; // no LDR image this generation: do not record a composite that cannot write anywhere
         }
         out.target_storage[0] = target;
+        // THE VARIANT THIS FRAME NEEDS, in the ONE lane there is now (abi 21): the LDR target is the R16F
+        // pipeline's, and `resolve` is where the frame's decision between the two variants lives.
         out.pipeline_storage[0] = this->hdr_pipeline();
+        out.pipelines = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_storage.data(), 1);
         return this->fill_push(out, true);
     }
 
@@ -181,7 +186,7 @@ namespace deren::vulkan::pass {
             // for the reason that field records.
             .bloom_intensity = this->pass_frame.suppress_bloom ? 0.0f : settings.bloom_intensity,
             .bloom_threshold = settings.bloom_threshold,
-            .encode_gamma = writing_ldr ? 1.0f : (deren::vulkan::is_srgb_format(this->swap_chain_format) ? 0.0f : 1.0f),
+            .encode_gamma = writing_ldr ? 1.0f : (is_srgb_swapchain_format(this->swap_chain_format) ? 0.0f : 1.0f),
             .fxaa_subpixel = settings.fxaa_subpixel,
             .fxaa_edge_threshold = settings.fxaa_edge_threshold,
         };
@@ -192,15 +197,14 @@ namespace deren::vulkan::pass {
     }
 
     void post_composite_pass::record(resolved_io const& io) {
-        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (!this->pipeline_ready() || io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.push.size() < sizeof(post_push_constants) || io.extent.width == 0 || io.extent.height == 0) {
             return; // the runner resolves all of this or skips the pass (see runtime::resolve_post_composite)
         }
-        VkImage const target = io.targets[0].image;
-        VkImageView const target_view = io.targets[0].view;
-        if (target == VK_NULL_HANDLE || target_view == VK_NULL_HANDLE || io.list == nullptr || io.targets[0].image_handle == nullptr ||
-            io.targets[0].view_handle == nullptr) {
-            return; // the raw lanes this frame's publication left empty: the pass cannot record on either spelling
+        // THE RAW LOCALS ARE GONE (plan X5 B2) and nothing below used them: the recording verbs take the
+        // contract handles, so the guard reads the lane the pass actually records through.
+        if (io.list == nullptr || io.targets[0].image_handle == nullptr || io.targets[0].view_handle == nullptr) {
+            return; // this frame's publication left no contract handle: the pass cannot record
         }
         // The target becomes a colour attachment BEFORE the instance (a pipeline barrier may not be recorded
         // inside one) with UNDEFINED as its old layout: the instance CLEARs it, so whatever it held is dead - and
@@ -237,7 +241,7 @@ namespace deren::vulkan::pass {
             return;
         }
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push));
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);
         // INSIDE the instance, between the draw and its end: the debug overlay composites a UI over the image
         // this draw just wrote and has no load op of its own, so it can be neither a pass nor outside the
@@ -245,7 +249,7 @@ namespace deren::vulkan::pass {
         // last writer instead, which its own frame decided in prepare_frame). The overlay records RAW (its
         // third-party recorder is not a contract consumer), which is why io.cmd stays beside the list.
         if (this->pass_frame.after_draw.valid()) {
-            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, io.cmd);
+            this->pass_frame.after_draw.record(this->pass_frame.after_draw.owner, *io.cmd);
         }
         io.list->end_rendering();
     }
@@ -307,7 +311,7 @@ namespace deren::vulkan::pass {
     }
 
     void post_bloom_pass::record(resolved_io const& io) {
-        if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == VK_NULL_HANDLE ||
+        if (io.targets.empty() || io.pipelines.empty() || io.pipelines[0] == nullptr ||
             io.extent.width == 0 || io.extent.height == 0 || io.list == nullptr || io.targets[0].image_handle == nullptr ||
             io.targets[0].view_handle == nullptr) {
             return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
@@ -363,7 +367,7 @@ namespace deren::vulkan::pass {
         // THIS LEVEL'S SOURCE: the third lane says which one, and the HOST turns it into a heap slot (see
         // runtime::push_stage_block). Level 0 (the prefilter) and the composite read the HDR target, which is the
         // lane's 0; a downsample at level N reads the level above it, which is N.
-        [[maybe_unused]] bool const pushed = io.push_block(io.cmd, pass::push_bytes(push), this->bloom_level);
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push), this->bloom_level);
         io.list->draw(3, 1, 0, 0);
         io.list->end_rendering();
         // THE HAND-BACK, and it is the deepest level's because it has no successor to do it for it: the composite

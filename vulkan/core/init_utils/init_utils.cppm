@@ -7,6 +7,7 @@ export module deren.vulkan.core:init_utils;
 export import deren.vstd;
 import deren.utility;
 import deren.vulkan.constant_init;
+import deren.promise.rhi; // rhi::image_extent: the swapchain extent is the CONTRACT's type now (plan X5 B3.2)
 
 /**
  * @file init_utils.cppm
@@ -413,7 +414,7 @@ export VkSurfaceFormatKHR choose_swap_surface_format(std::vector<VkSurfaceFormat
  * @param requested_height the height `glfwCreateWindow` was asked for, as the fallback
  * @return the chosen extent
  */
-export VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept;
+export deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept;
 
 /**
  * @ingroup vulkan_init_utils
@@ -1314,7 +1315,7 @@ VkSurfaceFormatKHR choose_swap_surface_format(std::vector<VkSurfaceFormatKHR> co
     return available_formats[0];
 }
 
-VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept {
+deren::promise::rhi::image_extent choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow* window, int32_t requested_width, int32_t requested_height) noexcept {
     // ONE LINE, AND IT IS THE MEASUREMENT RATHER THAN A TIDY-UP: this function has two paths and only one
     // of them asks the window anything. VK_EXT_headless_surface and Wayland report `currentExtent` as
     // UINT32_MAX and leave the extent to the application; the Win32 surface this renderer runs on ANSWERS
@@ -1330,7 +1331,9 @@ VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow*
                         capabilities.currentExtent.height,
                         capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max() ? "the surface answers, the window is not consulted" : "unspecified - the window is consulted");
     if (capabilities.currentExtent.width != std::numeric_limits<uint32_t>::max()) {
-        return capabilities.currentExtent;
+        // THE SURFACE'S SIZE, IN THE CONTRACT'S TYPE (plan X5 B3.2): `currentExtent` is a `VkExtent2D`, and the
+        // return type no longer is, so the conversion happens here where the Vulkan value is read.
+        return deren::promise::rhi::image_extent{.width = capabilities.currentExtent.width, .height = capabilities.currentExtent.height};
     }
     int32_t width = 0;
     int32_t height = 0;
@@ -1356,7 +1359,7 @@ VkExtent2D choose_swap_extent(VkSurfaceCapabilitiesKHR capabilities, GLFWwindow*
         height = requested_height;
     }
 
-    VkExtent2D actual_extent = {
+    deren::promise::rhi::image_extent actual_extent = {
         .width = static_cast<uint32_t>(std::max(width, 1)),
         .height = static_cast<uint32_t>(std::max(height, 1)),
     };

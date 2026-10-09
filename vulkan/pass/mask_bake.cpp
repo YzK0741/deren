@@ -11,7 +11,6 @@ module;
 #include <span>
 #include <string>
 #include <utility>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.mask_bake;
 
@@ -32,25 +31,21 @@ namespace deren::vulkan::pass {
         return this->pass_pipeline.has_value();
     }
 
-    VkPipeline mask_bake_job::pipeline() const noexcept {
-        return this->pass_pipeline.has_value() ? this->pass_pipeline->get_pipeline() : VK_NULL_HANDLE;
-    }
-
     std::expected<void, std::string> mask_bake_job::create(pass_context const& context) {
-        if (context.device == VK_NULL_HANDLE) {
+        if (context.face == nullptr) {
             return std::unexpected(std::string("mask bake: no device"));
         }
-        if (this->device != VK_NULL_HANDLE && this->device != context.device) {
+        if (this->built_against != nullptr && this->built_against != context.face) {
             this->release_owned();
         }
-        this->device = context.device;
+        this->built_against = context.face;
         std::span<uint8_t const> const spirv = context.shader != nullptr ? context.shader(context.owner, shader_name) : std::span<uint8_t const>{};
         if (spirv.empty()) {
             return std::unexpected(std::string("mask bake: the owner has no ") + std::string(shader_name));
         }
         // Everything the bake reads is a heap slot the shader names itself: the material table (the alpha
         // texture's index, the base colour factor's alpha, the cutoff) and the bindless texture array.
-        auto built = pipelines::build_mask_bake(*context.face, context.device, spirv);
+        auto built = pipelines::build_mask_bake(*context.face, spirv);
         if (!built) {
             return std::unexpected(std::move(built.error()));
         }
@@ -59,12 +54,12 @@ namespace deren::vulkan::pass {
         return {};
     }
 
-    void mask_bake_job::record(VkCommandBuffer const command_buffer, mask_bake_request const& request, void* const push_owner,
-                               bool (*push_raw)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes)) const noexcept {
+    void mask_bake_job::record(deren::promise::rhi::command_buffer& commands, mask_bake_request const& request, void* const push_owner,
+                               bool (*push_raw)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes)) const noexcept {
         if (!this->ready() || request.triangle_count == 0) {
             return;
         }
-        auto const halves = [](VkDeviceAddress const address) {
+        auto const halves = [](std::uint64_t const address) {
             return glm::uvec2(static_cast<uint32_t>(address & 0xFFFFFFFFu), static_cast<uint32_t>(address >> 32u));
         };
         mask_bake_push_constants bake = {};
@@ -76,15 +71,26 @@ namespace deren::vulkan::pass {
         bake.index_type = request.index_type;
         bake.triangle_count = request.triangle_count;
         bake.material_index = request.material_index;
-        vkCmdBindPipeline(command_buffer, VK_PIPELINE_BIND_POINT_COMPUTE, this->pipeline());
+        // THE BIND RIDES THE CONTRACT (abi 21): the pipeline this JOB owns IS a contract pipeline (the builders
+        // create through `api_core::create_pipeline`), so `bind_pipeline` carries the compute bind point the
+        // backend decided. NO RUNNER BINDS FOR THIS JOB - it is not a frame pass, the acceleration-structure set
+        // drives it - so this is the one place its pipeline is bound, and a job whose pipeline has no contract
+        // handle is a wiring bug that is REPORTED rather than recorded into the void.
+        if (!this->pass_pipeline.has_value() || this->pass_pipeline->contract == nullptr) {
+            deren::utility::log("mask bake: the job's pipeline has no contract handle - the bake is skipped");
+            return;
+        }
+        if (commands.bind_pipeline(*this->pass_pipeline->contract) != deren::promise::rhi::error::ok) {
+            return; // a refused bind would record the push and the dispatch with no pipeline bound
+        }
         // THE BLOCK GOES AS DATA, not as a push constant: the pipeline has no layout (see the header). This shader
         // declares no heap indices, so nothing is appended - the block is pushed exactly as declared. The job's own
         // set is no longer bound either: the material table and the bindless textures are heap slots the shader
         // names itself, and a set bound to a layout-less pipeline is invalid.
         if (push_raw != nullptr) {
-            [[maybe_unused]] bool const pushed = push_raw(push_owner, command_buffer, std::as_bytes(std::span(&bake, 1)));
+            [[maybe_unused]] bool const pushed = push_raw(push_owner, commands, std::as_bytes(std::span(&bake, 1)));
         }
-        vkCmdDispatch(command_buffer, (bake.triangle_count + group_size - 1u) / group_size, 1, 1);
+        commands.dispatch((bake.triangle_count + group_size - 1u) / group_size, 1, 1);
     }
 
 } // namespace deren::vulkan::pass

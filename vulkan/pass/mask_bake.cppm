@@ -29,9 +29,9 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.mask_bake;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
@@ -52,7 +52,7 @@ export namespace deren::vulkan::pass {
         glm::uvec2 destination = glm::uvec2(0u);     // ... the expanded buffer this job fills
         uint32_t source_stride = 0;
         uint32_t destination_stride = 0; // 32: position(3) + normal(3) + uv(2), what hit shading reads
-        uint32_t index_type = 1;         // VkIndexType: 0 = uint16, 1 = uint32 (ignored when unindexed)
+        uint32_t index_type = 1;         // RHI index type: 0 = uint16, 1 = uint32 (ignored when unindexed)
         uint32_t triangle_count = 0;
         uint32_t material_index = 0; // the material whose alpha texture and cutoff decide the mask
     };
@@ -66,12 +66,16 @@ export namespace deren::vulkan::pass {
      * request is the dispatch.
      */
     struct mask_bake_request {
-        VkDeviceAddress source_vertices = 0; // the caster's vertex buffer
-        VkDeviceAddress source_indices = 0;  // ... its index buffer (0 = not indexed)
-        VkDeviceAddress destination = 0;     // the expanded copy this bake writes
+        // THE ADDRESSES ARE `uint64_t` (the contract's own spelling for a device address, as
+        // `shader_binding_table_region` already uses): a device address is a NUMBER, not a graphics-API type,
+        // and the only reason this struct ever named one was that the entry point below takes the API's
+        // spelling - a conversion this file now makes where it calls.
+        std::uint64_t source_vertices = 0; // the caster's vertex buffer
+        std::uint64_t source_indices = 0;  // ... its index buffer (0 = not indexed)
+        std::uint64_t destination = 0;     // the expanded copy this bake writes
         uint32_t source_stride = 0;
         uint32_t destination_stride = 32; // the engine's traced vertex layout
-        uint32_t index_type = 1;          // VkIndexType
+        uint32_t index_type = 1;          // RHI index type
         uint32_t triangle_count = 0;
         uint32_t material_index = 0;
     };
@@ -98,7 +102,10 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] std::expected<void, std::string> create(pass_context const& context);
         /**
          * @brief dispatch ONE caster's bake
-         * @param command_buffer the command buffer the dispatch is recorded into
+         * @param commands the frame's recording buffer, through the CONTRACT (abi 20/21): the pipeline BIND, the
+         *        dispatch and the push block are all contract verbs - the job's pipeline is a contract pipeline
+         *        since the compute builders moved to `api_core::create_pipeline`, so `bind_pipeline` carries the
+         *        compute bind point the backend decided.
          * @param request the caster's bake request
          * @param push_owner the renderer, @param push_raw its endpoint for a stage that declares NO index lanes
          *
@@ -107,23 +114,20 @@ export namespace deren::vulkan::pass {
          * instead. RAW - with no heap indices appended - is the exact endpoint this shader wants: it declares none,
          * because everything it reads is a device address pushed here or a material record in the heap.
          */
-        void record(VkCommandBuffer command_buffer, mask_bake_request const& request, void* push_owner,
-                    bool (*push_raw)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes)) const noexcept;
+        void record(deren::promise::rhi::command_buffer& commands, mask_bake_request const& request, void* push_owner,
+                    bool (*push_raw)(void* owner, deren::promise::rhi::command_buffer& commands, std::span<std::byte const> bytes)) const noexcept;
         /// @brief whether the job built what it records with (the renderer's gate for baking at all)
         [[nodiscard]] bool ready() const noexcept;
-
-        [[nodiscard]] VkPipeline pipeline() const noexcept;
 
     private:
         static constexpr std::string_view shader_name = "mask_bake.comp.spv";
         static constexpr uint32_t group_size = 64; // `mask_bake.comp`'s local_size_x
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    };
+    }; // namespace deren::vulkan::pass
 
     /// THE PUSH BLOCK'S SIZE IS PART OF THE SHADER'S CONTRACT, and it is the range the pipeline layout is
     /// created with: 44 bytes, the same as the block `mask_bake.comp` declares. It was 44 all along - the

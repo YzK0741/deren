@@ -108,9 +108,9 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.ray_traced_shadow;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -152,8 +152,7 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
     private:
         // THREE GROUPS but FOUR stages: the shader binding table's order is raygen, miss, hit - the any-hit
@@ -183,27 +182,32 @@ export namespace deren::vulkan::pass {
             .resync_viewport = false,
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
-        // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
+        deren::promise::rhi::api_core* built_against = nullptr;
+        // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-        // The shader binding table's three regions, filled at create time from the pipeline's group handles. The
-        // BUFFER is the owner's (see pass_context::create_upload_buffer); what the pass keeps is where each
-        // region starts, which is the per-pipeline part.
-        /// the traceRays entry point, loaded through vkGetDeviceProcAddr at create time (an extension command
-        /// is not exported by the loader's import library - see the acceleration-structure module's note)
-        PFN_vkCmdTraceRaysKHR trace_rays = nullptr;
-        VkStridedDeviceAddressRegionKHR raygen_region = {};
-        VkStridedDeviceAddressRegionKHR miss_region = {};
-        VkStridedDeviceAddressRegionKHR hit_region = {};
-        /// The callable region, which this pipeline has no shaders for - and which must still be a VALID
-        /// pointer to an all-zero region: `vkCmdTraceRaysKHR` dereferences it, so passing nullptr is a
-        /// validation error and (measured) a driver access violation rather than "no callables".
-        VkStridedDeviceAddressRegionKHR callable_region = {};
+        // The shader binding table's regions, filled at create time from the pipeline's group handles. The BUFFER
+        // is the owner's (see pass_context::create_upload_buffer); what the pass keeps is where each region starts,
+        // which is the per-pipeline part.
+        //
+        // THEY ARE THE CONTRACT'S TYPE NOW (`rhi::shader_binding_table_region`): the three numbers are a DEVICE
+        // RANGE, not a driver structure, so a pass's own state has no business naming a Vulkan type for them - and
+        // the type is general enough for any backend's launch.
+        //
+        // NO ENTRY POINT IS KEPT HERE ANY MORE (abi 24): `record` calls `command_buffer::trace_rays`, and the
+        // backend owns the `vkCmdTraceRaysKHR` pointer it resolved once at startup. The pass therefore names no
+        // native handle for the launch at all.
+        deren::promise::rhi::shader_binding_table_region raygen_region = {};
+        deren::promise::rhi::shader_binding_table_region miss_region = {};
+        deren::promise::rhi::shader_binding_table_region hit_region = {};
+        /// The callable region, which this pipeline has no shaders for: AN ALL-ZERO REGION, which is the
+        /// contract's own "no records" spelling - and it must be a VALID pointer at the launch, because
+        /// `vkCmdTraceRaysKHR` dereferences it (passing nullptr is a validation error and, measured, a driver
+        /// access violation rather than "no callables").
+        deren::promise::rhi::shader_binding_table_region callable_region = {};
         /// whether the "tracing WxH rays per frame" line has been logged (it used to be the runtime's flag)
         bool logged = false;
-    };
+    }; // namespace deren::vulkan::pass
 
     static_assert(sizeof(rt_shadow_pass::push_constants) == render_resource::rt_shadow_io.push->size,
                   "the shadow pass's declared push block must be the size of the struct the renderer composes");

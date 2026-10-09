@@ -29,12 +29,12 @@ module;
 #include <cstdint>
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
+// NO VULKAN HEADER: the chain and the wiring this module declares are the pass framework's types, and the
+// frames a pass is handed are the contract's.
 
 export module deren.vulkan.render_start_demo;
 
 import deren.vulkan.runtime;
-import deren.vulkan.constant_init;
 import deren.vulkan.pass;
 import deren.vulkan.pass.chain; // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
 import deren.vulkan.pass.cluster;

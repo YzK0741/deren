@@ -35,10 +35,10 @@ module;
 #include <algorithm> // std::max in the extent rule
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <span>
 #include <string_view>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass;
 
@@ -151,28 +151,18 @@ export namespace deren::vulkan::pass {
         /// is what a pass that owns per-image bindings sizes it from. The passes that own them need it,
         /// and it is the kind of fact that used to be reachable only from inside `deren.vulkan.runtime`
         uint32_t image_count = 0;
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {};
     };
 
     /// @brief one resolved own binding: the handles this binding's resource actually is
     struct resolved_binding {
-        VkImageView view = VK_NULL_HANDLE;
-        VkBuffer buffer = VK_NULL_HANDLE;
         /**
-         * The image BEHIND @c view, because a descriptor takes a view and a BARRIER takes an image.
-         *
-         * This field exists because a pass that owns a per-image family needs it: the transitions and clears
-         * its own nine images (same-layout storage barriers for the propagation, a clear when the global
-         * lighting changed), and a pass that has only views cannot name them. It is resolved from the same
-         * declaration element as the view, so a pass still reaches nothing it did not declare.
-         */
-        VkImage image = VK_NULL_HANDLE;
-        /**
-         * THE CONTRACT HANDLES BEHIND THE RAW ONES (abi 20): the recording face's verbs take contract
-         * handles (`barrier`'s image, `begin_rendering`'s views, `bind_*`'s buffers), so the binding
-         * carries them BESIDE the raw spelling above - the raw lane stays for the passes that have not
-         * migrated and for the third-party recording that never will. Every lane is filled by the same
-         * publisher from the same source, so the two spellings cannot disagree.
+         * THE CONTRACT HANDLES (abi 20), AND THEY ARE THE ONLY LANE (plan X5 B2): the recording face's verbs
+         * take them (`barrier`'s image, `begin_rendering`'s views, `bind_*`'s buffers), so this carries what
+         * every recording site actually uses. THE RAW LANE THAT STOOD HERE - `VkImageView view`, `VkBuffer
+         * buffer` and `VkImage image` - IS GONE: it existed for "the passes that have not migrated and for the
+         * third-party recording that never will", every such site is migrated now, and a second spelling could
+         * only drift from the first.
          */
         deren::promise::rhi::image* image_handle = nullptr;
         deren::promise::rhi::image_view* view_handle = nullptr;
@@ -221,12 +211,12 @@ export namespace deren::vulkan::pass {
         frame_identity frame = {};
         /// THE command buffer is handed out per frame, at recording time, and never stored: a pass records
         /// into what it is given, which is why it holds no device state between frames.
-        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        std::shared_ptr<deren::promise::rhi::command_buffer> cmd = {};
         /// THE RECORDING VIEW (abi 20): the contract list the record series rides (`barrier`,
         /// `begin_rendering`, `draw`, ...), the same object `begin_commands()` answers this frame. The raw
         /// handle above stays for the third-party overlay's recording and the heap push endpoint, which the
         /// record series deliberately does not carry (the heap face's push_data already takes the list).
-        deren::promise::rhi::command_list* list = nullptr;
+        deren::promise::rhi::command_buffer* list = nullptr;
         /// the storage `own` views
         std::array<resolved_binding, max_own_bindings> own_storage = {};
         /// the pass's own binding number -> the handles that binding's resource is (exactly one is set)
@@ -241,7 +231,7 @@ export namespace deren::vulkan::pass {
          * reaches into the core for this (`vulkan_core.gi_images[i]` and friends); a pass
          * cannot - the failure mode this guards against is reaching an image that belongs to another generation.
          */
-        std::array<std::span<VkImageView const>, max_own_bindings> own_per_image = {};
+        std::array<std::span<deren::promise::rhi::image_view* const>, max_own_bindings> own_per_image = {};
         /**
          * @brief HOW A PASS SENDS ITS PUSH BLOCK NOW THAT NO PIPELINE HAS A LAYOUT
          *
@@ -258,13 +248,13 @@ export namespace deren::vulkan::pass {
          */
         struct push_endpoint {
             void* owner = nullptr;
-            bool (*push)(void* owner, VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
+            bool (*push)(void* owner, deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane) = nullptr;
 
             /// @param command_buffer the command buffer the block is sent on
             /// @param bytes the stage's push block, with the heap index lanes already appended
             /// @param extra_lane the POST chain's own source slot, which only that chain's passes can name; every
             ///        other stage leaves it 0 and its shader does not declare the third field at all.
-            [[nodiscard]] bool operator()(VkCommandBuffer command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane = 0u) const {
+            [[nodiscard]] bool operator()(deren::promise::rhi::command_buffer& command_buffer, std::span<std::byte const> bytes, uint32_t extra_lane = 0u) const {
                 return this->push != nullptr && this->push(this->owner, command_buffer, bytes, extra_lane);
             }
         };
@@ -313,9 +303,18 @@ export namespace deren::vulkan::pass {
         std::array<resolved_binding, max_barrier_buffers> barrier_buffer_storage = {};
         std::span<resolved_binding const> barrier_buffers = {};
         /// the storage `pipelines` views
-        std::array<VkPipeline, max_pass_pipelines> pipeline_storage = {};
-        /// in the order `behaviour::pipelines` names them, one entry per name
-        std::span<VkPipeline const> pipelines = {};
+        std::array<deren::promise::rhi::pipeline*, max_pass_pipelines> pipeline_storage = {};
+        /**
+         * THE PIPELINES THE PASS RECORDS WITH, in the order `behaviour::pipelines` names them - one entry per
+         * name, or one entry for the pass's OWN pipeline when it resolves that instead. THE CONTRACT'S SPELLING
+         * (abi 21): the handle `command_buffer::bind_pipeline` takes, which is what the RUNNER binds from and
+         * what a pass asks for when it needs to know whether its pipeline exists (`io.pipelines[0] == nullptr`).
+         *
+         * A NULL ENTRY MEANS "THIS FRAME HAS NO PIPELINE FOR THIS NAME", and the framework does not resolve the
+         * pass at all in that case (`declaration_pipelines_ok`), so a pass that IS recorded has a non-null entry
+         * here - the guards below the framework's own rule are defence, not the rule.
+         */
+        std::span<deren::promise::rhi::pipeline* const> pipelines = {};
         /**
          * The push block the HOST composed for this pass this frame, as raw bytes.
          *
@@ -345,7 +344,7 @@ export namespace deren::vulkan::pass {
         frame_constants constants = {};
         /// the extent THIS pass works at: the frame's, half of it, or a resource's, per `behaviour::extent` -
         /// and EMPTY for a pass that declared `extent_rule::none`, which sizes its own work from its frame
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {};
     };
 
     // =============================================================================================
@@ -355,10 +354,40 @@ export namespace deren::vulkan::pass {
     /**
      * @brief a pipeline a pass owns
      * @note the frame resolves a `behaviour::pipelines` NAME to one of these, and the runner binds what it finds
+     *
+     * ONE LANE, AND IT IS THE CONTRACT'S (abi 21): the handle `command_buffer::bind_pipeline` takes. The raw
+     * `VkPipeline` this struct used to carry BESIDE it is gone - every pipeline this renderer builds is a
+     * contract object now (graphics recipes, compute assemblies, the ray-tracing pipeline), so the raw lane had
+     * exactly one remaining user, the runner's fallback bind, and that fallback is gone with it. Deleting it is
+     * also what lets a pass FILE stop naming a Vulkan type at all (see the include sweep, note section 8).
      */
     struct owned_pipeline {
-        VkPipeline pipeline = VK_NULL_HANDLE;
+        deren::promise::rhi::pipeline* contract = nullptr;
     };
+
+    /// Read the pipeline's SBT group bytes through the optional RHI service.
+    [[nodiscard]] inline bool shader_group_handles(deren::promise::rhi::api_core* const face,
+                                                   deren::promise::rhi::pipeline const& handle, std::uint32_t const first_group,
+                                                   std::uint32_t const group_count, std::span<std::uint8_t> const out) noexcept {
+        if (face == nullptr) {
+            return false;
+        }
+        auto* const groups = deren::promise::rhi::query_extension<deren::promise::rhi::shader_group_access>(*face);
+        return groups != nullptr && groups->read(handle, first_group, group_count, out) == deren::promise::rhi::error::ok;
+    }
+
+    /**
+     * @brief whether a CONTRACT format's attachment write path encodes linear -> sRGB in HARDWARE.
+     *
+     * THE PASS LAYER HOLDS NO `::deren::promise::rhi::image_format`, which is why this exists rather than the callers reaching for
+     * `deren.vulkan.constant_init::is_srgb_format(::deren::promise::rhi::image_format)`: that module deliberately depends on nothing but the
+     * Vulkan headers, so a contract-spelled overload cannot live there. One definition, shared by the two post
+     * passes (composite and FXAA) and the upscale - a second switch would be a second place for the list of
+     * formats to fall behind, which is the argument the Vulkan-spelled original already makes.
+     */
+    [[nodiscard]] constexpr bool is_srgb_swapchain_format(deren::promise::rhi::image_format const format) noexcept {
+        return format == deren::promise::rhi::image_format::rgba8_srgb || format == deren::promise::rhi::image_format::bgra8_srgb;
+    }
 
     /**
      * @brief what a pass needs to turn its OWN declaration into this frame's handles
@@ -382,16 +411,16 @@ export namespace deren::vulkan::pass {
         frame_identity frame = {};
         /// THE command buffer, handed out here for the same reason `resolved_io::cmd` exists: a pass records
         /// into what it is given and stores no device state between frames
-        VkCommandBuffer cmd = VK_NULL_HANDLE;
+        std::shared_ptr<deren::promise::rhi::command_buffer> cmd = {};
         /// THE RECORDING VIEW (abi 20): the contract list the record series rides - the same frame list
         /// `begin_commands()` answers, beside the raw handle above (which the third-party overlay's
         /// recording and the heap push endpoint still take)
-        deren::promise::rhi::command_list* list = nullptr;
+        deren::promise::rhi::command_buffer* list = nullptr;
         /**
          * The extent of a resource element the behaviour named (`extent_rule::resource`), or {0,0} for an
          * element the owner does not have - only the owner knows its own images' sizes
          */
-        VkExtent2D (*extent_of)(void* owner, render_resource::resource_id id, uint32_t element) = nullptr;
+        deren::promise::rhi::image_extent (*extent_of)(void* owner, render_resource::resource_id id, uint32_t element) = nullptr;
         /// the pipeline a `behaviour::pipelines` NAME refers to, or all-null when the owner has none
         owned_pipeline (*pipeline)(void* owner, std::string_view name) = nullptr;
         /// what every lookup above is called with
@@ -423,11 +452,11 @@ export namespace deren::vulkan::pass {
      * thing that creates an IMAGE, so a pass cannot take over an image family through this struct.
      */
     struct pass_context {
-        /// the device a pass builds its own objects on (the owner fills this from the filtered core view)
-        VkDevice device = VK_NULL_HANDLE;
         /// THE CONTRACT FACE (abi 8): what a pass's own create step builds its pipelines through -
-        /// `rhi::api_core&` of the same backend `device` belongs to, so a call through it emits no
+        /// `rhi::api_core&` of the backend the pass was created against, so a call through it emits no
         /// backend symbol. Null only before the owner fills it.
+        ///
+        /// SBT data is queried through shader_group_access; no native device token is needed.
         deren::promise::rhi::api_core* face = nullptr;
         /// the swapchain's format in the contract's spelling (the passes that render into it name it
         /// through the pipeline descriptors now)
@@ -445,23 +474,34 @@ export namespace deren::vulkan::pass {
         std::span<uint8_t const> (*shader)(void* owner, std::string_view name) = nullptr;
         /**
          * The three numbers a SHADER BINDING TABLE is built against: the handle size, the base alignment of a
-         * region's device address and the alignment of a handle inside a region (see
-         * `VkPhysicalDeviceRayTracingPipelinePropertiesKHR`). Zeroed on a device without the ray-tracing
-         * pipeline, which is also the answer to "build no table".
+         * region's device address and the alignment of a handle inside a region. THEY ARE THE CONTRACT'S TYPE
+         * (abi 24) rather than the Vulkan structure the session queried them into
+         * (`VkPhysicalDeviceRayTracingPipelinePropertiesKHR`): the runtime is where the device query belongs, and a
+         * pass that receives three integers has no business naming a driver structure to read them.
+         * Zeroed on a device without the ray-tracing pipeline, which is also the answer to "build no table".
          *
          * WHY THE CONTEXT CARRIES IT: a pass that traces through a pipeline fills its own SBT, and the stride is
          * NOT the handle size on a device whose handle alignment is larger - a fact the pass cannot query (it has
          * no physical device) and must not guess.
          */
-        VkPhysicalDeviceRayTracingPipelinePropertiesKHR ray_tracing_properties = {};
+        deren::promise::rhi::shader_binding_table_properties ray_tracing_properties = {};
         /**
          * A small buffer the OWNER creates, uploads and keeps alive: what a pass needs when it must hand the
          * device a device ADDRESS rather than a binding (the shader binding table above is the first case).
          *
          * The owner keeps ownership because the memory has to come from its allocator and live with the
          * generation; the pass gets the handle and the address and nothing to destroy.
+         *
+         * ITS TYPES ARE THE CONTRACT'S (abi 24): the caller says which `buffer_flags` it needs (a shader binding
+         * table asks for `shader_binding_table`), the handle it gets back is a contract `buffer*` the OWNER keeps
+         * alive for the generation, and the device address is written through the out-parameter. The previous
+         * shape took `VkBufferUsageFlags` and answered a `VkBuffer`, which made this the ray-traced shadow pass's
+         * last Vulkan surface for no reason at all: nothing in this call is a driver structure. It answers nullptr
+         * when the owner could not create the buffer, which is the same "named failure" the flags mapping used to
+         * raise.
          */
-        VkBuffer (*create_upload_buffer)(void* owner, void const* data, uint64_t bytes, VkBufferUsageFlags usage, VkDeviceAddress* out_address) = nullptr;
+        deren::promise::rhi::buffer* (*create_upload_buffer)(void* owner, void const* data, uint64_t bytes, deren::promise::rhi::buffer_flags flags,
+                                                             uint64_t* out_address) = nullptr;
         /**
          * The SURFACE's format, which is a session-stable device fact rather than a frame's.
          *
@@ -476,14 +516,14 @@ export namespace deren::vulkan::pass {
          * rebuilds that object in `on_swapchain_recreated` - the hook that exists for it. A format never changes
          * for a given surface, so a pass may cache this at create time.
          */
-        VkFormat swap_chain_image_format = VK_FORMAT_UNDEFINED;
+        deren::promise::rhi::image_format swap_chain_image_format = deren::promise::rhi::image_format::unknown;
         /**
          * The DEPTH format, the second session-stable format a pass may need - and the one the shadow pass cannot
          * do without: its pipeline has a depth attachment and no colour one, so `swap_chain_image_format` is the
          * wrong fact for it. It is a SESSION-STABLE device fact for the same reason the surface's is (the renderer
          * finds it once at startup), which is what lets a pass cache it at create time.
          */
-        VkFormat depth_format = VK_FORMAT_UNDEFINED;
+        deren::promise::rhi::image_format depth_format = deren::promise::rhi::image_format::unknown;
         /**
          * Whether the DEVICE can run a mesh pipeline, i.e. whether a pass may build one at all (see
          * docs/mesh_shaders.md).
@@ -569,7 +609,7 @@ export namespace deren::vulkan::pass {
      */
     struct draw_callback {
         /// the host's function; null means "nothing to draw after this pass"
-        void (*record)(void* owner, VkCommandBuffer command_buffer) = nullptr;
+        void (*record)(void* owner, deren::promise::rhi::command_buffer& command_buffer) = nullptr;
         /// what it is called with (the host's own context)
         void* owner = nullptr;
 
@@ -730,21 +770,25 @@ export namespace deren::vulkan::pass {
         virtual void prepare_frame([[maybe_unused]] frame_facts const& facts) noexcept {
         }
         /**
-         * @brief the pipeline this pass OWNS, when it built one in `create`; `VK_NULL_HANDLE` otherwise
+         * @brief the pipeline this pass OWNS, when it built one in `create`; null otherwise
          *
-         * THE TWELVE PASSES THAT BUILD THEIR OWN PIPELINE ALREADY ANSWER THIS (their `pipeline()` accessor has had
-         * exactly this signature since each was extracted), so making it part of the interface costs them nothing
-         * and gives the declaration-driven resolver the one fact it cannot get from the declaration: a pass that
-         * owns its pipeline must be handed ITS OWN, never a registry entry that happens to share its
-         * `behaviour::pipelines` name. The runner binds what this returns (`apply_pass_behaviour`), which is the
-         * same relay the renderer's resolvers used to do by hand.
+         * THE ONE ACCESSOR, AND IT ANSWERS THE CONTRACT HANDLE (abi 21): the object
+         * `command_buffer::bind_pipeline` takes. It is what the declaration-driven resolver needs and cannot get
+         * from a declaration - a pass that owns its pipeline must be handed ITS OWN, never a registry entry that
+         * happens to share its `behaviour::pipelines` name - and the runner binds what `resolve_declaration`
+         * publishes from it (see `apply_pass_behaviour`).
          *
-         * A pass that owns TWO variants of one pipeline (the composite: the swapchain one and the HDR one) leaves
-         * this null and fills `resolved_io::pipelines` in its own `resolve` - choosing between them is its frame's
-         * decision, not the declaration's.
+         * THE RAW `VkPipeline` LANE THIS INTERFACE USED TO CARRY IS GONE, and that is what lets a pass FILE stop
+         * naming a Vulkan type: every pipeline this renderer builds is a contract object (the graphics recipes,
+         * the compute assemblies and the ray-tracing pipeline all come from `api_core::create_pipeline`), so the
+         * raw handle had no consumer left once the runner's fallback bind went with it.
+         *
+         * A pass that owns TWO variants of one pipeline (the composite: the swapchain one and the HDR one)
+         * answers the DEFAULT variant here and distinguishes them in its own `resolve` /
+         * `named_pipeline` - choosing between them is its frame's decision, not the declaration's.
          */
-        [[nodiscard]] virtual VkPipeline pipeline() const noexcept {
-            return VK_NULL_HANDLE;
+        [[nodiscard]] virtual deren::promise::rhi::pipeline* pipeline_handle() const noexcept {
+            return nullptr;
         }
         /**
          * @brief a pipeline this pass owns under the NAME another pass's `behaviour::pipelines` declares
@@ -757,7 +801,7 @@ export namespace deren::vulkan::pass {
          * asks this on every pass of the chain, taking the first answer - which is what keeps the resolution
          * chain-agnostic: the renderer does not know, and does not need to know, which pass owns what.
          * @param name one of this pass's own `behaviour::pipelines` names, or a sibling's
-         * @return the pipeline, or VK_NULL_HANDLE when this pass owns nothing by that name
+         * @return the pipeline, or an empty `owned_pipeline` when this pass owns nothing by that name
          */
         [[nodiscard]] virtual owned_pipeline named_pipeline([[maybe_unused]] std::string_view name) const noexcept {
             return {};
@@ -1006,25 +1050,23 @@ export namespace deren::vulkan::pass {
          *
          * @param id the resource, in the declaration's vocabulary
          * @param element which image of the family (the G-buffer's second target, the bloom chain's level 1)
-         * @param views one view per instance, in instance order (an empty span publishes nothing)
-         * @param images the images behind them, in the same order (a buffer family passes an empty span)
+         * @param image_handles one contract image per instance, in instance order (empty = nothing published)
+         * @param view_handles the views behind them, in the same order (a buffer family passes an empty span)
          */
-        void publish_family(render_resource::resource_id const id, uint32_t const element, std::span<VkImageView const> views,
-                            std::span<VkImage const> images, std::span<deren::promise::rhi::image* const> image_handles = {},
+        void publish_family(render_resource::resource_id const id, uint32_t const element,
+                            std::span<deren::promise::rhi::image* const> image_handles = {},
                             std::span<deren::promise::rhi::image_view* const> view_handles = {}) noexcept {
-            if (views.empty() && images.empty()) {
-                return;
+            if (image_handles.empty() && view_handles.empty()) {
+                return; // nothing published: the same refusal an empty native pair used to be
             }
             for (family_entry& f : this->families) {
                 if (f.id == id && f.element == element) {
-                    f.views = views;
-                    f.images = images;
                     f.image_handles = image_handles;
                     f.view_handles = view_handles;
                     return;
                 }
             }
-            this->families.push_back(family_entry{.id = id, .element = element, .views = views, .images = images, .image_handles = image_handles, .view_handles = view_handles});
+            this->families.push_back(family_entry{.id = id, .element = element, .image_handles = image_handles, .view_handles = view_handles});
         }
 
         /**
@@ -1062,14 +1104,10 @@ export namespace deren::vulkan::pass {
                 }
             }
             for (family_entry const& f : this->families) {
-                if (f.id == id && f.element == element && instance < f.views.size()) {
-                    VkImage const image = instance < f.images.size() ? f.images[instance] : VK_NULL_HANDLE;
-                    // THE CONTRACT HANDLES RIDE ALONG when the owner published them; a family whose owner has
-                    // not (yet) passes nullptrs, which is the state the resolve-side check reports.
-                    return resolved_binding{.view = f.views[instance],
-                                            .buffer = VK_NULL_HANDLE,
-                                            .image = image,
-                                            .image_handle = instance < f.image_handles.size() ? f.image_handles[instance] : nullptr,
+                if (f.id == id && f.element == element && instance < f.view_handles.size()) {
+                    // THE CONTRACT LANE IS THE ONLY ONE (plan X5 B2): the family no longer carries the native
+                    // pair, so this branch answers from the columns the owner published.
+                    return resolved_binding{.image_handle = instance < f.image_handles.size() ? f.image_handles[instance] : nullptr,
                                             .view_handle = instance < f.view_handles.size() ? f.view_handles[instance] : nullptr};
                 }
             }
@@ -1083,10 +1121,13 @@ export namespace deren::vulkan::pass {
          * @return the views the owner published as one run, or an EMPTY span when it published none (or published
          *         the family instance by instance, which is what a single entry is for)
          */
-        [[nodiscard]] std::span<VkImageView const> views_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
+        /// THE PER-IMAGE CHANNEL SPEAKS CONTRACT VIEWS NOW (plan X5 B2): it used to be a run of `VkImageView`,
+        /// which is the lane this batch removes - a pass that owns a per-image family reaches its other images
+        /// through the recording face's verbs, and those take these handles.
+        [[nodiscard]] std::span<deren::promise::rhi::image_view* const> views_of(render_resource::resource_id const id, uint32_t const element) const noexcept {
             for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
-                    return f.views;
+                    return f.view_handles;
                 }
             }
             return {};
@@ -1107,7 +1148,7 @@ export namespace deren::vulkan::pass {
             }
             for (family_entry const& f : this->families) {
                 if (f.id == id && f.element == element) {
-                    count += static_cast<uint32_t>(std::max(f.views.size(), f.images.size()));
+                    count += static_cast<uint32_t>(std::max(f.view_handles.size(), f.image_handles.size()));
                 }
             }
             return count;
@@ -1133,11 +1174,11 @@ export namespace deren::vulkan::pass {
         struct family_entry {
             render_resource::resource_id id = render_resource::resource_id::none;
             uint32_t element = 0;
-            std::span<VkImageView const> views = {};
-            std::span<VkImage const> images = {};
-            /// one contract image per instance, in the same order as `images` (empty = not published yet)
+            // (the raw `views`/`images` spans stood here until plan X5 B2: the contract columns below are the
+            //  only ones now, which is why `publish_family` no longer takes the native pair at all.)
+            /// one contract image per instance (empty = not published yet)
             std::span<deren::promise::rhi::image* const> image_handles = {};
-            /// one contract view per instance, in the same order as `views` (empty = not published yet)
+            /// one contract view per instance (empty = not published yet)
             std::span<deren::promise::rhi::image_view* const> view_handles = {};
         };
         /// A vector rather than a map: the table holds what one frame's chain can NAME, it is filled once per
@@ -1165,18 +1206,22 @@ export namespace deren::vulkan::pass {
      *       formula. `resource` is the owner's answer, because only it knows its own images' sizes; `none`
      *       means the pass sizes its own work and gets {0,0}
      */
-    [[nodiscard]] inline VkExtent2D resolve_extent(behaviour const& how, resolve_context const& context) noexcept {
+    [[nodiscard]] inline deren::promise::rhi::image_extent resolve_extent(behaviour const& how, resolve_context const& context) noexcept {
         switch (how.extent) {
         case extent_rule::full:
             return context.frame.extent;
         case extent_rule::half:
-            return VkExtent2D{std::max(1u, context.frame.extent.width / 2u), std::max(1u, context.frame.extent.height / 2u)};
+            return deren::promise::rhi::image_extent{std::max(1u, context.frame.extent.width / 2u), std::max(1u, context.frame.extent.height / 2u)};
         case extent_rule::resource:
-            return context.extent_of == nullptr ? VkExtent2D{} : context.extent_of(context.owner, how.extent_of, how.extent_of_element);
+            return context.extent_of == nullptr ? deren::promise::rhi::image_extent{} : context.extent_of(context.owner, how.extent_of, how.extent_of_element);
         case extent_rule::none:
-            return VkExtent2D{};
+            // "I SIZE MY OWN WORK" IS 0x0, NOT THE TYPE'S DEFAULT: `rhi::image_extent{}` is {0, 1, 1} (the
+            // contract's "a 2D image has one row at least"), and a pass that declared `none` reads this field to
+            // decide whether the frame sized anything for it - so the height is set to zero explicitly, which is
+            // the answer the field's own note promises.
+            return deren::promise::rhi::image_extent{.width = 0, .height = 0, .depth = 1};
         }
-        return VkExtent2D{};
+        return deren::promise::rhi::image_extent{.width = 0, .height = 0, .depth = 1};
     }
 
     /**
@@ -1186,20 +1231,27 @@ export namespace deren::vulkan::pass {
     [[nodiscard]] inline bool declaration_pipelines_ok(frame_pass const& pass, resolve_context const& context, resolved_io& out) {
         std::span<std::string_view const> const names = pass.behaviour().pipelines;
         if (names.empty()) {
-            out.pipelines = {};
+            out.pipelines = {}; // a pass that binds nothing declares no pipeline
             return true;
         }
         if (names.size() > out.pipeline_storage.size() || context.pipeline == nullptr) {
             return false;
         }
         for (std::size_t i = 0; i < names.size(); ++i) {
-            owned_pipeline const found = context.pipeline(context.owner, names[i]);
-            if (found.pipeline == VK_NULL_HANDLE) {
+            // THE PASS'S OWN ANSWER FIRST, which is what makes `frame_pass::named_pipeline` REAL: a chain's
+            // stages may share one pipeline (the post chain's four bloom levels record with the composite's R16F
+            // variant), and only a pass of that chain can say which object a name is. It was declared and
+            // overridden but never consulted before this batch.
+            owned_pipeline found = pass.named_pipeline(names[i]);
+            if (found.contract == nullptr) {
+                found = context.pipeline != nullptr ? context.pipeline(context.owner, names[i]) : owned_pipeline{};
+            }
+            if (found.contract == nullptr) {
                 return false; // the frame cannot bind a pipeline the pass declared: do not record it
             }
-            out.pipeline_storage[i] = found.pipeline;
+            out.pipeline_storage[i] = found.contract;
         }
-        out.pipelines = std::span<VkPipeline const>(out.pipeline_storage.data(), names.size());
+        out.pipelines = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_storage.data(), names.size());
         return true;
     }
 
@@ -1249,7 +1301,7 @@ export namespace deren::vulkan::pass {
                 return false; // not a resource the schema knows, or not the contiguous own bindings the validator requires
             }
             resolved_binding const handles = context.resources->find(binding.resource, binding.element, instance_for(info->scope, context.frame));
-            if (handles.view == VK_NULL_HANDLE && handles.buffer == VK_NULL_HANDLE && handles.image == VK_NULL_HANDLE) {
+            if (handles.view_handle == nullptr && handles.buffer_handle == nullptr && handles.image_handle == nullptr) {
                 return false; // this frame does not have it: do not record the pass at all
             }
             out.own_storage[binding.binding] = handles;
@@ -1284,7 +1336,7 @@ export namespace deren::vulkan::pass {
                     return false; // more targets than the fixed storage: the declaration outgrew the framework
                 }
                 resolved_binding const handles = context.resources->find(target.resource, target.element + i, instance_for(info->scope, context.frame));
-                if (handles.view == VK_NULL_HANDLE && handles.image == VK_NULL_HANDLE) {
+                if (handles.view_handle == nullptr && handles.image_handle == nullptr) {
                     if (i == 0u) {
                         return false; // this frame does not have it: do not record the pass at all
                     }
@@ -1309,7 +1361,7 @@ export namespace deren::vulkan::pass {
                 return false;
             }
             resolved_binding const handles = context.resources->find(declaration.barrier_images[i].resource, declaration.barrier_images[i].element, instance_for(info->scope, context.frame));
-            if (handles.image == VK_NULL_HANDLE) {
+            if (handles.image_handle == nullptr) {
                 return false;
             }
             out.barrier_storage[i] = handles;
@@ -1321,7 +1373,7 @@ export namespace deren::vulkan::pass {
                 return false;
             }
             resolved_binding const handles = context.resources->find(declaration.barrier_buffers[i].resource, declaration.barrier_buffers[i].element, instance_for(info->scope, context.frame));
-            if (handles.buffer == VK_NULL_HANDLE) {
+            if (handles.buffer_handle == nullptr) {
                 return false;
             }
             out.barrier_buffer_storage[i] = handles;
@@ -1329,9 +1381,13 @@ export namespace deren::vulkan::pass {
         out.barrier_buffers = std::span<resolved_binding const>(out.barrier_buffer_storage.data(), declaration.barrier_buffers.size());
 
         // ---- the pipelines: the pass's OWN first, then the names the behaviour declares ----
-        if (pass.pipeline() != VK_NULL_HANDLE) {
-            out.pipeline_storage[0] = pass.pipeline();
-            out.pipelines = std::span<VkPipeline const>(out.pipeline_storage.data(), 1);
+        // ONE PUBLICATION, ONE ACCESSOR (abi 21): the pass's own contract handle when it owns one, otherwise
+        // the declaration's names resolved through `named_pipeline` / the owner's lookup. Both paths end in
+        // `out.pipelines` being the contract handles the RUNNER binds with (and the ones a pass checks for its
+        // own "do I have a pipeline" guard), so there is no second lane to keep in step.
+        if (pass.pipeline_handle() != nullptr) {
+            out.pipeline_storage[0] = pass.pipeline_handle();
+            out.pipelines = std::span<deren::promise::rhi::pipeline* const>(out.pipeline_storage.data(), 1);
         } else if (!declaration_pipelines_ok(pass, context, out)) {
             return false;
         }

@@ -38,16 +38,16 @@ module;
 #include <atomic>
 #include <cstdint>
 #include <functional>
+#include <memory> // std::shared_ptr: a frame's session target is the contract handle (see make_environment)
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.scene;
 
+import deren.promise.rhi; // the contract command buffer the frame's secondaries are
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
-import deren.vulkan.constant_init;
 import deren.vulkan.primitive;          // the leaves this pass draws (a concrete pass may know the scene types)
 import deren.vulkan.render_environment; // the per-segment draw state the renderer builds for it
 
@@ -58,7 +58,10 @@ export namespace deren::vulkan::pass {
     ///       pool now (one per buffer, which is what keeps concurrent recording threads off a shared
     ///       pool), and no pass ever read the pool this struct used to carry.
     struct segment_buffer {
-        VkCommandBuffer buffer = VK_NULL_HANDLE;
+        /// THE CONTRACT HANDLE (abi 20), BORROWED: the frame loop owns the segment buffers (they are its
+        /// per-slot `object_manager<command_buffer>` entries), and the pass only records into them - so this
+        /// is a raw pointer, never a shared pointer, and the pass must not release it.
+        deren::promise::rhi::command_buffer* buffer = nullptr;
     };
 
     /**
@@ -82,29 +85,23 @@ export namespace deren::vulkan::pass {
          * the previous segment's state would skip a bind it needs. The renderer builds it because the registry
          * is its, and `gbuffer` says which pass's default a leaf with default semantics wants.
          */
-        render_environment (*make_environment)(void* owner, VkCommandBuffer command_buffer, bool gbuffer) = nullptr;
+        render_environment (*make_environment)(void* owner, std::shared_ptr<deren::promise::rhi::command_buffer> command_buffer, bool gbuffer) = nullptr;
         /// record the segments in parallel through the renderer's task pool (same reason as above)
         void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
         void* owner = nullptr;
-        /**
-         * Fill the two heap bind infos a SECONDARY command buffer must INHERIT (see
-         * descriptor_heap::bind_infos and runtime::fill_heap_bind).
-         *
-         * A SECONDARY IS VALIDATED ON ITS OWN, so the heap bound on the primary does not reach it, and validation
-         * refuses the draws with "The shader uses resource descriptors, but
-         * VkCommandBufferInheritanceDescriptorHeapInfoEXT::pResourceHeapBindInfo is NULL"
-         * (VUID-vkCmdDrawIndexed-None-11308). A CALLBACK RATHER THAN THE HEAP, for the reason `make_environment`
-         * and `push_block` are: the heap is the renderer's, and a pass that held it could take over an image
-         * family.
-         */
-        void (*fill_heap_bind)(void* owner, VkBindHeapInfoEXT& resource, VkBindHeapInfoEXT& sampler) = nullptr;
+        // (THE HEAP-BIND FIELD IS GONE - plan X5 B3.5. It existed to chain the two `VkBindHeapInfoEXT` a
+        //  secondary must inherit, because a secondary is VALIDATED ON ITS OWN and the heap bound on the primary
+        //  does not reach it - but THE PASS STOPPED CALLING IT AT ABI 20: a secondary is begun through the
+        //  contract, whose chain carries the ATTACHMENT inheritance alone, and the BACKEND derives the
+        //  descriptor-heap inheritance from the heaps it owns. The field, the hook that filled it and the two raw
+        //  structs were a second truth with no reader, and the frame's publisher stopped filling them too.)
         /// the attachments a SECONDARY must inherit (dynamic rendering): formats in attachment order + depth
-        std::span<VkFormat const> color_formats = {};
-        VkFormat depth_format = VK_FORMAT_UNDEFINED;
-        VkSampleCountFlagBits samples = VK_SAMPLE_COUNT_1_BIT;
+        std::span<::deren::promise::rhi::image_format const> color_formats = {};
+        ::deren::promise::rhi::image_format depth_format = ::deren::promise::rhi::image_format::unknown;
+        std::uint32_t samples = 1u;
         /// whether this frame writes the G-buffer (the surface pass) or shades into the HDR target
         bool gbuffer = true;
-        VkExtent2D extent = {0, 0};
+        deren::promise::rhi::image_extent extent = {0, 0};
     };
 
     /**
@@ -149,9 +146,9 @@ export namespace deren::vulkan::pass {
         };
 
         /// begin one secondary with the instance's attachment inheritance, or report that it could not
-        [[nodiscard]] bool begin_segment(VkCommandBuffer command_buffer) const;
+        [[nodiscard]] bool begin_segment(deren::promise::rhi::command_buffer& command_buffer) const;
         /// one segment's content: every leaf of that segment through its draw path (the heaps are already bound)
-        void record_segment(VkCommandBuffer command_buffer, std::span<primitive const* const> leaves) const;
+        void record_segment(deren::promise::rhi::command_buffer& command_buffer, std::span<primitive const* const> leaves) const;
 
         // called pass_frame, not frame: set_frame()'s frame parameter in scene.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).

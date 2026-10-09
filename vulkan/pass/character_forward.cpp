@@ -12,13 +12,16 @@ module;
 #include <array>
 #include <cstdint>
 #include <span>
-#include <vulkan/vulkan.h>
+// NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (the boundary
+// sweep names the remaining files that still need one, and why).
 
 module deren.vulkan.pass.character_forward;
 
+import deren.promise.rhi; // the record series (abi 20): the barriers and the rendering scope
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.utility;
+
+namespace rhi = deren::promise::rhi;
 
 namespace deren::vulkan::pass {
 
@@ -62,33 +65,57 @@ namespace deren::vulkan::pass {
         // BOTH LEAF LISTS ARE THE GATE, not just the toon one: a frame whose only character geometry is the
         // article's two masks still has something to multiply, and returning on `leaves.empty()` alone would
         // silently drop it. Either list being non-empty is the pass having work to do.
-        if (this->pass_frame.make_environment == nullptr || this->pass_frame.pipeline_name.empty() || io.targets.size() < 2 ||
+        if (this->pass_frame.make_environment == nullptr || this->pass_frame.pipeline_name.empty() || io.targets.size() < 2 || io.list == nullptr ||
             (this->pass_frame.leaves.empty() && this->pass_frame.overlay_leaves.empty() && this->pass_frame.outline_leaves.empty())) {
             return; // the runner resolves all of this or skips the pass (see make_character_forward_frame)
         }
-        VkImageView const target_view = io.targets[0].view; // the scene colour target (declaration order)
-        VkImage const target_image = io.targets[0].image;
-        VkImageView const depth_view = io.targets[1].view; // the surface depth
-        VkImage const depth_image = io.targets[1].image;
 
         // TWO HAND-OFFS, and both are needed for the same reason the transparent pass needs them: the
         // lighting stage (or the transparent pass after it) left the depth in SHADER_READ_ONLY, so it has
         // to go back to the attachment layout before this instance can test against it; and the scene
         // colour's last store has to be published before this instance LOADs the same image, because
         // dynamic rendering inserts no dependency between two instances.
-        std::array<VkImageMemoryBarrier2, 2> barriers = {};
-        barriers[0] = deren::vulkan::sampling_to_depth_attachment_transition;
-        barriers[0].image = depth_image;
-        barriers[1] = deren::vulkan::color_attachment_dependency;
-        barriers[1].image = target_image;
-        VkDependencyInfo const dependency = make_image_dependency_info(static_cast<uint32_t>(barriers.size()), barriers.data());
-        vkCmdPipelineBarrier2(io.cmd, &dependency);
+        // THE BATCH RIDES THE CONTRACT (abi 20): the same two pairs, in the same order, in ONE barrier call.
+        std::array<rhi::image_barrier, 2> const barriers = {
+            rhi::image_barrier{.resource = io.targets[1].image_handle,
+                               .from = rhi::image_use::shader_read,
+                               .to = rhi::image_use::depth_attachment,
+                               .range = {}},
+            rhi::image_barrier{.resource = io.targets[0].image_handle,
+                               .from = rhi::image_use::color_attachment,
+                               .to = rhi::image_use::color_attachment,
+                               .range = {}},
+        };
+        if (io.list->barrier(rhi::barrier_group{.images = barriers}) != rhi::error::ok) {
+            return; // a refused barrier would leave an attachment in a state nobody declared
+        }
 
         // LOAD on both attachments: the lit frame and the opaque surface are what this pass draws OVER.
-        VkRenderingAttachmentInfo const color_attachment = make_load_color_attachment_info(target_view);
-        VkRenderingAttachmentInfo const depth_attachment = make_load_depth_attachment_info(depth_view);
-        VkRenderingInfo const rendering_info = make_rendering_info(0, {{0, 0}, this->pass_frame.extent}, &color_attachment, 1, &depth_attachment);
-        vkCmdBeginRendering(io.cmd, &rendering_info);
+        // THE SCOPE RIDES THE CONTRACT TOO (abi 20): one colour attachment and the depth, both LOAD + STORE, and
+        // no `secondary_contents` bit - this pass records straight into the primary, which is the whole point of
+        // its own note (see the file's header).
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::depth_attachment const depth = {.view = io.targets[1].view_handle,
+                                             .load = rhi::load_op::load, // make_load_depth_attachment_info's loadOp
+                                             .store = rhi::store_op::store,
+                                             .read_only = false,
+                                             .has_stencil = false,
+                                             .clear_depth = 1.0f,
+                                             .clear_stencil = 0};
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = this->pass_frame.extent.width, .height = this->pass_frame.extent.height},
+            .layer_count = 1, // the raw make_rendering_info's layerCount, which is 1 at every site in this engine
+            .colors = colors,
+            .depth = depth,
+            .has_depth = true,
+            .secondary_contents = false, // the raw call passed no flags: this pass records into the primary
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return; // a refused scope would leave the attachments in a state nobody declared
+        }
 
         render_environment env = this->pass_frame.make_environment(this->pass_frame.owner, io.cmd, /*gbuffer=*/false);
         // THE TWO THINGS THIS PASS STATES ABOUT ITSELF, neither of which the renderer could know:
@@ -164,16 +191,18 @@ namespace deren::vulkan::pass {
             }
         }
 
-        vkCmdEndRendering(io.cmd);
+        io.list->end_rendering();
 
         // Hand the depth back to the layout everything downstream samples it in. TWO later stages read this
         // image (the resolve's disocclusion guard and the composite's edge test), and this pass is what took
         // it out of SHADER_READ - so leaving it as an attachment would make every read after it a layout
         // error. The colour target needs no hand-back: the composite transitions it for itself.
-        VkImageMemoryBarrier2 to_sampling = deren::vulkan::shadow_map_sampling_transition; // attachment -> SHADER_READ
-        to_sampling.image = depth_image;
-        VkDependencyInfo const sampling_dependency = make_image_dependency_info(1, &to_sampling);
-        vkCmdPipelineBarrier2(io.cmd, &sampling_dependency);
+        if (io.list->barrier(rhi::image_barrier{.resource = io.targets[1].image_handle,
+                                                .from = rhi::image_use::depth_attachment,
+                                                .to = rhi::image_use::shader_read,
+                                                .range = {}}) != rhi::error::ok) {
+            return; // a refused barrier would leave the depth in a state nobody declared
+        }
     }
 
 } // namespace deren::vulkan::pass

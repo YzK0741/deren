@@ -37,7 +37,8 @@
 module;
 
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
+// NO VULKAN HEADER: this module names no native type (it is the frame's facts in the contract's own
+// vocabulary), so the boundary sweep no longer counts it.
 
 export module deren.vulkan.frame_constants;
 

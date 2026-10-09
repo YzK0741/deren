@@ -4,643 +4,259 @@ module;
 #include <chrono>
 #include <cstdint>
 #include <cstring>
-#include <deque>
 #include <expected>
 #include <glm/glm.hpp>
-#include <memory>
 #include <string>
 #include <utility>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.acceleration_structure;
 
 import deren.utility;
 
+// ============================================================================
+// THE ACCELERATION-STRUCTURE MODULE, AFTER PLAN S1's P1b-2.
+//
+// WHAT IT IS NOW: a THIN FRONT END over the tier-1 `rhi::acceleration_structure` interface. Everything that
+// used to live here - the size query, the storage allocation, the shared scratch with its aligned per-geometry
+// ranges, the instance buffers, the `vkCreateAccelerationStructureKHR`/`vkCmdBuildAccelerationStructuresKHR`
+// calls, the entry points resolved through `vkGetDeviceProcAddr` - is the BACKEND's business now, because that
+// is what makes the interface portable: a backend with no explicit acceleration structures at all can answer
+// the same four verbs however it must.
+//
+// WHAT IT STILL OWNS, and this is the honest list: the SCENE-SHAPED knowledge - which geometries and instances
+// exist, the per-geometry refit flag, the growth of a top level's capacity, and the instance table the SHADER
+// reads (through `instanceCustomIndex`), which is the engine's own data and not a driver structure. It also
+// still measures what a build cost, because the runtime reports that.
+//
+// THE ONE THING IT CANNOT EXPRESS YET is the opacity-micromap attachment: the contract's
+// `acceleration_structure_geometry` has no field for it, so a geometry that carries one is REFUSED BY NAME
+// rather than built without it (plan S1's P4 gives micromaps the same tier-1 treatment, at which point the
+// attachment rides the description and this refusal goes away).
+// ============================================================================
+
 namespace deren::vulkan::acceleration_structure {
     namespace rhi = deren::promise::rhi;
 
     namespace {
-        /// The contract's view of the device, and the reason EVERY factory and ability call in this file
-        /// goes through one of these helpers. This module no longer knows the backend's class AT ALL
-        /// (③-D/E step 1b): it holds the contract's `api_core` face, so every factory and ability call is a
-        /// virtual call that emits no backend symbol, and the device it needs comes from the escape.
-        /// The escape, obtained from the contract face once and then used through ITS pointer.
-        rhi::vulkan_escape* escape_of(rhi::api_core& face) {
-            return static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
+        /// THE DEVICE'S INSTANCE LIMIT, from the `device_capabilities` ability: the check that used to need a
+        /// properties query of this module's own. Zero means "the device did not answer", which the callers
+        /// treat as "no limit known" - the allocation is the real constraint either way.
+        std::uint64_t max_instances_of(rhi::api_core& face) {
+            rhi::device_capabilities* const capabilities = rhi::query_extension<rhi::device_capabilities>(face);
+            return capabilities == nullptr ? 0u : capabilities->max_acceleration_structure_instances();
         }
 
-        /// ... and the address ability the same way (`device_address` is its own tier-2 ability).
-        rhi::device_address* address_of(rhi::api_core& face) {
-            return static_cast<rhi::device_address*>(face.query_extension(rhi::extension_kind::device_address));
-        }
-
-        /// The borrowed VkBuffer behind a contract buffer; null when the buffer carries none.
-        VkBuffer native_buffer_of(rhi::api_core& face, rhi::buffer const& buffer) {
-            auto* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
-        }
-
-        /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
-        /// the address could not be answered (the flag was not set, or the ability is not announced).
-        VkDeviceAddress buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
-            auto* const addresses = address_of(face);
-            return addresses == nullptr ? 0 : static_cast<VkDeviceAddress>(addresses->buffer_address(buffer, 0));
-        }
-
-        /// THE DEVICE THE ENTRY POINTS ARE RESOLVED AGAINST, TAKEN FROM THE ESCAPE (③-D/E step 1b): the same
-        /// value the backend's class used to hand out (`core::logical_device`), without naming `core`.
-        VkDevice device_of(rhi::api_core& face) {
-            auto* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkDevice>(escape->native_device());
-        }
-
-        /// THE DEVICE AND THE TWO ANSWERS THE STRUCTURES NEED, ASKED DIRECTLY (③-D/E step 1b): the entry
-        /// points this module resolves are per-device (`vkGetDeviceProcAddr`), and the alignment / instance
-        /// limits come from the device's own `VkPhysicalDeviceProperties2` chain - the same values `core`
-        /// used to cache. Nothing here needs the backend's class.
-        struct device_facts {
-            VkDevice device = VK_NULL_HANDLE;
-            VkPhysicalDeviceAccelerationStructurePropertiesKHR acceleration_structure_properties = {};
-        };
-        device_facts facts_of(rhi::api_core& face) {
-            device_facts facts = {};
-            facts.device = device_of(face);
-            VkPhysicalDeviceProperties2 properties = {};
-            properties.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2;
-            properties.pNext = &facts.acceleration_structure_properties;
-            auto* const escape = escape_of(face);
-            if (escape != nullptr) {
-                vkGetPhysicalDeviceProperties2(reinterpret_cast<VkPhysicalDevice>(escape->native_physical_device()), &properties);
+        /// THE WORLD MATRIX AS THE INSTANCE WANTS IT: three rows of four, ROW-major. glm is column-major
+        /// (`m[column][row]`) and the instance record is row-major, so the indices swap - the one place a
+        /// transposed instance would silently mirror the whole scene.
+        void fill_instance_transform(rhi::acceleration_structure_instance& out, glm::mat4 const& matrix) noexcept {
+            for (std::uint32_t row = 0; row < 3u; ++row) {
+                for (std::uint32_t column = 0; column < 4u; ++column) {
+                    out.transform[row * 4u + column] = matrix[column][row];
+                }
             }
-            return facts;
         }
 
-        /// The memory intent + capability flags a device address is asked through: what the renderer's
-        /// own `build_input_usage` carries, as the contract's two names for it.
-        constexpr rhi::buffer_flags device_address_flag = rhi::to_bits(rhi::buffer_flag::device_address);
-    } // namespace
-    namespace {
-        /// round @p value up to the next multiple of @p alignment (a power of two, as Vulkan requires)
-        constexpr VkDeviceSize align_up(VkDeviceSize const value, VkDeviceSize const alignment) noexcept {
-            return alignment == 0 ? value : (value + alignment - 1) / alignment * alignment;
+        /// how many triangles a source describes (an unindexed geometry counts its vertices)
+        [[nodiscard]] std::uint32_t triangle_count_of(geometry_source const& source) noexcept {
+            return (source.index_address == 0 ? source.vertex_count : source.index_count) / 3u;
         }
-
-        /**
-         * @brief the four acceleration-structure entry points, resolved per device
-         *
-         * They are NOT in the SDK's vulkan-1 import library - checked, not assumed: that lib exports
-         * `vkGetBufferDeviceAddress` (core 1.2) and no `vk*AccelerationStructure*` symbol at all, so a
-         * direct call is an undefined symbol at LINK time on this toolchain. Resolving through
-         * vkGetDeviceProcAddr is the documented way to reach an extension entry point and the only one
-         * that works here.
-         *
-         * A missing pointer is not fatal: the builder reports it as an error and the caller keeps its
-         * raster path, which is the bargain the whole ray-tracing feature makes.
-         */
     } // namespace
 
-    // The nested type declared in the interface, defined here: a function-pointer table is an
-    // implementation detail (the header only needs to know it exists, so it holds a unique_ptr).
-    struct bottom_level_structures::entry_points {
-        PFN_vkCreateAccelerationStructureKHR create = nullptr;
-        PFN_vkDestroyAccelerationStructureKHR destroy = nullptr;
-        PFN_vkGetAccelerationStructureBuildSizesKHR get_build_sizes = nullptr;
-        PFN_vkCmdBuildAccelerationStructuresKHR cmd_build = nullptr;
-        PFN_vkGetAccelerationStructureDeviceAddressKHR get_device_address = nullptr;
-
-        [[nodiscard]] bool loaded() const noexcept {
-            return this->create != nullptr && this->destroy != nullptr && this->get_build_sizes != nullptr && this->cmd_build != nullptr && this->get_device_address != nullptr;
-        }
-
-        [[nodiscard]] bool load(VkDevice const device) noexcept {
-            this->create = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkCreateAccelerationStructureKHR"));
-            this->destroy = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR"));
-            this->get_build_sizes = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureBuildSizesKHR"));
-            this->cmd_build = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR"));
-            this->get_device_address = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureDeviceAddressKHR"));
-            return this->loaded();
-        }
-    };
+    // ---- bottom level structure ---------------------------------------------------------------------------
 
     bottom_level_structures::bottom_level_structures(rhi::api_core& face)
-        : contract(&face)
-        , functions(std::make_unique<entry_points>()) {
-        device_facts const facts = facts_of(face);
-        this->device = facts.device;
-        this->acceleration_structure_properties = facts.acceleration_structure_properties;
-        if (!this->functions->load(this->device)) {
-            deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
-                                "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
-        }
+        : contract(&face) {
     }
 
-    bottom_level_structures::~bottom_level_structures() {
-        // The structures are destroyed before their storage buffers are released (the contract owners
-        // below drop their reference when the entries die): vkDestroyAccelerationStructureKHR only drops
-        // the handle, but a structure whose memory is gone is not something to leave to member-destruction order.
-        for (entry const& item : this->entries) {
-            if (item.handle != VK_NULL_HANDLE && this->contract != nullptr && this->functions != nullptr && this->functions->loaded()) {
-                this->functions->destroy(this->device, item.handle, nullptr);
-            }
-        }
-    }
+    // The entries hold `object_manager<rhi::acceleration_structure>`, so the reference each structure carries is
+    // given back here - and the BACKEND's `release()` is what destroys the driver's object, in the order its own
+    // destructor documents.
+    bottom_level_structures::~bottom_level_structures() = default;
 
     std::expected<uint32_t, std::string> bottom_level_structures::add(geometry_source const& source, bool const refittable) {
-        // Every geometry gets an entry, even one with nothing to build: the caller's index into this
-        // list is the caller's index into its own geometry array, and skipping one silently would
-        // shift every later index by one.
-        entry item = {};
-        uint32_t const triangle_count = source.index_count / 3u;
-        this->stats.triangle_count += triangle_count;
-        if (triangle_count == 0) {
-            this->entries.push_back(std::move(item));
-            return static_cast<uint32_t>(this->entries.size() - 1);
+        if (this->contract == nullptr) {
+            return std::unexpected(std::string("acceleration structure: this structure set has no contract face"));
         }
-
-        VkAccelerationStructureGeometryTrianglesDataKHR triangles = {};
-        triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-        triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT; // position at offset 0 of the interleaved vertex
-        triangles.vertexData.deviceAddress = source.vertex_address;
-        triangles.vertexStride = source.vertex_stride;
-        triangles.maxVertex = source.vertex_count == 0 ? 0u : source.vertex_count - 1u;
-        // A zero index address means the geometry is NOT indexed, and the type has to say so: the module's
-        // own geometry_source documents it ("index_address may be 0 for a non-indexed geometry, which the
-        // build then reads as a flat vertex list"), but leaving the caller's index type in place sent the
-        // build to read indices from address zero instead - which the mask bake's expanded geometry would
-        // have hit on its first run (see shaders/mask_bake.slang).
-        bool const indexed = source.index_address != 0;
-        triangles.indexType = indexed ? source.index_type : VK_INDEX_TYPE_NONE_KHR;
-        triangles.indexData.deviceAddress = indexed ? source.index_address : 0;
-
-        VkAccelerationStructureGeometryKHR geometry = {};
-        geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-        geometry.geometryType = VK_GEOMETRY_TYPE_TRIANGLES_KHR;
-        // NO OPAQUE FLAG, which is a deliberate reversal of what this module shipped with. OPAQUE on a geometry
-        // DECLARES that this geometry has no any-hit work to do - "any-hit shaders must not be invoked here" -
-        // so setting it on every geometry, which is what this line used to do, is a statement that an
-        // alpha-tested surface is as solid as its bounding triangles. Whether a geometry is opaque is a property
-        // of its MATERIAL and this module is handed vertex and index addresses rather than materials, so the
-        // per-material decision belongs to the step that adds the alpha test.
-        //
-        // MEASURED, because the flag's effect is not what the declaration suggests: on an NVIDIA RTX 4060
-        // (591.59.0.0) the ray-tracing shadow's any-hit stage is invoked even WITH this flag set (and even with
-        // the raygen's `gl_RayFlagsOpaqueEXT` set as well), so lifting it does not change the image - three
-        // capture arms with the closest-hit stage silenced all produced the correct frame, differing by 0.01
-        // whole-frame mean, which is this flag changing the BUILT structure and with it the traversal order.
-        // It is lifted anyway because the alpha test must not depend on a driver over-invoking a stage that two
-        // declarations say must not run: a conforming driver would skip it and the alpha test would silently do
-        // nothing. The cost is the opaque-traversal shortcut, and the per-material decision can restore it.
-        geometry.flags = 0;
-        geometry.geometry.triangles = triangles;
-        if (source.opacity_micromap != VK_NULL_HANDLE && source.opacity_index_address != 0) {
-            // THE OPACITY MICROMAP CHAINED INTO THIS GEOMETRY. Both structs live in a container whose elements
-            // never move, because geometry.pNext points at them and the build reads them later, at RECORD time -
-            // a container that reallocates (or an entry that gets copied) would leave that pointer dangling, and
-            // the failure mode is a traversal that consults freed memory rather than a compile error.
-            this->micromap_geometries.push_back(micromap_attachment{});
-            micromap_attachment& slot = this->micromap_geometries.back();
-            slot.usage = source.opacity_usage;
-            slot.attachment.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_TRIANGLES_OPACITY_MICROMAP_EXT;
-            slot.attachment.pNext = nullptr;
-            slot.attachment.indexType = source.opacity_index_type;
-            slot.attachment.indexBuffer.deviceAddress = source.opacity_index_address;
-            slot.attachment.indexStride = source.opacity_index_stride;
-            slot.attachment.baseTriangle = 0;
-            slot.attachment.usageCountsCount = 1;
-            slot.attachment.pUsageCounts = &slot.usage;
-            slot.attachment.micromap = source.opacity_micromap;
-            // IT CHAINS INTO THE TRIANGLES DATA, not into the geometry: VkAccelerationStructureGeometryKHR's own
-            // pNext accepts only the micromap-DATA struct (the KHR way of BUILDING a micromap, which this does not
-            // use - it builds through vkCmdBuildMicromapsEXT), and validation named exactly that when this was
-            // first attached in the wrong place. The union member was copied from `triangles` above, so this edits
-            // the copy the build will read.
-            geometry.geometry.triangles.pNext = &slot.attachment;
-        }
-        item.geometries.push_back(geometry);
-
-        VkAccelerationStructureBuildGeometryInfoKHR size_info = {};
-        size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-        size_info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        // ALLOW_UPDATE changes the scratch the device asks for (an update needs no build scratch, a build
-        // does), so the size query has to carry the same flags the build will - a mismatch is a scratch
-        // buffer that is too small on the REFIT, which is a validation error rather than a wrong image.
-        size_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
-                          (refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
-        size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-        size_info.geometryCount = static_cast<uint32_t>(item.geometries.size());
-        size_info.pGeometries = item.geometries.data();
-
-        VkAccelerationStructureBuildSizesInfoKHR sizes = {};
-        sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-        this->functions->get_build_sizes(this->device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &triangle_count, &sizes);
-        if (sizes.accelerationStructureSize == 0) {
-            return std::unexpected(std::string("acceleration structure: the device reported a zero-sized bottom level structure"));
-        }
-
-        item.storage = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(
-            rhi::buffer_desc{.size = sizes.accelerationStructureSize, .usage = rhi::buffer_usage::acceleration_structure_storage})};
-        if (!item.storage) {
-            return std::unexpected(std::string("acceleration structure: the bottom level storage allocation failed"));
-        }
-        VkBuffer const storage_native = native_buffer_of(*this->contract, *item.storage);
-        if (storage_native == VK_NULL_HANDLE) {
-            return std::unexpected(std::string("acceleration structure: the bottom level storage has no native buffer"));
-        }
-
-        VkAccelerationStructureCreateInfoKHR create = {};
-        create.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-        create.buffer = storage_native;
-        create.offset = 0;
-        create.size = sizes.accelerationStructureSize;
-        create.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-        if (this->functions->create(this->device, &create, nullptr, &item.handle) != VK_SUCCESS) {
-            return std::unexpected(std::string("acceleration structure: vkCreateAccelerationStructureKHR failed"));
-        }
-
-        // The scratch range is aligned per geometry (see record_build), so the sizes accumulate here
-        // and only the offsets are decided then - the buffer itself is allocated once, in record_build.
-        item.scratch_size = sizes.buildScratchSize;
-        item.range.primitiveCount = triangle_count;
+        // THE MICROMAP RIDES THE DESCRIPTION NOW (plan S1's P4): the contract's geometry carries the object, and
+        // nothing here refuses it any more - the BACKEND owns the 256-byte address alignment, the setup buffers
+        // and the index array the traversal reads, which is exactly what made this inexpressible before.
+        entry item{};
         item.refittable = refittable;
+        std::uint32_t const triangles = triangle_count_of(source);
+        if (triangles == 0) {
+            // A SOURCE WITH NO TRIANGLES IS SKIPPED, and its index is still taken so the caller's own arrays
+            // stay aligned with this set's indices (see the class note).
+            this->entries.push_back(std::move(item));
+            this->stats.geometry_count += 1u;
+            return static_cast<std::uint32_t>(this->entries.size() - 1u);
+        }
 
-        this->stats.geometry_count += 1;
-        this->stats.structure_bytes += sizes.accelerationStructureSize;
-        this->stats.scratch_bytes += sizes.buildScratchSize;
+        // THE GEOMETRY IN THE CONTRACT'S VOCABULARY: addresses as `uint64_t` (the shape
+        // `shader_binding_table_region` uses), the index width as the contract's own enum - so the description
+        // this hands over names no Vulkan type.
+        rhi::acceleration_structure_geometry const geometry{
+            .vertex_address = static_cast<std::uint64_t>(source.vertex_address),
+            .vertex_stride = source.vertex_stride,
+            .vertex_count = source.vertex_count,
+            .index_address = static_cast<std::uint64_t>(source.index_address),
+            .index_format = source.index_type,
+            .index_count = source.index_count,
+            .opacity_micromap = source.opacity_micromap,
+        };
+        item.structure = rhi::object_manager<rhi::acceleration_structure>{this->contract->create_acceleration_structure(
+            rhi::acceleration_structure_desc{
+                .type = rhi::acceleration_structure_type::bottom_level,
+                .flags = refittable ? rhi::to_bits(rhi::acceleration_structure_flag::allow_update) : rhi::no_acceleration_structure_flags,
+                .geometries = &geometry,
+                .geometry_count = 1u,
+            })};
+        if (!item.structure) {
+            return std::unexpected(std::string("acceleration structure: the backend could not create the bottom level structure "
+                                               "(see its own log line for why)"));
+        }
+
+        this->stats.geometry_count += 1u;
+        this->stats.triangle_count += triangles;
+        this->stats.structure_bytes += item.structure->size_bytes();
         this->entries.push_back(std::move(item));
-        return static_cast<uint32_t>(this->entries.size() - 1);
+        return static_cast<std::uint32_t>(this->entries.size() - 1u);
     }
 
-    std::expected<void, std::string> bottom_level_structures::record_build(VkCommandBuffer const command_buffer) {
-        auto const start = std::chrono::steady_clock::now();
-
-        if (this->entries.empty()) {
-            return {}; // nothing was added: an empty command is not an error, it is an empty scene
-        }
-
-        // One scratch buffer for every build, each geometry's range aligned to what the device
-        // requires of a SCRATCH ADDRESS (not of an offset - the requirement is on the address the
-        // build is handed, which is why the base address is taken into account and why the buffer
-        // carries one alignment worth of slack).
-        VkDeviceSize const alignment = std::max<VkDeviceSize>(this->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1);
-        VkDeviceSize total = 0;
-        for (entry& item : this->entries) {
-            total += item.scratch_size + alignment;
-        }
-        this->scratch = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(
-            rhi::buffer_desc{.size = total, .usage = rhi::buffer_usage::acceleration_structure_scratch, .flags = device_address_flag})};
-        if (!this->scratch) {
-            return std::unexpected(std::string("acceleration structure: the scratch allocation failed"));
-        }
-        VkDeviceAddress const scratch_base = buffer_address_of(*this->contract, *this->scratch);
-        if (scratch_base == 0) {
-            return std::unexpected(std::string("acceleration structure: the scratch buffer has no device address"));
-        }
-
-        this->build_infos.clear();
-        this->range_ptrs.clear();
-        this->build_infos.reserve(this->entries.size());
-        this->range_ptrs.reserve(this->entries.size());
-        VkDeviceSize cursor = 0;
-        for (entry& item : this->entries) {
-            if (item.handle == VK_NULL_HANDLE) {
-                continue; // a geometry with no triangles: no build, no scratch range
+    std::expected<void, std::string> bottom_level_structures::record_build(rhi::command_buffer& commands) {
+        std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
+        for (entry const& item : this->entries) {
+            if (!item.structure) {
+                continue; // a geometry with no triangles: nothing was created, so there is nothing to build
             }
-            VkDeviceAddress const address = align_up(scratch_base + cursor, alignment);
-            item.scratch_offset = address - scratch_base;
-            cursor = item.scratch_offset + item.scratch_size;
-
-            VkAccelerationStructureBuildGeometryInfoKHR info = {};
-            info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-            info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-            info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR |
-                         (item.refittable ? VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR : 0u);
-            info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-            info.dstAccelerationStructure = item.handle;
-            info.geometryCount = static_cast<uint32_t>(item.geometries.size());
-            info.pGeometries = item.geometries.data();
-            info.scratchData.deviceAddress = address;
-            this->build_infos.push_back(info);
-            this->range_ptrs.push_back(&item.range);
+            // ONE CALL PER STRUCTURE, where this module used to batch every build into one
+            // `vkCmdBuildAccelerationStructuresKHR`. That batching was a CPU-side win and its own note says so;
+            // what it cost was the BACKEND owning the scratch, which is exactly the trade this interface makes.
+            if (rhi::error const recorded = commands.build_acceleration_structure(*item.structure); recorded != rhi::error::ok) {
+                return std::unexpected(std::string("acceleration structure: recording a bottom level build failed with error ") + std::to_string(static_cast<std::uint32_t>(recorded)));
+            }
         }
-
-        if (!this->build_infos.empty()) {
-            // ONE call for every structure: the pieces of a single vkCmdBuildAccelerationStructuresKHR
-            // are executed in order, so a geometry's build is complete before the next one starts.
-            this->functions->cmd_build(command_buffer, static_cast<uint32_t>(this->build_infos.size()), this->build_infos.data(), this->range_ptrs.data());
-        }
-
-        this->scratch_address = scratch_base;
-        this->scratch_size = total;
-        this->stats.scratch_bytes = total;
         this->stats.build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return {};
     }
 
-    std::expected<void, std::string> bottom_level_structures::record_update(VkCommandBuffer const command_buffer, std::span<uint32_t const> const indices) {
-        if (this->scratch_address == 0) {
-            return std::unexpected(std::string("acceleration structure: no build has been recorded, so there is no scratch to refit against"));
-        }
-        // The SAME geometries the build used, with the same addresses and counts: an update is legal
-        // exactly when only the bytes behind them changed. That is what makes it cheap - no size query, no
-        // allocation, no new structure - and it is also the whole reason a compute skinning pass can feed
-        // one (see shaders/compute_skin.slang).
-        this->update_infos.clear();
-        this->update_range_ptrs.clear();
-        this->update_infos.reserve(indices.size());
-        this->update_range_ptrs.reserve(indices.size());
-        for (uint32_t const index : indices) {
+    std::expected<void, std::string> bottom_level_structures::record_update(rhi::command_buffer& commands, std::span<uint32_t const> const indices) {
+        for (std::uint32_t const index : indices) {
             if (index >= this->entries.size()) {
                 continue;
             }
             entry const& item = this->entries[index];
-            if (item.handle == VK_NULL_HANDLE || !item.refittable) {
-                continue; // not built, or built without ALLOW_UPDATE: an update against it is illegal
+            if (!item.structure || !item.refittable) {
+                continue; // not built, or built without ALLOW_UPDATE: a refit against it is not legal (and the
+                          // backend refuses it by name anyway - see `refit_acceleration_structure`)
             }
-            VkAccelerationStructureBuildGeometryInfoKHR info = {};
-            info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-            info.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-            info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_TRACE_BIT_KHR | VK_BUILD_ACCELERATION_STRUCTURE_ALLOW_UPDATE_BIT_KHR;
-            info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_UPDATE_KHR;
-            info.srcAccelerationStructure = item.handle;
-            info.dstAccelerationStructure = item.handle;
-            info.geometryCount = static_cast<uint32_t>(item.geometries.size());
-            info.pGeometries = item.geometries.data();
-            info.scratchData.deviceAddress = this->scratch_address + item.scratch_offset;
-            this->update_infos.push_back(info);
-            this->update_range_ptrs.push_back(&item.range);
-        }
-        if (!this->update_infos.empty()) {
-            this->functions->cmd_build(command_buffer, static_cast<uint32_t>(this->update_infos.size()), this->update_infos.data(), this->update_range_ptrs.data());
+            if (rhi::error const recorded = commands.refit_acceleration_structure(*item.structure); recorded != rhi::error::ok) {
+                return std::unexpected(std::string("acceleration structure: recording a bottom level refit failed with error ") + std::to_string(static_cast<std::uint32_t>(recorded)));
+            }
         }
         return {};
     }
 
-    // ---- top level structure ----
-    namespace {
-        /// the world matrix the raster passes draw with, as the 3x4 ROW-major transform the instance
-        /// wants. glm is column-major (m[column][row]) and VkTransformMatrixKHR is row-major
-        /// (matrix[row][column]), so the indices swap - which is the one place a transposed instance
-        /// would silently mirror the whole scene.
-        VkTransformMatrixKHR to_instance_transform(glm::mat4 const& matrix) noexcept {
-            VkTransformMatrixKHR out = {};
-            for (uint32_t row = 0; row < 3; ++row) {
-                for (uint32_t column = 0; column < 4; ++column) {
-                    out.matrix[row][column] = matrix[column][row];
-                }
-            }
-            return out;
-        }
-    } // namespace
+    // ---- top level structure ------------------------------------------------------------------------------
 
-    struct top_level_structure::entry_points {
-        PFN_vkCreateAccelerationStructureKHR create = nullptr;
-        PFN_vkDestroyAccelerationStructureKHR destroy = nullptr;
-        PFN_vkGetAccelerationStructureBuildSizesKHR get_build_sizes = nullptr;
-        PFN_vkCmdBuildAccelerationStructuresKHR cmd_build = nullptr;
-        PFN_vkGetAccelerationStructureDeviceAddressKHR get_device_address = nullptr;
-
-        [[nodiscard]] bool loaded() const noexcept {
-            return this->create != nullptr && this->destroy != nullptr && this->get_build_sizes != nullptr && this->cmd_build != nullptr && this->get_device_address != nullptr;
-        }
-
-        [[nodiscard]] bool load(VkDevice const device) noexcept {
-            this->create = reinterpret_cast<PFN_vkCreateAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkCreateAccelerationStructureKHR"));
-            this->destroy = reinterpret_cast<PFN_vkDestroyAccelerationStructureKHR>(vkGetDeviceProcAddr(device, "vkDestroyAccelerationStructureKHR"));
-            this->get_build_sizes = reinterpret_cast<PFN_vkGetAccelerationStructureBuildSizesKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureBuildSizesKHR"));
-            this->cmd_build = reinterpret_cast<PFN_vkCmdBuildAccelerationStructuresKHR>(vkGetDeviceProcAddr(device, "vkCmdBuildAccelerationStructuresKHR"));
-            this->get_device_address = reinterpret_cast<PFN_vkGetAccelerationStructureDeviceAddressKHR>(vkGetDeviceProcAddr(device, "vkGetAccelerationStructureDeviceAddressKHR"));
-            return this->loaded();
-        }
-    };
-
+    // Spelled exactly as the declaration in the module interface is: doxygen matches a definition against
+    // its declaration by the written signature, and `std::uint32_t` here against `uint32_t` there made it
+    // report "no matching class member found" for this one constructor (the only warning in the doc build).
     top_level_structure::top_level_structure(rhi::api_core& face, uint32_t const frame_slot_count)
         : contract(&face)
-        , functions(std::make_unique<entry_points>())
+        , max_instances(max_instances_of(face))
         , slots(frame_slot_count) {
-        device_facts const facts = facts_of(face);
-        this->device = facts.device;
-        this->acceleration_structure_properties = facts.acceleration_structure_properties;
-        if (!this->functions->load(this->device)) {
-            deren::utility::log("acceleration structures: the loader does not expose the vk*AccelerationStructure* entry points "
-                                "(vkGetDeviceProcAddr returned null) - ray-traced shadows stay off");
-        }
     }
 
-    top_level_structure::~top_level_structure() {
-        for (slot const& item : this->slots) {
-            if (item.handle != VK_NULL_HANDLE && this->contract != nullptr && this->functions != nullptr && this->functions->loaded()) {
-                this->functions->destroy(this->device, item.handle, nullptr);
-            }
-        }
-    }
+    top_level_structure::~top_level_structure() = default;
 
-    std::expected<void, std::string> top_level_structure::begin(uint32_t const frame_slot) {
-        if (!this->functions->loaded()) {
-            return std::unexpected(std::string("acceleration structures: the top level entry points were not resolved"));
-        }
+    std::expected<void, std::string> top_level_structure::begin(std::uint32_t const frame_slot) {
         if (frame_slot >= this->slots.size()) {
             return std::unexpected(std::string("acceleration structures: frame slot out of range"));
         }
         this->current_slot = frame_slot;
         this->slots[frame_slot].count = 0;
+        this->slots[frame_slot].pending.clear();
         return {};
     }
 
     std::expected<void, std::string> top_level_structure::add(bottom_level_structures const& levels, instance_source const& source) {
-        if (this->current_slot >= this->slots.size()) {
+        if (this->contract == nullptr || this->current_slot >= this->slots.size()) {
             return std::unexpected(std::string("acceleration structures: no frame slot is being built"));
         }
-        VkAccelerationStructureKHR const blas = levels.handle(source.blas_index);
-        if (blas == VK_NULL_HANDLE) {
+        rhi::acceleration_structure* const blas = levels.structure(source.blas_index);
+        if (blas == nullptr) {
             return {}; // a geometry with no triangles: no instance, and the caller's indices stay put
         }
         slot& target = this->slots[this->current_slot];
 
-        // Grow the per-slot arrays when this frame's list outgrew them. Doubling keeps the reallocation
-        // rare (it destroys and recreates the structure, so it is not something to do every frame), and
-        // the capacity - not the count - is what the structure is sized for, which is legal: the size
-        // query's instance count is an upper bound for the build.
+        // THE STRUCTURE IS SIZED FOR ITS CAPACITY, so outgrowing the capacity means a NEW object (the backend
+        // cannot grow one in place): doubling keeps that rare, and the instance limit the device reports is
+        // checked before the allocation rather than after the driver's refusal.
         if (target.count >= target.capacity) {
-            uint32_t const wanted = std::max(target.capacity * 2u, 256u);
-            if (wanted > this->acceleration_structure_properties.maxInstanceCount) {
+            std::uint32_t const wanted = std::max(target.capacity * 2u, 256u);
+            if (this->max_instances != 0u && static_cast<std::uint64_t>(wanted) > this->max_instances) {
                 return std::unexpected(std::string("acceleration structures: the scene has more instances than the device allows in one top level structure"));
             }
-            // The two arrays are HOST-VISIBLE and coherent (the caller fills them through add()), and they
-            // carry a device address + the acceleration-structure build-input capability - the pair the
-            // renderer's own geometry buffers are uploaded with, so a build can read them directly.
-            constexpr rhi::buffer_flags instance_flags = device_address_flag | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
-            target.instances = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(
-                rhi::buffer_desc{.size = static_cast<uint64_t>(wanted) * sizeof(VkAccelerationStructureInstanceKHR),
-                                 .usage = rhi::buffer_usage::storage_coherent,
-                                 .flags = instance_flags})};
-            target.records = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(
-                rhi::buffer_desc{.size = static_cast<uint64_t>(wanted) * sizeof(instance_record),
-                                 .usage = rhi::buffer_usage::storage_coherent,
-                                 .flags = instance_flags})};
-            if (!target.instances || !target.records) {
-                return std::unexpected(std::string("acceleration structures: the instance buffers could not be allocated"));
+            target.records = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(rhi::buffer_desc{
+                .size = static_cast<std::uint64_t>(wanted) * sizeof(instance_record),
+                .usage = rhi::buffer_usage::storage_coherent,
+                .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input)})};
+            if (!target.records || target.records->mapped().data() == nullptr) {
+                return std::unexpected(std::string("acceleration structures: the instance table could not be allocated"));
             }
-            if (target.instances->mapped().data() == nullptr || target.records->mapped().data() == nullptr) {
-                return std::unexpected(std::string("acceleration structures: the instance buffers are not mapped"));
+            rhi::object_manager<rhi::acceleration_structure> next{this->contract->create_acceleration_structure(
+                rhi::acceleration_structure_desc{.type = rhi::acceleration_structure_type::top_level, .instance_capacity = wanted})};
+            if (!next) {
+                return std::unexpected(std::string("acceleration structures: the backend could not create the top level structure"));
             }
-
-            // The structure the new capacity needs. The old handle goes first: a structure must not
-            // outlive the memory it was created in, and that memory is about to be released.
-            if (target.handle != VK_NULL_HANDLE) {
-                this->functions->destroy(this->device, target.handle, nullptr);
-                target.handle = VK_NULL_HANDLE;
-            }
-            VkAccelerationStructureBuildGeometryInfoKHR size_info = {};
-            size_info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-            size_info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-            size_info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-            size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-            size_info.geometryCount = 1;
-            VkAccelerationStructureGeometryKHR geometry = {};
-            geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-            geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-            geometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-            geometry.geometry.instances.arrayOfPointers = VK_FALSE;
-            geometry.geometry.instances.data.deviceAddress = 0; // the size query does not read the data
-            size_info.pGeometries = &geometry;
-
-            VkAccelerationStructureBuildSizesInfoKHR sizes = {};
-            sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-            this->functions->get_build_sizes(this->device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &wanted, &sizes);
-            if (sizes.accelerationStructureSize == 0) {
-                return std::unexpected(std::string("acceleration structures: the device reported a zero-sized top level structure"));
-            }
-            target.storage = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(
-                rhi::buffer_desc{.size = sizes.accelerationStructureSize, .usage = rhi::buffer_usage::acceleration_structure_storage})};
-            if (!target.storage) {
-                return std::unexpected(std::string("acceleration structures: the top level storage allocation failed"));
-            }
-            VkBuffer const top_storage_native = native_buffer_of(*this->contract, *target.storage);
-            if (top_storage_native == VK_NULL_HANDLE) {
-                return std::unexpected(std::string("acceleration structures: the top level storage has no native buffer"));
-            }
-            VkAccelerationStructureCreateInfoKHR create = {};
-            create.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-            create.buffer = top_storage_native;
-            create.offset = 0;
-            create.size = sizes.accelerationStructureSize;
-            create.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-            if (this->functions->create(this->device, &create, nullptr, &target.handle) != VK_SUCCESS) {
-                return std::unexpected(std::string("acceleration structures: the top level structure could not be created"));
-            }
-            // KEPT because a heap descriptor for it is an address RANGE that must carry a real size (see
-            // top_level_structure::structure_size): the size query above is the only place that number exists.
-            target.structure_size = create.size;
+            target.structure = std::move(next); // the old object's reference is dropped HERE, inside the backend
             target.capacity = wanted;
-            target.scratch_size = sizes.buildScratchSize;
-            this->stats.structure_bytes += sizes.accelerationStructureSize;
+            target.pending.reserve(wanted);
+            this->stats.structure_bytes += target.structure->size_bytes();
         }
 
-        // The instance itself: a device address for the geometry, the world transform, and the record
-        // the shader will see through instanceCustomIndex (which is why the index IS the table slot).
-        VkAccelerationStructureDeviceAddressInfoKHR const address_info = {
-            .sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_DEVICE_ADDRESS_INFO_KHR, .pNext = nullptr, .accelerationStructure = blas};
-        VkAccelerationStructureInstanceKHR instance = {};
-        instance.transform = to_instance_transform(source.transform);
-        instance.instanceCustomIndex = target.count;         // == the slot in the instance table
-        instance.mask = 0xFF;                                // visible to every ray: nothing here is ray-type specific
-        instance.instanceShaderBindingTableRecordOffset = 0; // unused by a ray query (no SBT exists)
-        // FACING_CULL_DISABLE: a shadow ray must be blocked by a surface it approaches from behind, and
-        // the raster shadow pass has the same property for the casters whose pipeline disables culling.
-        // Leaving culling on would make every plane and every open mesh leak light.
-        instance.flags = VK_GEOMETRY_INSTANCE_TRIANGLE_FACING_CULL_DISABLE_BIT_KHR;
-        instance.accelerationStructureReference = this->functions->get_device_address(this->device, &address_info);
+        // THE INSTANCE, IN THE CONTRACT'S RECORD: the world transform, the reference a traversal follows
+        // (`device_address()`), and the index the hit shader resolves through the instance table below.
+        rhi::acceleration_structure_instance instance{};
+        fill_instance_transform(instance, source.transform);
+        instance.instance_custom_index = target.count;    // == the slot in the instance table
+        instance.mask = 0xFFu;                            // visible to every ray: nothing here is ray-type specific
+        instance.shader_binding_table_record_offset = 0u; // unused by a ray query (no SBT exists)
+        instance.flags = rhi::acceleration_structure_instance_facing_cull_disable;
+        instance.structure_reference = blas->device_address();
+        target.pending.push_back(instance);
 
-        std::memcpy(target.instances->mapped().data() + static_cast<std::size_t>(target.count) * sizeof(VkAccelerationStructureInstanceKHR),
-                    &instance,
-                    sizeof(instance));
+        // ... and the ENGINE's own record beside it, which is what a shader reads at a hit.
         std::memcpy(target.records->mapped().data() + static_cast<std::size_t>(target.count) * sizeof(instance_record),
                     &source.record,
                     sizeof(source.record));
-        target.count += 1;
+        target.count += 1u;
         return {};
     }
 
-    std::expected<void, std::string> top_level_structure::record_build(VkCommandBuffer const command_buffer) {
-        auto const start = std::chrono::steady_clock::now();
+    std::expected<void, std::string> top_level_structure::record_build(rhi::command_buffer& commands) {
+        std::chrono::steady_clock::time_point const start = std::chrono::steady_clock::now();
         slot& target = this->slots[this->current_slot];
-        if (target.count == 0 || target.handle == VK_NULL_HANDLE) {
+        if (target.count == 0u || !target.structure) {
             return {}; // an empty scene has an empty top level structure, and nothing to trace against
         }
-
-        VkDeviceAddress const instances_address = buffer_address_of(*this->contract, *target.instances);
-
-        VkDeviceSize const alignment = std::max<VkDeviceSize>(this->acceleration_structure_properties.minAccelerationStructureScratchOffsetAlignment, 1);
-        target.scratch_size = 0;
-        VkAccelerationStructureGeometryKHR geometry = {};
-        geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-        geometry.geometryType = VK_GEOMETRY_TYPE_INSTANCES_KHR;
-        geometry.geometry.instances.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_INSTANCES_DATA_KHR;
-        geometry.geometry.instances.arrayOfPointers = VK_FALSE;
-        geometry.geometry.instances.data.deviceAddress = instances_address;
-
-        VkAccelerationStructureBuildGeometryInfoKHR info = {};
-        info.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-        info.type = VK_ACCELERATION_STRUCTURE_TYPE_TOP_LEVEL_KHR;
-        info.flags = VK_BUILD_ACCELERATION_STRUCTURE_PREFER_FAST_BUILD_BIT_KHR;
-        info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-        info.dstAccelerationStructure = target.handle;
-        info.geometryCount = 1;
-        info.pGeometries = &geometry;
-
-        VkAccelerationStructureBuildSizesInfoKHR sizes = {};
-        sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-        this->functions->get_build_sizes(this->device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &info, &target.count, &sizes);
-
-        // One scratch buffer per slot, sized for the count actually being built. It is allocated on the
-        // FIRST build of a slot and kept: the count is culled per frame and drifts, but a buffer sized
-        // for the largest count seen is what a build of any smaller count needs.
-        if (!target.scratch || target.scratch_size < sizes.buildScratchSize) {
-            target.scratch = rhi::object_manager<rhi::buffer>{this->contract->create_buffer(
-                rhi::buffer_desc{.size = sizes.buildScratchSize + alignment,
-                                 .usage = rhi::buffer_usage::acceleration_structure_scratch,
-                                 .flags = device_address_flag})};
-            if (!target.scratch) {
-                return std::unexpected(std::string("acceleration structures: the top level scratch allocation failed"));
-            }
+        // THE RECORDS GO TO THE BACKEND FIRST, then the build records: `write_instances` is host work on the
+        // backend's own memory, and the build reads it by address.
+        if (rhi::error const written = target.structure->write_instances(target.pending); written != rhi::error::ok) {
+            return std::unexpected(std::string("acceleration structures: writing the instance records failed with error ") + std::to_string(static_cast<std::uint32_t>(written)));
         }
-        target.scratch_size = sizes.buildScratchSize + alignment;
-        VkDeviceAddress const scratch_base = buffer_address_of(*this->contract, *target.scratch);
-        if (scratch_base == 0) {
-            return std::unexpected(std::string("acceleration structures: the top level scratch has no device address"));
+        if (rhi::error const built = commands.build_acceleration_structure(*target.structure); built != rhi::error::ok) {
+            return std::unexpected(std::string("acceleration structures: recording the top level build failed with error ") + std::to_string(static_cast<std::uint32_t>(built)));
         }
-        info.scratchData.deviceAddress = align_up(scratch_base, alignment);
-
-        VkAccelerationStructureBuildRangeInfoKHR range = {};
-        range.primitiveCount = target.count;
-        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {&range};
-        this->functions->cmd_build(command_buffer, 1, &info, ranges);
-
         this->stats.geometry_count = target.count;
-        this->stats.scratch_bytes = target.scratch_size;
         this->stats.build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return {};
     }
 
-    VkBuffer top_level_structure::instance_table(uint32_t const frame_slot) const noexcept {
-        // The slot holds a CONTRACT buffer, so the native handle is asked of the escape - borrowed, and
-        // valid while the slot's owner holds its reference (the descriptor heap writes a range over this
-        // buffer, so it must not outlive the slot).
-        if (this->contract == nullptr || frame_slot >= this->slots.size()) {
-            return VK_NULL_HANDLE;
-        }
-        slot const& target = this->slots[frame_slot];
-        return target.records ? native_buffer_of(*this->contract, *target.records) : VK_NULL_HANDLE;
-    }
-
-    rhi::buffer const* top_level_structure::instance_table_buffer(uint32_t const frame_slot) const noexcept {
-        // THE SAME SLOT, ANSWERED AS THE CONTRACT HELPER RATHER THAN AS A NARROWED HANDLE, so the caller that
-        // needs the buffer's device address asks this backend's `device_address` ability for it instead of
-        // calling vkGetBufferDeviceAddress on a handle it had to obtain from the escape itself.
-        //
-        // BORROWED, AND THE SLOT OWNS THE REFERENCE: the pointer is valid for as long as this slot holds the
-        // buffer - `add()` replaces it only while GROWING the capacity, which happens before the build of the
-        // frame that uses it, and never releases a slot's buffer while a frame could still read it.
+    rhi::buffer const* top_level_structure::instance_table_buffer(std::uint32_t const frame_slot) const noexcept {
+        // THE SAME SLOT, ANSWERED AS THE CONTRACT HANDLE, so a caller that needs the buffer's device address
+        // asks the `device_address` ability instead of narrowing a handle itself.
         if (frame_slot >= this->slots.size()) {
             return nullptr;
         }

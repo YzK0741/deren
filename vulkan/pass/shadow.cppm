@@ -34,9 +34,9 @@ module;
 #include <span>
 #include <string>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.shadow;
+import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
@@ -62,18 +62,26 @@ export namespace deren::vulkan::pass {
          * The implementation begins @p secondary with its own inheritance info and usage flags, sets the map-sized
          * viewport and scissor, pushes @p cascade_index at the offset this pass's declaration names and draws the
          * frame's casters with @p pipeline - then ends the buffer.
+         *
+         * @p secondary IS THE CONTRACT HANDLE NOW (abi 20): the cascade's buffer is a contract
+         * `command_buffer`, so the callback begins and ends it through `begin_recording` / `end_recording`
+         * (the inheritance rides the contract's own tagged structure, whose descriptor-heap half the backend
+         * derives itself).
          */
         /// @return whether the secondary was recorded: a begin that FAILED must not be executed (that is a VUID
         ///         and can wedge the frame slot), so the answer travels back rather than being assumed
         /// @param mesh_stage whether @p pipeline is a MESH pipeline, i.e. whether the casters must be drawn as
         ///        dispatches (vkCmdDrawMeshTasksEXT) instead of indexed draws - the pipeline and the way to feed
         ///        it are one fact, so they travel together (see docs/mesh_shaders.md step 1)
-        bool (*record_cascade)(void* owner, VkCommandBuffer secondary, uint32_t cascade_index, VkPipeline pipeline, bool mesh_stage, bool meshlets) = nullptr;
+        bool (*record_cascade)(void* owner, deren::promise::rhi::command_buffer& secondary, uint32_t cascade_index, deren::promise::rhi::pipeline* pipeline, bool mesh_stage, bool meshlets) = nullptr;
         /// the frame loop's scheduler: one task per cascade, each recording into its own secondary
         void (*run_tasks)(void* owner, std::span<std::function<void()>> tasks) = nullptr;
         void* owner = nullptr;
-        /// the per-cascade SECONDARY command buffers, in cascade order - one per layer this frame renders
-        std::span<VkCommandBuffer const> cascades = {};
+        /// the per-cascade SECONDARY command buffers, in cascade order - one per layer this frame renders.
+        /// THE CONTRACT HANDLES, BORROWED (abi 20): the frame loop owns the buffers (per slot, one per cascade)
+        /// and the pass only records into them and executes them - so this is a span of raw pointers and the
+        /// pass must not release one.
+        std::span<deren::promise::rhi::command_buffer* const> cascades = {};
         /// the shadow map's edge: this pass's rendering-instance size (it does NOT follow the surface)
         uint32_t map_size = 0;
     };
@@ -105,8 +113,9 @@ export namespace deren::vulkan::pass {
         [[nodiscard]] bool ready() const noexcept override {
             return this->pipeline_ready();
         }
-        /// @brief the pipeline the runner binds before this pass records
-        [[nodiscard]] VkPipeline pipeline() const noexcept override;
+        /// @brief the pipeline the runner binds before this pass records: the MESHLET form when it exists, the
+        ///        MESH form otherwise (the contract handle - see `frame_pass::pipeline_handle`)
+        [[nodiscard]] deren::promise::rhi::pipeline* pipeline_handle() const noexcept override;
 
         void set_frame(shadow_frame const& frame) noexcept;
 
@@ -141,8 +150,7 @@ export namespace deren::vulkan::pass {
             .resync_viewport = false,
         };
         void release_owned() noexcept;
-
-        VkDevice device = VK_NULL_HANDLE;
+        deren::promise::rhi::api_core* built_against = nullptr;
         /// THE MESH FORM, and since step 4 (docs/mesh_shaders.md) it is the pass's ONLY form: the vertex pipeline is
         /// gone with the rest of the vertex geometry path, so a device that cannot build this one gets no shadow map
         /// rather than a different rasterizer. It fetches its casters' vertices the way the input assembler used to.
@@ -152,7 +160,7 @@ export namespace deren::vulkan::pass {
         // called pass_frame, not frame: set_frame()'s frame parameter in shadow.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         shadow_frame pass_frame = {};
-    };
+    }; // namespace deren::vulkan::pass
 
     /// THE DECLARATION'S PUSH BLOCK is the four-byte cascade index at the scene block's end, and the renderer's
     /// content callback is what pushes it - so the two facts are asserted together here, where both are visible.
