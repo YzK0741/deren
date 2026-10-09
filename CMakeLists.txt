@@ -375,6 +375,7 @@ target_sources(promise
         promise/rhi/rhi.core_desc.cppm
         promise/rhi/rhi.extension.cppm
         promise/rhi/rhi.api_core.cppm
+        promise/gui/gui.cppm
 )
 
 # Startup configuration: parses config.toml (+ --config / argv merging) into app_settings.
@@ -1423,7 +1424,7 @@ add_library(deren_gui_vulkan SHARED)
 add_executable(test_gui_plugin tests/test_gui_plugin.cpp)
 target_compile_options(test_gui_plugin PRIVATE ${COMPILE_OPTIONS})
 target_compile_definitions(test_gui_plugin PRIVATE VR_GUI_PLUGIN_DLL="$<TARGET_FILE:deren_gui_vulkan>")
-target_link_libraries(test_gui_plugin PRIVATE static_utility vstd_lib)
+target_link_libraries(test_gui_plugin PRIVATE static_utility vstd_lib promise)
 add_dependencies(test_gui_plugin deren_gui_vulkan)
 # Like the backend spike, this explicitly loads a graphics plugin and is run locally.
 set_target_properties(deren_gui_vulkan PROPERTIES PREFIX "") # deren_gui_vulkan.dll, beside the executable
@@ -1446,6 +1447,7 @@ target_link_libraries(deren_gui_vulkan
         vulkan_constant_init
         static_utility
         vstd_lib
+        promise
 )
 
 

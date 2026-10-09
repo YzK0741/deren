@@ -6,9 +6,8 @@
 // widget classes). The port is deliberately a WRAP and not a rewrite: every class below this line is
 // unchanged, and the host sees verbs instead of objects.
 //
-// WHY THE HANDLES IN `create_info` ARE `void*`: see the entry header's note. This file is the Vulkan side, so
-// it is the one place that casts them back to `VkInstance`/`VkDevice`/`VkQueue`/`VkFormat` - which is exactly
-// the kind of code that belongs inside a plugin and not in the engine half.
+// The boundary carries a borrowed RHI root and platform window. Native handles are resolved
+// inside this adapter through the root's typed escape service.
 // ============================================================================
 module;
 
@@ -22,15 +21,13 @@ module;
 #include <vector>
 #include <vulkan/vulkan.h>
 
-// THE BOUNDARY HEADER BELONGS TO THE GLOBAL MODULE FRAGMENT, and that is not a style choice: it declares
-// `struct GLFWwindow;` itself, so including it INSIDE the module purview makes the module redeclare a name
-// `<GLFW/glfw3.h>` already declared in the global module - clang refuses exactly that. It names only its own
-// types (no module types), which is what lets it sit here and be used from the module below.
-#include "../../promise/gui/gui_entry.hpp"
-
 module deren.vulkan.graphical_user_interface;
 
+import deren.promise.gui;
+
 import deren.utility;
+
+#include "../../promise/gui/gui_entry.hpp"
 
 namespace deren::vulkan::gui {
     namespace {
@@ -130,6 +127,10 @@ namespace deren::vulkan::gui {
             }
 
             [[nodiscard]] bool init(deren::gui::create_info const& info) override {
+                if (info.struct_size < sizeof(info)) {
+                    deren::utility::log("gui plugin: the create_info prefix is too short for ABI2");
+                    return false;
+                }
                 if (this->content.is_active()) {
                     return true;
                 }
@@ -142,16 +143,29 @@ namespace deren::vulkan::gui {
                     deren::utility::log("gui plugin: create_info carried no window");
                     return false;
                 }
+                namespace rhi = deren::promise::rhi;
+                if (info.core == nullptr || info.core->api_version() != rhi::abi_version) {
+                    deren::utility::log("gui plugin: no compatible RHI device root");
+                    return false;
+                }
+                auto* const escape = rhi::query_extension<rhi::vulkan_escape>(*info.core);
+                auto* const capabilities = rhi::query_extension<rhi::device_capabilities>(*info.core);
+                auto* const frames = info.core->walk_frames();
+                if (escape == nullptr || capabilities == nullptr || frames == nullptr) {
+                    deren::utility::log("gui plugin: the RHI root cannot provide Vulkan GUI services");
+                    return false;
+                }
                 gui_create_info translated = {};
                 translated.window = info.window;
-                translated.instance = static_cast<VkInstance>(info.instance);
-                translated.physical_device = static_cast<VkPhysicalDevice>(info.physical_device);
-                translated.device = static_cast<VkDevice>(info.device);
-                translated.graphics_queue_family = info.graphics_queue_family;
-                translated.graphics_queue = static_cast<VkQueue>(info.graphics_queue);
-                translated.color_format = static_cast<VkFormat>(info.color_format);
-                translated.depth_format = static_cast<VkFormat>(info.depth_format);
-                translated.frames_in_flight = info.frames_in_flight;
+                translated.instance = static_cast<VkInstance>(escape->native_instance());
+                translated.physical_device = static_cast<VkPhysicalDevice>(escape->native_physical_device());
+                translated.device = static_cast<VkDevice>(escape->native_device());
+                translated.graphics_queue_family = capabilities->graphics_queue_family();
+                translated.graphics_queue = static_cast<VkQueue>(escape->native_queue());
+                translated.color_format = static_cast<VkFormat>(escape->native_swapchain_image_format());
+                translated.depth_format = VK_FORMAT_UNDEFINED;
+                translated.frames_in_flight = frames->slot_count();
+                this->core = info.core;
                 // GLFW is linked statically into each image. The host's glfwInit() does not
                 // initialize this plugin's copy, whose queries otherwise return zero sizes/scale.
                 if (!glfwInit()) {
@@ -213,14 +227,24 @@ namespace deren::vulkan::gui {
             void new_frame() const override {
                 this->content.new_frame();
             }
-            void record(void* native_command_buffer) override {
-                this->content.record(static_cast<VkCommandBuffer>(native_command_buffer));
+            void record(deren::promise::rhi::command_buffer& commands) override {
+                if (this->core == nullptr) {
+                    return;
+                }
+                auto* const escape = deren::promise::rhi::query_extension<deren::promise::rhi::vulkan_escape>(*this->core);
+                auto const native = escape != nullptr ? static_cast<VkCommandBuffer>(escape->native_command_buffer(commands)) : VK_NULL_HANDLE;
+                if (native == VK_NULL_HANDLE) {
+                    deren::utility::log("gui plugin: the command buffer does not belong to this device");
+                    return;
+                }
+                this->content.record(native);
             }
             void on_swapchain_recreated() const override {
                 this->content.on_swapchain_recreated();
             }
 
         private:
+            deren::promise::rhi::api_core* core = nullptr;
             gui_content content;
             bool platform_ready = false;
             /// the adapters, one per `add_panel` (see the type's note: a deque, because the host keeps
@@ -239,11 +263,14 @@ extern "C" DEREN_API_EXPORT std::shared_ptr<deren::gui::overlay> deren_make_gui(
         deren::utility::log("gui plugin: the create_info was null");
         return {};
     }
+    if (info->struct_size < sizeof(deren::gui::create_info)) {
+        deren::utility::log("gui plugin: the create_info prefix is too short for ABI2");
+        return {};
+    }
     std::shared_ptr<deren::gui::overlay> overlay = std::make_shared<deren::vulkan::gui::overlay_adapter>();
     if (!overlay->init(*info)) {
         return {};
     }
-    deren::utility::log("gui plugin: deren_gui_vulkan is up (api_type {}, frames in flight {})",
-                        static_cast<std::uint32_t>(info->api), info->frames_in_flight);
+    deren::utility::log("gui plugin: deren_gui_vulkan is up (api_type {})", static_cast<std::uint32_t>(info->api));
     return overlay;
 }

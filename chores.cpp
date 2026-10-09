@@ -8,7 +8,6 @@ module;
 // 'call to operator new is ambiguous' at allocate.h. Textually including glm here (the same
 // trick vulkan/animation/controller.cpp uses) makes clang merge the two copies, so
 // the allocator instantiations resolve. Do not remove this include to "clean up".
-#include "promise/gui/gui_entry.hpp"
 
 #include <array>
 #include <glm/glm.hpp>
@@ -16,6 +15,8 @@ module;
 #include <span>
 
 module deren.chores;
+
+import deren.promise.gui;
 
 namespace deren::chores {
     // Resolve the startup config in one step: merge config file + argv into the app settings,

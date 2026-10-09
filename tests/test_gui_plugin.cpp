@@ -1,10 +1,15 @@
 // Plugin acquisition must initialize or refuse, rather than hand out an inactive overlay.
-#include "../promise/gui/gui_entry.hpp"
 #include "vk_test.h"
 
 #include <string>
 
+import deren.promise.gui;
+
 import deren.utility.dynamic_link;
+
+#include "../promise/gui/gui_entry.hpp"
+
+static_assert(deren::gui::gui_abi_version == 2u, "GUI recording must use the RHI command buffer boundary");
 
 int main() {
     auto library = deren::utility::dynamic_link::load(VR_GUI_PLUGIN_DLL);
@@ -29,5 +34,10 @@ int main() {
     CHECK(!entry(deren::gui::gui_abi_version, &info));
     info.api = deren::gui::api_type::vulkan;
     CHECK(!entry(deren::gui::gui_abi_version, &info)); // no window
+    CHECK(info.core == nullptr);
+    info.window = reinterpret_cast<decltype(info.window)>(std::uintptr_t{1});
+    CHECK(!entry(deren::gui::gui_abi_version, &info)); // reject absent device before using the window
+    info.struct_size = sizeof(info) - 1;
+    CHECK(!entry(deren::gui::gui_abi_version, &info)); // truncated ABI2 descriptor
     return deren::vk_test::finish("test_gui_plugin");
 }

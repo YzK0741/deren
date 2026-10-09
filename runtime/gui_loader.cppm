@@ -21,17 +21,14 @@ module;
 #include <string>
 #include <string_view>
 
-// THE BOUNDARY HEADER BELONGS TO THE GLOBAL MODULE FRAGMENT, for the reason the plugin's own file records:
-// it declares `GLFWwindow` itself and it pulls standard headers in, so including it inside the module purview
-// attaches all of that to the module (clang reports both as errors - "declaration ... follows declaration in
-// the global module" and "attaches the declarations to the named module"). It names only its own types, which
-// is what lets it sit here.
-#include "../promise/gui/gui_entry.hpp"
-
 export module deren.vulkan.gui_loader;
+
+export import deren.promise.gui;
 
 import deren.utility;              // executable_directory() + the named-diagnosis channel
 import deren.utility.dynamic_link; // the mechanism: open the image, resolve the symbol
+
+#include "../promise/gui/gui_entry.hpp"
 
 namespace {
     /// The ONE symbol a GUI plugin exports (promise/gui/gui_entry.hpp).

@@ -35,9 +35,10 @@ module;
 // deren_gui_<api>.dll the loader resolves by name. In the GLOBAL MODULE FRAGMENT because the header
 // forward-declares GLFWwindow itself (the plugin's own file records the clang refusal that punishes the
 // other placement).
-#include "../promise/gui/gui_entry.hpp"
 
 export module deren.vulkan.runtime:declarations;
+
+export import deren.promise.gui;
 
 import deren.vulkan.profiling;
 import deren.vulkan.pass;                       // the pass framework: the host the runner talks to, and the stage runner
@@ -2940,7 +2941,7 @@ namespace deren::vulkan {
          */
         static void draw_overlay_after(void* owner, deren::promise::rhi::command_buffer& commands);
         /** @brief the overlay, when it should draw into @p command_buffer (inside the caller's instance) */
-        void record_overlay_if_enabled(VkCommandBuffer command_buffer);
+        void record_overlay_if_enabled(rhi::command_buffer& commands);
         /** @brief transition @p image to SHADER_READ_ONLY (a barrier must not be recorded inside a
          *         rendering instance, so this is always called before vkCmdBeginRendering)
          *  @note the only caller left is the HDR target's transition before the post chain - the one transition the

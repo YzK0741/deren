@@ -3283,11 +3283,9 @@ namespace deren::vulkan {
                                                                        .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
     }
 
-    void runtime::record_overlay_if_enabled(VkCommandBuffer const command_buffer) {
+    void runtime::record_overlay_if_enabled(rhi::command_buffer& commands) {
         if (this->debug_gui_shown && this->debug_overlay != nullptr && this->debug_overlay->is_active()) {
-            // THE RECORDING HANDLE CROSSES AS `void*` FOR NOW (the entry header says why): the plugin casts it
-            // back to `VkCommandBuffer`, so the conversion lives on the side that knows what it is.
-            this->debug_overlay->record(command_buffer);
+            this->debug_overlay->record(commands);
         }
     }
 
@@ -3347,7 +3345,7 @@ namespace deren::vulkan {
         // recorder - which is not a contract consumer - receives the native handle derived HERE, once, through the
         // same unwrap path every other raw step uses.
         runtime& self = *static_cast<runtime*>(owner);
-        self.record_overlay_if_enabled(self.native_handle(commands));
+        self.record_overlay_if_enabled(commands);
     }
 
     // =============================================================================================

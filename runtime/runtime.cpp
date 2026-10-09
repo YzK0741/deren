@@ -18,9 +18,10 @@ module;
 // and the host share. In the GLOBAL MODULE FRAGMENT because the header declares `GLFWwindow` itself and pulls
 // standard headers in - inside the module purview it would make the module redeclare names the global module
 // already has (the trap the plugin's own file records).
-#include "../promise/gui/gui_entry.hpp"
 
 module deren.vulkan.runtime;
+
+import deren.promise.gui;
 
 import deren.vulkan.profiling;
 import deren.vulkan.pipelines;
@@ -522,16 +523,7 @@ namespace deren::vulkan {
         deren::gui::create_info info = {};
         info.api = deren::gui::api_type::vulkan;
         info.window = static_cast<GLFWwindow*>(this->create_options.native_window);
-        // THE HANDLES CROSS AS `void*` (see the entry header): the plugin is the side that knows they are
-        // Vulkan ones, and typing them here would put `VkDevice` in a header the engine half includes.
-        info.instance = this->escape().native_instance();
-        info.physical_device = this->escape().native_physical_device();
-        info.device = runtime_detail::native_device_of(vk);
-        info.graphics_queue_family = static_cast<std::uint32_t>(this->graphics_queue_family_index);
-        info.graphics_queue = runtime_detail::native_queue_of(vk);
-        info.color_format = this->escape().native_swapchain_image_format();
-        info.depth_format = static_cast<std::uint32_t>(rhi::image_format::unknown); // the post/gui pass has no depth attachment
-        info.frames_in_flight = this->frame_ring().slot_count();
+        info.core = &vk;
         this->debug_overlay = deren::vulkan::load_gui(info);
         if (this->debug_overlay == nullptr) {
             deren::utility::log("gui overlay: no plugin answered (the loader's own line says which step failed) - the overlay stays off");
