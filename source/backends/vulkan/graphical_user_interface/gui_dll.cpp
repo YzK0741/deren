@@ -11,6 +11,8 @@
 // ============================================================================
 module;
 
+#include "panel_adapter_storage.hpp"
+
 #include <GLFW/glfw3.h>
 #include <cstdint>
 #include <deque>
@@ -104,8 +106,7 @@ namespace deren::vulkan::gui {
 
         private:
             /// Append @p item to the panel and hand back a STABLE adapter for it: the adapters live in a deque
-            /// because the host keeps the returned reference across later `add_*` calls (the same reason the
-            /// overlay keeps its panel adapters in one).
+            /// because the host keeps the returned reference across later `add_*` calls.
             deren::gui::widget& keep(std::unique_ptr<deren::vulkan::gui::widget> item) {
                 widget* const raw = item.get();
                 this->panel->push_back(std::move(item));
@@ -118,8 +119,8 @@ namespace deren::vulkan::gui {
         };
 
         /// THE OVERLAY, AS THE BOUNDARY SPEAKS IT: one `gui_content` (unchanged) plus the panel adapters this
-        /// plugin hands out. THE ADAPTERS LIVE IN A DEQUE because a `deren::gui::panel&` the host keeps has to
-        /// stay valid across later `add_panel` calls (a vector would move it).
+        /// plugin hands out. Each panel adapter lives in its own owned list node, so a retained
+        /// `deren::gui::panel&` stays valid when other panels are added or removed.
         class overlay_adapter final : public deren::gui::overlay {
         public:
             ~overlay_adapter() override {
@@ -247,9 +248,8 @@ namespace deren::vulkan::gui {
             deren::promise::rhi::api_core* core = nullptr;
             gui_content content;
             bool platform_ready = false;
-            /// the adapters, one per `add_panel` (see the type's note: a deque, because the host keeps
-            /// references past later calls)
-            std::deque<panel_adapter> panels;
+            /// One stable owned node per panel; erasure destroys only the removed adapter.
+            detail::panel_adapter_storage<panel_adapter> panels;
         };
     } // namespace
 } // namespace deren::vulkan::gui
