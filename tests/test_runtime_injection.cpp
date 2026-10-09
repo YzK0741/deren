@@ -92,11 +92,31 @@ namespace {
         std::string const command = "\"" + std::string{self} + "\" " + flag;
         std::wstring const wide(command.begin(), command.end());
 
+        // THE CHILD'S OWN OUTPUT IS CAPTURED, because in a Debug build that is the only place its
+        // diagnostics go (see last_panic): the sink writes to stdout/stderr there, and to debug.log with
+        // NDEBUG. The handle has to be inheritable and the process created with bInheritHandles = TRUE
+        // for the redirection to apply.
+        SECURITY_ATTRIBUTES inherited{};
+        inherited.nLength = sizeof(inherited);
+        inherited.bInheritHandle = TRUE;
+        HANDLE const capture = CreateFileW(L"child_output.txt", GENERIC_WRITE, FILE_SHARE_READ, &inherited,
+                                           CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
         STARTUPINFOW startup{};
         startup.cb = sizeof(startup);
+        if (capture != INVALID_HANDLE_VALUE) {
+            startup.dwFlags = STARTF_USESTDHANDLES;
+            startup.hStdOutput = capture;
+            startup.hStdError = capture;
+            startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+        }
         PROCESS_INFORMATION child{};
-        if (CreateProcessW(nullptr, const_cast<wchar_t*>(wide.c_str()), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
-                           &startup, &child) == FALSE) {
+        BOOL const spawned =
+            CreateProcessW(nullptr, const_cast<wchar_t*>(wide.c_str()), nullptr, nullptr,
+                           capture != INVALID_HANDLE_VALUE ? TRUE : FALSE, 0, nullptr, nullptr, &startup, &child);
+        if (capture != INVALID_HANDLE_VALUE) {
+            CloseHandle(capture); // the child holds its own reference now
+        }
+        if (spawned == FALSE) {
             deren::vk_test::write_line("injection: could not spawn the child for {} (error {})", flag, GetLastError());
             return {}; // ran == false: the call site fails, and it fails for the right reason
         }
@@ -114,10 +134,10 @@ namespace {
         return outcome;
     }
 
-    /// The LAST panic message in this directory's debug.log (the sink flushes before it terminates).
-    [[nodiscard]] std::string last_panic() {
+    /// The whole of a file in this directory, or an empty string when it does not exist.
+    [[nodiscard]] std::string read_file(wchar_t const* const name) {
         std::string text;
-        HANDLE const file = CreateFileW(L"debug.log", GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+        HANDLE const file = CreateFileW(name, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                                         OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (file == INVALID_HANDLE_VALUE) {
             return text;
@@ -128,6 +148,23 @@ namespace {
             text.append(buffer, read);
         }
         CloseHandle(file);
+        return text;
+    }
+
+    /// The LAST panic message the child that just ran produced - searched across BOTH places this
+    /// build's sink can have put it.
+    ///
+    /// WHERE A PANIC LANDS IS A BUILD-TYPE DECISION and the test has to follow it instead of assuming
+    /// one. With `NDEBUG` the process-wide sink rotates and appends to `debug.log` (and error_text goes
+    /// to the log thread); WITHOUT it - which is what the CI sanitizer job builds, Debug - there is no
+    /// log file at all: `log()` writes to stdout and `error_text` writes to stderr. So the child's own
+    /// output is captured to `child_output.txt` (see run_child) and both are read; exactly one of them
+    /// is fresh per spawn, so the last marker in either is that child's message. Reading only
+    /// `debug.log` made these three checks pass in Release and fail in a Debug tree for a reason that
+    /// has nothing to do with the handshake they are about (measured: the sanitizer job's ctest).
+    [[nodiscard]] std::string last_panic() {
+        std::string text = read_file(L"debug.log");
+        text += read_file(L"child_output.txt");
         std::string const marker = "[ERROR] error info: ";
         std::size_t const at = text.rfind(marker);
         return at == std::string::npos ? std::string{} : text.substr(at + marker.size());
