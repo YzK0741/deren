@@ -811,7 +811,8 @@ namespace deren::vulkan {
                // AND THE DEVICE'S OWN FACTS, SERVABLE THE MOMENT THE DEVICE EXISTS (a device with no mesh shader
                // ANSWERS false - that is an answer, not an unserved ability), which is why this bit carries no
                // device condition while the two above it do.
-               rhi::to_bits(rhi::extension_kind::device_capabilities);
+               rhi::to_bits(rhi::extension_kind::device_capabilities) |
+               (this->ray_tracing_pipeline_available ? rhi::to_bits(rhi::extension_kind::shader_group_access) : 0u);
     }
 
     bool core::frame_heap::ready() const noexcept {
@@ -1058,6 +1059,9 @@ namespace deren::vulkan {
             // ability is answerable once the device exists (a device with no mesh shader answers false), so no
             // device fact can make it unserved.
             return &this->capabilities_view;
+        }
+        if (kind == rhi::extension_kind::shader_group_access && this->ray_tracing_pipeline_available) {
+            return &this->shader_groups_view;
         }
         return nullptr;
     }
@@ -1438,6 +1442,10 @@ namespace deren::vulkan {
     }
 
     void core::owned_pipeline::release() noexcept {
+        if (this->owner != nullptr) {
+            std::lock_guard const lock(this->owner->contract_pipelines_mutex);
+            this->owner->contract_pipelines.erase(this);
+        }
         delete this;
     }
 
@@ -1581,6 +1589,11 @@ namespace deren::vulkan {
             return nullptr;
         }
         auto* const answer = new owned_pipeline();
+        answer->owner = this;
+        {
+            std::lock_guard const lock(this->contract_pipelines_mutex);
+            this->contract_pipelines.insert(answer);
+        }
         answer->owned.emplace(std::move(pipeline.value()));
         answer->native_handle = answer->owned->get_pipeline();
         return answer;
@@ -1648,6 +1661,11 @@ namespace deren::vulkan {
             return nullptr;
         }
         auto* const answer = new owned_pipeline();
+        answer->owner = this;
+        {
+            std::lock_guard const lock(this->contract_pipelines_mutex);
+            this->contract_pipelines.insert(answer);
+        }
         // THE MODULE DIES WITH THIS CALL, the pipeline does not: a VkShaderModule is only needed while the
         // pipeline is being created, and holding one per pipeline would keep N modules alive for nothing. The
         // RAII wrapper above destroys it when this function returns, whatever the path out.
@@ -1822,9 +1840,15 @@ namespace deren::vulkan {
             return nullptr;
         }
         auto* const answer = new owned_pipeline();
+        answer->owner = this;
+        {
+            std::lock_guard const lock(this->contract_pipelines_mutex);
+            this->contract_pipelines.insert(answer);
+        }
         answer->owned.emplace(pipeline, this->logical_device);
         answer->native_handle = pipeline;
         answer->bind_point = VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR;
+        answer->group_count = info.groupCount;
         return answer;
     }
 
@@ -4007,6 +4031,31 @@ namespace deren::vulkan {
         // second opinion about the layout - and a caller that sized it wrong gets a failed call rather than a
         // truncated write.
         return query(self->logical_device, static_cast<VkPipeline>(native), first_group, group_count, out.size(), out.data()) == VK_SUCCESS;
+    }
+
+    rhi::error core::frame_shader_group_access::read(rhi::pipeline const& resource, std::uint32_t const first_group,
+                                                     std::uint32_t const group_count, std::span<std::uint8_t> const out) const noexcept {
+        if (this->owner == nullptr || !this->owner->ray_tracing_pipeline_available) {
+            return rhi::error::unsupported;
+        }
+        core& self = *this->owner;
+        std::lock_guard const lock(self.contract_pipelines_mutex);
+        if (!self.contract_pipelines.contains(&resource)) {
+            return rhi::error::invalid_argument;
+        }
+        auto const& owned = static_cast<owned_pipeline const&>(resource);
+        std::uint64_t const required = static_cast<std::uint64_t>(group_count) * self.ray_tracing_pipeline_properties.shaderGroupHandleSize;
+        if (owned.bind_point != VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR || group_count == 0 ||
+            first_group >= owned.group_count || group_count > owned.group_count - first_group || required == 0 || required > out.size()) {
+            return rhi::error::invalid_argument;
+        }
+        auto const query = reinterpret_cast<PFN_vkGetRayTracingShaderGroupHandlesKHR>(vkGetDeviceProcAddr(self.logical_device, "vkGetRayTracingShaderGroupHandlesKHR"));
+        if (query == nullptr) {
+            return rhi::error::unsupported;
+        }
+        VkResult const result = query(self.logical_device, owned.native_handle, first_group, group_count,
+                                      static_cast<std::size_t>(required), out.data());
+        return generic_error(result);
     }
 
     // ---- tier-2 host_image_copy (③-D/E step 2) ------------------------------------------------------

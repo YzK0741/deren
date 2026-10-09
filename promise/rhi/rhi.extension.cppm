@@ -112,6 +112,7 @@ export namespace deren::promise::rhi {
         /// acceleration-structure numbers - while the BACKEND had already made the same queries to decide what
         /// to enable. Asking it is both the smaller code and the only shape a second backend can serve.
         device_capabilities = 1u << 6,
+        shader_group_access = 1u << 7, ///< portable SBT group data for a pipeline
     };
 
     /// What `api_core::abilities()` returns: a set of `extension_kind` bits.
@@ -139,7 +140,7 @@ export namespace deren::promise::rhi {
         return to_bits(extension_kind::device_address) | to_bits(extension_kind::descriptor_heap) |
                to_bits(extension_kind::mesh_shader) |
                to_bits(extension_kind::host_image_copy) | to_bits(extension_kind::vulkan_escape) |
-               to_bits(extension_kind::device_capabilities);
+               to_bits(extension_kind::device_capabilities) | to_bits(extension_kind::shader_group_access);
     }
 
     /// The same seven, as a LIST: what a gate walks to check one bit at a time.
@@ -147,14 +148,14 @@ export namespace deren::promise::rhi {
     /// `all_abilities()` is the set as a bitmask; this is the enumeration the consistency gates and
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
-    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 6> {
+    [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 7> {
         return {extension_kind::device_address, extension_kind::descriptor_heap, extension_kind::mesh_shader,
                 extension_kind::host_image_copy, extension_kind::vulkan_escape,
-                extension_kind::device_capabilities};
+                extension_kind::device_capabilities, extension_kind::shader_group_access};
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");
-    static_assert(all_abilities() == 0x77u, "six abilities now: `ray_tracing` (bit 3 = 0x08) is RETIRED in abi 26 and a retired bit is never reused");
+    static_assert(all_abilities() == 0xF7u, "seven active abilities: `ray_tracing` (bit 3 = 0x08) is RETIRED in abi 26 and a retired bit is never reused");
 
     /// The common root of the tier-2 abilities.
     ///
@@ -198,6 +199,22 @@ export namespace deren::promise::rhi {
         /// The device address of `resource`, `offset` bytes into it; 0 when the buffer was not created
         /// with `buffer_flag::device_address` (the caller asked for no address, so there is none to give).
         [[nodiscard]] virtual std::uint64_t buffer_address(buffer const& resource, std::uint64_t offset) const noexcept = 0;
+    };
+
+    /// Backend-specific SBT record bytes queried through a portable pipeline operand.
+    /// Record size comes from device_capabilities::shader_binding_table(). Zero groups,
+    /// out-of-range groups, insufficient output and foreign/non-RT pipelines are invalid_argument.
+    struct shader_group_access : extension {
+        static constexpr interface_type interface_id = interface_type::shader_group_access;
+        static constexpr extension_kind extension_id = extension_kind::shader_group_access;
+        shader_group_access() noexcept
+            : extension(interface_id) {
+        }
+        [[nodiscard]] extension_kind kind() const noexcept final {
+            return extension_id;
+        }
+        [[nodiscard]] virtual error read(pipeline const& resource, std::uint32_t first_group,
+                                         std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept = 0;
     };
 
     /// 可选的bindless heap服务；使用通用资源/地址/命令语义。原生参数只能显式放在next中。
@@ -525,6 +542,8 @@ export namespace deren::promise::rhi {
             return interface_type::vulkan_escape;
         case extension_kind::device_capabilities:
             return interface_type::device_capabilities;
+        case extension_kind::shader_group_access:
+            return interface_type::shader_group_access;
         }
         return interface_type::unknown;
     }

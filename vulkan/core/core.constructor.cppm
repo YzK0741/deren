@@ -319,6 +319,7 @@ namespace deren::vulkan {
         // which gated the MESH path off (measured: 'pipeline pbr has no mesh stage to build from' - the vertex
         // form is gone, so the app cannot start at all).
         this->capabilities_view.owner = this;
+        this->shader_groups_view.owner = this;
         this->frame_command_buffers.reserve(static_cast<std::size_t>(MAX_FRAMES_IN_FLIGHT));
         for (int32_t slot = 0; slot < MAX_FRAMES_IN_FLIGHT; ++slot) {
             // EACH ONE BRINGS ITS OWN POOL: make_command_buffer() creates a pool per buffer (see

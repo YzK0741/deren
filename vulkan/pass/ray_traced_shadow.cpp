@@ -99,22 +99,7 @@ namespace deren::vulkan::pass {
         //      group handles are per-pipeline data, and the STRIDE is a property of the device rather than a
         //      constant. Here a handle is 32 bytes while a region's address must be 64-byte aligned, so using the
         //      handle size as the stride is exactly the first-attempt VUID this pass would otherwise hit.
-        //      THE DEVICE TRAVELS AS `api_basis` (abi 22), the contract's tagged, interface-free token: the fact
-        //      below is a DEVICE QUERY rather than an object, so it goes through the escape - and the pass never
-        //      names a `VkDevice` at all. `pass::device_basis` is the token and `pass::shader_group_handles` asks
-        //      the device for the SBT's own handles. (THE LAUNCH IS NO LONGER ONE OF THESE - abi 24 made it
-        //      `command_buffer::trace_rays`, and the backend owns the `vkCmdTraceRaysKHR` pointer, which is why
-        //      this file resolves no entry point and includes no Vulkan header.)
-        deren::promise::rhi::api_basis* const basis = pass::device_basis(context.face);
-        if (basis == nullptr) {
-            deren::utility::log("ray-traced shadows unavailable: the face publishes no basis to resolve the trace entry points on");
-            this->release_owned();
-            return;
-        }
-        // The LAUNCH ENTRY POINT IS NO LONGER RESOLVED HERE (abi 24): the recording face owns it
-        // (`command_buffer::trace_rays`, implemented against the entry point the BACKEND resolved once at
-        // startup), so `record` calls the contract verb and this create() has nothing to keep. The group-handle
-        // query is still asked through the basis, where it is used.
+        //      Group bytes use the RHI pipeline; launch uses command_buffer::trace_rays.
         uint32_t const handle_size = context.ray_tracing_properties.handle_size;
         uint32_t const handle_alignment = context.ray_tracing_properties.handle_alignment;
         uint32_t const base_alignment = context.ray_tracing_properties.base_alignment;
@@ -128,7 +113,7 @@ namespace deren::vulkan::pass {
         std::vector<uint8_t> handles(static_cast<size_t>(group_count) * handle_size);
         // THE SBT QUERY, through the basis (abi 22): `out.size()` is the query's dataSize, and the pipeline is
         // the CONTRACT object the backend turns into its own native handle - so this file names neither.
-        if (!pass::shader_group_handles(context.face, *basis, *this->pass_pipeline->contract, 0, group_count, std::span<std::uint8_t>(handles))) {
+        if (!pass::shader_group_handles(context.face, *this->pass_pipeline->contract, 0, group_count, std::span<std::uint8_t>(handles))) {
             deren::utility::log("ray-traced shadows unavailable: the shader group handles could not be read back");
             this->release_owned();
             return;

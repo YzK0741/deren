@@ -39,7 +39,6 @@ module;
 #include <span>
 #include <string_view>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass;
 
@@ -366,52 +365,15 @@ export namespace deren::vulkan::pass {
         deren::promise::rhi::pipeline* contract = nullptr;
     };
 
-    /**
-     * @brief THE BASIS a face's basic handles belong to, and the two calls that take it back (abi 22).
-     *
-     * WHY A PASS NEEDS THIS AT ALL: the pass layer stopped taking a `VkDevice` in its context (the pipeline
-     * builders are contract factories and not one of them read it), but TWO FACTS still need the device itself,
-     * and both are ALLOCATED ENTRY POINTS rather than objects: `vkGetDeviceProcAddr` to resolve an extension
-     * command, and the shader-binding-table handle query (`vkGetRayTracingShaderGroupHandlesKHR`). Neither can be
-     * spelled with the contract's vocabulary, so they go through the escape - and the DEVICE travels as
-     * `rhi::api_basis`, the contract's tagged, interface-free token: a pass never names a `VkDevice`, it obtains
-     * the basis from the face once and hands it back to the backend for each call (see `api_basis`'s note for why
-     * the token carries no handle and no methods).
-     *
-     * THE LAUNCH IS NO LONGER ONE OF THEM (abi 24): `command_buffer::trace_rays` is the recording face's verb and
-     * the BACKEND owns the `vkCmdTraceRaysKHR` pointer, so `pass::native_commands` - the raw-command-buffer
-     * helper that stood here for exactly that site - has no callers left and is deleted rather than kept "in case".
-     *
-     * ALL OF THEM ANSWER "NOTHING" RATHER THAN CASTING A FOREIGN POINTER: a face that does not announce
-     * `vulkan_escape` (a non-Vulkan backend) has no device at all, and the caller then records nothing instead of
-     * mis-casting.
-     */
-    [[nodiscard]] inline deren::promise::rhi::api_basis* device_basis(deren::promise::rhi::api_core* const face) noexcept {
-        if (face == nullptr) {
-            return nullptr;
-        }
-        auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
-            face->query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
-        if (escape == nullptr) {
-            return nullptr;
-        }
-        return escape->get_basis();
-    }
-
-    /// @brief the shader-binding-table groups of a ray-tracing pipeline, through the same basis: the ONE device
-    ///        fact a pass cannot ask the contract for (the SBT's layout stays native - see `api_basis`)
-    [[nodiscard]] inline bool shader_group_handles(deren::promise::rhi::api_core* const face, deren::promise::rhi::api_basis& basis,
+    /// Read the pipeline's SBT group bytes through the optional RHI service.
+    [[nodiscard]] inline bool shader_group_handles(deren::promise::rhi::api_core* const face,
                                                    deren::promise::rhi::pipeline const& handle, std::uint32_t const first_group,
                                                    std::uint32_t const group_count, std::span<std::uint8_t> const out) noexcept {
         if (face == nullptr) {
             return false;
         }
-        auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
-            face->query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
-        if (escape == nullptr) {
-            return false;
-        }
-        return escape->shader_group_handles(basis, handle, first_group, group_count, out);
+        auto* const groups = deren::promise::rhi::query_extension<deren::promise::rhi::shader_group_access>(*face);
+        return groups != nullptr && groups->read(handle, first_group, group_count, out) == deren::promise::rhi::error::ok;
     }
 
     /**
@@ -494,12 +456,7 @@ export namespace deren::vulkan::pass {
         /// `rhi::api_core&` of the backend the pass was created against, so a call through it emits no
         /// backend symbol. Null only before the owner fills it.
         ///
-        /// THERE IS NO `VkDevice` HERE ANY MORE (abi 21): every pipeline builder is a contract factory that
-        /// takes this face alone, and the one fact the pass layer still needs a device FOR - the SBT handle query
-        /// (`vkGetRayTracingShaderGroupHandlesKHR`) - is reached through the escape, exactly as the raw command
-        /// buffer is: `pass::device_basis` hands out the contract's tagged `rhi::api_basis` token, and
-        /// `pass::shader_group_handles` takes it back. (The LAUNCH is no longer one of these: abi 24 made it the
-        /// recording face's verb, and the entry point lives in the backend.)
+        /// SBT data is queried through shader_group_access; no native device token is needed.
         deren::promise::rhi::api_core* face = nullptr;
         /// the swapchain's format in the contract's spelling (the passes that render into it name it
         /// through the pipeline descriptors now)

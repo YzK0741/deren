@@ -1,7 +1,7 @@
 # progress.md — 原生句柄退出（图形 API 走 RHI）进展
 
 > 更新日期：2026-10-09（继续接手 X5）。
-> **最新核验：X5 已修复接手 WIP，并完成索引、无用头文件和 RT 回调迁移。完整构建、CTest 19/19、冻结渲染 14/14、严格 RT 与格式检查通过；原生词汇剩 5 个引擎文件，Vulkan 符号与图形 API 导入均为 0。X5 尚未全部完成。**
+> **最新核验：X5 已修复接手 WIP，并完成索引、无用头文件和 RT 回调迁移。完整构建、CTest 19/19、冻结渲染 14/14、严格 RT 与格式检查通过；原生词汇剩 4 个引擎文件，Vulkan 符号与图形 API 导入均为 0。X5 尚未全部完成。**
 > 计划与验收定义在 [`docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md`](docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md)，逐批的详细记录在 [`docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md`](docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md)。
 
 
@@ -32,7 +32,16 @@ MASK 与蒙皮回调直接传递 `rhi::command_buffer&`，运行时核对本帧�
 
 堆绑定和 push-data 直接传 `rhi::command_buffer`，删除临时 Vulkan next 链和四处 push 的原生句柄转换。帧录制开始仅检查契约缓冲；删除无调用者的 `scene_target_image/view` 及声明。runtime 大小与偏移统一为 `std::uint64_t`。RHI ABI 27、GPU 数据布局及图像基准不变。
 
-完整构建、CTest **19/19**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过；边界词汇仍为 **5** 个文件，符号/导入均为 **0**。日志前缀 `x5-heap-contract-*`。短期额度最新成功查询剩 **69%**；25% 停止要求保留。
+完整构建、CTest **19/19**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过；边界词汇仍为 **5** 个文件，符号/导入均为 **0**。日志前缀 `x5-heap-contract-*`。短期额度最新成功查询剩 **69%**；用户已将停止要求改为短期额度剩余 **5%** 时停止并汇报。
+
+
+### X5 第五批：SBT 查询迁入契约
+
+新增可选 `shader_group_access` 能力（新 bit 7、新接口 0x107；不复用已退役 ray_tracing 位）。读入 RHI 管线与组范围，输出 SBT record bytes；后端核实活跃管线归属、RT 类型、组边界及缓冲大小，再执行原生查询。pass 删除 basis token 与最后一个 Vulkan 头；旧 escape 方法保留兼容。既有 vtable 未变化，RHI ABI 仍为 27。
+
+先运行探针确认缺失新接口的编译失败，再实现服务。实际完整构建、CTest **19/19**、AS/RT 真 GPU 探针 **83/0**、严格 RT **PASS**、冻结渲染 **14/14**、格式检查通过；探针包含合法数据、四项范围/缓冲拒绝、外来管线拒绝以及与旧接口逐字节比较。日志前缀 `x5-sbt-*`。原生词汇文件 **5 → 4**。
+
+本批曾因磁盘耗尽导致 extension 源码写入不完整，已从已核验 HEAD 恢复，再完成迁移与全部门禁。只清理了当前构建目录可生成 actual 截图和九个历史 RT 副本的 CMakeFiles 缓存，释放约 8 GB；源码、冻结基准、实验日志与历史可执行文件保留。用户最新额度要求：剩余 **5%** 时停止并汇报。
 
 ---
 

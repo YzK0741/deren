@@ -76,10 +76,22 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
     if (properties.handle_size == 0 || properties.base_alignment == 0) { return; }
     std::uint32_t const stride = ((properties.handle_size + properties.base_alignment - 1) / properties.base_alignment) * properties.base_alignment;
     std::vector<std::uint8_t> handles(3u * properties.handle_size);
-    auto* const basis = escape.get_basis();
-    bool const queried = basis != nullptr && escape.shader_group_handles(*basis, *pipeline, 0, 3, handles);
+    auto* const group_access = rhi::query_extension<rhi::shader_group_access>(core);
+    CHECK(group_access != nullptr);
+    if (group_access == nullptr) { return; }
+    bool const queried = group_access->read(*pipeline, 0, 3, handles) == rhi::error::ok;
     CHECK(queried);
     if (!queried) { return; }
+    CHECK(group_access->read(*pipeline, 3, 1, handles) == rhi::error::invalid_argument);
+    CHECK(group_access->read(*pipeline, 0, 0, handles) == rhi::error::invalid_argument);
+    CHECK(group_access->read(*pipeline, 0, 3, std::span<std::uint8_t>{handles}.first(handles.size() - 1)) == rhi::error::invalid_argument);
+    CHECK(group_access->read(*pipeline, 0xFFFFFFFFu, 2, handles) == rhi::error::invalid_argument);
+    struct foreign_pipeline final : rhi::pipeline { void release() noexcept override {} } foreign;
+    CHECK(group_access->read(foreign, 0, 1, handles) == rhi::error::invalid_argument);
+    std::vector<std::uint8_t> legacy_handles(handles.size());
+    auto* const basis = escape.get_basis();
+    CHECK(basis != nullptr && escape.shader_group_handles(*basis, *pipeline, 0, 3, legacy_handles));
+    CHECK(handles == legacy_handles);
     rhi::object_manager<rhi::buffer> table{core.create_buffer({
         .size = 3u * stride + properties.base_alignment - 1u, .usage = rhi::buffer_usage::storage_coherent,
         .flags = rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::shader_binding_table),

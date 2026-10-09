@@ -695,6 +695,8 @@ namespace deren::vulkan {
         /// `make_pipeline` result (vertex input derived from the SPIR-V, the dynamic viewport/scissor
         /// state, the heap-native layout-less creation) wrapped in the contract's ownership.
         struct owned_pipeline final : deren::promise::rhi::pipeline {
+            core* owner = nullptr;
+            std::uint32_t group_count = 0;
             /// same optional rule as owned_shader
             std::optional<deren::vulkan::vk_pipeline> owned;
             /// the `VkPipeline`, cached at creation for the escape's borrow
@@ -809,6 +811,12 @@ namespace deren::vulkan {
             [[nodiscard]] std::uint64_t max_acceleration_structure_instances() const noexcept override;
         };
 
+        struct frame_shader_group_access final : deren::promise::rhi::shader_group_access {
+            core* owner = nullptr;
+            [[nodiscard]] deren::promise::rhi::error read(deren::promise::rhi::pipeline const& resource,
+                                                          std::uint32_t first_group, std::uint32_t group_count, std::span<std::uint8_t> out) const noexcept override;
+        };
+
         struct frame_heap final : deren::promise::rhi::descriptor_heap {
             core* owner = nullptr;
             [[nodiscard]] bool ready() const noexcept override;
@@ -866,6 +874,9 @@ namespace deren::vulkan {
         /// the tier-2 `device_capabilities` object `query_extension(device_capabilities)` answers with, and it
         /// is announced UNCONDITIONALLY because every method of it is answerable once the device exists
         frame_device_capabilities capabilities_view;
+        frame_shader_group_access shader_groups_view;
+        std::mutex contract_pipelines_mutex;
+        std::unordered_set<deren::promise::rhi::pipeline const*> contract_pipelines;
         /// the read-back slot's allocation and its cached handle / mapping / capacity: host-visible,
         /// host-coherent and TRANSFER_DST, grown on demand (see frame_readback_buffer())
         vk_buffer readback_slot_buffer;
