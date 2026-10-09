@@ -844,7 +844,7 @@ export namespace deren::vulkan {
     /** @brief depth attachment -> GENERAL, sampled read (the shadow map back to the
      *         main pass, and the G-buffer depth to everything that reconstructs from it).
      * @note BOTH consumer stages are named: the G-buffer images have had a COMPUTE consumer since the
-     *       screen-space GI passes started reading the stored surface directly (shaders/megalights_trace.slang
+     *       screen-space GI passes started reading the stored surface directly (source/shaders/megalights_trace.slang
      *       and megalights_temporal.comp name the gbuffer slots from a compute stage), and a layout transition
      *       has to name every stage that reads the image afterwards. */
     inline constexpr VkImageMemoryBarrier2 shadow_map_sampling_transition = {

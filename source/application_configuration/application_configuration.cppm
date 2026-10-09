@@ -139,8 +139,8 @@ namespace deren::app_config {
         // 20 / 42 / 50 for levels 0..4 (the continuous covered width is one texel less). 0 = OFF and
         // BIT-IDENTICAL to the shipped run: the character chain's one shadow lookup is the same single 3x3
         // hardware PCF it always had. The value rides `deren::vulkan::toon_rig`'s ninth lane and
-        // is read by the ONE shadow call site inside `toon_diffuse` in `shaders/character_forward.slang` -
-        // a body that `shaders/goo_toon.slang` and `shaders/outline.slang` call as well, so those stages
+        // is read by the ONE shadow call site inside `toon_diffuse` in `source/shaders/character_forward.slang` -
+        // a body that `source/shaders/goo_toon.slang` and `source/shaders/outline.slang` call as well, so those stages
         // carry the same code; `goo_toon.slang`'s OWN `calc_shadow` call (its `rs_shadow`) is untouched, and
         // at 0 the call site is the shipped `calc_shadow` itself. Float or integer; a non-integer is rounded,
         // anything outside 0..4 is clamped, a NaN is read as 0, and each case is logged separately (see
@@ -200,7 +200,7 @@ namespace deren::app_config {
         // experiment that says whether a flickering terminator is the ray re-hitting its own surface.
         float megalights_bias = 1.0f;
         // The emitter's ANGULAR radius in radians: the soft-shadow knob, and this feature's cure for a flickering
-        // hard shadow edge (see shaders/megalights_trace.slang's soft-shadow block). A point light's visibility is
+        // hard shadow edge (see source/shaders/megalights_trace.slang's soft-shadow block). A point light's visibility is
         // binary, so a shadow boundary crossing the pixel flips it; an emitter with size makes the answer the
         // fraction of the emitter the pixel sees, which moves gradually. DEFAULT 0 - hard shadows, the behaviour
         // this feature shipped with - because the soft look is a choice, not a fix: measured, it does NOT reduce
@@ -215,7 +215,7 @@ namespace deren::app_config {
         // Bake alphaMode MASK into the acceleration structures ([render] rt_mask_bake): a compute pass
         // collapses the triangles a material's alpha covers nowhere. This is the SUBSTITUTE for an any-hit
         // stage and the shipped path no longer needs it: the shadow runs on a ray-tracing pipeline whose
-        // any-hit shader cuts the mask per hit (shaders/rt_shadow.rahit). It stays because a knob is the only
+        // any-hit shader cuts the mask per hit (source/shaders/rt_shadow.rahit). It stays because a knob is the only
         // way to measure the arms against each other. OFF BY DEFAULT, because the measurement says the
         // per-triangle rule is not good enough to be on: on a MASK-heavy sample asset it removes triangles
         // the raster path's own filtered sampling keeps, and the frame comes out 1.29 of mean brightness
@@ -271,7 +271,7 @@ namespace deren::app_config {
          *
          * It only means anything below `render_scale = 1.0`, because at 1.0 the render chain IS the output and
          * nothing resolves anything. `easu` is FSR 1's edge-adaptive spatial upsampling (AMD's, MIT - see
-         * shaders/upscale.slang, which carries the license), and `linear` is the single bilinear tap that was
+         * source/shaders/upscale.slang, which carries the license), and `linear` is the single bilinear tap that was
          * the resolve's first version. Linear is KEPT rather than replaced because it is the reference the
          * FSR filter is measured against: the claim "EASU is closer to a native-resolution frame" is a number
          * between these two modes, and a mode deleted after the fact takes its own baseline with it.
@@ -511,7 +511,7 @@ namespace deren::app_config {
      *                      `scene_import_shift` puts the feet at `bounds.min.y - scene_center.y - scene_radius`
      *                      (see the key documentation above for the measured value and the cross-check)
      *
-     * The frozen derivation - `shaders/character_forward.slang` implements the other half of this contract, so
+     * The frozen derivation - `source/shaders/character_forward.slang` implements the other half of this contract, so
      * changing a formula here without changing it there (or the other way around) is a bug, not a tuning:
      *   half         = 0.5 * size                                (size <= 0 -> disabled)
      *   world_centre = scene_origin + position
@@ -542,7 +542,7 @@ namespace deren::app_config {
      * THESE ARE THE ARTICLE'S GLOBAL NUMBERS - the ones an artist tunes once for a whole character rather than per
      * material: the split between the sun and the head light the game rigs over every figure, what each of them
      * looks like on a surface's shadow side, and the strengths of the two environment terms. A FAMILY's numbers are
-     * NOT here (they are `shaders/toon_params.slang`, because two stages must agree about them) and a MATERIAL's
+     * NOT here (they are `source/shaders/toon_params.slang`, because two stages must agree about them) and a MATERIAL's
      * come from the sidecar beside the model.
      *
      * THE DEFAULTS ARE THE ARTICLE'S OWN VALUES, so a config that says nothing renders what this port was measured

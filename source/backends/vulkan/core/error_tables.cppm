@@ -10,7 +10,7 @@
 // attachment is a LINK-TIME fact: a consumer that imports the module needs that module's initializer
 // and its decorated symbols, and a DLL can serve those only by exporting its whole module surface -
 // while `deren_vulkan.dll` exports EXACTLY ONE name by design (source/promise/rhi/backend_entry.hpp). The
-// tables' unit test (tests/test_error_mapping.cpp) legitimately wants the REAL translators, and the
+// tables' unit test (source/tests/test_error_mapping.cpp) legitimately wants the REAL translators, and the
 // backend itself calls them (core.api_core.cpp, core.cpp), so the shape that serves both is the one
 // this repository already uses for `vulkan_constant_init`: a NEUTRAL MODULE OWNED BY A TARGET BOTH
 // SIDES LINK. Neither side has to be a DLL consumer of the other.

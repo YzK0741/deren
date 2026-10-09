@@ -15,9 +15,11 @@ the order the rest of the manual is written in, and where the generated referenc
 reference half of this PDF (module / topic / class / file documentation) is mechanical - it is the
 API surface, not the reasoning. The reasoning is in the pages below.
 
-The project was named `vulkan_render` until 2026-10-02. The C++ module namespaces still read
-`vulkan.*` and four doxygen groups still read `vulkan_render_*`; renaming them is a separate,
-still-open decision. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's own variable, not ours.
+The project was named `vulkan_render` until 2026-10-02. Portable modules and namespaces
+now use `deren.engine.*` and `deren::engine`; native Vulkan implementations retain
+`deren.vulkan.*` and `deren::vulkan`. Project code is under `source/`, with the engine
+in `source/engine/`, backend implementation in `source/backends/vulkan/`, and contracts
+in `source/promise/`. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's own variable.
 
 ## The dynamic API
 
@@ -42,13 +44,13 @@ One contract, and every graphics backend is an implementation of it.
 - **The run-time package is five images plus the C++ runtime.** Beside `deren.exe`:
   `deren_assets.dll` (glTF/GLB loading, linked through its import library so it loads before `main`),
   `deren_vulkan.dll`, `deren_gui_vulkan.dll` and `shared_utility.dll` (the process-wide log sink),
-  with `libc++.dll` and the build's compiled `shaders/` directory.
+  with `libc++.dll` and the build's compiled `source/shaders/` directory.
 - **Writing a second backend** means implementing `api_core`, exporting `deren_make_api_core` and
   answering with the abi number the contract declares. The executable is not rebuilt.
 
 Three instruments keep that true, and all three measure artifacts rather than prose:
-`scripts/check_native_boundary.py` (the executable's import table, the engine objects' unresolved
-symbols and the engine sources' vocabulary), `scripts/check_backend_boundary.py` (the symbol ratchet
+`source/scripts/check_native_boundary.py` (the executable's import table, the engine objects' unresolved
+symbols and the engine sources' vocabulary), `source/scripts/check_backend_boundary.py` (the symbol ratchet
 plus the whitelist) and the per-image checks in CI. Measured at this version: **0** graphics-API
 imports in `deren.exe`, **0** unresolved `vk*` symbols in the engine's objects, **0** engine sources
 naming the graphics API.
@@ -60,8 +62,8 @@ usually meets them. Each one links to the page or module that holds the detail.
 
 - **Deferred-only scene path.** The G-buffer path is the ONLY scene path; the forward one was
   removed. Every shading stage in the engine calls one function,
-  `shade_surface()` in `shaders/shading.glsl`, and shares the material-surface gather in
-  `shaders/surface.glsl`.
+  `shade_surface()` in `source/shaders/shading.glsl`, and shares the material-surface gather in
+  `source/shaders/surface.glsl`.
 - **Temporal anti-aliasing on a 1x G-buffer.** A Halton(2,3) projection jitter, per-pixel
   camera motion vectors written by the G-buffer, and a reprojected, neighborhood-clamped
   history with a view-depth disocclusion guard. TAA is the engine's anti-aliasing because a
@@ -72,7 +74,7 @@ usually meets them. Each one links to the page or module that holds the detail.
   selection blended across the boundary. A slot's cascades are re-rendered only when the
   fitted matrices, the caster world matrices, the uploaded skin matrices or a morph-scratch
   revision changed - the skip is byte-identical by construction.
-- **Clustered light culling.** `shaders/light_cluster.slang` sorts up to 128 punctual lights
+- **Clustered light culling.** `source/shaders/light_cluster.slang` sorts up to 128 punctual lights
   into a 64 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter
   per cluster. Measured with 64 lights the forward shading pass drops 1.28 -> 0.44 ms and
   the deferred lighting pass 0.25 -> 0.08 ms, with a byte-identical image.
@@ -172,7 +174,7 @@ you are free to recombine or rewire them.
   targets, cameras and punctual lights (KHR_lights_punctual); world-AABB + loader
   diagnostics
 - `deren.chores` - demo bootstrap helpers for main(): startup config analysis (config + argv
-  merge, shaders/model location), pipeline setup, instancing stress grid, shader loading
+  merge, source/shaders/model location), pipeline setup, instancing stress grid, shader loading
 - `deren.utility` - log/panic, handle distribution, thread pool (deren.utility:thread_pool), BVH, data
   blocks, frame_clock, pmr routing
 - `deren.app_config` - TOML startup configuration merged with argv
@@ -194,8 +196,8 @@ Use the modules as-is to extend this renderer (new pass / primitive strategy / l
 link only the ones you need into your own project.
 
 Module reference is grouped under the `vulkan_core`, `runtime`,
-`vulkan_scene_tree`, `vulkan_render_environment`, `vulkan_render_resource`,
-`vulkan_pass`, `vulkan_animation`, `vulkan_gui`, `vulkan_math`, `gltf_loader`, `chores`,
+`engine_scene_tree`, `engine_render_environment`, `engine_render_resource`,
+`engine_pass`, `engine_animation`, `vulkan_gui`, `engine_math`, `gltf_loader`, `chores`,
 `utility` and `app_config` groups; the GLSL / Slang shaders are collected under the
 `shaders` group (see the shader reference page for the pass chain, the shared scene set and
 the conventions).
@@ -218,16 +220,16 @@ G-buffer path is the only scene path, and the forward one is gone") - so everyth
 describes what the engine does rather than what it is becoming. **M1 (done)** is the
 G-buffer: the opaque pass stores the surface (albedo/metallic, world normal/roughness,
 material id/AO/flags) in three 1x targets, with a channel debug view. **M2 (done)** is the
-deferred lighting stage: `shaders/deferred.slang` shades every pixel from those targets and
+deferred lighting stage: `source/shaders/deferred.slang` shades every pixel from those targets and
 adds the result into the HDR target (sky where no geometry wrote depth), through
-`shade_surface()` - the SINGLE lighting entry point (`shaders/shading.glsl`) that every
+`shade_surface()` - the SINGLE lighting entry point (`source/shaders/shading.glsl`) that every
 shading stage in the engine now calls - with emissive added by the base pass and the
-material-surface gather shared in `shaders/surface.glsl`. While the forward path still
+material-surface gather shared in `source/shaders/surface.glsl`. While the forward path still
 existed the two were A/B references and agreed to 0.32/255 mean absolute luminance
 difference on Sponza; that number is a HISTORICAL measurement, not a current comparison -
 there is no longer a second path to compare against, the shared shading code simply IS the
 path. **M3 (done)** is temporal anti-aliasing on that path: a Halton(2,3) projection jitter,
-per-pixel camera motion vectors written by the G-buffer, and `shaders/taa.slang` resolving
+per-pixel camera motion vectors written by the G-buffer, and `source/shaders/taa.slang` resolving
 the jitter against a reprojected, neighborhood-clamped history (with a view-depth guard for
 disocclusions) - measured against the same frame without TAA, 1.05/255 mean difference with
 9% less high-frequency energy, and, as the measurement was taken at the time, the
@@ -237,7 +239,7 @@ pass fills a layered 2D-array depth map (1..4 cascades, three by default), each 
 fitting its own light-space box to its own slice of the view range (practical split scheme,
 lambda 0.75), with the fragment shader selecting its cascade per pixel from the view depth
 and blending across the boundary - one cascade is byte-identical to the pre-M4 single-map
-path. **M5 (done)** is clustered light culling: `shaders/light_cluster.slang` (the engine's
+path. **M5 (done)** is clustered light culling: `source/shaders/light_cluster.slang` (the engine's
 first compute pipeline, on the graphics queue) sorts up to 128 punctual lights into a 64
 px-tile x 16-exponential-depth-slice grid once per frame with one atomic counter per
 cluster, and the shading stage loops only its own cluster's list - measured with 64 lights,

@@ -469,7 +469,7 @@ namespace deren::engine {
         // THE HEAPS, BOUND ONCE FOR THE WHOLE FRAME (see descriptor_heap::record_bind): every stage is heap-native
         // now, so this is command-buffer state taken at the earliest point the frame has commands. THERE IS NO
         // PUSH HERE, and its absence is the design: the frame slot and the swapchain image travel INSIDE each
-        // stage's own push block (see shaders/heap_slots.glsl), which is what replaced the mapping shim's pushed
+        // stage's own push block (see source/shaders/heap_slots.glsl), which is what replaced the mapping shim's pushed
         // index - the binding is per frame, the indices are per stage.
         if (contract_heap_ready(vk)) {
             contract_record_heap_bind(vk, *recording_commands);
@@ -1377,7 +1377,7 @@ namespace deren::engine {
     // The G-buffer pass is the forward opaque pass with a different fragment stage: same vertex
     // stage, same primitives, same scene set, same instancing/skinning/morphing. What changes is
     // where the fragments go (three 1x targets + a 1x depth image instead of the scene color)
-    // and that nothing is lit - see shaders/gbuffer.slang.
+    // and that nothing is lit - see source/shaders/gbuffer.slang.
     std::expected<void, std::string> runtime::make_gbuffer_pipeline(std::span<uint8_t const> const fragment_shader_code,
                                                                     std::span<uint8_t const> const mesh_vertex_shader_code, std::span<uint8_t const> const meshlet_vertex_shader_code) {
         // ---- THE VERTEX FORM IS GONE (docs/mesh_shaders.md step 4): the G-buffer pass's surface write is fed by a

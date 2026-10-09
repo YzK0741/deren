@@ -16,8 +16,8 @@ module;
 /// both `deren_vulkan` and `deren_engine` (the shape `promise` proves), which is the only arrangement
 /// that cannot drift - two BMIs of one module name cannot both be visible to one TU.
 ///
-/// THE NUMBERS ARE MIRRORED IN shaders/heap_slots.glsl AND shaders/heap_slot_constants.glsl, and
-/// tests/test_render_resources.cpp holds the two sides equal by parsing BOTH files; that test's path
+/// THE NUMBERS ARE MIRRORED IN source/shaders/heap_slots.glsl AND source/shaders/heap_slot_constants.glsl, and
+/// source/tests/test_render_resources.cpp holds the two sides equal by parsing BOTH files; that test's path
 /// moved here with the grid.
 export module deren.engine.render_layout;
 
@@ -47,7 +47,7 @@ export namespace deren::engine::render_layout {
 
     /**
      * @brief formats of the G-buffer targets, in attachment order (= the fragment output locations
-     *        of shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
+     *        of source/shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
      *        - 0 RGBA8_UNORM: albedo.rgb (base color, linear) + metallic in a
      *        - 1 RGBA16F: world normal.xyz (no encoding - the conservative layout trades 4 bytes per
      *          pixel for not having to reason about octahedral precision) + roughness in a
@@ -117,7 +117,7 @@ export namespace deren::engine::render_layout {
      *       writes 64 B apart. A device whose largest descriptor exceeded it would make the grid ambiguous,
      *       so that is checked once at startup and the grid is REFUSED rather than wrong.
      *
-     * @note THESE NUMBERS ARE MIRRORED IN shaders/heap_slots.glsl and they have to be, because the shader
+     * @note THESE NUMBERS ARE MIRRORED IN source/shaders/heap_slots.glsl and they have to be, because the shader
      *       bakes its base indices. A drift is invisible to validation and shows up as a wrong picture, so
      *       the constructor logs this table (see the `descriptor heap: slot grid` line).
      */
@@ -139,9 +139,9 @@ export namespace deren::engine::render_layout {
     }
 
     // NOT renamed, unlike the other members that round: `heap_slot_base` is a NAME CONTRACT with
-    // shaders/heap_slot_constants.glsl, which declares the same constant under the same name, and
-    // tests/test_render_resources.cpp parses both files and requires the names AND the values to match
-    // (tests/test_goo_toon_math.cpp greps this line by that name too). The C4458 that a lambda parameter of
+    // source/shaders/heap_slot_constants.glsl, which declares the same constant under the same name, and
+    // source/tests/test_render_resources.cpp parses both files and requires the names AND the values to match
+    // (source/tests/test_goo_toon_math.cpp greps this line by that name too). The C4458 that a lambda parameter of
     // this name caused in core.constructor.cppm is fixed THERE instead, by renaming the parameter - a local,
     // so the contract stays intact.
     inline constexpr uint32_t heap_slot_base = 16384;  // 1 MiB / 64 B: the grid's slot 0

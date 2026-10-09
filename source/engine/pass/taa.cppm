@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/taa.cppm
  * @brief The SECOND real pass, and the first GRAPHICS one: the temporal anti-aliasing resolve.
- * @defgroup vulkan_pass_taa Temporal Anti-Aliasing Pass
+ * @defgroup engine_pass_taa Temporal Anti-Aliasing Pass
  *
  * WHY THIS PASS IS THE INTERESTING ONE: a compute pass proved the shape first, and this one
  * proves it for the other half of the frame. A fullscreen pass owns a render TARGET (an attachment is not a

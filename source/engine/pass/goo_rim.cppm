@@ -4,11 +4,11 @@
  * @file source/engine/pass/goo_rim.cppm
  * @brief THE REWRITTEN TOON CHAIN'S EDGE LIGHT as a fullscreen pass: the Goo reference's whole rim, screen-space
  *        `DepthRim` included, ADDED over the frame the character stage wrote.
- * @defgroup vulkan_pass_goo_rim Goo Rim Pass
+ * @defgroup engine_pass_goo_rim Goo Rim Pass
  *
  * WHY IT EXISTS AT ALL, and it is a verified constraint rather than a preference:
  * `source/engine/render_resource/render_resource.cppm`'s `character_forward_targets = {scene_color, gbuffer_depth}` makes
- * the depth an ATTACHMENT of the pass whose fragment shades the surface, so `shaders/goo_toon.slang` cannot sample
+ * the depth an ATTACHMENT of the pass whose fragment shades the surface, so `source/shaders/goo_toon.slang` cannot sample
  * it - and the reference's rim is a PRODUCT (`rim_term = C ⊙ (D · F · V · depth_factor)`) whose factor needs that
  * sample. A product cannot be split across two passes (split, it is `C·D·F·V + mask`), so the WHOLE rim moves out
  * of the surface shader and is recomposed here, where the depth is only ever SAMPLED.

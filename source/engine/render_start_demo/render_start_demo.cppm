@@ -3,7 +3,7 @@
 /**
  * @file source/engine/render_start_demo/render_start_demo.cppm
  * @brief THE EXAMPLE: this repository's own pass chain, wired from OUTSIDE the renderer.
- * @defgroup vulkan_render_start_demo Render Start Demo
+ * @defgroup engine_render_start_demo Render Start Demo
  *
  * WHY THIS MODULE EXISTS. `deren.engine.runtime` is a frame loop: it owns the device, the pacing, the images and the
  * frame's constants, and it records whatever chain of passes it is given. Everything that is specific to THIS

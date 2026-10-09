@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/deferred.cppm
  * @brief The eleventh real pass: the deferred lighting stage, which shades every pixel from the G-buffer.
- * @defgroup vulkan_pass_deferred Deferred Lighting Pass
+ * @defgroup engine_pass_deferred Deferred Lighting Pass
  *
  * WHAT IT OWNS: its pipeline (built at create time from its own shader, with the ADDITIVE blend the stage needs),
  * the frame's recording - the scene-colour dependency barrier, the LOAD instance over the frame's scene target,
@@ -78,7 +78,7 @@ export namespace deren::engine::pass {
             /// specular term, which the chain's own subtraction takes back out un-occluded. An SSAO-darkened ambient left an
             /// `ambient * (ssao - 1)` term behind: measured on the reference scene, -1.90 of mean green with 37.6%
             /// of pixels differing and 13.7% off by more than 4/255, on a frame where SSAO is supposed to do NOTHING
-            /// because the rays ARE the occlusion (see shaders/deferred.slang and shaders/shading.glsl). 0.0
+            /// because the rays ARE the occlusion (see source/shaders/deferred.slang and source/shaders/shading.glsl). 0.0
             /// everywhere else, which is what keeps the marched and the GI-off frames byte-identical.
             /// 1.0 = the stochastic punctual lighting pass answered this frame, so this stage does not add the
             /// punctual lights itself (see `deferred_frame::punctual_replaced`) and adds `ml_lighting` instead.

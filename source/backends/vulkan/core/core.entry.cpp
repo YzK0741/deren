@@ -10,7 +10,7 @@
 // engine gets back from deren_make_api_core() IS the core.
 //
 // WHY A PLAIN TU AND NOT A MODULE IMPLEMENTATION: the probe backend's lesson
-// (tests/probe_backend.cpp is a plain TU for the same reason). `extern "C"` symbols
+// (source/tests/probe_backend.cpp is a plain TU for the same reason). `extern "C"` symbols
 // declared inside a module purview get module attachment, and the whole point of this one
 // is that it is reachable BY NAME from another image that does not import any module of
 // this target. So the file imports what it needs, includes the declared surface, and

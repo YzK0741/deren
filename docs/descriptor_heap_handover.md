@@ -14,11 +14,11 @@ The work rode on the `descriptor-heap-migration` branch while it was in flight, 
 ## What is done, and what verifies it
 
 1. **Every descriptor is in the heaps.** A fixed slot grid at a 1 MiB base with a 64 B stride
-   (`core::heap_slots`, mirrored in `shaders/heap_slots.glsl`), the sampler grid at 64 KiB with a 32 B
-   stride, and a host write site for every slot the shader header names - `tests/test_render_resources.cpp`
+   (`core::heap_slots`, mirrored in `source/shaders/heap_slots.glsl`), the sampler grid at 64 KiB with a 32 B
+   stride, and a host write site for every slot the shader header names - `source/tests/test_render_resources.cpp`
    fails if a name appears in one and not the other, and it also pins the values, the scalars and the
    sampler order.
-2. **Every shader is heap-native.** `layout(set = ` appears **zero** times in `shaders/`; the shader
+2. **Every shader is heap-native.** `layout(set = ` appears **zero** times in `source/shaders/`; the shader
    build is green. Nineteen files were converted, including the ray-tracing pair and the three compute
    stages.
 3. **Every pipeline is created against `layout = VK_NULL_HANDLE`** - graphics through
@@ -58,7 +58,7 @@ The third push lane now carries it, so the host hands the absolute slot over and
 (`docs/descriptor_heap_migration.md` records the fix); the note below is the reasoning that made it a
 separate piece of work rather than a two-line change.
 
-`shaders/post.frag` reads `post_source_texture[pc.post_source_slot]` - and that index is an
+`source/shaders/post.frag` reads `post_source_texture[pc.post_source_slot]` - and that index is an
 **absolute** heap slot, not a base plus `heap_image_index` (contrast the four bloom levels two lines
 below it, which are `bloom_lN_texture[heap_slots_bloom_lN + heap_image_index]`). So the *host* has to
 resolve the source, per frame, per swapchain image:
@@ -291,7 +291,7 @@ the bindless texture array - and the log had read for weeks:
 **Cause.** The 1x1 white fallback texture is created in the runtime's constructor and never passes
 through `register_material`'s heap-write loop, so its slot stayed EMPTY. Every material slot with no
 texture points at that index - Sponza's stone carries no occlusion map - so `s.ao` sampled as 0, and
-`shaders/shading.glsl` multiplies BOTH the diffuse ambient and the specular IBL by `s.ao`: those
+`source/shaders/shading.glsl` multiplies BOTH the diffuse ambient and the specular IBL by `s.ao`: those
 surfaces were left with the sun's direct light and nothing else. That is also why it looked
 Sponza-only: the assets whose materials DO carry an occlusion map (DamagedHelmet, and the five
 scenarios built on it) were untouched, and the metal sweep was the opposite of insensitive - `s.ao`

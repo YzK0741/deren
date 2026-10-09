@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/upscale.cppm
  * @brief The resolve: the render chain's display-referred LDR image onto the swapchain, by a linear filter.
- * @defgroup vulkan_pass_upscale Upscale Pass
+ * @defgroup engine_pass_upscale Upscale Pass
  *
  * WHY IT EXISTS: `core::render_extent()` is the render chain's extent, and below `[render] render_scale = 1.0`
  * the whole chain is created smaller while the swapchain stays at the output size. Nothing resolved that
@@ -85,12 +85,12 @@ export namespace deren::engine::pass {
      */
     enum class upscale_filter : uint8_t {
         linear, // one tap of the shared linear sampler per output pixel: a bilinear resample of the whole chain
-        easu,   // FSR 1's edge-adaptive spatial upsampling (see shaders/upscale.slang's port and its license note)
+        easu,   // FSR 1's edge-adaptive spatial upsampling (see source/shaders/upscale.slang's port and its license note)
     };
 
     /// @brief EASU's four constants, as the shader's push block carries them
     /// @note a free function rather than a lambda inside `record`: it is `FsrEasuCon` ported (see
-    ///       shaders/upscale.slang), it is pure arithmetic on two extents, and that makes it pinnable by a test
+    ///       source/shaders/upscale.slang), it is pure arithmetic on two extents, and that makes it pinnable by a test
     ///       instead of only observable through a rendered frame - a transposed or half-pixel-shifted constant
     ///       still produces a plausible image.
     struct easu_constants {

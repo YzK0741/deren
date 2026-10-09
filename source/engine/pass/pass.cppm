@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/pass.cppm
  * @brief What a pass IS: its declaration, the behaviour that says how to call it, and the runner that does.
- * @defgroup vulkan_pass Frame Pass Framework
+ * @defgroup engine_pass Frame Pass Framework
  *
  * THE PROBLEM THIS REMOVES, measured rather than asserted. Adding one render pass to this renderer today costs,
  * at the time: a push-constant struct, a pipeline, a
@@ -244,7 +244,7 @@ export namespace deren::engine::pass {
          *
          * A stage's block now also carries the two heap indices (frame slot, swapchain image - and, for the post
          * chain, its source slot), which the host fills in before sending it. See source/engine/pass/pass.cppm's siblings
-         * and shaders/heap_slots.glsl.
+         * and source/shaders/heap_slots.glsl.
          */
         struct push_endpoint {
             void* owner = nullptr;
@@ -990,7 +990,7 @@ export namespace deren::engine::pass {
     // =============================================================================================
 
     /**
-     * @ingroup vulkan_pass
+     * @ingroup engine_pass
      * @brief which INSTANCE of a resource a frame names, decided by the schema's SCOPE rather than by the caller
      *
      * The rule is the one the declaration layer already documents per resource: a per-swapchain-image resource
@@ -1014,7 +1014,7 @@ export namespace deren::engine::pass {
     }
 
     /**
-     * @ingroup vulkan_pass
+     * @ingroup engine_pass
      * @brief the device handles behind every declared resource, keyed by (resource, element, instance)
      *
      * FILLED BY THE OWNER, READ BY THE FRAMEWORK: the renderer publishes what its core and its own members hold,
@@ -1195,7 +1195,7 @@ export namespace deren::engine::pass {
     // =============================================================================================
 
     /**
-     * @ingroup vulkan_pass
+     * @ingroup engine_pass
      * @brief the extent a behaviour's rule asks for, from the frame and the owner's own images
      * @param how the pass's behaviour
      * @param context the frame and the owner's `extent_of` lookup
@@ -1256,7 +1256,7 @@ export namespace deren::engine::pass {
     }
 
     /**
-     * @ingroup vulkan_pass
+     * @ingroup engine_pass
      * @brief resolve a pass's declaration into this frame's handles, entry by entry
      *
      * THE RULES, all of them from the declaration and the schema:

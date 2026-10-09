@@ -4,7 +4,7 @@
  * @file source/engine/pass/character_forward.cppm
  * @brief The TOON CHARACTER stage: the same leaves the scene pass drew, shaded a SECOND time and
  *        written OVER the deferred result.
- * @defgroup vulkan_pass_character_forward Character Forward Pass
+ * @defgroup engine_pass_character_forward Character Forward Pass
  *
  * WHY IT IS ITS OWN PASS, and the reference this follows. The port's reference implementation
  * (DanbaidongRP's PBRToon material family, see _toon_ref/PORT_SPEC.md) draws its character materials in a

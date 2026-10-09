@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/fxaa.cppm
  * @brief The fourteenth real pass: the FXAA resolve, the frame's LAST writer whenever it runs.
- * @defgroup vulkan_pass_fxaa FXAA Pass
+ * @defgroup engine_pass_fxaa FXAA Pass
  *
  * WHY IT IS THE POST CHAIN'S LAST PASS, and why that decides everything about it: the anti-aliasing filter reads
  * the image the composite produced, so the composite cannot write the swapchain when FXAA is on (a pass may not

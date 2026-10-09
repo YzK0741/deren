@@ -10,7 +10,7 @@ export import deren.vstd;
 import deren.promise.rhi;
 
 /**
- * @defgroup vulkan_render_environment Render Environment
+ * @defgroup engine_render_environment Render Environment
  * @ingroup runtime
  * @brief per-recording-session render state: the session's command buffer, which pipeline is
  * bound and how to bind others.
@@ -29,7 +29,7 @@ import deren.promise.rhi;
  */
 namespace deren::engine {
     /**
-     * @ingroup vulkan_render_environment
+     * @ingroup engine_render_environment
      * @brief per-recording-session render state handed to primitive::draw().
      *
      * Members are set by the recording site (the runtime) before the session's leaves draw:

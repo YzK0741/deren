@@ -5,7 +5,7 @@
  * @brief Compute skinning for the traced features: it writes the vertices the VERTEX shader would compute into
  *        the buffer a bottom level structure is built from, so a traced shadow follows the pose instead of
  *        standing in the bind pose.
- * @defgroup vulkan_pass_compute_skin Compute-Skinning Job
+ * @defgroup engine_pass_compute_skin Compute-Skinning Job
  *
  * WHY THIS IS A JOB AND NOT A `frame_pass`, exactly as `vulkan.pass.mask_bake_job` is: its work is a LIST of
  * dispatches the renderer derives from the caster set it is walking (`rt_caster_levels`), and the SAME list is

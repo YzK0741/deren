@@ -620,7 +620,7 @@ namespace deren::engine {
         // renderer: no image view to create, no sampler, no embedded sampler. The buffer has a FIXED capacity and
         // is created above, so its address is stable and one write covers it - which is why this is not a
         // per-frame write. It goes at its OWN GRID SLOT (deren::engine::render_layout::heap_slots::materials), which is the same number a
-        // heap-native shader bakes as `heap_slots_materials` (shaders/heap_slots.glsl): the write and the read are
+        // heap-native shader bakes as `heap_slots_materials` (source/shaders/heap_slots.glsl): the write and the read are
         // the same number by construction rather than by review.
         if (contract_heap_ready(this->rhi_face())) {
             std::uintptr_t const address = this->buffer_address(*this->material_buffer);
@@ -702,7 +702,7 @@ namespace deren::engine {
                 // `GlobalShadowBrightnessAdjustment` is `-1.8` on the cloth - and a `-1` neutral would make the
                 // stage read those authored values as "not stated" (see `goo_lane_absent` in the shader).
                 // The stage resolves each sentineled component to its group's default - see
-                // `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion` and `shaders/goo_toon.slang`.
+                // `toon_colour_lane::goo_base_colour` .. `goo_direct_occlusion` and `source/shaders/goo_toon.slang`.
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_base_colour)] =
                     glm::vec4(1.0f, 1.0f, 1.0f, 1.0f);
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_direct_occlusion)] =
@@ -772,7 +772,7 @@ namespace deren::engine {
                 // unoverridden lane 25 would hand every such material `Use anisotropy? = 1.0` - the arm the
                 // reference does not take - instead of the `0.0` it does. `.z` is recorded and unused, `.w`
                 // reserved; keep the spelling of this initialiser and the two hosts' tables in step, because
-                // `tests/test_goo_toon_math.cpp` pins all three.
+                // `source/tests/test_goo_toon_math.cpp` pins all three.
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_aniso_gate)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
                 // STEP 12'S ONE IS `(0, 0, 0, 0)` TOO, AND THE TWO JOBS IT DOES ARE STEP 10'S OWN: it IS the
@@ -783,7 +783,7 @@ namespace deren::engine {
                 // starts EVERY lane at `glm::vec4(1.0f)`, so an unoverridden lane 26 would hand every rowless
                 // material `rT = (1 - 1)^2 = 0` - a mirror - instead of the `0.0` the graph means. `.z` / `.w`
                 // are reserved. Keep the spelling of this initialiser and the two hosts' tables in step, because
-                // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_aniso_rough`.
+                // `source/tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_aniso_rough`.
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_aniso_rough)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
                 // STEP 13'S TWO ARE `(0, 0, 0, 0)` AS WELL, and unlike the two above them the value is not the
@@ -792,7 +792,7 @@ namespace deren::engine {
                 // then leaves its colour untouched. Lane 28's `.w` is the mask's `SmoothStep.max`, where zero
                 // means "unstated" rather than a zero-width window - the stage maps it to `1.0` so that this
                 // neutral cannot divide by zero (see `toon_colour_lane::goo_rs_tint`, spec U7). Keep the spelling
-                // of this initialiser and the two hosts' tables in step, because `tests/test_goo_toon_math.cpp`
+                // of this initialiser and the two hosts' tables in step, because `source/tests/test_goo_toon_math.cpp`
                 // pins all three.
                 //
                 // THEY ARE DEFENSIVE RATHER THAN LOAD-BEARING, AND THE COMMENT USED TO SAY OTHERWISE ELSEWHERE:
@@ -815,7 +815,7 @@ namespace deren::engine {
                 // `glm::vec4(1.0f)`, so an unoverridden lane 29 would hand every rowless material `RS Strength = 1`
                 // with `Layer weight Value = 1` - a `u` of `0.5` on sheet 0 for every material in the scene. Keep
                 // the spelling of this initialiser and the two hosts' tables in step, because
-                // `tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_rs_arm0`.
+                // `source/tests/test_goo_toon_math.cpp` pins all three. See `toon_colour_lane::goo_rs_arm0`.
                 neutral_colours[material * static_cast<size_t>(deren::engine::toon_colour_lane::count) + static_cast<size_t>(deren::engine::toon_colour_lane::goo_rs_arm0)] =
                     glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
             }
@@ -1108,7 +1108,7 @@ namespace deren::engine {
         // `make_texture_sampler_info()` the backend's six rode, and overrides exactly these fields.
         //
         // THE ORDER IS THE SAMPLER GRID'S ORDER and it is not decoration: `render_resource::shared::sampler_set`
-        // is filled from these six, and shaders/heap_slots.glsl names the heap grid's sampler slots in the
+        // is filled from these six, and source/shaders/heap_slots.glsl names the heap grid's sampler slots in the
         // order `shared_sampler_infos` writes them. `test_render_resources` holds that order against the
         // shader's names; the two sets are separate objects but the same six descriptions.
         auto const make = [this](rhi::sampler_desc const& desc) {
@@ -1924,7 +1924,7 @@ namespace deren::engine {
     // screenshot's three FGD outputs are reads of those bytes. An sRGB upload would linearize each channel once and
     // every one of `specularFGD` / `reflectivity` / `diffuseFGD` would be wrong in the same direction (spec §3.1
     // item 1: the texel at `(0,32)` has `R = 47/255 = 0.184314`, which sRGB-decodes to `0.028`). It is also why
-    // `tests/test_goo_toon_math.cpp` pins this format string and asserts the file's own SHA-256.
+    // `source/tests/test_goo_toon_math.cpp` pins this format string and asserts the file's own SHA-256.
     //
     // IT IS A GLOBAL IMAGE AND NOT A LANE (step-5 spec §3.4): the Goo `GetPreIntegratedFGDGGXAndDisneyDiffuse`
     // group has ONE `ShaderNodeTexImage`, its `users == 3` containers share that data-block, and its coordinate is
@@ -2012,7 +2012,7 @@ namespace deren::engine {
             // so an sRGB decode would bend both of them.
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], rhi::image_format::rgba8_unorm},
             // THE GOO IRIS BALL IS COLOUR, so it takes the ramps' treatment rather than the masks': the reference
-            // samples it and adds it to the albedo (`shaders/goo_toon.slang`), i.e. it is light, not a number.
+            // samples it and adds it to the albedo (`source/shaders/goo_toon.slang`), i.e. it is light, not a number.
             std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], rhi::image_format::rgba8_srgb},
             // THE GOO BASE RAMP IS COLOUR, so it takes the treatment the reference gives it rather than the
             // masks': `images[...].colorspace = 'sRGB'` on all seven `_RD` images means Blender LINEARIZES each
@@ -2233,7 +2233,7 @@ namespace deren::engine {
         // literals here for the same reason every other flavour of this value is a number on this side of the
         // boundary: `deren.engine.runtime` does not import the loader's types - the classification is done where the
         // NAME exists and travels onwards as a value (see `toon_family` above, which does exactly this).
-        // tests/test_gltf_loader.cpp asserts the enum's numbering so this pair cannot drift silently.
+        // source/tests/test_gltf_loader.cpp asserts the enum's numbering so this pair cannot drift silently.
         if (info.overlay_kind == 1u) {
             record.flags |= 64u; // bit6: the EYE-DARK overlay (mask-driven)
         } else if (info.overlay_kind == 2u) {

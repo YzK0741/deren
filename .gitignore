@@ -3,7 +3,7 @@ cmake-build-*/
 build-*-clang64/
 build-debug/
 build-release/
-#sanitizer build (ASan/UBSan, local verification only - see tests/)
+#sanitizer build (ASan/UBSan, local verification only - see source/tests/)
 build-asan/
 .idea/
 

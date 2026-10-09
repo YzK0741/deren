@@ -4,7 +4,7 @@
  * @file source/engine/pass/cluster.cppm
  * @brief The tenth real pass: the clustered-light sort, which bins the frame's punctual lights into the tile x
  *        slice grid the shading stages then read.
- * @defgroup vulkan_pass_cluster Clustered-Light Sort Pass
+ * @defgroup engine_pass_cluster Clustered-Light Sort Pass
  *
  * WHAT IT OWNS: its pipeline layout and its compute pipeline (built at create time from the shared scene block
  * layout and its own shader - the first compute pipeline in this tree that came out of `deren.vulkan.core`, where

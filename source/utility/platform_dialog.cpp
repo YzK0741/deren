@@ -154,7 +154,7 @@ extern "C" int32_t utility_platform_ask_open_file(char const* title, char const*
     ofn.lpstrFile = file;
     ofn.nMaxFile = static_cast<DWORD>(std::size(file));
     ofn.lpstrTitle = wide_title[0] != L'\0' ? wide_title : nullptr;
-    // OFN_NOCHANGEDIR matters: the process's working directory is what locates shaders/ and the default
+    // OFN_NOCHANGEDIR matters: the process's working directory is what locates source/shaders/ and the default
     // model, and the common dialog changes it unless told not to.
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_EXPLORER | OFN_NOCHANGEDIR;
     if (GetOpenFileNameW(&ofn) == FALSE) {

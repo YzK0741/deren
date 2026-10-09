@@ -42,7 +42,7 @@ import deren.utility;
 
 /**
  * @file source/engine/ray_tracing/ray_tracing.cppm
- * @defgroup vulkan_ray_tracing Ray-Tracing Structures and Casters
+ * @defgroup engine_ray_tracing Ray-Tracing Structures and Casters
  * @brief The structure phase: the acceleration structures every traced effect casts rays against, the map
  *        that says which caster each one was built from, and the copies the hit-shading path reads that
  *        geometry through (the MASK expansion and the skinned vertices).
@@ -264,7 +264,7 @@ export namespace deren::engine::ray_tracing {
 
     public:
         /**
-         * @ingroup vulkan_ray_tracing
+         * @ingroup engine_ray_tracing
          * @brief ONE built opacity micromap and every buffer that describes it
          * @note the ownership of `micromap` is explicit rather than RAII: VkMicromapEXT has no wrapper in this
          *       project (it is not a buffer, an image or a pipeline), so `structure_set::abandon()` destroys it

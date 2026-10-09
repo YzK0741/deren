@@ -9,7 +9,7 @@
  * `utility`. Keeping the system headers in a plain TU contains them to this file, and the module side
  * only sees the C entry point below.
  *
- * The caller (chores' shader lookup) uses this to prefer the shaders/ directory sitting next to the
+ * The caller (chores' shader lookup) uses this to prefer the source/shaders/ directory sitting next to the
  * executable, which is what a build writes. Deriving the path from the running binary rather than from
  * the working directory is what makes "the shaders you run are the ones this build compiled" true
  * without depending on where the process happens to have been started.

@@ -206,7 +206,7 @@ namespace deren::vulkan {
          *        (VUID-VkResourceDescriptorInfoEXT-type-11210 lists the kinds a heap descriptor may be, and a
          *        combined image sampler is not among them): the heap holds the IMAGE, and the sampler comes from
          *        the SAMPLER HEAP - the shaders combine the two at the point of use (`sampler2D(tex, samp)` in
-         *        shaders/heap_slots.glsl), which is what removed the mapping step this comment used to describe.
+         *        source/shaders/heap_slots.glsl), which is what removed the mapping step this comment used to describe.
          */
         [[nodiscard]] bool write_image(VkDeviceSize offset_bytes, VkImageViewCreateInfo const& view, VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
         /// @brief write ONE buffer descriptor (its device address range) into the resource heap

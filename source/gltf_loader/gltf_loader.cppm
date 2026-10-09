@@ -314,9 +314,9 @@ namespace deren::gltf {
      *
      * THE CURRENT ENTRIES, each with its reader:
      *   `_Specular`       ->  the per-material specular strength, a `toon_colour_lane::specular_strength` lane read
-     *                         by `shaders/character_forward.slang` (`main_specular = ... * spec_strength *
+     *                         by `source/shaders/character_forward.slang` (`main_specular = ... * spec_strength *
      *                         rig.env.z`). It was the one extras-only property with a live consumer whose source
-     *                         was a per-FAMILY constant (`shaders/toon_params.slang`'s `spec_strength`) and whose
+     *                         was a per-FAMILY constant (`source/shaders/toon_params.slang`'s `spec_strength`) and whose
      *                         value the asset states per MATERIAL; chen's `M_actor_chen_brow_01` is the material
      *                         that proves it (0.0 against the face family's 1.0).
      *   `_ParallaxScale`  ->  the per-material parallax depth, a `toon_colour_lane::parallax_scale` lane read by

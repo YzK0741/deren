@@ -203,7 +203,7 @@ TWO THINGS TO SETTLE BEFORE COMMITTING TO IT, both cheap:
 
 Every step is a MOVE, so its acceptance is the strongest control this project has:
 
-* `scripts/windows/check_render.ps1`: the core set, 5 scenarios x 2, **0 changed**, 0 flaky; Release, Debug and ASan+UBSan
+* `source/scripts/windows/check_render.ps1`: the core set, 5 scenarios x 2, **0 changed**, 0 flaky; Release, Debug and ASan+UBSan
   clean; `ctest` 13/13; `doxygen Doxyfile` exit 0 with an empty warning stream; every run validation clean.
 * IF A MOVE CHANGES A FRAME, the reason is found and stated before anything is re-seeded. Re-seeding a reference
   to make a refactor pass is how a refactor hides a behaviour change.
@@ -215,7 +215,7 @@ Non-behavioural hazards the gate will catch but that deserve to be known in adva
 * moving a "first-use" flag without its reset sites (constructor `source/engine/runtime/runtime.constructor.cppm:154-163`, `on_swapchain_recreated`
   `source/engine/runtime/runtime.cpp:212-262`, `set_ssgi` `3194-3195`) changes FRAME ONE, which is exactly what a byte-exact gate notices and
   what a "looks fine" eyeball does not;
-* `scripts/windows/capture.ps1:194` parses the exact log line "shadow mapping enabled: light frustum center ...
+* `source/scripts/windows/capture.ps1:194` parses the exact log line "shadow mapping enabled: light frustum center ...
   radius" produced by `enable_shadows` (`source/engine/runtime/runtime.cpp:1107-1108`): moving or rewording that line breaks the harness's
   scene-radius report, i.e. the measurement instrument depends on a string.
 

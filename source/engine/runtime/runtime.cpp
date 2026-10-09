@@ -1416,7 +1416,7 @@ namespace deren::engine {
     bool runtime::push_stage_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         // THE INDICES ARE APPENDED HERE, and that placement is the whole trick: the renderer knows the frame slot and
         // the swapchain image, a pass knows neither, and a converted stage's shader declares them as its block's
-        // LAST two fields (see shaders/heap_slots.glsl). Doing it here is what keeps every pass's push struct - and
+        // LAST two fields (see source/shaders/heap_slots.glsl). Doing it here is what keeps every pass's push struct - and
         // its static_assert on the size - untouched. The optional third lane is the post chain's own source slot,
         // which only that chain's passes can name.
         runtime* const self = static_cast<runtime*>(owner);
@@ -1947,7 +1947,7 @@ namespace deren::engine {
         // A meshlet's window is what a MESH stage passes to `SetMeshOutputCounts` and to its index fetch, so a
         // record that is malformed is not a wrong picture: it is a dispatch asking for more output than the device
         // has (the hang the first consumer attempt measured) or a fetch outside the buffer. THE RULE ITSELF IS
-        // `deren::engine::meshlet_record_sound` - one definition, asserted by tests/test_meshlet.cpp - and this is the
+        // `deren::engine::meshlet_record_sound` - one definition, asserted by source/tests/test_meshlet.cpp - and this is the
         // boundary where the records leave the host.
         bool records_sound = true;
         for (deren::engine::meshlet const& meshlet : result->meshlets) {
@@ -1956,7 +1956,7 @@ namespace deren::engine {
         if (!records_sound && !this->meshlet_records_unsound_logged) {
             this->meshlet_records_unsound_logged = true;
             deren::utility::log("meshlet records: a primitive with {} indices produced a meshlet outside its window or over the "
-                                "{} index budget - a mesh stage would ask the device for invalid output (the splitter's invariants are tested in tests/test_meshlet.cpp)",
+                                "{} index budget - a mesh stage would ask the device for invalid output (the splitter's invariants are tested in source/tests/test_meshlet.cpp)",
                                 info.index_count,
                                 deren::engine::meshlet_max_indices);
         }

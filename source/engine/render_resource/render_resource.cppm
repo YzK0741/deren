@@ -3,7 +3,7 @@
 /**
  * @file source/engine/render_resource/render_resource.cppm
  * @brief A pass's resources, described as DATA: what exists, and what each pass does with it.
- * @defgroup vulkan_render_resource Render Resource Descriptions
+ * @defgroup engine_render_resource Render Resource Descriptions
  *
  * WHY THIS MODULE EXISTS. In this renderer a pass's inputs and outputs used to BE descriptor sets - the
  * G-buffer set was the interface between the G-buffer pass, the lighting stage, the stochastic lighting chain
@@ -149,7 +149,7 @@ export namespace deren::engine::render_resource {
     };
 
     /** @brief one family of resources: what it is, how it is indexed, and how many images it holds
-     *  @ingroup vulkan_render_resource */
+     *  @ingroup engine_render_resource */
     struct resource_info {
         resource_id id = resource_id::none;
         std::string_view name = {};
@@ -177,7 +177,7 @@ export namespace deren::engine::render_resource {
      * WHAT AN ENTRY DOES NOT SAY YET, on purpose: its format and its extent. Those are needed by the CREATION
      * step, not by the invariants checkable today, and a format copied here before it is verified against
      * `core.cpp` would be a second copy of a fact - the thing this file's header warns about.
-     * @ingroup vulkan_render_resource
+     * @ingroup engine_render_resource
      */
     inline constexpr std::array<resource_info, 30> resource_schema = {{
         {.id = resource_id::swapchain_image, .name = "swapchain_image", .kind = resource_kind::image2d, .scope = resource_scope::per_swapchain_image, .lifetime = resource_lifetime::imported},
@@ -357,7 +357,7 @@ export namespace deren::engine::render_resource {
     }
 
     /// @brief one binding: one use. Everything the descriptor and the heap write need is here.
-    /// @ingroup vulkan_render_resource
+    /// @ingroup engine_render_resource
     struct pass_binding {
         uint32_t binding = 0;
         binding_owner owner = binding_owner::own;
@@ -471,7 +471,7 @@ export namespace deren::engine::render_resource {
      * `bindings` carries both kinds: the `binding_owner::own` entries are the pass's private per-image
      * bindings, which the validator requires to be numbered contiguously from zero, and the
      * `binding_owner::shared` entries are declared USAGE of resources the frame's heap provides.
-     * @ingroup vulkan_render_resource
+     * @ingroup engine_render_resource
      */
     struct pass_io {
         std::string_view name = {};
@@ -579,7 +579,7 @@ export namespace deren::engine::render_resource {
      * rendering into itself twice. A target that claims a RUN of elements (`render_target::count`) is checked
      * as the run it is: the last element has to be inside the family, and two runs of one resource may not
      * overlap.
-     * @ingroup vulkan_render_resource
+     * @ingroup engine_render_resource
      */
     [[nodiscard]] inline std::expected<void, std::string> validate(pass_io const& io) {
         if (io.name.empty()) {
@@ -714,7 +714,7 @@ export namespace deren::engine::render_resource {
     // =============================================================================================
 
     // =============================================================================================
-    // 5. THE SECOND DECLARATION - the TAA resolve, read off shaders/taa.slang
+    // 5. THE SECOND DECLARATION - the TAA resolve, read off source/shaders/taa.slang
     // =============================================================================================
 
     /**
@@ -740,7 +740,7 @@ export namespace deren::engine::render_resource {
     inline constexpr std::array<render_target, 1> taa_targets = {taa_target};
 
     /// @brief the temporal resolve's declaration
-    /// @ingroup vulkan_render_resource
+    /// @ingroup engine_render_resource
     inline constexpr pass_io taa_io = {
         .name = "taa",
         .bindings = taa_bindings,
@@ -793,7 +793,7 @@ export namespace deren::engine::render_resource {
     // clean 3/3 with constinit, ICE 4/4 without
     // (build-release-clang64/msvc/lead_lab/ice_rr/ICE_RR_FINDINGS.md).
     /// @brief the scene pass's declaration
-    /// @ingroup vulkan_render_resource
+    /// @ingroup engine_render_resource
     inline constinit pass_io const scene_io = {
         .name = "scene",
         .bindings = {},
@@ -818,7 +818,7 @@ export namespace deren::engine::render_resource {
     }};
 
     /// @brief the transparent pass's declaration
-    /// @ingroup vulkan_render_resource
+    /// @ingroup engine_render_resource
     // constinit for the same cl 19.44 ICE as scene_io above (a disengaged std::optional in a constexpr global)
     inline constinit pass_io const transparent_io = {
         .name = "transparent",
@@ -849,7 +849,7 @@ export namespace deren::engine::render_resource {
     }};
 
     /// @brief the character-forward pass's declaration
-    /// @ingroup vulkan_render_resource
+    /// @ingroup engine_render_resource
     // constinit for the same cl 19.44 ICE as scene_io above (a disengaged std::optional in a constexpr global)
     inline constinit pass_io const character_forward_io = {
         .name = "character_forward",
@@ -881,7 +881,7 @@ export namespace deren::engine::render_resource {
     }};
 
     /// @brief the screen-space depth rim's declaration
-    /// @ingroup vulkan_render_resource
+    /// @ingroup engine_render_resource
     inline constexpr pass_io toon_screen_rim_io = {
         .name = "toon_screen_rim",
         .bindings = {},
@@ -911,7 +911,7 @@ export namespace deren::engine::render_resource {
     }};
 
     /// @brief the rewritten chain's rim declaration
-    /// @ingroup vulkan_render_resource
+    /// @ingroup engine_render_resource
     inline constexpr pass_io goo_rim_io = {
         .name = "goo_rim",
         .bindings = {},
@@ -1270,7 +1270,7 @@ export namespace deren::engine::render_resource {
      * FXAA's does). It is deliberately NOT `post_push_bytes`: the resolve samples one image and filters it, so
      * every lane of the post chain's block would be a dead field. The shader's block is this size PLUS the two
      * heap index lanes the framework appends (the LDR image is a per-swapchain-image heap slot the shader names
-     * itself - see shaders/upscale.slang).
+     * itself - see source/shaders/upscale.slang).
      */
     inline constexpr pass_io upscale_io = {
         .name = "upscale",

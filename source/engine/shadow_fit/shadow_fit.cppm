@@ -32,7 +32,7 @@ export import deren.engine.primitive; // max_shadow_cascades (and the light_ubo 
 
 /**
  * @file source/engine/shadow_fit/shadow_fit.cppm
- * @defgroup vulkan_shadow_fit Directional Shadow Cascade Fit
+ * @defgroup engine_shadow_fit Directional Shadow Cascade Fit
  * @brief Fits one orthographic light box per cascade over the part of the view volume that can hold
  *        the scene, and returns the matrices, split distances and texel sizes a renderer needs.
  *
@@ -53,7 +53,7 @@ export import deren.engine.primitive; // max_shadow_cascades (and the light_ubo 
  */
 namespace deren::engine::shadow_fit {
     /**
-     * @ingroup vulkan_shadow_fit
+     * @ingroup engine_shadow_fit
      * @brief everything the fit needs about one frame's camera, scene and casters
      */
     export struct fit_params {
@@ -91,7 +91,7 @@ namespace deren::engine::shadow_fit {
     };
 
     /**
-     * @ingroup vulkan_shadow_fit
+     * @ingroup engine_shadow_fit
      * @brief the fitted per-cascade state, ready to be written into a light UBO
      * @note `cascade_count` is the number of VALID entries in the arrays; the lanes beyond it repeat
      *       the last fitted one. A shader that samples a lane past the active count (it does not -
@@ -112,7 +112,7 @@ namespace deren::engine::shadow_fit {
     };
 
     /**
-     * @ingroup vulkan_shadow_fit
+     * @ingroup engine_shadow_fit
      * @brief collect every caster's light-space AABB, so one pass serves every cascade
      * @param world_boxes each caster's world-space AABB
      * @param light_dir the sun direction (normalized here)
@@ -126,7 +126,7 @@ namespace deren::engine::shadow_fit {
     export std::vector<std::pair<glm::vec3, glm::vec3>> fit_casters(std::span<std::pair<glm::vec3, glm::vec3> const> world_boxes, glm::vec3 light_dir, bool& unbounded);
 
     /**
-     * @ingroup vulkan_shadow_fit
+     * @ingroup engine_shadow_fit
      * @brief fit one orthographic light box per cascade over the usable part of the view volume
      * @param params the camera, scene and caster bounds to fit
      * @return the per-cascade matrices, splits and texel sizes; `valid == false` when the camera is

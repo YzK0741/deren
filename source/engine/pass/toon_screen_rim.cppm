@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/toon_screen_rim.cppm
  * @brief The SCREEN-SPACE DEPTH RIM: a contour drawn where the shaded character meets something nearer.
- * @defgroup vulkan_pass_toon_screen_rim Toon Screen-Space Rim Pass
+ * @defgroup engine_pass_toon_screen_rim Toon Screen-Space Rim Pass
  *
  * WHY IT EXISTS: the character-forward stage's rim is a VIEW-ANGLE term, so it appears where the surface
  * turns away from the camera. It cannot draw a contour where the surface faces the camera and is simply

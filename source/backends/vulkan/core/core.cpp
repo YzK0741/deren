@@ -483,7 +483,7 @@ namespace deren::vulkan {
             this->taa_sampler = vk_sampler(taa, this->logical_device);
         }
 
-        // THE HEAP'S COPY OF THESE, in the order shaders/heap_slots.glsl names them (see core.cppm's
+        // THE HEAP'S COPY OF THESE, in the order source/shaders/heap_slots.glsl names them (see core.cppm's
         // shared_sampler_infos): the heap descriptor for a sampler is the create info, and the heap itself is
         // created later in the constructor than this function runs - so the infos are kept here and written onto
         // the sampler grid afterwards. Recomputed rather than stored one by one because two of the six share

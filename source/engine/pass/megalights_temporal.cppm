@@ -3,12 +3,12 @@
 /**
  * @file source/engine/pass/megalights_temporal.cppm
  * @brief The stochastic lighting chain's temporal resolve: a running mean with a per-pixel frame count.
- * @defgroup vulkan_pass_megalights_temporal Megalights Temporal Pass
+ * @defgroup engine_pass_megalights_temporal Megalights Temporal Pass
  *
  * WHAT IT OWNS: the frame's recording (the barriers around its accumulation and the copy that becomes the
  * next frame's history) and the accumulation POLICY, which is the point of the pass: the frame count
  * and the depth tolerance are its own parameters, with the argument for each of them in
- * `shaders/megalights_temporal.slang` and in `docs/reference/megalights_stochastic_lighting.md` (section 4 is
+ * `source/shaders/megalights_temporal.slang` and in `docs/reference/megalights_stochastic_lighting.md` (section 4 is
  * Unreal's policy, which this is ported from).
  *
  * THE IMAGES IT READS AND WRITES ARE HEAP SLOTS: the three images of the chain, the G-buffer velocity it
@@ -58,7 +58,7 @@ export namespace deren::engine::pass {
      */
     class megalights_temporal_pass final : public frame_pass {
     public:
-        /// @brief the push block, which is also `shaders/megalights_temporal.slang`'s
+        /// @brief the push block, which is also `source/shaders/megalights_temporal.slang`'s
         struct push_constants {
             /// x = proj[2][2], y = proj[3][2], z = the frame-count cap, w = the relative depth tolerance
             glm::vec4 params = glm::vec4(0.0f, 0.0f, 12.0f, 0.03f);

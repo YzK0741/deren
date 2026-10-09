@@ -4,7 +4,7 @@
  * @file source/engine/pass/mask_bake.cppm
  * @brief The alphaMode MASK bake: the compute job that collapses a masked caster's holes into an expanded copy
  *        of its vertices, so an inline ray query - which has no any-hit stage to discard in - still sees them.
- * @defgroup vulkan_pass_mask_bake AlphaMode MASK Bake
+ * @defgroup engine_pass_mask_bake AlphaMode MASK Bake
  *
  * WHY THIS IS NOT A `frame_pass`, and the distinction is the point rather than a shortcut: the framework's pass
  * contract is PER FRAME (a declaration, a `resolved_io` built from it, a stage the runner walks every frame,

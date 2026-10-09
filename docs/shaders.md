@@ -13,7 +13,7 @@
  * THE NAMES BELOW ARE STAGE NAMES, and they are also the `.spv` file names the runtime loads. The SOURCES
  * are Slang (`.slang` files, one per shader family - a family with several stages has several entries in one
  * file, which is why this list names stages rather than files). The former GLSL sources are archived in
- * `shaders/glsl.old/` and are not built; the four shared bodies still carry GLSL syntax and are `#include`d
+ * `source/shaders/glsl.old/` and are not built; the four shared bodies still carry GLSL syntax and are `#include`d
  * by the Slang leaves (see docs/slang_migration.md for how that works).
  *
  * EVERY GEOMETRY STAGE BELOW IS A MESH STAGE, AND THE MESH FORM IS THE ONLY FORM: `VK_EXT_mesh_shader` is a
@@ -72,7 +72,7 @@
  *
  * @section shader_taa Temporal anti-aliasing
  *
- * The scene renders at 1x, so `shaders/taa.frag` is the engine's anti-aliasing instead of MSAA:
+ * The scene renders at 1x, so `source/shaders/taa.frag` is the engine's anti-aliasing instead of MSAA:
  * `runtime::set_taa` jitters the projection by a Halton(2,3) sub-pixel offset every frame (the
  * G-buffer and the lighting stage both see the jittered projection - geometry and the depth
  * reconstruction agree about where each sample is), the G-buffer writes a motion vector per pixel
@@ -92,7 +92,7 @@
  *
  * The motion vectors carry CAMERA motion, RIGID object motion and a DEFORMING mesh's own movement. The
  * camera half is the unjittered view-projection pair; the object half is binding 13, where the geometry
- * stage (`pbr_shade_vertex` in `shaders/pbr.slang` - one body for every entry in the file) reads the world
+ * stage (`pbr_shade_vertex` in `source/shaders/pbr.slang` - one body for every entry in the file) reads the world
  * matrix this draw had one frame ago (`runtime::advance_motion_transforms()` publishes
  * it, once per frame, before anything is recorded) and passes the resulting previous world position down
  * as `v_prev_world_pos`. A vertex's movement INSIDE its own object space is the second half of that
@@ -115,7 +115,7 @@
  * @section shader_surface The shared material-surface gather (surface.glsl)
  *
  * `pbr.frag` and `gbuffer.frag` answer the same question - "what is this surface made of?" - and both
- * do it through `gather_surface()` in `shaders/surface.glsl`: the material table lookup, the glTF
+ * do it through `gather_surface()` in `source/shaders/surface.glsl`: the material table lookup, the glTF
  * alpha tests (the MASK `discard` lives in there, so no pass can forget it), the tangent-space normal
  * map with the double-sided flip, and the texture-derived factors. The include declares the descriptor
  * bindings and the push constant block it depends on (bindings 1 and 5, the shared material push
@@ -123,13 +123,13 @@
  *
  * @section shader_shading The shared lighting (shading.glsl)
  *
- * `shade_surface()` in `shaders/shading.glsl` is the engine's SINGLE lighting entry point: the
+ * `shade_surface()` in `source/shaders/shading.glsl` is the engine's SINGLE lighting entry point: the
  * directional sun through the shadow test, the punctual lights, the split-sum IBL ambient, the
  * selectable BRDF/diffuse presets and the cel-shading bands. It takes a `shade_input` - world position,
  * normal, albedo, emissive, metallic, roughness, AO - which the caller fills from whatever it has (the
  * deferred path from G-buffer texels, a forward-style stage from its interpolated fragment inputs), so
  * the lighting cannot tell where the surface came from. The include reaches the resources it needs
- * through the descriptor heap, with `shaders/heap_slots.glsl` naming the slots (the camera UBO, the IBL
+ * through the descriptor heap, with `source/shaders/heap_slots.glsl` naming the slots (the camera UBO, the IBL
  * maps, the light UBO and the shadow map).
  *
  * This section used to read ONE FUNCTION, TWO PATHS - `pbr.frag` (forward) and `deferred.frag`
@@ -148,7 +148,7 @@
  *
  * @section shader_clusters Clustered light culling (M5)
  *
- * `shaders/light_cluster.slang` runs once per frame on the graphics queue, one invocation per
+ * `source/shaders/light_cluster.slang` runs once per frame on the graphics queue, one invocation per
  * cluster: the screen cut into 64 px tiles and 16 EXPONENTIAL depth slices. It rebuilds the
  * cluster's view-space box (its tile's corner rays unprojected at the slice's near and far depth)
  * and appends every light whose bounding sphere intersects that box to the cluster's fixed-capacity
@@ -230,7 +230,7 @@
  *
  * Material push constants carry `material_index`, the draw `flags` (bit0 = instanced), the
  * `skin_base` / `morph_*` / `instance_base` indices and the per-model `model` matrix
- * (`material_push_constants` in `vulkan_primitive`). The vertex and fragment stages of one
+ * (`material_push_constants` in `engine_primitive`). The vertex and fragment stages of one
  * pipeline share a single push-constant range, so any stage that does not need a field still
  * declares it to keep the block layout identical - a mismatch here is silent corruption, not a
  * compile error. The post/FXAA pipelines are separate: they use `post_push_constants` (exposure,
@@ -244,24 +244,24 @@
  * shared includes it lists as dependencies), so editing a shader is just editing a shader. The binaries
  * are **not** tracked in the repository and are not hand-synced - they are a build output, and the
  * directory is mirrored next to the executable, which is the copy the runtime loads
- * (`deren::chores::locate_shaders_dir` prefers a `shaders/` sibling of the running binary over anything found
+ * (`deren::chores::locate_shaders_dir` prefers a `source/shaders/` sibling of the running binary over anything found
  * by walking up from the working directory). **slangc is required, not optional** - every stage is built from
  * a `.slang` source and the rule has no GLSL fallback any more, so a configuration without the compiler
  * fails loudly instead of compiling modules the project no longer uses. The retired GLSL stage sources are
- * archived in `shaders/glsl.old/`; the shared bodies (`surface.glsl`, `shading.glsl`, `sky.glsl`,
- * `ibl_specular.glsl`, `heap_slots.glsl`, `heap_slot_constants.glsl`) stay in `shaders/`, because the Slang
+ * archived in `source/shaders/glsl.old/`; the shared bodies (`surface.glsl`, `shading.glsl`, `sky.glsl`,
+ * `ibl_specular.glsl`, `heap_slots.glsl`, `heap_slot_constants.glsl`) stay in `source/shaders/`, because the Slang
  * leaves include them.
  *
- * `shaders/compile_shaders.ps1` / `.sh` remain as a manual escape hatch for a machine without CMake -
+ * `source/shaders/compile_shaders.ps1` / `.sh` remain as a manual escape hatch for a machine without CMake -
  * they compile in place, which is what the build does too:
  *
  * @code
- *  powershell -ExecutionPolicy Bypass -File shaders/compile_shaders.ps1   # Windows
- *  sh shaders/compile_shaders.sh                                          # POSIX
+ *  powershell -ExecutionPolicy Bypass -File source/shaders/compile_shaders.ps1   # Windows
+ *  sh source/shaders/compile_shaders.sh                                          # POSIX
  * @endcode
  *
  * Both scripts mirror `CMakeLists.txt`'s `VR_SLANG_SOURCES` (source, entry point, stage, output) and pass the
- * same flags, including `-I shaders/`, which is what lets a leaf `#include "surface.glsl"`. They are verified
+ * same flags, including `-I source/shaders/`, which is what lets a leaf `#include "surface.glsl"`. They are verified
  * by running them and comparing their output with the build's, byte for byte.
  *
  * @section shader_conventions Conventions and pitfalls

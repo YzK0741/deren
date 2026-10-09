@@ -23,7 +23,7 @@ namespace deren::engine {
         /// nothing to push to), and a heap-native shader reads `vkCmdPushDataEXT` exactly as it read push
         /// constants. The environment's endpoint appends the two heap indices - the frame slot and the swapchain
         /// image - as the block's last fields, so what is pushed here is the block alone. See
-        /// `render_environment::push_block` and shaders/heap_slots.glsl.
+        /// `render_environment::push_block` and source/shaders/heap_slots.glsl.
         ///
         /// THE SESSION'S BUFFER IS THE CONTRACT HANDLE NOW (abi 21), and the endpoint takes it BY REFERENCE - so
         /// the one thing this file has to be careful about is the EMPTY session (a test or a session built with
@@ -47,7 +47,7 @@ namespace deren::engine {
 
     // ---- THE HOST'S COPY OF THE SHADER'S CULLING MATHS (docs/mesh_shaders.md step 3) ----
     // These are deliberate duplicates of `matrix_max_axis_scale` and `clip_sphere_visible` in
-    // shaders/mesh_geometry.slang, and the duplication IS the safety argument: the host must never reject a meshlet
+    // source/shaders/mesh_geometry.slang, and the duplication IS the safety argument: the host must never reject a meshlet
     // the stage would have kept, and the only way to be sure of that is to run the SAME conservative test - the
     // radius bound is a row-sum bound on both matrices (|M v|_inf <= max_i sum_j |M_ij| |v|_inf), and the clip test
     // uses `w + radius` on every plane so it is correct for a perspective projection too.
@@ -178,7 +178,7 @@ namespace deren::engine {
 
     void primitive::mesh_dispatch(render_environment const& env, primitive const& geometry, uint32_t const index_count, uint32_t const instance_count, uint32_t const survivors) const {
         // ---- the dispatch: one workgroup per `mesh_triangles_per_workgroup` triangles of THIS draw ----
-        // The workgroup budget is the shader's (see shaders/mesh_geometry.slang: 85 triangles, 255 vertices,
+        // The workgroup budget is the shader's (see source/shaders/mesh_geometry.slang: 85 triangles, 255 vertices,
         // because a triangle costs three of the device's 256 output vertices), and the group count has to cover
         // the window: the stage itself decides how many of its 85 triangles are real, which is what makes a
         // window that is not a multiple of 85 work without a second command.

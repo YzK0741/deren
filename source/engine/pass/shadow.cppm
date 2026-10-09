@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/shadow.cppm
  * @brief The sixteenth real pass: the directional shadow map, one depth-only cascade per layer.
- * @defgroup vulkan_pass_shadow Shadow Pass
+ * @defgroup engine_pass_shadow Shadow Pass
  *
  * WHY IT IS DIFFERENT FROM EVERY OTHER GRAPHICS PASS: the others draw a fullscreen triangle whose shape the pass
  * owns; this one draws THE SCENE, once per cascade, into a layer of a layered depth image - and it records that

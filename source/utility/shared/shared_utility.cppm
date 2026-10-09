@@ -32,7 +32,7 @@
 // `std::format_string` template are all allowed across this module's interface. THE MEASURED BASIS is
 // that the executable imports libc++.dll and uses the UCRT heap, so ONE C++ runtime and ONE heap are
 // shared by both images - an allocation here and a free there is safe in this configuration, and
-// scripts/check_backend_boundary.py now machine-checks that premise (libc++.dll imported, no static
+// source/scripts/check_backend_boundary.py now machine-checks that premise (libc++.dll imported, no static
 // libc++ linked anywhere).
 //
 // WHERE THIS BATCH STILL HANDS OVER A VIEW, it is a design choice rather than a rule: the sink's door is

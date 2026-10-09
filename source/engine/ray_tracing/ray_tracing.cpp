@@ -284,7 +284,7 @@ namespace deren::engine::ray_tracing {
             // the structure from that. An inline ray query has no any-hit stage, so a traversal cannot run the
             // material's discard - this bake is where the mask is applied instead, and it is startup work because
             // the structures are built once and a MASK material is a property of the file (see
-            // shaders/mask_bake.slang for the rule and for what the mechanism cannot represent).
+            // source/shaders/mask_bake.slang for the rule and for what the mechanism cannot represent).
             //
             // WHAT IS THE POLICY HERE and what is the JOB's: which casters carry a MASK material is this loop's,
             // and the allocation of the expanded buffer each one is baked into is this object's (the buffer
@@ -315,7 +315,7 @@ namespace deren::engine::ray_tracing {
             // arm, since a traversal that may stop at the first hit can take a path that never asks about opacity;
             // and a scene with a larger MASK footprint, because six triangles from three small quads is a weak
             // instrument. Until one of those shows an effect, what makes MASK surfaces correct is the any-hit
-            // stage's own cut (shaders/rt_shadow.rahit, 3.0/255 from the raster shadow over the pixels it changes
+            // stage's own cut (source/shaders/rt_shadow.rahit, 3.0/255 from the raster shadow over the pixels it changes
             // against 136.6/255 without it), and this micromap is architecture that is in place and verified to be
             // LEGAL rather than a working feature. It costs one build per MASK caster at load and is inert after.
             uint32_t micromap_index = caster_level::micromap_none;
@@ -382,7 +382,7 @@ namespace deren::engine::ray_tracing {
             // order, the index buffer and the triangle count are all the primitive's own: only the bytes change.
             // `skin_base != 0` is the test for "skinned", because index 0 is the identity block every unskinned
             // draw uses (see set_skin_matrices). The stride test is the shader's precondition, not a heuristic:
-            // shaders/compute_skin.slang reads the joints at byte 32 and the weights at byte 48 of the engine's
+            // source/shaders/compute_skin.slang reads the joints at byte 32 and the weights at byte 48 of the engine's
             // 64-byte interleaved vertex, so a caster whose vertices are packed differently is REFUSED (it keeps
             // its bind pose and is counted in the log) rather than skinned with the wrong words.
             constexpr uint32_t skin_source_stride_expected = 64u;

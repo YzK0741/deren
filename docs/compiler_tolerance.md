@@ -12,7 +12,7 @@ Ninja, shaders compiled by `slangc`. `-Werror` is on for first-party code in eve
 this compiler emits but CI's does not is a build failure here rather than a curiosity.
 
 MSVC is a second configuration the BUILD FILES support but the scripts and CI do not drive:
-`scripts/windows/build.ps1` requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
+`source/scripts/windows/build.ps1` requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
 cache variables an MSVC build needs are documented in the README rather than here.
 
 Everything below about GCC is a MEASUREMENT, not a promise. The audit ran GCC 16.2 (MinGW, ucrt64) against the
@@ -71,7 +71,7 @@ without an initializer, and the initialization happens in the implementation uni
 
 ## One clang bug, worked around rather than fixed
 
-`tests/vk_test.h` formats its own output (`std::format` + one `std::fwrite`) and deliberately does NOT call the
+`source/tests/vk_test.h` formats its own output (`std::format` + one `std::fwrite`) and deliberately does NOT call the
 project's print family. The reason is a **clang 22.1.8 crash**: with an inline function in that header calling
 the module's variadic template, `test_shadow_fit.cpp` and `test_animation.cpp` die in code generation
 ("clang frontend command failed due to signal", inside `EmitBuiltinNewDeleteCall` /

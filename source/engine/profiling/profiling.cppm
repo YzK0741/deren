@@ -2,7 +2,7 @@
 
 /**
  * @file source/engine/profiling/profiling.cppm
- * @defgroup vulkan_profiling Frame Timing Instrumentation
+ * @defgroup engine_profiling Frame Timing Instrumentation
  * @brief Frame timing instrumentation: the CPU frame phases, measured per frame and reported as a
  *        60-frame window (see cpu_phases), with the RAII scope timer the pass recorders use.
  *
@@ -29,7 +29,7 @@ import deren.utility; // the completed window is logged once per fold
 namespace deren::engine::profiling {
     /**
      * @brief the CPU frame phases that are measured per frame
-     * @ingroup vulkan_profiling
+     * @ingroup engine_profiling
      *
      * A phase whose name ends in '*' is a SUB-phase: it is measured inside another phase, so it is
      * reported but deliberately left out of the reported total (adding it would count that time twice).
@@ -53,7 +53,7 @@ namespace deren::engine::profiling {
 
     /**
      * @brief the rolling window of measured CPU frame phases
-     * @ingroup vulkan_profiling
+     * @ingroup engine_profiling
      *
      * add()/end() accumulate the frame being measured; fold() closes the window every @c window_length
      * frames and publishes it as a label, because a per-frame running mean makes an overlay re-wrap its
@@ -150,7 +150,7 @@ namespace deren::engine::profiling {
 
     /**
      * @brief scope timer: measures one CPU phase from construction to destruction
-     * @ingroup vulkan_profiling
+     * @ingroup engine_profiling
      */
     export class cpu_phase_timer {
     public:

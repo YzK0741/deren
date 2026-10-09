@@ -30,7 +30,7 @@
 //
 // The backend that will export those three symbols is the module under source/backends/vulkan/ once
 // the boundary lands (plan §7.4); today the only user is the probe backend
-// tests/probe_backend.cpp. The macro is kept in ONE header, next to the utility code
+// source/tests/probe_backend.cpp. The macro is kept in ONE header, next to the utility code
 // it is a build concern of, and applied at the declarations in
 // source/promise/rhi/backend_entry.hpp: one header owns the question "is this build shared?".
 // ============================================================================
@@ -56,7 +56,7 @@
  *   on Windows it is empty by construction (nothing is exported unless marked `dllexport`).
  * - Measured (plan §10.3): the probe DLL exports exactly its three entry points and the statically
  *   linked test binary exports none of them, which is what the two macros promise.
- * - CMake defines the macros per target (`tests/probe_backend.cpp` is compiled twice from one
+ * - CMake defines the macros per target (`source/tests/probe_backend.cpp` is compiled twice from one
  *   source file for exactly this reason), so no source file has to know which build it is in.
  */
 

@@ -186,7 +186,7 @@ MEASURED on this machine:
   validation: 13 capturing scenes report the `PRESENT_SRC_KHR` / `GENERAL` mismatch above, which is why the
   screenshot read-back was left where it was (see "What is NOT established" and the batch report for the raw
   lines).
-- No frame changed: `scripts/windows/check_render.ps1 -Full` reports the same 13 render hashes byte for byte, the
+- No frame changed: `source/scripts/windows/check_render.ps1 -Full` reports the same 13 render hashes byte for byte, the
   screenshot PNG is unchanged (the read-back did not move), and `ctest` is 14/14 (including `test_docs`, which is
   why `docs/host_image_copy.md` is in the `Doxyfile` INPUT list).
 

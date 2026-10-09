@@ -3,13 +3,13 @@
 /**
  * @file source/engine/pass/geometry_buffer_debug.cppm
  * @brief The fifteenth real pass: the G-buffer debug view, which shows the stored surface one channel at a time.
- * @defgroup vulkan_pass_gbuffer_debug G-buffer Debug View Pass
+ * @defgroup engine_pass_gbuffer_debug G-buffer Debug View Pass
  *
  * WHY IT IS A PASS AND WHAT IT OWNS: the view is a fullscreen triangle over the HDR target, so it owns its
  * pipeline and its recording - the four images it moves to a sampled layout, the CLEAR instance, the 16-byte push
  * and the draw. IT IS ALSO THE PASS THAT WRITES THE HEAP SLOTS the view reads, and the deferred lighting stage
  * reads its own through the same heap: a shader names the slot and the frame binds the heap once (see
- * shaders/heap_slots.glsl), so there is no set layout to own and no family to write.
+ * source/shaders/heap_slots.glsl), so there is no set layout to own and no family to write.
  *
  * WHAT IT DOES NOT OWN, and each is a shared thing rather than an omission: the stored surface itself, which is a
  * per-image heap slot `publish_frame_resources` writes every frame; the two samplers, which a declaration picks by

@@ -3,7 +3,7 @@
 /**
  * @file source/engine/render_resource/shared.cppm
  * @brief Borrowed RHI objects shared by resource declarations, in a nested module.
- * @defgroup vulkan_render_resource_shared Render Resource Shared Handles
+ * @defgroup engine_render_resource_shared Render Resource Shared Handles
  *
  * WHY THIS IS A MODULE OF ITS OWN rather than part of `deren.engine.render_resource`, and it is not tidiness: the
  * description layer is deliberately PURE CPU - its own enums, no Vulkan type - and that is what lets its
@@ -42,7 +42,7 @@ export namespace deren::engine::render_resource::shared {
 
     /**
      * @brief the samplers this renderer owns, addressed by what a declaration asks for
-     * @ingroup vulkan_render_resource_shared
+     * @ingroup engine_render_resource_shared
      *
      * FIVE of them have a `sampler_hint` a declaration can choose by (see `of`). `textures` is the sixth and
      * has none YET: it is the sampler the bindless texture ARRAY is read through (repeat addressing, a long LOD

@@ -14,7 +14,7 @@ import deren.engine.runtime;
  * @file chores.cppm
  * @defgroup chores Demo Bootstrap Chores
  * @brief main()'s startup helper functions, kept out of main.cpp so the entry point reads
- *        first: resolving the startup config (config file + argv merge, shaders/ and
+ *        first: resolving the startup config (config file + argv merge, source/shaders/ and
  *        default-model dirs), creating the demo pipelines, loading shader SPIR-V files, the
  *        optional instancing stress grid, and assembling the demo's Dear ImGui debug overlay
  *        (setup_gui). Demo/application layer only - these helpers know about app_config
@@ -38,7 +38,7 @@ namespace deren::chores {
     /**
      * @ingroup chores
      * @brief resolve the startup config in one step: merge the config file + argv into the
-     *        app settings, then locate the shaders/ directory and pick the model file
+     *        app settings, then locate the source/shaders/ directory and pick the model file
      *        (configured path, model_dir default, or auto-located gltf_model/). Panics when a
      *        configured or located resource is missing.
      * @param argc argv argument count (as received by main)
@@ -54,7 +54,7 @@ namespace deren::chores {
 
     /**
      * @ingroup chores
-     * @brief walk up from the working directory to find the shaders/ directory (works from the
+     * @brief walk up from the working directory to find the source/shaders/ directory (works from the
      *        project root or a cmake-build-* directory); nullopt when not found within 4 levels
      */
     export std::optional<std::filesystem::path> locate_shaders_dir();

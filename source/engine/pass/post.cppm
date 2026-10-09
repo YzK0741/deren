@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/post.cppm
  * @brief The twelfth and thirteenth real passes: the POST CHAIN - the composite and the bloom chain's four levels.
- * @defgroup vulkan_pass_post Post Chain Passes
+ * @defgroup engine_pass_post Post Chain Passes
  *
  * WHY THEY ARE ONE MODULE AND FIVE PASSES. They are one module because they are one shader: `post.frag` declares
  * ONE push constant block and selects its stage with a `mode` lane (0 bright-pass prefilter, 1 downsample,

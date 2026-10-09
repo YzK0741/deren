@@ -17,7 +17,7 @@ export import deren.vstd;
 
 /**
  * @file math.cppm
- * @defgroup vulkan_math Vulkan Math (CPU-side)
+ * @defgroup engine_math Engine Math (CPU-side)
  * @brief CPU-side math for the renderer: IBL precomputation (prefiltered environment mip chain,
  *        irradiance cubemap, BRDF LUT) and half-float conversion
  * @note
@@ -27,18 +27,18 @@ export import deren.vstd;
 namespace deren::engine {
 
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief generate a procedural HDR environment cubemap (RGBA32F, 6 faces packed)
      * @param sun_direction the sun's direction, pointing FROM the surface TOWARD the sun, unnormalized; the
      *        default is the historic hard-coded vector, so a caller that does not care gets the frame it
-     *        always got. It is a parameter because the visible sky (`shaders/sky.glsl`) draws its disc from
+     *        always got. It is a parameter because the visible sky (`source/shaders/sky.glsl`) draws its disc from
      *        the light UBO's direction, and a baked environment whose sun disagreed with it would put the
      *        reflections' glint somewhere the sky does not have a sun.
      */
     export std::vector<float> generate_environment_cubemap(int32_t size, std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
 
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief build the environment cubemap from an EQUIRECTANGULAR (lat-long) image instead of the
      *        procedural sky: the reference package's own way of describing its world
      * @param equirect linear-radiance texels, 4 floats each, row 0 = the image's TOP row (the order the
@@ -64,7 +64,7 @@ namespace deren::engine {
     export std::vector<float> generate_environment_cubemap_from_equirect(std::span<float const> equirect, int32_t width, int32_t height, int32_t size, float intensity = 1.0f);
 
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief GGX importance-sampled prefilter of the environment into a mip chain, one mip level per
      *        roughness step, each sample averaged over the source mip that matches its own solid angle
      *        (so the coarse levels stay smooth instead of picking up isolated bright texels - one of
@@ -78,13 +78,13 @@ namespace deren::engine {
     export std::vector<float> prefilter_environment(std::span<float const> env, int32_t env_size, int32_t mip_count);
 
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief cosine-weighted hemisphere convolution for the diffuse irradiance cubemap
      */
     export std::vector<float> generate_irradiance_map(std::span<float const> env, int32_t env_size, int32_t irr_size);
 
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief BRDF integration LUT filled with the Frostbite analytic approximation (RG32F: scale, bias)
      */
     export std::vector<float> generate_brdf_lut(int32_t size);
@@ -97,7 +97,7 @@ namespace deren::engine {
 
     export std::future<std::vector<float>> generate_environment_cubemap_async(int32_t size, std::array<float, 3> sun_direction = {0.3f, 1.0f, 0.5f});
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief async twin of generate_environment_cubemap_from_equirect()
      * @note UNLIKE the span-taking twins above, this one OWNS its input: the pixels come from a file the
      *       caller loads a few lines earlier, and it would otherwise have to keep that buffer alive across
@@ -109,13 +109,13 @@ namespace deren::engine {
     export std::future<std::vector<float>> generate_brdf_lut_async(int32_t size);
 
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief convert 4-channel float data to a packed RGBA16F byte stream
      */
     export std::vector<uint8_t> to_half_rgba(std::span<float const> data);
 
     /**
-     * @ingroup vulkan_math
+     * @ingroup engine_math
      * @brief convert 2-channel float data to a packed RG16F byte stream
      */
     export std::vector<uint8_t> to_half_rg(std::span<float const> data);

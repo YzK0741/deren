@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/transparent.cppm
  * @brief The FOURTH real pass: the alpha-blended geometry, composited over the shaded frame.
- * @defgroup vulkan_pass_transparent Transparent Pass
+ * @defgroup engine_pass_transparent Transparent Pass
  *
  * WHY IT IS ITS OWN PASS AND NOT PART OF THE SCENE PASS, even though both draw leaves: they are two different
  * INSTANCES with incompatible attachments. The scene pass writes the surface (its depth is an attachment it

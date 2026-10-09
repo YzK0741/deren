@@ -972,7 +972,7 @@ export namespace deren::promise::rhi {
 
     /// The depth-comparison ops the renderer asks for, plus the disabled spelling: a comparison turns a
     /// `sampler2DShadow` tap into the hardware PCF test, and the cascaded shadow map asks for `less_or_equal`
-    /// (shaders/pbr.frag's "not deeper than stored depth"). `never` is what `compare_enable == false` means.
+    /// (source/shaders/pbr.frag's "not deeper than stored depth"). `never` is what `compare_enable == false` means.
     enum class sampler_compare_op : std::uint32_t {
         never = 0,
         less_or_equal = 1,

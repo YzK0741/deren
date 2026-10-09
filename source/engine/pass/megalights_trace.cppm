@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/megalights_trace.cppm
  * @brief The stochastic punctual lighting pass: a few sampled lights per pixel, one visibility ray each.
- * @defgroup vulkan_pass_megalights_trace Megalights Trace Pass
+ * @defgroup engine_pass_megalights_trace Megalights Trace Pass
  *
  * WHAT IT OWNS: the frame's recording - the two transitions around its output image, the two shared parts of the
  * frame's heap it reads (the scene block, which carries the camera, the light UBO and the cluster lists, and the
@@ -17,7 +17,7 @@
  * handles it needs are the IMAGE it moves - which is what `pass_io::barrier_images` is for - and the two shared
  * parts of the heap above.
  *
- * THE ESTIMATOR ITSELF IS THE SHADER'S (shaders/megalights_trace.slang has the derivation and the UE
+ * THE ESTIMATOR ITSELF IS THE SHADER'S (source/shaders/megalights_trace.slang has the derivation and the UE
  * references); what lives here is the four values the renderer can decide per frame: how many samples, the
  * minimum sample weight below which a light's weight rolls to zero, the ray's self-intersection guard, and
  * the two origin-bias terms.
@@ -53,7 +53,7 @@ export namespace deren::engine::pass {
      */
     class megalights_trace_pass final : public frame_pass {
     public:
-        /// @brief the push block, which is also `shaders/megalights_trace.slang`'s
+        /// @brief the push block, which is also `source/shaders/megalights_trace.slang`'s
         struct push_constants {
             glm::mat4 inv_view_proj = glm::mat4(1.0f);
             /// x = samples per pixel, y = the minimum sample weight, z = the ray tmin, w = the frame counter

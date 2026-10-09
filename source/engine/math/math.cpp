@@ -27,7 +27,7 @@ namespace deren::engine {
         }
 
         // Procedural environment (HDR): gradient sky/ground + sun disc.
-        // Keep in sync with shaders/sky.glsl sky_color(): the visible sky is computed
+        // Keep in sync with source/shaders/sky.glsl sky_color(): the visible sky is computed
         // analytically per-pixel (no cubemap sampling), so the IBL cubemap baked from this
         // function must produce exactly the same colors for reflections to match the sky - which is
         // why the sun direction is a PARAMETER here rather than a constant: `sky.glsl` takes the

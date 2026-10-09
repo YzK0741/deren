@@ -72,7 +72,7 @@ namespace deren::engine {
     }
 
     void runtime::run_heap_probe(uint32_t const texture_slot) {
-        // ---- THE HEAP-NATIVE PROBE (see shaders/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
+        // ---- THE HEAP-NATIVE PROBE (see source/shaders/heap_probe_comp.slang and docs/descriptor_heap_migration.md) ----
         //
         // The whole migration assumes four things about the native path, and this is where they stop being
         // assumptions: a pipeline created with VK_PIPELINE_CREATE_2_DESCRIPTOR_HEAP_BIT_EXT and NO layout, a
@@ -82,7 +82,7 @@ namespace deren::engine {
         // the mask bake looked isolated too and turned out to record into the frame's own buffer.
         rhi::api_core& vk = this->vulkan_core;
         // Slot 0 of the sampler heap is the texture sampler: the first of the six core::create_samplers makes, in
-        // the order shaders/heap_slots.glsl names (the contract test compares that order, and the host has no
+        // the order source/shaders/heap_slots.glsl names (the contract test compares that order, and the host has no
         // per-sampler constant because it keeps them as a list).
         uint32_t const sampler_slot = static_cast<uint32_t>(deren::engine::render_layout::heap_sampler_base);
         std::span<uint8_t const> const spirv = this->registered_shader("heap_probe.comp.spv");
@@ -175,7 +175,7 @@ namespace deren::engine {
     }
 
     void runtime::run_heap_graphics_probe(uint32_t const material_slot, bool const mesh_shader) {
-        // ---- THE GRAPHICS HALF OF THE HEAP-NATIVE PROBE (see shaders/heap_probe.slang) ----
+        // ---- THE GRAPHICS HALF OF THE HEAP-NATIVE PROBE (see source/shaders/heap_probe.slang) ----
         //
         // The compute probe proved the mechanism for a compute pipeline; this is the same question for the kind
         // the frame is mostly made of. It renders into a target CLEARED TO BLACK first, so a white pixel can only

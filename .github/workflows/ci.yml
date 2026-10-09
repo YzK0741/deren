@@ -6,7 +6,7 @@ name: ci
 # STL module (source/vstd/vstd.cppm, a trimmed fork of the generated libc++ std module)
 # is tied to that toolchain - the only environment that guarantees a
 # byte-compatible libc++ is the same MSYS2 clang64 the project is developed in. The headless unit tests
-# (tests/, ctest) run on the CPU-only modules; the Release build of the full
+# (source/tests/, ctest) run on the CPU-only modules; the Release build of the full
 # project (including the Vulkan executable) is the compile gate. No GPU is
 # needed - nothing is executed that requires a Vulkan device.
 #
@@ -167,7 +167,7 @@ jobs:
       # through its import library BEFORE main, resolves deren_vulkan.dll and deren_gui_vulkan.dll BY NAME
       # out of its own directory, imports shared_utility.dll for the process-wide sink, takes the C++
       # runtime from libc++.dll, and finds the compiled SPIR-V by walking up from the working directory to
-      # `shaders/` (deren::chores::analyse_config). Uploading `build/deren.exe` alone - what this job did
+      # `source/shaders/` (deren::chores::analyse_config). Uploading `build/deren.exe` alone - what this job did
       # before - shipped a download that could not start, and nothing said so.
       #
       # THE LIST IS CHECKED, NOT ASSUMED, for the same reason the clang-tidy list above is: a package that
@@ -295,7 +295,7 @@ jobs:
         # as "Not Run" - the job goes red for a reason that looks like a test bug. That is exactly what
         # made this job red on master twice (runs 34844586370 and 35441060587) and then a THIRD time:
         # `test_meshlet` was registered by CMake and absent from this list (found and fixed with
-        # tests/test_docs.cpp, which now compares the two lists and fails by name). No sanitizer has
+        # source/tests/test_docs.cpp, which now compares the two lists and fails by name). No sanitizer has
         # ever reported anything in this job.
         #
         # test_shader_sources IS THE SHADER PIPELINE'S OWN GATE and it is deliberately here as well as in the

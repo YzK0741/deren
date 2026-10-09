@@ -1,7 +1,7 @@
 # gltf_loader Usage Guide
 
 > CPU-side module for loading glTF / GLB files, with no Vulkan dependency.
-> Backend: [fastgltf](https://github.com/spnda/fastgltf) (vendored under `third_party/fastgltf`, compiled from source into a `fastgltf_vendored` static target together with simdjson), textures decoded with stb_image.
+> Backend: [fastgltf](https://github.com/spnda/fastgltf) (vendored under `source/third_party/fastgltf`, compiled from source into a `fastgltf_vendored` static target together with simdjson), textures decoded with stb_image.
 
 - Language standard: C++23 (C++20 module)
 - Public interface: `source/gltf_loader/gltf_loader.cppm` (`import deren.gltf_loader;`)
@@ -234,7 +234,7 @@ Vertex buffers can be uploaded by memcpy'ing the raw bytes directly, provided th
 ## 7. Notes and Limitations
 
 - The module is compiled with `-fno-exceptions`: fastgltf reports errors via `Expected` and never throws.
-- Runtime dependencies: this module and its vendored parser (fastgltf + simdjson, from `third_party/`) build
+- Runtime dependencies: this module and its vendored parser (fastgltf + simdjson, from `source/third_party/`) build
   into `deren_assets.dll`, which the host links; nothing else is needed beyond the OS and the C++ runtime.
 - Static render data (meshes, vertices/indices, textures, materials), **keyframe animations** (section 8), **skins** (section 9) and **morph targets** (section 10) are exported. Non-indexed glTF primitives are supported: the loader synthesizes a sequential uint32 index buffer.
 - Cameras and punctual lights (KHR_lights_punctual) are exported too: `scenes.cameras` / `scenes.lights` hold the file's cameras and lights in glTF order, and each node records its attachment through `camera_index` / `light_index`. `main.cpp` consumes authored cameras as orbit-camera viewpoint seeds and loads point/spot lights into the runtime's editable light slots (up to the GPU cap), so they light the scene and stay adjustable in the overlay. KHR *directional* lights are not mapped: the engine's sun is the shadow-casting analytic light configured by `enable_shadows()`, so the loader logs them as ignored.

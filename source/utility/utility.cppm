@@ -16,7 +16,7 @@
 //     are NOT the reason and are not restricted here - the user's batch-④ ruling allows std::string /
 //     std::vector / std::function / std::pmr and format templates across the seam, on the measured
 //     basis that the executable imports libc++.dll and uses the UCRT heap (one runtime, one heap; see
-//     the C++-runtime check in scripts/check_backend_boundary.py).
+//     the C++-runtime check in source/scripts/check_backend_boundary.py).
 //   - `log` / `error` / `panic` stay HERE as inline templates: the formatting happens in the
 //     caller's instantiation and the result is handed over as a std::string_view to the shared sink,
 //     so no template needs exporting. `panic` itself, `log_text` / `error_text` / `wait_log_all` and

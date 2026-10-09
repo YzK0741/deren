@@ -19,7 +19,7 @@
 //     nullptr because their descriptors are S3.
 //   - `query_extension()`: the escape object for `vulkan_escape`, nullptr for everything else -
 //     exactly the two-way invariant the startup gate (core.constructor.cppm, G2) and
-//     tests/test_dynamic_link.cpp (G1) check.
+//     source/tests/test_dynamic_link.cpp (G1) check.
 //   - the factories: nullptr. Their descriptors are still forward-declared (the resource model is
 //     §6.4/S3), so building them here would mean inventing S3. A factory that cannot honour a
 //     descriptor answers nullptr (§4.2: no throwing path across the boundary).
@@ -162,7 +162,7 @@ namespace deren::vulkan {
         // measurement says 21 (`transfer_source -> shader_read` was missing, i.e.
         // `transfer_src_to_sampling_transition`, which `source/engine/pass/megalights_temporal.cpp` uses). A green
         // assertion was certifying a WRONG NUMBER, which is worse than no assertion: it made the gap look
-        // covered. The numbers below are the histogram output of `scripts/recording_face_census.py`, quoted
+        // covered. The numbers below are the histogram output of `source/scripts/recording_face_census.py`, quoted
         // so a reader can re-run it:
         //
         //     measured pairs: 22   role values: 11   combinations: 121   unsupported: 99
@@ -176,7 +176,7 @@ namespace deren::vulkan {
         inline constexpr std::uint32_t image_use_value_count = 11;            // the enum's values, contiguous 0..10
         static_assert(image_use_pairs.size() == image_use_pair_count_from_census,
                       "the declaration table must be exactly the pairs the CENSUS measured "
-                      "(scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
+                      "(source/scripts/recording_face_census.py: 'measured pairs: 22'); a hand count is not evidence");
         static_assert(image_use_pair_count_from_census + unsupported_pair_count_from_census ==
                           image_use_value_count * image_use_value_count,
                       "22 measured pairs + 99 unsupported must be exactly the 121 role combinations the census "
@@ -252,7 +252,7 @@ namespace deren::vulkan {
         //     * THE GATE MUST BE ABLE TO FAIL, and that is proven by MUTATION, not by reading the code.
         // ============================================================================================
 
-        /// THE PAIRS THE CENSUS MEASURED - transcribed from `scripts/recording_face_census.py`'s output
+        /// THE PAIRS THE CENSUS MEASURED - transcribed from `source/scripts/recording_face_census.py`'s output
         /// (the `measured pairs` line, printed as role pairs). This is the INDEPENDENT side of the set
         /// equality below: the table is checked against the measurement, never against itself.
         struct role_pair_expected {
@@ -361,7 +361,7 @@ namespace deren::vulkan {
         }
         static_assert(unsupported_combination_count() == unsupported_pair_count_from_census,
                       "the rules must leave exactly the census's 79 combinations unsupported "
-                      "(scripts/recording_face_census.py: 'unsupported by this measurement: 79')");
+                      "(source/scripts/recording_face_census.py: 'unsupported by this measurement: 79')");
 
         [[nodiscard]] consteval bool table_rows_are_unique() noexcept {
             for (std::size_t a = 0; a < image_use_pairs.size(); ++a) {
@@ -1039,7 +1039,7 @@ namespace deren::vulkan {
 
     rhi::extension* core::query_extension(rhi::extension_kind const kind) noexcept {
         // The invariant is two-way and is checked in two places: at startup on the REAL backend
-        // (core.constructor.cppm, gate G2) and on the probe backend in tests/test_dynamic_link.cpp
+        // (core.constructor.cppm, gate G2) and on the probe backend in source/tests/test_dynamic_link.cpp
         // (G1). Every kind this backend announces answers with an object whose kind() is the kind that
         // was asked for, and every kind it does not announce answers nullptr.
         if (kind == rhi::extension_kind::vulkan_escape) {

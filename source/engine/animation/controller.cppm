@@ -30,7 +30,7 @@ import deren.engine.primitive;  // GPU leaf primitive + scene capacity constants
 
 /**
  * @file controller.cppm
- * @defgroup vulkan_animation Vulkan Animation Controller
+ * @defgroup engine_animation Engine Animation Controller
  * @brief bridge between animation/skin/morph data and a scene runtime: plays keyframe
  *        animations by sampling pure CPU, writing the evaluated T/R/S back into scene node
  *        locals, and rebuilding the per-frame skin matrices + morph weights into the host's
@@ -58,7 +58,7 @@ import deren.engine.primitive;  // GPU leaf primitive + scene capacity constants
  */
 namespace deren::engine::animation {
     /**
-     * @ingroup vulkan_animation
+     * @ingroup engine_animation
      * @brief format-neutral animation data model (reference semantics mirror glTF keyframe
      *        animation, but no glTF type is involved): samplers/channels/clips/skins plus the
      *        pure CPU sampling functions. Loaders convert their format into these structures
@@ -120,7 +120,7 @@ namespace deren::engine::animation {
     };
 
     /**
-     * @ingroup vulkan_animation
+     * @ingroup engine_animation
      * @brief evaluated value of one animation channel at a point in time
      */
     export struct channel_sample {
@@ -238,7 +238,7 @@ namespace deren::engine::animation {
     };
 
     /**
-     * @ingroup vulkan_animation
+     * @ingroup engine_animation
      * @brief an animation data source: what controller::init() needs from a loaded
      *        file. Structural concept - any type exposing these member shapes can drive the
      *        controller (deren::gltf::scenes satisfies it; a future format just implements the same
@@ -262,7 +262,7 @@ namespace deren::engine::animation {
     };
 
     /**
-     * @ingroup vulkan_animation
+     * @ingroup engine_animation
      * @brief the host surface a controller drives, injected at init(): the scene
      *        tree it mutates plus callbacks for everything else it needs from the host.
      *
@@ -289,7 +289,7 @@ namespace deren::engine::animation {
     };
 
     /**
-     * @ingroup vulkan_animation
+     * @ingroup engine_animation
      * @brief plays keyframe animation on a scene tree: owns the playback clock and the
      *        value-copied clip/skin data, samples the active clip into scene node locals and
      *        rebuilds the per-frame skin matrices + morph weights into the host's per-slot
@@ -298,7 +298,7 @@ namespace deren::engine::animation {
     export class controller {
     public:
         /**
-         * @ingroup vulkan_animation
+         * @ingroup engine_animation
          * @brief build the playback table and resolve the skin/morph rigs against the
          *        backend's scene: collect the playable (channel-bearing) clips, map the scene
          *        tree's nodes onto their source metadata (TRS base poses etc. via the source's
@@ -721,7 +721,7 @@ namespace deren::engine::animation {
         [[nodiscard]] float loop_duration() const noexcept;
 
         /**
-         * @ingroup vulkan_animation
+         * @ingroup engine_animation
          * @brief advance and apply one frame: sample the active clip at the (possibly
          *        advanced) time, write each animated node's T/R/S local (scene roots keep the
          *        import shift) and mark the scene changed, write the active frame slot's morph

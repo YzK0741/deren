@@ -37,7 +37,7 @@ import deren.engine.animation;
 
 namespace deren::engine::animation {
 
-    /** @ingroup vulkan_animation
+    /** @ingroup engine_animation
      *  @brief one channel's easing: a cubic bezier from (0,0) to (1,1) with interior control
      *         points (x1,y1) and (x2,y2), stored normalized to [0,1] */
     export struct mmd_bezier {
@@ -136,7 +136,7 @@ namespace deren::engine::animation {
     };
 
     /**
-     * @ingroup vulkan_animation
+     * @ingroup engine_animation
      * @brief a parsed VMD motion: named tracks, sampled on demand over MMD's 30 fps timeline
      */
     export struct mmd_motion {
@@ -211,7 +211,7 @@ namespace deren::engine::animation {
     export std::vector<mmd_bone_alias> const& mmd_bone_aliases();
 
     /**
-     * @ingroup vulkan_animation
+     * @ingroup engine_animation
      * @brief which skeleton joint each bone of a parsed motion drives
      *
      * A VMD addresses bones by name, so the mapping is resolved once against a skeleton's joint

@@ -187,7 +187,7 @@ export namespace deren::promise::rhi {
     /// THAN KEPT: the raw-pointer-plus-deleter spelling existed to keep "one C++ runtime" out of the
     /// boundary's premises (m02244). That premise is now MEASURED and machine-checked - every image
     /// imports libc++.dll and uses the UCRT heap, so one runtime and one heap are shared and a control
-    /// block allocated on one side may be released on the other (scripts/check_backend_boundary.py's
+    /// block allocated on one side may be released on the other (source/scripts/check_backend_boundary.py's
     /// `cxx` check, which now covers the executable AND the backend DLL). The C ENTRY's signature is
     /// what the abi number protects, so this is a bump even though no vtable moved.
     /// `-Wreturn-type-c-linkage` is silenced at the declaration and at the definition, because the C

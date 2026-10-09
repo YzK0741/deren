@@ -46,7 +46,7 @@ export import deren.vstd;
 
 /**
  * @file source/engine/frame_constants/frame_constants.cppm
- * @defgroup vulkan_frame_constants Frame Constants
+ * @defgroup engine_frame_constants Frame Constants
  * @brief the per-frame facts the frame loop produces and a pass reads while it records
  *
  * One value type, filled once per frame by the renderer (`runtime::update_frame_constants`) and handed to every
@@ -57,7 +57,7 @@ export import deren.vstd;
 
 namespace deren::engine {
     /**
-     * @ingroup vulkan_frame_constants
+     * @ingroup engine_frame_constants
      * @brief the frame loop's RENDERER SETTINGS, for the ones more than one pass reads
      *
      * THE RULE THAT DECIDES WHAT IS HERE, and it is what keeps this from becoming a bag of knobs: a setting a pass
@@ -79,7 +79,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_frame_constants
+     * @ingroup engine_frame_constants
      * @brief one frame's shared constants, as the frame loop produced them
      *
      * @note every matrix here is the SAME one the camera UBO carries for this frame, so a pass that composes a

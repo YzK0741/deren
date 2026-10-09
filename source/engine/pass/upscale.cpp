@@ -108,7 +108,7 @@ namespace deren::engine::pass {
     }
 
     easu_constants make_easu_constants(uint32_t const render_width, uint32_t const render_height, uint32_t const output_width, uint32_t const output_height) noexcept {
-        // `FsrEasuCon` TRANSCRIBED (AMD's ffx_fsr1.h v1.20210629, see shaders/upscale.slang for the license
+        // `FsrEasuCon` TRANSCRIBED (AMD's ffx_fsr1.h v1.20210629, see source/shaders/upscale.slang for the license
         // and the kernel that consumes these): the input viewport and the input size are the same two numbers
         // here, because this renderer has no dynamic-resolution offset region inside a larger input resource.
         //

@@ -2,7 +2,7 @@
 
 /**
  * @file source/engine/pipelines/pipelines.cppm
- * @defgroup vulkan_pipelines Per-Pass Pipeline Builders
+ * @defgroup engine_pipelines Per-Pass Pipeline Builders
  * @brief The engine's per-pass pipelines: one builder per pass, next to the generic builder in
  *        deren.vulkan.core.pipeline (that one knows HOW to build a pipeline, this one knows what each pass's
  *        pipeline looks like - formats, sample counts, blend state, push-constant ranges).
@@ -164,20 +164,20 @@ namespace deren::engine::pipelines {
 
     /// the ray-traced sun shadow: a compute pipeline over the descriptors the frame's heap carries
     export std::expected<compute_pipeline_owned, std::string> build_two_set_compute(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
-    /// the stochastic punctual lighting trace (shaders/megalights_trace.slang)
+    /// the stochastic punctual lighting trace (source/shaders/megalights_trace.slang)
     export std::expected<compute_pipeline_owned, std::string> build_megalights_trace(rhi::api_core& face,
                                                                                      std::span<uint8_t const> compute_shader_code);
-    /// the stochastic chain's temporal resolve (shaders/megalights_temporal.slang)
+    /// the stochastic chain's temporal resolve (source/shaders/megalights_temporal.slang)
     export std::expected<compute_pipeline_owned, std::string> build_megalights_temporal(rhi::api_core& face,
                                                                                         std::span<uint8_t const> compute_shader_code);
     /// the mask bake: a compute pass over the material table and the texture array
     /// array), which collapses the triangles a material's alphaMode MASK cuts out and writes the expanded
-    /// vertices a bottom level structure is then built from - see shaders/mask_bake.slang
+    /// vertices a bottom level structure is then built from - see source/shaders/mask_bake.slang
     export std::expected<compute_pipeline_owned, std::string> build_mask_bake(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
     /// the compute skinning pass: the scene block's per-joint matrices - see
-    /// shaders/compute_skin.slang
+    /// source/shaders/compute_skin.slang
     export std::expected<compute_pipeline_owned, std::string> build_compute_skin(rhi::api_core& face, std::span<uint8_t const> compute_shader_code);
-    /// the clustered-light sort (shaders/light_cluster.slang): heap-native, and NO push constants
+    /// the clustered-light sort (source/shaders/light_cluster.slang): heap-native, and NO push constants
     /// at all - the shader reads the light UBO and writes the two cluster buffers through heap slots, which is
     /// why this builder takes no push size. It is the first compute pipeline in this module
     /// that came out of `deren.vulkan.core`.
@@ -186,7 +186,7 @@ namespace deren::engine::pipelines {
     /**
      * @brief the HEAP-NATIVE probe's pipeline: the first one in this renderer created the heap way
      * @param device the logical device
-     * @param compute_shader_code the probe's SPIR-V (see shaders/heap_probe_comp.slang)
+     * @param compute_shader_code the probe's SPIR-V (see source/shaders/heap_probe_comp.slang)
      * @return the pipeline, or the reason it could not be created
      * @note NO SET LAYOUT AND NO PIPELINE LAYOUT, which is not a simplification but the flag's requirement:
      *       "the pipeline layout must be NULL and shader resources will be sourced from a descriptor heap". The
@@ -203,7 +203,7 @@ namespace deren::engine::pipelines {
      * @brief the GRAPHICS half of the heap-native probe: a heap-flagged, layout-less pipeline over two stages
      * @param device the logical device
      * @param colour_format the format the probe renders into (dynamic rendering, like every pass here)
-     * @param vertex_code / @param fragment_code the probe's SPIR-V (see shaders/heap_probe.slang)
+     * @param vertex_code / @param fragment_code the probe's SPIR-V (see source/shaders/heap_probe.slang)
      * @return the pipeline, or the reason it could not be created
      * @note no vertex input, no blend and a static viewport: the probe's subject is the FRAGMENT stage reading the
      *       heap through a graphics pipeline at all, and every one of those would be a second thing that could be
@@ -342,7 +342,7 @@ namespace deren::engine::pipelines {
         return out;
     }
 
-    // The mask bake (see shaders/mask_bake.slang): a compute pipeline over the material heap slots ALONE, because
+    // The mask bake (see source/shaders/mask_bake.slang): a compute pipeline over the material heap slots ALONE, because
     // everything it needs is there - the material table for the alpha texture's index and the cutoff, and the
     // bindless texture array to sample it. It owns no set layout, like every traced compute pass, and it is the only compute
     // pass here whose output is not an image: it writes vertices into a buffer the acceleration structure is
@@ -364,7 +364,7 @@ namespace deren::engine::pipelines {
         return out;
     }
 
-    // The compute skinning pass (see shaders/compute_skin.slang): the same shape as the mask bake above and
+    // The compute skinning pass (see source/shaders/compute_skin.slang): the same shape as the mask bake above and
     // for the same reason - it reads only the per-joint matrices heap slot.
     std::expected<compute_pipeline_owned, std::string> build_compute_skin(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
@@ -386,7 +386,7 @@ namespace deren::engine::pipelines {
     // The clustered-light sort: NO set, NO layout and NO push range. Every stage of the frame is heap-native
     // (see docs/descriptor_heap_handover.md), so this pipeline is created with VK_NULL_HANDLE and the heap flag;
     // the shader reads the light UBO and the cluster buffers out of the scene block by slot, and the slot itself
-    // travels in the stage push block (shaders/heap_slots.glsl). Owning the pipeline is all that is left to own.
+    // travels in the stage push block (source/shaders/heap_slots.glsl). Owning the pipeline is all that is left to own.
     std::expected<compute_pipeline_owned, std::string> build_cluster(rhi::api_core& face, std::span<uint8_t const> const compute_shader_code) {
         using fail = std::unexpected<std::string>;
         compute_pipeline_owned out;
@@ -551,7 +551,7 @@ namespace deren::engine::pipelines {
         return out;
     }
 
-    // The stochastic punctual lighting trace (shaders/megalights_trace.slang): the same compute-pipeline shape as
+    // The stochastic punctual lighting trace (source/shaders/megalights_trace.slang): the same compute-pipeline shape as
     // the passes above, with a push block of its own. It FORWARDS to the builder above rather than repeating
     // twenty lines of Vulkan, and it exists as its own name because a caller reading `build_two_set_compute`
     // inside this pass's create() would have to check that the two are still the same shape - which is exactly

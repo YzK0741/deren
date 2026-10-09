@@ -58,7 +58,7 @@ The repository's conventions, which this follows: module names are flat peers un
 mirrors the module's suffix (`namespace deren::vulkan::bindings`), types are `snake_case`, a builder's result carries
 `_owned`, and capacities/constants are lower_snake_case.
 
-    module            deren.engine.render_resource               (doxygen: @defgroup vulkan_render_resource)
+    module            deren.engine.render_resource               (doxygen: @defgroup engine_render_resource)
     namespace         deren::vulkan::render_resource
     files             source/engine/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
 

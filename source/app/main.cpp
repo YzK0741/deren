@@ -6,7 +6,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 // ---- THE GOO REFERENCE'S PRE-INTEGRATED FGD LUT IS A PNG, AND THIS IS THE DECODER ----
 //
-// `third_party/stb/stb_image.h` is already vendored and already used by `gltf_loader.cpp` for GLB textures, and
+// `source/third_party/stb/stb_image.h` is already vendored and already used by `gltf_loader.cpp` for GLB textures, and
 // that translation unit defines `STB_IMAGE_IMPLEMENTATION` (whose functions are `STBIDEF`, i.e. `extern`). A
 // SECOND implementation in this file is therefore not a double definition but a LINK CLASH, and the fix is the
 // documented one: `STB_IMAGE_STATIC` makes this file's copy file-local, so the two never meet at link time. It
@@ -14,7 +14,7 @@
 // point of use, without making the engine core depend on `gltf_loader` (see `deren_engine`'s own note on why
 // that dependency is deliberately absent).
 //
-// The include path resolves because `deren_engine` exports `third_party/` as a PUBLIC include directory, and
+// The include path resolves because `deren_engine` exports `source/third_party/` as a PUBLIC include directory, and
 // `deren` links it.
 #define STB_IMAGE_STATIC
 #define STB_IMAGE_IMPLEMENTATION
@@ -50,7 +50,7 @@ namespace {
     //   1. the ASSET'S `extras` block (`deren::gltf::material::extras_floats`, read by the loader from the game's own
     //      exported table that ships inside the .glb) - the ORIGINAL;
     //   2. the `.toon.tsv` SIDECAR beside the model - this port's TRANSCRIPTION of a subset of the same tables;
-    //   3. the family table in `shaders/toon_params.slang` - the port's own fallback.
+    //   3. the family table in `source/shaders/toon_params.slang` - the port's own fallback.
     // EXTRAS WINS, and the reason is what the two files ARE rather than which is newer: extras is written by the
     // game's own material pipeline and travels inside the asset, while the sidecar is a copy this repository made
     // from the game's JSON tables - a copy can be incomplete (it carries 109 of the 194 names) and can be stale,
@@ -320,7 +320,7 @@ namespace {
     /// become one. `toon_lane` below is sized by `deren::engine::toon_slot::count`, so a second sheet slot AS A LANE would
     /// cost a 17th vocabulary entry, a wider lane block (`toon_lane_blocks` 3 -> 4, in the SAME heap slot:
     /// `source/backends/vulkan/core/core.declarations.cppm`'s `heap_slots::toon_lanes`) and a FOURTH accessor beside the three that
-    /// exist (`shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`, one `uint4` column
+    /// exist (`source/shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`, one `uint4` column
     /// each) - a fourth DESCRIPTOR SET is NOT the cost and was never the proposal
     /// (`goo_step15_lane_rs_index_spec.md` §3.5/§9.4: the rejected `Rb`).
     /// The reference needs none of that: `RS_Index` is a per-material CONSTANT (§1.3 - no material link in either
@@ -416,7 +416,7 @@ int main(int argc, char** argv) {
 
     // 1-3. Resolve the startup config in one step (chores): merge the config file (config.toml
     // by default, --config <path> to override) with positional argv overrides (argv[1] = model,
-    // argv[2] = grid side (numeric)), then locate the shaders/ dir and pick the model file.
+    // argv[2] = grid side (numeric)), then locate the source/shaders/ dir and pick the model file.
     // Panics on any missing configured/located resource. The dev-tool capture flags are removed
     // from argv first (see parse_capture_options) so they cannot land in the positional slots.
     std::vector<char*> filtered_argv;
@@ -778,7 +778,7 @@ int main(int argc, char** argv) {
         // `_GooRSSheet`/`_UseGooRSSheet` rather than a game property name for the mask's own reason: the reference
         // reads it through a `组输入` socket, so there is no `_Use...` row to copy. A material with no row here and
         // `RS Model = 0` gets `arm0 = 0` - the branch must NOT fall back to the white texture at index 0. See
-        // `toon_slot::goo_rs_sheet` and the `armA` block in `shaders/goo_toon.slang`.
+        // `toon_slot::goo_rs_sheet` and the `armA` block in `source/shaders/goo_toon.slang`.
         //
         // AND IT IS ONE OF THE REFERENCE'S TWO SHEETS, WHICH IS WHY THERE IS NO SECOND ENTRY HERE: `RS_Index`
         // (`_GooRSArm0`'s `.x`, a `color` row) chooses between this sheet and the second one, and the host
@@ -970,7 +970,7 @@ int main(int argc, char** argv) {
         //
         // THE NEUTRAL OF BOTH IS `(0,0,0,0)`, which is a value and not a placeholder: `.x` of lane 27 is the
         // branch's switch, and zero there is what makes the stage's identity BITWISE (see the `float3
-        // rs_final = lit;` / `if (rs_use > 0.0f && ...)` pair in `shaders/goo_toon.slang`, which does no
+        // rs_final = lit;` / `if (rs_use > 0.0f && ...)` pair in `source/shaders/goo_toon.slang`, which does no
         // floating-point work at all when the gate is shut).
         "_GooRSScalars",
         "_GooRSTint",
@@ -980,7 +980,7 @@ int main(int argc, char** argv) {
         // four-component form for exactly that. Its neutral is `(0,0,0,0)`, which is ALSO the arm's off switch
         // (`RS Strength = 0` zeroes the product), so a material that states no row gets an `armA` that changes
         // nothing - but note it is not the same as `Use RS_Eff? = 0`: a zeroed `armA` still passes through the
-        // LIGHTEN below. See `toon_colour_lane::goo_rs_arm0` and the `armA` block in `shaders/goo_toon.slang`.
+        // LIGHTEN below. See `toon_colour_lane::goo_rs_arm0` and the `armA` block in `source/shaders/goo_toon.slang`.
         "_GooRSArm0",
     }};
     // The declared flag for a toon lane; the `_Use<Slot>` convention for every OTHER slot, which the diagnostic
@@ -1147,9 +1147,9 @@ int main(int argc, char** argv) {
     // spec's §3.4 names, and the slot is `core::heap_slots::goo_fgd_lut` (754).
     //
     // THE PATH IS RESOLVED FROM THE EXECUTABLE'S OWN DIRECTORY, not from the process's working directory: a
-    // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `scripts/windows/capture.ps1`), so a
+    // capture runs with `WorkingDirectory` set to its `-WorkDir` (see `source/scripts/windows/capture.ps1`), so a
     // CWD-relative path would miss. Nothing here is a new path *convention*: this file is a data file that ships
-    // beside the build's own `shaders/` and `chars/` directories, and `deren-ab/` is where the reference's assets
+    // beside the build's own `source/shaders/` and `chars/` directories, and `deren-ab/` is where the reference's assets
     // live in this repository.
     //
     // A MISSING FILE IS LOGGED AND NOT FATAL, deliberately: with no LUT uploaded, the slot holds no descriptor and
@@ -1160,7 +1160,7 @@ int main(int argc, char** argv) {
         std::vector<uint8_t> fgd_file = {};
         // `deren::utility::executable_directory()` AND NOT `current_path()`, which is the fix for a measured failure
         // rather than a preference: a capture runs with its working directory set to the harness's `-WorkDir`
-        // (see `scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
+        // (see `source/scripts/windows/capture.ps1`'s launch), so `current_path()` resolved to
         // `...\deren-ab\laevat\deren-ab\gooblender\images\...` and EVERY step-5 frame was rendered with no LUT
         // uploaded at all - the log said so (`goo FGD LUT: NOT uploaded`) and the three FGD terms read zero.
         // The executable's own directory is `build-release-clang64/`, which is where `deren-ab/` and the
@@ -1332,7 +1332,7 @@ int main(int argc, char** argv) {
     // `baked_ramp_half_width` IS HALF OF A SHARED CONTRACT; the other half is the shader's
     // `character_ramp_half_width`. The shader's remap inverts this bake exactly when the two agree, which is
     // what makes the texture branch and the procedural branch produce the same tint for the same family rather
-    // than merely similar ones. `tests/test_toon_material_sidecar.cpp` reads both files and fails on drift -
+    // than merely similar ones. `source/tests/test_toon_material_sidecar.cpp` reads both files and fails on drift -
     // and it is there rather than in a test of its own because the contract is a sidecar-lane contract.
     constexpr uint32_t baked_ramp_width = 256;
     constexpr uint32_t baked_ramp_height = 8;
@@ -1417,7 +1417,7 @@ int main(int argc, char** argv) {
     // tile chosen by the X channel and a bilinear hop between adjacent tiles because X is continuous. The
     // shader's `toon_shadow_lut` inverts this exactly, and `baked_lut_tiles` is HALF OF THAT CONTRACT - the other
     // half is `character_shadow_lut_tiles` - because a bake laid out for a different tile count reads back as a
-    // different colour with no other symptom. `tests/test_toon_material_sidecar.cpp` compares the two.
+    // different colour with no other symptom. `source/tests/test_toon_material_sidecar.cpp` compares the two.
     //
     // THE CONTENT IS THE IDENTITY CUBE, which is the same choice the ramps make and for the same reason: a
     // neutral bake reproduces the look the procedural branch already had (`albedo` in, `albedo` out), so the
@@ -1662,7 +1662,7 @@ int main(int argc, char** argv) {
             // sidecar's own slot row and carries the name the reference's selector resolves to, already applied
             // where the file was written; `_GooRampIndex` is the raw socket and is read only when the slot row is
             // absent, which is the case for a material whose sidecar states the index and no name. Both answer the
-            // SAME name on every material this asset gives the group to, and `tests/test_goo_toon_math.cpp` asserts
+            // SAME name on every material this asset gives the group to, and `source/tests/test_goo_toon_math.cpp` asserts
             // that agreement against the reference's four thresholds.
             //
             // THE MODEL IS THE JUDGE OF PRESENCE: a name the model does not carry leaves the lane `invalid`, so a
@@ -1695,7 +1695,7 @@ int main(int argc, char** argv) {
         // `RampSelect` may be (see the branch above): `RS_Index` has NO MATERIAL LINK in either dump, so it is a
         // per-material CONSTANT and the answer cannot change inside a frame (spec §1.3, §9.1).
         //
-        // WHY THIS IS A HOST RULE AND NOT A SHADER ONE: `rs_arm0_lane.x` stays UNREAD in `shaders/goo_toon.slang`
+        // WHY THIS IS A HOST RULE AND NOT A SHADER ONE: `rs_arm0_lane.x` stays UNREAD in `source/shaders/goo_toon.slang`
         // (see the L1 note there) - the lane carries the reference's socket, the HOST answers it, and the shader's
         // `u` derivation and its single `heap_texel` fetch are untouched by this step. THE `.spv` FILES ARE THE
         // EVIDENCE: this branch must not move a single one of them.
@@ -1782,7 +1782,7 @@ int main(int argc, char** argv) {
          // `CastShadow_center` is `-0.10000000149011612` on both body materials and
          // `GlobalShadowBrightnessAdjustment` is `-1.7999999523162842` on the cloth - so a neutral inside the
          // values' own range would make the stage read an authored number as "not stated". See
-         // `goo_lane_absent` in `shaders/character_forward.slang` and each lane's note in
+         // `goo_lane_absent` in `source/shaders/character_forward.slang` and each lane's note in
          // `deren::engine::toon_colour_lane`.
          glm::vec4(1.0f, 1.0f, 1.0f, 1.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(-1000.0f, -1000.0f, -1000.0f, -1000.0f), glm::vec4(0.0f, 0.0f, 0.0f, 1.0f),
          // STEP 5'S FOUR, WHOSE NEUTRALS ARE THE REFERENCE'S OWN `interface[]` DEFAULTS rather than the `-1000`
@@ -2096,7 +2096,7 @@ int main(int argc, char** argv) {
         // THE TOON CHAIN'S SHADOW SOFTNESS LADDER (`[render] toon_shadow_softness`, already rounded and clamped
         // by `analyse_config`): 0 is the shipped 3x3 PCF and the default, so this line changes nothing unless a
         // config asked for a wider kernel. The lane is read by the shared `toon_diffuse` body in
-        // `shaders/character_forward.slang`, which is compiled into the `character_forward`, `goo_toon` and
+        // `source/shaders/character_forward.slang`, which is compiled into the `character_forward`, `goo_toon` and
         // `outline` stages (`goo_toon.slang`'s own `rs_shadow` lookup is a different call site and stays 3x3 at
         // every level; `overlay` has no shadow sample at all).
         rig.shadow_softness.x = settings.render.toon_shadow_softness;

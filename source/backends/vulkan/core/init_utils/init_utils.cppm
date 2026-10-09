@@ -76,7 +76,7 @@ export struct device_capabilities {
     //      warning it suppresses is a clang warning group with no MSVC spelling, and MSVC does not warn
     //      about partially-initialized designated initializers at /W4, so there is nothing to suppress
     //      there. This is the only first-party use of a clang-specific pragma/attribute/builtin in the
-    //      tree (everything else lives under third_party/, which is compiled with /external:W0).
+    //      tree (everything else lives under source/third_party/, which is compiled with /external:W0).
 #if defined(__clang__)
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wmissing-designated-field-initializers"
@@ -152,7 +152,7 @@ export struct device_capabilities {
      * @note A `descriptor_heap` declaration compiles to an UNTYPED POINTER (SPIR-V UntypedPointersKHR), so a
      *       module declaring one is refused unless VK_KHR_shader_untyped_pointers is enabled and this feature is
      *       on: "SPIR-V Capability UntypedPointersKHR was declared, but ... shaderUntypedPointers" - measured, by
-     *       the heap-native probe (shaders/heap_probe_comp.slang), which was the first shader in this renderer to
+     *       the heap-native probe (source/shaders/heap_probe_comp.slang), which was the first shader in this renderer to
      *       declare one. The name is kept beside the heap's own dependency for the same reason that one is: the
      *       device-creation list must not re-derive it.
      */

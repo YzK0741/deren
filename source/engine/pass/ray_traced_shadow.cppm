@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/ray_traced_shadow.cppm
  * @brief The ninth real pass, and the only one that traces outside the chain: the ray-traced sun shadow.
- * @defgroup vulkan_pass_rt_shadow Ray-Traced Shadow Pass
+ * @defgroup engine_pass_rt_shadow Ray-Traced Shadow Pass
  *
  * WHAT IT OWNS: its RAY TRACING pipeline (three stages - raygen, closest hit and miss -
  * with the three shader groups and the shader binding table regions that go with them, built at create time from
@@ -127,7 +127,7 @@ export namespace deren::engine::pass {
      */
     class rt_shadow_pass final : public frame_pass {
     public:
-        /// @brief the push block, which is also the one the `shaders/rt_shadow.*` stages declare
+        /// @brief the push block, which is also the one the `source/shaders/rt_shadow.*` stages declare
         struct push_constants {
             glm::mat4 inv_view_proj = glm::mat4(1.0f); // clip -> world, the block the lighting stage uses
             // x = ray tmin, y = absolute normal-offset floor, z = relative offset scale (per unit of

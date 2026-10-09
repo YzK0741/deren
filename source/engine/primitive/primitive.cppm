@@ -21,7 +21,7 @@
 
 /**
  * @file primitive.cppm
- * @defgroup vulkan_primitive Vulkan GPU Primitives
+ * @defgroup engine_primitive Engine GPU Primitives
  * @brief the drawable GPU primitives plus the material / camera / light UBO
  *        records of the GPU scene set.
  * @details each primitive owns its geometry buffers and material push
@@ -47,8 +47,8 @@ export import deren.engine.scene_tree; // the abstract leaf interface these impl
 export import deren.engine.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
 namespace deren::engine {
     /**
-     * @ingroup vulkan_primitive
-     * @brief camera UBO content, layout matches the CameraUBO block in shaders/shading.glsl (no model
+     * @ingroup engine_primitive
+     * @brief camera UBO content, layout matches the CameraUBO block in source/shaders/shading.glsl (no model
      *        matrix: the per-primitive world transform lives in the push constants instead,
      *        so the camera UBO can be shared by every primitive)
      * @note `proj` is the CURRENT frame's projection INCLUDING the TAA jitter when temporal
@@ -74,7 +74,7 @@ namespace deren::engine {
     static_assert(offsetof(camera_ubo, prev_view_proj) == 3 * sizeof(glm::mat4) + sizeof(glm::vec4));
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief one user-configurable punctual light (API surface of runtime::set_point_lights).
      *        Point lights are omni-directional; a spot light additionally restricts its cone to
      *        @p spot_direction with a soft edge whose OUTER half-angle cosine is
@@ -129,8 +129,8 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
-     * @brief light UBO content, layout matches the LightUBO block in shaders/shading.glsl and
+     * @ingroup engine_primitive
+     * @brief light UBO content, layout matches the LightUBO block in source/shaders/shading.glsl and
      *        shadow.vert (scene block slot 7): the per-cascade light-space view-projections, the
      *        light direction, the cascade ranges/texel sizes, then the punctual light array
      * @note the directional sun is built from the scene bounds (enable_shadows) and the shadow
@@ -142,7 +142,7 @@ namespace deren::engine {
      *       range - which is what makes the cascaded version an A/B rather than a rewrite.
      */
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief the FACE SDF's HEAD FRAME (scene block slot 749), one block per frame slot
      *
      * WHY IT IS ITS OWN BLOCK AND NOT A FIELD OF THE CAMERA'S, which would have been the smaller change: the
@@ -189,10 +189,10 @@ namespace deren::engine {
     static_assert(sizeof(head_ubo) == 64);
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief the TOON LIGHT RIG's global numbers (scene block slot 750), written once from the application's config
      *
-     * WHAT BELONGS HERE, AND THE BOUNDARY IS THE POINT: a FAMILY's numbers live in `shaders/toon_params.slang`,
+     * WHAT BELONGS HERE, AND THE BOUNDARY IS THE POINT: a FAMILY's numbers live in `source/shaders/toon_params.slang`,
      * because two stages must agree about them, and a MATERIAL's live in the material record or in the sidecar
      * beside the model. What is left is the RIG - the numbers the article tunes once for a whole character
      * whatever it is wearing: the split between the SUN and the head light the game adds over every character, the
@@ -260,7 +260,7 @@ namespace deren::engine {
         /// leaking onto the whole skin - a taste trade the user picks per run, which is why the default is off.
         ///
         /// IT RIDES THE RIG, NOT THE PER-FRAME LIGHT BLOCK, for the rig's own reason: it is fixed for a run and
-        /// only the toon chain reads it (`shaders/character_forward.slang`'s one shadow call site). The rig's
+        /// only the toon chain reads it (`source/shaders/character_forward.slang`'s one shadow call site). The rig's
         /// other lanes let this be a per-run A/B knob with no rebuild - the same lever `_DayStrength` uses.
         glm::vec4 shadow_softness = glm::vec4(0.0f, 0.0f, 0.0f, 0.0f);
     };
@@ -268,8 +268,8 @@ namespace deren::engine {
     static_assert(sizeof(toon_rig) == 9 * sizeof(glm::vec4));
 
     /**
-     * @ingroup vulkan_primitive
-     * @brief light UBO content, layout matches the LightUBO block in shaders/shading.glsl and
+     * @ingroup engine_primitive
+     * @brief light UBO content, layout matches the LightUBO block in source/shaders/shading.glsl and
      *        shadow.vert (scene block slot 7): the per-cascade light-space view-projections, the
      *        light direction, the cascade ranges/texel sizes, then the punctual light array
      * @note the directional sun is built from the scene bounds (enable_shadows) and the shadow
@@ -356,7 +356,7 @@ namespace deren::engine {
     static_assert(sizeof(point_light) == 64);
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief RGBA texture pixels ready for GPU upload (already converted to the target format)
      * @note valid == false means "missing texture", the primitive falls back to a 1x1 white image
      */
@@ -372,7 +372,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief precomputed split-sum IBL resources as half-float bytes, ready for upload
      * @note env_size == 0 disables the IBL bindings
      */
@@ -387,7 +387,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief PBR material factors, mirrored into the GPU material table (material_record)
      * @note the same shape as deren::gltf::material_factors, converted by the scene builder
      */
@@ -404,7 +404,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief result of one runtime::import_scene() batch import
      */
     export struct scene_import_result {
@@ -458,7 +458,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief concept for a scene-traversal iterator the runtime can consume directly:
      *        ++ moves to the next drawable, then geometry/material are read through the
      *        getters (vertex/index/transform + one getter per material slot). The getters
@@ -484,7 +484,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief concept for a scene-tree structural iterator: DFS pre-order over the retained
      *        node hierarchy (transform-only nodes included), so a consumer can rebuild the
      *        parent/child edges with an explicit stack. ++ moves to the next node, then the
@@ -523,7 +523,7 @@ namespace deren::engine {
         emotion = 7,        // `_EmotionMap`: the 2x2 expression atlas the face's own uv is read into
         split_normal = 8,   // `_SplitNormalMap` (`_UseSpecBumpMap`): TWO tangent-space normals packed in one map
         /**
-         * `_GooMatcap05`: THE REWRITTEN TOON CHAIN's iris ball (see `shaders/goo_toon.slang`).
+         * `_GooMatcap05`: THE REWRITTEN TOON CHAIN's iris ball (see `source/shaders/goo_toon.slang`).
          *
          * WHY IT IS NOT `matcap` ABOVE, which is the same KIND of map and the obvious lane to reuse: the two are
          * read by two different chains, and the old one GATES A WHOLE SHADING PATH on its lane -
@@ -541,7 +541,7 @@ namespace deren::engine {
          *
          * `0` MEANS "DO NOT READ", the same contract as lanes 0..3 and the rest of this block.
          */
-        goo_matcap05 = 9, // `_GooMatcap05`: the Goo iris group's internal ball (see shaders/goo_toon.slang)
+        goo_matcap05 = 9, // `_GooMatcap05`: the Goo iris group's internal ball (see source/shaders/goo_toon.slang)
         /**
          * `_GooBaseRamp`: THE REWRITTEN TOON CHAIN's BASE / SKIN / CLOTH RAMP - the `_RD` image the Goo
          * reference's `RampSelect` resolves to for this material (spec `goo_step4_diffuse_spec.md` §2.4/§2.6).
@@ -570,7 +570,7 @@ namespace deren::engine {
          * which is why it is here and not at 12. It filled that block; THE STEP-7 LANES BELOW ARE THE ONES THAT
          * NEEDED THE THIRD BLOCK, and they are the reason `toon_lane_blocks` is now 3 (see the assertion below).
          */
-        goo_base_ramp = 10, // `_GooBaseRamp`: the `_RD` image `RampSelect` resolves to (see shaders/goo_toon.slang)
+        goo_base_ramp = 10, // `_GooBaseRamp`: the `_RD` image `RampSelect` resolves to (see source/shaders/goo_toon.slang)
         /**
          * `_GooFaceSDF`: THE FACE CONTAINER's OWN SHADOW TERMINATOR - `T_actor_common_female_face_01_SDF.png`.
          *
@@ -759,7 +759,7 @@ namespace deren::engine {
          * floats of a lane are the only per-material storage this renderer has, so a scalar that must be
          * per-material rides one, exactly as `_OutlineWidth` does.
          *
-         * WHY IT EXISTS AT ALL: `shaders/toon_params.slang` holds the toon parameters PER FAMILY, and
+         * WHY IT EXISTS AT ALL: `source/shaders/toon_params.slang` holds the toon parameters PER FAMILY, and
          * `spec_strength` was that table's reading of the game's `_Specular` (skin 0.454, cloth/face/hair 1.0,
          * eye 0.0). The game states the value PER MATERIAL, and on chen one material disagrees with its family:
          * `M_actor_chen_brow_01` is classified `face` and states `_Specular = 0.0` against the face family's
@@ -784,7 +784,7 @@ namespace deren::engine {
          *
          * THE SECOND SCALAR TO RIDE A LANE FOR THE SAME REASON AS THE FIRST: it is PER MATERIAL, the material
          * record cannot take it, and the asset's `extras` block is the only source that states it per material
-         * (`deren::gltf::claimed_extras_floats`). What it replaces is `shaders/character_forward.slang`'s own
+         * (`deren::gltf::claimed_extras_floats`). What it replaces is `source/shaders/character_forward.slang`'s own
          * `character_eye_parallax_depth` constant - the value of ONE material (`M_actor_chen_iris_01`, 0.03)
          * that the stage used to apply to every material the eye path runs on, with a note saying the per-material
          * value could not be carried. The asset states 0.03 on the iris and 0.5 on the brow, so the constant was
@@ -801,7 +801,7 @@ namespace deren::engine {
         /**
          * `_GooEyeBrightness` in `.x` / `.y`: THE REWRITTEN TOON CHAIN's two iris BRIGHTNESSES - the reference
          * group `Arknights: Endfield_PBRToon_irisBase`'s `Eyes brightness` and `Eyes HightLight brightness`
-         * sockets (`shaders/goo_toon.slang`), which are per MATERIAL in the Goo project (`1.5` and `10.0` on
+         * sockets (`source/shaders/goo_toon.slang`), which are per MATERIAL in the Goo project (`1.5` and `10.0` on
          * Laevatain's iris) and are the factor its whole emission is scaled by. `.z` / `.w` are unused and
          * reserved.
          *
@@ -821,7 +821,7 @@ namespace deren::engine {
         /**
          * `_GooRimColour` in `.rgb`: THE REWRITTEN TOON CHAIN's OBJECT-SPACE RIM COLOUR - the reference group
          * `Arknights: Endfield_PBRToonBase`'s `Rim_Color` socket, which reaches the rim through the
-         * `Rim_Color` sub-group's `混合.017 = Rim_Color · Rim_ColorStrength` (see `shaders/goo_toon.slang`).
+         * `Rim_Color` sub-group's `混合.017 = Rim_Color · Rim_ColorStrength` (see `source/shaders/goo_toon.slang`).
          * `.a` is unused and reserved.
          *
          * IT IS PER MATERIAL IN THE REFERENCE (`materials[...] :: 群组.00N.inputs[Rim_Color]`), it is a `color`
@@ -835,7 +835,7 @@ namespace deren::engine {
          * no row gets exactly what a material that calls the group without stating it gets in Goo. TEN of the
          * eleven `M_actor_laevat_*` materials are at that default; `M_actor_laevat_face_01` is the only
          * override, and it belongs to the FACE family, which this step does not port (see
-         * `shaders/goo_toon.slang`'s scope note and the spec's §5.10/§9-U7).
+         * `source/shaders/goo_toon.slang`'s scope note and the spec's §5.10/§9-U7).
          */
         goo_rim_colour = 7, // `_GooRimColour`: the Goo rim group's `Rim_Color` (`.rgb`; white = the group's default)
         /**
@@ -845,7 +845,7 @@ namespace deren::engine {
          *
          * WHY FOUR IN ONE LANE, and the reason is the enum's own rule rather than this step's convenience: they
          * are ONE mechanism's numbers, stated by the SAME material row (`群组.00N.inputs[...]` of one group
-         * instance) and consumed within one composition (`shaders/goo_toon.slang`'s rim term). A lane each would
+         * instance) and consumed within one composition (`source/shaders/goo_toon.slang`'s rim term). A lane each would
          * be four carriers for one material's one statement, which is the arrangement this enum keeps refusing.
          *
          * `.x` / `.y` / `.z` ARE SCALARS WHOSE ZERO IS A REAL STATEMENT - `Rim_ColorStrength = 0.0` is how the
@@ -865,7 +865,7 @@ namespace deren::engine {
         /**
          * `_GooRimWidths` in `.x` / `.y`: THE REWRITTEN CHAIN's SCREEN-SPACE RIM WIDTHS - the reference group
          * `DepthRim`'s `Rim_width_X` / `Rim_width_Y` sockets, which is the pair the offset sample's camera-space
-         * displacement is built from (`shaders/goo_rim.slang`). `.z` / `.w` are unused and reserved.
+         * displacement is built from (`source/shaders/goo_rim.slang`). `.z` / `.w` are unused and reserved.
          *
          * IT IS A LANE OF ITS OWN RATHER THAN TWO MORE COMPONENTS ON `goo_rim_scalars`, and the reason is the
          * enum's own rule read the other way round: that lane's four components are the four scalars ONE
@@ -1178,7 +1178,7 @@ namespace deren::engine {
          * `.x` alone, because `-1` is a strength the group's own range does not contain but `0` IS a value the
          * reference really states (`M_actor_chen_body_01.001` carries `1.3184714317321777` with `Use NormalTex? = 0`,
          * so a decode is switched off there by the material's own gate rather than by a zero strength): see
-         * `goo_lane_absent` in `shaders/character_forward.slang` for the audit rule this follows.
+         * `goo_lane_absent` in `source/shaders/character_forward.slang` for the audit rule this follows.
          *
          * A MATERIAL WITH NO ROW KEEPS THE PREVIOUS NORMAL RATHER THAN GETTING THE REFERENCE'S GROUP DEFAULT `1.0`,
          * which is a deliberate deviation from "the reference's default" and the reason is measured: the shipped
@@ -1194,7 +1194,7 @@ namespace deren::engine {
         // The sockets are `Use anisotropy?` / `Anisotropic mask` / `Use Toonaniso?` of `Arknights:
         // Endfield_PBRToonBase` (`ng[2]`), all three plain `组输入` inputs with an `interface[]` default of `0.0`
         // (`interface[3]`, `[45]`, `[4]`). They were constant in this port until step 10 (`goo_use_anisotropy_default`
-        // / `goo_anisotropic_mask_default` in `shaders/character_forward.slang`), which made the stage return the
+        // / `goo_anisotropic_mask_default` in `source/shaders/character_forward.slang`), which made the stage return the
         // WRONG ARM for the one material of this asset that states `Use anisotropy? = 1`. The census (all 23 `ng[2]`
         // instances, `goo_step9_verify.md` §7.6 / `deren-ab/_s9_aniso3.py` §C) is what the lane's values in
         // `chars/laevatain_goo.glb.toon.tsv` are filed against.
@@ -1214,7 +1214,7 @@ namespace deren::engine {
          * BOTH the lobe (step 12's lane 26) and the clamp arm are implemented - but the whole of `混合.020` is
          * multiplied by `Anisotropic mask` in `混合.017`, and this asset's mask is `0.0` on every material, so no
          * pixel of any frame this repository renders can reach either arm (see `混合.016`'s block in
-         * `shaders/character_forward.slang`). It was recorded without a reader from step 10 until step 12.
+         * `source/shaders/character_forward.slang`). It was recorded without a reader from step 10 until step 12.
          *
          * THE NEUTRAL IS `(0, 0, 0, 0)` AND IT IS THE REFERENCE'S OWN GROUP DEFAULT, not a chosen number:
          * `ng[2].interface[3]` (`Use anisotropy?`) `default = 0.0`, `interface[45]` (`Anisotropic mask`)
@@ -1271,7 +1271,7 @@ namespace deren::engine {
          * `_M ⊙ RS ColorTint`) and the stage takes the arm this component names. Before step 15 it was CARRIED
          * WITHOUT BEING HONOURED - the stage kept the base unchanged when `.z == 0.0` - which was the deliberate
          * infidelity the `armA` port removes; the port site and its three stated limits are in
-         * `shaders/goo_toon.slang`'s RS block and `toon_colour_lane::goo_rs_arm0`.
+         * `source/shaders/goo_toon.slang`'s RS block and `toon_colour_lane::goo_rs_arm0`.
          *
          * WHY IT IS A LANE AND NOT A CONSTANT: all three are per material. `Use RS_Eff?` is `1` on exactly three
          * of the 23 `PBRToonBase` instances in `gooblender/nodes.json`, and `RS Model` is `0` on one of those
@@ -1331,14 +1331,14 @@ namespace deren::engine {
          * `arm0`, which is what a material whose sidecar states no `_GooRSArm0` row must get. Note that is NOT
          * the same as the lane being absent: the lane exists and is written for every material, and a zeroed
          * `arm0` still passes through `armB`'s own LIGHTEN (`max(base, 0)`), which is why the outer gate stays
-         * `Use RS_Eff?` and only that - see the RS block's note in `shaders/goo_toon.slang`.
+         * `Use RS_Eff?` and only that - see the RS block's note in `source/shaders/goo_toon.slang`.
          */
         goo_rs_arm0 = 29, // `_GooRSArm0`: `RS_Index` [x] / `RS Strength` [y] / `Layer weight Value` [z] / `Offset` [w]
         count = 30,
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief one primitive's TOON TEXTURE INPUTS, in `toon_slot` order
      *
      * These come from the model's toon material SIDECAR rather than from glTF, and the runtime does not read
@@ -1396,7 +1396,7 @@ namespace deren::engine {
          * that are not written are VALUE-INITIALISED, so omitting one silently renumbers the defaults of
          * every lane after it. This table once stated 23 of the 29, and lanes 23..28 read plain zero instead
          * of the sentinels and the opaque black their own lanes document - a defect that was invisible in
-         * every frame and visible only in the text. `tests/test_toon_material_sidecar.cpp` now counts these
+         * every frame and visible only in the text. `source/tests/test_toon_material_sidecar.cpp` now counts these
          * elements for exactly that reason.
          *
          * `main.cpp`'s `toon_colour_neutral` IS THE AUTHORITATIVE COPY of this table - the application
@@ -1506,7 +1506,7 @@ namespace deren::engine {
                                                                                             // `(0, 0, 0, 0)` IS THE POINT HERE, not a placeholder: `.x` of lane 27 is `Use RS_Eff?`, and a material
                                                                                             // whose sidecar states no `_GooRSScalars` row must read `Use = 0` so the stage's gate leaves its colour
                                                                                             // UNTOUCHED. The stage defaults to zero for exactly this reason - see the `float3 rs_final = lit;` /
-                                                                                            // `if (rs_use > 0.0f && ...)` pair in `shaders/goo_toon.slang`, which performs NO floating-point
+                                                                                            // `if (rs_use > 0.0f && ...)` pair in `source/shaders/goo_toon.slang`, which performs NO floating-point
                                                                                             // operation at all when `Use` is zero, so this value is what makes that identity BITWISE rather than
                                                                                             // approximate.
                                                                                             //
@@ -1545,7 +1545,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief everything runtime::make_primitive() needs: geometry + material textures + factors
      */
     export struct primitive_create_info {
@@ -1629,7 +1629,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief one entry of the scene's GPU-side material table (set 0 binding 5, a storage buffer):
      *        the 5 texture array indices + all material parameters. Primitives only push a
      *        material_index and the shader reads the record — material data lives in one
@@ -1690,7 +1690,7 @@ namespace deren::engine {
     static_assert(sizeof(material_record) == 96);
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief max entries of the GPU material table
      * @note sized for the heaviest glTF stress sample (NodePerformanceTest: 10000 rocks, each
      *       with its own material record - factors differ per rock, so content dedup cannot
@@ -1702,13 +1702,13 @@ namespace deren::engine {
     export constexpr uint32_t material_capacity = 16384;
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief max per-instance transforms of an instanced draw (set 0 binding 6 storage buffer)
      */
     export constexpr uint32_t instance_capacity = 8192;
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief max motion slots of the scene's previous-transform buffer (set 0 binding 13), in mat4s
      * @note Every draw owns at least one slot - an instanced draw owns one per instance - and the
      *       slots are why the same capacity as the instance buffer is plenty: a scene of N leaves
@@ -1717,7 +1717,7 @@ namespace deren::engine {
     export constexpr uint32_t scene_motion_capacity = instance_capacity;
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief max skin matrices of the scene skin buffer (set 0 binding 9 storage buffer), in
      *        mat4s. Indices 0-3 are the identity block (the fallback for unskinned draws:
      *        skin_base = 0), the per-skin joint blocks follow at 4.
@@ -1728,7 +1728,7 @@ namespace deren::engine {
     export constexpr uint32_t scene_skin_capacity = 2048;
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief capacity of the scene morph buffer IN FLOATS (set 0 binding 10 storage buffer); the buffer
      *        itself is this many floats, i.e. four times as many bytes:
      *        per-morphable-primitive blocks of vertex deltas + morph weights, laid out by the
@@ -1740,7 +1740,7 @@ namespace deren::engine {
     export constexpr std::size_t scene_morph_capacity = std::size_t{12u} * 1024u * 1024u;
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief per-draw push constants, layout matches the shaders' PushConstants (96 bytes)
      * @note material data lives in the material table (set 0 binding 5), so the push block only
      *       carries the material reference, the skin-matrix block start, the morph block start
@@ -1748,7 +1748,7 @@ namespace deren::engine {
      *       the vertex shader skips the blend; morph_base is a FLOAT index into binding 10.
      */
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief index of one material in the runtime's material table (scene block slot 5).
      *        Strongly typed on the CPU side so it cannot be confused with the other GPU-table
      *        indices (instance/skin/morph bases); it is a single uint32_t, so push-constant /
@@ -1793,7 +1793,7 @@ namespace deren::engine {
     static_assert(sizeof(material_push_constants) == deren::engine::render_layout::scene_push_constant_size);
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief WHERE A MESH STAGE'S GEOMETRY LANES SIT IN ITS STAGE BLOCK, in bytes (docs/mesh_shaders.md step 2)
      *
      * A mesh stage replaces the input assembler, so `vkCmdDrawMeshTasksEXT` carries no vertex binding, no index
@@ -1819,9 +1819,9 @@ namespace deren::engine {
     /// ... and the shadow pass's own end: the same offset plus the cascade lane its block declares
     export constexpr uint32_t mesh_geometry_push_offset_shadow = mesh_geometry_push_offset_scene + sizeof(uint32_t);
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief what a mesh stage needs to know about the geometry a draw covers, pushed at the session's
-     *        `mesh_geometry_offset` (the shader's copy is `MeshGeometryLanes` in shaders/mesh_geometry.slang)
+     *        `mesh_geometry_offset` (the shader's copy is `MeshGeometryLanes` in source/shaders/mesh_geometry.slang)
      * @note the layout is the shader's: two device addresses as four 32-bit halves (the SHADER declares eight
      *       uints rather than two `uint2`s so that nothing pads - see that struct's note), then four uints. The
      *       static_asserts below are what keep a field added here from silently shifting a lane.
@@ -1851,7 +1851,7 @@ namespace deren::engine {
     export constexpr uint32_t mesh_stage_block_size = mesh_geometry_lanes_offset + sizeof(mesh_geometry_lanes);
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief base class of every GPU primitive: owns geometry buffers + material push constants
      *        and declares the draw strategy interface. Derived classes implement how the
      *        geometry is drawn (single draw, instanced grid, ...), so the runtime's frame loop
@@ -1900,7 +1900,7 @@ namespace deren::engine {
          * THEY ARE HOST-SIDE FOR NOW, and deliberately: the meshlet table the shaders will read is a heap
          * resource of its own (a per-frame slot, written once at import and registered like the material table),
          * and the split is the part of that step worth having early - it is arithmetic whose bugs are invisible
-         * on screen, so it is built and tested (tests/test_meshlet.cpp) before anything consumes it.
+         * on screen, so it is built and tested (source/tests/test_meshlet.cpp) before anything consumes it.
          */
         std::vector<deren::engine::meshlet> meshlets = {};
         /// where this primitive's run of meshlets starts in the GPU TABLE (docs/mesh_shaders.md step 3): the value
@@ -2075,7 +2075,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief the standard primitive: one indexed draw of its own geometry (push.model places it)
      */
     export class normal_draw_primitive final : public primitive {
@@ -2086,7 +2086,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief instanced primitive: draws the geometry of another primitive (source)
      *        instance_count times in ONE draw call; per-instance world transforms come from the
      *        runtime's instance transform buffer (scene block slot 6, push flag bit0). Owns
@@ -2103,7 +2103,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief one chunk of a static_draw: an index sub-range of the merged buffer plus the
      *        material this chunk draws with (each chunk may bind a different material, so one
      *        merged buffer can hold many sub-meshes with distinct materials)
@@ -2124,7 +2124,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief build description for a static draw: ONE merged vertex/index buffer
      *        (the packer's output) plus the chunk table over it. Each chunk is drawn as a
      *        single offset draw call after ONE buffer bind, so N static sub-meshes cost 1 bind
@@ -2145,7 +2145,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief static batch primitive: OWNS one merged vertex/index buffer and draws a chunk
      *        table over it — every chunk shares the single buffer bind, each chunk is one
      *        offset draw with its own material (push.material_index). Self-contained: no
@@ -2185,7 +2185,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief build the camera UBO from orbit camera state (the camera orbits the target point)
      * @param yaw yaw angle in radians (see deren::engine::runtime::camera)
      * @param pitch pitch angle in radians
@@ -2208,7 +2208,7 @@ namespace deren::engine {
         float aspect);
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief the ARROW-KEY camera pan for one frame: the world-space translation to add to the orbit
      *        camera's target (the point the eye orbits, so translating it slides the whole rig without
      *        rotating the view).
@@ -2236,7 +2236,7 @@ namespace deren::engine {
     export glm::vec3 orbit_camera_pan_delta(float yaw, float distance, float strafe, float rise, float dt, bool fast);
 
     /**
-     * @ingroup vulkan_primitive
+     * @ingroup engine_primitive
      * @brief build the directional light UBO (light-space view-proj + direction) for shadow
      *        mapping. The light direction matches the analytic sky sun (see sky.glsl), so
      *        shadows, the PBR direct light and the visible sun disc all agree.

@@ -5,7 +5,7 @@
 // and the same GENERAL -> SHADER_READ hand-back.
 //
 // HOW IT WAS VERIFIED, and this is the interesting part: **the capture gate cannot decide this pass.** No
-// scenario in `scripts/windows/check_render.ps1` sets `rt_shadows`, and the config default is `false`, so all
+// scenario in `source/scripts/windows/check_render.ps1` sets `rt_shadows`, and the config default is `false`, so all
 // twelve reference frames were captured with the pass NOT running - which is why the 12 x 2 gate is green for
 // this change and why that green is NOT the evidence. The evidence is an A/B against the parent commit's binary
 // with a scenario that pins `rt_shadows = true`: both builds produce the SAME hash

@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/chain.cppm
  * @brief A chain of passes: the list, its order, and the two runner calls over it.
- * @defgroup vulkan_pass_chain Pass Chain
+ * @defgroup engine_pass_chain Pass Chain
  *
  * WHY THIS EXISTS. The runner already had both halves of "run a group of passes" (`create_stage` and
  * `record_stage`), and the renderer still re-stated the LIST at every call site: one `std::array<frame_pass*, 1>`

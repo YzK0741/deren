@@ -375,7 +375,7 @@ namespace deren::engine {
         /// instead of a rewrite).
         ///
         /// PUBLIC, like the scaffolding's own accessor (③-D/E step 2): the dynamic tree's scaffold test
-        /// (`tests/test_runtime_dyn.cpp`) asks the runtime it constructed for the face and the escape, and
+        /// (`source/tests/test_runtime_dyn.cpp`) asks the runtime it constructed for the face and the escape, and
         /// exercises the two through the CONTRACT - which is the only thing a test of "this runtime
         /// reached the device without naming the backend" can do. Nothing else calls them from outside
         /// the class, and no call site inside loses an access level because of this.
@@ -1021,7 +1021,7 @@ namespace deren::engine {
         /// the bytes of a shader the app registered, by file name (empty when it did not)
         [[nodiscard]] std::span<uint8_t const> registered_shader(std::string_view name) const noexcept;
         /**
-         * @brief run the HEAP-NATIVE probe once (see shaders/heap_probe_comp.slang): the first pipeline in this renderer
+         * @brief run the HEAP-NATIVE probe once (see source/shaders/heap_probe_comp.slang): the first pipeline in this renderer
          *        with NO layout at all, its parameters through vkCmdPushDataEXT, reading a texture from the resource
          *        heap through a sampler from the sampler heap
          * @param texture_slot the ABSOLUTE grid slot of the texture to sample (heap_slots::textures + an index)
@@ -1065,7 +1065,7 @@ namespace deren::engine {
          */
         [[nodiscard]] bool submit_probe_commands(rhi::command_buffer& commands);
         /**
-         * @brief run the GRAPHICS half of the heap-native probe once (see shaders/heap_probe.slang)
+         * @brief run the GRAPHICS half of the heap-native probe once (see source/shaders/heap_probe.slang)
          * @param material_slot the ABSOLUTE grid slot of the material table the fragment stage reads; the caller
          *        runs it once with the right slot and once with a deliberately WRONG one, because a probe that can
          *        only say "fine" would pass every check
@@ -1846,7 +1846,7 @@ namespace deren::engine {
         /**
          * @brief the meshlet split's totals, for the one startup log line (docs/mesh_shaders.md step 3)
          *
-         * The split itself is `deren.engine.meshlet`'s and is asserted by tests/test_meshlet.cpp; what these two count is
+         * The split itself is `deren.engine.meshlet`'s and is asserted by source/tests/test_meshlet.cpp; what these two count is
          * how much of THIS SCENE it produced, which is the number that says whether a task stage reading a meshlet
          * table is worth the table (a scene of one meshlet per primitive would not be).
          */
@@ -1958,12 +1958,12 @@ namespace deren::engine {
          * real but does not need the list to express it (`vulkan_core` is declared above everything).
          */
         ray_tracing::structure_set structures{this->vulkan_core};
-        // The alphaMode MASK bake (see shaders/mask_bake.slang): ONE JOB OBJECT owns its pipeline
+        // The alphaMode MASK bake (see source/shaders/mask_bake.slang): ONE JOB OBJECT owns its pipeline
         // (vulkan.pass.mask_bake_job), because it is not a frame pass at all -
         // it runs once, inside the same command buffer as the bottom level builds it feeds, and its input is
         // the caster list this renderer is walking at that moment. It is OFF by default and the shipped shadow
         // does not need it: the ray-tracing pipeline's any-hit stage cuts a MASK surface per hit
-        // (shaders/rt_shadow.rahit). Absent on a device without ray queries, where masked geometry is solid to a
+        // (source/shaders/rt_shadow.rahit). Absent on a device without ray queries, where masked geometry is solid to a
         // ray - but so is everything else, since nothing traces there at all.
         //
         // The bake reads the material table and the bindless texture array from the HEAP (the slots the shader
@@ -1984,7 +1984,7 @@ namespace deren::engine {
         // Whether that bake runs at all ([render] rt_mask_bake). Off by default: the per-triangle rule
         bool rt_mask_bake = false;
 
-        // ---- skinned meshes (see shaders/compute_skin.slang) ----
+        // ---- skinned meshes (see source/shaders/compute_skin.slang) ----
         // This engine skins in the VERTEX shader, so the deformed positions never reach memory a build can
         // read, and a skinned mesh's traced shadow is its BIND POSE (measured: the traced shadow's pose
         // section). The pass below writes the same vertices the vertex shader computes into the buffer the
@@ -2000,7 +2000,7 @@ namespace deren::engine {
         // whether a traced shadow now follows the pose, and because a device without ray queries has no
         // structures for it to feed.
         bool rt_skin_bake = false;
-        // The ray-traced sun shadow pass (see the shaders/rt_shadow.* pipeline stages): its pipeline,
+        // The ray-traced sun shadow pass (see the source/shaders/rt_shadow.* pipeline stages): its pipeline,
         // push block's shape and its one-shot log line are the PASS's now (deren.engine.pass.ray_traced_shadow), and its
         // member and stage are declared next to the other passes above. The renderer keeps two facts about it:
         // WHERE it sits (after the G-buffer pass, before the lighting stage - see the frame loop) and the
@@ -2763,7 +2763,7 @@ namespace deren::engine {
          * @param command_buffer the frame's primary command buffer
          *
          * The engine's only scene path. It draws no background: the lighting stage writes the sky
-         * into the pixels no geometry covered (shaders/sky.glsl, the same function the removed
+         * into the pixels no geometry covered (source/shaders/sky.glsl, the same function the removed
          * forward skybox pass used). Alpha-blended geometry is recorded by
          * record_transparent_pass() after the lighting stage, because a blended surface has to
          * compose over the SHADED image - a G-buffer cannot hold a surface that does not exist yet.
@@ -3115,7 +3115,7 @@ namespace deren::engine {
          * scene is shaded by, and this step of the rewrite implements ONE reference group - so it is a switch a
          * run asks for rather than a state a frame drifts into.
          *
-         * @param enabled true = the stage draws with `shaders/goo_toon.slang` (when that pipeline was created);
+         * @param enabled true = the stage draws with `source/shaders/goo_toon.slang` (when that pipeline was created);
          *        false = it draws with the old `character_forward.slang`
          * @note CPU-side only, like `set_character_forward`: it is read while the frame is COMPOSED, so a toggle
          *       mid-run is seen by the next frame and disturbs no in-flight recording.
@@ -3634,7 +3634,7 @@ namespace deren::engine {
         static constexpr std::string_view outline_pipeline_name = "outline";
 
         /**
-         * @brief the name the REWRITTEN TOON CHAIN's fragment stage is registered under (`shaders/goo_toon.slang`)
+         * @brief the name the REWRITTEN TOON CHAIN's fragment stage is registered under (`source/shaders/goo_toon.slang`)
          *
          * THE SAME PASS, THE SAME FRAME AND THE SAME STATE AS `character_forward_pipeline_name` ABOVE, and that
          * is the whole design: this name differs from it in ONE thing - which `.spv` the fragment stage came from

@@ -1,6 +1,6 @@
 /**
  * @file meshlet.cppm
- * @defgroup vulkan_meshlet Meshlet split
+ * @defgroup engine_meshlet Meshlet split
  * @brief cut a draw's index window into MESHLETS - triangle runs small enough for one mesh workgroup to emit,
  *        each with an object-space bounding sphere - so a task stage can decide per meshlet whether to run it
  *        at all (docs/mesh_shaders.md step 3).
@@ -33,7 +33,7 @@ export import deren.vstd;
 
 namespace deren::engine {
     /**
-     * @ingroup vulkan_meshlet
+     * @ingroup engine_meshlet
      * @brief the triangles one mesh workgroup emits, i.e. the largest run a meshlet may contain
      *
      * 85 is a DEVICE LIMIT and not a tuning choice: `maxMeshOutputVertices` and `maxMeshOutputPrimitives` are
@@ -45,7 +45,7 @@ namespace deren::engine {
     /// the index count that bound implies (three per triangle)
     export constexpr uint32_t meshlet_max_indices = meshlet_max_triangles * 3u;
     /**
-     * @ingroup vulkan_meshlet
+     * @ingroup engine_meshlet
      * @brief how many meshlets the GPU table holds, i.e. the renderer's whole-scene meshlet budget
      *
      * @note 65536 records of 48 bytes is 3 MiB, which is nothing next to the geometry it describes, and it
@@ -58,7 +58,7 @@ namespace deren::engine {
     export constexpr uint32_t meshlet_capacity = 65536u;
 
     /**
-     * @ingroup vulkan_meshlet
+     * @ingroup engine_meshlet
      * @brief one meshlet: a window of the draw's index buffer plus the sphere its vertices occupy
      * @note the sphere is in OBJECT space (the space the vertex bytes are in), so a consumer transforms its
      *       centre by the same model/instance matrix it projects the vertices with, and scales the radius by
@@ -114,12 +114,12 @@ namespace deren::engine {
     static_assert(sizeof(meshlet) == 48, "a meshlet is 48 bytes: the window, the sphere, and the normal cone - each 16-byte block matching the shader's std430 layout");
 
     /**
-     * @ingroup vulkan_meshlet
+     * @ingroup engine_meshlet
      * @brief whether @p record is a window a MESH stage can act on inside a draw of @p index_count indices
      *
      * THE RULE LIVES HERE, not in the upload and not in the shader, because two places need the same answer and
      * neither can afford to guess: `runtime::create_primitive` checks every record as it leaves the host, and
-     * tests/test_meshlet.cpp asserts that the check rejects what it should. A record that breaks it is not a wrong
+     * source/tests/test_meshlet.cpp asserts that the check rejects what it should. A record that breaks it is not a wrong
      * PICTURE - a MESH stage hands `index_count` to `SetMeshOutputCounts` and reads its indices with the rest, so a
      * malformed one is a dispatch asking the device for output it does not have (measured: a first consumer attempt
      * with a table read at the wrong index hung the GPU rather than drawing something wrong).
@@ -133,7 +133,7 @@ namespace deren::engine {
     }
 
     /**
-     * @ingroup vulkan_meshlet
+     * @ingroup engine_meshlet
      * @brief the geometry one draw window is split over, exactly as the primitive upload hands it over
      * @note the index bytes are read with `index_width` (2 or 4) and the vertex bytes with `vertex_stride`, so
      *       the split sees the same bytes the mesh stage will fetch - no second interpretation of the layout.
@@ -150,7 +150,7 @@ namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_meshlet
+     * @ingroup engine_meshlet
      * @brief split one draw window into meshlets of at most `meshlet_max_triangles` triangles
      * @param input the window and the memory it reads
      * @return the meshlets, in index order, covering whole triangles only - i.e. `index_count / 3 * 3` indices.

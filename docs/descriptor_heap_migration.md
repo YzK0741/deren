@@ -105,7 +105,7 @@ section 9.
 ## Shader inventory (the resources each stage reads, and the binding each one came from)
 
 There is no `layout(set = ` left to grep: the `.frag` / `.vert` / `.comp` sources this table was built from
-are retired to `shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST USED TO LIVE HERE`), and the
+are retired to `source/shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST USED TO LIVE HERE`), and the
 stages this build compiles are Slang leaves - `docs/slang_migration.md` and `docs/shaders.md` record them.
 So the table below is a RECORD of what each retired file declared (a reader can still check each row against
 the archived source), not a description of any file's current contents: the host keeps the same resources under
@@ -487,7 +487,7 @@ descriptor heap: slot grid at 1048576 (1024 slots x 64 B; textures 0 materials 5
 ```
 
 - The resource grid's base is **1 MiB** and its stride **64 B**; the slot numbers (relative to that base) are
-  the constants in `shaders/heap_slots.glsl` and `core::heap_slots`. 703 of the 1024 slots are named.
+  the constants in `source/shaders/heap_slots.glsl` and `core::heap_slots`. 703 of the 1024 slots are named.
 - The SAMPLER heap is a second grid at a **64 KiB** base with the device's 32 B stride: the API caps that heap
   at 128 KiB, so it cannot use the resource grid's 1 MiB. Refused unless the device's reserved window fits
   below the base and its sampler stride is 32 B.

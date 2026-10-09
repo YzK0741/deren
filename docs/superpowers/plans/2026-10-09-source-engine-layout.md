@@ -53,9 +53,9 @@
 
 **Interfaces:** Scripts resolve the repository root above `source/`. Shader outputs remain `<build>/shaders/`; model paths remain rooted in `gltf_model/`.
 
-- [ ] Move remaining source directories and reference shaders; update tool roots, fixtures, includes, build globs, CI and documentation.
-- [ ] Run headless tests, both boundary gates from the new tool paths, formatting and available graphical regression gates.
-- [ ] Inspect tracked source inventory and unchanged binary contracts/reference contents; obtain a fresh read-only whole-change review, fix actionable findings, and commit.
+- [x] Move remaining source directories and reference shaders; update tool roots, fixtures, includes, build globs, CI and documentation.
+- [x] Run headless tests, both boundary gates from the new tool paths, formatting and available graphical regression gates.
+- [x] Inspect tracked source inventory and unchanged binary contracts/reference contents; obtain a fresh read-only whole-change review, fix actionable findings, and commit.
 
 ## Execution rulings
 
@@ -66,3 +66,23 @@
 Task 1 evidence: Release build exit 0; 20/20 CTest tests passed; backend boundary 0 symbols and 0 engine imports; native zero gate passed within CTest.
 
 Task 2 evidence: new-directory scope regression failed before the gate change and passed afterward; Release build exit 0; 20/20 CTest tests passed; native and backend zero gates passed. Relative includes are recalculated from resolved original targets; source-reading tests follow app/ paths.
+
+Task 3 evidence: Release build exit 0; clang-format-check passed; 20/20 CTest
+entries passed (including 43 Python boundary regressions). Native vocabulary,
+engine object references and executable Vulkan imports are all zero; backend
+cross-boundary symbols and engine module imports are zero. Both tools passed
+from outside the repository with absolute build paths. Fourteen frozen render
+scenarios matched; GUI and RT GPU gates passed with clean validation.
+
+Both manual shader tools compiled 35 outputs, all byte-identical to CMake.
+All PowerShell and six Shell scripts passed syntax checks. Doxygen generated
+HTML successfully. All 189 CMake and 16 CI literal source paths exist; 96 vendor
+and reference shader blobs are unchanged; tracked code outside source is empty.
+Fresh independent review found no remaining P1/P2 after corrections.
+
+Review corrections: vendored include roots, standalone Vulkan-header detection
+(red then green regression), whitelist fixture location, manual shader output,
+main.cpp formatting scope and reference-shader documentation exclusion. The
+full render gate also caught a Windows-style deformation fixture path; after
+fixing it all fourteen frozen comparisons passed. RHI ABI 28 and GUI ABI 2 remain
+unchanged. Remote CI and a new Debug build were not run for this local batch.

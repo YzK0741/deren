@@ -7,7 +7,7 @@ to the device through that interface alone. Everything a second backend has to s
 **Measured at this version** (on the artifacts, not read from the code): `deren.exe` imports **no**
 graphics API, the engine's object files carry **no** unresolved `vk*` symbol, and **no** engine source
 names the graphics API. A backend *module* is not importable by the engine either - the loader is the
-only door, and `scripts/check_backend_boundary.py` is the gate that keeps it that way.
+only door, and `source/scripts/check_backend_boundary.py` is the gate that keeps it that way.
 
 ## The contract: `deren.promise.rhi`
 
@@ -89,7 +89,7 @@ Five images plus the C++ runtime, all beside each other:
 | `shared_utility.dll` | import library | the process-wide log sink, the rotation claim and the allocator hook - one copy per process by construction |
 
 `libc++.dll` is imported by all of them, which is the premise that lets a contract value carrying STL
-containers cross the seam. The build's compiled `shaders/` directory sits beside them, because the
+containers cross the seam. The build's compiled `source/shaders/` directory sits beside them, because the
 executable locates it by walking up from its working directory.
 
 ## Writing a second backend
@@ -120,8 +120,8 @@ is crossed.
 
 | gate | question |
 | --- | --- |
-| `scripts/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
-| `scripts/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
+| `source/scripts/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
+| `source/scripts/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
 | the render gates (`check_render.ps1`, `check_gui.ps1`, `check_rt.ps1`) | that the application really runs the backend it resolved: 14 frozen pixel-identical scenarios, a GUI on/off pair, and a GPU ray-traversal probe |
 
 ## Still open

@@ -4,7 +4,7 @@
  * @file source/engine/filters/filters.cppm
  * @brief The filtered views over a device root: one for the application (`user_filter`) and one for a pass's
  *        initialization (`pass_filter`).
- * @defgroup vulkan_core_filters Vulkan Core Filters
+ * @defgroup engine_filters Engine Filters
  *
  * WHY FILTERS AT ALL, and why two: the device root holds the instance, the device, the swapchain, the
  * allocator, every image and every descriptor pool. Handing that whole interface to a consumer hands it the
@@ -73,7 +73,7 @@ export namespace deren::engine {
         deren::promise::rhi::image* image = nullptr;
     };
     /**
-     * @ingroup vulkan_core_filters
+     * @ingroup engine_filters
      * @brief the application's view of the device root, exposed by `runtime::operator->`
      * @note
      *      - holds a `std::shared_ptr<rhi::api_core>`, so it keeps the device alive while it exists and it
@@ -104,7 +104,7 @@ export namespace deren::engine {
     };
 
     /**
-     * @ingroup vulkan_core_filters
+     * @ingroup engine_filters
      * @brief the view a PASS's create step is handed: the resources the owner published, and nothing else
      *
      * WHAT IT IS FOR, in one sentence: a pass must be able to NAME the session-stable resources its own

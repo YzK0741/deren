@@ -425,7 +425,7 @@ TOC_INCLUDE_HEADINGS   = 6
 #
 # GITHUB rather than the default DOXYGEN: the docs link between their own sections
 # (`[section 8 Animations](#8-animations)`), and doxygen turns such a link into a `\ref`, so the anchor
-# has to be the one the reader's GITHUB rendered page has - the same slug `tests/test_docs.cpp`
+# has to be the one the reader's GITHUB rendered page has - the same slug `source/tests/test_docs.cpp`
 # recomputes when it checks that every `](#anchor)` in docs/ resolves to a heading in the same file.
 # Under DOXYGEN the heading's id is an `autotoc_md` sequence number and every such link is a warning.
 
@@ -1044,7 +1044,7 @@ WARN_LOGFILE           =
 # NOTE ON `./docs`: THE DESIGN RECORDS ARE LISTED ONE BY ONE RATHER THAN AS A DIRECTORY, and that is deliberate -
 # `docs/` also holds doxygen's own OUTPUT (`docs/html`, `docs/latex`, both gitignored: with RECURSIVE = YES a
 # directory input would make the manual document itself, and its generated `.tex`/`.sty`) and two sets that are NOT
-# this project's prose: `docs/reference/` (third-party technique notes) and `docs/official-shaders/` (upstream GLSL,
+# this project's prose: `docs/reference/` (third-party technique notes) and `source/shaders/reference/official/` (upstream GLSL,
 # which EXTENSION_MAPPING would read as C++ and warn about). So the documents below are the durable reasoning, named
 # explicitly; a new one has to be added here, and `./docs/mainpage.md` is also the manual's front page
 # (USE_MDFILE_AS_MAINPAGE).
@@ -1073,7 +1073,7 @@ WARN_LOGFILE           =
 # (source/engine/render_environment/render_environment.cppm) warned that the group did not exist - the group
 # was defined in a file the INPUT list did not name.
 
-INPUT                  = ./shaders \
+INPUT                  = ./source/shaders \
 				./source/backends/vulkan \
 				./source/engine \
 				./source/utility \
@@ -1207,7 +1207,7 @@ RECURSIVE              = YES
 # Note that relative paths are relative to the directory from which Doxygen is
 # run.
 
-EXCLUDE                = ./shaders/glsl.old
+EXCLUDE                = ./source/shaders/glsl.old
 
 # The EXCLUDE_SYMLINKS tag can be used to select whether or not files or
 # directories that are symbolic links (a Unix file system feature) are excluded
@@ -1223,7 +1223,8 @@ EXCLUDE_SYMLINKS       = NO
 # Note that the wildcards are matched against the file with absolute path, so to
 # exclude all test directories for example use the pattern */test/*
 
-EXCLUDE_PATTERNS       = */source/vstd/std/*
+EXCLUDE_PATTERNS       = */source/vstd/std/* \
+                         */source/shaders/reference/official/*
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the
@@ -2309,9 +2310,9 @@ LATEX_FOOTER           =
 # docs/latex_unicode.sty is required, not cosmetic: the doxygen input is not ASCII-only
 # (comments quote the reference toon graph by its own node labels and the gltf loader
 # quotes model part names), and a pdflatex run aborts with "Unicode character ... not set
-# up for use with LaTeX" on such a character. tests/test_docs.cpp only forces the
+# up for use with LaTeX" on such a character. source/tests/test_docs.cpp only forces the
 # markdown pages under docs/ to be ASCII, so the stylesheet is what keeps the PDF half of
-# `scripts/windows/build_docs.ps1` buildable. The file documents which characters it
+# `source/scripts/windows/build_docs.ps1` buildable. The file documents which characters it
 # declares and how to extend it.
 
 LATEX_EXTRA_STYLESHEET = docs/latex_unicode.sty
@@ -2357,7 +2358,7 @@ USE_PDFLATEX           = YES
 # This tag requires that the tag GENERATE_LATEX is set to YES.
 
 # NOTE: ON. This file is generated to be built unattended, and \batchmode is what makes that safe for
-# every invocation except the one that already handles it: scripts/windows/build_docs.ps1 passes
+# every invocation except the one that already handles it: source/scripts/windows/build_docs.ps1 passes
 # -halt-on-error, so it reports a LaTeX error and stops; a bare `pdflatex refman.tex`, an IDE recipe or a
 # CI step that does not would otherwise sit at an interactive prompt, which reads as a hang rather than
 # as the error that caused it.

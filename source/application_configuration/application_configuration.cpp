@@ -303,7 +303,7 @@ namespace deren::app_config {
             // half comes from - see `deren::vulkan::runtime::goo_toon_pipeline_name`. It rides `[render]` rather than the
             // `[toon]` rig table below because it is a frame's render setting rather than a piece of the
             // character's art direction, and because the capture instrument can only override `[render]` keys
-            // (`scripts/windows/capture.ps1`), which is what makes the A/B runnable.
+            // (`source/scripts/windows/capture.ps1`), which is what makes the A/B runnable.
             if (toml::node const* node = render->get("goo_toon")) {
                 if (std::optional<bool> const value = node->value<bool>()) {
                     settings.render.goo_toon = *value;
@@ -522,7 +522,7 @@ namespace deren::app_config {
         // and clamped into the range, with ONE log line whenever either happened - so a config that asks for
         // 2.4 or 7 renders as a level the user can read back, rather than silently. 0 is the shipped lookup
         // and the default; the value reaches the shader through `deren::vulkan::toon_rig`'s ninth lane, and the one
-        // call site that reads it is the shadow lookup inside `toon_diffuse` (`shaders/character_forward.slang`).
+        // call site that reads it is the shadow lookup inside `toon_diffuse` (`source/shaders/character_forward.slang`).
         //
         // NAN IS HANDLED HERE BECAUSE `std::clamp` CANNOT HANDLE IT, which is the whole reason this block is not
         // one line: clamp's comparison form returns its first argument unchanged when both comparisons are

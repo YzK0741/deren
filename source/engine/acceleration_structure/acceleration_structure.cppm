@@ -32,7 +32,7 @@ export import deren.vstd;
 
 /**
  * @file source/engine/acceleration_structure/acceleration_structure.cppm
- * @defgroup vulkan_acceleration_structure Ray-Tracing Acceleration Structures
+ * @defgroup engine_acceleration_structure Ray-Tracing Acceleration Structures
  * @brief Bottom level acceleration structures for the renderer's own geometry buffers.
  *
  * The engine's geometry already lives in device-local vertex and index buffers, and an acceleration
@@ -48,7 +48,7 @@ export import deren.vstd;
  *    every frame, and a compacted structure is rebuilt in place rather than re-compacted.
  *  - the shading a ray-traced hit needs. The instance table IS filled (see instance_record) and its first
  *    consumer is now the shadow's any-hit stage, which resolves a hit back to a triangle's vertices and its
- *    material through it (see shaders/rt_shadow.rahit).
+ *    material through it (see source/shaders/rt_shadow.rahit).
  *
  * What a hit can and cannot be told, today, is worth stating where it is decided:
  *  - NO geometry is built OPAQUE any more, and that is a reversal: the flag DECLARES "no any-hit shader may be
@@ -57,7 +57,7 @@ export import deren.vstd;
  *    ray-tracing shadow's any-hit stage could not have run at all. Whether a geometry is opaque is a property
  *    of its MATERIAL, which this module is not told (it is handed vertex and index addresses), so the flag is
  *    off for every geometry and the alphaMode MASK decision is taken per HIT instead
- *    (shaders/rt_shadow.rahit, measured against the raster shadow there). Measured on an NVIDIA RTX 4060
+ *    (source/shaders/rt_shadow.rahit, measured against the raster shadow there). Measured on an NVIDIA RTX 4060
  *    (591.59.0.0), lifting the flag changes no image: three capture arms with the closest-hit stage silenced
  *    all produced the correct frame, differing by 0.01 whole-frame mean - the flag changes the BUILT structure
  *    and with it the traversal order, not the visibility.
@@ -75,7 +75,7 @@ namespace deren::engine::acceleration_structure {
         rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
 
     /**
-     * @ingroup vulkan_acceleration_structure
+     * @ingroup engine_acceleration_structure
      * @brief one indexed triangle geometry to build a bottom level structure from
      * @note the addresses come from `vkGetBufferDeviceAddress` on the renderer's own vertex and index
      *       buffers; `index_address` may be 0 for a non-indexed geometry, which the build then reads as
@@ -109,7 +109,7 @@ namespace deren::engine::acceleration_structure {
     };
 
     /**
-     * @ingroup vulkan_acceleration_structure
+     * @ingroup engine_acceleration_structure
      * @brief what a build cost, for the startup log
      * @note `build_ms` is HOST time inside record_build() - creating buffers and recording the command
      *       - which is what a load-time step can be judged by. The GPU time of the build itself is the
@@ -124,7 +124,7 @@ namespace deren::engine::acceleration_structure {
     };
 
     /**
-     * @ingroup vulkan_acceleration_structure
+     * @ingroup engine_acceleration_structure
      * @brief one entry of the instance table: what a shader needs to resolve a hit back to a surface
      * @note filled now - the build already walks the same instance list - even though the first ray
      *       that lands (a shadow ray) only asks "did anything block me": shading at a hit needs the
@@ -158,7 +158,7 @@ namespace deren::engine::acceleration_structure {
     static_assert(sizeof(instance_record) == 96, "the shader's copy of instance_record must match this layout");
 
     /**
-     * @ingroup vulkan_acceleration_structure
+     * @ingroup engine_acceleration_structure
      * @brief one instance of the top level structure: which bottom level, where it sits, what it is
      */
     export struct instance_source {
@@ -168,7 +168,7 @@ namespace deren::engine::acceleration_structure {
     };
 
     /**
-     * @ingroup vulkan_acceleration_structure
+     * @ingroup engine_acceleration_structure
      * @brief the scene's bottom level structures, built in one command
      * @note the builds are batched into ONE `vkCmdBuildAccelerationStructuresKHR` call, which is why the
      *       scratch space is one buffer with a per-geometry aligned range. THE REASON IS NOT THAT THE
@@ -207,12 +207,12 @@ namespace deren::engine::acceleration_structure {
         ~bottom_level_structures();
 
         /**
-         * @ingroup vulkan_acceleration_structure
+         * @ingroup engine_acceleration_structure
          * @brief create the structure and its storage for one geometry
          * @param source the geometry's addresses and triangle count
          * @param refittable build with ALLOW_UPDATE so record_update() may refit it every frame - for
          *        geometry whose BYTES change while its addresses and counts do not (a skinned mesh's
-         *        vertices, written by shaders/compute_skin.slang). It costs traversal efficiency, which is
+         *        vertices, written by source/shaders/compute_skin.slang). It costs traversal efficiency, which is
          *        why it is per geometry rather than a flag on the whole structure set.
          * @return the index this geometry got, or an error message on failure
          * @note this is HOST work (a size query plus an allocation); the GPU build happens in
@@ -222,7 +222,7 @@ namespace deren::engine::acceleration_structure {
         std::expected<uint32_t, std::string> add(geometry_source const& source, bool refittable = false);
 
         /**
-         * @ingroup vulkan_acceleration_structure
+         * @ingroup engine_acceleration_structure
          * @brief allocate the scratch and record every build into @p command_buffer
          * @return success, or an error message
          * @note must be recorded OUTSIDE a rendering instance (it is a transfer/compute-class command)
@@ -232,14 +232,14 @@ namespace deren::engine::acceleration_structure {
         std::expected<void, std::string> record_build(deren::promise::rhi::command_buffer& commands);
 
         /**
-         * @ingroup vulkan_acceleration_structure
+         * @ingroup engine_acceleration_structure
          * @brief REFIT the listed structures in place, because the bytes behind their geometry changed
          * @param command_buffer where to record
          * @param indices the geometry indices to refit (only the ones added with refittable = true)
          * @return success, or an error message
          * @note a refit is legal exactly when the geometry's ADDRESSES AND COUNTS are unchanged and only
          *       the memory they point at has been rewritten - which is the zero-copy shape a compute
-         *       skinning pass produces (see shaders/compute_skin.slang). It reuses the scratch the build
+         *       skinning pass produces (see source/shaders/compute_skin.slang). It reuses the scratch the build
          *       allocated, so it is cheap: no size query, no allocation, no rebuild of the structure.
          * @note the caller must have made the writes visible to the acceleration structure build stage
          *       first (a command-level barrier), or the refit reads whatever was there before
@@ -263,7 +263,7 @@ namespace deren::engine::acceleration_structure {
     };
 
     /**
-     * @ingroup vulkan_acceleration_structure
+     * @ingroup engine_acceleration_structure
      * @brief the scene's top level structure, rebuilt from the instance list once per frame
      *
      * @details the instances are host-visible arrays the caller fills through add(), and the structure
@@ -324,7 +324,7 @@ namespace deren::engine::acceleration_structure {
         ~top_level_structure();
 
         /**
-         * @ingroup vulkan_acceleration_structure
+         * @ingroup engine_acceleration_structure
          * @brief start a frame's instance list in @p frame_slot (dropping whatever it held)
          * @param frame_slot the slot the frame being recorded belongs to
          * @return success, or an error message when the slot's buffers cannot be sized
@@ -334,7 +334,7 @@ namespace deren::engine::acceleration_structure {
         std::expected<void, std::string> begin(uint32_t frame_slot);
 
         /**
-         * @ingroup vulkan_acceleration_structure
+         * @ingroup engine_acceleration_structure
          * @brief append one instance to the current slot's list
          * @note @p source.blas_index must be an index of the bottom_level_structures the reference is
          *       taken from; a null handle there (a geometry that was skipped) skips the instance, so the
@@ -343,7 +343,7 @@ namespace deren::engine::acceleration_structure {
         std::expected<void, std::string> add(bottom_level_structures const& levels, instance_source const& source);
 
         /**
-         * @ingroup vulkan_acceleration_structure
+         * @ingroup engine_acceleration_structure
          * @brief record the build of the current slot's list into @p command_buffer
          * @param command_buffer a buffer being recorded outside a rendering instance
          * @return success, or an error message

@@ -96,7 +96,7 @@ Three exceptions, each because somebody else's interface declares the type:
 
 The rule does NOT reach `float` / `double` (no fixed-width equivalent in `<cstdint>`) or a bare `char`,
 which is a CHARACTER type: only `unsigned char` / `signed char` are spelled `uint8_t` / `int8_t`.
-`third_party/` and `source/vstd/` are out of scope - vendored, and the libc++ mirror.
+`source/third_party/` and `source/vstd/` are out of scope - vendored, and the libc++ mirror.
 
 ## Portability
 

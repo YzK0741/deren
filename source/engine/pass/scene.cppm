@@ -3,7 +3,7 @@
 /**
  * @file source/engine/pass/scene.cppm
  * @brief The THIRD real pass: the scene itself - the frame's primitives, drawn into the surface targets.
- * @defgroup vulkan_pass_scene Scene Pass
+ * @defgroup engine_pass_scene Scene Pass
  *
  * WHY THIS ONE IS DIFFERENT FROM THE OTHER TWO, and it is the reason the framework did not have this shape
  * before: its WORK IS DATA. A compute pass dispatches a declared number of groups; a fullscreen resolve draws

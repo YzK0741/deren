@@ -29,7 +29,7 @@ export import deren.vstd;
 
 /**
  * @file scene_tree.cppm
- * @defgroup vulkan_scene_tree Vulkan Scene Tree
+ * @defgroup engine_scene_tree Engine Scene Tree
  * @brief pure-CPU scene storage: a transform hierarchy of scene_node objects
  *        with primitive leaves, where the leaf is the abstract
  *        scene_tree::primitive interface (set_world).
@@ -49,14 +49,14 @@ export import deren.vstd;
  */
 namespace deren::engine::scene_tree {
     /**
-     * @ingroup vulkan_scene_tree
+     * @ingroup engine_scene_tree
      * @brief first motion slot of a leaf in the runtime's previous-transform buffer, or
      *        @c no_motion_slot when the leaf is not tracked frame to frame
      */
     export constexpr uint32_t no_motion_slot = 0xFFFFFFFFu;
 
     /**
-     * @ingroup vulkan_scene_tree
+     * @ingroup engine_scene_tree
      * @brief abstract primitive leaf of a scene node (the interface the GPU primitives
      *        below implement: normal_draw_primitive / instanced_draw_primitive)
      * @note pure interface: implementations own their GPU geometry and record
@@ -89,7 +89,7 @@ namespace deren::engine::scene_tree {
     };
 
     /**
-     * @ingroup vulkan_scene_tree
+     * @ingroup engine_scene_tree
      * @brief one node of the scene tree: a local transform, child nodes and an
      *        optional primitive leaf. Value semantics: children are owned inline
      *        (copying a node copies its subtree).
@@ -117,7 +117,7 @@ namespace deren::engine::scene_tree {
         [[nodiscard]] scene_node clone() const;
 
         /**
-         * @ingroup vulkan_scene_tree
+         * @ingroup engine_scene_tree
          * @brief append a new child node (empty: name "", identity local) and return it, so the
          *        caller fills it in place: add_child().node_name = ...; add_child().local = ...;
          * @return the appended child (reference valid until the next structural mutation of
@@ -126,14 +126,14 @@ namespace deren::engine::scene_tree {
         scene_node& add_child();
 
         /**
-         * @ingroup vulkan_scene_tree
+         * @ingroup engine_scene_tree
          * @brief move @p child (and its whole subtree) into this node's children
          * @return the appended child (reference valid until the next structural mutation)
          */
         scene_node& add_child(scene_node child);
 
         /**
-         * @ingroup vulkan_scene_tree
+         * @ingroup engine_scene_tree
          * @brief attach an already-built primitive as this node's primitive leaf (replaces any
          *        existing leaf). Building happens through runtime::create_primitive(), which
          *        returns the primitive WITHOUT attaching it; this call places it under this
@@ -148,7 +148,7 @@ namespace deren::engine::scene_tree {
         primitive* attach(std::unique_ptr<primitive> leaf);
 
         /**
-         * @ingroup vulkan_scene_tree
+         * @ingroup engine_scene_tree
          * @brief depth-first search this subtree for the first node with the given name
          *        (pre-order, matching scene_iterator's order); returns nullptr when absent.
          *        Empty names never match (they are the unnamed-node default).
@@ -158,7 +158,7 @@ namespace deren::engine::scene_tree {
     };
 
     /**
-     * @ingroup vulkan_scene_tree
+     * @ingroup engine_scene_tree
      * @brief a named scene: a list of root nodes (mirrors deren::gltf::scene's shape)
      */
     export struct scene {
@@ -168,7 +168,7 @@ namespace deren::engine::scene_tree {
         std::vector<scene_node> roots = {};
 
         /**
-         * @ingroup vulkan_scene_tree
+         * @ingroup engine_scene_tree
          * @brief append a new root node (empty: name "", identity local) and return it
          * @return the appended root (reference valid until the next structural mutation of
          *         roots - pushing more roots may reallocate)
@@ -176,14 +176,14 @@ namespace deren::engine::scene_tree {
         scene_node& add_root();
 
         /**
-         * @ingroup vulkan_scene_tree
+         * @ingroup engine_scene_tree
          * @brief move @p root (and its whole subtree) in as a new root
          * @return the appended root (reference valid until the next structural mutation)
          */
         scene_node& add_root(scene_node root);
 
         /**
-         * @ingroup vulkan_scene_tree
+         * @ingroup engine_scene_tree
          * @brief depth-first search every root for the first node named @p name (pre-order);
          *        returns nullptr when absent. Empty names never match.
          */
@@ -192,7 +192,7 @@ namespace deren::engine::scene_tree {
     };
 
     /**
-     * @ingroup vulkan_scene_tree
+     * @ingroup engine_scene_tree
      * @brief depth-first walk that accumulates world transforms and pushes them
      *        into every primitive leaf: world(child) = world(parent) * child.local
      * @param node subtree root to walk (call once per scene root with mat4(1))
@@ -201,7 +201,7 @@ namespace deren::engine::scene_tree {
     export void update_world(scene_node& node, glm::mat4 const& parent_world);
 
     /**
-     * @ingroup vulkan_scene_tree
+     * @ingroup engine_scene_tree
      * @brief walk the subtree and call @p visit on every primitive leaf
      * @tparam F invocable(scene_node const&, glm::mat4 const& world)
      */
@@ -217,7 +217,7 @@ namespace deren::engine::scene_tree {
     }
 
     /**
-     * @ingroup vulkan_scene_tree
+     * @ingroup engine_scene_tree
      * @brief single-pass forward iterator over a scene's node tree: DFS pre-order across every
      *        root, INCLUDING transform-only (mesh-less) nodes, yielding each scene_node.
      *

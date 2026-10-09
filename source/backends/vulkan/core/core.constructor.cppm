@@ -274,7 +274,7 @@ namespace deren::vulkan {
                 // ran earlier in this constructor and kept the create infos (core.cppm's shared_sampler_infos),
                 // and a heap sampler descriptor IS such a create info - the driver creates the sampler inside the
                 // heap, exactly as it creates a view inside a heap image descriptor. Six of them, on the SAMPLER
-                // heap's own grid, in the order shaders/heap_slots.glsl names them.
+                // heap's own grid, in the order source/shaders/heap_slots.glsl names them.
                 if (descriptors_fit) {
                     VkDeviceSize const sampler_grid = static_cast<VkDeviceSize>(heap_sampler_base) * heap_sampler_stride;
                     uint32_t written = 0;
@@ -347,7 +347,7 @@ namespace deren::vulkan {
         // missing device feature. THIS BACKEND NOW ANNOUNCES `vulkan_escape`, so the loop runs on a
         // NON-EMPTY set for the first time and `query_extension(vulkan_escape)` must answer with the
         // escape object (it does: core.api_core.cpp) - a bit without its object refuses to start.
-        // The test half of the same gate is check_core_contract() in tests/test_dynamic_link.cpp.
+        // The test half of the same gate is check_core_contract() in source/tests/test_dynamic_link.cpp.
         for (deren::promise::rhi::extension_kind const kind : deren::promise::rhi::all_extension_kinds()) {
             bool const announced = deren::promise::rhi::has_ability(this->abilities(), kind);
             deren::promise::rhi::extension* const ability = this->query_extension(kind);

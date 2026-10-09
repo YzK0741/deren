@@ -83,7 +83,7 @@ namespace deren::vulkan {
 
     /**
      * @ingroup vulkan_core
-     * @brief agreed flat layout of the scene block, shared by every pipeline (see shaders/pbr.slang):
+     * @brief agreed flat layout of the scene block, shared by every pipeline (see source/shaders/pbr.slang):
      *        set 0 binding 0 = CameraUBO (uniform buffer; one per frame slot, each slot's block
      *              points at its own - static, no per-frame descriptor writes),
      *              binding 1 = sampler2D textures[] (runtime array, partially bound + non-uniform index),
@@ -170,7 +170,7 @@ namespace deren::vulkan {
     /**
      * @ingroup vulkan_core
      * @brief formats of the G-buffer targets, in attachment order (= the fragment output locations
-     *        of shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
+     *        of source/shaders/gbuffer.slang), and the reason the deferred path is cheap to store:
      *        - 0 RGBA8_UNORM: albedo.rgb (base color, linear) + metallic in a
      *        - 1 RGBA16F: world normal.xyz (no encoding - the conservative layout trades 4 bytes per
      *          pixel for not having to reason about octahedral precision) + roughness in a
@@ -1246,7 +1246,7 @@ namespace deren::vulkan {
          */
         VkSamplerCreateInfo texture_sampler_info = {};
         /**
-         * @brief the CREATE INFO of every shared sampler, in the order shaders/heap_slots.glsl names them, because
+         * @brief the CREATE INFO of every shared sampler, in the order source/shaders/heap_slots.glsl names them, because
          *        a heap descriptor for a sampler IS a create info - and the heap is created LATER in the
          *        constructor than these samplers are (create_samplers runs first), so the infos have to be kept
          *        here to be written onto the sampler grid once it exists.
@@ -1267,7 +1267,7 @@ namespace deren::vulkan {
          *
          * @note THE LAYOUT IS OWNED HERE, and that is not tidiness: the heap's contents are written by the RUNTIME
          *       (it is what knows the textures and the material table) while the SLOT NUMBERS that point the
-         *       shaders at them are named in `shaders/heap_slots.glsl`. Both sides have to use the same number, and
+         *       shaders at them are named in `source/shaders/heap_slots.glsl`. Both sides have to use the same number, and
          *       a mismatch - a write at one offset, a shader reading another - is invisible to validation and shows
          *       up only as a wrong picture. So the blocks are reserved once, here, and published; the startup log
          *       prints the whole table, which is how a drift between the two sides is seen.
@@ -1745,7 +1745,7 @@ namespace deren::vulkan {
     // handoff §4.3/§4.5): the producer and the per-call-site translators. These are
     // The backend's own vocabulary - nothing here is on the C ABI; the contract
     // carries the types, this namespace produces and fills them. The declarations
-    // are exported so the tables' unit test (tests/test_error_mapping.cpp) feeds
+    // are exported so the tables' unit test (source/tests/test_error_mapping.cpp) feeds
     // the REAL translators; the engine never calls them - its error channel lands
     // with the frame face.
     // ---------------------------------------------------------------------------

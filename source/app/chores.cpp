@@ -20,7 +20,7 @@ import deren.promise.gui;
 
 namespace deren::chores {
     // Resolve the startup config in one step: merge config file + argv into the app settings,
-    // then locate the shaders/ dir and pick the model file. Panics when a resource is missing.
+    // then locate the source/shaders/ dir and pick the model file. Panics when a resource is missing.
     startup_config analyse_config(int32_t argc, char** argv) {
         // 1. Resolve startup settings first: config file (config.toml by default, --config <path>
         //    to override) merged with positional argv overrides. argv[1] = model, argv[2] = grid
@@ -33,7 +33,7 @@ namespace deren::chores {
         startup_config config = {settings, {}, {}};
 
         // 2. Shaders directory (holds GLSL sources and compiled SPIR-V): explicit config path when
-        //    given, otherwise walk up from the working directory to find shaders/.
+        //    given, otherwise walk up from the working directory to find source/shaders/.
         if (!settings.paths.shaders_dir.empty()) {
             config.shaders_dir = settings.paths.shaders_dir;
             if (!std::filesystem::is_directory(config.shaders_dir)) {
@@ -88,12 +88,12 @@ namespace deren::chores {
         deren::utility::log("loaded shader: {} ({} bytes)", path.string(), out.size());
     }
 
-    // Walk up from the working directory to find the shaders/ directory,
+    // Walk up from the working directory to find the source/shaders/ directory,
     // so it works when run from the project root or a cmake-build-* directory
     std::optional<std::filesystem::path> locate_shaders_dir() {
         // The build's own output first: a shaders/ directory beside the executable, written by the
         // build's shader step. Checking this before the cwd walk is what makes a build-tree run load
-        // the SPIR-V its build just compiled instead of resolving `shaders/` upward into the source
+        // the SPIR-V its build just compiled instead of resolving `source/shaders/` upward into the source
         // tree - the stale-binary trap the build no longer commits a fallback for.
         std::filesystem::path const exe_dir = deren::utility::executable_directory();
         if (!exe_dir.empty()) {
@@ -276,7 +276,7 @@ namespace deren::chores {
             //
             // THE GEOMETRY IS THE OUTLINE'S OWN MESH STAGE, not pbr's: pushing each vertex outward in clip space
             // is the one thing that turns a second copy of a mesh into an outline, and it lives in the
-            // `outline_mesh_main` entry of `pbr.slang` (see `shaders/outline.slang` for why the fragment entry is
+            // `outline_mesh_main` entry of `pbr.slang` (see `source/shaders/outline.slang` for why the fragment entry is
             // `frag_main`).
             //
             // THERE IS NO MESHLET FORM, AND THAT IS DELIBERATE RATHER THAN AN OMISSION:
@@ -473,13 +473,13 @@ namespace deren::chores {
             load_shader(shaders_dir, "rt_shadow.rmiss.spv", rt_shadow_miss_code);
             runtime.register_shader("rt_shadow.rmiss.spv", rt_shadow_miss_code);
             // The any-hit stage: the second stage of the SAME hit group, and the only place an alphaMode MASK
-            // surface can be told apart from its bounding triangles (see shaders/rt_shadow.rahit).
+            // surface can be told apart from its bounding triangles (see source/shaders/rt_shadow.rahit).
             std::vector<uint8_t> rt_shadow_any_hit_code;
             load_shader(shaders_dir, "rt_shadow.rahit.spv", rt_shadow_any_hit_code);
             runtime.register_shader("rt_shadow.rahit.spv", rt_shadow_any_hit_code);
 
-            // The alphaMode MASK bake (shaders/mask_bake.slang) and the compute skinning job
-            // (shaders/compute_skin.slang) are TWO JOBS rather than frame passes - one runs once inside the
+            // The alphaMode MASK bake (source/shaders/mask_bake.slang) and the compute skinning job
+            // (source/shaders/compute_skin.slang) are TWO JOBS rather than frame passes - one runs once inside the
             // command buffer that builds the bottom level structures (without it a MASK surface is solid to
             // a ray), the other re-skins the casters and refits their structures per frame (without it a
             // skinned caster's traced shadow is cast by its BIND POSE). Both are built by `create_passes()`
@@ -492,7 +492,7 @@ namespace deren::chores {
             load_shader(shaders_dir, "compute_skin.comp.spv", compute_skin_code);
             runtime.register_shader("compute_skin.comp.spv", compute_skin_code);
 
-            // The HEAP-NATIVE PROBE (shaders/heap_probe_comp.slang): registered like the jobs above, and for a purpose
+            // The HEAP-NATIVE PROBE (source/shaders/heap_probe_comp.slang): registered like the jobs above, and for a purpose
             // of the same kind - it is not part of any frame, it runs once at scene setup in a command buffer of
             // its own (runtime::run_heap_probe) and its answer is a log line. It exists because the migration's
             // four assumptions about the native path (a heap-flagged pipeline with NO layout, `descriptor_heap`

@@ -180,7 +180,7 @@ namespace deren::engine::pass {
             return;
         }
         io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
-        // The post chain's source is a heap slot now (see shaders/post.slang): the third push lane names it, and
+        // The post chain's source is a heap slot now (see source/shaders/post.slang): the third push lane names it, and
         // the frame bound the heaps for this command buffer, so there is no set to bind here.
         [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
         io.list->draw(3, 1, 0, 0);

@@ -21,7 +21,7 @@
 // `std::shared_ptr` needs `-Wreturn-type-c-linkage` silenced and makes "same standard
 // library" a boundary premise). THAT PREMISE IS NOW MEASURED AND MACHINE-CHECKED: the
 // executable imports libc++.dll and uses the UCRT heap (one C++ runtime, one heap for
-// every image - `cxx deren.exe imports libc++.dll` in scripts/check_backend_boundary.py,
+// every image - `cxx deren.exe imports libc++.dll` in source/scripts/check_backend_boundary.py,
 // which also covers the backend DLL), so a control block allocated inside the backend can
 // be released by whoever drops the last reference. Two of the three entries therefore
 // become unnecessary rather than wrong:
