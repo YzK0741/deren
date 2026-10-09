@@ -18,7 +18,6 @@ module deren.vulkan.pass.fxaa;
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw now
 // go through the contract, so this file names no `vkCmd*` at all (plan §1 step 4, one pass per commit).
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_fxaa_owned: the pass's own pipeline, built from its two shaders and the surface's format
 import deren.utility;
 

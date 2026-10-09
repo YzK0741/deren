@@ -18,7 +18,6 @@ module deren.vulkan.pass.upscale;
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw go through
 // the contract, so this file names no `vkCmd*` at all - the same six-site shape fxaa.cpp migrated.
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
 import deren.utility;
 

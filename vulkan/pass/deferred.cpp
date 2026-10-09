@@ -17,7 +17,6 @@ module;
 module deren.vulkan.pass.deferred;
 
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_deferred: the pipeline this pass owns
 import deren.utility;
 

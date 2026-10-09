@@ -32,7 +32,6 @@ import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:

@@ -28,7 +28,6 @@ import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
 import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload

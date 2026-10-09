@@ -15,7 +15,6 @@ module;
 module deren.vulkan.pass.geometry_buffer_debug;
 
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_gbuffer_debug: the view pipeline, and that is all the pass takes from the builder
 import deren.utility;
 

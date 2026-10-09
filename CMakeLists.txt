@@ -484,20 +484,16 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # see deren_vulkan's sanitizer suppression; `promise`, which both halves also share, is not
 # suppressed either).
 # ============================================================================================
+# Native structure builders belong to the backend; renderer layout is a portable shared module.
 add_library(vulkan_constant_init STATIC)
-target_sources(vulkan_constant_init
-    PUBLIC
-        FILE_SET CXX_MODULES
-        FILES
-        vulkan/constant_init/constant_init.cppm
-        # The renderer's slot grid (③-D/E batch, ruling D): the engine names it in ~95 places and must
-        # not do so through the backend's class any more. Both halves compile it HERE, so the grid
-        # cannot drift, and `core::heap_slots` / the `core::heap_slot_*` constants become aliases into
-        # it - with the backend's frozen numbers `static_assert`ed against the module (see
-        # core.declarations.cppm), which is the drift guard ruling D asked for.
-        vulkan/render_layout/render_layout.cppm
-)
-target_link_libraries(vulkan_constant_init PUBLIC promise Vulkan::Vulkan)
+target_sources(vulkan_constant_init PUBLIC FILE_SET CXX_MODULES FILES
+    vulkan/constant_init/constant_init.cppm)
+target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
+
+add_library(renderer_layout STATIC)
+target_sources(renderer_layout PUBLIC FILE_SET CXX_MODULES FILES
+    vulkan/render_layout/render_layout.cppm)
+target_link_libraries(renderer_layout PUBLIC promise)
 
 # ============================================================================================
 # vulkan_error_tables - THE ERROR TRANSLATORS, CARRIED BY A TARGET BOTH SIDES LINK (the SHARED
@@ -600,6 +596,7 @@ target_link_libraries(deren_vulkan
         # The Vulkan constexpr builders both halves compile (see the target's comment above): the
         # backend keeps using them unchanged, they simply stop being a backend-owned module.
         vulkan_constant_init
+        renderer_layout
         Vulkan::Vulkan
         glfw
         static_utility
@@ -887,7 +884,6 @@ target_link_libraries(gltf_loader
 # consumer) and passes the parsed deren::gltf::scenes down to the runtime at the call site.
 target_link_libraries(vulkancorekit
         PUBLIC
-        Vulkan::Vulkan
         glfw
         static_utility
         glm::glm
@@ -898,8 +894,17 @@ target_link_libraries(vulkancorekit
         # The constexpr builders the engine imports directly (26 sites): the module is
         # neutral (compiled once for both halves), which is what takes those imports off the flip
         # gate's meter - see the target's comment above deren_vulkan.
-        vulkan_constant_init
+        renderer_layout
 )
+
+option(DEREN_VERIFY_ENGINE_NO_VULKAN "Reject Vulkan headers while compiling the engine" ON)
+if(DEREN_VERIFY_ENGINE_NO_VULKAN)
+    set(_engine_header_guard "${CMAKE_CURRENT_BINARY_DIR}/engine-vulkan-deny")
+    file(MAKE_DIRECTORY "${_engine_header_guard}/vulkan")
+    file(WRITE "${_engine_header_guard}/vulkan/vulkan.h"
+        "#error Vulkan headers are forbidden in engine translation units\n")
+    target_include_directories(vulkancorekit BEFORE PRIVATE "${_engine_header_guard}")
+endif()
 
 # Vendored VMA (third_party/vma/vk_mem_alloc.h): vma.cppm includes <vma/vk_mem_alloc.h>,
 # resolved against this third_party include root. The header also ships in the Vulkan SDK's
@@ -1124,6 +1129,10 @@ option(VR_BUILD_TESTS "Build the headless unit tests" ON)
 if(VR_BUILD_TESTS)
     enable_testing()
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    add_test(NAME test_native_boundary_zero
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_native_boundary.py"
+                --build-dir "${CMAKE_CURRENT_BINARY_DIR}" --require-zero)
+
     add_test(NAME test_backend_boundary
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover
                 -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_*boundary.py" -v)
@@ -1391,6 +1400,8 @@ add_dependencies(test_runtime_dyn deren_vulkan)
 # against: a three-vertex triangle, one instance, a hidden 64x64 window and VALIDATION ON, where the repo's
 # only other ray-tracing instrument is the full Sponza scene at 1080x960 (see the file's own header comment).
 add_executable(test_acceleration_structures tests/test_acceleration_structures.cpp)
+# This GPU probe calls native fence/queue functions itself.
+target_link_libraries(test_acceleration_structures Vulkan::Vulkan)
 target_compile_options(test_acceleration_structures PRIVATE ${COMPILE_OPTIONS})
 target_link_libraries(test_acceleration_structures
         backend_loader   # load_api_core() explicitly, exactly as the scaffold test does
@@ -1454,7 +1465,7 @@ target_link_libraries(deren_gui_vulkan
 # ---- compile options: one shared flag set on every first-party C++ target (vendored code is
 # deliberately excluded - imgui / fastgltf / simdjson / xxhash / mimalloc do not follow the
 # project's -Werror set, see their own targets above).
-foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit shared_utility static_utility backend_loader promise gltf_loader app_config ${VR_TEST_TARGETS})
+foreach(compile_target IN ITEMS vstd_lib ${VR_FULL_API_TARGETS} deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables vulkancorekit shared_utility static_utility backend_loader promise gltf_loader app_config ${VR_TEST_TARGETS})
     target_compile_options(${compile_target} PRIVATE ${COMPILE_OPTIONS})
 endforeach()
 # One warning is suppressed for vstd_lib under MSVC, and the reason is the module's job description:
@@ -1589,7 +1600,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init vulkan_error_tables vulkancorekit gltf_loader ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables vulkancorekit gltf_loader ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

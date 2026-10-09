@@ -15,7 +15,6 @@ module deren.vulkan.pass.taa;
 
 import deren.promise.rhi;
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines;
 import deren.utility;
 

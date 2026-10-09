@@ -17,7 +17,6 @@ module;
 module deren.vulkan.pass.shadow;
 
 import deren.promise.rhi;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_shadow: the depth-only pipeline this pass owns
 import deren.utility;
 

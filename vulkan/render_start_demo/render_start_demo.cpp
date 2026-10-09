@@ -20,7 +20,6 @@ module;
 
 module deren.vulkan.render_start_demo;
 
-import deren.vulkan.constant_init;
 import deren.utility;
 
 namespace deren::vulkan {

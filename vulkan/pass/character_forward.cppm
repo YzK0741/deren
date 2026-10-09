@@ -54,7 +54,6 @@ import deren.promise.rhi; // the contract command buffer a session's target is
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
-import deren.vulkan.constant_init;
 import deren.vulkan.primitive;
 import deren.vulkan.render_environment;
 

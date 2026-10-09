@@ -19,7 +19,6 @@ module deren.vulkan.pass.character_forward;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers and the rendering scope
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;

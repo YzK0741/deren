@@ -35,7 +35,6 @@ module;
 export module deren.vulkan.render_start_demo;
 
 import deren.vulkan.runtime;
-import deren.vulkan.constant_init;
 import deren.vulkan.pass;
 import deren.vulkan.pass.chain; // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
 import deren.vulkan.pass.cluster;

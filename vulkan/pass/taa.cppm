@@ -41,7 +41,6 @@ import deren.promise.rhi;
 
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
 export namespace deren::vulkan::pass {

@@ -24,7 +24,6 @@ module deren.vulkan.pass.ray_traced_shadow;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_rt_shadow: the compute pipeline this pass owns
 import deren.utility;
 

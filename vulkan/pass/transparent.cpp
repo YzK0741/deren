@@ -14,7 +14,6 @@ module deren.vulkan.pass.transparent;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;

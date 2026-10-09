@@ -20,7 +20,6 @@ module deren.vulkan.pass.toon_screen_rim;
 
 import deren.promise.rhi;
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 // (③-D/E A1.0: the `import deren.vulkan.core;` that used to sit here was VESTIGIAL - its own comment
 //  named `deren::vulkan::hdr_format` as the reason, and this file never spells it. The formats themselves
 //  live in the shared `deren.vulkan.render_layout` now, which is where a pass that DOES name one reaches

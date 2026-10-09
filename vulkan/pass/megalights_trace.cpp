@@ -20,7 +20,6 @@ module deren.vulkan.pass.megalights_trace;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers and the dispatch
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_megalights_trace: the compute pipeline this pass owns
 import deren.utility;
 

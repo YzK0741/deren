@@ -31,7 +31,6 @@ import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.promise.rhi;            // the contract's recording surface: the frame's list, image and read-back slot
 

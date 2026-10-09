@@ -48,7 +48,6 @@ import deren.promise.rhi; // the contract command buffer the frame's secondaries
 import deren.vulkan.pass;
 import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
-import deren.vulkan.constant_init;
 import deren.vulkan.primitive;          // the leaves this pass draws (a concrete pass may know the scene types)
 import deren.vulkan.render_environment; // the per-segment draw state the renderer builds for it
 

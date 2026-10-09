@@ -68,6 +68,12 @@ GUI 边界类型移入唯一命名模块 deren.promise.gui，创建参数只传�
 
 新探针先确认无 format() 的编译红灯，再实现契约。完整构建、CTest **19/19**、真设备探针 **102/0**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过。独立审查发现的声明归属与浮点格式遗漏已修复并复核。边界 **P-Census/P-Nm/P-Import = 0/0/0**，require-zero 首次通过。日志前缀 `x5-format-contract-*`。剩余：移除引擎构建的 SDK 依赖、常设零边界门禁，以及非 Vulkan 根录制一帧证明；尚未宣告 X5 完成。
 
+### X5 第十批：引擎构建依赖收口与常设门禁
+
+共享 renderer_layout 拆为仅依赖 promise 的目标；vulkancorekit 删除 Vulkan::Vulkan 与原生 constant_init 链接，25 处未使用原生构造模块导入删除。默认 DEREN_VERIFY_ENGINE_NO_VULKAN 使引擎包含 Vulkan 主头时立即编译失败；新增 CTest 三层 require-zero 门禁。直接使用原生 fence/queue 的 AS 真设备探针显式链接自身 Vulkan 库。
+
+完整构建（头禁用检查开启）、CTest **20/20**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过。独立审查核对生成编译/链接文件：引擎首个 include 路径为拒绝头目录，模块依赖无 constant_init/后端原生模块，主程序链接输入无 Vulkan/constant_init。日志前缀 `x5-engine-portable-*`。整体配置仍发现 SDK 以构建 Vulkan 插件；非 Vulkan 根实际录制帧证明待补，X5 尚未全部完成。
+
 ---
 
 ## 0.0 独立复核（Lead，接手方收尾之后）

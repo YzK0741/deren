@@ -16,8 +16,7 @@ module;
 
 module deren.vulkan.pass.post;
 
-import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the draw
-import deren.vulkan.constant_init;
+import deren.promise.rhi;      // the record series (abi 20): the barriers, the rendering scope, the draw
 import deren.vulkan.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
 import deren.utility;
 

@@ -19,7 +19,6 @@ module deren.vulkan.pass.megalights_temporal;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the copy and the dispatch
 import deren.vulkan.render_resource;
-import deren.vulkan.constant_init;
 import deren.vulkan.pipelines; // build_megalights_temporal: the compute pipeline this pass owns
 import deren.utility;
 

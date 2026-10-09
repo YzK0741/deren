@@ -43,7 +43,6 @@ import deren.vulkan.render_resource;
 import deren.vulkan.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.constant_init;
 import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.vulkan.meshlet;         // the meshlet table's record layout and capacity (docs/mesh_shaders.md step 3)
 import deren.promise.rhi;            // the RHI creation contract: the type the new constructor below takes
