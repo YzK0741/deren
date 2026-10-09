@@ -43,9 +43,9 @@
 
 **Interfaces:** DLL names and module identifiers from Task 1 remain unchanged. Root CMake remains the build entry point.
 
-- [ ] Move production code using the spec mapping and update all active source paths.
-- [ ] Update native-boundary source discovery and add a regression that catches Vulkan vocabulary in `source/engine/` before accepting the new zero result.
-- [ ] Reconfigure/build Release, run headless tests and boundary gates, then commit.
+- [x] Move production code using the spec mapping and update all active source paths.
+- [x] Update native-boundary source discovery and add a regression that catches Vulkan vocabulary in `source/engine/` before accepting the new zero result.
+- [x] Reconfigure/build Release, run headless tests and boundary gates, then commit.
 
 ## Task 3: Remaining code and verification
 
@@ -64,3 +64,5 @@
 - Use existing build and regression tests for mechanical renames; add tests only where source-discovery behavior changes and a false-zero gate is possible.
 
 Task 1 evidence: Release build exit 0; 20/20 CTest tests passed; backend boundary 0 symbols and 0 engine imports; native zero gate passed within CTest.
+
+Task 2 evidence: new-directory scope regression failed before the gate change and passed afterward; Release build exit 0; 20/20 CTest tests passed; native and backend zero gates passed. Relative includes are recalculated from resolved original targets; source-reading tests follow app/ paths.

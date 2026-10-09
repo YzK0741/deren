@@ -1,7 +1,7 @@
 # `vulkan.pass_io`: describing a pass's inputs and outputs the way Vulkan already does
 
 The layer every pass in this renderer describes its inputs and outputs with, and the design the code
-implements: the types below live in `vulkan/render_resource`, and the per-pass declarations are its consumers.
+implements: the types below live in `source/backends/vulkan/render_resource`, and the per-pass declarations are its consumers.
 
 **STATUS NOTE, because this document's premise is now half history.** It is built around descriptor
 sets - "a pass's inputs and outputs are ALREADY descriptor sets", below - and those are gone: the
@@ -22,9 +22,9 @@ between the G-buffer pass, the lighting stage, the stochastic punctual lighting 
 is the substrate; each pass's private family (TAA 4 bindings, post 9, the lighting chain's temporal resolve 5)
 is its own I/O. What exists today is that interface written TWICE BY HAND and kept in agreement by discipline:
 
-* the layout, in `vulkan/pipelines/pipelines.cppm` (`build_resolve_pipeline` builds a 5-binding layout with a
+* the layout, in `source/engine/pipelines/pipelines.cppm` (`build_resolve_pipeline` builds a 5-binding layout with a
   loop whose storage case is `b == 4u`, `build_gbuffer_debug` a 16-binding one whose storage cases are enumerated);
-* the descriptor WRITES, in `vulkan/runtime/runtime.cpp`'s `ensure_*_descriptors()`, as a parallel array of views, a
+* the descriptor WRITES, in `source/engine/runtime/runtime.cpp`'s `ensure_*_descriptors()`, as a parallel array of views, a
   parallel array of `VkDescriptorImageInfo`, and ternaries that decide storage-vs-sampler and which sampler.
 
 Both drifts this pair can have are already in this project's history, and both were found by the validation
@@ -60,7 +60,7 @@ mirrors the module's suffix (`namespace deren::vulkan::bindings`), types are `sn
 
     module            deren.engine.render_resource               (doxygen: @defgroup vulkan_render_resource)
     namespace         deren::vulkan::render_resource
-    files             vulkan/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
+    files             source/engine/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
 
 | name | kind | what it is | why this name |
 | --- | --- | --- | --- |
@@ -128,7 +128,7 @@ transition exists because the multi-bounce feedback samples last frame's resolve
 
 Beside the pass they describe, not in a central table: `pass_io` is a description OF a pass. While a pass still
 lives in `runtime.cpp`, its declaration lives in a small unit of its own next to it (for the first conversion,
-`vulkan/pass_io/probe_io.cppm` exporting `gi_probe_io`, the probe cache's 9 bindings and its push block); when
+`source/backends/vulkan/pass_io/probe_io.cppm` exporting `gi_probe_io`, the probe cache's 9 bindings and its push block); when
 that pass is later extracted into `vulkan.gi_probe` (the first extraction in `docs/runtime_split.md`), the
 declaration moves with it and the runtime only passes the `resource_views` in. The resource list itself
 (`resource_id` + `resource_info`) belongs to `deren.vulkan.core`, because `core` is the only place the complete image

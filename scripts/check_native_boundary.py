@@ -7,15 +7,9 @@ a grep; it is (a) the executable's IMPORT TABLE, (b) the UNRESOLVED SYMBOLS of t
 (c) the source vocabulary, in that order of strength. This script reports all three and, with `--require-zero`,
 fails while any of them is non-empty.
 
-THE ENGINE SCOPE is derived from the build system rather than hand-listed: every `.cppm`/`.cpp` under `runtime/`
-or `vulkan/` that is NOT one of the graphics plugins' sources (parsed out of their `target_sources`
-blocks in CMakeLists.txt) and NOT in ALLOWED below.
-
-ALLOWED is small and each entry has to say why:
-  - `vulkan/constant_init/**`, `vulkan/render_layout/**`: constexpr builders and tables. They name Vulkan
-    TYPES and MACROS, which is header-only work, and they compile into BOTH halves through the
-    `vulkan_constant_init` target. They contain no API CALLS - which check 2 (unresolved symbols) verifies
-    independently, so this entry cannot hide one.
+THE ENGINE SCOPE is source/engine/ plus source/app/. Graphics plugin sources are
+excluded according to their actual CMake target ownership. Every portable module,
+including the shared render layout, is checked without source exemptions.
 
 USAGE
   python scripts/check_native_boundary.py                       # report (exit 0)
@@ -34,10 +28,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
 # The steps that DO NOT COUNT against the engine, with the reason (see the module docstring).
-ALLOWED = (
-    "vulkan/constant_init/",
-    "vulkan/render_layout/",
-)
+ALLOWED = ()
 
 # Sources of the SMALL STATIC LIBRARIES the DLL links (they are compiled into `deren_vulkan.dll` even though
 # they are not in its own `target_sources` block). Read from CMakeLists.txt the same way the DLL's list is, so
@@ -50,7 +41,7 @@ PLUGIN_TARGETS = ("deren_vulkan", "deren_gui_vulkan")
 TOKEN_PATTERNS = (
     ("type", re.compile(r"\bVk[A-Z][A-Za-z0-9_]*")),
     ("macro", re.compile(r"\bVK_[A-Z0-9_]+")),
-    ("entry point", re.compile(r"#include\s*<vulkan/")),  # the header, as its own category
+    ("entry point", re.compile(r"#include\s*<source/backends/vulkan/")),  # the header, as its own category
 )
 
 # The escape's own door: `escape()->native_x(...)`, and the engine's wrappers around it (`native_x_of`).
@@ -104,7 +95,7 @@ def dll_sources() -> set[str]:
 def engine_sources() -> list[pathlib.Path]:
     dll = dll_sources()
     out: list[pathlib.Path] = []
-    for root in ("runtime", "vulkan"):
+    for root in ("source/engine", "source/app"):
         base = REPO / root
         if not base.is_dir():
             continue
@@ -158,7 +149,7 @@ def check_objects(build_dir: pathlib.Path, verbose: bool) -> list[str]:
     violations: list[str] = []
     for obj in sorted(objects_dir.rglob("*.obj")):
         # A STALE OBJECT IS NOT A FINDING: the build directory keeps the objects of files that have since been
-        # deleted (`vulkan/readback/readback.cpp` is the one this gate was written around), and reporting them
+        # deleted (`source/backends/vulkan/readback/readback.cpp` is the one this gate was written around), and reporting them
         # would make the gate lie about the source tree. The object's path mirrors its source's, with `.obj`
         # appended, so a missing source is skipped - a clean build removes the object anyway.
         rel = obj.relative_to(objects_dir).as_posix()

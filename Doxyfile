@@ -1070,19 +1070,19 @@ WARN_LOGFILE           =
 # repository root since S5 and carries the `@defgroup runtime` definition plus the facade's own
 # API documentation. Without this line doxygen never read those files, so the manual documented the
 # renderer only through `docs/dynamic_runtime.md` AND every `@ingroup runtime` in a scanned file
-# (vulkan/render_environment/render_environment.cppm) warned that the group did not exist - the group
+# (source/engine/render_environment/render_environment.cppm) warned that the group did not exist - the group
 # was defined in a file the INPUT list did not name.
 
 INPUT                  = ./shaders \
-				./vulkan \
-				./runtime \
-				./utility \
-				./promise \
-				./gltf_loader \
-				./application_configuration \
-				./main.cpp \
-				./chores.cppm \
-				./vstd \
+				./source/backends/vulkan \
+				./source/engine \
+				./source/utility \
+				./source/promise \
+				./source/gltf_loader \
+				./source/application_configuration \
+				./source/app/main.cpp \
+				./source/app/chores.cppm \
+				./source/vstd \
 				./docs/mainpage.md \
 				./docs/conventions.md \
 				./docs/dynamic_runtime.md \
@@ -1223,7 +1223,7 @@ EXCLUDE_SYMLINKS       = NO
 # Note that the wildcards are matched against the file with absolute path, so to
 # exclude all test directories for example use the pattern */test/*
 
-EXCLUDE_PATTERNS       = */vstd/std/*
+EXCLUDE_PATTERNS       = */source/vstd/std/*
 
 # The EXCLUDE_SYMBOLS tag can be used to specify one or more symbol names
 # (namespaces, classes, functions, etc.) that should be excluded from the

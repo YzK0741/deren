@@ -11,30 +11,49 @@ spec.loader.exec_module(gate)
 
 
 class NativeScopeTests(unittest.TestCase):
+    def test_source_engine_filters_and_layout_are_scanned(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = ["source/engine/filters/filters.cppm",
+                     "source/engine/render_layout/render_layout.cppm"]
+            for relative in paths:
+                path = root / relative
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("VkDevice forbidden;", encoding="utf-8")
+            (root / "CMakeLists.txt").write_text("", encoding="utf-8")
+            previous = gate.REPO
+            try:
+                gate.REPO = root
+                self.assertEqual(paths, [path.relative_to(root).as_posix()
+                                         for path in gate.engine_sources()])
+                self.assertEqual(2, len(gate.check_tokens(False)))
+            finally:
+                gate.REPO = previous
+
     def test_gui_plugin_is_excluded_but_engine_violation_remains(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             sources = {
-                "vulkan/core/backend.cpp": "VkDevice backend;",
-                "vulkan/graphical_user_interface/gui.cppm": "VkDevice gui;",
-                "vulkan/graphical_user_interface/gui_dll.cpp": "VkQueue gui_queue;",
-                "runtime/engine.cpp": "VkDevice engine;",
+                "source/backends/vulkan/core/backend.cpp": "VkDevice backend;",
+                "source/backends/vulkan/graphical_user_interface/gui.cppm": "VkDevice gui;",
+                "source/backends/vulkan/graphical_user_interface/gui_dll.cpp": "VkQueue gui_queue;",
+                "source/engine/runtime/engine.cpp": "VkDevice engine;",
             }
             for relative, code in sources.items():
                 path = root / relative
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(code, encoding="utf-8")
             (root / "CMakeLists.txt").write_text(
-                "target_sources(deren_vulkan\n PRIVATE\n vulkan/core/backend.cpp\n)\n"
+                "target_sources(deren_vulkan\n PRIVATE\n source/backends/vulkan/core/backend.cpp\n)\n"
                 "target_sources(deren_gui_vulkan\n PUBLIC FILE_SET CXX_MODULES FILES\n"
-                " vulkan/graphical_user_interface/gui.cppm\n PRIVATE\n"
-                " vulkan/graphical_user_interface/gui_dll.cpp\n)\n", encoding="utf-8")
+                " source/backends/vulkan/graphical_user_interface/gui.cppm\n PRIVATE\n"
+                " source/backends/vulkan/graphical_user_interface/gui_dll.cpp\n)\n", encoding="utf-8")
             previous = gate.REPO
             try:
                 gate.REPO = root
-                self.assertEqual(["runtime/engine.cpp"],
+                self.assertEqual(["source/engine/runtime/engine.cpp"],
                                  [path.relative_to(root).as_posix() for path in gate.engine_sources()])
-                self.assertEqual(["runtime/engine.cpp: 1 -> type:VkDevice"], gate.check_tokens(False))
+                self.assertEqual(["source/engine/runtime/engine.cpp: 1 -> type:VkDevice"], gate.check_tokens(False))
             finally:
                 gate.REPO = previous
 

@@ -1,6 +1,6 @@
 // Headless unit tests: the error mechanism's translation tables (pure CPU, no GPU) ==================
 // Every VkResult this backend can plausibly receive goes through the three per-call-site
-// translators (vulkan/core/error_tables.cpp, declared in vulkan/core/error_tables.hpp) and the
+// translators (source/backends/vulkan/core/error_tables.cpp, declared in source/backends/vulkan/core/error_tables.hpp) and the
 // unified contract value is asserted per site. The load-bearing row is VK_SUBOPTIMAL_KHR: the SAME code
 // is "carry on" (ok) at acquire and "rebuild" (out_of_date) at present - the one behavior a
 // single global map could never hold, and the reason the translation is per call site at all.

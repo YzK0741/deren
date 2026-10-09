@@ -126,7 +126,7 @@ vkCmdPipelineBarrier2(): pImageMemoryBarriers[1].image (VkImage 0x43...) cannot 
 
 `0x43` was identified by logging the handle of every per-image family (each image consumes three vk ids, so
 `velocity[0] = 0x40` puts `velocity[1]` at `0x43`): **the motion-vector target**. The TAA resolve recorded its
-transition UNCONDITIONALLY (`vulkan/pass/taa.cpp`), on the assumption its own comment states - that it is the
+transition UNCONDITIONALLY (`source/engine/pass/taa.cpp`), on the assumption its own comment states - that it is the
 frame's first sampler of the velocity, which the `require_velocity_publish` call in the demo's `taa` prepare
 compensates for. This chain's temporal resolve samples the velocity too, and its stage runs BEFORE TAA, so by
 the time TAA recorded its barrier the image was already SHADER_READ and the unconditional transition claimed a
@@ -273,9 +273,9 @@ to the declaration the pipeline builds.
 **What is left, and it is one wire:** with `megalights = true` the pass is created and its declaration
 resolves, but `record()` is still never entered - the runner skips it and logs no reason, and the frame stays
 byte-identical to round 3's raw estimate (59.2089 / 64.2010 / 64.0021), which is how this was noticed at all.
-The two `TEMPORARY: the lifecycle bisect` log lines left in `vulkan/pass/megalights_temporal.cpp` will say so
+The two `TEMPORARY: the lifecycle bisect` log lines left in `source/engine/pass/megalights_temporal.cpp` will say so
 the moment it starts recording, and the next step is to read the runner's per-pass gate in
-`vulkan/pass/pass.cppm`'s `record_stage` rather than to guess: everything the pass controls (readiness, the
+`source/engine/pass/pass.cppm`'s `record_stage` rather than to guess: everything the pass controls (readiness, the
 feature name, the declaration) has now been verified from the outside.
 
 VERIFIED IN THIS STATE: all eight test binaries pass; the four gate scenarios sit at their exact hashes with
@@ -288,7 +288,7 @@ round 3's, byte for byte, which is the honest statement that the accumulation is
 Built and compiling, running as code but NOT recorded: `shaders/megalights_temporal.comp` (the running mean
 with a per-pixel frame count, UE's grazing-widened depth rejection, the mean/stddev neighbourhood clamp, and
 the frame count riding in the history's alpha lane - the policy is `docs/reference/
-megalights_stochastic_lighting.md` section 4), `vulkan/pass/megalights_temporal.cppm/.cpp` (the GI resolve's
+megalights_stochastic_lighting.md` section 4), `source/engine/pass/megalights_temporal.cppm/.cpp` (the GI resolve's
 shape, with the depth and velocity read from the shared G-buffer set instead of per-image own bindings so the
 chain needs no second stage for its ordering rule), `megalights_temporal_io`, the `ml_resolve` / `ml_history`
 resource families, the `frame_results` / `frame_facts` fields, and the demo's construction, setter and collect
@@ -335,7 +335,7 @@ accumulation being live, and the motion measurement that would show its value.
   `test_render_resources`' schema-size and declaration checks, whose hand-synced counts moved with it),
   and a gate scenario is validation clean with the same hash as before the change.
 
-**Next.** The pass class itself (`vulkan/pass/megalights_trace`, the shape a traced compute pass has here -
+**Next.** The pass class itself (`source/engine/pass/megalights_trace`, the shape a traced compute pass has here -
 two shared sets, its own output at the shared G-buffer set rather than an own set, so two new bindings there,
 one to write and one to sample), its construction and gate in `deren.engine.render_start_demo`, the
 `punctual_replaced` lane that stops `deferred.frag` adding the lights raster-style, and the composite that
@@ -344,7 +344,7 @@ estimate's noise against the unshadowed baseline, which is stage 2's acceptance.
 
 ### Stage 1 landed: the estimate is in the frame, and the feature-off frame is untouched
 
-`vulkan/pass/megalights_trace` exists (the tracer's shape: two shared sets, no own binding, one image moved
+`source/engine/pass/megalights_trace` exists (the tracer's shape: two shared sets, no own binding, one image moved
 through `barrier_images`), `pipelines::build_megalights_trace` builds it, `deren.engine.render_start_demo`
 constructs and gates it, and the runtime records its stage between the `rt_shadow` stage and the `deferred`
 stage. The image reaches the frame through the shared G-buffer set's two new bindings (16 = the storage

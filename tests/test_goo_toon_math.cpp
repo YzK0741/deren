@@ -1402,7 +1402,7 @@ int32_t main() {
     // `shaders/goo_rim.slang`'s `goo_rim_view_depth` is the engine's `rim_view_depth`, and the claim it embodies
     // is that it IS the quantity Goo's `-get_view_z_from_depth` answers: a POSITIVE distance in metres along the
     // camera's axis. The check is the round trip on the projection THIS renderer builds
-    // (`glm::perspectiveRH_ZO(45deg, ..., 0.1, far)`, `vulkan/primitive/primitive.cpp`): the two terms come from
+    // (`glm::perspectiveRH_ZO(45deg, ..., 0.1, far)`, `source/engine/primitive/primitive.cpp`): the two terms come from
     // near and far the way glm computes them, a distance is taken through the forward map into the stored
     // (ZERO-TO-ONE) window depth, and the inverse must give the distance back. The two IDENTITIES the shadow fit
     // already relies on (near = proj_32/proj_22, far = proj_22*near/(1+proj_22)) are asserted beside it, because
@@ -2542,16 +2542,16 @@ int32_t main() {
             return std::string{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
         };
         std::string const shader = slurp("shaders/goo_toon.slang");
-        std::string const primitive = slurp("vulkan/primitive/primitive.cppm");
-        std::string const constructor = slurp("runtime/runtime.constructor.cppm");
-        std::string const app = slurp("main.cpp");
-        std::string const config = slurp("application_configuration/application_configuration.cpp");
+        std::string const primitive = slurp("source/engine/primitive/primitive.cppm");
+        std::string const constructor = slurp("source/engine/runtime/runtime.constructor.cppm");
+        std::string const app = slurp("source/app/main.cpp");
+        std::string const config = slurp("source/application_configuration/application_configuration.cpp");
         // the files the two suppressions live in, and the two other readers of the colour table's stride
         std::string const character_forward = slurp("shaders/character_forward.slang");
         std::string const outline = slurp("shaders/outline.slang");
         std::string const pbr = slurp("shaders/pbr.slang");
-        std::string const rim_pass = slurp("vulkan/pass/toon_screen_rim.cpp");
-        std::string const demo = slurp("vulkan/render_start_demo/render_start_demo.cpp");
+        std::string const rim_pass = slurp("source/engine/pass/toon_screen_rim.cpp");
+        std::string const demo = slurp("source/engine/render_start_demo/render_start_demo.cpp");
 
         // (a) THE SHADER'S OWN NUMBERS, so the C++ above cannot drift from them silently
         for (char const* const spelling : {"goo_iris_angle_center = 1.0",
@@ -2761,7 +2761,7 @@ int32_t main() {
             // and requires the names and numbers to match), so what is asserted here is the THIRD half that test
             // cannot see: that the host actually WRITES the slot, and that the write's format is `UNORM`.
             CHECK_MSG(character_forward.find("heap_slots_goo_fgd_lut") != std::string::npos, "the shader names the FGD LUT's heap slot");
-            std::string const core = slurp("vulkan/render_layout/render_layout.cppm");
+            std::string const core = slurp("source/engine/render_layout/render_layout.cppm");
             CHECK_MSG(core.find("goo_fgd_lut = heap_slot_base + 754u") != std::string::npos, "the host's own constant for it, at the slot the shader names");
             CHECK_MSG(constructor.find("runtime::set_goo_fgd_lut(") != std::string::npos, "the uploader the host writes it with");
             CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != std::string::npos,
@@ -3559,7 +3559,7 @@ int32_t main() {
         // false, and the owner's answer must be the SAME `goo_toon_active()` predicate that picks the character
         // stage's pipeline - a gate that could disagree with the pipeline choice would draw the Goo rim over the
         // OLD chain's frame or none over the new one.
-        std::string const goo_rim_pass = slurp("vulkan/pass/goo_rim.cpp");
+        std::string const goo_rim_pass = slurp("source/engine/pass/goo_rim.cpp");
         CHECK_MSG(goo_rim_pass.find("return \"goo_rim\";") != std::string::npos, "the goo rim asks under its own feature name");
         // ... and the owner answers that name with the runtime's own predicate, in the branch whose last term is
         // the POSITIVE form of the contour's negation above
@@ -3569,7 +3569,7 @@ int32_t main() {
         CHECK_MSG(goo_rim_answer.find("self.runtime_owner->goo_toon_active()") != std::string::npos, "answered with the SAME predicate the pipeline choice uses");
         CHECK_MSG(goo_rim_answer.find("self.goo_rim->ready() && goo_toon_active") != std::string::npos, "and true only when the rewritten chain is the one drawing");
         // ... and the frame loop records the stage after the character stage, gated on that name
-        std::string const frames = slurp("runtime/runtime.frames.cppm");
+        std::string const frames = slurp("source/engine/runtime/runtime.frames.cppm");
         CHECK_MSG(frames.find("this->goo_rim_pass = {at(\"goo_rim\")};") != std::string::npos, "the stage is bound to the chain by name");
         CHECK_MSG(frames.find("pass::stage const goo_rim_stage = {.name = \"goo_rim\"") != std::string::npos, "and recorded as its own stage");
         // ... and the G-buffer's publication is gated on the same feature name, or a frame with `goo_toon` off
@@ -3736,7 +3736,7 @@ int32_t main() {
 
         // ---- A7: the host side loads the RS values into THREE colour lanes (step 13's two, step 15's third; the
         //          host data flow is generic, so `main.cpp` needs no new BRANCH - only the row names) ----
-        std::string const app = slurp("main.cpp");
+        std::string const app = slurp("source/app/main.cpp");
         // `_GooRSScalars` row = "1.0,1.0,1.0,0.0"                                -> lane 27
         // `_GooRSTint`     row = "7.5,1.4143484830856323,0.0,0.9900000095367432"  -> lane 28
         // `_GooRSArm0`     row = "0.0,1.0,0.0,0.0" (the FIXTURE; the shipped asset states no such row) -> lane 29
@@ -3822,7 +3822,7 @@ int32_t main() {
         std::string const character_forward = slurp("shaders/character_forward.slang");
         std::string const goo_rim = slurp("shaders/goo_rim.slang");
         std::string const pbr = slurp("shaders/pbr.slang");
-        std::string const primitive = slurp("vulkan/primitive/primitive.cppm");
+        std::string const primitive = slurp("source/engine/primitive/primitive.cppm");
         CHECK_MSG(goo_toon.find("const float3 lit_base = colour + s.emissive;") != std::string::npos &&
                       goo_toon.find("rs_final") != std::string::npos,
                   "RS A8: the RS block exists in goo_toon.slang (the REWRITE chain), not in character_forward.slang");
@@ -4026,7 +4026,7 @@ int32_t main() {
                                "{0.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f, 8.0f};") != std::string::npos,
                       "DEBT (s): the cel band-count table must keep index 0 == 0.0f (plain PBR)");
 
-            std::string const runtime_cpp = slurp("runtime/runtime.cpp");
+            std::string const runtime_cpp = slurp("source/engine/runtime/runtime.cpp");
             CHECK_MSG(runtime_cpp.find("this->toon_steps = steps < 1.5f ? 0.0f : "
                                        "std::round(std::clamp(steps, 2.0f, 8.0f));") != std::string::npos,
                       "DEBT (s): `set_toon_shading` must keep the 0-step early out");
@@ -4157,7 +4157,7 @@ int32_t main() {
                       "ONE sheet slot and the second sheet is the host's choice of NAME for that slot; a 17th entry "
                       "would move `toon_slot::count` and with it the whole lane block - `toon_lane_blocks` 3 -> 4, "
                       "one more `uint4` per lane in the same heap slot that already holds them "
-                      "(`vulkan/render_layout/render_layout.cppm`'s `heap_slots::toon_lanes`) plus a FOURTH accessor "
+                      "(`source/engine/render_layout/render_layout.cppm`'s `heap_slots::toon_lanes`) plus a FOURTH accessor "
                       "beside `shaders/heap_access.slang`'s `toon_lanes_at`/`toon_lanes2_at`/`toon_lanes3_at`. It is "
                       "not a fourth descriptor set, and it is not the proposal "
                       "(spec §9.4: the rejected route `Rb`, still unselected)");
@@ -4237,7 +4237,7 @@ int32_t main() {
                       "RS A8.rsi: the sampling site's note says WHERE the index is answered instead of that it is "
                       "ignored - this shader genuinely never reads it, so that note has to be exact");
             CHECK_MSG(primitive_folded.find("not honoured") == std::string::npos,
-                      "RS A8.rsi: `vulkan/primitive/primitive.cppm` must not call `RS_Index` not-honoured in ANY "
+                      "RS A8.rsi: `source/engine/primitive/primitive.cppm` must not call `RS_Index` not-honoured in ANY "
                       "casing; the lowercase sentence used to slip past this pin");
             CHECK_MSG(primitive_folded.find("unhonoured") == std::string::npos &&
                           primitive_folded.find("answered - by the host") != std::string::npos,

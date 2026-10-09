@@ -39,9 +39,9 @@ THE THIRD INSTRUMENT: THE IMPORT GRAPH
     a module import is what actually forbids a SHARED backend, because the BMI would have to
     come from the DLL. `--require-zero` therefore also scans the engine/application sources and
     fails on every import of a module `deren_vulkan` owns. Ownership comes from CMake's own
-    `target_sources(deren_vulkan ...)` list, NOT from a name prefix: `vulkan/core/filter/
+    `target_sources(deren_vulkan ...)` list, NOT from a name prefix: `source/engine/filters/
     filters.cppm` declares `deren.engine.filters` but belongs to the ENGINE, while
-    `vulkan/constant_init/constant_init.cppm` belongs to the BACKEND. Test sources are reported
+    `source/backends/vulkan/constant_init/constant_init.cppm` belongs to the BACKEND. Test sources are reported
     separately (they link the backend deliberately) and are not part of the gate.
 
 THE SECOND NUMBER: OWNING STL ACROSS THE BOUNDARY
@@ -64,16 +64,16 @@ BASELINES ARE PER TOOLCHAIN (the symbol sets are not comparable across them):
     `--update` can only reduce an existing set. Neither mutation obeys `--warn`.
 
 ONE CONFIGURATION, ONE PAIR (S5, the flip)
-    Step 2 built a SECOND runtime (`runtime/`, contract-only) in its own tree, and while both existed the
+    Step 2 built a SECOND runtime (`source/engine/runtime/`, contract-only) in its own tree, and while both existed the
     two trees crossed the boundary in DIFFERENT SHAPES: the legacy engine referenced the CONCRETE CLASS
     (`core::core(create_info const&)`), the dynamic one references the C ENTRY
     (`deren_make_api_core` / `deren_destroy_api_core`). Sharing one pair of files would have made each
     tree report the other's symbols as STALE - noise, not a boundary - so each configuration carried its
     OWN baseline and whitelist, both shrink-only, each with its reasons.
 
-    S5 DELETED THE LEGACY RUNTIME (`vulkan/runtime/`, which named `core`) and the legacy pair with it.
+    S5 DELETED THE LEGACY RUNTIME (`source/engine/runtime/`, which named `core`) and the legacy pair with it.
     What is left is the DYNAMIC configuration, whose boundary is the C entry - the DESIGNED boundary,
-    declared in promise/rhi/backend_entry.hpp, and the one that never leaves while the backend is a DLL:
+    declared in source/promise/rhi/backend_entry.hpp, and the one that never leaves while the backend is a DLL:
 
         --config dynamic   (default, the only value)  backend_boundary_baseline.dynamic.<flavor>.json
                                                      backend_boundary_whitelist_dynamic.json
@@ -221,8 +221,8 @@ def flavor_of(build_dir: str | None) -> str:
 
 
 # WHICH RUNTIME CONFIGURATION A RUN MEASURES (`--config`). ONE ENTRY SINCE S5: the flip deleted the
-# legacy runtime (`vulkan/runtime/`) and the legacy pair of files with it, so there is one boundary shape
-# left - the C entry, the designed boundary declared in promise/rhi/backend_entry.hpp. The argument is
+# legacy runtime (`source/engine/runtime/`) and the legacy pair of files with it, so there is one boundary shape
+# left - the C entry, the designed boundary declared in source/promise/rhi/backend_entry.hpp. The argument is
 # kept (not removed) because the invocations the migration's docs and CI carry pass `--config dynamic`,
 # and `choices=` makes `--config legacy` a NAMED refusal rather than a silent fallback to another pair.
 # `{flavor}` is filled by `flavor_of(build_dir)` (the toolchain key of the symbol sets).
@@ -533,9 +533,9 @@ SOURCE_SUFFIXES = (".cppm", ".cpp", ".hpp", ".h")
 def backend_modules_of(repo_root: str) -> tuple[set[str], set[str]]:
     """({modules deren_vulkan owns}, {its source files, repo-relative}).
 
-    OWNERSHIP COMES FROM THE TARGET, NOT FROM THE NAME. `vulkan/core/filter/filters.cppm` declares
+    OWNERSHIP COMES FROM THE TARGET, NOT FROM THE NAME. `source/engine/filters/filters.cppm` declares
     `deren.engine.filters` but belongs to the ENGINE target (deren_engine), while
-    `vulkan/constant_init/constant_init.cppm` declares `deren.vulkan.constant_init` and belongs to the
+    `source/backends/vulkan/constant_init/constant_init.cppm` declares `deren.vulkan.constant_init` and belongs to the
     BACKEND - so a name prefix would be wrong in both directions. The list is read out of CMake's own
     `target_sources(deren_vulkan ...)` block, which is what makes this check self-maintaining.
     """

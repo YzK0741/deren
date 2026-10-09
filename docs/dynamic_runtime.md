@@ -11,7 +11,7 @@ only door, and `scripts/check_backend_boundary.py` is the gate that keeps it tha
 
 ## The contract: `deren.promise.rhi`
 
-`promise/rhi/` is the contract, and BOTH sides of the boundary compile it: the engine's targets and
+`source/promise/rhi/` is the contract, and BOTH sides of the boundary compile it: the engine's targets and
 each backend DLL read the same interface unit instead of a shared header, which is what keeps the two
 compilations from drifting.
 
@@ -29,7 +29,7 @@ slot to an existing interface bumps the number**, while **adding a new ability o
 
 ## The C entry: one symbol, resolved by name
 
-`promise/rhi/backend_entry.hpp` declares the boundary's entire C ABI, and it is deliberately tiny.
+`source/promise/rhi/backend_entry.hpp` declares the boundary's entire C ABI, and it is deliberately tiny.
 
 * **`deren_make_api_core` is the only export.** Its FIRST argument is `rhi::abi_version`, so a
   mismatched backend is refused BEFORE an object exists, with the backend's own number in the
@@ -41,7 +41,7 @@ slot to an existing interface bumps the number**, while **adding a new ability o
 * **The GUI plugin takes the same shape**: `deren_gui_vulkan.dll` exports one name, `deren_make_gui`.
 
 The keyword that makes a symbol visible across a DLL boundary lives in ONE header,
-`utility/abi_export.hpp`, chosen from the build mode rather than from a platform `#ifdef` at every
+`source/utility/abi_export.hpp`, chosen from the build mode rather than from a platform `#ifdef` at every
 declaration.
 
 ## Capabilities: abilities and extensions

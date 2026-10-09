@@ -15,7 +15,7 @@
     {
       "symbol": "_ZGIW5derenW6vulkanW4core",
       "left_in": "③-D/E step 2 (the merged runtime slice, abi 17)",
-      "reason": "initializer for module deren.vulkan.core. It was in this list as the one exception the import graph FORCED: the dynamic engine imported the backend module through two engine facades (vulkan/readback/readback.cppm and the legacy runtime's own declarations, the second of which this tree does not compile). The slice converted vulkan/readback to `rhi::api_core&` and dropped its import, so the initializer left the dynamic tree's measured set - the legacy runtime's file is the only importer left, and this tree does not build it. An exit, not a silence."
+      "reason": "initializer for module deren.vulkan.core. It was in this list as the one exception the import graph FORCED: the dynamic engine imported the backend module through two engine facades (source/backends/vulkan/readback/readback.cppm and the legacy runtime's own declarations, the second of which this tree does not compile). The slice converted source/backends/vulkan/readback to `rhi::api_core&` and dropped its import, so the initializer left the dynamic tree's measured set - the legacy runtime's file is the only importer left, and this tree does not build it. An exit, not a silence."
     },
     {
       "symbol": "deren_destroy_api_core",

@@ -24,7 +24,7 @@ The work rode on the `descriptor-heap-migration` branch while it was in flight, 
 3. **Every pipeline is created against `layout = VK_NULL_HANDLE`** - graphics through
    `core::pipeline`, compute and ray tracing through the builders in `pipelines.cppm`.
 4. **Every push travels as data.** `vkCmdPushConstants` appears **zero** times outside comments in
-   `vulkan/`: all 21 sites now go through `vkCmdPushDataEXT`. The frame's passes use
+   `source/backends/vulkan/`: all 21 sites now go through `vkCmdPushDataEXT`. The frame's passes use
    `resolved_io::push_block`; the primitive draws use `render_environment::push_block`; the mask bake,
    the skinning dispatch and the shadow cascade use endpoints of their own shape.
 5. **The frame binds the heaps once**, in `runtime::begin_recording`, and the per-frame and
@@ -38,7 +38,7 @@ The work rode on the `descriptor-heap-migration` branch while it was in flight, 
 
 ### (a) Descriptor binds - DONE
 
-`vkCmdBindDescriptorSets` now appears **zero** times in `vulkan/`. Every bind is gone: the scene pass's
+`vkCmdBindDescriptorSets` now appears **zero** times in `source/backends/vulkan/`. Every bind is gone: the scene pass's
 per-segment bind and the transparent pass's per-secondary one (each of which existed because a secondary
 inherits no state from its primary - the heap bind has the same property, and the runtime makes it when
 it records the buffer), plus the sets in `fxaa`, `gbuffer_debug`, `cluster`, `deferred`, `post` (both
@@ -85,7 +85,7 @@ entry - rather than its source.
 ### (c) The objects nothing points at any more - DONE
 
 They were created, written and read by no shader, and they have since been deleted: `core::scene_pipeline_layout` and
-`scene_descriptor_set_layout` (`vulkan/core/core.cpp:1536`, `:1412`), `core::create_descriptor_pool`
+`scene_descriptor_set_layout` (`source/backends/vulkan/core/core.cpp:1536`, `:1412`), `core::create_descriptor_pool`
 (`:1353`), `runtime::scene_sets`, `runtime::gbuffer_family`, `runtime::post_family`,
 `pipelines::make_post_set_layout` / `make_gbuffer_set_layout`, `bindings::make_set_layout` /
 `write_set` / `image_set_family`, the passes' `pipeline_layout_` / `set_layout_` members and their

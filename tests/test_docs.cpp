@@ -409,7 +409,7 @@ int32_t main() {
         // 5. the slot names the documents quote exist: the host grid and the shaders' constants are the
         //    two files that declare them (test_render_resources owns the comparison between those two)
         {
-            std::string const grid = read_text((root / "vulkan" / "render_layout" / "render_layout.cppm").string()) +
+            std::string const grid = read_text((root / "source" / "engine" / "render_layout" / "render_layout.cppm").string()) +
                                      read_text((root / "shaders" / "heap_slot_constants.glsl").string());
             std::set<std::string> const declared = slots_named_in(grid);
             for (std::string const& slot : slots_named_in(text)) {

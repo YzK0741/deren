@@ -7,7 +7,7 @@ import deren.promise.gui;
 
 import deren.utility.dynamic_link;
 
-#include "../promise/gui/gui_entry.hpp"
+#include "../source/promise/gui/gui_entry.hpp"
 
 static_assert(deren::gui::gui_abi_version == 2u, "GUI recording must use the RHI command buffer boundary");
 

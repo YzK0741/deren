@@ -5,11 +5,11 @@ WHY A SCRIPT AND NOT A GREP: the plan's first census reported `vkCmdPipelineBarr
 call sites while 52 real ones sat in the same files it scanned, and the two sweep numbers this effort
 is measured by are only comparable if the convention is fixed. The convention (plan section 9.1):
 
-  * engine files = runtime/** + vulkan/** MINUS vulkan/core/ (that directory is the BACKEND),
+  * engine files = source/engine/runtime/** + source/backends/vulkan/** MINUS source/backends/vulkan/core/ (that directory is the BACKEND),
     extensions .cppm / .cpp / .hpp;
   * a CALL SITE is a line that is not a comment and contains `vkCmd<Name>(` - comments are stripped,
     block comments included, because this repository's comments name these verbs constantly;
-  * the second number counts engine files that really `#include <vulkan/...>` (again: code, not a
+  * the second number counts engine files that really `#include <source/backends/vulkan/...>` (again: code, not a
     comment quoting one).
 
 Baseline at abi 20 before any pass migration (plan section 9.1): 140 call sites over 16 spellings,
@@ -22,7 +22,7 @@ import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-BACKEND_PREFIX = "vulkan/core/"
+BACKEND_PREFIX = "source/backends/vulkan/core/"
 EXTENSIONS = (".cppm", ".cpp", ".hpp")
 
 
@@ -34,7 +34,7 @@ def strip_comments(text: str) -> str:
 
 def engine_files():
     files = []
-    for base in ("runtime", "vulkan"):
+    for base in ("source/engine",):
         for root, _dirs, names in os.walk(os.path.join(ROOT, base)):
             for name in names:
                 if not name.endswith(EXTENSIONS):
@@ -43,7 +43,7 @@ def engine_files():
                 if rel.startswith(BACKEND_PREFIX):
                     continue
                 files.append(rel)
-    for extra in ("main.cpp", "chores.cppm"):
+    for extra in ("source/app/main.cpp", "source/app/chores.cppm"):
         if os.path.isfile(os.path.join(ROOT, extra)):
             files.append(extra)
     return sorted(files)
@@ -56,13 +56,13 @@ def census_recipes(files):
     `color_attachment_dependency` to order one pass's colour-attachment store before the next instance's
     LOAD. A `*_transition`-only scan cannot see it - which is exactly the miss this function fixes.
 
-    A RECIPE IS WHAT `vulkan/constant_init/constant_init.cppm` DECLARES it to be, and that is deliberate:
+    A RECIPE IS WHAT `source/backends/vulkan/constant_init/constant_init.cppm` DECLARES it to be, and that is deliberate:
     sites also name local `VkDependencyInfo` variables (`sampling_dependency`, `copy_dependency`, ...), so
     "any name ending in _dependency" would count locals as vocabulary and report a dozen phantom gaps. The
     defined set comes from the declaring file; a USE is a defined name appearing in an engine file.
     """
     definition_re = re.compile(r"\b(\w+_(?:transition|dependency))\s*=\s*\{")
-    declaring_file = "vulkan/constant_init/constant_init.cppm"
+    declaring_file = "source/backends/vulkan/constant_init/constant_init.cppm"
     result = {
         "transition": {"defined": set(), "used": set()},
         "dependency": {"defined": set(), "used": set()},
@@ -140,7 +140,7 @@ def print_role_histograms():
 
 def main() -> int:
     call_re = re.compile(r"\bvkCmd(\w+)\s*\(")
-    include_re = re.compile(r"#\s*include\s*<vulkan/")
+    include_re = re.compile(r"#\s*include\s*<source/backends/vulkan/")
     per_verb = collections.Counter()
     per_file = collections.Counter()
     with_vulkan_header = []

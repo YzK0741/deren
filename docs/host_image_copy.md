@@ -27,7 +27,7 @@ extension, without its `hostImageCopy` feature, whose entry points do not resolv
 more `VkImageToMemoryCopyEXT` regions, each with a host pointer, a subresource and an extent. The implementation
 performs the copy; the app records nothing, submits nothing and owns no staging memory. It is an EXTENSION command,
 so it is resolved with `vkGetDeviceProcAddr` and cached on `core` (`copy_image_to_memory`), the same way the mesh
-dispatch commands are (`vulkan/core/core.declarations.cppm`, `vulkan/core/core.constructor.cppm`).
+dispatch commands are (`source/backends/vulkan/core/core.declarations.cppm`, `source/backends/vulkan/core/core.constructor.cppm`).
 
 Two things it does NOT remove:
 
@@ -142,7 +142,7 @@ the pass that wrote the image yet, so it cannot derive the "from"; a missing pai
 barrier, and nothing can catch it for the caller. What can be checked is that the pair lands on the recipes this
 renderer already shipped, and that check is the SHADOW GATE (plan 8.3):
 
-- COMPILE TIME: `vulkan/core/core.api_core.cpp` derives each barrier from the pair and `static_assert`s equality
+- COMPILE TIME: `source/backends/vulkan/core/core.api_core.cpp` derives each barrier from the pair and `static_assert`s equality
   with `constant_init`'s `color_attachment_to_transfer_transition` / `transfer_to_color_attachment_transition` over
   all sixteen fields (stage/access masks, both layouts, both queue family indices, the image slot and the four
   subresource fields). A mismatch is a build failure.

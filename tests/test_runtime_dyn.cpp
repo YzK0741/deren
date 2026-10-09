@@ -42,7 +42,7 @@ import deren.engine.runtime;
 import deren.engine.backend_loader; // load_api_core(): the acquisition lives outside the runtime
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
-#include "../promise/rhi/backend_entry.hpp"
+#include "../source/promise/rhi/backend_entry.hpp"
 
 namespace {
     namespace rhi = deren::promise::rhi;

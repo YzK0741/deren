@@ -16,7 +16,7 @@
 //
 // A translation unit that includes this must `import deren.promise.rhi;` FIRST: the parameters name the
 // contract's types, and an import declaration cannot live in a header (the same rule
-// promise/rhi/backend_entry.hpp states).
+// source/promise/rhi/backend_entry.hpp states).
 // ============================================================================
 #pragma once
 

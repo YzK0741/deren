@@ -51,7 +51,7 @@ class BoundaryTests(unittest.TestCase):
     def write_synthetic_repo(self, engine_imports=()):
         """A tree the import check can read: CMake names deren_vulkan's module file, that file declares
         the module, and every name in `engine_imports` becomes an engine source importing it."""
-        core = self.root / "vulkan" / "core"
+        core = self.root / "source" / "backends" / "vulkan" / "core"
         core.mkdir(parents=True, exist_ok=True)
         (self.root / "CMakeLists.txt").write_text(
             "add_library(deren_vulkan STATIC)\n"
@@ -59,7 +59,7 @@ class BoundaryTests(unittest.TestCase):
             "    PUBLIC\n"
             "        FILE_SET CXX_MODULES\n"
             "        FILES\n"
-            "        vulkan/core/core.cppm\n"
+            "        source/backends/vulkan/core/core.cppm\n"
             ")\n", encoding="utf-8")
         (core / "core.cppm").write_text("export module deren.vulkan.core;\n", encoding="utf-8")
         for relative in engine_imports:
@@ -225,14 +225,14 @@ class BoundaryTests(unittest.TestCase):
         self.assertIn("whitelist", result.stdout)
 
     def test_flip_gate_rejects_an_engine_import_of_a_backend_module(self):
-        self.write_synthetic_repo(engine_imports=["vulkan/runtime/runtime.cppm"])
+        self.write_synthetic_repo(engine_imports=["source/engine/runtime/runtime.cppm"])
         app = self.make_application()
         result = self.run_gate("--require-zero", "--app-object", str(app))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("import deren.vulkan.core", result.stdout)
 
     def test_import_reading_is_reported_without_blocking_the_ratchet(self):
-        self.write_synthetic_repo(engine_imports=["vulkan/runtime/runtime.cppm"])
+        self.write_synthetic_repo(engine_imports=["source/engine/runtime/runtime.cppm"])
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("imports  engine/application: 1 site(s) in 1 file(s)", result.stdout)
@@ -240,11 +240,11 @@ class BoundaryTests(unittest.TestCase):
     def test_an_engine_file_that_is_not_a_backend_module_is_not_flagged(self):
         # `deren.engine.filters` is declared by ENGINE code (deren_engine owns filters.cppm), so a
         # name prefix must not put it in the backend's set: only CMake's target list may.
-        core = self.root / "vulkan" / "core" / "filter"
+        core = self.root / "source" / "engine" / "filters"
         core.mkdir(parents=True, exist_ok=True)
         (core / "filters.cppm").write_text("export module deren.engine.filters;\n", encoding="utf-8")
-        (self.root / "vulkan" / "runtime" / "runtime.cppm").parent.mkdir(parents=True, exist_ok=True)
-        (self.root / "vulkan" / "runtime" / "runtime.cppm").write_text("import deren.engine.filters;\n", encoding="utf-8")
+        (self.root / "source" / "engine" / "runtime" / "runtime.cppm").parent.mkdir(parents=True, exist_ok=True)
+        (self.root / "source" / "engine" / "runtime" / "runtime.cppm").write_text("import deren.engine.filters;\n", encoding="utf-8")
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("imports  engine/application: 0 site(s)", result.stdout)
@@ -336,7 +336,7 @@ class BoundaryTests(unittest.TestCase):
     # baseline+whitelist pair, and (3) PRINTS which configuration and which tree it measured, `--quiet`
     # included - a blind quiet run once read as a dynamic-tree measurement while measuring the legacy pair.
     #
-    # S5 DELETED THE LEGACY RUNTIME (`vulkan/runtime/`) AND ITS PAIR WITH IT: one configuration remains,
+    # S5 DELETED THE LEGACY RUNTIME (`source/engine/runtime/`) AND ITS PAIR WITH IT: one configuration remains,
     # and `--config legacy` is a NAMED refusal (argparse's choices) rather than a silent fallback to the
     # surviving pair - the failure mode the printed identification exists to prevent.
     def run_config_only(self, *args):
@@ -375,9 +375,9 @@ class BoundaryTests(unittest.TestCase):
         repository = Path(__file__).resolve().parents[1]
         scripts = repository / "scripts"
         self.assertFalse((scripts / "backend_boundary_whitelist.json").exists(),
-                         "the legacy whitelist was deleted with vulkan/runtime (S5)")
+                         "the legacy whitelist was deleted with source/backends/vulkan/runtime (S5)")
         self.assertFalse((scripts / "backend_boundary_baseline.mingw.json").exists(),
-                         "the legacy baseline was deleted with vulkan/runtime (S5)")
+                         "the legacy baseline was deleted with source/backends/vulkan/runtime (S5)")
         dynamic_whitelist = scripts / "backend_boundary_whitelist_dynamic.json"
         self.assertTrue(dynamic_whitelist.is_file())
         payload = json.loads(dynamic_whitelist.read_text(encoding="utf-8"))

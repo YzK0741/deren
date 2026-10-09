@@ -20,7 +20,7 @@
 //
 //   Q5 dependency closure  `load()` succeeds on an ABSOLUTE path, which on Windows uses
 //                          LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS
-//                          and therefore NEVER searches %PATH% (utility/dynamic_link.cppm:19-20).
+//                          and therefore NEVER searches %PATH% (source/utility/dynamic_link.cppm:19-20).
 //                          The real backend imports `vulkan-1.dll`, `libc++.dll`, USER32/GDI32
 //                          and the statically linked glfw's system libraries; the probe DLL
 //                          imported only KERNEL32/libc++/UCRT, so THIS is the new information.
@@ -71,7 +71,7 @@ import deren.promise.rhi;
 import deren.utility.dynamic_link;
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
-#include "../promise/rhi/backend_entry.hpp"
+#include "../source/promise/rhi/backend_entry.hpp"
 
 namespace {
 

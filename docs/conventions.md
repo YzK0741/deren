@@ -11,7 +11,7 @@ The tree has 56 modules. These keep a short spelling, and each one is a NAME rat
 
 | keeps | why |
 | --- | --- |
-| `deren.vstd` | the project's own STL module name - documented in `vstd/README.md`, imported by 34 files |
+| `deren.vstd` | the project's own STL module name - documented in `source/vstd/README.md`, imported by 34 files |
 | `deren.gltf_loader`, `deren.vulkan.core.pipeline:spirv_parser` | glTF and SPIR-V are **format** names |
 | `deren.vulkan.core:vma`, `deren.utility:better_pmr` | VMA and PMR are the library's and the standard's own terms (Vulkan Memory Allocator, polymorphic memory resource) |
 | `deren.vulkan.core:init_utils`, `deren.vulkan.init_utils`, `deren.vulkan.constant_init` | `init` was kept by request |
@@ -96,7 +96,7 @@ Three exceptions, each because somebody else's interface declares the type:
 
 The rule does NOT reach `float` / `double` (no fixed-width equivalent in `<cstdint>`) or a bare `char`,
 which is a CHARACTER type: only `unsigned char` / `signed char` are spelled `uint8_t` / `int8_t`.
-`third_party/` and `vstd/` are out of scope - vendored, and the libc++ mirror.
+`third_party/` and `source/vstd/` are out of scope - vendored, and the libc++ mirror.
 
 ## Portability
 

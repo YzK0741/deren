@@ -217,7 +217,7 @@ int32_t main() {
     // The names chores.cpp hands to load_shader/register_shader are the ones the runtime answers, so one that
     // no rule produces is a shader that is silently empty at startup - which is what a renamed output looks
     // like from the app's side.
-    for (std::string const& name : loaded_spv_names(root + "/chores.cpp")) {
+    for (std::string const& name : loaded_spv_names(root + "/source/app/chores.cpp")) {
         CHECK_MSG(outputs.contains(name), ("chores.cpp loads a .spv no VR_SLANG_SOURCES entry produces: " + name).c_str());
     }
 

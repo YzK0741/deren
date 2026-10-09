@@ -35,10 +35,10 @@ G-buffer cannot be multisampled, `docs/mainpage.md:65`), and every deforming mes
 its reprojection assumption at every frame. TAA's neighbourhood clamp (`shaders/taa.frag:112-125,148`)
 absorbs part of the residual; what is left is the ghost.
 
-Nothing stores the missing half today. `motion_previous` (`vulkan/runtime/runtime.declarations.cppm:243`)
+Nothing stores the missing half today. `motion_previous` (`source/engine/runtime/runtime.declarations.cppm:243`)
 holds world matrices only, and the only deformation state that exists is the **current** frame's, one
 buffer per frame slot (`skin_buffers` / `morph_buffers`, `MAX_FRAMES_IN_FLIGHT = 2`,
-`vulkan/core/core.declarations.cppm:607`). A grep for previous-frame state across `vulkan/runtime/`
+`source/backends/vulkan/core/core.declarations.cppm:607`). A grep for previous-frame state across `source/engine/runtime/`
 returns `prev_view_proj` and nothing else.
 
 ## 2. The model
@@ -53,23 +53,23 @@ addressing is worth stating plainly, because it is the first thing a reviewer wi
 buffer holding the block that was current one frame ago is reachable as
 `heap_slots_skin_matrices_previous + heap_frame_slot` - and that is exactly how the rigid half already
 reaches its own past. `advance_motion_transforms()` publishes the one-frame-ago state **into the current
-frame slot's** buffer (`vulkan/runtime/runtime.frames.cppm:224,240`) rather than leaving it in the other
+frame slot's** buffer (`source/engine/runtime/runtime.frames.cppm:224,240`) rather than leaving it in the other
 slot, which is why `heap_previous_slot` needs no lane (`shaders/heap_slots.glsl:122`), and
 `advance_motion_deformations()` does the same by construction (decision 2). The alternative - leave the
 previous data sitting in the other frame slot and address it with a host-resolved `1 - frame_slot` through
-the existing `extra_lane` mechanism (`vulkan/runtime/runtime.cpp:869-871`) - is refused: it would make the
+the existing `extra_lane` mechanism (`source/engine/runtime/runtime.cpp:869-871`) - is refused: it would make the
 deformation half address its own past differently from the rigid half, for no gain.
 
 The push budget is why this matters, and it was measured rather than assumed: the scene / G-buffer leaf
 push occupies **108 of `pass::max_push_bytes = 128`** - the 96-byte `material_push_constants`
-(`scene_push_constant_size`, `vulkan/core/core.declarations.cppm:87`, held to it by the `static_assert` at
-`vulkan/primitive/primitive.cppm:488`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
-(`runtime.cpp:849`); the limit is at `vulkan/pass/pass.cppm:184` and the validator refuses anything past it
-(`vulkan/render_resource/render_resource.cppm:719-721`). **20 bytes stay free**, and only the morph half
+(`scene_push_constant_size`, `source/backends/vulkan/core/core.declarations.cppm:87`, held to it by the `static_assert` at
+`source/engine/primitive/primitive.cppm:488`) plus three 4-byte lanes `{frame_slot, image_index, extra_lane}`
+(`runtime.cpp:849`); the limit is at `source/engine/pass/pass.cppm:184` and the validator refuses anything past it
+(`source/engine/render_resource/render_resource.cppm:719-721`). **20 bytes stay free**, and only the morph half
 needs one of them.
 
 **2. The publication is the runtime's, once per frame, in the same place as the rigid publication.**
-`runtime::advance_motion_transforms()` (`vulkan/runtime/runtime.frames.cppm:220-244`, called at `:335`)
+`runtime::advance_motion_transforms()` (`source/engine/runtime/runtime.frames.cppm:220-244`, called at `:335`)
 already does exactly this for world matrices: it copies the CPU-side one-frame-ago state into the current
 frame slot's GPU buffer (`:240`), then refreshes the CPU copy from the frame's live state (`:241`). The
 deformation version is `advance_motion_deformations()`, called immediately after it - same slot
@@ -78,7 +78,7 @@ role in it, so no controller path can desync the two halves.
 
 **3. Only the WEIGHTS of a morph block are previous-frame state; the deltas are static, and the previous
 weights live INSIDE the block.** The morph scratch is `[per vertex per target: dpos(3) dnrm(3)][weights]`
-(the MorphData note in `shaders/pbr.vert`, baked at `vulkan/animation/controller.cppm:564-593`) and only
+(the MorphData note in `shaders/pbr.vert`, baked at `source/engine/animation/controller.cppm:564-593`) and only
 the trailing weight region is rewritten per frame (`controller.cpp:245-256`). The previous-frame morph
 data is therefore **weights only**, stored as a SECOND weight region of the same block:
 `[deltas][weights: targets][previous weights: targets]` - 2 * target_count floats (292 for
@@ -117,7 +117,7 @@ scope, stated.
   needs a pose, not a motion.
 * **`compute_skin.comp`** (the `rt_skin_bake` re-skin, `:44,53,103-110`). Same reason, and the new
   previous-frame buffers must not be touched by it.
-* **`shadow_geometry_signature`** (`vulkan/runtime/runtime.frames.cppm:516-526`). It folds
+* **`shadow_geometry_signature`** (`source/engine/runtime/runtime.frames.cppm:516-526`). It folds
   `skin_matrix_hash` and `morph_revision`, and it must keep folding exactly those: the new buffers never
   affect a shadow, so they must not enter the fingerprint.
 * **Per-swapchain-image deformation history** (section 2, decision 3).
@@ -165,7 +165,7 @@ Acceptance for (b): the model loads, plays, and the **pre-change** binary render
 baseline - a static camera, a deforming mesh, `[render] gbuffer_debug = true` +
 `gbuffer_channel = 8`, and the deforming region reads flat olive. The channel is
 `motion * motion_gain + 0.5` with `motion_gain = width * 0.25` (`shaders/gbuffer_debug.frag:108-115`,
-`vulkan/pass/geometry_buffer_debug.cpp:134`), i.e. **"+0.5 bias means 'did not move' reads as flat
+`source/engine/pass/geometry_buffer_debug.cpp:134`), i.e. **"+0.5 bias means 'did not move' reads as flat
 olive"** - and today that is what a deforming mesh reports.
 
 ### Step 1 - the skins
@@ -173,9 +173,9 @@ olive"** - and today that is what a deforming mesh reports.
 The half that needs no push-block change, and it covers the assets that skin rather than morph.
 
 * **the heap family**: `heap_slots_skin_matrices_previous`, 2 slots (per-frame families span 2 slots,
-  `MAX_FRAMES_IN_FLIGHT = 2` at `vulkan/core/core.declarations.cppm:607`), declared in **both**
+  `MAX_FRAMES_IN_FLIGHT = 2` at `source/backends/vulkan/core/core.declarations.cppm:607`), declared in **both**
   `shaders/heap_slots.glsl` (beside `:56`) and the `struct heap_slots` in
-  `vulkan/core/core.declarations.cppm` (beside `:543`), plus a `heap_skin_previous_slot` macro beside
+  `source/backends/vulkan/core/core.declarations.cppm` (beside `:543`), plus a `heap_skin_previous_slot` macro beside
   `shaders/heap_slots.glsl:123`. The grid is `heap_slot_base = 16384`, `heap_slot_stride = 64`,
   `heap_slot_count = 1024` (`core.declarations.cppm:496,513-514`; `core.constructor.cppm:97-110` reserves
   it), the used span is 743 slots, so the free tail is 743..1023 - the two new families belong there
@@ -202,7 +202,7 @@ The half that needs no push-block change, and it covers the assets that skin rat
   writes into every slot at setup (`controller.cppm:413,492-495`), so a vertex with no history reads the
   bind pose. The one frame that could be wrong is covered by TAA's own first-frame rule: `history_valid = 0`
   makes the resolve return the current frame exactly (`shaders/taa.frag:152-153`,
-  `vulkan/pass/taa.cpp:71,175`).
+  `source/engine/pass/taa.cpp:71,175`).
 * **the shader**: in the skin branch (`shaders/pbr.vert:128-141`), run the same joint sum a second time
   against the previous-slot buffer to get `prev_local_pos`, and use it at `:154`. `push.skin_base` (`:75`)
   is unchanged, and so is the frame-slot lane the block already carries - the base index and the slot are

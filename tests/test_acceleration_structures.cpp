@@ -47,7 +47,7 @@ import deren.engine.backend_loader;         // load_api_core(): the acquisition 
 import deren.engine.acceleration_structure; // the module S1 migrates (bottom_level_structures / top_level_structure)
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
-#include "../promise/rhi/backend_entry.hpp"
+#include "../source/promise/rhi/backend_entry.hpp"
 #include "rt_traversal_probe.hpp"
 
 namespace {

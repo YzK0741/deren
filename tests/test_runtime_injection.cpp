@@ -16,7 +16,7 @@
 // and that is what a probe root can exercise end to end. Everything AFTER it legitimately needs a real
 // device - the construction asks the escape for the presentation format and derives the graphics queue's
 // FAMILY by walking the device's families and comparing `vkGetDeviceQueue()` against the escape's own
-// queue handle (runtime/runtime.cpp) - so a device-less probe cannot carry the constructor to
+// queue handle (source/engine/runtime/runtime.cpp) - so a device-less probe cannot carry the constructor to
 // completion, and this test does not pretend otherwise. What it does instead is OBSERVE THE LINE BETWEEN
 // THE TWO: with a probe whose version AGREES, the constructor gets PAST the handshake and dies later at
 // the device facts; with one whose version lies, it dies AT the handshake. The child processes below

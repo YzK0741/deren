@@ -420,7 +420,7 @@ in the tree and gate-green; per-meshlet backface culling was implemented twice, 
 (see the negative result below); the task stage the objective names as the pre-culling mechanism is blocked by a
 compiler bug (see the blocker note at the top) and turned out not to be needed for the culling itself.
 
-`vulkan/meshlet/meshlet.cppm` is a pure-CPU module that cuts one draw window into meshlets: runs of at most
+`source/engine/meshlet/meshlet.cppm` is a pure-CPU module that cuts one draw window into meshlets: runs of at most
 `meshlet_max_triangles` (85, the mesh stage's output budget from section 2) triangles in index order, each with an
 object-space bounding sphere over the axis-aligned box of the vertices it touches. `runtime::create_primitive`
 builds them at upload - where the geometry bytes and the layout are still in hand - appends them to the GPU table,

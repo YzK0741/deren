@@ -33,7 +33,7 @@ undefined reference to `std::__write_to_terminal(void*, std::span<char, ...>)'
 ```
 
 `nm --defined-only libstdc++.a` finds no definition of either, and `bits/print.h`'s `vprint_unicode` is what
-references them. The tree therefore uses **`deren::utility::print` / `deren::utility::println`** (`utility/utility.cppm`),
+references them. The tree therefore uses **`deren::utility::print` / `deren::utility::println`** (`source/utility/utility.cppm`),
 which are `std::print`'s semantics with the project owning them: `std::format_string` parameters, so the format
 string is still checked at compile time, one `std::fwrite`, no flush, and `std::format` taken from `deren.vstd`.
 
@@ -57,7 +57,7 @@ define it, which is why the clang64 build never saw this.
 
 ### A `std::unique_ptr` over a forward-declared type needs no in-class initializer
 
-`vulkan/acceleration_structure/acceleration_structure.cppm` holds two `std::unique_ptr<entry_points>` whose
+`source/engine/acceleration_structure/acceleration_structure.cppm` holds two `std::unique_ptr<entry_points>` whose
 type is only forward-declared there (the definition is in the .cpp), which is the ordinary pImpl shape. Both had
 `= {}`, and **libstdc++ instantiates `~unique_ptr<entry_points>` at that default member initializer itself**,
 stopping on `default_delete`'s `static_assert(sizeof(_Tp)>0)`; libc++ does not. Declaring the destructor out of

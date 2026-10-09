@@ -23,11 +23,11 @@ still-open decision. `ENABLE_VULKAN_RENDERDOC_CAPTURE` is RenderDoc's own variab
 
 One contract, and every graphics backend is an implementation of it.
 
-- **The contract** is the module `deren.promise.rhi` (`promise/rhi/`): the `api_core` virtual
+- **The contract** is the module `deren.promise.rhi` (`source/promise/rhi/`): the `api_core` virtual
   surface - create and destroy objects, record commands, walk frames, report abilities - plus the
   creation parameters (`create_info`). Both sides of the boundary compile the SAME interface unit, so
   the two compilations cannot drift.
-- **The C ABI is one symbol.** `promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
+- **The C ABI is one symbol.** `source/promise/rhi/backend_entry.hpp` declares the single `extern "C"` entry
   the host resolves, `deren_make_api_core`. Its first argument is `rhi::abi_version`, so a mismatched
   backend is refused BEFORE an object exists, with the backend's own number in the returned error; it
   returns an owning `std::shared_ptr<api_core>`, so there is no second destroy entry.
@@ -145,7 +145,7 @@ Most modules are independent building blocks that meet only through narrow inter
 you are free to recombine or rewire them.
 
 - `deren.vstd` - the project's STL module (modified from libc++ and trimmed to the project's
-  usage; consumed as `import deren.vstd;`, module version 0.1.0a - see `vstd/README.md`)
+  usage; consumed as `import deren.vstd;`, module version 0.1.0a - see `source/vstd/README.md`)
 - `deren.vulkan.core` - instance / device / swapchain / VMA allocator / pipeline / descriptor
   plumbing
 - `deren.engine.scene_tree` - pure-CPU scene storage (transform hierarchy of scene_node objects

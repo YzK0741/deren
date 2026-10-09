@@ -13,7 +13,7 @@
 // by the linker) and the DLL half is only ever opened at run time (the shared branch). Both halves
 // are then driven through the SAME function, `check_core_contract()`, because "the two answer the
 // same" is the whole point of the export keywords - and the C ABI is declared once, in
-// promise/rhi/backend_entry.hpp, rather than again here.
+// source/promise/rhi/backend_entry.hpp, rather than again here.
 #include "vk_test.h"
 
 #include <cstddef>
@@ -30,7 +30,7 @@ import deren.promise.rhi;
 import deren.utility.dynamic_link;
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
-#include "../promise/rhi/backend_entry.hpp"
+#include "../source/promise/rhi/backend_entry.hpp"
 
 namespace {
 
@@ -90,7 +90,7 @@ namespace {
 
     // abi 18: the entry RETURNS the owning handle, so there is no second function to resolve and no
     // deleter name to look up - the contract's own typedef is used so this test cannot drift from the
-    // header it is testing (promise/rhi/backend_entry.hpp).
+    // header it is testing (source/promise/rhi/backend_entry.hpp).
     using make_core_fn = deren_make_api_core_fn;
 
     /** @brief a resolved C symbol: void const* to function pointer, constness dropped on purpose */
@@ -407,7 +407,7 @@ namespace {
             CHECK(buffer->size() == 64u);
             if (address_ability != nullptr) {
                 // -fno-rtti: the caller knows what it asked for, so the downcast is a static_cast
-                // and not a dynamic_cast (promise/rhi/rhi.extension.cppm says the same).
+                // and not a dynamic_cast (source/promise/rhi/rhi.extension.cppm says the same).
                 auto* const address = static_cast<rhi::device_address*>(address_ability);
                 // The answer depends on the size the descriptor carried, so this is a real round
                 // trip: the descriptor went in, the virtual call came back out, and the arithmetic
@@ -781,7 +781,7 @@ namespace {
     void test_the_static_half_behaves_the_same() {
         // No library is involved here: abi_export.hpp's static branch produces ordinary C symbols,
         // and the same contract is reached through the linker. `deren_make_api_core` is the
-        // declaration from promise/rhi/backend_entry.hpp - this test does not spell the C ABI out by
+        // declaration from source/promise/rhi/backend_entry.hpp - this test does not spell the C ABI out by
         // hand, so a drift between the header and the backend is a compile/link error.
         check_core_contract(&deren_make_api_core, "static");
     }

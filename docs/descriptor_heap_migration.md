@@ -109,7 +109,7 @@ are retired to `shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST 
 stages this build compiles are Slang leaves - `docs/slang_migration.md` and `docs/shaders.md` record them.
 So the table below is a RECORD of what each retired file declared (a reader can still check each row against
 the archived source), not a description of any file's current contents: the host keeps the same resources under
-the same classic binding numbers in `vulkan/core/core.declarations.cppm`, and every shader now reads them as
+the same classic binding numbers in `source/backends/vulkan/core/core.declarations.cppm`, and every shader now reads them as
 `heap_slots_textures`-style array entries instead of declaring a binding at all.
 
 | file (retired) | the bindings it declared | where they live now |
@@ -184,7 +184,7 @@ the TLAS has BECAUSE it is rebuilt every frame.
 
 THE SIZE IS COMPUTED IN THE RAY-TRACING MODULE, NOT THE ACCELERATION-STRUCTURE ONE - and that correction cost a
 build, so it is written down: the TLAS this renderer uses is built by **`ray_tracing::structure_set`**
-(`vulkan/ray_tracing/ray_tracing.cppm`, `build()`/`update()` in `ray_tracing.cpp`), whose public surface today is
+(`source/engine/ray_tracing/ray_tracing.cppm`, `build()`/`update()` in `ray_tracing.cpp`), whose public surface today is
 `handle(frame_slot)`, `instance_table(frame_slot)`, `casters()`, `attempted()`, `ready()`. The
 `acceleration_structure` module's `top_level_structure` also creates a top level structure with
 `create.size = sizes.accelerationStructureSize`, and that is the module the first version of this note pointed at;
@@ -321,29 +321,29 @@ change per site:
 
 | file | lines |
 | --- | --- |
-| `vulkan/runtime/runtime.cpp` | 2299 (the shadow cascade index) |
-| `vulkan/primitive/primitive.cpp` | 26, 78, 116 |
-| `vulkan/pass/mask_bake.cpp` | 128 |
-| `vulkan/pass/compute_skin.cpp` | 143 |
-| `vulkan/pass/fxaa.cpp` | 175 |
-| `vulkan/pass/geometry_buffer_debug.cpp` | 158 |
-| `vulkan/pass/deferred.cpp` | 173 |
-| `vulkan/pass/ray_traced_shadow.cpp` | 204 |
-| `vulkan/pass/megalights_trace.cpp` | 152 |
-| `vulkan/pass/megalights_temporal.cpp` | 217 |
-| `vulkan/pass/post.cpp` | 244, 356 |
-| `vulkan/pass/taa.cpp` | 237 |
+| `source/engine/runtime/runtime.cpp` | 2299 (the shadow cascade index) |
+| `source/engine/primitive/primitive.cpp` | 26, 78, 116 |
+| `source/engine/pass/mask_bake.cpp` | 128 |
+| `source/engine/pass/compute_skin.cpp` | 143 |
+| `source/engine/pass/fxaa.cpp` | 175 |
+| `source/engine/pass/geometry_buffer_debug.cpp` | 158 |
+| `source/engine/pass/deferred.cpp` | 173 |
+| `source/engine/pass/ray_traced_shadow.cpp` | 204 |
+| `source/engine/pass/megalights_trace.cpp` | 152 |
+| `source/engine/pass/megalights_temporal.cpp` | 217 |
+| `source/engine/pass/post.cpp` | 244, 356 |
+| `source/engine/pass/taa.cpp` | 237 |
 
 **Pipeline layouts that must become null, with the heap flag replacing them (13).**
-`vulkan/pipelines/pipelines.cppm` creates one per builder (lines 240, 337, 378, 417, 462, 640, 737, 810, 960,
-1001, 1070); `vulkan/core/core.cpp` creates the shared `scene_pipeline_layout` (1542) - which is RETAINED but
+`source/engine/pipelines/pipelines.cppm` creates one per builder (lines 240, 337, 378, 417, 462, 640, 737, 810, 960,
+1001, 1070); `source/backends/vulkan/core/core.cpp` creates the shared `scene_pipeline_layout` (1542) - which is RETAINED but
 never handed to a converted pipeline, because a set layout is still what the not-yet-converted passes name; and
 the compute pipelines are created at lines 437, 482, 674, 709 (the probe, already flagged), 757, 980, plus the
 ray-tracing one at ~907.
 
-**Graphics pipelines.** `vulkan/core/pipeline/pipeline.cpp:206` is the single `vkCreateGraphicsPipelines` in the
+**Graphics pipelines.** `source/backends/vulkan/core/pipeline/pipeline.cpp:206` is the single `vkCreateGraphicsPipelines` in the
 renderer (the `make_pipeline` in `core.pipeline`, which the G-buffer, post and debug passes all go through), and
-`vulkan/core/core.cpp`'s G-buffer builder is the other one - so "every graphics pipeline" is really two
+`source/backends/vulkan/core/core.cpp`'s G-buffer builder is the other one - so "every graphics pipeline" is really two
 functions plus whatever `make_pipeline`'s callers pass.
 
 **Shaders (24 stages).** The inventory table above lists the bindings the retired GLSL sources declared; each

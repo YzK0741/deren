@@ -363,7 +363,7 @@ namespace {
         // IT LIVES HERE rather than in a test of its own because it is a contract between the host's sidecar
         // LANE bake and the stage that reads that lane, which is what this test is about - and because a test
         // target of its own would have to be mirrored into VR_TEST_TARGETS, the workflow and the docs.
-        std::ifstream host_file{VR_TEST_SOURCE_DIR "/main.cpp"};
+        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/shaders/character_forward.slang"};
         CHECK(host_file.good());
         CHECK(shader_file.good());
@@ -409,7 +409,7 @@ namespace {
         // fail, it reads ANOTHER MATERIAL's colour, one material away per lane of drift. The host's number is an
         // enum (`deren::engine::toon_colour_lane::count`) rather than a float, so the check is on the two SPELLINGS, the
         // way the ramp's `0.5` is checked above: the shader's constant and the enum's last line.
-        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
         CHECK(primitive_file.good());
         if (primitive_file.good()) {
             std::string const primitive{std::istreambuf_iterator<char>{primitive_file}, std::istreambuf_iterator<char>{}};
@@ -540,9 +540,9 @@ namespace {
     /// lookup's fallback in the application.
     void test_the_two_asset_scalar_lanes_hold_on_both_sides() {
         std::ifstream shader_file{VR_TEST_SOURCE_DIR "/shaders/character_forward.slang"};
-        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
-        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/runtime/runtime.constructor.cppm"};
-        std::ifstream host_file{VR_TEST_SOURCE_DIR "/main.cpp"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
+        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
+        std::ifstream host_file{VR_TEST_SOURCE_DIR "/source/app/main.cpp"};
         CHECK(shader_file.good());
         CHECK(primitive_file.good());
         CHECK(runtime_file.good());
@@ -655,7 +655,7 @@ namespace {
         // (c) THE ASSET-SIDE SPELLING, which is what the host asks the loader for: the claimed table names the
         // rows the shader's lanes carry. A rename on either side is a material that silently keeps the value it
         // had before the lane existed - the state before this lane - so the spellings are pinned together.
-        std::ifstream loader_file{VR_TEST_SOURCE_DIR "/gltf_loader/gltf_loader.cppm"};
+        std::ifstream loader_file{VR_TEST_SOURCE_DIR "/source/gltf_loader/gltf_loader.cppm"};
         CHECK(loader_file.good());
         if (loader_file.good()) {
             std::string const loader = slurp(loader_file);
@@ -685,9 +685,9 @@ namespace {
     /// `M_actor_chen_hair_01` stating `_Specular = 0.0`, registered one node earlier than the hair, made the
     /// hair render BYTE-FOR-BYTE like an asset whose hair states 0.0 - the hair's own 1.0 discarded.
     void test_the_material_dedup_key_carries_the_colour_lanes() {
-        std::ifstream declarations_file{VR_TEST_SOURCE_DIR "/runtime/runtime.declarations.cppm"};
-        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/runtime/runtime.constructor.cppm"};
-        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
+        std::ifstream declarations_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.declarations.cppm"};
+        std::ifstream runtime_file{VR_TEST_SOURCE_DIR "/source/engine/runtime/runtime.constructor.cppm"};
+        std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/source/engine/primitive/primitive.cppm"};
         CHECK(declarations_file.good());
         CHECK(runtime_file.good());
         CHECK(primitive_file.good());

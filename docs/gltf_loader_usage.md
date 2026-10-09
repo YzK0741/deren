@@ -4,7 +4,7 @@
 > Backend: [fastgltf](https://github.com/spnda/fastgltf) (vendored under `third_party/fastgltf`, compiled from source into a `fastgltf_vendored` static target together with simdjson), textures decoded with stb_image.
 
 - Language standard: C++23 (C++20 module)
-- Public interface: `gltf_loader/gltf_loader.cppm` (`import deren.gltf_loader;`)
+- Public interface: `source/gltf_loader/gltf_loader.cppm` (`import deren.gltf_loader;`)
 - Built as: the `deren_assets` target - one DLL (`deren_assets.dll`) carrying this module, the
   toon-material sidecar and the vendored fastgltf/simdjson/stb code. A host links the target and the
   Windows loader brings the image in before `main`, so the loader code is not compiled into the host.
@@ -214,7 +214,7 @@ if (prim.material_index < model.materials.size()) {
 
 ## 6. Integration with Vulkan Rendering
 
-`vulkan/model`'s `draw()` currently hardcodes `VK_INDEX_TYPE_UINT32`, while the loader preserves the original index type, so a conversion is needed before upload:
+`source/backends/vulkan/model`'s `draw()` currently hardcodes `VK_INDEX_TYPE_UINT32`, while the loader preserves the original index type, so a conversion is needed before upload:
 
 ```cpp
 std::vector<uint32_t> indices32;

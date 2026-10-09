@@ -661,7 +661,7 @@ int32_t main() {
         std::map<std::string, uint64_t> host_slots; // the members of core::heap_slots
         std::size_t parsed_declarations = 0;        // the tooth on the braced-initializer skip (see below)
         bool in_slots = false;
-        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/vulkan/render_layout/render_layout.cppm")) {
+        for (std::string const& line : read_lines(std::string(VR_TEST_SOURCE_DIR) + "/source/engine/render_layout/render_layout.cppm")) {
             if (line.find("struct heap_slots {") != std::string::npos) {
                 in_slots = true;
                 continue;
@@ -770,13 +770,13 @@ int32_t main() {
         // be forgotten, and it is STRICTER - it sees files the list never had.
         std::string host_text;
         // THE RENDERER'S SOURCES LIVE IN TWO DIRECTORIES SINCE S5, and both are walked for the reason this
-        // loop replaced the hand-kept file list in the first place: `vulkan/` holds the backend and the
-        // engine modules around it, and `runtime/` at the repository root holds the runtime - which moved
-        // out of `vulkan/` in S1, while the copy left behind inside `vulkan/runtime/` was still the file
+        // loop replaced the hand-kept file list in the first place: `source/backends/vulkan/` holds the backend and the
+        // engine modules around it, and `source/engine/runtime/` at the repository root holds the runtime - which moved
+        // out of `source/backends/vulkan/` in S1, while the copy left behind inside `source/engine/runtime/` was still the file
         // this walk found. S5 deleted that copy, so the walk must name the runtime's real home or the
         // needles below would be looked for in a directory that no longer holds them.
-        std::array<std::string, 2> const source_roots = {std::string(VR_TEST_SOURCE_DIR) + "/vulkan",
-                                                         std::string(VR_TEST_SOURCE_DIR) + "/runtime"};
+        std::array<std::string, 2> const source_roots = {std::string(VR_TEST_SOURCE_DIR) + "/source/backends/vulkan",
+                                                         std::string(VR_TEST_SOURCE_DIR) + "/source/engine"};
         for (std::string const& root : source_roots) {
             for (auto const& entry : std::filesystem::recursive_directory_iterator(root)) {
                 if (!entry.is_regular_file()) {
