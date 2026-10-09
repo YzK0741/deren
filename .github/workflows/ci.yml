@@ -320,8 +320,19 @@ jobs:
         #     flag rather than a bug). It is off by default on this platform anyway.
         #   - `abort_on_error` stays 0, so a finding produces a non-zero exit code from the test
         #     binary (which is what ctest reads) rather than a crash dump.
+        #
+        # ONE TEST IS DELIBERATELY NOT RUN HERE, AND IT IS NOT A COVERAGE CONCESSION: the gate's third
+        # check reads the EXECUTABLE's import table (P-Import), and this job builds test targets only -
+        # by design, "the binary is never run here, so compiling and linking it under the sanitizers
+        # would cost minutes to produce an artifact nobody executes". There is therefore no deren.exe in
+        # this tree to read, and the gate says exactly that instead of reporting a boundary finding
+        # (measured, run 37897477982: "imports: ...build-asan\deren.exe does not exist (build first, or
+        # pass --exe)"). The Release job builds that executable and runs the same gate unfiltered, which
+        # is where the finding it exists to catch would come from; this job's value is the other half,
+        # the memory errors in the loader / utility / config paths, which is why it keeps running the
+        # other nineteen tests.
         env:
           ASAN_OPTIONS: halt_on_error=1
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
-        run: ctest --test-dir build-asan --output-on-failure
+        run: ctest --test-dir build-asan --output-on-failure -E test_native_boundary_zero
 
