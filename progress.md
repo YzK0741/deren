@@ -1,7 +1,7 @@
 # progress.md — 原生句柄退出（图形 API 走 RHI）进展
 
 > 更新日期：2026-10-09（继续接手 X5）。
-> **最新核验：X5 已修复接手 WIP，并完成索引、无用头文件和 RT 回调迁移。完整构建、CTest 19/19、冻结渲染 14/14、严格 RT 与格式检查通过；原生词汇剩 4 个引擎文件，Vulkan 符号与图形 API 导入均为 0。X5 尚未全部完成。**
+> **最新核验：X5 已修复接手 WIP，并完成索引、无用头文件和 RT 回调迁移。完整构建、CTest 19/19、冻结渲染 14/14、严格 RT 与格式检查通过；原生词汇剩 2 个引擎文件，Vulkan 符号与图形 API 导入均为 0。X5 尚未全部完成。**
 > 计划与验收定义在 [`docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md`](docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md)，逐批的详细记录在 [`docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md`](docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md)。
 
 
@@ -55,6 +55,12 @@ MASK 与蒙皮回调直接传递 `rhi::command_buffer&`，运行时核对本帧�
 GUI 边界类型移入唯一命名模块 deren.promise.gui，创建参数只传借用的 RHI 根与平台窗口，录制直接传 RHI 命令缓冲。GUI 插件内部核对 ABI、API、能力与命令归属，再取得原生对象。GUI ABI 升为 2，RHI ABI 保持 27；旧原生字段与 void* 录制入口删除。
 
 完整构建、CTest **19/19**、GUI 探针 **9/0**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过。独立只读审查未发现阻塞问题。日志前缀 `x5-gui-contract-*`。下一批清理运行时闲置原生接口和录制参数，随后补交换链格式契约及可移植性证明。最新短期额度剩 **38%**；剩 **5%** 停止汇报。
+
+### X5 第八批：运行时录制完全使用契约
+
+删除闲置设备/队列/图像 buffer 句柄查询、未读的原生深度格式缓存及二级任务闲置原生字段。场景、透明、post 与 prepare_stage 删除仅为旧调用形状保留的原生命令参数；帧起止检查契约命令对象，截图不再查询原生对象。begin_rendering 使用语义 bool，AS 空指针判断直接用 nullptr。frames/runtime.cpp 的 Vulkan 头删除。
+
+完整构建、CTest **19/19**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过。原生词汇文件 **4 → 2**；符号/导入均 **0**。日志前缀 `x5-runtime-contract-*`。剩余仅构造/声明的交换链格式与纹理格式表，接着补格式契约。
 
 ---
 

@@ -12,7 +12,6 @@ module;
 #include <span>            // the byte spans the contract's buffer descriptors and the push endpoints take
 #include <thread>          // std::this_thread::yield in the frame limiter
 #include <vector>          // the queue-family list the graphics-queue derivation walks
-#include <vulkan/vulkan.h>
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): `create_info`, `api_type` and `overlay` live in a header the plugin
 // and the host share. In the GLOBAL MODULE FRAGMENT because the header declares `GLFWwindow` itself and pulls
@@ -100,7 +99,7 @@ namespace deren::vulkan {
         }
     }
 
-    void runtime::begin_rendering(VkCommandBuffer const command_buffer, uint32_t const image_index, VkRenderingFlags const flags) const {
+    void runtime::begin_rendering(uint32_t const image_index, bool const secondary_contents) const {
         // Dynamic rendering (Vulkan 1.3 core, the only path the engine supports): attachments are
         // described inline, no render pass / framebuffer objects exist. The scene instance is always
         // the G-buffer pass: the opaque pass writes the surface instead of shading it, into three
@@ -112,7 +111,6 @@ namespace deren::vulkan {
         // CONTRACT views the engine owns, the load/store/clear roles are what the raw helpers spelled,
         // and the matching close is `command_buffer->end_rendering()` in the caller
         // (`record_scene`'s empty-instance path); the native parameter is kept for the call shape.
-        static_cast<void>(command_buffer);
         rhi::command_buffer* const frame_commands = this->frame_command_buffer().get();
         if (frame_commands == nullptr) {
             return; // no frame is in flight: there is no recording buffer to open an instance on
@@ -161,7 +159,7 @@ namespace deren::vulkan {
                 .colors = gbuffer_attachments,
                 .depth = depth_attachment,
                 .has_depth = true,
-                .secondary_contents = (flags & VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT) != 0, // the one flag bit the raw call passed
+                .secondary_contents = secondary_contents, // the one flag bit the raw call passed
             };
             (void)frame_commands->begin_rendering(rendering_info);
             return;
@@ -197,7 +195,7 @@ namespace deren::vulkan {
             .colors = colors,
             .depth = depth_attachment,
             .has_depth = true,
-            .secondary_contents = (flags & VK_RENDERING_CONTENTS_SECONDARY_COMMAND_BUFFERS_BIT) != 0,
+            .secondary_contents = secondary_contents,
         };
         (void)frame_commands->begin_rendering(rendering_info);
     }
@@ -935,7 +933,7 @@ namespace deren::vulkan {
             // would drop it. See `character_forward_pass::record`, which makes the same test from its side.
             .character_forward_pending = this->character_forward_on && (!this->frame_visible.empty() || !this->frame_overlay.empty()),
             .gbuffer_pipeline = this->gbuffer_pipeline_mesh.has_value() || this->gbuffer_pipeline_meshlet.has_value(),
-            .structures_ready = this->structures.ready() && this->structures.handle(this->frame_ring().position()) != VK_NULL_HANDLE,
+            .structures_ready = this->structures.ready() && this->structures.handle(this->frame_ring().position()) != nullptr,
             .furnace = this->furnace,
             .punctual_lights = this->light_state.light_count.x,
         };
@@ -1090,7 +1088,7 @@ namespace deren::vulkan {
         if (enabled && !(this->mesh_pipelines.contains(character_forward_pipeline_name) || this->meshlet_pipelines.contains(character_forward_pipeline_name))) {
             // The knob is on but there is no pipeline to draw with: say why rather than leaving a frame that
             // silently keeps the deferred shading (the same answer `warn_missing_feature` gives elsewhere).
-            this->warn_missing_feature("character_forward", "the toon character stage has no effect: the character-forward pipeline was not created (see the startup log - it needs the mesh stage and the device's VK_EXT_mesh_shader)");
+            this->warn_missing_feature("character_forward", "the toon character stage has no effect: the character-forward pipeline was not created (see the startup log - it needs the mesh stage and the device's mesh shader feature)");
         }
     }
 
@@ -1104,7 +1102,7 @@ namespace deren::vulkan {
             // like the old chain and no line explaining why. NOTE WHAT THIS IS NOT: it is not a warning that the
             // character stage is missing. With `character_forward` also on, that stage still runs - it simply
             // draws with the OLD pipeline, which is a valid frame and a wrong experiment.
-            this->warn_missing_feature("goo_toon", "the rewritten toon chain has no effect: the goo_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's VK_EXT_mesh_shader), so the character stage draws with character_forward.slang");
+            this->warn_missing_feature("goo_toon", "the rewritten toon chain has no effect: the goo_toon pipeline was not created (see the startup log - it needs the mesh stage and the device's mesh shader feature), so the character stage draws with character_forward.slang");
         }
     }
 

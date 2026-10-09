@@ -191,38 +191,6 @@ namespace deren::vulkan {
     // - which is what the boundary meter counts. The declaration is in `:declarations` so every partition
     // can call them; the definitions are here, in the one partition every runtime already links.
     namespace runtime_detail {
-        namespace {
-            /// the escape, or null when the backend announced none (the startup gate refuses that)
-            [[nodiscard]] rhi::vulkan_escape* escape_of(rhi::api_core& face) noexcept {
-                return rhi::query_extension<rhi::vulkan_escape>(face);
-            }
-
-            // `device_extension_enabled` STOOD HERE, and its two callers were the feature helpers below: they
-            // asked "is VK_KHR_ray_query / VK_EXT_mesh_shader in the enabled list" AND the device's feature
-            // struct. `device_capabilities` answers both halves in one call now, so this half is gone with
-            // them - and with it the two `VK_*_EXTENSION_NAME` macros this engine half used to name.
-        } // namespace
-
-        VkDevice native_device_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkDevice>(escape->native_device());
-        }
-
-        VkInstance native_instance_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkInstance>(escape->native_instance());
-        }
-
-        VkPhysicalDevice native_physical_device_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkPhysicalDevice>(escape->native_physical_device());
-        }
-
-        VkQueue native_queue_of(rhi::api_core& face) noexcept {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkQueue>(escape->native_queue());
-        }
-
         // `physical_properties_of` STOOD HERE, and the push-constant limit was the only field anyone read out of
         // it - so it is `max_push_constants_of` below now: one integer, from the ability that already holds the
         // query's answer, instead of a whole `VkPhysicalDeviceProperties` fetched per call site.
@@ -469,14 +437,6 @@ namespace deren::vulkan {
         // table names them per frame) and AFTER `refresh_frame_extents()` above, which is where the render
         // extent it sizes them by comes from.
         this->create_render_chain_targets();
-        // ... AND THE DEPTH FORMAT, WHICH ONLY THE BACKEND CAN RESOLVE (③-D/E step 2): the engine created
-        // its G-buffer depth through the contract's `depth` ROLE, so the concrete VkFormat is the device's
-        // answer rather than a constant - and this is the ONE query that turns it back into the spelling a
-        // depth-attachment pipeline needs. Read from the image the engine ITSELF created, so it needs no
-        // backend member and no pre-frame accessor: the role was resolved when the image was made, and
-        // every image in this family has the same format. (The legacy runtime read the backend's
-        // `core::depth_attachment_format`, which is the same value.)
-        this->depth_attachment_format = static_cast<VkFormat>(this->escape().native_image_format(*this->gbuffer_depth_images[0]));
         // Every per-image flag that describes this generation starts where the generation's images do.
         // The core has already built the groups it still owns (its constructor ran
         // create_render_targets), so the flags can be sized HERE, before any frame records; every
@@ -1275,7 +1235,7 @@ namespace deren::vulkan {
         // frame of the new generation takes the attachment -> sampled transition (see
         // ensure_velocity_sampled).
         this->velocity_written.assign(image_count, false);
-        this->rt_binding_written.assign(image_count, VK_NULL_HANDLE);
+        this->rt_binding_written.assign(image_count, nullptr);
         this->gbuffer_targets_written.assign(image_count, false);
         // a generation has nothing to blend with, and it is reset HERE rather than only on the off -> on
         // vector reads as "no history" for every frame, which silently turns the temporal resolve into a

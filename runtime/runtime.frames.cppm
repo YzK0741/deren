@@ -20,7 +20,6 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
 #include <thread> // std::this_thread::yield in the frame limiter
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.runtime:frames;
 
@@ -108,14 +107,6 @@ namespace deren::vulkan {
         return addresses == nullptr ? 0u : addresses->buffer_address(buffer, 0u);
     }
 
-    VkBuffer runtime::buffer_of(rhi::buffer const& buffer) noexcept {
-        // `query_extension` is a NON-const virtual on `api_core` (the abilities it answers with are the
-        // backend's own objects), so this reads the core through a non-const reference - the member is one.
-        rhi::api_core& device = this->vulkan_core;
-        auto* const escape = static_cast<rhi::vulkan_escape*>(device.query_extension(rhi::extension_kind::vulkan_escape));
-        return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
-    }
-
     std::uintptr_t runtime::buffer_address(rhi::buffer const& buffer) const noexcept {
         return deren::vulkan::buffer_address(this->vulkan_core, buffer);
     }
@@ -149,22 +140,6 @@ namespace deren::vulkan {
             // NOTHING IS DROPPED, on purpose: the core owns the frame's buffer and its
             // `frame_commands::release()` refuses by name (see the note above).
         });
-    }
-
-    VkCommandBuffer runtime::native_handle(rhi::command_buffer& buffer) const noexcept {
-        // A CONTRACT BUFFER'S RAW HANDLE, through the contract's own escape: `recording()` is deleted (the
-        // buffer IS the recorder - abi 21), so what `vulkan_escape::native_command_buffer()` resolves here is
-        // the buffer itself. That is the documented way a pass (or this frame loop) records Vulkan commands
-        // into it, and outside a frame it is fine for a buffer the CALLER owns - the escape says so (see
-        // frame_escape::native_command_buffer).
-        return static_cast<VkCommandBuffer>(this->escape().native_command_buffer(buffer));
-    }
-
-    VkCommandBuffer runtime::native_frame_commands(std::shared_ptr<rhi::command_buffer> const& buffer) const noexcept {
-        // THE FRAME LOOP'S OWN UNWRAP, one place (see the declaration): the shared_ptr the recording face
-        // speaks, then the same `native_handle` conversion every other contract buffer goes through. An
-        // empty pointer is "no frame is open", which the frame loop's guards already answer for.
-        return buffer ? this->native_handle(*buffer) : VK_NULL_HANDLE;
     }
 
     // THE FRAME OPEN'S CLASSIFIER (the error mechanism's verdict family): the one place that knows
@@ -825,8 +800,7 @@ namespace deren::vulkan {
 
     void runtime::record_main_drawcalls() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::scene};
-        VkCommandBuffer const command_buffer = this->native_frame_commands(this->frame_command_buffer());
-        if (command_buffer == VK_NULL_HANDLE) {
+        if (!this->frame_command_buffer()) {
             return; // no frame is open (see begin_recording): there is nothing to record into
         }
         uint32_t const frame_slot = this->frame_ring().position();
@@ -842,7 +816,7 @@ namespace deren::vulkan {
             // (deren.vulkan.pass.cluster); what is this loop's is WHERE it runs - before the passes that read the
             // bins - and the frame data it is handed, which the chain's owner supplies (see prepare_stage).
             pass::stage const cluster_stage = {.name = "cluster", .passes = this->cluster_pass, .marks = false};
-            this->prepare_stage(cluster_stage, command_buffer);
+            this->prepare_stage(cluster_stage);
             [[maybe_unused]] pass::run_report const cluster_report = pass::record_stage(cluster_stage, this->make_pass_host());
         }
 
@@ -942,7 +916,7 @@ namespace deren::vulkan {
                 // is built HERE and handed to the pass by whoever owns it (see make_shadow_frame/prepare_stage).
                 pass::stage const shadow_stage = {.name = "shadow", .passes = this->shadow_pass, .marks = false};
                 {
-                    this->prepare_stage(shadow_stage, command_buffer);
+                    this->prepare_stage(shadow_stage);
                     [[maybe_unused]] pass::run_report const shadow_report = pass::record_stage(shadow_stage, this->make_pass_host());
                 }
                 // Hand the cascades back to the shading stages as a sampled array texture: the layers just rendered go
@@ -996,7 +970,7 @@ namespace deren::vulkan {
 
         // The scene pass: the opaque leaves write the G-buffer, and everything else follows from it
         // in record_scene_tail (lighting, the transparent pass over the shaded image, TAA).
-        this->record_scene(command_buffer);
+        this->record_scene();
     }
 
     // =============================================================================================
@@ -1072,15 +1046,15 @@ namespace deren::vulkan {
     void runtime::run_shadow_tasks(void* const owner, std::span<std::function<void()>> const tasks) {
         static_cast<runtime*>(owner)->run_tasks(tasks, deren::vulkan::task_priority::recording);
     }
-    void runtime::record_scene(VkCommandBuffer const command_buffer) {
-        this->record_scene_attachments(command_buffer);
+    void runtime::record_scene() {
+        this->record_scene_attachments();
         this->update_pass_geometry();
         // THE SCENE PASS records the surface write: the instance over its six declared targets, the segmented
         // draw of the visible leaves, and closing the instance - all inside one function now (see
         // deren.vulkan.pass.scene for why that is the point of this extraction).
         if (this->gbuffer_pass_active()) {
             pass::stage const scene_stage = {.name = "scene", .passes = this->scene_pass, .marks = false};
-            this->prepare_stage(scene_stage, command_buffer);
+            this->prepare_stage(scene_stage);
             [[maybe_unused]] pass::run_report const scene_report = pass::record_stage(scene_stage, this->make_pass_host());
             return;
         }
@@ -1089,7 +1063,7 @@ namespace deren::vulkan {
         // matching pair and the scene target ends in a layout the post chain can sample. (The old code also
         // recorded the scene segments here - with a pipeline that does not exist, which validation would have
         // refused; drawing nothing is both shorter and true.)
-        this->begin_rendering(command_buffer, this->current_image_index, 0);
+        this->begin_rendering(this->current_image_index);
         if (rhi::command_buffer* const frame_commands = this->frame_command_buffer().get(); frame_commands != nullptr) {
             frame_commands->end_rendering(); // the matching half of the empty instance above
         }
@@ -1097,8 +1071,7 @@ namespace deren::vulkan {
 
     // Move the scene pass's attachments into their render layouts; see the declaration for why this
     // cannot be left to a render pass.
-    void runtime::record_scene_attachments(VkCommandBuffer const command_buffer) {
-        static_cast<void>(command_buffer); // the contract buffer records the batch; the raw handle is kept for the call shape
+    void runtime::record_scene_attachments() {
         // (no `core&` alias here any more: every handle this function moves is an ENGINE-owned one now -
         // ③-D/E A1.4 - and it is the CONTRACT image, so no native derivation happens here any more)
         // Dynamic rendering has no automatic attachment transitions (a render pass would do them
@@ -1483,8 +1456,7 @@ namespace deren::vulkan {
     // images the G-buffer pass wrote, so they now run in the deferred STAGE's preamble in `record_main_drawcalls` -
     // the same move the ray-traced shadow stage's identical pair made, and the same command-stream position.
 
-    void runtime::clear_scene_color_for_missing_gbuffer(VkCommandBuffer const command_buffer) {
-        static_cast<void>(command_buffer); // the contract buffer records the clear; the raw handle is kept for the call shape
+    void runtime::clear_scene_color_for_missing_gbuffer() {
         // The deferred lighting pass did not record - its pipeline is missing (a startup failure), or its target
         // is not in this frame's resource table. The pass cannot do this itself, because a pass records nothing
         // when its declaration does not resolve - so the frame's answer lives here: clear
@@ -1528,14 +1500,13 @@ namespace deren::vulkan {
     //    while this one needs the same image as its depth ATTACHMENT, and an image cannot be both in
     //    one instance;
     //  - before the TAA resolve, so the resolve sees the composited frame.
-    void runtime::record_transparent_pass(VkCommandBuffer const command_buffer) {
-        static_cast<void>(command_buffer); // the pass records into the frame's command buffer it is resolved with
+    void runtime::record_transparent_pass() {
         // THE TRANSPARENT PASS records the blended geometry: the two hand-off barriers, the LOAD instance over
         // its two declared targets, one secondary and the depth hand-back - all in one function now (see
         // deren.vulkan.pass.transparent). Like the scene pass it is SKIPPED without resolving anything on a frame
         // whose culling left nothing blended, which is what keeps a frame with no blended leaves byte-exact.
         pass::stage const transparent_stage = {.name = "transparent", .passes = this->transparent_pass, .marks = false};
-        this->prepare_stage(transparent_stage, command_buffer);
+        this->prepare_stage(transparent_stage);
         [[maybe_unused]] pass::run_report const transparent_report = pass::record_stage(transparent_stage, this->make_pass_host());
     }
     // ---- temporal anti-aliasing (M3) ----
@@ -1853,7 +1824,7 @@ namespace deren::vulkan {
             return false;
         };
         if (!runtime_detail::mesh_shader_available_of(this->rhi_face())) {
-            return unavailable("the device has no VK_EXT_mesh_shader meshShader feature");
+            return unavailable("the device has no mesh shader feature");
         }
         if (push_constants < deren::vulkan::mesh_stage_block_size) {
             return unavailable(std::format("maxPushConstantsSize is {} B, under the {} B block a mesh stage needs", push_constants, deren::vulkan::mesh_stage_block_size));
@@ -2696,7 +2667,7 @@ namespace deren::vulkan {
         this->frame_wiring = wiring;
     }
 
-    void runtime::prepare_stage(pass::stage const& stage, [[maybe_unused]] VkCommandBuffer const command_buffer) {
+    void runtime::prepare_stage(pass::stage const& stage) {
         // THE NATIVE HANDLE IS NO LONGER THIS FUNCTION'S (abi 20): every frame a pass is given now carries the
         // CONTRACT buffer (`frame_command_buffer()`), and the pass derives whatever native handle it still needs
         // through the escape. The parameter stays because the frame loop's call shape is "prepare this stage in the
@@ -3055,7 +3026,7 @@ namespace deren::vulkan {
     // the command stream, because the stages carry no marks of their own (`make_pass_host` leaves the mark pair
     // null), so nothing is emitted between them.
 
-    void runtime::record_scene_tail(VkCommandBuffer const command_buffer) {
+    void runtime::record_scene_tail() {
         // NO vkCmdEndRendering HERE ANY MORE: the scene PASS owns its instance and closes it at the end of its
         // own record (see deren.vulkan.pass.scene). That line used to be the far half of a pair whose near half was
         // three functions away - the coupling this extraction removed.
@@ -3081,7 +3052,7 @@ namespace deren::vulkan {
             // pair is what makes "first" a fact rather than a promise) - so the owner's `prepare` asks for exactly
             // that, gated on the same feature the runner gates the stage on. Nothing is emitted between here and
             // `record_stage` (the stages carry no marks), so the command stream is unchanged.
-            this->prepare_stage(rt_shadow_stage, command_buffer);
+            this->prepare_stage(rt_shadow_stage);
             pass::run_report const rt_shadow_report = pass::record_stage(rt_shadow_stage, this->make_pass_host());
             if (rt_shadow_report.recorded == 0 && this->frame_ring().position() < rhi::max_frames_in_flight &&
                 static_cast<bool>(this->rt_shadow_images[this->frame_ring().position()])) {
@@ -3117,7 +3088,7 @@ namespace deren::vulkan {
             this->megalights_resolved = false;
             if (this->megalights_active()) {
                 pass::stage const megalights_stage = {.name = "megalights", .passes = this->megalights_pass, .marks = false};
-                this->prepare_stage(megalights_stage, command_buffer);
+                this->prepare_stage(megalights_stage);
                 pass::run_report const megalights_report = pass::record_stage(megalights_stage, this->make_pass_host());
                 this->megalights_resolved = megalights_report.recorded > 0;
 
@@ -3150,16 +3121,16 @@ namespace deren::vulkan {
             // sits exactly where the pass's frame used to be set, and nothing is emitted between it and
             // `record_stage` (the stages carry no marks), so the command stream is unchanged.
             pass::stage const deferred_stage = {.name = "deferred", .passes = this->deferred_pass, .marks = false};
-            this->prepare_stage(deferred_stage, command_buffer);
+            this->prepare_stage(deferred_stage);
             pass::run_report const deferred_report = pass::record_stage(deferred_stage, this->make_pass_host());
             if (deferred_report.recorded == 0) {
                 // The pass could not resolve a frame. Inside this branch the only remaining cause is the G-buffer
                 // family having no set for this image (the pipeline and the target generation are what
                 // deferred_lit_active() just checked), and the frame then has to be cleared rather than left
                 // half-written - see the fallback's own comment.
-                this->clear_scene_color_for_missing_gbuffer(command_buffer);
+                this->clear_scene_color_for_missing_gbuffer();
             }
-            this->record_transparent_pass(command_buffer);
+            this->record_transparent_pass();
 
             // THE TOON CHARACTER STAGE, and its position here is the whole point of it: AFTER the lighting
             // stage (so there is a lit pixel to overwrite) and after the transparent pass (so a blended
@@ -3176,7 +3147,7 @@ namespace deren::vulkan {
             // scenario byte-identical while the feature is off - the runner asks the pass's `feature()` before
             // it resolves the declaration, so the skip costs no barrier and no resolve.
             pass::stage const character_forward_stage = {.name = "character_forward", .passes = this->character_forward_pass, .marks = false};
-            this->prepare_stage(character_forward_stage, command_buffer);
+            this->prepare_stage(character_forward_stage);
             [[maybe_unused]] pass::run_report const character_forward_report = pass::record_stage(character_forward_stage, this->make_pass_host());
 
             // THE SCREEN-SPACE DEPTH RIM, immediately after the stage it outlines: it samples the depth (which
@@ -3187,7 +3158,7 @@ namespace deren::vulkan {
             // IT IS GATED BY THE SAME FEATURE as the stage above (see its `feature()`), so a frame with no toon
             // character records neither and the two cannot come apart.
             pass::stage const toon_screen_rim_stage = {.name = "toon_screen_rim", .passes = this->toon_screen_rim_pass, .marks = false};
-            this->prepare_stage(toon_screen_rim_stage, command_buffer);
+            this->prepare_stage(toon_screen_rim_stage);
             [[maybe_unused]] pass::run_report const toon_screen_rim_report = pass::record_stage(toon_screen_rim_stage, this->make_pass_host());
 
             // THE REWRITTEN CHAIN'S RIM, in the SAME position and for the same reasons: it samples the depth the
@@ -3201,7 +3172,7 @@ namespace deren::vulkan {
             // wear two rims" means here. It also means a frame with `[render] goo_toon = false` records neither
             // this stage's pass nor its preamble, which is what keeps every capture scenario byte-identical.
             pass::stage const goo_rim_stage = {.name = "goo_rim", .passes = this->goo_rim_pass, .marks = false};
-            this->prepare_stage(goo_rim_stage, command_buffer);
+            this->prepare_stage(goo_rim_stage);
             [[maybe_unused]] pass::run_report const goo_rim_report = pass::record_stage(goo_rim_stage, this->make_pass_host());
         } else {
             // The pass does not run (the debug view replaces the lighting stage, and a skipped lighting stage has
@@ -3227,7 +3198,7 @@ namespace deren::vulkan {
         // layout). The runtime's call sits exactly where those two lines were.
         pass::stage const taa_stage = {.name = "taa", .passes = this->taa_pass, .marks = false};
         {
-            this->prepare_stage(taa_stage, command_buffer);
+            this->prepare_stage(taa_stage);
             [[maybe_unused]] pass::run_report const taa_report = pass::record_stage(taa_stage, this->make_pass_host());
         }
         // The matrix the NEXT frame's motion vectors are computed against is this frame's, and it is only
@@ -3255,13 +3226,13 @@ namespace deren::vulkan {
             // and the motion vectors to samplers this frame - and both halves are the chain OWNER's now (the
             // depth's flag-based accessor and the velocity flag's clear, see prepare_stage).
             pass::stage const debug_stage = {.name = "gbuffer_debug", .passes = this->gbuffer_debug_stage, .marks = false};
-            this->prepare_stage(debug_stage, command_buffer);
+            this->prepare_stage(debug_stage);
             pass::run_report const debug_report = pass::record_stage(debug_stage, this->make_pass_host());
             if (debug_report.recorded == 0) {
                 // Inside this branch the only remaining cause is the G-buffer family having no set for this image
                 // (the pipeline is what gbuffer_pass_active() just checked), and the frame then has to be cleared -
                 // see the fallback's own comment. Its own transition is part of it.
-                this->clear_hdr_for_missing_gbuffer_set(command_buffer);
+                this->clear_hdr_for_missing_gbuffer_set();
             }
         }
         this->gpu_mark(gpu_mark_id::main_end);
@@ -3361,8 +3332,7 @@ namespace deren::vulkan {
     // transitions, which stay in the frame loop as they were: the HDR target's move to a colour attachment has to
     // happen even on a frame the pass cannot draw, because the post chain samples that image.
 
-    void runtime::clear_hdr_for_missing_gbuffer_set(VkCommandBuffer const command_buffer) {
-        static_cast<void>(command_buffer); // the contract buffer records the clear; the raw handle is kept for the call shape
+    void runtime::clear_hdr_for_missing_gbuffer_set() {
         // The debug view did not record - its pipeline is missing (a startup failure), or the frame has no target
         // for it. The pass cannot do this itself, because a pass records nothing when its declaration does not
         // resolve - so the frame's
@@ -3396,12 +3366,12 @@ namespace deren::vulkan {
             deren::utility::log("runtime: the fallback HDR-target clear was refused through the contract");
         }
     }
-    bool runtime::record_post_process(VkCommandBuffer const command_buffer) {
+    bool runtime::record_post_process() {
         // (no `core&` alias here any more: the last backend-owned read in this function was the bloom chain's
         // off path, and those images are the engine's own from ③-D/E A1.5 on)
 
         // ---- the scene side: close the geometry instance, then the stages that consume the G-buffer
-        this->record_scene_tail(command_buffer);
+        this->record_scene_tail();
 
         if (!this->pass_ready("post_composite")) {
             return false; // no post pipeline (creation failed): the HDR frame cannot be presented correctly
@@ -3496,7 +3466,7 @@ namespace deren::vulkan {
         // its frame from them, including the overlay hook it was handed once in the application's `attach` (see
         // frame_pass::prepare_frame).
         pass::stage const composite_stage = {.name = "post_composite", .passes = this->post_composite_stage, .marks = false};
-        this->prepare_stage(composite_stage, command_buffer);
+        this->prepare_stage(composite_stage);
         [[maybe_unused]] pass::run_report const composite_report = pass::record_stage(composite_stage, this->make_pass_host());
         // GPU timing: the composite (and the debug overlay, when it draws here) is done.
         this->gpu_mark(gpu_mark_id::composite_end);
@@ -3507,7 +3477,7 @@ namespace deren::vulkan {
         // `post_fxaa_active()`: the same predicate that decided this frame's composite TARGET, so the pass runs
         // exactly when the LDR image is what the composite wrote.
         pass::stage const fxaa_stage = {.name = "fxaa", .passes = this->fxaa_pass, .marks = false};
-        this->prepare_stage(fxaa_stage, command_buffer);
+        this->prepare_stage(fxaa_stage);
         [[maybe_unused]] pass::run_report const fxaa_report = pass::record_stage(fxaa_stage, this->make_pass_host());
         // GPU timing: the FXAA pass (and the overlay it carries when it is the last writer) is done. Without FXAA
         // the composite already ended the frame's display work, so this interval is ~0.
@@ -3523,7 +3493,7 @@ namespace deren::vulkan {
         // the frames it runs its cost is reported in the interval after `fxaa_end`, which is where the frame's
         // remaining commands already are.
         pass::stage const upscale_stage = {.name = "upscale", .passes = this->upscale_pass, .marks = false};
-        this->prepare_stage(upscale_stage, command_buffer);
+        this->prepare_stage(upscale_stage);
         [[maybe_unused]] pass::run_report const upscale_report = pass::record_stage(upscale_stage, this->make_pass_host());
 
         // true in all three paths: the composite (when neither resolve runs), the FXAA pass or the upscale pass
@@ -3533,15 +3503,14 @@ namespace deren::vulkan {
     frame_status runtime::end_recording() {
         deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::post};
         rhi::api_core& vk = this->vulkan_core;
-        VkCommandBuffer const command_buffer = this->native_frame_commands(this->frame_command_buffer());
-        if (command_buffer == VK_NULL_HANDLE) {
+        if (!this->frame_command_buffer()) {
             return frame_status::end_recording_failed; // no frame is open: there is nothing to close
         }
 
         // close the scene rendering instance and run the post-process pass (exposure/tonemap).
         // The return value says whether a fullscreen pass actually wrote the swapchain image: only
         // then is it in GENERAL and only then does it hold this frame's result.
-        bool const post_wrote_swapchain = this->record_post_process(command_buffer);
+        bool const post_wrote_swapchain = this->record_post_process();
         // Screenshot: while the post pass wrote the swapchain image it is still in GENERAL and still owned
         // by this frame - the only point where a read-back copy is legal. Doing it here (rather than after
         // the present) also means the capture needs no extra submit, no re-acquire and no layout hand-back
@@ -3574,23 +3543,6 @@ namespace deren::vulkan {
                     hand_back = commands->use(*frame_image, deren::promise::rhi::image_use::transfer_source, deren::promise::rhi::image_use::color_attachment);
                 }
 
-                // ---- AND THE ESCAPE, MEASURED WHERE IT HAS TO AGREE WITH THE CONTRACT -----------------
-                // `vulkan_escape` is the one ability this backend announces, and its
-                // `native_command_buffer()` has no other caller yet: the engine records through its own
-                // `core&` until S3 moves the passes, so this line is the measurement that the escape
-                // answers with the VERY buffer this frame is being recorded into - and that the two
-                // extension lists the guard rail checks are the ones the context enabled. It sits on the
-                // screenshot path on purpose: rare, and next to the operation it is about.
-                auto* const escape = static_cast<deren::promise::rhi::vulkan_escape*>(
-                    vk.query_extension(deren::promise::rhi::extension_kind::vulkan_escape));
-                if (escape != nullptr) {
-                    void* const native = escape->native_command_buffer(*commands);
-                    deren::utility::log("rhi: vulkan_escape names this frame's command buffer {} (device {:#x}, {} instance extension(s), {} device extension(s))",
-                                        native == reinterpret_cast<void const*>(command_buffer) ? "identically" : "DIFFERENTLY",
-                                        reinterpret_cast<uintptr_t>(escape->native_device()),
-                                        escape->enabled_instance_extensions().size(),
-                                        escape->enabled_device_extensions().size());
-                }
                 if (to_source != deren::promise::rhi::error::ok) {
                     // The capture is dropped for this frame; the request stays pending, so the next frame
                     // retries - and the refusal is on the record instead of being silently ignored.

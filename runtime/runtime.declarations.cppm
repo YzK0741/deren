@@ -161,10 +161,6 @@ namespace deren::vulkan {
         /// (core.declarations.cppm:113) - the engine's own texture-view table refuses past it
         inline constexpr std::uint32_t scene_texture_capacity = 128;
 
-        [[nodiscard]] VkDevice native_device_of(rhi::api_core& face) noexcept;
-        [[nodiscard]] VkInstance native_instance_of(rhi::api_core& face) noexcept;
-        [[nodiscard]] VkPhysicalDevice native_physical_device_of(rhi::api_core& face) noexcept;
-        [[nodiscard]] VkQueue native_queue_of(rhi::api_core& face) noexcept;
         /**
          * @brief THE GRAPHICS QUEUE'S FAMILY, derived at runtime because the contract has no accessor for
          *        it and adding one would renumber the ABI for a fact the escape already implies.
@@ -372,14 +368,6 @@ namespace deren::vulkan {
          * one call's result. It is also what the backend's own `render_extent` path was created with.
          */
         rhi::image_format swap_chain_image_format = rhi::image_format::unknown;
-        /**
-         * THE G-BUFFER DEPTH'S CONCRETE FORMAT, read ONCE after the engine created its own depth images
-         * (③-D/E step 2): the contract's `depth` ROLE is resolved by the BACKEND, so the engine cannot
-         * name the rhi::image_format it must give a depth-attachment pipeline - but it CAN ask the image it
-         * created, and that answer is the device's own. Session-stable like the surface format, and the
-         * replacement for the legacy runtime's `core::depth_attachment_format` reads.
-         */
-        VkFormat depth_attachment_format = VK_FORMAT_UNDEFINED;
         /// whether this DEVICE has ray queries - the runtime's own cache of
         /// `runtime_detail::ray_query_available_of()`, asked once at construction. The legacy runtime read
         /// `core::ray_query_available`; a device fact does not change while the device lives, so this is
@@ -942,7 +930,7 @@ namespace deren::vulkan {
         ///        the motion-vector flag's clearing): the pass's header says why they are not the pass's
         /// @brief the frame's answer when the debug view did NOT record: clear the HDR target, so the frame the post
         ///        chain samples is defined (a black frame) instead of half-written
-        void clear_hdr_for_missing_gbuffer_set(VkCommandBuffer command_buffer);
+        void clear_hdr_for_missing_gbuffer_set();
         /// @brief resolve the deferred lighting pass's frame: the two shared blocks, the frame's scene target,
         ///        the pass's own 88-byte push block and the extent its declaration's rule produces
         /// @return false when this frame cannot run it (no target generation, no pipeline)
@@ -953,7 +941,7 @@ namespace deren::vulkan {
         ///        the frame the post chain samples is defined instead of half-written
         /// @note this is the renderer's and not the pass's because its cause - no lighting pipeline this frame -
         ///       is a startup failure of a pipeline this class created; the pass never sees it
-        void clear_scene_color_for_missing_gbuffer(VkCommandBuffer command_buffer);
+        void clear_scene_color_for_missing_gbuffer();
 
         // ---- temporal anti-aliasing (M3, deferred path only) ----
         // TAA is the engine's anti-aliasing: the projection is jittered per frame (a Halton
@@ -1761,7 +1749,6 @@ namespace deren::vulkan {
         [[nodiscard]] std::shared_ptr<rhi::command_buffer> frame_command_buffer() const noexcept;
         /// the raw handle of a command buffer the CONTRACT handed out (the buffer IS the recorder, so the
         /// escape resolves the buffer itself - not a backend detail reached into)
-        [[nodiscard]] VkCommandBuffer native_handle(rhi::command_buffer& buffer) const noexcept;
         /**
          * @brief THE FRAME LOOP'S OWN DERIVATION: the native handle of the FRAME's buffer, from the contract
          *        `shared_ptr` the frame's recording face speaks.
@@ -1771,7 +1758,6 @@ namespace deren::vulkan {
          * null `buffer` - no frame in flight - answers VK_NULL_HANDLE, which is exactly the state the frame
          * loop's own guards test for.
          */
-        [[nodiscard]] VkCommandBuffer native_frame_commands(std::shared_ptr<rhi::command_buffer> const& buffer) const noexcept;
         // per-frame state shared by the split frame steps (the frame steps call them in order,
         // so an external caller can interleave its own work between the same steps)
         uint32_t current_image_index = 0; // swapchain image acquired by pace_and_acquire()
@@ -2126,7 +2112,6 @@ namespace deren::vulkan {
          * call states: valid while `buffer` holds its reference, which every caller here does - a member or
          * a vector element of this class, alive for the session.
          */
-        [[nodiscard]] VkBuffer buffer_of(rhi::buffer const& buffer) noexcept;
         /**
          * @brief the DEVICE ADDRESS of a contract buffer, through the `device_address` ability.
          * @return 0 when the backend did not announce the ability, or when the buffer was created without
@@ -2286,7 +2271,7 @@ namespace deren::vulkan {
          * @note uses vkCmdBeginRendering (dynamic rendering, Vulkan 1.3 core - the only path
          *       the engine supports; device selection requires an apiVersion >= 1.3 device)
          */
-        void begin_rendering(VkCommandBuffer command_buffer, uint32_t image_index, VkRenderingFlags flags = 0) const;
+        void begin_rendering(uint32_t image_index, bool secondary_contents = false) const;
 
         // ---- scene resource management (see the members above) ----
         void init_scene_resources();     // camera UBO buffers + white fallback texture + texture sampler + material table
@@ -2817,7 +2802,7 @@ namespace deren::vulkan {
          * record_scene_tail() turns the G-buffer into the frame afterwards through the deferred
          * lighting PASS (deren.vulkan.pass.deferred, resolved by resolve_deferred_pass()).
          */
-        void record_scene(VkCommandBuffer command_buffer);
+        void record_scene();
 
         /**
          * @ingroup runtime
@@ -2838,7 +2823,7 @@ namespace deren::vulkan {
          *       surface behind them reported - good enough while the camera is the only thing moving,
          *       and the thing to revisit when object motion vectors land.
          */
-        void record_transparent_pass(VkCommandBuffer command_buffer);
+        void record_transparent_pass();
 
         /**
          * @ingroup runtime
@@ -2850,7 +2835,7 @@ namespace deren::vulkan {
          *       target and the scene color the emissive goes into, plus the pass's own 1x depth image;
          *       the main HDR target is not touched here
          */
-        void record_scene_attachments(VkCommandBuffer command_buffer);
+        void record_scene_attachments();
 
         /**
          * @ingroup runtime
@@ -2879,7 +2864,6 @@ namespace deren::vulkan {
          * bind (chosen in record_main_segment()) and the two optional extras
          * differ.
          */
-        void record_opaque_scene(VkCommandBuffer command_buffer);
 
         /**
          * @ingroup runtime
@@ -2905,7 +2889,7 @@ namespace deren::vulkan {
          *        (deren.vulkan.pass.post) whose frames this function sets and resolves - the renderer no longer records
          *        them. It used to be all of that in one 209-line body, whose real problem was not its length but
          *        that a change to any one of them had to be located inside the other two. */
-        [[nodiscard]] bool record_post_process(VkCommandBuffer command_buffer);
+        [[nodiscard]] bool record_post_process();
         /**
          * @brief close the geometry instance and record the scene-side stages that follow it
          *        (deferred lighting, the TAA resolve, the G-buffer debug view), each with its own
@@ -2914,7 +2898,7 @@ namespace deren::vulkan {
          *       label-to-interval mapping is positional, so a skipped stage writes its mark
          *       immediately after the previous one and its interval reads 0
          */
-        void record_scene_tail(VkCommandBuffer command_buffer);
+        void record_scene_tail();
         /**
          * @brief whether the FXAA pass is this frame's LAST writer (the frame's own question: the composite's
          *        target and pipeline variant, the overlay's owner, set_fxaa() and the feature registry all ask it)
@@ -2970,7 +2954,6 @@ namespace deren::vulkan {
          *       so copies never share dangling pNext chains.
          */
         struct sub_render_task {
-            VkCommandBuffer command_buffer = VK_NULL_HANDLE;
             std::span<primitive const* const> leaves = {};
             // Color attachment formats of the instance this secondary is recorded into, in
             // attachment order: one entry (the HDR target) when the leaves shade into it, the four G-buffer
@@ -3833,7 +3816,7 @@ namespace deren::vulkan {
         /// run the owner's `prepare` for one stage, or do nothing when no owner is wired (see `chain_wiring`)
         /// @note this is also where every pass in @p stage builds ITS OWN frame (see frame_pass::prepare_frame),
         ///       BEFORE the owner's `prepare` - so an owner that still wants to override a frame can
-        void prepare_stage(pass::stage const& stage, VkCommandBuffer command_buffer);
+        void prepare_stage(pass::stage const& stage);
         /// run the owner's `collect` for one stage and apply what it reports (see `frame_results`)
         void collect_stage(std::string_view stage);
         /// clear one image's "the G-buffer instance wrote the motion-vector target" flag, so the next sampler of
