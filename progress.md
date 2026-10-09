@@ -1,7 +1,7 @@
 # progress.md — 原生句柄退出（图形 API 走 RHI）进展
 
 > 更新日期：2026-10-09（继续接手 X5）。
-> **最新核验：GUI 插件化 X2 完成；P-Import = 0、P-Nm = 0，P-Census 剩 25 个引擎文件。当前工作区的 TLAS 描述符映射已通过严格 RT 验收：GPU 命中/未命中/实例掩码及两帧槽正确，Sponza 40 帧、验证层干净并生成截图。下文旧的 RT 失败记录属于映射修正前。**
+> **最新核验：X5 已修复接手 WIP，并完成索引、无用头文件和 RT 回调迁移。完整构建、CTest 19/19、冻结渲染 14/14、严格 RT 与格式检查通过；原生词汇剩 5 个引擎文件，Vulkan 符号与图形 API 导入均为 0。X5 尚未全部完成。**
 > 计划与验收定义在 [`docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md`](docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md)，逐批的详细记录在 [`docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md`](docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md)。
 
 
@@ -19,6 +19,13 @@
 几何、primitive、加速结构输入统一使用已有 `rhi::index_type`，保持着色器索引编码 0/1 和 GPU 数据布局。删除 13 个仅剩 include 的文件中的 Vulkan 头，以及两个 primitive 头引用和无调用者的 `render_environment::layout` 字段。没有移动扫描例外、修改基准或增加 ABI 版本。
 
 完整构建、CTest **19/19**、严格 RT **PASS**、冻结渲染 **14/14**、格式检查通过。边界扫描：原生词汇文件 **25 → 9**，引擎 Vulkan 符号 **0**，主程序图形 API 导入 **0**。日志：`x5-index-build/ctest/rt/render/format/boundary.log`（构建目录下）。
+
+
+### X5 第三批：RT 内部边界收口
+
+MASK 与蒙皮回调直接传递 `rhi::command_buffer&`，运行时核对本帧契约对象身份，保留错目标时跳过的行为。删除无调用者的原生 instance-table 读取接口、闲置设备成员及 escape 转换；AS/RT 大小改为 `std::uint64_t`；保留名称 `build_input_usage`，改为实际可用于 RHI buffer_desc 的契约 flags。AS 与 RT 模块因源接口变更标记版本 1.0.0，RHI ABI 仍为 27。
+
+完整构建、CTest **19/19**、严格 RT **PASS**（GPU hit/miss/mask、双帧槽与 Sponza MASK 烘焙）、冻结渲染 **14/14**（包含角色蒙皮）、格式检查通过。词汇文件 **9 → 5**，符号及导入仍为 0。日志前缀 `x5-rt-contract-*`。
 
 ---
 

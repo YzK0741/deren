@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.acceleration_structure
-// module version: 0.4.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Ray-tracing acceleration structures: the bottom level structures of the
 // scene's shadow casters, built from the geometry buffers the raster passes
@@ -21,7 +21,6 @@ module;
 #include <span>
 #include <string>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.acceleration_structure;
 
@@ -71,20 +70,9 @@ namespace deren::vulkan::acceleration_structure {
     /// The contract's names under the short alias this file's ~95 neighbours use; it used to arrive with
     /// `deren.vulkan.core`, which this module no longer imports (③-D/E step 1b).
     namespace rhi = deren::promise::rhi;
-    /**
-     * @ingroup vulkan_acceleration_structure
-     * @brief the usage bits a buffer must carry to be an acceleration-structure build input
-     * @note the second bit needs VK_KHR_acceleration_structure, so this must only be OR'd into a
-     *       buffer's usage when the device has it (the contract's spelling is
-     *       `rhi::buffer_flag::acceleration_structure_input`, which core maps onto it). The first bit needs
-     *       only the core 1.2 bufferDeviceAddress feature, which this engine enables by policy.
-     * @note NO LONGER THE WAY THE RENDERER ASKS FOR THEM: both halves now pass the contract's
-     *       `rhi::buffer_flag::device_address | acceleration_structure_input` to `create_buffer()` and the
-     *       backend does this OR. The value is kept because it is exported surface that already shipped
-     *       (removing it is a separate decision), not because a call site still reads it.
-     */
-    export constexpr VkBufferUsageFlags build_input_usage =
-        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT | VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR;
+    /// The portable usage bits a geometry buffer needs for acceleration-structure builds.
+    export constexpr rhi::buffer_flags build_input_usage =
+        rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
 
     /**
      * @ingroup vulkan_acceleration_structure
@@ -371,11 +359,11 @@ namespace deren::vulkan::acceleration_structure {
          *       material table (VUID-VkDeviceAddressRangeKHR-address-11365). The size query at creation is the only
          *       place that number exists, so it is kept rather than re-derived by a caller that cannot know it.
          */
-        [[nodiscard]] VkDeviceSize structure_size(uint32_t frame_slot) const noexcept {
+        [[nodiscard]] std::uint64_t structure_size(uint32_t frame_slot) const noexcept {
             // THE NUMBER IS THE OBJECT'S NOW (tier-1 since abi 26): `size_bytes()` is what the backend cached
             // when it created the structure, so this module keeps no copy of it that could drift.
             return frame_slot < this->slots.size() && this->slots[frame_slot].structure
-                       ? static_cast<VkDeviceSize>(this->slots[frame_slot].structure->size_bytes())
+                       ? static_cast<std::uint64_t>(this->slots[frame_slot].structure->size_bytes())
                        : 0;
         }
 
@@ -386,25 +374,12 @@ namespace deren::vulkan::acceleration_structure {
          *       VK_WHOLE_SIZE (legal there), while a HEAP range must carry a real size
          *       (VUID-VkDeviceAddressRangeKHR-address-11365), and the capacity is this module's to know.
          */
-        [[nodiscard]] VkDeviceSize instance_table_size(uint32_t frame_slot) const noexcept {
-            return frame_slot < this->slots.size() ? static_cast<VkDeviceSize>(this->slots[frame_slot].capacity) * sizeof(instance_record) : 0;
+        [[nodiscard]] std::uint64_t instance_table_size(uint32_t frame_slot) const noexcept {
+            return frame_slot < this->slots.size() ? static_cast<std::uint64_t>(this->slots[frame_slot].capacity) * sizeof(instance_record) : 0;
         }
 
-        /** @brief the slot's instance table (instance_record[count]); the shading-at-a-hit step binds it
-         *  @note the slot holds a CONTRACT buffer now, so this asks the escape for the native handle
-         *        (defined in the .cpp, where the escape helper lives) */
-        [[nodiscard]] VkBuffer instance_table(uint32_t frame_slot) const noexcept;
-
-        /**
-         * @brief the slot's instance table as the CONTRACT buffer it is, or nullptr when the slot has no top
-         *        level structure yet
-         * @note ADDITIVE to `instance_table()` above rather than a replacement: that one answers the raw
-         *       handle a caller that records raw Vulkan needs, and this one exists so a caller that needs the
-         *       buffer's DEVICE ADDRESS can ask the backend for it (`rhi::device_address::buffer_address()`)
-         *       instead of spelling `vkGetBufferDeviceAddress` on a handle it had to narrow itself.
-         * @note A POINTER AND NOT A REFERENCE, because "no structure yet" has to stay expressible - it is
-         *       exactly the state `instance_table()` answers VK_NULL_HANDLE for, and a reference cannot say it.
-         */
+        /** @brief the slot's instance table as a contract buffer, or nullptr before a build.
+         *  @note Its device address is queried through the device_address ability. */
         [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
 
         /** @brief how many instances the slot's last build held */

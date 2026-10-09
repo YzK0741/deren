@@ -8,7 +8,6 @@ module;
 #include <glm/glm.hpp>
 #include <string>
 #include <utility>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.acceleration_structure;
 
@@ -39,18 +38,6 @@ namespace deren::vulkan::acceleration_structure {
     namespace rhi = deren::promise::rhi;
 
     namespace {
-        /// The contract's view of the device, and the reason every ability call in this file goes through a
-        /// helper: this module holds the contract's `api_core` face, so no call emits a backend symbol.
-        rhi::vulkan_escape* escape_of(rhi::api_core& face) {
-            return static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        }
-
-        /// The borrowed VkBuffer behind a contract buffer; null when the buffer carries none.
-        VkBuffer native_buffer_of(rhi::api_core& face, rhi::buffer const& buffer) {
-            rhi::vulkan_escape* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkBuffer>(escape->native_buffer(buffer));
-        }
-
         /// THE DEVICE'S INSTANCE LIMIT, from the `device_capabilities` ability: the check that used to need a
         /// properties query of this module's own. Zero means "the device did not answer", which the callers
         /// treat as "no limit known" - the allocation is the real constraint either way.
@@ -262,16 +249,6 @@ namespace deren::vulkan::acceleration_structure {
         this->stats.geometry_count = target.count;
         this->stats.build_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         return {};
-    }
-
-    VkBuffer top_level_structure::instance_table(std::uint32_t const frame_slot) const noexcept {
-        // The slot holds a CONTRACT buffer, so the native handle is asked of the escape - borrowed, and valid
-        // while the slot's owner holds its reference (the descriptor heap writes a range over this buffer).
-        if (this->contract == nullptr || frame_slot >= this->slots.size()) {
-            return VK_NULL_HANDLE;
-        }
-        slot const& target = this->slots[frame_slot];
-        return target.records ? native_buffer_of(*this->contract, *target.records) : VK_NULL_HANDLE;
     }
 
     rhi::buffer const* top_level_structure::instance_table_buffer(std::uint32_t const frame_slot) const noexcept {

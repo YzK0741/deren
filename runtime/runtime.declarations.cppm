@@ -2065,7 +2065,7 @@ namespace deren::vulkan {
         [[nodiscard]] ray_tracing::build_inputs make_structure_inputs() const noexcept;
         /// @brief the four hooks above, as the function pointers the phase takes (each one casts `owner` back)
         static bool structure_mask_ready(void* owner) noexcept;
-        static void structure_record_mask_bake(void* owner, VkCommandBuffer command_buffer, pass::mask_bake_request const& request);
+        static void structure_record_mask_bake(void* owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request);
 
         /**
          * @brief the host's push endpoint for a converted stage (see pass::resolved_io::push_block)
@@ -2116,7 +2116,7 @@ namespace deren::vulkan {
         //  field, the hook and the two raw VkBindHeapInfoEXT it filled were a second truth, and the frame's
         //  publisher stopped filling them in the same change.)
         static bool structure_skin_ready(void* owner) noexcept;
-        static bool structure_record_skin(void* owner, VkCommandBuffer command_buffer, std::span<ray_tracing::caster_level const> casters);
+        static bool structure_record_skin(void* owner, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> casters);
         /** @brief write the structure's and its instance table's heap slots for @p frame_slot */
         void write_rt_structure_binding(deren::promise::rhi::acceleration_structure* tlas, uint32_t frame_slot);
         /**

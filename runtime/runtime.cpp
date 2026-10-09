@@ -1613,17 +1613,11 @@ namespace deren::vulkan {
     //  descriptor heaps from the BACKEND, which derives them from the heaps it owns; this filled two raw
     //  `VkBindHeapInfoEXT` for a hook the pass layer stopped calling at abi 20.)
 
-    void runtime::structure_record_mask_bake(void* const owner, VkCommandBuffer const command_buffer, pass::mask_bake_request const& request) {
-        // THE HOOK'S OPERAND IS THE FRAME'S NATIVE PRIMARY, AND THAT IS STILL THE SEAM (abi 24 changed the ROUTE
-        // it arrives by, not the fact): the frame loop calls `structures.build(*frame_command_buffer(), ...)`
-        // with the CONTRACT buffer, and `structure_set::build` derives the native handle once for its allocated
-        // build entry points - the same handle this hook is then called with. The bake itself records through the
-        // CONTRACT, so the contract handle is this frame's borrowed `frame_command_buffer()`, and the pair is
-        // CHECKED rather than assumed: a hook called with a buffer that is not this frame's primary would record
-        // the bake somewhere the structure build is not - the one failure this association exists to prevent.
+    void runtime::structure_record_mask_bake(void* const owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) {
+        // Bake and structure commands must target this frame's same contract buffer.
         runtime& self = *static_cast<runtime*>(owner);
         std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
-        if (!commands || self.native_frame_commands(commands) != command_buffer) {
+        if (!commands || commands.get() != &command_buffer) {
             deren::utility::log("mask bake: the structure hook was called with a command buffer that is not this frame's primary - the bake is skipped");
             return;
         }
@@ -1634,12 +1628,11 @@ namespace deren::vulkan {
         return static_cast<runtime*>(owner)->compute_skin.ready();
     }
 
-    bool runtime::structure_record_skin(void* const owner, VkCommandBuffer const command_buffer, std::span<ray_tracing::caster_level const> const casters) {
-        // The SAME bridge as the mask bake above, and for the same reason: the hook's operand is the frame's
-        // primary native handle, and the job's dispatches are contract verbs now.
+    bool runtime::structure_record_skin(void* const owner, rhi::command_buffer& command_buffer, std::span<ray_tracing::caster_level const> const casters) {
+        // Skin dispatches must share the structure build's recording target.
         runtime& self = *static_cast<runtime*>(owner);
         std::shared_ptr<rhi::command_buffer> const commands = self.frame_command_buffer();
-        if (!commands || self.native_frame_commands(commands) != command_buffer) {
+        if (!commands || commands.get() != &command_buffer) {
             deren::utility::log("compute skin: the structure hook was called with a command buffer that is not this frame's primary - the skin dispatches are skipped");
             return false;
         }

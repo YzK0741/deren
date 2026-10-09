@@ -14,7 +14,6 @@ module;
 #include <string>
 #include <utility>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.ray_tracing;
 
@@ -25,15 +24,6 @@ namespace deren::vulkan::ray_tracing {
     namespace rhi = deren::promise::rhi;
 
     namespace {
-        /// The contract's view of the device, and the reason EVERY factory and ability call in this file
-        /// goes through one of these helpers. This module no longer knows the backend's class AT ALL
-        /// (③-D/E step 1b): it holds the contract's `api_core` face, so every factory and ability call is a
-        /// virtual call that emits no backend symbol, and the device it needs comes from the escape.
-        /// The escape, obtained from the contract face once and then used through ITS pointer.
-        rhi::vulkan_escape* escape_of(rhi::api_core& face) {
-            return static_cast<rhi::vulkan_escape*>(face.query_extension(rhi::extension_kind::vulkan_escape));
-        }
-
         /// ... and the address ability the same way (`device_address` is its own tier-2 ability).
         rhi::device_address* address_of(rhi::api_core& face) {
             return static_cast<rhi::device_address*>(face.query_extension(rhi::extension_kind::device_address));
@@ -43,27 +33,11 @@ namespace deren::vulkan::ray_tracing {
         // storages - all of them the BACKEND's own objects since plan S1's P2/P4, so this module never narrows a
         // buffer handle any more.
 
-        /// THE NATIVE COMMAND BUFFER BEHIND A CONTRACT ONE (the tenth batch): the structure set records through
-        /// the contract's record series now (`barrier` above all), but the acceleration-structure and micromap
-        /// BUILD commands are ALLOCATED ENTRY POINTS the contract has no verb for - so this is derived once per
-        /// call and fed to them, the documented escape bucket. Null when the face announces no escape.
-        VkCommandBuffer native_commands_of(rhi::api_core& face, rhi::command_buffer& commands) {
-            auto* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : static_cast<VkCommandBuffer>(escape->native_command_buffer(commands));
-        }
-
         /// The device address of a contract buffer created with `rhi::buffer_flag::device_address`; 0 when
         /// the address could not be answered (the flag was not set, or the ability is not announced).
         std::uintptr_t buffer_address_of(rhi::api_core& face, rhi::buffer const& buffer) {
             auto* const addresses = address_of(face);
             return addresses == nullptr ? 0 : static_cast<std::uintptr_t>(addresses->buffer_address(buffer, 0));
-        }
-
-        /// THE DEVICE THE ENTRY POINTS ARE RESOLVED AGAINST, TAKEN FROM THE ESCAPE (③-D/E step 1b): the same
-        /// value the backend's class used to hand out (`core::logical_device`), without naming `core`.
-        VkDevice device_of(rhi::api_core& face) {
-            auto* const escape = escape_of(face);
-            return escape == nullptr ? VK_NULL_HANDLE : reinterpret_cast<VkDevice>(escape->native_device());
         }
 
         /// The pair every buffer this module builds a structure FROM carries: an address, and the
@@ -77,9 +51,6 @@ namespace deren::vulkan::ray_tracing {
 
     structure_set::structure_set(rhi::api_core& face) noexcept
         : contract(&face) {
-        // The one raw handle this phase needs for its own entry points (`vkGetDeviceProcAddr`), taken from the
-        // escape: the same value `core` used to hand out, without naming `core` (③-D/E step 1b).
-        this->device = device_of(face);
     }
 
     bool structure_set::attempted() const noexcept {
@@ -90,14 +61,14 @@ namespace deren::vulkan::ray_tracing {
         return this->bottom.has_value() && this->top_level.has_value();
     }
 
-    VkDeviceSize structure_set::structure_size(uint32_t const frame_slot) const noexcept {
+    std::uint64_t structure_set::structure_size(uint32_t const frame_slot) const noexcept {
         // The top level is `top_level`'s object (see the member block in the header): this is the forwarding half,
         // for the descriptor heap, whose acceleration-structure descriptor is an address range that must carry a
         // REAL size (see docs/descriptor_heap_migration.md - the heap's payload union has no AS member).
         return this->top_level.has_value() ? this->top_level->structure_size(frame_slot) : 0;
     }
 
-    VkDeviceSize structure_set::instance_table_size(uint32_t const frame_slot) const noexcept {
+    std::uint64_t structure_set::instance_table_size(uint32_t const frame_slot) const noexcept {
         // ... and the same for the instance table at binding 17, which the set path may write with VK_WHOLE_SIZE
         // and a heap range may not.
         return this->top_level.has_value() ? this->top_level->instance_table_size(frame_slot) : 0;
@@ -110,14 +81,10 @@ namespace deren::vulkan::ray_tracing {
         return this->top_level.has_value() ? this->top_level->structure(frame_slot) : nullptr;
     }
 
-    VkBuffer structure_set::instance_table(uint32_t const frame_slot) const noexcept {
-        return this->top_level.has_value() ? this->top_level->instance_table(frame_slot) : VK_NULL_HANDLE;
-    }
-
     rhi::buffer const* structure_set::instance_table_buffer(uint32_t const frame_slot) const noexcept {
         // Forwarded, not re-derived (the table is `top_level`'s), and nullable for the same reason the
         // accessor it forwards is: "this slot has no top level structure yet" is a state the caller has to
-        // be able to see, and it is what `instance_table()` spells VK_NULL_HANDLE.
+        // be able to see through the nullable contract buffer.
         return this->top_level.has_value() ? this->top_level->instance_table_buffer(frame_slot) : nullptr;
     }
 
@@ -270,10 +237,7 @@ namespace deren::vulkan::ray_tracing {
         this->build_attempted = true;
 
         rhi::api_core& vk = *this->contract;
-        // THE CONTRACT BUFFER IS WHAT THIS FUNCTION TAKES (the tenth batch); the native handle is derived ONCE,
-        // here, for the allocated build entry points the contract has no verb for - and the record series'
-        // BARRIERS go through the contract buffer itself.
-        VkCommandBuffer const command_buffer = native_commands_of(vk, commands);
+        // Builds, barriers and bake callbacks share the caller-owned contract buffer.
         auto const start = std::chrono::steady_clock::now();
         this->bottom.emplace(vk);
         // The top level structure is per FRAME SLOT (see its class docs): with frames in flight one buffer would
@@ -391,7 +355,7 @@ namespace deren::vulkan::ray_tracing {
                         mask_address = buffer_address_of(vk, *expanded);
                         mask_stride = mask_vertex_stride;
                         inputs.hooks.record_mask_bake(inputs.hooks.owner,
-                                                      command_buffer,
+                                                      commands,
                                                       pass::mask_bake_request{
                                                           .source_vertices = source_vertex_address,
                                                           .source_indices = source_index_address,
@@ -489,7 +453,7 @@ namespace deren::vulkan::ray_tracing {
                     this->skin_levels.push_back(built.blas_index);
                 }
             }
-            static_cast<void>(inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->caster_list));
+            static_cast<void>(inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list));
         }
 
         // Every bake wrote a buffer the build below reads: one barrier covers them all, because every dispatch is
@@ -605,10 +569,7 @@ namespace deren::vulkan::ray_tracing {
             return {}; // nothing was built (or the build failed): there is nothing to refit or to instance
         }
         rhi::api_core& vk = *this->contract;
-        // THE CONTRACT BUFFER IS THIS FUNCTION'S PARAMETER (the tenth batch): the native handle is derived ONCE
-        // for the allocated refit entry points, and the record-series calls (the build ordering above all) go
-        // through the contract buffer.
-        VkCommandBuffer const command_buffer = native_commands_of(vk, commands);
+        // Builds, barriers and bake callbacks share the caller-owned contract buffer.
         auto& levels = *this->bottom;
         auto& top = *this->top_level;
 
@@ -617,7 +578,7 @@ namespace deren::vulkan::ray_tracing {
         // recorded before this frame writes the scene block's binding 16, the ordering the mask bake's own-set
         // comment explains).
         if (inputs.skin_bake && !this->skin_levels.empty() && inputs.hooks.skin_ready != nullptr && inputs.hooks.skin_ready(inputs.hooks.owner)) {
-            if (inputs.hooks.record_skin(inputs.hooks.owner, command_buffer, this->caster_list)) {
+            if (inputs.hooks.record_skin(inputs.hooks.owner, commands, this->caster_list)) {
                 if (auto const updated = levels.record_update(commands, this->skin_levels); !updated) {
                     // Once, and off: a failure here would otherwise log every frame, and a refit is not something
                     // to keep attempting against structures the device refused. The knob is the CALLER's, so the

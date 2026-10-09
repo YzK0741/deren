@@ -1,6 +1,6 @@
 // ============================================================================
 // module: deren.vulkan.ray_tracing
-// module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
+// module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // THE STRUCTURE PHASE: the acceleration structures every traced effect casts rays against, the map that says
 // which caster each one was built from, and the COPIES the hit-shading path reads that geometry through (the
@@ -31,7 +31,6 @@ module;
 #include <span>
 #include <string>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.ray_tracing;
 
@@ -110,7 +109,7 @@ export namespace deren::vulkan::ray_tracing {
         /// whether the MASK bake can take a request (its pipeline exists)
         bool (*mask_ready)(void* owner) = nullptr;
         /// bake ONE caster's alphaMode MASK into an expanded vertex buffer (the job owns the pipeline and the set)
-        void (*record_mask_bake)(void* owner, VkCommandBuffer command_buffer, pass::mask_bake_request const& request) = nullptr;
+        void (*record_mask_bake)(void* owner, rhi::command_buffer& command_buffer, pass::mask_bake_request const& request) = nullptr;
         /// whether the skinning job can take a request (its pipeline and sets exist)
         bool (*skin_ready)(void* owner) = nullptr;
         /**
@@ -120,7 +119,7 @@ export namespace deren::vulkan::ray_tracing {
          * `skin_destination_address` is non-zero - the same walk, and the same "which casters are skinned"
          * answer, the build itself used.
          */
-        bool (*record_skin)(void* owner, VkCommandBuffer command_buffer, std::span<caster_level const> casters) = nullptr;
+        bool (*record_skin)(void* owner, rhi::command_buffer& command_buffer, std::span<caster_level const> casters) = nullptr;
     };
 
     /**
@@ -200,18 +199,13 @@ export namespace deren::vulkan::ray_tracing {
          * @note forwarded rather than re-derived: the structure is `top_level`'s, and the descriptor heap writes
          *       it as an address RANGE whose size has to be real (docs/descriptor_heap_migration.md).
          */
-        [[nodiscard]] VkDeviceSize structure_size(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] std::uint64_t structure_size(uint32_t frame_slot) const noexcept;
         /// @brief the size of this slot's instance table, for the heap's address-range descriptor (binding 17)
-        [[nodiscard]] VkDeviceSize instance_table_size(uint32_t frame_slot) const noexcept;
-        /// @brief this slot's instance table buffer, whose device ADDRESS the GI frame constants carry
-        [[nodiscard]] VkBuffer instance_table(uint32_t frame_slot) const noexcept;
+        [[nodiscard]] std::uint64_t instance_table_size(uint32_t frame_slot) const noexcept;
         /**
          * @brief this slot's instance table as the CONTRACT buffer it is, or nullptr when there is no top
          *        level structure for that slot yet
-         * @note ADDITIVE to `instance_table()` above (the raw-handle form) and forwarded for the same reason
-         *       it is: the buffer is `top_level`'s. This is the form a caller uses to reach the buffer's
-         *       device ADDRESS through the contract's `device_address` ability instead of narrowing it and
-         *       calling `vkGetBufferDeviceAddress` itself.
+         * @note The device address is queried through the contract's device_address ability.
          */
         [[nodiscard]] deren::promise::rhi::buffer const* instance_table_buffer(uint32_t frame_slot) const noexcept;
         /// @brief the casters that were built, in the order they were added (see caster_level)
@@ -247,10 +241,8 @@ export namespace deren::vulkan::ray_tracing {
                                                                               uint32_t skin_stride,
                                                                               micromap_resource const* micromap) const noexcept;
 
-        /// THE CONTRACT FACE, NOT THE BACKEND CLASS (③-D/E step 1b), plus the one raw handle this phase
-        /// resolves its own entry points with - obtained through the escape, never read out of `core`.
+        /// The injected backend-independent device root.
         rhi::api_core* contract = nullptr;
-        VkDevice device = VK_NULL_HANDLE;
         std::optional<acceleration_structure::bottom_level_structures> bottom = {};
         /// named `top_level` rather than `top`: `build` keeps a local `auto& top`, and a member of that name
         /// would be hidden by it - MSVC /W4 reports C4458, which /WX makes an error
