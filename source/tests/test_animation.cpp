@@ -216,6 +216,41 @@ namespace {
         return approx(a.w, b.w, eps) && approx(a.x, b.x, eps) && approx(a.y, b.y, eps) && approx(a.z, b.z, eps);
     }
 
+    void test_camera_world_lookup_selects_the_requested_import() {
+        deren::engine::scene_tree::scene tree;
+        auto& background = tree.add_root();
+        background.import_instance = 2;
+        background.local = glm::translate(glm::mat4(1.0f), glm::vec3(100.0f, 0.0f, 0.0f));
+        auto& background_camera = background.add_child();
+        background_camera.import_instance = 2;
+        background_camera.source_index = 7;
+        background_camera.local = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 0.0f, 0.0f));
+
+        auto& model = tree.add_root();
+        model.import_instance = 1;
+        model.local = glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 20.0f, 30.0f)) *
+                      glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
+        auto& parent = model.add_child();
+        parent.import_instance = 1;
+        parent.local = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f, 3.0f, 4.0f));
+        auto& camera = parent.add_child();
+        camera.import_instance = 1;
+        camera.source_index = 7;
+        camera.local = glm::translate(glm::mat4(1.0f), glm::vec3(1.0f, 2.0f, 3.0f));
+
+        glm::mat4 world(1.0f);
+        CHECK(deren::engine::scene_tree::find_world(tree, 1, 7, world));
+        CHECK(approx(glm::vec3(world[3]), glm::vec3(4.0f, 22.0f, 42.0f)));
+        CHECK(approx(glm::vec3(world[0]), glm::vec3(0.0f, 2.0f, 0.0f)));
+        CHECK(approx(glm::vec3(world[1]), glm::vec3(-3.0f, 0.0f, 0.0f)));
+        CHECK(approx(glm::vec3(world[2]), glm::vec3(0.0f, 0.0f, 4.0f)));
+        CHECK(deren::engine::scene_tree::find_world(tree, 2, 7, world));
+        CHECK(approx(glm::vec3(world[3]), glm::vec3(101.0f, 0.0f, 0.0f)));
+        CHECK(!deren::engine::scene_tree::find_world(tree, 3, 7, world));
+        CHECK(approx(glm::vec3(world[3]), glm::vec3(101.0f, 0.0f, 0.0f)));
+        CHECK(!deren::engine::scene_tree::find_world(tree, 1, 8, world));
+    }
+
     void test_linear_translation_interpolates_and_clamps() {
         sampler const s = {.times = {0.0f, 2.0f}, .values = {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f}, .per_key = 3, .interp = interpolation::linear};
         channel_sample const mid = sample_channel(s, channel_path::translation, 1.0f);
@@ -763,6 +798,7 @@ int32_t main() {
     test_controller_does_not_animate_other_assets_or_synthetic_leaves();
     test_controller_morph_history_follows_frames_across_slots();
     test_controller_shared_skin_cancels_each_mesh_world();
+    test_camera_world_lookup_selects_the_requested_import();
     test_linear_translation_interpolates_and_clamps();
     test_step_holds_previous_keyframe();
     test_rotation_linear_slerps_and_normalizes();

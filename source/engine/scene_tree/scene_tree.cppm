@@ -205,6 +205,9 @@ namespace deren::engine::scene_tree {
      */
     export void update_world(scene_node& node, glm::mat4 const& parent_world);
 
+    /** @brief find an imported node's accumulated world transform; leave output unchanged when absent. */
+    export [[nodiscard]] bool find_world(scene const& owner, uint64_t import_instance, std::size_t source_index, glm::mat4& output);
+
     /**
      * @ingroup engine_scene_tree
      * @brief walk the subtree and call @p visit on every primitive leaf

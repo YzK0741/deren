@@ -151,4 +151,25 @@ namespace deren::engine::scene_tree {
         }
         return nullptr;
     }
+    bool find_world(scene const& owner, uint64_t const import_instance, std::size_t const source_index, glm::mat4& output) {
+        auto const visit = [&](auto&& self, scene_node const& node, glm::mat4 const& parent_world) -> bool {
+            glm::mat4 const world = parent_world * node.local;
+            if (node.import_instance == import_instance && node.source_index == source_index) {
+                output = world;
+                return true;
+            }
+            for (scene_node const& child : node.children) {
+                if (self(self, child, world)) {
+                    return true;
+                }
+            }
+            return false;
+        };
+        for (scene_node const& root : owner.roots) {
+            if (visit(visit, root, glm::mat4(1.0f))) {
+                return true;
+            }
+        }
+        return false;
+    }
 } // namespace deren::engine::scene_tree

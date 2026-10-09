@@ -2385,27 +2385,7 @@ int main(int argc, char** argv) {
         }
         authored_camera const& ac = authored_cameras[static_cast<std::size_t>(index - 1)];
         glm::mat4 camera_world = glm::mat4(1.0f);
-        bool found = false;
-        auto const find_world = [&](auto&& self, deren::engine::scene_tree::scene_node& node, glm::mat4 const& parent_world) -> bool {
-            glm::mat4 const world = parent_world * node.local;
-            if (node.source_index == ac.source) {
-                camera_world = world;
-                return true;
-            }
-            for (deren::engine::scene_tree::scene_node& child : node.children) {
-                if (self(self, child, world)) {
-                    return true;
-                }
-            }
-            return false;
-        };
-        for (deren::engine::scene_tree::scene_node& root : runtime.get_scene().roots) {
-            if (find_world(find_world, root, glm::mat4(1.0f))) {
-                found = true;
-                break;
-            }
-        }
-        if (!found) {
+        if (!deren::engine::scene_tree::find_world(runtime.get_scene(), imported.import_instance, ac.source, camera_world)) {
             return;
         }
         glm::vec3 const eye = glm::vec3(camera_world[3]);
