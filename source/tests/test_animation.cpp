@@ -2,23 +2,209 @@
 // Exercises the glTF keyframe rules implemented by sample_channel / sample_node.
 #include "vk_test.h"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <functional>
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
+#include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 
 import deren.engine.animation;
 import deren.engine.animation.mmd_motion;
+import deren.engine.scene_tree;
+import deren.engine.primitive;
 
 namespace {
     using namespace deren::engine::animation;
+
+    struct cpu_primitive final : deren::engine::primitive {
+        void draw(deren::engine::render_environment&) const override {
+        }
+        void destroy() noexcept override {
+        }
+        bool is_valid() const noexcept override {
+            return true;
+        }
+    };
+    struct test_attribute {
+        std::vector<std::uint8_t> data;
+    };
+    struct test_target {
+        std::unordered_map<std::string, test_attribute> attributes;
+    };
+    struct test_prim {
+        std::unordered_map<std::string, test_attribute> vertex;
+        std::vector<test_target> targets;
+    };
+    struct test_mesh {
+        std::vector<test_prim> primitives;
+        std::vector<float> weights;
+    };
+    struct test_node {
+        glm::vec3 translation{0.0f};
+        glm::quat rotation{1.0f, 0.0f, 0.0f, 0.0f};
+        glm::vec3 scale{1.0f};
+        std::optional<std::size_t> skin_index;
+        std::vector<test_mesh> meshes;
+        std::optional<std::vector<float>> weights;
+    };
+    struct test_sampler {
+        std::vector<float> times, values;
+        std::size_t per_key;
+        deren::engine::animation::interpolation interpolation;
+    };
+    struct test_clip {
+        std::string name;
+        std::vector<test_sampler> samplers;
+        std::vector<channel> channels;
+    };
+    struct test_skin {
+        std::string name;
+        std::vector<std::size_t> joints;
+        std::vector<glm::mat4> inverse_bind_matrices;
+    };
+    struct test_source {
+        std::vector<test_clip> animations;
+        std::vector<test_skin> skins;
+        std::unordered_map<std::size_t, test_node const*> node_by_source;
+    };
+    struct controller_host {
+        deren::engine::scene_tree::scene tree;
+        std::array<std::array<float, 64>, 2> scratch{};
+        std::vector<glm::mat4> matrices;
+        std::size_t slot = 0;
+        backend callbacks() {
+            return {.scene = &tree,
+                    .morph_scratch_active = [this] { return scratch[slot].data(); },
+                    .set_skin_matrices_active = [this](std::span<glm::mat4 const> m) { matrices.assign(m.begin(), m.end()); },
+                    .morph_scratch_slot = [this](uint32_t s) { return scratch[s].data(); },
+                    .set_skin_matrices_slot = [](std::span<glm::mat4 const>, uint32_t) {},
+                    .scene_changed = [] {},
+                    .run_tasks = [](std::span<std::function<void()>> tasks) { for (auto& task : tasks) task(); },
+                    .task_worker_count = [] { return 1; }};
+        }
+        void add_node(std::size_t index, float x, bool leaf = false) {
+            auto& n = tree.add_root();
+            n.source_index = index;
+            n.local = glm::translate(glm::mat4(1.0f), glm::vec3(x, 0.0f, 0.0f));
+            if (leaf) {
+                auto p = std::make_unique<cpu_primitive>();
+                p->vertex_count = 1;
+                n.primitive_leaf = std::move(p);
+            }
+        }
+    };
+
+    void test_controller_does_not_animate_other_assets_or_synthetic_leaves() {
+        controller_host h;
+        h.add_node(0, 0.0f);
+        auto& extra = h.tree.roots[0].add_child();
+        extra.node_name = "model/prim";
+        h.add_node(0, 90.0f); // another imported asset has the same asset-local index
+        h.tree.roots[0].import_instance = 1;
+        h.tree.roots[0].children[0].import_instance = 1;
+        h.tree.roots[1].import_instance = 2;
+        test_node model;
+        test_source src;
+        src.node_by_source.emplace(0, &model);
+        src.animations.push_back({"move", {{{0.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 10.0f, 0.0f, 0.0f}, 3, interpolation::linear}}, {{channel_path::translation, 0, 0}}});
+        controller c;
+        c.init(src, h.callbacks(), glm::vec3(0.0f), 1);
+        c.set_time(0.5f);
+        c.update(0.0f);
+        CHECK(std::fabs(h.tree.roots[0].local[3].x - 5.0f) < 1e-4f);
+        CHECK(std::fabs(h.tree.roots[1].local[3].x - 90.0f) < 1e-4f);
+        CHECK(std::fabs(h.tree.roots[0].children[0].local[3].x) < 1e-4f);
+    }
+
+    void test_controller_morph_history_follows_frames_across_slots() {
+        controller_host h;
+        h.add_node(0, 0.0f, true);
+        h.tree.roots[0].import_instance = 17; // legacy three-argument init infers a single import
+        test_node model;
+        test_prim p;
+        p.vertex["POSITION"].data.resize(sizeof(glm::vec3));
+        p.targets.resize(1); // zero deltas still carry a real weight block
+        model.meshes.push_back({{p}, {0.1f}});
+        test_source src;
+        src.node_by_source.emplace(0, &model);
+        src.animations.push_back({"weights", {{{0.0f, 1.0f}, {0.0f, 1.0f}, 1, interpolation::linear}}, {{channel_path::weights, 0, 0}}});
+        src.animations.push_back({"rest", {{{0.0f, 1.0f}, {0.0f, 0.0f, 0.0f, 0.0f, 0.0f, 0.0f}, 3, interpolation::linear}}, {{channel_path::translation, 0, 0}}});
+        controller c;
+        c.init(src, h.callbacks(), glm::vec3(0.0f));
+        float previous = 0.1f;
+        for (std::size_t frame = 0; frame < 4; ++frame) {
+            h.slot = frame % 2;
+            float const current = 0.2f * static_cast<float>(frame + 1);
+            c.set_time(current);
+            c.update(0.0f);
+            CHECK(std::fabs(h.scratch[h.slot][0] - current) < 1e-4f);
+            CHECK(std::fabs(h.scratch[h.slot][1] - previous) < 1e-4f);
+            previous = current;
+        }
+        c.select(1);
+        h.slot = 0;
+        c.update(0.0f);
+        CHECK(std::fabs(h.scratch[0][0] - 0.1f) < 1e-4f);
+        CHECK(std::fabs(h.scratch[0][1] - 0.8f) < 1e-4f);
+        h.slot = 1;
+        c.update(0.0f);
+        CHECK(std::fabs(h.scratch[1][1] - 0.1f) < 1e-4f);
+    }
+
+    void test_controller_shared_skin_cancels_each_mesh_world() {
+        controller_host h;
+        h.add_node(0, 3.0f, true);
+        h.add_node(1, -7.0f, true);
+        h.add_node(2, 12.0f);
+        h.add_node(0, 25.0f, true); // another runtime instance of the first mesh source
+        for (auto& node : h.tree.roots)
+            node.import_instance = 1;
+        h.add_node(2, 80.0f); // background joint index collides, but is a different import
+        h.tree.roots.back().import_instance = 2;
+        test_node mesh1, mesh2, joint;
+        mesh1.skin_index = 1;
+        mesh2.skin_index = 1;
+        test_source src;
+        src.node_by_source = {{0, &mesh1}, {1, &mesh2}, {2, &joint}};
+        src.skins.push_back({"unused", {2}, {glm::mat4(1.0f)}});
+        src.skins.push_back({"shared", {2}, {glm::translate(glm::mat4(1.0f), glm::vec3(-2.0f, 0.0f, 0.0f))}});
+        controller c;
+        c.init(src, h.callbacks(), glm::vec3(0.0f), 1);
+        CHECK(c.skin_rig_count() == 2);
+        CHECK(!c.joint_world(0, 0).has_value());
+        for (int frame = 0; frame < 2; ++frame) {
+            h.tree.roots[1].local = glm::translate(glm::mat4(1.0f), glm::vec3(-7.0f + static_cast<float>(frame), 0.0f, 0.0f)) *
+                                    glm::rotate(glm::mat4(1.0f), 0.3f, glm::vec3(0.0f, 1.0f, 0.0f)) * glm::scale(glm::mat4(1.0f), glm::vec3(2.0f, 3.0f, 1.0f));
+            c.update(0.0f);
+            auto const joint_world = c.joint_world(1, 0);
+            CHECK(joint_world.has_value());
+            if (joint_world)
+                CHECK(std::fabs((*joint_world)[3].x - 12.0f) < 1e-4f);
+            for (std::size_t mesh : {std::size_t(0), std::size_t(1), std::size_t(3)}) {
+                auto const* leaf = static_cast<deren::engine::primitive*>(h.tree.roots[mesh].primitive_leaf.get());
+                CHECK(leaf->push.skin_base < h.matrices.size());
+                if (leaf->push.skin_base >= h.matrices.size())
+                    continue;
+                // This is the shader's actual mesh-world * skin * position chain.
+                glm::vec4 const world = h.tree.roots[mesh].local * h.matrices[leaf->push.skin_base] * glm::vec4(1.0f, 0.0f, 0.0f, 1.0f);
+                CHECK(std::fabs(world.x - 11.0f) < 1e-4f);
+                CHECK(std::fabs(world.y) < 1e-4f);
+                CHECK(std::fabs(world.z) < 1e-4f);
+            }
+        }
+    }
 
     [[nodiscard]] bool approx(float a, float b, float const eps = 1e-4f) {
         return std::fabs(a - b) <= eps;
@@ -574,6 +760,9 @@ namespace {
 } // namespace
 
 int32_t main() {
+    test_controller_does_not_animate_other_assets_or_synthetic_leaves();
+    test_controller_morph_history_follows_frames_across_slots();
+    test_controller_shared_skin_cancels_each_mesh_world();
     test_linear_translation_interpolates_and_clamps();
     test_step_holds_previous_keyframe();
     test_rotation_linear_slerps_and_normalizes();

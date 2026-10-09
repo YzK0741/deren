@@ -23,6 +23,7 @@ module;
 
 #include <cstddef>
 #include <glm/glm.hpp>
+#include <limits>
 
 export module deren.engine.scene_tree;
 export import deren.vstd;
@@ -54,6 +55,7 @@ namespace deren::engine::scene_tree {
      *        @c no_motion_slot when the leaf is not tracked frame to frame
      */
     export constexpr uint32_t no_motion_slot = 0xFFFFFFFFu;
+    export constexpr std::size_t no_source_index = std::numeric_limits<std::size_t>::max();
 
     /**
      * @ingroup engine_scene_tree
@@ -102,7 +104,9 @@ namespace deren::engine::scene_tree {
         // identity of the source node this runtime node was rebuilt from: import_scene records
         // the structural iterator's get_source_index() here (the glTF loader stores the asset
         // node index), so callers can map e.g. animation channel targets onto the live tree
-        std::size_t source_index = 0;
+        std::size_t source_index = no_source_index;
+        // Zero is reserved for manually assembled scenes; each import has a distinct identity.
+        uint64_t import_instance = 0;
         std::vector<scene_node> children = {};
         std::unique_ptr<primitive> primitive_leaf = {}; // null for transform-only nodes
 
@@ -166,6 +170,7 @@ namespace deren::engine::scene_tree {
         // member - MSVC /W4 reports C4458, which /WX turns into an error (clang's -Wshadow is off).
         std::string scene_name = {};
         std::vector<scene_node> roots = {};
+        uint64_t next_import_instance = 1;
 
         /**
          * @ingroup engine_scene_tree

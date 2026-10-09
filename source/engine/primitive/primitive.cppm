@@ -410,6 +410,7 @@ namespace deren::engine {
     export struct scene_import_result {
         uint32_t primitive_count = 0;
         uint32_t material_count = 0;
+        uint64_t import_instance = 0;
     };
 
     // The scene_drawable_iterator concept is STRUCTURAL over the getters' result shapes, so a

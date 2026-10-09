@@ -313,21 +313,46 @@ namespace deren::engine::animation {
          * @param host the host surface to drive (scene + per-slot callbacks)
          * @param import_shift translation the import applied to every scene ROOT node's local
          *        (animated roots must re-apply it, like import_scene did)
+         * @param import_instance identity returned by import_scene; when omitted, a scene
+         *        with one import identity is inferred (including manually assembled identity zero)
          * @note call before the first frame, or only while the host is idle (no frame in
          *       flight) - this writes scene buffers/descriptors like make_primitive() does.
          * @note a template: the definition is in this interface so any TU that imports the
          *       module can instantiate it at the call site with a concrete source type.
          */
         template <source S>
-        void init(S const& scenes, backend const& host, glm::vec3 const& import_shift) {
+        void init(S const& scenes, backend const& host, glm::vec3 const& import_shift, uint64_t const import_instance = std::numeric_limits<uint64_t>::max()) {
             this->host = host;
             this->import_shift = import_shift;
+            this->import_id = import_instance;
+            if (import_instance == std::numeric_limits<uint64_t>::max()) {
+                std::optional<uint64_t> inferred;
+                bool ambiguous = false;
+                for (auto it = deren::engine::scene_tree::begin(*this->host.scene); it != deren::engine::scene_tree::end(*this->host.scene); ++it) {
+                    if (it->source_index == deren::engine::scene_tree::no_source_index || scenes.node_by_source.find(it->source_index) == scenes.node_by_source.end()) {
+                        continue;
+                    }
+                    if (inferred && *inferred != it->import_instance) {
+                        ambiguous = true;
+                        break;
+                    }
+                    inferred = it->import_instance;
+                }
+                if (inferred && !ambiguous) {
+                    this->import_id = *inferred;
+                } else if (ambiguous) {
+                    deren::utility::log("animation: multiple import identities require an explicit import_instance");
+                }
+            }
 
             // live-tree lookup: asset node index -> host scene nodes + root flag (import applied
             // the shift to root locals only, so animated roots must re-apply it). scene_iterator
             // walks the whole tree in DFS pre-order; roots sit at depth 0. The SCENE TREE is the
             // authoritative host: only sources that actually live in it are animated.
             for (auto it = deren::engine::scene_tree::begin(*this->host.scene); it != deren::engine::scene_tree::end(*this->host.scene); ++it) {
+                if (it->import_instance != this->import_id || it->source_index == deren::engine::scene_tree::no_source_index) {
+                    continue;
+                }
                 this->source_nodes[it->source_index].push_back(node_target{&*it, /*scene_root=*/it.depth() == 0});
             }
 
@@ -416,6 +441,7 @@ namespace deren::engine::animation {
 
             // ---- skin rigs: resolve each exported skin that drives an imported mesh ----
             if (!scenes.skins.empty()) {
+                this->skin_readers.assign(scenes.skins.size(), deren::engine::scene_tree::no_source_index);
                 uint32_t next_block = 4; // identity block occupies indices 0-3
                 for (std::size_t skin_id = 0; skin_id < scenes.skins.size(); ++skin_id) {
                     auto const& loader_skin = scenes.skins[skin_id];
@@ -435,39 +461,39 @@ namespace deren::engine::animation {
                         deren::utility::log("skinning: skin '{}' skipped (joint(s) missing from the imported scene)", display_name(loader_skin.name));
                         continue;
                     }
-                    if (static_cast<uint32_t>(loader_skin.joints.size()) > deren::engine::scene_skin_capacity - next_block) {
-                        deren::utility::log("skinning: skin '{}' skipped ({} joints, skin matrix buffer capacity {} exceeded)", display_name(loader_skin.name), loader_skin.joints.size(), deren::engine::scene_skin_capacity);
-                        continue;
-                    }
-                    uint32_t const block_base = next_block;
-                    next_block += static_cast<uint32_t>(loader_skin.joints.size());
-                    // point every primitive leaf of every skinned node at the block: the node's own
-                    // leaf plus extra-primitive child leaves (import adds them under the node with
-                    // source_index 0); real child nodes keep skin_base 0. MULTIPLE NODES, NOT JUST THE
-                    // FIRST: two nodes may reference this skin, and each of them may be instantiated
-                    // several times (source_nodes maps a source index to every node using it).
-                    auto const assign_block = [block_base](auto&& self, deren::engine::scene_tree::scene_node& node, std::size_t const source) -> void {
-                        if (node.primitive_leaf != nullptr && (node.source_index == 0 || node.source_index == source)) {
-                            static_cast<deren::engine::primitive*>(node.primitive_leaf.get())->push.skin_base = block_base;
-                        }
-                        for (deren::engine::scene_tree::scene_node& child : node.children) {
-                            self(self, child, source);
-                        }
-                    };
+                    std::size_t const first_mesh_rig = this->skin_rigs.size();
+                    // The shader multiplies each mesh world by its joint block. Every runtime
+                    // mesh instance therefore needs a block containing its own inverse world.
                     for (std::size_t const source : mesh_sources) {
                         for (auto const& entry : this->source_nodes.at(source)) {
-                            assign_block(assign_block, *entry.node, source);
+                            if (loader_skin.joints.size() > deren::engine::scene_skin_capacity - next_block) {
+                                deren::utility::log("skinning: mesh of skin '{}' skipped (skin matrix buffer capacity {} exceeded)", display_name(loader_skin.name), deren::engine::scene_skin_capacity);
+                                continue;
+                            }
+                            uint32_t const block_base = next_block;
+                            next_block += static_cast<uint32_t>(loader_skin.joints.size());
+                            auto const assign_block = [block_base](auto&& self, deren::engine::scene_tree::scene_node& node) -> void {
+                                if (node.primitive_leaf != nullptr) {
+                                    static_cast<deren::engine::primitive*>(node.primitive_leaf.get())->push.skin_base = block_base;
+                                }
+                                for (deren::engine::scene_tree::scene_node& child : node.children) {
+                                    if (child.source_index == deren::engine::scene_tree::no_source_index) {
+                                        self(self, child);
+                                    }
+                                }
+                            };
+                            assign_block(assign_block, *entry.node);
+                            skin s = {};
+                            s.name = loader_skin.name;
+                            s.joints = loader_skin.joints;
+                            s.inverse_bind = loader_skin.inverse_bind_matrices;
+                            this->skin_rigs.push_back(skin_rig{std::move(s), {source}, block_base, entry.node});
+                            this->skin_mesh_world_cache.emplace(entry.node, glm::mat4(1.0f));
                         }
                     }
-                    if (mesh_sources.size() > 1) {
-                        deren::utility::log("skinning: skin '{}' is used by {} nodes; all of them now point at its joint block", display_name(loader_skin.name), mesh_sources.size());
+                    if (this->skin_rigs.size() > first_mesh_rig) {
+                        this->skin_readers[skin_id] = first_mesh_rig;
                     }
-                    // value-copy the skin (joints + inverse bind matrices) into the rig
-                    skin s = {};
-                    s.name = loader_skin.name;
-                    s.joints = loader_skin.joints;
-                    s.inverse_bind = loader_skin.inverse_bind_matrices;
-                    this->skin_rigs.push_back(skin_rig{std::move(s), std::move(mesh_sources), block_base});
                 }
                 // wanted set for the per-frame world collection: every accepted rig's mesh node +
                 // every joint it references (deduplicated; fixed after this init pass)
@@ -516,10 +542,10 @@ namespace deren::engine::animation {
                 };
                 // collect leaves per effective source (a "/prim" extra leaf inherits its parent's source)
                 std::unordered_map<std::size_t, std::vector<deren::engine::primitive*>> source_leaves;
-                auto const collect_leaves = [&source_leaves](auto&& self, deren::engine::scene_tree::scene_node& node, std::size_t const parent_source) -> void {
-                    bool const is_extra = node.node_name.ends_with("/prim");
+                auto const collect_leaves = [this, &source_leaves](auto&& self, deren::engine::scene_tree::scene_node& node, std::size_t const parent_source) -> void {
+                    bool const is_extra = node.source_index == deren::engine::scene_tree::no_source_index;
                     std::size_t const source = is_extra ? parent_source : node.source_index;
-                    if (node.primitive_leaf != nullptr) {
+                    if (node.import_instance == this->import_id && this->source_nodes.contains(source) && node.primitive_leaf != nullptr) {
                         source_leaves[source].push_back(static_cast<deren::engine::primitive*>(node.primitive_leaf.get()));
                     }
                     for (deren::engine::scene_tree::scene_node& child : node.children) {
@@ -527,7 +553,7 @@ namespace deren::engine::animation {
                     }
                 };
                 for (deren::engine::scene_tree::scene_node& root : this->host.scene->roots) {
-                    collect_leaves(collect_leaves, root, 0);
+                    collect_leaves(collect_leaves, root, deren::engine::scene_tree::no_source_index);
                 }
                 std::size_t total_floats = 0;
                 for (auto& [source, leaves] : source_leaves) {
@@ -645,7 +671,7 @@ namespace deren::engine::animation {
                                 *dst++ = dnrm.z;
                             }
                         }
-                        this->morph_rigs.push_back(morph_rig{leaves[i], verts, target_count, static_cast<uint32_t>(total_floats), source, std::move(rig_defaults)});
+                        this->morph_rigs.push_back(morph_rig{leaves[i], verts, target_count, static_cast<uint32_t>(total_floats), source, rig_defaults, rig_defaults});
                         leaves[i]->push.morph_base = static_cast<uint32_t>(total_floats);
                         leaves[i]->push.morph_targets = target_count;
                         leaves[i]->push.morph_vertices = verts;
@@ -682,7 +708,8 @@ namespace deren::engine::animation {
          * the answer is the pose the last update produced rather than a stale one, and a caller that reads it
          * after `update()` and before the next one gets a consistent frame.
          *
-         * @param rig_index index into the active skin rigs, in the order the scene was imported
+         * @param rig_index original skin index in the source asset; unused or rejected skins
+         *        return nothing without shifting subsequent skin indices
          * @param joint_index index into that rig's `skin::joints` - the SAME number `deren::gltf::head_joint_of`
          *        returns, and NOT an asset node index; the two differ and confusing them reads the wrong bone
          * @return the joint's world matrix, or nothing when either index is out of range or the joint was not
@@ -690,7 +717,7 @@ namespace deren::engine::animation {
          */
         [[nodiscard]] std::optional<glm::mat4> joint_world(std::size_t rig_index, std::size_t joint_index) const noexcept;
 
-        /** @brief number of active skin rigs, so a caller can iterate them without reaching into the internals */
+        /** @brief skin index range; joint_world returns nothing for unused or rejected skins */
         [[nodiscard]] std::size_t skin_rig_count() const noexcept;
 
         /** @brief number of channel-bearing clips (the combo lists these) */
@@ -759,11 +786,10 @@ namespace deren::engine::animation {
         };
         struct skin_rig {
             skin s = {}; // value-copied joints + inverse bind matrices
-            // EVERY asset node that references this skin. glTF lets several nodes share one skin - two
-            // meshes, or one mesh instanced twice - and all of them have to point at this rig's joint
-            // block and have their world matrices collected; a single index here rigged only the first.
+            // One runtime mesh instance and its own joint block; readers group these by skin.
             std::vector<std::size_t> mesh_sources = {};
             uint32_t block_base = 0; // block start in the skin buffer (after identity)
+            deren::engine::scene_tree::scene_node* mesh_node = nullptr;
         };
         struct morph_rig {
             deren::engine::primitive* prim = nullptr;
@@ -774,10 +800,12 @@ namespace deren::engine::animation {
             // baked rest weights (target_count floats): written when no clip animates this
             // source's weights, so a previous clip's weights cannot linger after a clip switch
             std::vector<float> default_weights = {};
+            std::vector<float> last_weights = {}; // previous published frame, independent of buffer slot
         };
 
         backend host; // injected host surface (scene + callbacks); scene == nullptr when unbound
         glm::vec3 import_shift{};
+        uint64_t import_id = 0;
         // whether this scene's animation is heavy enough to fan sampling out over the backend's
         // shared task pool (many channels over many sources): decided in init(), used by update()
         bool parallel_sampling = false;
@@ -806,6 +834,7 @@ namespace deren::engine::animation {
         glm::vec3 debug_translation{};
         std::string debug_node_name = {};
         std::vector<skin_rig> skin_rigs = {};
+        std::vector<std::size_t> skin_readers = {}; // original asset skin index -> first mesh rig, or no_source_index
         std::vector<morph_rig> morph_rigs = {};
         // ---- per-frame scratch, reused across update() calls to keep the hot path
         //      allocation-free; only touched on the caller's frame thread ----
@@ -815,6 +844,7 @@ namespace deren::engine::animation {
         // a reused per-frame world cache, so update() never allocates a per-frame map
         std::unordered_map<std::size_t, uint32_t> skin_world_index = {};
         std::vector<glm::mat4> skin_world_cache = {};
+        std::unordered_map<deren::engine::scene_tree::scene_node*, glm::mat4> skin_mesh_world_cache = {};
         std::vector<glm::mat4> skin_matrices_scratch = {}; // per-frame skin upload buffer
         bool skin_debug_valid = false;
         glm::vec3 skin_debug_translation{};

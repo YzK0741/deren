@@ -4285,6 +4285,7 @@ namespace deren::engine {
                 deren::utility::panic("runtime::import_scene() called before set_scene() bound a scene");
             }
             scene_import_result result = {};
+            result.import_instance = this->bound_scene->next_import_instance++;
             uint32_t const materials_before = this->material_count;
             // converts a pure image_source (e.g. the glTF loader's image_view) into the
             // internal texture_input with the slot's upload format; invalid images -> white
@@ -4387,6 +4388,7 @@ namespace deren::engine {
                     // extra primitives become identity-local child leaves (world unchanged)
                     scene_tree::scene_node extra;
                     extra.node_name = node.node_name + "/prim";
+                    extra.import_instance = node.import_instance;
                     extra.primitive_leaf = std::move(created);
                     node.children.push_back(std::move(extra));
                 }
@@ -4407,6 +4409,7 @@ namespace deren::engine {
                 scene_tree::scene_node node;
                 node.node_name = std::string(nfirst.get_name());
                 node.source_index = nfirst.get_source_index(); // asset node index (e.g. glTF): animation targets map onto the tree through it
+                node.import_instance = result.import_instance;
                 node.local = nfirst.get_local_transform();
                 if (depth == 0) {
                     node.local = glm::translate(glm::mat4(1.0f), offset) * node.local; // scene root gets the offset

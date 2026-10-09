@@ -160,14 +160,14 @@ namespace deren::engine::animation {
     // ---- playback table / gui binding ----
 
     std::size_t controller::skin_rig_count() const noexcept {
-        return this->skin_rigs.size();
+        return this->skin_readers.size();
     }
 
     std::optional<glm::mat4> controller::joint_world(std::size_t const rig_index, std::size_t const joint_index) const noexcept {
-        if (rig_index >= this->skin_rigs.size()) {
+        if (rig_index >= this->skin_readers.size() || this->skin_readers[rig_index] == deren::engine::scene_tree::no_source_index) {
             return std::nullopt;
         }
-        skin_rig const& rig = this->skin_rigs[rig_index];
+        skin_rig const& rig = this->skin_rigs[this->skin_readers[rig_index]];
         if (joint_index >= rig.s.joints.size()) {
             return std::nullopt;
         }
@@ -266,7 +266,7 @@ namespace deren::engine::animation {
         // weights channel for it.
         float* const active_scratch = this->host.morph_scratch_active();
         if (active_scratch != nullptr && !this->morph_rigs.empty()) {
-            for (morph_rig const& rig : this->morph_rigs) {
+            for (morph_rig& rig : this->morph_rigs) {
                 if (rig.source != source) {
                     continue;
                 }
@@ -285,8 +285,9 @@ namespace deren::engine::animation {
                 // than in a buffer of their own). Both regions are `rig.target_count` floats, so this is
                 // the ONLY place that has to keep them in step.
                 float* const weight_dst = active_scratch + weight_offset;
-                std::memcpy(weight_dst + rig.target_count, weight_dst, static_cast<std::size_t>(rig.target_count) * sizeof(float));
+                std::memcpy(weight_dst + rig.target_count, rig.last_weights.data(), static_cast<std::size_t>(rig.target_count) * sizeof(float));
                 std::memcpy(weight_dst, weights.data(), weights.size_bytes());
+                std::ranges::copy(weights, rig.last_weights.begin());
             }
         }
         if (!pose.any_transform) {
@@ -380,8 +381,13 @@ namespace deren::engine::animation {
             std::ranges::fill(this->skin_world_cache, glm::mat4(1.0f));
             auto const collect_worlds = [this](auto&& self, deren::engine::scene_tree::scene_node& node, glm::mat4 const& parent_world) -> void {
                 glm::mat4 const world = parent_world * node.local;
-                if (auto const it = this->skin_world_index.find(node.source_index); it != this->skin_world_index.end()) {
-                    this->skin_world_cache[it->second] = world;
+                if (node.import_instance == this->import_id) {
+                    if (auto const it = this->skin_world_index.find(node.source_index); it != this->skin_world_index.end()) {
+                        this->skin_world_cache[it->second] = world;
+                    }
+                }
+                if (auto const it = this->skin_mesh_world_cache.find(&node); it != this->skin_mesh_world_cache.end()) {
+                    it->second = world;
                 }
                 for (deren::engine::scene_tree::scene_node& child : node.children) {
                     self(self, child, world);
@@ -399,12 +405,8 @@ namespace deren::engine::animation {
             matrices.reserve(4 + (this->skin_rigs.size() * 8));
             matrices.insert(matrices.end(), {glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f), glm::mat4(1.0f)});
             for (skin_rig const& rig : this->skin_rigs) {
-                // ONE SKINNING SPACE FOR THE WHOLE RIG, taken from its first mesh source. glTF says a
-                // skinned mesh's own node transform is IGNORED - the joints' world transforms are the
-                // skinning space - so a single inverse is right for every node sharing the skin, and the
-                // init logs the case where more than one node shares it. If an asset ever turns up whose
-                // shared nodes carry DIFFERENT transforms, this line is the one to revisit.
-                glm::mat4 const mesh_world_inv = glm::inverse(world_of(rig.mesh_sources.front()));
+                // Cancel this mesh instance's world transform before the shader applies it.
+                glm::mat4 const mesh_world_inv = glm::inverse(this->skin_mesh_world_cache.at(rig.mesh_node));
                 for (std::size_t j = 0; j < rig.s.joints.size(); ++j) {
                     matrices.push_back(mesh_world_inv * world_of(rig.s.joints[j]) * rig.s.inverse_bind[j]);
                 }

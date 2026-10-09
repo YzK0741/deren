@@ -2337,7 +2337,7 @@ int main(int argc, char** argv) {
             scenes->animations.push_back(std::move(converted));
         }
     }
-    animation.init(*scenes, deren::chores::make_animation_backend(runtime), scene_import_shift);
+    animation.init(*scenes, deren::chores::make_animation_backend(runtime), scene_import_shift, imported.import_instance);
     // [render] animation_time >= 0 PINS the pose: playback is wall-clock driven, so two captures of an
     // animated scene differ unless the time is fixed - and this is also what makes such a scene usable in
     // a measurement or a regression scenario at all. scrub() is the overlay's time slider, so the pose is a
