@@ -120,7 +120,7 @@ namespace deren::vulkan {
         return deren::vulkan::buffer_address(this->vulkan_core, buffer);
     }
 
-    bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, std::uint64_t const size, VkDescriptorType const type) const {
+    bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, std::uint64_t const size, rhi::descriptor_type const type) const {
         return contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
     }
 
@@ -2890,64 +2890,55 @@ namespace deren::vulkan {
         // slot until this rewrite existed, and read the real albedo the moment it was added). BUFFERS ARE
         // UNAFFECTED, which is why the material table and the camera/light UBOs worked all along, and why the
         // IBL images worked too - they are uploaded and transitioned before their descriptors are written.
-        auto const write_sampled_target = [this](uint32_t const slot, VkImage const image, VkFormat const format, VkImageAspectFlags const aspect) {
-            if (image == VK_NULL_HANDLE) {
+        auto const write_sampled_target = [this](uint32_t const slot, rhi::image const* const image) {
+            if (image == nullptr) {
                 return;
             }
-            VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, aspect, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-            [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE);
+            [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot),
+                                                                            *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         };
-        // THE SAME, FOR A TARGET THE ENGINE HOLDS (③-D/E A1): the raw handle comes through the contract's
-        // escape, and an empty manager (a device that refused the creation) writes nothing - `find`-style
-        // emptiness, not a null VkImage that would slip past the check above.
-        auto const native_target = [this](auto const& owned) -> VkImage {
-            return static_cast<bool>(owned) ? static_cast<VkImage>(this->escape().native_image(*owned)) : VK_NULL_HANDLE;
-        };
+        auto const target_image = [](auto const& owned) -> rhi::image const* { return owned.get(); };
         std::size_t const heap_image = static_cast<std::size_t>(this->current_image_index);
         if (heap_image < rhi::max_swapchain_images) {
             uint32_t const image_slot = static_cast<uint32_t>(heap_image);
             // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4), so every handle below comes through the
             // contract's escape; an empty manager writes nothing, which is what the null-image early return
             // inside `write_sampled_target` already means.
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_albedo + image_slot, native_target(this->gbuffer_images[0][heap_image]), deren::vulkan::render_layout::gbuffer_formats[0], VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_normal + image_slot, native_target(this->gbuffer_images[1][heap_image]), deren::vulkan::render_layout::gbuffer_formats[1], VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_material + image_slot, native_target(this->gbuffer_images[2][heap_image]), deren::vulkan::render_layout::gbuffer_formats[2], VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_depth + image_slot, native_target(this->gbuffer_depth_images[heap_image]), this->depth_attachment_format, VK_IMAGE_ASPECT_DEPTH_BIT);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_velocity + image_slot, native_target(this->velocity_images[heap_image]), deren::vulkan::render_layout::gbuffer_velocity_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::taa_current + image_slot, native_target(this->scene_color_images[heap_image]), deren::vulkan::render_layout::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::post_color + image_slot, native_target(this->hdr_images[heap_image]), deren::vulkan::render_layout::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::display_color + image_slot, native_target(this->ldr_images[heap_image]), deren::vulkan::render_layout::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_albedo + image_slot, target_image(this->gbuffer_images[0][heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_normal + image_slot, target_image(this->gbuffer_images[1][heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_material + image_slot, target_image(this->gbuffer_images[2][heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_depth + image_slot, target_image(this->gbuffer_depth_images[heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_velocity + image_slot, target_image(this->velocity_images[heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::taa_current + image_slot, target_image(this->scene_color_images[heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::post_color + image_slot, target_image(this->hdr_images[heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::display_color + image_slot, target_image(this->ldr_images[heap_image]));
             // ... and the same for every OTHER per-image target a shader samples or writes: the temporal
             // history, the megalights chain (sampled AND its storage twin), and the four bloom levels, which
             // the grid packs `heap_image_capacity` apart.
-            auto const write_storage_target = [this](uint32_t const slot, VkImage const image, VkFormat const format) {
-                if (image == VK_NULL_HANDLE) {
+            auto const write_storage_target = [this](uint32_t const slot, rhi::image const* const image) {
+                if (image == nullptr) {
                     return;
                 }
-                VkImageViewCreateInfo const view = make_image_view_info(image, format, VK_IMAGE_VIEW_TYPE_2D, VK_IMAGE_ASPECT_COLOR_BIT, VK_REMAINING_MIP_LEVELS, VK_REMAINING_ARRAY_LAYERS);
-                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot), view, VK_IMAGE_LAYOUT_GENERAL, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE);
+                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot),
+                                                                                *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0, .role = rhi::view_role::storage}, rhi::descriptor_type::storage_image);
             };
             // THE TAA HISTORY IMAGE IS THE ENGINE'S OWN (③-D/E A1.1): the raw handle comes through the
             // contract's escape, and the guard is the fixed-size array's own VALIDITY rather than a vector's
             // length - `heap_image` is the acquired image index, already inside the rhi::max_swapchain_images
             // bound the frame's end_recording checks.
             if (heap_image < rhi::max_swapchain_images && static_cast<bool>(this->taa_history_images[heap_image])) {
-                write_sampled_target(deren::vulkan::render_layout::heap_slots::taa_history + image_slot,
-                                     static_cast<VkImage>(this->escape().native_image(*this->taa_history_images[heap_image])),
-                                     deren::vulkan::render_layout::hdr_format,
-                                     VK_IMAGE_ASPECT_COLOR_BIT);
+                write_sampled_target(deren::vulkan::render_layout::heap_slots::taa_history + image_slot, this->taa_history_images[heap_image].get());
             }
             // THE HALF-RESOLUTION CHAIN IS THE ENGINE'S OWN TOO (③-D/E A1.5): the same escape, and the same
             // "an empty manager writes nothing" shape - the fixed-size arrays make a length guard meaningless,
             // and `native_target` answers VK_NULL_HANDLE for a slot the creation refused.
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_trace + image_slot, native_target(this->ml_images[heap_image]), deren::vulkan::render_layout::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            write_storage_target(deren::vulkan::render_layout::heap_slots::ml_trace_storage + image_slot, native_target(this->ml_images[heap_image]), deren::vulkan::render_layout::hdr_format);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_resolved + image_slot, native_target(this->ml_resolve_images[heap_image]), deren::vulkan::render_layout::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
-            write_storage_target(deren::vulkan::render_layout::heap_slots::ml_resolved_storage + image_slot, native_target(this->ml_resolve_images[heap_image]), deren::vulkan::render_layout::hdr_format);
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_history + image_slot, native_target(this->ml_history_images[heap_image]), deren::vulkan::render_layout::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_trace + image_slot, target_image(this->ml_images[heap_image]));
+            write_storage_target(deren::vulkan::render_layout::heap_slots::ml_trace_storage + image_slot, target_image(this->ml_images[heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_resolved + image_slot, target_image(this->ml_resolve_images[heap_image]));
+            write_storage_target(deren::vulkan::render_layout::heap_slots::ml_resolved_storage + image_slot, target_image(this->ml_resolve_images[heap_image]));
+            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_history + image_slot, target_image(this->ml_history_images[heap_image]));
             for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
-                write_sampled_target(deren::vulkan::render_layout::heap_slots::bloom_l0 + level * deren::vulkan::render_layout::heap_image_capacity + image_slot,
-                                     native_target(this->bloom_images[level][heap_image]), deren::vulkan::render_layout::hdr_format, VK_IMAGE_ASPECT_COLOR_BIT);
+                write_sampled_target(deren::vulkan::render_layout::heap_slots::bloom_l0 + level * deren::vulkan::render_layout::heap_image_capacity + image_slot, target_image(this->bloom_images[level][heap_image]));
             }
         }
 

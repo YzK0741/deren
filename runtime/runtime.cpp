@@ -80,7 +80,7 @@ namespace deren::vulkan {
             return;
         }
         std::uint64_t const tlas_address = tlas->device_address();
-        if (!contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::tlas + frame_slot), tlas_address, tlas->size_bytes(), VK_DESCRIPTOR_TYPE_ACCELERATION_STRUCTURE_KHR)) {
+        if (!contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::tlas + frame_slot), tlas_address, tlas->size_bytes(), rhi::descriptor_type::acceleration_structure)) {
             deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::tlas + frame_slot);
         }
 
@@ -93,7 +93,7 @@ namespace deren::vulkan {
         // out of the escape - the same path every other converted site takes. The pointer is BORROWED from the
         // structure's own slot (see that accessor's note): it is read here and nothing keeps it.
         if (rhi::buffer const* const instance_table = this->structures.instance_table_buffer(frame_slot); instance_table != nullptr) {
-            if (!this->write_heap_buffer(*instance_table, deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot, this->structures.instance_table_size(frame_slot), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)) {
+            if (!this->write_heap_buffer(*instance_table, deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot, this->structures.instance_table_size(frame_slot), rhi::descriptor_type::storage_buffer)) {
                 deren::utility::log("descriptor heap: the instance table did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot);
             }
         }

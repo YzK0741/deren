@@ -43,6 +43,13 @@ MASK 与蒙皮回调直接传递 `rhi::command_buffer&`，运行时核对本帧�
 
 本批曾因磁盘耗尽导致 extension 源码写入不完整，已从已核验 HEAD 恢复，再完成迁移与全部门禁。只清理了当前构建目录可生成 actual 截图和九个历史 RT 副本的 CMakeFiles 缓存，释放约 8 GB；源码、冻结基准、实验日志与历史可执行文件保留。用户最新额度要求：剩余 **5%** 时停止并汇报。
 
+
+### X5 第六批：图像/缓冲堆描述符
+
+阴影数组、材质纹理、post/FGD LUT、G-buffer、TAA、ML 与 bloom 的采样/storage 描述符全部传入 RHI 图像及 image_view_desc。后端从自有图像解析格式、深度方面和视图类型；runtime 不再生成 VkImageViewCreateInfo 或读取这些图像的原生句柄。缓冲写入与全部消费者使用 rhi::descriptor_type，删除原生描述符映射及图像写入重载。
+
+完整构建、CTest **19/19**、严格 RT **PASS**（AS 探针 83/0）、冻结渲染 **14/14**、格式检查通过。词汇仍为 **4** 个 runtime 文件，但 constructor/frame 残留种类分别降为 **15/8**；P-Nm/P-Import 仍 0。日志前缀 `x5-image-contract-*`。本批未修改后端语义或冻结基准。
+
 ---
 
 ## 0.0 独立复核（Lead，接手方收尾之后）
