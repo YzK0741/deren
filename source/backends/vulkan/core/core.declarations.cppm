@@ -607,7 +607,8 @@ namespace deren::vulkan {
             /// the build reads it later, at record time: a reallocation would leave that pointer dangling, and the
             /// failure mode is a traversal consulting freed memory rather than a compile error.
             std::vector<VkAccelerationStructureTrianglesOpacityMicromapEXT> micromap_attachments = {};
-            VkAccelerationStructureBuildRangeInfoKHR range = {};
+            /// One range per geometry, in the same order as geometries.
+            std::vector<VkAccelerationStructureBuildRangeInfoKHR> ranges = {};
             /// TOP LEVEL: the instance records, in the backend's own host-visible buffer
             deren::promise::rhi::buffer* instances = nullptr;
             void* instances_mapped = nullptr;

@@ -34,7 +34,10 @@
 // ============================================================================
 #include "vk_test.h"
 
+#include <algorithm>
+#include <array>
 #include <cstdint>
+#include <cstdio>
 #include <string_view>
 
 import deren.promise.rhi;
@@ -108,6 +111,30 @@ int main(int const argc, char** const argv) {
         CHECK(dynamic.valid());
 
         rhi::api_core& face = dynamic.rhi_face();
+        // The allocation size may exceed the initialization span only when it is empty.
+        // The backing array stays large enough to make the old over-read deterministic and safe here.
+        std::array<std::byte, 64> bytes{};
+        std::fill(bytes.begin(), bytes.end(), std::byte{0x5A});
+        auto const short_input = std::span<std::byte const>(bytes).first(16);
+        for (auto const usage : {rhi::buffer_usage::storage_coherent, rhi::buffer_usage::vertex, rhi::buffer_usage::index}) {
+            rhi::object_manager<rhi::buffer> invalid{face.create_buffer({.size = bytes.size(), .usage = usage, .initial_bytes = short_input})};
+            CHECK_MSG(!invalid, "a nonempty initialization span shorter than the allocation must be refused");
+        }
+        rhi::object_manager<rhi::buffer> initialized{face.create_buffer({.size = short_input.size(), .usage = rhi::buffer_usage::storage_coherent, .initial_bytes = short_input})};
+        CHECK(initialized);
+        if (initialized) {
+            CHECK(std::equal(short_input.begin(), short_input.end(), initialized->mapped().begin()));
+        }
+        rhi::object_manager<rhi::buffer> allocation_only{face.create_buffer({.size = bytes.size(), .usage = rhi::buffer_usage::storage_coherent})};
+        CHECK(allocation_only);
+        std::fflush(stdout); // retain preceding failures if an invalid heap call crashes the old backend
+
+        auto* const heap = rhi::query_extension<rhi::descriptor_heap>(face);
+        CHECK(heap != nullptr && heap->ready());
+        if (heap != nullptr && heap->ready()) {
+            CHECK(heap->bind({}) == rhi::error::invalid_argument);
+            CHECK(heap->push_data({.data = short_input.first(4)}) == rhi::error::invalid_argument);
+        }
         rhi::ability_bits const abilities = face.abilities();
         CHECK(rhi::has_ability(abilities, rhi::extension_kind::vulkan_escape));
         CHECK(rhi::has_ability(abilities, rhi::extension_kind::device_address));

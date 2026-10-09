@@ -883,6 +883,10 @@ namespace deren::vulkan {
                 // 原生命令缓冲的归属和录制状态仍是调用方前提；不强转frame_commands。
                 return static_cast<VkCommandBuffer>(native.commands);
             }
+            if (commands == nullptr) {
+                result = rhi::error::invalid_argument;
+                return VK_NULL_HANDLE;
+            }
             if (commands != &owner.commands_view) {
                 // ANY OTHER COMMAND BUFFER THIS BACKEND HANDED OUT IS ACCEPTED TOO (a correction to the refusal
                 // that stood here): `create_command_buffer` / `make_command_buffer` produce
@@ -1081,6 +1085,10 @@ namespace deren::vulkan {
         if (desc.size == 0) {
             // A ZERO-BYTE BUFFER IS NOT A BUFFER, and the descriptor asked for nothing. Answering
             // nullptr is the contract's "this descriptor cannot be honoured" (§4.2: no throwing path).
+            return nullptr;
+        }
+        if (!desc.initial_bytes.empty() && desc.initial_bytes.size() < desc.size) {
+            deren::utility::log("rhi: create_buffer refused: {} initial bytes do not cover {} bytes", desc.initial_bytes.size(), desc.size);
             return nullptr;
         }
 
@@ -3244,9 +3252,10 @@ namespace deren::vulkan {
                 .geometry = {.instances = instances_data},
                 .flags = 0,
             });
-            structure->range = VkAccelerationStructureBuildRangeInfoKHR{.primitiveCount = 0u, .primitiveOffset = 0u, .firstVertex = 0u, .transformOffset = 0u};
+            structure->ranges.push_back(VkAccelerationStructureBuildRangeInfoKHR{.primitiveCount = 0u, .primitiveOffset = 0u, .firstVertex = 0u, .transformOffset = 0u});
         } else {
             structure->geometries.reserve(geometry_count);
+            structure->ranges.reserve(geometry_count);
             structure->micromap_attachments.reserve(geometry_count);
             for (std::uint32_t index = 0; index < geometry_count; ++index) {
                 rhi::acceleration_structure_geometry const& source = geometries[index];
@@ -3303,12 +3312,12 @@ namespace deren::vulkan {
                     // Preserve the engine's any-hit alpha test, including geometries without a micromap.
                     .flags = 0,
                 });
-                structure->range = VkAccelerationStructureBuildRangeInfoKHR{
+                structure->ranges.push_back(VkAccelerationStructureBuildRangeInfoKHR{
                     .primitiveCount = (source.index_address == 0 ? source.vertex_count : source.index_count) / 3u,
                     .primitiveOffset = 0u,
                     .firstVertex = 0u,
                     .transformOffset = 0u,
-                };
+                });
             }
         }
 
@@ -3322,10 +3331,14 @@ namespace deren::vulkan {
         size_info.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
         size_info.geometryCount = static_cast<std::uint32_t>(structure->geometries.size());
         size_info.pGeometries = structure->geometries.data();
-        std::uint32_t const primitive_count = top_level ? instance_capacity : structure->range.primitiveCount;
+        std::vector<std::uint32_t> primitive_counts;
+        primitive_counts.reserve(structure->ranges.size());
+        for (auto const& range : structure->ranges) {
+            primitive_counts.push_back(top_level ? instance_capacity : range.primitiveCount);
+        }
         VkAccelerationStructureBuildSizesInfoKHR sizes{};
         sizes.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR;
-        this->acceleration_structure_build_sizes(this->logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, &primitive_count, &sizes);
+        this->acceleration_structure_build_sizes(this->logical_device, VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR, &size_info, primitive_counts.data(), &sizes);
         if (sizes.accelerationStructureSize == 0) {
             deren::utility::log("rhi: create_acceleration_structure refused: the build-size query answered zero bytes");
             delete structure;
@@ -3516,11 +3529,10 @@ namespace deren::vulkan {
         build_info.pGeometries = structure.geometries.data();
         build_info.ppGeometries = nullptr;
         build_info.scratchData.deviceAddress = structure.scratch_address;
-        VkAccelerationStructureBuildRangeInfoKHR range = structure.range;
         if (structure.top_level) {
-            range.primitiveCount = structure.instance_count; // the build reads what the caller last wrote
+            structure.ranges.front().primitiveCount = structure.instance_count; // the build reads what the caller last wrote
         }
-        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {&range};
+        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {structure.ranges.data()};
         self->acceleration_structure_build(command_buffer, 1u, &build_info, ranges);
         return rhi::error::ok;
     }
@@ -3578,11 +3590,10 @@ namespace deren::vulkan {
         build_info.pGeometries = structure.geometries.data();
         build_info.ppGeometries = nullptr;
         build_info.scratchData.deviceAddress = structure.scratch_address;
-        VkAccelerationStructureBuildRangeInfoKHR range = structure.range;
         if (structure.top_level) {
-            range.primitiveCount = structure.instance_count;
+            structure.ranges.front().primitiveCount = structure.instance_count;
         }
-        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {&range};
+        VkAccelerationStructureBuildRangeInfoKHR const* ranges[1] = {structure.ranges.data()};
         self->acceleration_structure_build(command_buffer, 1u, &build_info, ranges);
         return rhi::error::ok;
     }

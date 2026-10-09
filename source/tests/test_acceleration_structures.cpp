@@ -35,6 +35,7 @@
 // ============================================================================
 #include "vk_test.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <string>
@@ -140,21 +141,29 @@ int main(int const argc, char** const argv) {
     //         `device_address` + `acceleration_structure_input` pair the renderer's own build inputs carry.
     constexpr rhi::buffer_flags build_input_flags =
         rhi::to_bits(rhi::buffer_flag::device_address) | rhi::to_bits(rhi::buffer_flag::acceleration_structure_input);
-    std::vector<vertex> const vertices{{.position = {0.0f, 0.0f, 0.0f}},
-                                       {.position = {1.0f, 0.0f, 0.0f}},
-                                       {.position = {0.0f, 1.0f, 0.0f}}};
-    std::uint32_t const indices[triangle_vertices] = {0u, 1u, 2u};
+    bool const multi_geometry = std::any_of(argv + 1, argv + argc, [](char const* arg) { return std::string_view(arg) == "--multi-geometry"; });
+    std::vector<vertex> vertices{{.position = {0.0f, 0.0f, 0.0f}},
+                                 {.position = {1.0f, 0.0f, 0.0f}},
+                                 {.position = {0.0f, 1.0f, 0.0f}},
+                                 {.position = {10.0f, 0.0f, 0.0f}},
+                                 {.position = {11.0f, 0.0f, 0.0f}},
+                                 {.position = {10.0f, 1.0f, 0.0f}}};
+    std::uint32_t const indices[6] = {0u, 1u, 2u, 0u, 1u, 2u};
+    if (!multi_geometry) {
+        vertices.resize(triangle_vertices);
+    }
+    auto const index_data = std::span<std::uint32_t const>(indices).first(multi_geometry ? 6u : triangle_vertices);
     rhi::buffer* const vertex_buffer = core->create_buffer(rhi::buffer_desc{
         .size = vertices.size() * sizeof(vertex), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
     rhi::buffer* const index_buffer = core->create_buffer(rhi::buffer_desc{
-        .size = sizeof(indices), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
+        .size = index_data.size_bytes(), .usage = rhi::buffer_usage::storage_coherent, .flags = build_input_flags});
     CHECK(vertex_buffer != nullptr);
     CHECK(index_buffer != nullptr);
     if (vertex_buffer == nullptr || index_buffer == nullptr) {
         return deren::vk_test::finish("test_acceleration_structures");
     }
     std::memcpy(vertex_buffer->mapped().data(), vertices.data(), vertices.size() * sizeof(vertex));
-    std::memcpy(index_buffer->mapped().data(), indices, sizeof(indices));
+    std::memcpy(index_buffer->mapped().data(), index_data.data(), index_data.size_bytes());
 
     as::geometry_source const source{
         .vertex_address = addresses->buffer_address(*vertex_buffer, 0),
@@ -194,11 +203,20 @@ int main(int const argc, char** const argv) {
         .index_format = rhi::index_type::uint32,
         .index_count = triangle_vertices,
     };
+    // --multi-geometry uses different counts, with the probe's hit triangle in the SECOND geometry.
+    // Missing per-geometry ranges either read past the first triangle or lose the ray hit.
+    auto away_geometry = geometry;
+    away_geometry.vertex_address += triangle_vertices * sizeof(vertex);
+    away_geometry.index_address = 0;
+    away_geometry.index_count = 0;
+    auto hit_geometry = geometry;
+    hit_geometry.index_count = 6u;
+    std::array<rhi::acceleration_structure_geometry, 2> const geometries{away_geometry, hit_geometry};
     rhi::acceleration_structure* const blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
         .type = rhi::acceleration_structure_type::bottom_level,
         .flags = rhi::to_bits(rhi::acceleration_structure_flag::allow_update),
-        .geometries = &geometry,
-        .geometry_count = 1u,
+        .geometries = multi_geometry ? geometries.data() : &geometry,
+        .geometry_count = multi_geometry ? static_cast<std::uint32_t>(geometries.size()) : 1u,
     });
     CHECK(blas != nullptr);
     rhi::acceleration_structure* const static_blas = core->create_acceleration_structure(rhi::acceleration_structure_desc{
