@@ -13,7 +13,6 @@ module;
 #include <glm/glm.hpp> // the push block's ssao lane and the frame's inverse view-projection
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.deferred;
 

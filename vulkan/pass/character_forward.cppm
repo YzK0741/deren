@@ -47,7 +47,6 @@ module;
 #include <memory> // std::shared_ptr: a session's target is the contract handle (see make_environment)
 #include <span>
 #include <string_view>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.pass.character_forward;
 

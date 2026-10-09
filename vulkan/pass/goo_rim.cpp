@@ -13,7 +13,6 @@ module;
 #include <cstdint>
 #include <glm/glm.hpp> // the push block's inverse view-projection (`io.constants.inv_view_proj`)
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.goo_rim;
 

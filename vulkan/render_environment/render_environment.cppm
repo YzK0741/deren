@@ -1,9 +1,8 @@
 module;
 
-#include <cstddef>         // std::byte: the push block is bytes now (see push_block below)
-#include <memory>          // std::shared_ptr: the session's recording target is the contract handle
-#include <span>            // std::span: what the endpoint takes
-#include <vulkan/vulkan.h> // VkCommandBuffer / VkPipelineLayout handle typedefs only
+#include <cstddef> // std::byte: the push block is bytes now (see push_block below)
+#include <memory>  // std::shared_ptr: the session's recording target is the contract handle
+#include <span>    // std::span: what the endpoint takes
 
 export module deren.vulkan.render_environment;
 
@@ -69,7 +68,6 @@ namespace deren::vulkan {
         std::string_view default_name = {};                                                                      // this pass's default
         std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, std::string_view)> bind = {};   // injected binder
         std::function<void(std::shared_ptr<deren::promise::rhi::command_buffer>, bool)> set_depth_write_fn = {}; // injected depth-write setter
-        VkPipelineLayout layout = VK_NULL_HANDLE;                                                                // shared scene layout
         /**
          * HOW A DRAW SENDS ITS PUSH BLOCK, now that no pipeline has a layout (see
          * `pass::resolved_io::push_endpoint`, which is the same pair for a pass).
@@ -77,8 +75,8 @@ namespace deren::vulkan {
          * `vkCmdPushConstants` needs a layout to push to, and every heap-native pipeline is created with
          * `layout = VK_NULL_HANDLE`, so a stage block travels as DATA through `vkCmdPushDataEXT` instead - read
          * by the shader exactly as it always read push constants. A primitive's draw() has no access to the
-         * heap, and this session object is what it does have, so the runtime fills these two where it fills
-         * `layout`, and the endpoint appends the heap's two indices (frame slot, swapchain image) to the block.
+         * heap, and this session object is what it does have, so the runtime supplies these two recording endpoints. The endpoint appends the heap's two indices
+         * (frame slot, swapchain image) to the block.
          *
          * NOT a `std::function`: this is copied into every worker's session every frame, and a raw owner plus a
          * function pointer is what a per-draw call can afford.

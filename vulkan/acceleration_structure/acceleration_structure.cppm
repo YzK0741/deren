@@ -98,7 +98,7 @@ namespace deren::vulkan::acceleration_structure {
         uint32_t vertex_stride = 0;        // bytes per vertex (the engine's interleaved layout)
         uint32_t vertex_count = 0;
         std::uintptr_t index_address = 0; // first index, already offset into the buffer
-        VkIndexType index_type = VK_INDEX_TYPE_UINT32;
+        deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         uint32_t index_count = 0; // triangles = index_count / 3
         /**
          * THE OPACITY MICROMAP this geometry consults, when it has one: the handle, the PER-TRIANGLE index buffer
@@ -152,7 +152,7 @@ namespace deren::vulkan::acceleration_structure {
      *       cannot get from the ray: the interpolated vertex NORMAL is in object space, and turning it
      *       into the shading normal is `normalize(mat3(model) * n)` - exactly what pbr.vert does. The
      *       hit's world POSITION does not need it: that is the ray's origin plus t times its direction.
-     * @note `index_type` is a VkIndexType: a shader reads 16-bit indices by loading a 32-bit word and
+     * @note `index_type` is a RHI index type: a shader reads 16-bit indices by loading a 32-bit word and
      *       taking the half its index falls in, which avoids depending on 16-bit storage access.
      * @note std430 layout as the shader declares it: two 8-byte addresses, a 16-byte-aligned mat4, then
      *       four 4-byte fields = 96 bytes, no padding. The static_assert below is what keeps a field
@@ -163,7 +163,7 @@ namespace deren::vulkan::acceleration_structure {
         std::uintptr_t index_address = 0;  // the index buffer's device address (base)
         glm::mat4 model = glm::mat4(1.0f); // object -> world, for the vertex normal
         uint32_t vertex_stride = 0;
-        uint32_t index_type = 0;     // VkIndexType, for the shader that indexes with it
+        uint32_t index_type = 0;     // RHI index type, for the shader that indexes with it
         uint32_t material_index = 0; // into the scene's material table (set 0 binding 5)
         uint32_t primitive_index = 0;
     };

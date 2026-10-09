@@ -13,7 +13,6 @@ module;
 #include <span>
 #include <string>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.shadow;
 

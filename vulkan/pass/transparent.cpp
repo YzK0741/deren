@@ -9,7 +9,6 @@ module;
 #include <cstdint>
 #include <memory> // std::shared_ptr: the frame's secondary is the contract handle
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.transparent;
 

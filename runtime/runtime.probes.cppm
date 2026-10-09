@@ -22,7 +22,6 @@ module;
 #include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
 #include <thread> // std::this_thread::yield in the frame limiter
 #include <vector> // the destination of a host image copy, when that read-back path is taken
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.runtime:probes;
 

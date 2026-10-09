@@ -46,7 +46,7 @@ struct MaskBakePush
     uint2 destination;
     uint source_stride;
     uint destination_stride;
-    uint index_type; // VkIndexType: 0 = uint16, 1 = uint32 (ignored when source_indices is zero)
+    uint index_type; // RHI index type: 0 = uint16, 1 = uint32 (ignored when source_indices is zero)
     uint triangle_count;
     uint material_index;
 };
@@ -86,7 +86,7 @@ void comp_main(uint3 invocation : SV_DispatchThreadID)
         uint vertex = i;
         if (indexed)
         {
-            // VkIndexType: UINT16 is 0 and UINT32 is 1.
+            // RHI index type: UINT16 is 0 and UINT32 is 1.
             if (pc.index_type == 0u)
             {
                 const uint word = indices[i >> 1u];

@@ -15,7 +15,6 @@ module;
 #include <memory> // std::shared_ptr: the session's target is the contract buffer the frame borrowed
 #include <span>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.scene;
 

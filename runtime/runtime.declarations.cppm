@@ -4360,7 +4360,7 @@ namespace deren::vulkan {
                 info.vertex_stride = vertex.stride;
                 info.vertex_count = vertex.count;
                 info.index_data = index.data;
-                info.index_type = index.width == 4 ? VK_INDEX_TYPE_UINT32 : VK_INDEX_TYPE_UINT16;
+                info.index_type = index.width == 4 ? deren::promise::rhi::index_type::uint32 : deren::promise::rhi::index_type::uint16;
                 info.index_count = index.count;
                 info.albedo = to_texture(drawable.get_albedo(), rhi::image_format::rgba8_srgb);
                 info.metallic_roughness = to_texture(drawable.get_metallic_roughness(), rhi::image_format::rgba8_unorm);

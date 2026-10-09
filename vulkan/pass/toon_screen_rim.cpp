@@ -15,7 +15,6 @@ module;
 #include <new> // ::operator new's aligned overloads must be VISIBLE here: the deferred
                // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.toon_screen_rim;
 

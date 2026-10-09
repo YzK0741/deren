@@ -13,6 +13,13 @@
 
 构建使用 `-j 10`。本机此前发生编译内存耗尽；仅在本地 CMake 缓存中把编译和链接任务池限制为 3，同时保持总任务上限 10。日志位于 `build-release-dyn-clang64/x5-*`。B4 和可移植性证明仍待完成。
 
+
+### X5 第二批：索引枚举与无用头文件
+
+几何、primitive、加速结构输入统一使用已有 `rhi::index_type`，保持着色器索引编码 0/1 和 GPU 数据布局。删除 13 个仅剩 include 的文件中的 Vulkan 头，以及两个 primitive 头引用和无调用者的 `render_environment::layout` 字段。没有移动扫描例外、修改基准或增加 ABI 版本。
+
+完整构建、CTest **19/19**、严格 RT **PASS**、冻结渲染 **14/14**、格式检查通过。边界扫描：原生词汇文件 **25 → 9**，引擎 Vulkan 符号 **0**，主程序图形 API 导入 **0**。日志：`x5-index-build/ctest/rt/render/format/boundary.log`（构建目录下）。
+
 ---
 
 ## 0.0 独立复核（Lead，接手方收尾之后）

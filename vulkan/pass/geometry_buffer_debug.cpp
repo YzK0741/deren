@@ -11,7 +11,6 @@ module;
 #include <cstring>
 #include <span>
 #include <string>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.pass.geometry_buffer_debug;
 

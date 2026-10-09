@@ -52,7 +52,7 @@ export namespace deren::vulkan::pass {
         glm::uvec2 destination = glm::uvec2(0u);     // ... the expanded buffer this job fills
         uint32_t source_stride = 0;
         uint32_t destination_stride = 0; // 32: position(3) + normal(3) + uv(2), what hit shading reads
-        uint32_t index_type = 1;         // VkIndexType: 0 = uint16, 1 = uint32 (ignored when unindexed)
+        uint32_t index_type = 1;         // RHI index type: 0 = uint16, 1 = uint32 (ignored when unindexed)
         uint32_t triangle_count = 0;
         uint32_t material_index = 0; // the material whose alpha texture and cutoff decide the mask
     };
@@ -75,7 +75,7 @@ export namespace deren::vulkan::pass {
         std::uint64_t destination = 0;     // the expanded copy this bake writes
         uint32_t source_stride = 0;
         uint32_t destination_stride = 32; // the engine's traced vertex layout
-        uint32_t index_type = 1;          // VkIndexType
+        uint32_t index_type = 1;          // RHI index type
         uint32_t triangle_count = 0;
         uint32_t material_index = 0;
     };

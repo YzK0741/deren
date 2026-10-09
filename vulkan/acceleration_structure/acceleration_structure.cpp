@@ -113,7 +113,7 @@ namespace deren::vulkan::acceleration_structure {
             .vertex_stride = source.vertex_stride,
             .vertex_count = source.vertex_count,
             .index_address = static_cast<std::uint64_t>(source.index_address),
-            .index_format = source.index_type == VK_INDEX_TYPE_UINT16 ? rhi::index_type::uint16 : rhi::index_type::uint32,
+            .index_format = source.index_type,
             .index_count = source.index_count,
             .opacity_micromap = source.opacity_micromap,
         };

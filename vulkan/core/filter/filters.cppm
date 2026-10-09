@@ -44,7 +44,6 @@ module;
 #include <memory>
 #include <utility>
 #include <vector>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.core.filters;
 // THIS FILE NO LONGER EXPORTS A BACKEND MODULE. It used to `export import deren.vulkan.core;`, which is

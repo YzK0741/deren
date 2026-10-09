@@ -161,7 +161,7 @@ int main(int const argc, char** const argv) {
         .vertex_stride = sizeof(vertex),
         .vertex_count = triangle_vertices,
         .index_address = addresses->buffer_address(*index_buffer, 0),
-        .index_type = VK_INDEX_TYPE_UINT32,
+        .index_type = deren::promise::rhi::index_type::uint32,
         .index_count = triangle_vertices,
     };
     deren::vk_test::write_line("as_probe: geometry vertex_address={:#x} index_address={:#x} triangles={}",

@@ -1938,7 +1938,7 @@ namespace deren::vulkan {
             .vertex_stride = info.vertex_stride,
             .vertex_count = info.vertex_count,
             .index_data = info.index_data,
-            .index_width = info.index_type == VK_INDEX_TYPE_UINT16 ? 2u : 4u,
+            .index_width = info.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u,
             .first_index = 0u,
             .index_count = info.index_count,
             .base_vertex = 0,

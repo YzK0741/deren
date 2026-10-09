@@ -34,7 +34,6 @@ module;
 
 #include <cstddef> // offsetof (layout guard below)
 #include <glm/glm.hpp>
-#include <vulkan/vulkan.h>
 
 export module deren.vulkan.primitive;
 import deren.promise.rhi; // the contract's buffer handle + object_manager: this module's geometry owners
@@ -1554,7 +1553,7 @@ namespace deren::vulkan {
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
         std::span<uint8_t const> index_data = {};
-        VkIndexType index_type = VK_INDEX_TYPE_UINT32;
+        deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         uint32_t index_count = 0;
 
         texture_input albedo = {};
@@ -1883,7 +1882,7 @@ namespace deren::vulkan {
         // draw now reaches the buffer through, so the borrow is gone rather than kept in parallel.
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> vertex_buffer = {};
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> index_buffer = {};
-        VkIndexType index_type = VK_INDEX_TYPE_UINT32;
+        deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         // called draw_index_count, not index_count: push_geometry_lanes_impl, push_meshlet_lanes and
         // mesh_dispatch keep a parameter named index_count, which would hide the member of that name and
         // MSVC /W4 reports C4458 (an error under /WX).
@@ -2139,7 +2138,7 @@ namespace deren::vulkan {
         uint32_t vertex_stride = 0;
         uint32_t vertex_count = 0;
         std::span<uint8_t const> index_data = {};
-        VkIndexType index_type = VK_INDEX_TYPE_UINT32;
+        deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         uint32_t index_count = 0; // whole merged index count (the chunk table covers a subset)
         std::vector<static_draw_chunk> chunks = {};
         glm::mat4 model_matrix = glm::mat4(1.0f);
@@ -2165,7 +2164,7 @@ namespace deren::vulkan {
         // merged geometry: owned the same way normal_draw owns its two buffers (see the note there)
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> vertex_buffer = {};
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> index_buffer = {};
-        VkIndexType index_type = VK_INDEX_TYPE_UINT32;
+        deren::promise::rhi::index_type index_type = deren::promise::rhi::index_type::uint32;
         uint32_t index_count = 0; // whole merged index count (upper bound for chunk validation)
         uint32_t vertex_count = 0;
         // chunk table over the merged buffer; each entry draws once after the single bind.

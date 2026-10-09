@@ -9,7 +9,6 @@ module;
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <span>
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.primitive;
 
@@ -143,7 +142,7 @@ namespace deren::vulkan {
         lanes.base_vertex = env.meshlets ? ((host_culled ? 1 : 0) | (backface_legal ? 2 : 0)) : base_vertex;
         // the buffer's own index type, which the shader needs because a raw load has no format: 4 for UINT32,
         // 2 for UINT16 (the shader reads the 16-bit case as the half of a 32-bit word its index falls in)
-        lanes.index_width = geometry.index_type == VK_INDEX_TYPE_UINT16 ? 2u : 4u;
+        lanes.index_width = geometry.index_type == deren::promise::rhi::index_type::uint16 ? 2u : 4u;
         if (lanes.vertex_address == 0 || lanes.index_address == 0) {
             // A buffer without a device address cannot be fetched by a mesh stage at all, and dispatching anyway
             // would read address 0. The primitive upload asks for SHADER_DEVICE_ADDRESS_BIT whenever the device
