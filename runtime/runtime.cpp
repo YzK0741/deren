@@ -1408,7 +1408,7 @@ namespace deren::vulkan {
         /// Push @p bytes and then @p lanes index lanes (see runtime::push_stage_block). The three endpoints differ
         /// only in that count, because a stage's shader declares exactly as many lanes as it reads: the post chain
         /// three (its source slot included), everything else two, the mask bake none.
-        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, VkCommandBuffer const command_buffer,
+        bool push_with_lanes(rhi::api_core& face, uint32_t const frame_slot, uint32_t const image_index, rhi::command_buffer& command_buffer,
                              std::span<std::byte const> const bytes, uint32_t const extra_lane, std::size_t const lanes) {
             constexpr std::size_t window = 256; // maxPushDataSize on this device (see heap_limits)
             std::array<std::byte, window> staging = {};
@@ -1441,17 +1441,17 @@ namespace deren::vulkan {
         uint32_t const source_slot = extra_lane == 0u
                                          ? deren::vulkan::render_layout::heap_slots::post_color + self->current_image_index
                                          : deren::vulkan::render_layout::heap_slots::bloom_l0 + (extra_lane - 1u) * deren::vulkan::render_layout::heap_image_capacity + self->current_image_index;
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, self->native_handle(command_buffer), bytes, source_slot, 3u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, source_slot, 3u);
     }
 
     bool runtime::push_index_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes, uint32_t const extra_lane) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, self->native_handle(command_buffer), bytes, extra_lane, 2u);
+        return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, extra_lane, 2u);
     }
 
     bool runtime::push_raw_block(void* const owner, rhi::command_buffer& command_buffer, std::span<std::byte const> const bytes) {
         runtime* const self = static_cast<runtime*>(owner);
-        return push_with_lanes(self->rhi_face(), 0u, 0u, self->native_handle(command_buffer), bytes, 0u, 0u);
+        return push_with_lanes(self->rhi_face(), 0u, 0u, command_buffer, bytes, 0u, 0u);
     }
 
     // ---- the MESH session's endpoints (docs/mesh_shaders.md step 1): what a draw without an input assembler
@@ -1474,9 +1474,8 @@ namespace deren::vulkan {
         // A raw push at an offset the STAGE declares (see mesh_geometry_offset): the block `push_stage_block` sends
         // already ends with the three heap index lanes, so the geometry lanes of a mesh stage's block cannot ride
         // along with it - they are appended after them, which is a second push rather than a second block.
-        // The contract handle becomes the API's own command buffer here, through the same escape the push above
-        // uses (see push_stage_block).
-        return contract_push_heap_data(self->rhi_face(), self->native_handle(command_buffer), offset, bytes);
+        // The descriptor heap validates the contract buffer and resolves its backend recording target.
+        return contract_push_heap_data(self->rhi_face(), command_buffer, offset, bytes);
     }
 
     bool runtime::draw_mesh_tasks(void* const owner, rhi::command_buffer& command_buffer, uint32_t const groups_x, uint32_t const groups_y, uint32_t const groups_z) {

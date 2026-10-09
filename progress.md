@@ -27,6 +27,13 @@ MASK 与蒙皮回调直接传递 `rhi::command_buffer&`，运行时核对本帧�
 
 完整构建、CTest **19/19**、严格 RT **PASS**（GPU hit/miss/mask、双帧槽与 Sponza MASK 烘焙）、冻结渲染 **14/14**（包含角色蒙皮）、格式检查通过。词汇文件 **9 → 5**，符号及导入仍为 0。日志前缀 `x5-rt-contract-*`。
 
+
+### X5 第四批：堆录制与运行时大小
+
+堆绑定和 push-data 直接传 `rhi::command_buffer`，删除临时 Vulkan next 链和四处 push 的原生句柄转换。帧录制开始仅检查契约缓冲；删除无调用者的 `scene_target_image/view` 及声明。runtime 大小与偏移统一为 `std::uint64_t`。RHI ABI 27、GPU 数据布局及图像基准不变。
+
+完整构建、CTest **19/19**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过；边界词汇仍为 **5** 个文件，符号/导入均为 **0**。日志前缀 `x5-heap-contract-*`。短期额度最新成功查询剩 **69%**；25% 停止要求保留。
+
 ---
 
 ## 0.0 独立复核（Lead，接手方收尾之后）

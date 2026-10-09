@@ -120,7 +120,7 @@ namespace deren::vulkan {
         return deren::vulkan::buffer_address(this->vulkan_core, buffer);
     }
 
-    bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, VkDeviceSize const size, VkDescriptorType const type) const {
+    bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, std::uint64_t const size, VkDescriptorType const type) const {
         return contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
     }
 
@@ -479,20 +479,9 @@ namespace deren::vulkan {
         // "what exists right now" has an answer (see pass::resource_table and runtime::publish_frame_resources).
         this->publish_frame_resources();
         // Record the frame into this slot's command buffer (inline recording: no inheritance).
-        // THE HANDLE COMES FROM THE CONTRACT (abi 15/21): `frame_command_buffer()` names the frame slot's
-        // borrowed handle and `native_frame_commands()` turns it into the raw `VkCommandBuffer` the few
-        // remaining raw sites below speak (the heap bind, the shadow stage's prepares, the post chain).
-        // THE BEGIN AND THE END ARE THE CONTRACT'S NOW (abi 26): `command_buffer::begin_recording()` /
-        // `end_recording()` are the lifecycle verbs, and the BACKEND - which owns this buffer - performs the
-        // API's own `vkBeginCommandBuffer`/`vkEndCommandBuffer`. What used to be here was a hand-built
-        // `VkCommandBufferBeginInfo` and `VK_SUCCESS`; the engine half names neither any more, and the guard
-        // below is only "is there a frame in flight", which the native derivation already answers.
-        VkCommandBuffer const command_buffer = this->native_frame_commands(this->frame_command_buffer());
-        if (command_buffer == VK_NULL_HANDLE) {
-            return frame_status::begin_recording_failed; // no frame is open: nothing to record into
-        }
-        if (std::shared_ptr<rhi::command_buffer> const frame_commands = this->frame_command_buffer();
-            !frame_commands || frame_commands->begin_recording({}) != rhi::error::ok) {
+        // Open the frame's borrowed recording target through the portable lifecycle.
+        std::shared_ptr<rhi::command_buffer> const recording_commands = this->frame_command_buffer();
+        if (!recording_commands || recording_commands->begin_recording({}) != rhi::error::ok) {
             return frame_status::begin_recording_failed;
         }
         // THE HEAP IS NOT BOUND HERE, AND THE MEASUREMENT IS WHY: binding it takes the WHOLE command buffer, not
@@ -509,7 +498,7 @@ namespace deren::vulkan {
         // stage's own push block (see shaders/heap_slots.glsl), which is what replaced the mapping shim's pushed
         // index - the binding is per frame, the indices are per stage.
         if (contract_heap_ready(vk)) {
-            contract_record_heap_bind(vk, command_buffer);
+            contract_record_heap_bind(vk, *recording_commands);
         }
         // GPU pass timing: open this frame's timestamp range and take the first mark. Marks are
         // written in gpu_mark_id order from here on (see gpu_mark); opening the range outside any
@@ -1152,7 +1141,7 @@ namespace deren::vulkan {
             // The scene-color target enters the pass as an attachment too (the emissive accumulation
             // target) - the HDR image normally, scene_color when the TAA resolve owns the HDR target
             // this frame (see scene_target_image). The CONTRACT handle is the same choice
-            // scene_target_image() makes, without the native derivation; it is cleared by the instance
+            // the scene target selection makes; it is cleared by the instance
             // below, so UNDEFINED as the old layout is correct whatever it held before.
             add_render_barrier(rhi::image_use::undefined,
                                rhi::image_use::color_attachment,
@@ -1573,31 +1562,6 @@ namespace deren::vulkan {
         // TAA is
         // the engine's answer to aliasing: a 1x G-buffer cannot be multisampled, so there is no MSAA to fall back on.
         return this->taa_on && this->pass_ready("taa") && this->deferred_lit_active();
-    }
-
-    VkImage runtime::scene_target_image(uint32_t const image_index) const noexcept {
-        // BOTH BRANCHES ARE THE ENGINE'S OWN NOW (③-D/E A1.3/A1.4) - the raw handle comes through the
-        // contract's escape. WHICH ONE the scene side writes is unchanged: the TAA input when the resolve
-        // runs, the HDR target otherwise.
-        if (this->taa_active()) {
-            return image_index < rhi::max_swapchain_images && static_cast<bool>(this->scene_color_images[image_index])
-                       ? static_cast<VkImage>(this->escape().native_image(*this->scene_color_images[image_index]))
-                       : VK_NULL_HANDLE;
-        }
-        return image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_images[image_index])
-                   ? static_cast<VkImage>(this->escape().native_image(*this->hdr_images[image_index]))
-                   : VK_NULL_HANDLE;
-    }
-
-    VkImageView runtime::scene_target_view(uint32_t const image_index) const noexcept {
-        if (this->taa_active()) {
-            return image_index < rhi::max_swapchain_images && static_cast<bool>(this->scene_color_image_views[image_index])
-                       ? static_cast<VkImageView>(this->escape().native_image_view(*this->scene_color_image_views[image_index]))
-                       : VK_NULL_HANDLE;
-        }
-        return image_index < rhi::max_swapchain_images && static_cast<bool>(this->hdr_image_views[image_index])
-                   ? static_cast<VkImageView>(this->escape().native_image_view(*this->hdr_image_views[image_index]))
-                   : VK_NULL_HANDLE;
     }
 
     bool runtime::set_taa_enabled(bool const enabled) noexcept {

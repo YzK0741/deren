@@ -288,14 +288,14 @@ namespace deren::vulkan {
     // 独立定义在 constructor 分区，避免调用点优化成具体 core 的 query_extension 符号。
     [[nodiscard]] bool contract_heap_ready(rhi::api_core& face) noexcept;
     [[nodiscard]] rhi::descriptor_heap_properties contract_heap_properties(rhi::api_core& face) noexcept;
-    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, rhi::image const& resource,
+    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, std::uint64_t offset, rhi::image const& resource,
                                                  rhi::image_view_desc const& view, rhi::descriptor_type type) noexcept;
-    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, VkDeviceSize offset, VkImageViewCreateInfo const& view,
+    [[nodiscard]] bool contract_write_heap_image(rhi::api_core& face, std::uint64_t offset, VkImageViewCreateInfo const& view,
                                                  VkImageLayout layout, VkDescriptorType type = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE) noexcept;
-    [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, VkDeviceSize offset, std::uintptr_t address,
-                                                  VkDeviceSize size, VkDescriptorType type) noexcept;
-    void contract_record_heap_bind(rhi::api_core& face, VkCommandBuffer commands) noexcept;
-    [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, VkCommandBuffer commands, std::uint32_t offset,
+    [[nodiscard]] bool contract_write_heap_buffer(rhi::api_core& face, std::uint64_t offset, std::uintptr_t address,
+                                                  std::uint64_t size, VkDescriptorType type) noexcept;
+    void contract_record_heap_bind(rhi::api_core& face, rhi::command_buffer& commands) noexcept;
+    [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer& commands, std::uint32_t offset,
                                                std::span<std::byte const> data) noexcept;
 
     /// THE SAME CONVERSION FOR A VALUE THAT IS ALREADY THE CONTRACT'S (plan X5 B3.3): a site holding an
@@ -1209,8 +1209,6 @@ namespace deren::vulkan {
          */
         [[nodiscard]] bool taa_active() const noexcept;
         /** @brief the image the scene-side passes write into (the TAA input, or the HDR target) */
-        [[nodiscard]] VkImage scene_target_image(uint32_t image_index) const noexcept;
-        [[nodiscard]] VkImageView scene_target_view(uint32_t image_index) const noexcept;
         /** @brief the sub-pixel jitter for a position in the Halton(2,3) sequence, in PIXELS */
         [[nodiscard]] static glm::vec2 taa_jitter_offset(uint32_t index) noexcept;
         /** @brief whether the opaque pass writes the G-buffer this frame (pipelines present + enabled) */
@@ -2142,7 +2140,7 @@ namespace deren::vulkan {
          * @return whether the heap took the write; a false is the caller's to log or to panic on, exactly as
          *         the per-site `descriptor_heaps.write_buffer` call it replaces was.
          */
-        [[nodiscard]] bool write_heap_buffer(rhi::buffer const& buffer, uint32_t slot, VkDeviceSize size, VkDescriptorType type) const;
+        [[nodiscard]] bool write_heap_buffer(rhi::buffer const& buffer, uint32_t slot, std::uint64_t size, VkDescriptorType type) const;
         // scene center handed to enable_shadows. The fit falls back to center +- scene_radius when a
         // shadow caster has no world AABB of its own AND is not an instanced draw whose instance
         // matrices we can read (see instanced_world_aabb).
