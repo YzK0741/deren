@@ -1,10 +1,8 @@
 module;
 
-// The slot grid's constants are Vulkan values (VkDeviceSize / VkFormat-free numbers), and a module both
-// halves compile must include the header itself (the same rule deren.vulkan.constant_init follows).
+// Portable renderer formats, offsets and slot constants shared by the engine and backends.
 #include <array>
 #include <cstdint>
-#include <vulkan/vulkan.h>
 
 /// THE RENDERER'S SLOT LAYOUT, COMPILED BY BOTH HALVES (③-D/E batch, ruling D).
 ///
@@ -23,6 +21,8 @@ module;
 /// moved here with the grid.
 export module deren.vulkan.render_layout;
 
+import deren.promise.rhi;
+
 export namespace deren::vulkan::render_layout {
 
     // ================================================================================================
@@ -38,7 +38,7 @@ export namespace deren::vulkan::render_layout {
      *        pass samples: the scene color target uses it, and each swapchain image owns one
      *        single-sample resolve target in it.
      */
-    inline constexpr VkFormat hdr_format = VK_FORMAT_R16G16B16A16_SFLOAT;
+    inline constexpr deren::promise::rhi::image_format hdr_format = deren::promise::rhi::image_format::r16g16b16a16_sfloat;
 
     /**
      * @brief how many color targets the G-buffer pass writes (see @ref gbuffer_formats)
@@ -57,10 +57,10 @@ export namespace deren::vulkan::render_layout {
      *       without per-sample shading, which is the trade that makes TAA the anti-aliasing
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
      */
-    inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = {
-        VK_FORMAT_R8G8B8A8_UNORM,
-        VK_FORMAT_R16G16B16A16_SFLOAT,
-        VK_FORMAT_R8G8B8A8_UNORM,
+    inline constexpr std::array<deren::promise::rhi::image_format, gbuffer_target_count> gbuffer_formats = {
+        deren::promise::rhi::image_format::rgba8_unorm,
+        deren::promise::rhi::image_format::r16g16b16a16_sfloat,
+        deren::promise::rhi::image_format::rgba8_unorm,
     };
 
     /**
@@ -69,7 +69,7 @@ export namespace deren::vulkan::render_layout {
      *        8-bit would quantize it to ~1/255 of the screen - coarser than the jitter TAA exists to
      *        resolve)
      */
-    inline constexpr VkFormat gbuffer_velocity_format = VK_FORMAT_R16G16_SFLOAT;
+    inline constexpr deren::promise::rhi::image_format gbuffer_velocity_format = deren::promise::rhi::image_format::r16g16_sfloat;
 
     /**
      * @brief how many levels the bloom chain has (③-D/E item A1.5): each level is
@@ -121,7 +121,7 @@ export namespace deren::vulkan::render_layout {
      *       bakes its base indices. A drift is invisible to validation and shows up as a wrong picture, so
      *       the constructor logs this table (see the `descriptor heap: slot grid` line).
      */
-    inline constexpr VkDeviceSize heap_slot_stride = 64;
+    inline constexpr std::uint64_t heap_slot_stride = 64;
     /// THE GRID'S BYTE OFFSET FOR A SLOT (see core::heap_slots and docs/descriptor_heap_migration.md): every
     /// descriptor is 64 B from the next, so a write HERE and a heap-native shader's `array[slot]` with
     /// `descriptor_stride = 64` are the same address by construction. There is no second stride to disagree
@@ -134,8 +134,8 @@ export namespace deren::vulkan::render_layout {
     /// @note THIS IS THE ONE COPY: it used to be duplicated in runtime:constructor, runtime:frames and
     ///       runtime.cpp, which is what a helper defined in terms of the stride below invites. It belongs
     ///       beside the constant it multiplies, and it is exported so those units can drop their own.
-    [[nodiscard]] inline constexpr VkDeviceSize heap_slot_offset(uint32_t const slot) noexcept {
-        return static_cast<VkDeviceSize>(slot) * heap_slot_stride;
+    [[nodiscard]] inline constexpr std::uint64_t heap_slot_offset(uint32_t const slot) noexcept {
+        return static_cast<std::uint64_t>(slot) * heap_slot_stride;
     }
 
     // NOT renamed, unlike the other members that round: `heap_slot_base` is a NAME CONTRACT with
@@ -151,7 +151,7 @@ export namespace deren::vulkan::render_layout {
     /// the sampler heap at 128 KiB, so 64 KiB - the reserved window the embedded-sampler path requires - is the
     /// largest base it can have. Its stride is the device's own sampler descriptor size (32 B here).
     inline constexpr uint32_t heap_sampler_base = 2048; // 64 KiB / 32 B
-    inline constexpr VkDeviceSize heap_sampler_stride = 32;
+    inline constexpr std::uint64_t heap_sampler_stride = 32;
     struct heap_slots {
         static constexpr uint32_t textures = heap_slot_base + 0u;    // binding 1, the bindless array
         static constexpr uint32_t materials = heap_slot_base + 512u; // binding 5

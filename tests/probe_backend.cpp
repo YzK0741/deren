@@ -575,6 +575,9 @@ namespace {
         void release() noexcept override;
         [[nodiscard]] rhi::error recreate() override;
         [[nodiscard]] rhi::image_extent extent() const noexcept override;
+        [[nodiscard]] rhi::image_format format() const noexcept override {
+            return rhi::image_format::bgra8_srgb;
+        }
 
         std::uint32_t releases = 0;
         std::uint32_t recreates = 0;

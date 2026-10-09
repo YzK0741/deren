@@ -194,7 +194,7 @@ namespace deren::vulkan {
             return;
         }
         constexpr rhi::image_format probe_format = rhi::image_format::rgba8_unorm;
-        auto const built = pipelines::build_heap_probe_graphics(vk, contract_image_format(probe_format), vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
+        auto const built = pipelines::build_heap_probe_graphics(vk, probe_format, vertex_code, fragment_code, mesh_shader ? rhi::shader_stage::mesh : rhi::shader_stage::vertex);
         if (!built.has_value()) {
             deren::utility::log("descriptor heap: the heap-native graphics probe's pipeline was refused: {}", built.error());
             return;
@@ -213,7 +213,7 @@ namespace deren::vulkan {
         target_desc.extent = rhi::image_extent{.width = pipelines::heap_probe_extent, .height = pipelines::heap_probe_extent, .depth = 1u};
         target_desc.mip_levels = 1;
         target_desc.array_layers = 1;
-        target_desc.format = contract_image_format(probe_format);
+        target_desc.format = probe_format;
         target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::host_transfer);
         target_desc.debug_name = "heap probe target";
         rhi::object_manager<rhi::image> target{this->rhi_face().create_image(target_desc)};

@@ -571,7 +571,7 @@ namespace deren::vulkan {
         // exactly what a caller that is not the runtime (a pass, whose create step has a device and its own
         // layout) cannot do. The four facts are read here instead, and they are the ones that entry point used,
         // so this is a re-expression: same layout, same formats, same single-sampled pipeline.
-        std::array<rhi::image_format, 1> const color_formats = {contract_image_format(this->swap_chain_image_format)};
+        std::array<rhi::image_format, 1> const color_formats = {this->swap_chain_image_format};
         // ... AND THE BLEND STATE, which the old entry point got from the convenience overload: the FORWARD
         // pipelines' convention is src-alpha blending (alpha is coverage, and an opaque draw's alpha of one
         // reduces the blend math to the source colour), while the span-based form's default is "overwrite".

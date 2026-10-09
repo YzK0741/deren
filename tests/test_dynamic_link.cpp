@@ -297,7 +297,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 27u);
+        CHECK(rhi::abi_version == 28u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -494,6 +494,8 @@ namespace {
         CHECK(surface->extent().width == 3u);
         CHECK(surface->extent().height == 5u);
         CHECK(surface->extent().depth == 1u);
+        CHECK(surface->format() == rhi::image_format::bgra8_srgb);
+        CHECK(surface->format() == core->frame_image()->format());
         CHECK_MSG(surface->recreate() == rhi::error::ok, which_half);
         // THE TIMING VERBS ARE ON THE LIST (abi 14), and the list is the borrowed recording view -
         // reachable only because the open above opened the frame. The probe's device cannot

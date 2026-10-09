@@ -2344,21 +2344,7 @@ namespace deren::vulkan {
     }
 
     rhi::image_format core::frame_image_slot::format() const noexcept {
-        // The four 8-bit shapes a screenshot can be unpacked from; anything else is `unknown`, and the
-        // engine's read stage turns that into the one-time "unsupported swapchain format" it already
-        // had (runtime.readback.cppm).
-        switch (this->owner->swap_chain_image_format) {
-        case VK_FORMAT_B8G8R8A8_SRGB:
-            return rhi::image_format::bgra8_srgb;
-        case VK_FORMAT_B8G8R8A8_UNORM:
-            return rhi::image_format::bgra8_unorm;
-        case VK_FORMAT_R8G8B8A8_SRGB:
-            return rhi::image_format::rgba8_srgb;
-        case VK_FORMAT_R8G8B8A8_UNORM:
-            return rhi::image_format::rgba8_unorm;
-        default:
-            return rhi::image_format::unknown;
-        }
+        return this->owner->swapchain_view_.format();
     }
 
     VkImage core::frame_image_slot::handle() const noexcept {

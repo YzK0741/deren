@@ -29,7 +29,6 @@ module;
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <memory> // std::shared_ptr: the frame's command buffer and the caller-owned secondaries are spelled in this interface (abi 21)
-#include <vulkan/vulkan.h>
 
 // THE GUI PLUGIN'S BOUNDARY (plan X2): the runtime holds a deren::gui::overlay, which lives in a
 // deren_gui_<api>.dll the loader resolves by name. In the GLOBAL MODULE FRAGMENT because the header
@@ -293,36 +292,6 @@ namespace deren::vulkan {
     [[nodiscard]] bool contract_push_heap_data(rhi::api_core& face, rhi::command_buffer& commands, std::uint32_t offset,
                                                std::span<std::byte const> data) noexcept;
 
-    /// THE SAME CONVERSION FOR A VALUE THAT IS ALREADY THE CONTRACT'S (plan X5 B3.3): a site holding an
-    /// `rhi::image_format` that hands it to code taking "the contract's spelling" is not converting anything.
-    [[nodiscard]] constexpr rhi::image_format contract_image_format(rhi::image_format const format) noexcept {
-        return format;
-    }
-    [[nodiscard]] constexpr rhi::image_format contract_image_format(VkFormat const format) noexcept {
-        switch (format) {
-        case VK_FORMAT_R8G8B8A8_UNORM:
-            return rhi::image_format::rgba8_unorm;
-        case VK_FORMAT_R8G8B8A8_SRGB:
-            return rhi::image_format::rgba8_srgb;
-        case VK_FORMAT_B8G8R8A8_UNORM:
-            return rhi::image_format::bgra8_unorm;
-        case VK_FORMAT_B8G8R8A8_SRGB:
-            return rhi::image_format::bgra8_srgb;
-        case VK_FORMAT_R16G16_SFLOAT:
-            return rhi::image_format::r16g16_sfloat;
-        case VK_FORMAT_R16G16B16A16_SFLOAT:
-            return rhi::image_format::r16g16b16a16_sfloat;
-        case VK_FORMAT_R32G32B32_SFLOAT:
-            return rhi::image_format::r32g32b32_sfloat;
-        // APPENDED with the contract's own appended value (③-D/E A1.2): the ray-traced visibility image is
-        // created at rhi::image_format::r16_sfloat, so the engine has to be able to NAME the format it creates with.
-        case VK_FORMAT_R16_SFLOAT:
-            return rhi::image_format::r16_sfloat;
-        default:
-            return rhi::image_format::unknown;
-        }
-    }
-
     // (THE `contract_image_extent` HELPER IS GONE - plan X5 B3.2. It existed because the pass layer held
     //  `rhi::image_extent` while the engine spelled its own sizes differently, so it was "the ONE place the two
     //  spellings meet". There is one spelling now, and a conversion from a type to itself is only noise.)
@@ -412,7 +381,6 @@ namespace deren::vulkan {
         /// the class, and no call site inside loses an access level because of this.
         [[nodiscard]] rhi::api_core& rhi_face() const noexcept;
         /// the escape the transitional raw sites borrow through (`native_image` and friends, abi 7).
-        [[nodiscard]] rhi::vulkan_escape& escape() const noexcept;
         /// whether this runtime holds a device root at all. A refused factory PANICS in the constructor
         /// rather than answering false here, so this is for diagnostics - the scaffold test asserts the
         /// object it just built is real - not for error handling.

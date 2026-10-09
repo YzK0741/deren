@@ -1395,11 +1395,11 @@ namespace deren::vulkan {
         // 深度写入仍由绘制时的动态状态控制，mesh/meshlet 共用同一份创建配方。
         auto const build_gbuffer = [this, fragment_shader_code](std::span<uint8_t const> const stage_code) {
             std::array<rhi::image_format, gbuffer_pass_attachment_count> const formats = {
-                contract_image_format(deren::vulkan::render_layout::gbuffer_formats[0]),
-                contract_image_format(deren::vulkan::render_layout::gbuffer_formats[1]),
-                contract_image_format(deren::vulkan::render_layout::gbuffer_formats[2]),
-                contract_image_format(deren::vulkan::render_layout::gbuffer_velocity_format),
-                contract_image_format(deren::vulkan::render_layout::hdr_format),
+                deren::vulkan::render_layout::gbuffer_formats[0],
+                deren::vulkan::render_layout::gbuffer_formats[1],
+                deren::vulkan::render_layout::gbuffer_formats[2],
+                deren::vulkan::render_layout::gbuffer_velocity_format,
+                deren::vulkan::render_layout::hdr_format,
             };
             std::array<rhi::blend_mode, gbuffer_pass_attachment_count> const blends = {
                 rhi::blend_mode::opaque,
@@ -1847,7 +1847,7 @@ namespace deren::vulkan {
             // NO DEVICE LANE (abi 21): the builders are contract factories and take `face` alone; the pass layer
             // reaches a native device through the escape when it needs an allocated entry point (pass::native_device).
             .face = &this->rhi_face(),
-            .swap_chain_format = contract_image_format(this->swap_chain_image_format),
+            .swap_chain_format = this->swap_chain_image_format,
             .samplers = this->shared_samplers(),
             .shader = [](void* owner, std::string_view const name) { return static_cast<runtime*>(owner)->registered_shader(name); },
             // The SBT numbers a tracing pass builds its table against, straight from the capability query (see
@@ -1884,7 +1884,7 @@ namespace deren::vulkan {
             // The surface's format: a SESSION-STABLE device fact a pipeline that renders into the swapchain must
             // be created with (see pass_context). The post chain needs it today; the graphics passes being
             // extracted need it tomorrow.
-            .swap_chain_image_format = contract_image_format(this->swap_chain_image_format),
+            .swap_chain_image_format = this->swap_chain_image_format,
             // ... and the DEPTH format, which the shadow pass`s pipeline needs (it has a depth attachment and no
             // colour one): the same kind of session-stable device fact, and the second one a context carries.
             .depth_format = rhi::image_format::depth,
@@ -2241,7 +2241,7 @@ namespace deren::vulkan {
         }
         // the secondaries inherit the instance's attachments: the three surface targets in order, the velocity
         // target, and the scene colour - the same order the pass's declaration lists them in
-        this->scene_color_formats = {contract_image_format(deren::vulkan::render_layout::gbuffer_formats[0]), contract_image_format(deren::vulkan::render_layout::gbuffer_formats[1]), contract_image_format(deren::vulkan::render_layout::gbuffer_formats[2]), contract_image_format(deren::vulkan::render_layout::gbuffer_velocity_format), contract_image_format(deren::vulkan::render_layout::hdr_format)};
+        this->scene_color_formats = {deren::vulkan::render_layout::gbuffer_formats[0], deren::vulkan::render_layout::gbuffer_formats[1], deren::vulkan::render_layout::gbuffer_formats[2], deren::vulkan::render_layout::gbuffer_velocity_format, deren::vulkan::render_layout::hdr_format};
         return pass::scene_frame{
             .leaves = this->frame_visible,
             .segments = this->scene_segment_view,
@@ -2425,7 +2425,7 @@ namespace deren::vulkan {
             .secondary = transparent,
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
-            .color_format = contract_image_format(deren::vulkan::render_layout::hdr_format),
+            .color_format = deren::vulkan::render_layout::hdr_format,
             .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
         };
@@ -2535,7 +2535,7 @@ namespace deren::vulkan {
             // ... and the outline group's pipeline name, on the overlay's terms exactly: empty when it was never
             // built, which the pass reads as "there is no outline to draw" (see `outline_ready` above).
             .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
-            .color_format = contract_image_format(deren::vulkan::render_layout::hdr_format), // one HDR target, and NOT the swapchain format - see the pass
+            .color_format = deren::vulkan::render_layout::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
             .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
         };

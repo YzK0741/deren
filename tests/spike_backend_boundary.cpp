@@ -581,6 +581,11 @@ namespace {
             CHECK(output.height > 0u);
             CHECK(surface->extent().width == output.width); // asking twice does not move a generation
             CHECK(surface->extent().height == output.height);
+            CHECK(surface->format() != rhi::image_format::unknown);
+            CHECK(surface->format() == rhi::image_format::bgra8_srgb || surface->format() == rhi::image_format::bgra8_unorm ||
+                  surface->format() == rhi::image_format::rgba8_srgb || surface->format() == rhi::image_format::rgba8_unorm ||
+                  surface->format() == rhi::image_format::r16g16_sfloat || surface->format() == rhi::image_format::r16g16b16a16_sfloat ||
+                  surface->format() == rhi::image_format::r32g32b32_sfloat || surface->format() == rhi::image_format::r16_sfloat);
 
             // THE TIMING VERBS LIVE ON THE LIST, AND WITH NO FRAME IN FLIGHT THERE IS NO LIST: that
             // is the structural fact this context can witness about them - the handle the verbs

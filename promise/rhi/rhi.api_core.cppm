@@ -1223,6 +1223,9 @@ export namespace deren::promise::rhi {
         /// scales it to its own render resolution (a render scale is a RENDERER decision, not a
         /// presentation fact, so the contract does not pre-multiply it).
         [[nodiscard]] virtual image_extent extent() const noexcept = 0;
+
+        /// Presentation format available before acquiring an image (ABI 28).
+        [[nodiscard]] virtual image_format format() const noexcept = 0;
     };
 
     struct query : object {

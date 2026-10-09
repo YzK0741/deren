@@ -286,7 +286,8 @@ export namespace deren::promise::rhi {
     /// `micromap_desc`, `micromap_usage`, `micromap_triangle`) plus `interface_type::micromap = 13` carry no bump
     /// of their own. The geometry that consults one declares it with `acceleration_structure_geometry::
     /// opacity_micromap` - a CONTRACT handle, never a driver's.
-    inline constexpr std::uint32_t abi_version = 27u;
+    /// 27 -> 28: swapchain::format() appends the pre-acquire presentation format query.
+    inline constexpr std::uint32_t abi_version = 28u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

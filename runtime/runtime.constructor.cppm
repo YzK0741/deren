@@ -33,7 +33,6 @@ module;
 #include <string>      // the panic messages below build their text through std::format
 #include <string_view> // the enabled-extension lookup in runtime_detail (see device_extension_enabled)
 #include <thread>      // std::this_thread::yield in the frame limiter
-#include <vulkan/vulkan.h>
 
 module deren.vulkan.runtime:constructor;
 
@@ -303,12 +302,6 @@ namespace deren::vulkan {
         return this->vulkan_core;
     }
 
-    rhi::vulkan_escape& runtime::escape() const noexcept {
-        // query_extension is a CONTRACT virtual: this call emits no backend symbol no matter which
-        // side of the boundary the object lives on.
-        return *rhi::query_extension<rhi::vulkan_escape>(this->rhi_face());
-    }
-
     // THE ONE CONSTRUCTION ENTRY (batch ⑥): the APPLICATION acquires the device root
     // (`deren.vulkan.backend_loader::load_api_core`, called by main.cpp and by the scaffold test) and
     // hands it over together with the SAME `create_info` that produced it - one descriptor, no second
@@ -345,7 +338,7 @@ namespace deren::vulkan {
         // and the pipelines that render into the presentation image are created up front (see the
         // contract's own note on the accessor). Asked here, in the constructor, and read from this member
         // by `make_pipeline` and `make_pass_context`.
-        this->swap_chain_image_format = contract_image_format(static_cast<VkFormat>(this->escape().native_swapchain_image_format()));
+        this->swap_chain_image_format = this->rhi_face().frame_swapchain()->format();
         // THE DEVICE'S CAPABILITIES: a device fact does not change while the device lives, so the five
         // legacy `core::ray_query_available` / `core::mesh_shader_available` reads become one query each.
         // The two derivations are the ENGINE's, from facts the escape exposes (the enabled device
@@ -1348,7 +1341,7 @@ namespace deren::vulkan {
             history_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             history_desc.mip_levels = 1;
             history_desc.array_layers = 1;
-            history_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            history_desc.format = deren::vulkan::render_layout::hdr_format;
             history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
             history_desc.debug_name = "TAA history image";
             create_sampled_target(history_desc, deren::vulkan::render_layout::heap_slots::taa_history + static_cast<uint32_t>(i),
@@ -1365,7 +1358,7 @@ namespace deren::vulkan {
             hdr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             hdr_desc.mip_levels = 1;
             hdr_desc.array_layers = 1;
-            hdr_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            hdr_desc.format = deren::vulkan::render_layout::hdr_format;
             hdr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled) |
                              rhi::to_bits(rhi::image_flag::transfer_source);
             hdr_desc.debug_name = "HDR scene target";
@@ -1379,7 +1372,7 @@ namespace deren::vulkan {
             ldr_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             ldr_desc.mip_levels = 1;
             ldr_desc.array_layers = 1;
-            ldr_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            ldr_desc.format = deren::vulkan::render_layout::hdr_format;
             ldr_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
             ldr_desc.debug_name = "display-referred target";
             create_sampled_target(ldr_desc, deren::vulkan::render_layout::heap_slots::display_color + static_cast<uint32_t>(i),
@@ -1399,7 +1392,7 @@ namespace deren::vulkan {
                 target_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
                 target_desc.mip_levels = 1;
                 target_desc.array_layers = 1;
-                target_desc.format = contract_image_format(deren::vulkan::render_layout::gbuffer_formats[target]);
+                target_desc.format = deren::vulkan::render_layout::gbuffer_formats[target];
                 target_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
                 target_desc.debug_name = "G-buffer target";
                 uint32_t const target_slot = target == 0u ? deren::vulkan::render_layout::heap_slots::gbuffer_albedo : (target == 1u ? deren::vulkan::render_layout::heap_slots::gbuffer_normal : deren::vulkan::render_layout::heap_slots::gbuffer_material);
@@ -1412,7 +1405,7 @@ namespace deren::vulkan {
             velocity_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             velocity_desc.mip_levels = 1;
             velocity_desc.array_layers = 1;
-            velocity_desc.format = contract_image_format(deren::vulkan::render_layout::gbuffer_velocity_format);
+            velocity_desc.format = deren::vulkan::render_layout::gbuffer_velocity_format;
             velocity_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
             velocity_desc.debug_name = "motion-vector target";
             create_sampled_target(velocity_desc, deren::vulkan::render_layout::heap_slots::gbuffer_velocity + static_cast<uint32_t>(i),
@@ -1423,7 +1416,7 @@ namespace deren::vulkan {
             scene_desc.extent = rhi::image_extent{.width = render.width, .height = render.height, .depth = 1u};
             scene_desc.mip_levels = 1;
             scene_desc.array_layers = 1;
-            scene_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            scene_desc.format = deren::vulkan::render_layout::hdr_format;
             scene_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
             scene_desc.debug_name = "scene-colour target";
             create_sampled_target(scene_desc, deren::vulkan::render_layout::heap_slots::taa_current + static_cast<uint32_t>(i),
@@ -1458,7 +1451,7 @@ namespace deren::vulkan {
             trace_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
             trace_desc.mip_levels = 1;
             trace_desc.array_layers = 1;
-            trace_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            trace_desc.format = deren::vulkan::render_layout::hdr_format;
             trace_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled);
             trace_desc.debug_name = "megalights trace image";
             create_sampled_target(trace_desc, deren::vulkan::render_layout::heap_slots::ml_trace + image_slot,
@@ -1471,7 +1464,7 @@ namespace deren::vulkan {
             resolve_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
             resolve_desc.mip_levels = 1;
             resolve_desc.array_layers = 1;
-            resolve_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            resolve_desc.format = deren::vulkan::render_layout::hdr_format;
             resolve_desc.flags = rhi::to_bits(rhi::image_flag::storage) | rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_source);
             resolve_desc.debug_name = "megalights resolve image";
             create_sampled_target(resolve_desc, deren::vulkan::render_layout::heap_slots::ml_resolved + image_slot,
@@ -1484,7 +1477,7 @@ namespace deren::vulkan {
             history_desc.extent = rhi::image_extent{.width = half_width, .height = half_height, .depth = 1u};
             history_desc.mip_levels = 1;
             history_desc.array_layers = 1;
-            history_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+            history_desc.format = deren::vulkan::render_layout::hdr_format;
             history_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination);
             history_desc.debug_name = "megalights history image";
             create_sampled_target(history_desc, deren::vulkan::render_layout::heap_slots::ml_history + image_slot,
@@ -1502,7 +1495,7 @@ namespace deren::vulkan {
                 level_desc.extent = rhi::image_extent{.width = level_width, .height = level_height, .depth = 1u};
                 level_desc.mip_levels = 1;
                 level_desc.array_layers = 1;
-                level_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+                level_desc.format = deren::vulkan::render_layout::hdr_format;
                 level_desc.flags = rhi::to_bits(rhi::image_flag::color_attachment) | rhi::to_bits(rhi::image_flag::sampled);
                 level_desc.debug_name = "bloom level target";
                 create_sampled_target(level_desc, deren::vulkan::render_layout::heap_slots::bloom_l0 + level * deren::vulkan::render_layout::heap_image_capacity + static_cast<uint32_t>(i),
@@ -1520,7 +1513,7 @@ namespace deren::vulkan {
         furnace_desc.extent = rhi::image_extent{.width = 1u, .height = 1u, .depth = 1u};
         furnace_desc.mip_levels = 1;
         furnace_desc.array_layers = 6;
-        furnace_desc.format = contract_image_format(deren::vulkan::render_layout::hdr_format);
+        furnace_desc.format = deren::vulkan::render_layout::hdr_format;
         furnace_desc.flags = rhi::to_bits(rhi::image_flag::sampled) | rhi::to_bits(rhi::image_flag::transfer_destination) | rhi::to_bits(rhi::image_flag::cube_compatible);
         furnace_desc.debug_name = "furnace environment cube";
         this->furnace_cube_image = rhi::object_manager<rhi::image>{this->rhi_face().create_image(furnace_desc)};
@@ -1925,7 +1918,7 @@ namespace deren::vulkan {
     // `write_heap_grid_image` triple as the two LUTs above, from the reference's own PNG bytes. WHAT DIFFERS FROM
     // BOTH OF THEM IS ONE FIELD, AND IT IS THE WHOLE POINT OF THIS FUNCTION:
     //
-    //     `VK_FORMAT_R8G8B8A8_UNORM`, NOT `_SRGB`.
+    //     `rhi::image_format::rgba8_unorm`, NOT `_SRGB`.
     //
     // The reference's image data-block is `colorspace = 'Non-Color'` - the ONLY such image in this project, every
     // `_RD` / `_D` map being `'sRGB'` - so Blender's texture node hands the graph the texel's raw bytes and the
@@ -1978,12 +1971,12 @@ namespace deren::vulkan {
         //         glTF image, so a raw data pointer is NOT a stable identity; the digest lookup
         //         below is what actually dedups); missing slots point at the white fallback
         //         (element 0).
-        std::array<std::pair<texture_input const*, VkFormat>, 5 + static_cast<std::size_t>(toon_slot::count)> const slots = {
-            std::pair{&info.albedo, VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.metallic_roughness, VK_FORMAT_R8G8B8A8_UNORM},
-            std::pair{&info.normal, VK_FORMAT_R8G8B8A8_UNORM},
-            std::pair{&info.occlusion, VK_FORMAT_R8G8B8A8_UNORM},
-            std::pair{&info.emissive, VK_FORMAT_R8G8B8A8_SRGB}, // glTF emissive textures are sRGB
+        std::array<std::pair<texture_input const*, rhi::image_format>, 5 + static_cast<std::size_t>(toon_slot::count)> const slots = {
+            std::pair{&info.albedo, rhi::image_format::rgba8_srgb},
+            std::pair{&info.metallic_roughness, rhi::image_format::rgba8_unorm},
+            std::pair{&info.normal, rhi::image_format::rgba8_unorm},
+            std::pair{&info.occlusion, rhi::image_format::rgba8_unorm},
+            std::pair{&info.emissive, rhi::image_format::rgba8_srgb}, // glTF emissive textures are sRGB
             // ---- THE TOON SLOTS, in `toon_slot` order ----
             // THE FOUR COLOUR LANES ARE sRGB. They are colour data the reference decodes before using (its ramp
             // lookup is followed by `srgbToLinear(rd.rgb)`), so uploading them as linear would double-decode
@@ -2000,28 +1993,28 @@ namespace deren::vulkan {
             // `{nullptr, VK_FORMAT_UNDEFINED}` - and the loop below dereferences `slots[i].first`. Measured: the
             // renderer died with an access violation inside `register_material` and the log stopped one stage
             // earlier, which is what sent the search to the descriptor writes instead of here.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::diffuse_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::shadow_lut)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::specular_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::matcap)], VK_FORMAT_R8G8B8A8_SRGB},
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_lightmap)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::diffuse_ramp)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::shadow_lut)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::specular_ramp)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::matcap)], rhi::image_format::rgba8_srgb},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_lightmap)], rhi::image_format::rgba8_unorm},
             // THE METALLIC/GLOSS LANE IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are
             // metallic, reflectivity, occlusion and smoothness - NUMBERS, not colour - so an sRGB decode would
             // bend every one of them, and roughness read out of a decoded smoothness would be wrong everywhere on
             // the surface rather than at one band edge.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::metallic_gloss)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::metallic_gloss)], rhi::image_format::rgba8_unorm},
             // THE FACE MASK IS UNORM FOR THE SDF'S REASON RATHER THAN THE RAMPS': its four channels are REGION
             // WEIGHTS and a normal term - numbers, not colour - so an sRGB decode would bend every one of them.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::sdf_mask)], rhi::image_format::rgba8_unorm},
             // THE EMOTION ATLAS IS COLOUR - it is a painting of eyebrows and a mouth that REPLACES the albedo where
             // its alpha says so - so it takes the sRGB treatment the ramps do, not the mask's.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::emotion)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::emotion)], rhi::image_format::rgba8_srgb},
             // THE SPLIT NORMAL IS UNORM: its two packed tangent-space normals are DATA (`* 2 - 1` on the way in),
             // so an sRGB decode would bend both of them.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::split_normal)], rhi::image_format::rgba8_unorm},
             // THE GOO IRIS BALL IS COLOUR, so it takes the ramps' treatment rather than the masks': the reference
             // samples it and adds it to the albedo (`shaders/goo_toon.slang`), i.e. it is light, not a number.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_matcap05)], rhi::image_format::rgba8_srgb},
             // THE GOO BASE RAMP IS COLOUR, so it takes the treatment the reference gives it rather than the
             // masks': `images[...].colorspace = 'sRGB'` on all seven `_RD` images means Blender LINEARIZES each
             // texel before its node graph sees it (spec §5.3), so uploading this lane as `_SRGB` is what makes the
@@ -2029,23 +2022,23 @@ namespace deren::vulkan {
             // bright, which on a mid-grey ramp entry is the difference between a shadow and a highlight. ITS
             // ALPHA IS UNAFFECTED BY EITHER (Blender's colour management does not touch it), which is why the same
             // upload serves `RampAlpha` and the spec's §8-A6 asset-bound assertion.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_base_ramp)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_base_ramp)], rhi::image_format::rgba8_srgb},
             // ---- STEP 7'S THREE FACE LANES, AND THE FORMAT OF EACH ONE IS A STATEMENT ABOUT ITS CHANNELS ----
             //
             // THE FACE'S SDF IS UNORM, for the article's `sdf_lightmap` above and NOT for the `_RD` ramps': the
             // reference reads it as `(R + G) / 2` and feeds that NUMBER to a `SigmoidSharp` whose `center` is
             // `0.10000000894069672` - a threshold on a distance field, not a colour - so an sRGB decode would bend
             // the very quantity the sigmoid thresholds, by 2.2 gamma, in the region where its slope is steepest.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_sdf)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_sdf)], rhi::image_format::rgba8_unorm},
             // `cm_M` IS UNORM TOO, and it is the same kind of statement: its three channels are a LAYER SELECTOR
             // (`G`, compared against 0 and 1 exactly - `混合.002`'s factor), a WEIGHT (`R`, raised to `Front R Pow`
             // and smoothstepped) and a GATE (`A`, a multiply). None of them is light, so none of them may be
             // gamma-decoded; a `_SRGB` upload would turn a mask's "1.0" into "1.0" but its 0.2 into 0.033.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_cm)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_cm)], rhi::image_format::rgba8_unorm},
             // `CsutmMask` IS UNORM FOR THE SAME REASON ONE STEP FURTHER: the only channel the Face container reads
             // is `G`, and it is read through a `GREATER_THAN(·, 0.5)` - a comparison whose whole answer is the
             // comparison, so the upload's transfer function decides which side of 0.5 a texel lands on.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_csumt)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_face_csumt)], rhi::image_format::rgba8_unorm},
             // `_M` IS UNORM AS WELL, and for the same statement once more: the `RS EFF` mask of mechanism table #14
             // is a MASK (`_M（非色彩）` in the reference's own node name), read through a luminance dot and then a
             // smoothstep, and its image's colorspace is Non-Color. A `_SRGB` upload would gamma-decode the very
@@ -2055,7 +2048,7 @@ namespace deren::vulkan {
             // the enum lane above without this line value-initialises the LAST element to `{nullptr,
             // VK_FORMAT_UNDEFINED}` and the loop below dereferences `slots[i].first`. Measured: the renderer died
             // with an access violation inside `register_material` (see the block comment above this array).
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_mask)], rhi::image_format::rgba8_unorm},
             // ---- STEP 15'S ONE, AND IT IS THE LANE THAT SPENDS THE TABLE'S LAST SLOT ----
             //
             // THE SHEET IS SRGB, AND THE STATEMENT IS THE OPPOSITE OF THE MASK LINE ABOVE RATHER THAN A COPY OF
@@ -2069,7 +2062,7 @@ namespace deren::vulkan {
             // to `{nullptr, VK_FORMAT_UNDEFINED}` - which the loop below dereferences. Step 15 raises `count` from 15
             // to 16, so omitting this line is the same access violation inside `register_material` the RS mask's own
             // note records.
-            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], VK_FORMAT_R8G8B8A8_SRGB},
+            std::pair{&info.toon.slots[static_cast<std::size_t>(toon_slot::goo_rs_sheet)], rhi::image_format::rgba8_srgb},
         };
 
         std::array<uint32_t, 5 + static_cast<std::size_t>(toon_slot::count)> texture_indices = {};
@@ -2089,7 +2082,7 @@ namespace deren::vulkan {
             // key on the digest data_block itself (not a raw byte array): data_block carries the
             // equality/ordering the std::map key needs
             auto const key = std::tuple<deren::utility::xxh3_digest, rhi::image_format, std::uint32_t, std::uint32_t, std::uint32_t>{
-                digest, contract_image_format(slots[i].second), tex.width, tex.height, tex.mip_levels};
+                digest, slots[i].second, tex.width, tex.height, tex.mip_levels};
             auto const cached = this->texture_slot_cache.find(key);
             if (cached != this->texture_slot_cache.end()) {
                 texture_indices[i] = cached->second; // shared texture: reuse its slot
@@ -2113,7 +2106,7 @@ namespace deren::vulkan {
             image_info.extent = rhi::image_extent{.width = tex.width, .height = tex.height, .depth = 1u};
             image_info.mip_levels = tex.mip_levels; // the caller uploads a full mip-major chain
             image_info.array_layers = 1;
-            image_info.format = contract_image_format(slots[i].second);
+            image_info.format = slots[i].second;
             image_info.flags = rhi::to_bits(rhi::image_flag::sampled);
             image_info.initial_bytes = std::as_bytes(tex.data);
             image_info.debug_name = "material texture";

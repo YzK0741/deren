@@ -497,7 +497,7 @@ target_sources(vulkan_constant_init
         # core.declarations.cppm), which is the drift guard ruling D asked for.
         vulkan/render_layout/render_layout.cppm
 )
-target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
+target_link_libraries(vulkan_constant_init PUBLIC promise Vulkan::Vulkan)
 
 # ============================================================================================
 # vulkan_error_tables - THE ERROR TRANSLATORS, CARRIED BY A TARGET BOTH SIDES LINK (the SHARED

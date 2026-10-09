@@ -1,7 +1,7 @@
 # progress.md — 原生句柄退出（图形 API 走 RHI）进展
 
 > 更新日期：2026-10-09（继续接手 X5）。
-> **最新核验：X5 已修复接手 WIP，并完成索引、无用头文件和 RT 回调迁移。完整构建、CTest 19/19、冻结渲染 14/14、严格 RT 与格式检查通过；原生词汇剩 2 个引擎文件，Vulkan 符号与图形 API 导入均为 0。X5 尚未全部完成。**
+> **最新核验：X5 已修复接手 WIP，并完成索引、无用头文件和 RT 回调迁移。完整构建、CTest 19/19、冻结渲染 14/14、严格 RT 与格式检查通过；原生词汇剩 0 个引擎文件，Vulkan 符号与图形 API 导入均为 0。X5 尚未全部完成。**
 > 计划与验收定义在 [`docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md`](docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md)，逐批的详细记录在 [`docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md`](docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md)。
 
 
@@ -61,6 +61,12 @@ GUI 边界类型移入唯一命名模块 deren.promise.gui，创建参数只传�
 删除闲置设备/队列/图像 buffer 句柄查询、未读的原生深度格式缓存及二级任务闲置原生字段。场景、透明、post 与 prepare_stage 删除仅为旧调用形状保留的原生命令参数；帧起止检查契约命令对象，截图不再查询原生对象。begin_rendering 使用语义 bool，AS 空指针判断直接用 nullptr。frames/runtime.cpp 的 Vulkan 头删除。
 
 完整构建、CTest **19/19**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过。原生词汇文件 **4 → 2**；符号/导入均 **0**。日志前缀 `x5-runtime-contract-*`。剩余仅构造/声明的交换链格式与纹理格式表，接着补格式契约。
+
+### X5 第九批：呈现与共享格式归入契约
+
+交换链增加 pre-acquire format()，RHI ABI **27 → 28**；后端完整保留原八项格式转换，帧图像与交换链共用来源。render_layout 格式改为 RHI 枚举、偏移改标准 uint64，后端 constexpr 别名显式转原生格式并保留漂移断言。纹理上传与缓存键直接使用契约格式，删除 runtime escape() 和全部 raw/恒等格式转换及最后两处 Vulkan 头。同步 ABI 和格式测试。
+
+新探针先确认无 format() 的编译红灯，再实现契约。完整构建、CTest **19/19**、真设备探针 **102/0**、严格 GUI/RT **PASS**、冻结渲染 **14/14**、格式检查通过。独立审查发现的声明归属与浮点格式遗漏已修复并复核。边界 **P-Census/P-Nm/P-Import = 0/0/0**，require-zero 首次通过。日志前缀 `x5-format-contract-*`。剩余：移除引擎构建的 SDK 依赖、常设零边界门禁，以及非 Vulkan 根录制一帧证明；尚未宣告 X5 完成。
 
 ---
 

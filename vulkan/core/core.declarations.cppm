@@ -145,7 +145,21 @@ namespace deren::vulkan {
      * frozen numbers are `static_assert`ed against the module - a drift is a COMPILE ERROR rather than a
      * different picture.
      */
-    export inline constexpr VkFormat hdr_format = deren::vulkan::render_layout::hdr_format;
+    [[nodiscard]] constexpr VkFormat native_render_format(deren::promise::rhi::image_format format) noexcept {
+        using image_format = deren::promise::rhi::image_format;
+        switch (format) {
+        case image_format::rgba8_unorm:
+            return VK_FORMAT_R8G8B8A8_UNORM;
+        case image_format::r16g16_sfloat:
+            return VK_FORMAT_R16G16_SFLOAT;
+        case image_format::r16g16b16a16_sfloat:
+            return VK_FORMAT_R16G16B16A16_SFLOAT;
+        default:
+            return VK_FORMAT_UNDEFINED;
+        }
+    }
+
+    export inline constexpr VkFormat hdr_format = native_render_format(deren::vulkan::render_layout::hdr_format);
 
     /**
      * @ingroup vulkan_core
@@ -167,7 +181,13 @@ namespace deren::vulkan {
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
      * @note the values themselves moved to `deren.vulkan.render_layout` with `hdr_format` (A1.0).
      */
-    export inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = deren::vulkan::render_layout::gbuffer_formats;
+    export inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = [] {
+        std::array<VkFormat, gbuffer_target_count> formats{};
+        for (std::size_t i = 0; i < formats.size(); ++i) {
+            formats[i] = native_render_format(deren::vulkan::render_layout::gbuffer_formats[i]);
+        }
+        return formats;
+    }();
 
     /**
      * @ingroup vulkan_core
@@ -176,7 +196,7 @@ namespace deren::vulkan {
      *        8-bit would quantize it to ~1/255 of the screen - coarser than the jitter TAA exists to
      *        resolve)
      */
-    export inline constexpr VkFormat gbuffer_velocity_format = deren::vulkan::render_layout::gbuffer_velocity_format;
+    export inline constexpr VkFormat gbuffer_velocity_format = native_render_format(deren::vulkan::render_layout::gbuffer_velocity_format);
 
     /// THE DRIFT GUARD for the moved formats (A1.0), the same shape ruling D used for the slot grid: the
     /// numbers this backend was built with are frozen HERE, so a change on either side has to be a
@@ -455,6 +475,7 @@ namespace deren::vulkan {
             void release() noexcept override;
             [[nodiscard]] deren::promise::rhi::error recreate() override;
             [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
+            [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
         };
 
         /// The last completed frame's GPU timing report, as the contract's `gpu_profiler` (abi 13).

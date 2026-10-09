@@ -2568,7 +2568,7 @@ int32_t main() {
         CHECK_MSG(primitive.find("goo_matcap05 = 9,") != std::string::npos, "the lane's enum entry");
         CHECK_MSG(primitive.find("count = 16,") != std::string::npos, "the lane's enum count (step 7's three face masks moved it from 11; step 13's `_GooRSMask` moved it from 14; step 15's `_GooRSSheet` from 15)");
         CHECK_MSG(app.find("{\"_GooMatcap05\", \"_UseGooMatcap05\"}") != std::string::npos, "the lane's sidecar slot + flag names");
-        CHECK_MSG(constructor.find("toon_slot::goo_matcap05)], VK_FORMAT_R8G8B8A8_SRGB") != std::string::npos, "the lane's upload format");
+        CHECK_MSG(constructor.find("toon_slot::goo_matcap05)], rhi::image_format::rgba8_srgb") != std::string::npos, "the lane's upload format");
         // ... AND THAT IT IS ACTUALLY WRITTEN INTO THE RECORD'S SECOND BLOCK, which the format entry alone does
         // not imply and which the first version of this chain got wrong in a way no picture could show: that block
         // was initialised `(split_normal, 0, 0, 0u)`, so the sidecar resolved the image, the format was right, the
@@ -2664,7 +2664,7 @@ int32_t main() {
             }
             // the ramp lane: the sidecar slot + flag pair, the upload format, and the host-side selection
             CHECK_MSG(app.find("{\"_GooBaseRamp\", \"_UseGooBaseRamp\"}") != std::string::npos, "the ramp lane's sidecar slot + flag names");
-            CHECK_MSG(constructor.find("toon_slot::goo_base_ramp)], VK_FORMAT_R8G8B8A8_SRGB") != std::string::npos,
+            CHECK_MSG(constructor.find("toon_slot::goo_base_ramp)], rhi::image_format::rgba8_srgb") != std::string::npos,
                       "the ramp lane's upload format (sRGB decodes the artist's RGB and leaves the alpha - the ramp's own step - linear, which is what Blender's sRGB image does)");
             CHECK_MSG(app.find("toon_lanes2_at(heap_slots_toon_lanes") != std::string::npos || true, "the ramp lane lives in the second block (see the shader)");
             for (char const* const image : {"TPLK_actor_common_cloth_03_RD", "T_actor_common_cloth_04_RD", "T_actor_common_body_01_RD"}) {
@@ -2912,16 +2912,16 @@ int32_t main() {
             // THE FORMATS ARE A STATEMENT ABOUT THE CHANNELS, not a default: all three are NUMBERS (a distance
             // field, a layer selector and a comparison against 0.5), so an sRGB upload would bend the quantities
             // the two sigmoids and the GREATER_THAN threshold. Pinned BY LANE so a reordering cannot pass.
-            for (char const* const format : {"toon_slot::goo_face_sdf)], VK_FORMAT_R8G8B8A8_UNORM",
-                                             "toon_slot::goo_face_cm)], VK_FORMAT_R8G8B8A8_UNORM",
-                                             "toon_slot::goo_face_csumt)], VK_FORMAT_R8G8B8A8_UNORM",
-                                             "toon_slot::goo_rs_mask)], VK_FORMAT_R8G8B8A8_UNORM",
+            for (char const* const format : {"toon_slot::goo_face_sdf)], rhi::image_format::rgba8_unorm",
+                                             "toon_slot::goo_face_cm)], rhi::image_format::rgba8_unorm",
+                                             "toon_slot::goo_face_csumt)], rhi::image_format::rgba8_unorm",
+                                             "toon_slot::goo_rs_mask)], rhi::image_format::rgba8_unorm",
                                              // ... AND STEP 15'S SHEET INVERTS THE STATEMENT RATHER THAN REPEATING IT:
                                              // an `_RS` sheet is COLOUR (the reference multiplies it into the tint),
                                              // so it takes SRGB and the SAMPLER decodes it. An UNORM upload here would
                                              // hand the shader a texel 2.2 gamma off inside the product this arm
                                              // exists to make.
-                                             "toon_slot::goo_rs_sheet)], VK_FORMAT_R8G8B8A8_SRGB"}) {
+                                             "toon_slot::goo_rs_sheet)], rhi::image_format::rgba8_srgb"}) {
                 CHECK_MSG(constructor.find(format) != std::string::npos, format);
             }
             // ... AND THE THIRD BLOCK, which is what the three lanes cost: the host constant, the stage's copy of
