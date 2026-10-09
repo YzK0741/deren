@@ -41,6 +41,10 @@ scene clone 会保留 source_index 和导入身份。主应用显式传入主模
 
 ## 单独记录的后续事项
 
+下列内容保留初次复审时的状态。随后处理结果见
+[摄像机与原生 AS 修复报告](2026-10-09-camera-and-native-as-fixes.md)：摄像机按导入身份查找；
+原生 AS 诊断通过真实 heap 地址的 BDA 兼容路径验证，原 built-in 驱动问题仍保留复现入口。
+
 1. **原生 heap AS 诊断仍会设备丢失，原因未定位。**
    `test_acceleration_structures --with-device --native-heap-traversal` 返回 `VK_ERROR_DEVICE_LOST`。
    单/双 geometry 都可触发；用 Slang 迁移前保存的诊断 shader 仍失败。
