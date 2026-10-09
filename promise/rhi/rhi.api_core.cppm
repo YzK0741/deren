@@ -1412,6 +1412,18 @@ export namespace deren::promise::rhi {
     ///
     /// `struct_size` is the same ABI guard `command_buffer_desc` carries; `next` is borrowed only
     /// until the call returns.
+    /// Attachment compatibility for a secondary recording. Formats use RHI values;
+    /// `depth` requests the backend's chosen depth format, `unknown` means no depth.
+    /// Borrowed only until begin_recording returns. Appending a tagged POD changes no vtable.
+    struct command_buffer_inheritance_info {
+        structure_header header{structure_type::command_buffer_inheritance, sizeof(command_buffer_inheritance_info), nullptr};
+        std::uint32_t color_format_count = 0;
+        image_format const* color_formats = nullptr;
+        image_format depth_format = image_format::unknown;
+        std::uint32_t samples = 1;
+        std::uint32_t view_mask = 0;
+    };
+
     struct command_buffer_begin_info {
         std::uint32_t struct_size = sizeof(command_buffer_begin_info); ///< size of this structure as the CALLER compiled it
         command_buffer_flags usage = no_command_buffer_flags;          ///< see command_buffer_usage

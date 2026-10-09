@@ -660,6 +660,27 @@ namespace {
                     CHECK_MSG(continuation->begin_recording(continuation_begin) == rhi::error::ok,
                               "a render_pass_continue begin carries its inheritance through the tagged chain");
                     CHECK(continuation->end_recording() == rhi::error::ok);
+                    std::array<rhi::image_format, 1> const portable_formats{rhi::image_format::rgba8_unorm};
+                    rhi::command_buffer_inheritance_info portable_inheritance{
+                        .color_format_count = 1u,
+                        .color_formats = portable_formats.data(),
+                        .depth_format = rhi::image_format::depth,
+                    };
+                    rhi::command_buffer_begin_info const portable_begin{
+                        .usage = rhi::to_bits(rhi::command_buffer_usage::render_pass_continue),
+                        .next = &portable_inheritance.header,
+                    };
+                    CHECK_MSG(continuation->begin_recording(portable_begin) == rhi::error::ok,
+                              "portable attachment formats and depth role are converted by the backend");
+                    CHECK(continuation->end_recording() == rhi::error::ok);
+                    portable_inheritance.color_formats = nullptr;
+                    CHECK(continuation->begin_recording(portable_begin) == rhi::error::invalid_argument);
+                    portable_inheritance.color_formats = portable_formats.data();
+                    portable_inheritance.color_format_count = 9u;
+                    CHECK(continuation->begin_recording(portable_begin) == rhi::error::unsupported);
+                    portable_inheritance.color_format_count = 1u;
+                    portable_inheritance.samples = 3u;
+                    CHECK(continuation->begin_recording(portable_begin) == rhi::error::invalid_argument);
                     rhi::heap_bind_info const wrong_chain = {};
                     rhi::command_buffer_begin_info const refused_begin{.usage = 0u, .next = &wrong_chain.header};
                     CHECK_MSG(continuation->begin_recording(refused_begin) == rhi::error::unsupported,

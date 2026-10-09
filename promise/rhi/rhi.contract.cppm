@@ -475,6 +475,7 @@ export namespace deren::promise::rhi {
         heap_buffer_write = 2,
         heap_bind = 3,
         heap_push = 4,
+        command_buffer_inheritance = 5, ///< attachment formats in the portable RHI vocabulary
         vulkan_heap_image = 0x10000,
         vulkan_command_buffer = 0x10001,
         /// appended in abi 15: the attachment inheritance a SECONDARY recording declares (see

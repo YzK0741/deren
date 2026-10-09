@@ -529,7 +529,7 @@ namespace deren::vulkan {
         info.device = runtime_detail::native_device_of(vk);
         info.graphics_queue_family = static_cast<std::uint32_t>(this->graphics_queue_family_index);
         info.graphics_queue = runtime_detail::native_queue_of(vk);
-        info.color_format = static_cast<std::uint32_t>(this->swap_chain_image_format);
+        info.color_format = this->escape().native_swapchain_image_format();
         info.depth_format = static_cast<std::uint32_t>(rhi::image_format::unknown); // the post/gui pass has no depth attachment
         info.frames_in_flight = this->frame_ring().slot_count();
         this->debug_overlay = deren::vulkan::load_gui(info);

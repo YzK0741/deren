@@ -83,11 +83,11 @@ namespace deren::vulkan::pass {
         // (native colour formats, the depth format, the sample count and the view mask the raw
         // VkCommandBufferInheritanceRenderingInfo carried), and the BACKEND derives the descriptor-heap half
         // itself - chaining it here is not possible and not needed.
-        std::array<std::int32_t, 1> const color_formats = {static_cast<std::int32_t>(this->pass_frame.color_format)};
-        rhi::vulkan_command_buffer_inheritance_info const inheritance = {
+        std::array<rhi::image_format, 1> const color_formats = {this->pass_frame.color_format};
+        rhi::command_buffer_inheritance_info const inheritance = {
             .color_format_count = static_cast<std::uint32_t>(color_formats.size()),
             .color_formats = color_formats.data(),
-            .depth_format = static_cast<std::int32_t>(this->pass_frame.depth_format),
+            .depth_format = this->pass_frame.depth_format,
             .samples = 1u,  // the raw begin's 1x
             .view_mask = 0, // the raw inheritance built `viewMask = 0`
         };

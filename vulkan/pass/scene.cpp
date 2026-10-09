@@ -69,18 +69,18 @@ namespace deren::vulkan::pass {
         // the contract's own tagged structure, and the BACKEND derives the descriptor-heap half itself from the
         // heaps it has bound (so the heap info is deliberately NOT chained here - the chain takes one entry,
         // and a second truth is what it refuses).
-        std::array<std::int32_t, max_render_targets> color_formats = {};
+        std::array<rhi::image_format, max_render_targets> color_formats = {};
         uint32_t color_count = 0;
         for (::deren::promise::rhi::image_format const format : this->pass_frame.color_formats) {
             if (color_count >= color_formats.size()) {
                 break;
             }
-            color_formats[color_count++] = static_cast<std::int32_t>(format);
+            color_formats[color_count++] = format;
         }
-        rhi::vulkan_command_buffer_inheritance_info const inheritance = {
+        rhi::command_buffer_inheritance_info const inheritance = {
             .color_format_count = color_count,
             .color_formats = color_formats.data(),
-            .depth_format = static_cast<std::int32_t>(this->pass_frame.depth_format),
+            .depth_format = this->pass_frame.depth_format,
             .samples = static_cast<std::uint32_t>(this->pass_frame.samples),
             .view_mask = 0, // the raw inheritance built `viewMask = 0` (make_inheritance_rendering_info)
         };

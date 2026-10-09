@@ -1,6 +1,7 @@
 # X5 交接：做了什么 / 没做什么
 
-> 交接时刻：`5fa79a32` 之后，工作树里的改动**未提交、未验证**。
+> 最新接手核验（2026-10-09）：`aa42191e` 的未验证迁移已经修复，并通过完整构建、真设备 spike **100/0**、CTest **19/19**、冻结渲染 **14/14**、严格 GUI/RT 与格式检查。新增独立 RHI 继承标签，保留旧 Vulkan 格式整数的语义；深度角色与 GUI 格式边界已修正。详细记录见 `progress.md`。
+> 以下是上一位 agent 的历史交接记录；“未验证”指当时状态，不代表当前验证结果。B4 与可移植性证明仍未完成。
 > 判据现状（`python scripts/check_native_boundary.py`）：引擎对象引用 Vulkan 符号 **0**、`deren.exe` 图形 API 导入 **0**、含词汇的引擎文件 **25**、census token 193（B3.2 后）→ **156**。
 
 ---
@@ -39,7 +40,7 @@
 ## 三、下一步（只有两条命令）
 
 ```powershell
-cmake --build build-release-dyn-clang64 -j 14
+cmake --build build-release-dyn-clang64 -j 10
 pwsh -File scripts/windows/check_render.ps1 -Full -BuildDir build-release-dyn-clang64 -Compare frozen
 ```
 

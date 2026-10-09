@@ -1035,10 +1035,10 @@ namespace deren::vulkan {
         // the tagged type this chain entry must declare - the backend refuses a chain whose `s_type` is not
         // `vulkan_command_buffer_inheritance` (validate_structure), and the symptom is a secondary that never
         // begins. Omitting the member is what keeps the NSDI's `{vulkan_command_buffer_inheritance, sizeof(...)}`.
-        rhi::vulkan_command_buffer_inheritance_info const inheritance = {
+        rhi::command_buffer_inheritance_info const inheritance = {
             .color_format_count = 0,
             .color_formats = nullptr, // depth-only: the shadow map is the one attachment
-            .depth_format = static_cast<std::int32_t>(self->depth_attachment_format),
+            .depth_format = rhi::image_format::depth,
             .samples = 1u,
             .view_mask = 0,
         };
@@ -1952,7 +1952,7 @@ namespace deren::vulkan {
             .swap_chain_image_format = contract_image_format(this->swap_chain_image_format),
             // ... and the DEPTH format, which the shadow pass`s pipeline needs (it has a depth attachment and no
             // colour one): the same kind of session-stable device fact, and the second one a context carries.
-            .depth_format = contract_image_format(this->depth_attachment_format),
+            .depth_format = rhi::image_format::depth,
             // ... and whether the device can run a MESH pipeline at all, which a pass must not try to find out by
             // attempting it (see the metric above and pass_context::mesh_shaders).
             .mesh_shaders = this->mesh_shaders,
@@ -2314,7 +2314,7 @@ namespace deren::vulkan {
             .run_tasks = &runtime::run_scene_tasks,
             .owner = this,
             .color_formats = this->scene_color_formats,
-            .depth_format = contract_image_format(this->depth_attachment_format),
+            .depth_format = rhi::image_format::depth,
             .samples = 1u,
             .gbuffer = true,
             .extent = this->render_extent(),
@@ -2491,7 +2491,7 @@ namespace deren::vulkan {
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
             .color_format = contract_image_format(deren::vulkan::render_layout::hdr_format),
-            .depth_format = contract_image_format(this->depth_attachment_format),
+            .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
         };
     }
@@ -2601,7 +2601,7 @@ namespace deren::vulkan {
             // built, which the pass reads as "there is no outline to draw" (see `outline_ready` above).
             .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
             .color_format = contract_image_format(deren::vulkan::render_layout::hdr_format), // one HDR target, and NOT the swapchain format - see the pass
-            .depth_format = contract_image_format(this->depth_attachment_format),
+            .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
         };
     }

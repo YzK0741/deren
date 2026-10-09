@@ -1,8 +1,17 @@
 # progress.md — 原生句柄退出（图形 API 走 RHI）进展
 
-> 更新日期：2026-10-08（接手后）。
+> 更新日期：2026-10-09（继续接手 X5）。
 > **最新核验：GUI 插件化 X2 完成；P-Import = 0、P-Nm = 0，P-Census 剩 25 个引擎文件。当前工作区的 TLAS 描述符映射已通过严格 RT 验收：GPU 命中/未命中/实例掩码及两帧槽正确，Sponza 40 帧、验证层干净并生成截图。下文旧的 RT 失败记录属于映射修正前。**
 > 计划与验收定义在 [`docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md`](docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md)，逐批的详细记录在 [`docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md`](docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md)。
+
+
+## 2026-10-09：X5 格式迁移恢复验证
+
+接手 `aa42191e` 后，修复二级命令缓冲继承的格式语义：新增带标签的 RHI `command_buffer_inheritance_info`，颜色格式由后端转换，深度角色由后端解析；保留旧 Vulkan 继承结构的原生整数语义。场景、透明与阴影录制使用新结构。GUI 插件仍使用已有原生接口，因此创建时明确取得原生交换链格式，避免把 RHI 枚举数值误作 Vulkan 格式。RHI ABI 保持 27。
+
+新探针先验证缺失契约的编译失败，再验证颜色/深度继承、空格式指针、超限附件数与非法采样数。实际结果：完整构建通过，真设备后端 spike **100/0**，并行 CTest **19/19**，冻结渲染 **14/14**，严格 GUI 与 RT 验收均 **PASS**，格式检查通过。冻结基准未修改。
+
+构建使用 `-j 10`。本机此前发生编译内存耗尽；仅在本地 CMake 缓存中把编译和链接任务池限制为 3，同时保持总任务上限 10。日志位于 `build-release-dyn-clang64/x5-*`。B4 和可移植性证明仍待完成。
 
 ---
 

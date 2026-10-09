@@ -1943,41 +1943,60 @@ namespace deren::vulkan {
         VkCommandBufferInheritanceInfo inheritance = {};
         bool const inherits = next != nullptr;
         if (inherits) {
-            // THE CHAIN IS READ, NEVER DROPPED (the rule the heap requests live by). Today's one
-            // structure is the Vulkan attachment inheritance a `render_pass_continue` secondary MUST
-            // declare; anything else is refused BY NAME below.
-            if (next->s_type != rhi::structure_type::vulkan_command_buffer_inheritance ||
-                rhi::validate_structure(*next, rhi::structure_type::vulkan_command_buffer_inheritance, sizeof(rhi::vulkan_command_buffer_inheritance_info)) != rhi::error::ok) {
+            rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
+            if (next->s_type == rhi::structure_type::command_buffer_inheritance) {
+                auto const valid = rhi::validate_structure(*next, next->s_type, sizeof(rhi::command_buffer_inheritance_info));
+                if (valid != rhi::error::ok) {
+                    return valid;
+                }
+                auto const& attachment = *reinterpret_cast<rhi::command_buffer_inheritance_info const*>(next);
+                if (attachment.color_format_count > native_color_formats.size()) {
+                    return rhi::error::unsupported;
+                }
+                if ((attachment.color_format_count != 0 && attachment.color_formats == nullptr) ||
+                    attachment.samples == 0 || attachment.samples > 64 || (attachment.samples & (attachment.samples - 1)) != 0 ||
+                    (attachment.depth_format != rhi::image_format::unknown && attachment.depth_format != rhi::image_format::depth)) {
+                    return rhi::error::invalid_argument;
+                }
+                for (std::uint32_t index = 0; index < attachment.color_format_count; ++index) {
+                    auto const format = attachment.color_formats[index];
+                    native_color_formats[index] = native_image_format(format, this->owner->depth_attachment_format);
+                    if (format == rhi::image_format::depth || native_color_formats[index] == VK_FORMAT_UNDEFINED) {
+                        return rhi::error::invalid_argument;
+                    }
+                }
+                rendering.colorAttachmentCount = attachment.color_format_count;
+                rendering.depthAttachmentFormat = native_image_format(attachment.depth_format, this->owner->depth_attachment_format);
+                rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(attachment.samples);
+                rendering.viewMask = attachment.view_mask;
+            } else if (next->s_type == rhi::structure_type::vulkan_command_buffer_inheritance) {
+                // Keep the existing native extension's meaning: these are Vulkan numbers.
+                auto const valid = rhi::validate_structure(*next, next->s_type, sizeof(rhi::vulkan_command_buffer_inheritance_info));
+                if (valid != rhi::error::ok) {
+                    return valid;
+                }
+                auto const& attachment = *reinterpret_cast<rhi::vulkan_command_buffer_inheritance_info const*>(next);
+                if (attachment.color_format_count > native_color_formats.size()) {
+                    return rhi::error::unsupported;
+                }
+                if (attachment.color_format_count != 0 && attachment.color_formats == nullptr) {
+                    return rhi::error::invalid_argument;
+                }
+                for (std::uint32_t index = 0; index < attachment.color_format_count; ++index) {
+                    native_color_formats[index] = static_cast<VkFormat>(attachment.color_formats[index]);
+                }
+                rendering.colorAttachmentCount = attachment.color_format_count;
+                rendering.depthAttachmentFormat = static_cast<VkFormat>(attachment.depth_format);
+                rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(attachment.samples);
+                rendering.viewMask = attachment.view_mask;
+            } else {
                 if (!this->refused_chain_logged) {
                     this->refused_chain_logged = true;
-                    deren::utility::log("rhi: begin_recording refused a parameter chain of type {:#x} - this backend serves only "
-                                        "vulkan_command_buffer_inheritance (a chain is never dropped silently)",
-                                        static_cast<std::uint32_t>(next->s_type));
+                    deren::utility::log("rhi: begin_recording refused a parameter chain of type {:#x}", static_cast<std::uint32_t>(next->s_type));
                 }
                 return rhi::error::unsupported;
             }
-            auto const& declared_inheritance = *reinterpret_cast<rhi::vulkan_command_buffer_inheritance_info const*>(next);
-            rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
-            rendering.pNext = nullptr;
-            rendering.flags = 0;
-            rendering.viewMask = declared_inheritance.view_mask;
-            rendering.colorAttachmentCount = declared_inheritance.color_format_count;
-            // THE DECLARED FORMATS ARE CONTRACT VALUES, AND A VULKAN STRUCT TAKES VkFormat (plan X5 B3.3):
-            // `native_image_format` is the backend's single pivot in this direction - the same one the pipeline
-            // descriptions already go through (see the `begin_rendering` path below) - and THIS call was the one
-            // place that treated the contract's numbers as Vulkan's, which is why a contract `rgba8_unorm` (1)
-            // reached the driver as `V4G4_UNORM_PACK8` (also 1) and every scenario failed validation. The engine
-            // never sees a `VkFormat`; the conversion happens here, on the side that speaks Vulkan.
-            if (rendering.colorAttachmentCount > native_color_formats.size()) {
-                return rhi::error::unsupported; // more inherited attachments than this backend serves
-            }
-            for (std::uint32_t format_index = 0; format_index < rendering.colorAttachmentCount; ++format_index) {
-                native_color_formats[format_index] = native_image_format(static_cast<rhi::image_format>(declared_inheritance.color_formats[format_index]), this->owner->depth_attachment_format);
-            }
             rendering.pColorAttachmentFormats = rendering.colorAttachmentCount == 0 ? nullptr : native_color_formats.data();
-            rendering.depthAttachmentFormat = native_image_format(static_cast<rhi::image_format>(declared_inheritance.depth_format), this->owner->depth_attachment_format);
-            rendering.stencilAttachmentFormat = VK_FORMAT_UNDEFINED;
-            rendering.rasterizationSamples = static_cast<VkSampleCountFlagBits>(declared_inheritance.samples);
             inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
             inheritance.pNext = &rendering;
         } else if (rhi::has_flag(usage, rhi::command_buffer_usage::render_pass_continue)) {
