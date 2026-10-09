@@ -128,13 +128,10 @@ Output: `docs/html/` (open `docs/html/index.html`) and `docs/latex/` + `docs/lat
 
 **One step of that build is intermittent, and the script already handles it:** doxygen converts its dependency graphs with `epstopdf`, and occasionally the resulting image PDF is written truncated, so pdflatex stops with `Problems running epstopdf` / `xpdf: reading PDF image failed` and produces no manual. `build_docs.ps1` clears the generated `docs/latex/*.pdf` cache before doxygen, clears `docs/html` (a page an earlier build left behind still links to *its* build's groups), and — if pdflatex still dies reading an image — regenerates the graphs and retries the LaTeX step **once**; only that signature is retried, every other failure stops the build immediately. The POSIX script does not carry those measures yet, so on Linux/macOS an `epstopdf` failure means re-running it. Reruns are always safe: both outputs are derived state.
 
-Current development docs (newest first - the dynamic-backend migration and its record):
-
-- [dynamic runtime design (contract-only runtime, by-name-loaded backend)](docs/dynamic_runtime.md)
-- [DYNAMIC_LINK_PROGRESS.md](DYNAMIC_LINK_PROGRESS.md) (current state, one-page status + flow)
-- [DYNAMIC_LINK_BOUNDARY_GOALS.md](DYNAMIC_LINK_BOUNDARY_GOALS.md) (goals and settled decisions)
-- [DYNAMIC_LINK_IMPLEMENTATION.md](DYNAMIC_LINK_IMPLEMENTATION.md) (how-to handoff: commands, traps, batches)
-- [docs/handoff/](docs/handoff/) and [docs/rhi/](docs/rhi/) (per-batch notes and verification reports)
+Development docs: the manual's own pages are listed one at a time in `Doxyfile`'s `INPUT`, and the design
+record for the dynamic backend is
+[docs/dynamic_runtime.md](docs/dynamic_runtime.md) (contract-only runtime, by-name-loaded backend, and the
+run-time package the executable ships as).
 
 Related source docs (tracked in the repo):
 
@@ -158,11 +155,22 @@ Related source docs (tracked in the repo):
 ├── config.example.toml      # Annotated startup-config reference (copy to config.toml)
 ├── Doxyfile                 # Doxygen config (PROJECT_NAME: "deren")
 ├── application_configuration/  # app_config module (TOML startup config + argv merge)
-├── vulkan/                  # vulkan modules (core / vma / handles / init_utils / pipeline / spirv_parser / math /
-│                            #   runtime / bindings / pipelines / profiling / shadow_fit / readback /
-│                            #   scene_tree / render_environment / graphical_user_interface / animation)
+├── promise/                 # THE CONTRACT, compiled by BOTH halves of the boundary: deren.promise.rhi
+│                            #   (the api_core virtual surface and the creation parameters) and
+│                            #   deren.promise.gui; the C entry points are promise/rhi/backend_entry.hpp
+├── runtime/                 # THE RENDERER RUNTIME (deren.vulkan.runtime + its declarations/constructor/
+│                            #   frames/probes/readback partitions), plus the loader policies:
+│                            #   deren.vulkan.backend_loader (which backend DLL) and deren.vulkan.gui_loader
+├── vulkan/                  # the Vulkan-side modules: the backend half whose DLL owns them (core/ with
+│                            #   vma, handles, init_utils, pipeline, spirv_parser), the render passes
+│                            #   (pass/), the shared targets (constant_init / render_layout /
+│                            #   error_tables), the GUI plugin (graphical_user_interface) and the
+│                            #   engine-side modules (math, scene_tree, render_environment, render_resource,
+│                            #   pipelines, primitive, meshlet, acceleration_structure, ray_tracing,
+│                            #   animation, profiling, shadow_fit, frame_constants)
 ├── utility/                 # utility module (data_block / better_pmr / BVH / thread_pool / frame_clock)
-├── gltf_loader/             # gltf_loader module (CPU-side glTF/GLB loading)
+├── gltf_loader/             # gltf_loader + toon-material sidecar modules (CPU-side glTF/GLB loading),
+│                            #   built into deren_assets.dll
 ├── vstd/                     # vstd module — modified from libc++ (LLVM), trimmed to the project's
 │                            #   STL usage (import deren.vstd; see vstd/README.md)
 ├── shaders/                 # Slang sources (the build compiles them to SPIR-V with slangc; the binaries are
@@ -187,12 +195,12 @@ Related source docs (tracked in the repo):
 - CMake ≥ 4.3 and a compiler with C++23 / C++20 modules support (this project builds with MSYS2 clang64's clang + libc++, the toolchain `vstd/vstd.cppm` and `.github/workflows/ci.yml` are both tied to)
 - [Vulkan SDK](https://vulkan.lunarg.com/sdk/home): what `find_package(Vulkan REQUIRED)` resolves against, and one of the places `slangc` can come from (`Bin/slangc.exe`; MSYS2 ships no Slang package). VMA is **not** taken from its `Include/`: `deren.vulkan.core:vma` includes the vendored `third_party/vma/vk_mem_alloc.h`, preferred because distro Vulkan packages do not ship that header
 - System packages: `glfw3`, `glm`, `tomlplusplus` (header-only; MSYS2 `mingw-w64-clang-x86_64-{glfw,glm,tomlplusplus}`)
-- Everything else is vendored under `third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode) and **mimalloc** (allocator behind `deren.utility:better_pmr`, compiled into a `mimalloc_vendored` static target). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. The **Windows Release** executable links fully static (`-static`: libc++ / libc++abi / libunwind, glfw3, mimalloc are all pulled in statically), so `build-release-clang64/deren.exe` is a single portable file — only the OS's own DLLs (kernel32, the UCRT, `vulkan-1.dll`) remain dynamic. Debug builds stay dynamic for faster iteration.
-- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/windows/build.ps1` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `vstd/vstd_msvc.cppm` instead of `vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - which is why an MSVC Release exe is not the single self-contained file the clang64 Release exe is.
+- Everything else is vendored under `third_party/`: `spirv-reflect`, Dear ImGui (GLFW/Vulkan backends), xxHash, **fastgltf + simdjson** (the glTF parser and its JSON backend, compiled from source into a `fastgltf_vendored` target), **stb_image** (texture decode) and **mimalloc** (allocator behind `deren.utility:better_pmr`, compiled into a `mimalloc_vendored` static target). No system fastgltf/simdjson/mimalloc package and no network fetch is needed — the build is self-contained on both Windows/MSYS2 and Linux. `glfw3`, `mimalloc`, `xxHash` and the other vendored libraries are still linked statically, but the **Windows Release** executable is a dynamic-C++-runtime build: it imports `libc++.dll` and needs four first-party images beside it — `deren_assets.dll` (the asset-loading stack, linked through its import library so the loader brings it in before `main`), `deren_vulkan.dll` and `deren_gui_vulkan.dll` (the two graphics plugins, each exporting one `deren_*` entry and each resolved BY NAME at run time) and `shared_utility.dll` (the process-wide log sink) — plus the build's compiled `shaders/` directory. `build-release-dyn-clang64/deren.exe` is therefore no longer a single portable file, and the CI artifact uploads exactly this package. Debug builds are dynamic for the same reason.
+- **Toolchains**: the build files carry an **MSVC** branch beside the clang64 one, and it is not what the scripts or CI drive (`scripts/windows/build.ps1` requires `clang++` and pins its directories to `build-<config>-clang64`; `.github/workflows/ci.yml` installs MSYS2 clang64). cl.exe cannot use the clang64 packages' include roots, so three cache variables point the build at unpacked copies instead: `VR_GLM_INCLUDE_DIR` (a directory containing the `glm/` subtree), `VR_GLFW_ROOT` (an unpacked GLFW release: `include/` + `lib-vc2022/`) and `VR_TOMLPP_INCLUDE_DIR` (the `toml++/` subtree). MSVC also builds `vstd/vstd_msvc.cppm` instead of `vstd/vstd.cppm`: the latter re-exports `std` partition by partition, which crashes cl.exe's front end (`C1001`) on `std::span` / `std::array` / `std::tuple` instantiation, so under MSVC `deren.vstd` re-exports the toolchain's own `std` module and the STL semantics are MSVC's rather than libc++'s. Some clang flags have no MSVC equivalent and are dropped instead of approximated - the comment above the MSVC branch in `CMakeLists.txt` lists them (`-fno-exceptions`, `-fno-rtti`, `-flto`, `-march=native`, `-static`, ...) - so the two toolchains do not produce the same binary shape (and neither Release build ships as a single file any more; see the bullet above).
 
 #### Platform
 
-- **Windows x64** is the shipped configuration: the environment check, configure/build/run scripts under `scripts/windows/` are MSYS2 + PowerShell, and the Release executable links fully static (see the bullet above) so it runs on a machine with nothing installed but the GPU driver.
+- **Windows x64** is the shipped configuration: the environment check, configure/build/run scripts under `scripts/windows/` are MSYS2 + PowerShell, and the Release build is the packaged runtime set described above (the executable plus the four first-party DLLs, `libc++.dll` and the compiled `shaders/`), so it runs on a machine with nothing installed but the GPU driver.
 - **POSIX (Linux / WSL / macOS)** builds through the `sh` scripts and the same CMake files. The **MSVC** branch is maintained but is not what the scripts or CI drive (see the *Toolchains* bullet above).
 - Measured reference platform: **Windows 11 build 26300, x64**, MSYS2 **clang64**.
 
@@ -234,7 +242,7 @@ The version column gives **the minimum the build actually enforces** where there
 | bindless descriptor heap | `VK_EXT_descriptor_heap` + one of its two dependencies (`VK_KHR_maintenance5` preferred, else `VK_KHR_extended_flags`), and `VK_KHR_shader_untyped_pointers` | the heap-native paths |
 | mesh and task shaders | `VK_EXT_mesh_shader` | mesh dispatch (falls back to the direct call, logged once) |
 
-Measured reference device (this repository's development machine, and the hardware the numbers in `DYNAMIC_LINK_V2.md` and the local regression baselines were taken on): **NVIDIA GeForce RTX 4060 Laptop GPU, NVIDIA driver 616.92**.
+Measured reference device (this repository's development machine, and the hardware the local regression baselines were taken on): **NVIDIA GeForce RTX 4060 Laptop GPU, NVIDIA driver 616.92**.
 
 #### Disk & data
 

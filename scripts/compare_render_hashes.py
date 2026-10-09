@@ -11,8 +11,8 @@ WHY THIS EXISTS, AND WHY IT IS NOT `check_render.ps1`'s EXIT CODE
       * the OTHER TREE, while two build trees existed (the migration's development phase): the legacy
         tree was the CONTROL, and the dynamic tree had to reproduce its fourteen hashes byte for byte
         (matched 14 / mismatched 0 was the acceptance); or
-      * the FROZEN list, once only one configuration is left (S5, the flip): the fourteen values in
-        DYNAMIC_LINK_IMPLEMENTATION.md section 1, which every batch of the migration has reproduced.
+      * the FROZEN list, once only one configuration is left (S5, the flip): the fourteen values below,
+        which every batch of the migration has reproduced.
 
     Keeping the comparison in a script - rather than in a human's eyes - is the point: "the hashes look
     right" is exactly the claim this repository does not accept.
@@ -37,8 +37,8 @@ import argparse
 import re
 import sys
 
-# THE FROZEN FOURTEEN (DYNAMIC_LINK_IMPLEMENTATION.md section 1, the reference set the whole migration
-# was gated against). They are also what `check_render.ps1`'s own references were built from, so a tree
+# THE FROZEN FOURTEEN (the reference set the whole migration was gated against, reproduced by every
+# batch of it). They are also what `check_render.ps1`'s own references were built from, so a tree
 # that matches the frozen list matches the control tree the migration used.
 FROZEN = {
     "deferred": "972A31EC5FF55C87",

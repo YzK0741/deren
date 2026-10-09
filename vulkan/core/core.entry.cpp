@@ -2,7 +2,7 @@
 // ============================================================================
 // file: vulkan/core/core.entry.cpp
 //
-// THE REAL BACKEND'S C ABI SURFACE (plan_rhi_v4.md §4.1 item 3, abi 18): the ONE
+// THE REAL BACKEND'S C ABI SURFACE (abi 18): the ONE
 // `extern "C"` symbol promise/rhi/backend_entry.hpp declares, DEFINED here for
 // deren::vulkan::core - the object that already owns the instance, the device
 // and the swapchain, and that already derives from deren::promise::rhi::api_core

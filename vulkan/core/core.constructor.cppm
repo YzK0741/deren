@@ -55,7 +55,7 @@ import deren.vulkan.constant_init;
 // THE ABI GUARD, AND WHY THERE IS NO LONGER A TRANSLATION HERE.
 //
 // `deren::promise::rhi::create_info` is the contract's ONE creation structure and the backend's
-// constructor takes it directly (plan_rhi_v4.md §4.1 item 3: the renderer's creation parameters
+// constructor takes it directly (the renderer's creation parameters
 // cross as a POD structure). It used to be two structures plus a `to_backend_create_info()` mapping
 // between them - the portable shape and this backend's own `core_create_info` - and that pair is
 // gone: one structure means one place to add the next field, and the initialisation run below reads

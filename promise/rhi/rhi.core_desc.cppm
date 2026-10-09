@@ -2,8 +2,8 @@
 // ============================================================================
 // module: deren.promise.rhi:core_desc
 //
-// HOW A BACKEND CONTEXT IS CREATED, AS THE CONTRACT'S ONE CREATION STRUCTURE (plan_rhi_v4.md §1.11,
-// §4.1 item 3): the program fills `create_info` and hands it to `deren_make_api_core()`; the backend
+// HOW A BACKEND CONTEXT IS CREATED, AS THE CONTRACT'S ONE CREATION STRUCTURE: the program fills
+// `create_info` and hands it to `deren_make_api_core()`; the backend
 // builds its context from it.
 //
 // ONE STRUCTURE, NOT TWO. This type is the whole of the creation descriptor: the backend has no

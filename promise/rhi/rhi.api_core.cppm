@@ -165,7 +165,7 @@ export namespace deren::promise::rhi {
     /// layout `GENERAL` is deliberately NOT a member (it is a Vulkan spelling, not a use).
     enum class image_use : std::uint32_t {
         color_attachment = 0, ///< written as a render target (and read back as one)
-        transfer_source = 1,  ///< read by a copy out of the image        /// APPENDED for the recording face (RECORDING_FACE_PLAN.md §3): the state an image is in
+        transfer_source = 1,  ///< read by a copy out of the image        /// APPENDED for the recording face: the state an image is in
         /// before anything has declared a use for it, which is what a barrier's `from` says at the top
         /// of a pass. A new VALUE, never a renumbering - the rule at `abi_version`.
         undefined = 2,
@@ -244,12 +244,12 @@ export namespace deren::promise::rhi {
     };
 
     // ================================================================================================
-    // THE RECORDING FACE'S DESCRIPTORS (RECORDING_FACE_PLAN.md §3, §4, §6). They are plain contract
+    // THE RECORDING FACE'S DESCRIPTORS. They are plain contract
     // PODs: ADDING THEM CHANGES NO INTERFACE, so no abi bump follows from this block - the verbs that
-    // take them are the interface change (plan §6's last bullet) and land with the backend that
+    // take them are the interface change and land with the backend that
     // translates them.
     //
-    // WHAT THE VOCABULARY DELIBERATELY DOES NOT CARRY, each one the plan's measured verdict rather
+    // WHAT THE VOCABULARY DELIBERATELY DOES NOT CARRY, each one a MEASURED verdict rather
     // than an omission: no HOST-ACCESS masks (the two host-visible barrier sites stay in the escape
     // bucket, runtime.probes.cppm / ray_tracing.cpp), no QUEUE-FAMILY ownership-transfer field (there
     // is no cross-queue submission; the 46 VK_QUEUE_FAMILY_* tokens are IGNORED initialisations), no
@@ -489,7 +489,7 @@ export namespace deren::promise::rhi {
     /// APPENDED: the one decision the engine makes from a format is the BGRA/RGBA swizzle of a
     /// screenshot and whether it can be encoded at all.
     ///
-    /// 7 appends the creation formats (§17's survey, DYNAMIC_LINK_V2.md): the values whose BYTE LAYOUT
+    /// 7 appends the creation formats: the values whose BYTE LAYOUT
     /// matters to the caller (CPU-uploaded content that a sampler interprets) are named one by one, and
     /// `depth` is a ROLE, not a byte layout - "a depth attachment" is all a caller needs to say, because
     /// which concrete depth format a device serves is the backend's capability question, not the
@@ -1544,7 +1544,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error mark_gpu_timing(std::uint32_t mark_index, std::string_view stage_name) noexcept = 0;
 
         // ---- the portable record series (abi 20) ------------------------------------------------
-        // THE RECORDING SURFACE'S OWN VOCABULARY (RECORDING_FACE_PLAN.md §2, as corrected by §9): the
+        // THE RECORDING SURFACE'S OWN VOCABULARY (the verbs the passes actually record): the
         // verbs this renderer's passes actually record, replacing 140 raw `vkCmd*` call sites in the
         // engine's sources. Defined ONCE here, on the borrowed view; the owning `command_buffer`
         // reaches the same series through `recording()` - a second declaration would be a second
@@ -1553,7 +1553,7 @@ export namespace deren::promise::rhi {
         // command-buffer operation, and a second spelling would be exactly the double declaration
         // this block refuses.
         //
-        // THE ANSWERING RULE, and the one place it deviates from the plan's sketch: a verb that
+        // THE ANSWERING RULE, and the one place it deliberately deviates from the obvious shape: a verb that
         // RECEIVES A CONTRACT HANDLE answers `error` - "a handle this backend did not hand out" is a
         // real, checkable refusal (`invalid_argument`), the same answer `use()` and
         // `copy_image_to_buffer()` already give, and a barrier or a binding that was silently not

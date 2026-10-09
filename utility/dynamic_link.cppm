@@ -166,7 +166,7 @@ export namespace deren::utility::dynamic_link {
          * @return the raw handle, which the CALLER now owns; nullptr on an already-empty library
          *
          * THE EXIT FOR "THE LIBRARY LIVES UNTIL THE PROCESS ENDS", which is the rule the backend's
-         * boundary runs on (DYNAMIC_LINK_V2.md §13). MEASURED: unloading the backend after a context had
+         * boundary runs on. MEASURED: unloading the backend after a context had
          * been built and torn down NEVER RETURNED - the destructor called `FreeLibrary` and the process
          * sat at 0.45 s of CPU for 80+ s with ten threads and a working set that never moved, while the
          * same program with the unload removed exited immediately. The wait is on the DLL's own detach

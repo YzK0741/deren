@@ -2,7 +2,7 @@
 // ============================================================================
 // file: vulkan/core/core.api_core.cpp
 //
-// THE RHI CONTRACT'S VIRTUALS, DEFINED FOR THE REAL BACKEND (plan_rhi_v4.md §11.4, S1-C; the
+// THE RHI CONTRACT'S VIRTUALS, DEFINED FOR THE REAL BACKEND (S1-C; the
 // recording surface, the escape and the read-back slot are S2 batch 2).
 // `core` derives from `deren::promise::rhi::api_core` (vulkan/core/core.declarations.cppm), so the
 // object that owns the instance / device / swapchain IS the object a host gets from

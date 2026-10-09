@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The native-handle boundary gate (docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md).
+"""The native-handle boundary gate.
 
 WHY THIS EXISTS, AND WHAT IT IS NOT: the goal is backend portability - a second backend (D3D12, null, ...) must
 be pluggable - so the ENGINE must not call or name the graphics API. The hard evidence for "it does not" is not
@@ -203,7 +203,7 @@ def check_imports(executable: pathlib.Path, verbose: bool) -> list[str]:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="native-handle boundary gate (see docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md)")
+    parser = argparse.ArgumentParser(description="native-handle boundary gate")
     parser.add_argument("--require-zero", action="store_true", help="exit 1 while any check is non-empty")
     parser.add_argument("--verbose", action="store_true", help="print every hit, not just the counts")
     parser.add_argument("--build-dir", default="build-release-dyn-clang64", help="where the engine target's objects live")

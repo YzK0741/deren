@@ -2,7 +2,7 @@
 // ============================================================================
 // file: tests/spike_backend_boundary.cpp
 //
-// THE BOUNDARY SPIKE (DYNAMIC_LINK_V2.md §4 step 1b, plan_rhi_v4.md §9 items 14-17).
+// THE BOUNDARY SPIKE.
 //
 // WHY THIS EXISTS AND WHY IT IS NOT IN `VR_TEST_TARGETS`: the plan's own review found that
 // the four known-unknowns of the DLL flip were all sitting at the END of the critical path -
@@ -744,8 +744,8 @@ int main(int argc, char** argv) {
     //
     // `detach()` IS THE DESIGNED EXIT FOR THIS (`dynamic_link::library`, with its own test in
     // tests/test_dynamic_link.cpp), and the plan's invariant 4 already says the DLL lives to the end of
-    // the process - so the product does not unload either. Recorded in DYNAMIC_LINK_V2.md §13, where it
-    // is a step-4 item: the engine's loader object must detach rather than let its destructor unload,
+    // the process - so the product does not unload either. The engine's loader object must detach
+    // rather than let its destructor unload,
     // or the product deadlocks where nothing is watching (the window has already closed).
     auto loaded = std::move(*loaded_result);
     CHECK(loaded.native_handle() != nullptr);

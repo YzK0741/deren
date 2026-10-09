@@ -518,7 +518,7 @@ namespace deren::vulkan {
         /// It caches the size and the mapped pointer because the allocator's detail lookup is an
         /// UNLOCKED BORROW of its internal map (vulkan/core/vma/vma.cppm's `get_buffer_detail`): the
         /// pointer into that map must not be kept, the VALUES read out of it may be. That is the rule
-        /// the ownership analysis (DYNAMIC_LINK_V2.md §11.2) says every contract query has to follow.
+        /// the ownership analysis says every contract query has to follow.
         struct owned_buffer final : deren::promise::rhi::buffer {
             deren::vulkan::vk_buffer owned = {};
             /// the Vulkan handle, cached at creation: `vk_buffer::handle()` is the ALLOCATOR's registry

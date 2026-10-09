@@ -238,7 +238,7 @@ namespace {
         // `device_address` ability to `ray_tracing`, so BOTH tier-2 abilities changed shape.
         // 5 -> 6 when `vulkan_escape` gained `native_buffer` (a virtual appended to an existing
         // ability).
-        // 6 -> 7 in the image face (DYNAMIC_LINK_V2.md §17 landed): `image` gained `make_view()`,
+        // 6 -> 7 in the image face (landed): `image` gained `make_view()`,
         // the owned `image_view` interface and the image/sampler descriptors became defined types,
         // and `vulkan_escape` grew the image/sampler native-handle borrows.
         // plan §10.3 measured the mechanism; this line is the number itself.
@@ -744,7 +744,7 @@ namespace {
     }
 
     void test_a_detached_library_is_not_unloaded(fs::path const& directory) {
-        // THE INVERSE OF THE UNLOAD PROOF, and the reason `detach()` exists (DYNAMIC_LINK_V2.md §13):
+        // THE INVERSE OF THE UNLOAD PROOF, and the reason `detach()` exists:
         // a detached library keeps its handle, so its file stays mapped after this object is gone.
         // MEASURED on the real backend - unloading it after a context had been built and torn down
         // never returned - so "the product never unloads" has to be expressible, and this is what

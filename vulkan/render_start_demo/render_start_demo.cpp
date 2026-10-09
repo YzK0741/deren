@@ -16,7 +16,7 @@ module;
 #include <span>
 #include <string_view>
 // NO VULKAN HEADER: this demo hands passes their frames and runs the frame's ordering rules - every value it
-// touches is the contract's or the renderer's own (see RECORDING_FACE_REFACTOR_STATUS section 8.5).
+// touches is the contract's or the renderer's own.
 
 module deren.vulkan.render_start_demo;
 

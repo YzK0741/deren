@@ -8,7 +8,7 @@
 // nothing to do with the code under test (measured at HEAD, see the recording-face note), and it reports one
 // bit - pass or fail - for a whole frame.
 //
-// S1 (docs/rhi/NATIVE_HANDLE_EXIT_PLAN.md) moves the acceleration-structure half of the engine behind the
+// The native-handle exit (its S1 step) moves the acceleration-structure half of the engine behind the
 // `ray_tracing` ability. This probe is what says each step of that migration still works, and it is written
 // against THE SAME MODULE SURFACE the migration touches - `bottom_level_structures::add()` /
 // `record_build()` / `record_update()` and `top_level_structure::begin()` / `add()` / `record_build()` - so

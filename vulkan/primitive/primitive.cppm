@@ -1878,7 +1878,7 @@ namespace deren::vulkan {
         // not yet key buffers on content, so today this drop is the last one) - see the ownership note in
         // promise/rhi/rhi.api_core.cppm. NOTHING IS CACHED BESIDE THEM: this used to keep a
         // `buffer_detail const*` per buffer for the draws to read, and that pointer was an UNLOCKED
-        // BORROW into the allocator's map (DYNAMIC_LINK_V2.md §11.2) - the handle itself is what the
+        // BORROW into the allocator's map - the handle itself is what the
         // draw now reaches the buffer through, so the borrow is gone rather than kept in parallel.
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> vertex_buffer = {};
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> index_buffer = {};

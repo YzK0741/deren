@@ -90,7 +90,7 @@ export namespace deren::promise::rhi {
     /// was removed is a PROSE requirement (the gate walks abilities() bits against objects, not
     /// symbols), not a virtual, an entry point, or any type the ABI numbers exist to compare - no
     /// vtable shape moves, so the rule above gives no reason for a bump.
-    /// 6 -> 7 in the image face (DYNAMIC_LINK_V2.md §17's decided design, landed):
+    /// 6 -> 7 in the image face (the decided design, landed):
     /// `image` GAINED `make_view()` and with it the owned `image_view` interface, `image_desc` /
     /// `sampler_desc` / `image_view_desc` became defined types, `image_format` grew the creation
     /// formats and the `depth` role, and `vulkan_escape` grew `native_image` / `native_image_view` /
@@ -176,7 +176,7 @@ export namespace deren::promise::rhi {
     /// the one escape accessor the slice adds: the swapchain image's format as the backend resolved it,
     /// asked of the context rather than of an image. (The withdrawn entry at this number was
     /// `graphics_queue_family_index()`; that one was replaced by a read-only runtime derivation and is
-    /// NOT coming back - see DYNAMIC_LINK_PROGRESS.md §14.)
+    /// NOT coming back.)
     /// 17 -> 18 in the SHARED flip (the last batch of the dynamic-backend migration): the C entry
     /// surface goes from THREE symbols to ONE. `deren_make_api_core` RETURNS a
     /// `std::shared_ptr<api_core>` instead of a raw pointer, and `deren_destroy_api_core` plus
@@ -203,7 +203,7 @@ export namespace deren::promise::rhi {
     /// protects. The same batch moves the loading and the acquisition of the device root out of the
     /// runtime into `deren.vulkan.backend_loader`, called by `main.cpp` (`runtime` now takes the
     /// `shared_ptr` and refuses an empty one), which is a construction-path change in the same breath.
-    /// 19 -> 20 in the RECORDING FACE's verbs (RECORDING_FACE_PLAN.md §2/§6, step 1's verbs half -
+    /// 19 -> 20 in the RECORDING FACE's verbs (step 1's verbs half -
     /// the descriptors half landed unbumped a batch earlier): `command_buffer` APPENDED the portable
     /// record series the engine's passes record with - begin_rendering/end_rendering,
     /// bind_pipeline/bind_vertex_buffer/bind_index_buffer, draw/draw_indexed, dispatch/

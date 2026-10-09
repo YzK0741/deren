@@ -52,7 +52,7 @@ are not listed here.
   target together with simdjson (below); fastgltf is exempt from the repo's
   `-Werror` set. Its headers deliberately do NOT include simdjson (simdjson
   is hidden inside the .cpp files), so consumers only need fastgltf's
-  headers; `gltf_loader` links `fastgltf_vendored`.
+  headers; the `deren_assets` DLL target links `fastgltf_vendored` PRIVATE.
 - note: vendored so the project builds fully self-contained (no
   system-package fastgltf / no network FetchContent); the same sources build
   on Windows/MSYS2 and Linux.
@@ -75,9 +75,9 @@ are not listed here.
   `third_party/stb/stb_image.h` snapshot is taken from upstream master)
 - upstream: https://github.com/nothings/stb
 - local changes: none - single header vendored as-is
-- build: header-only; `third_party/` is on gltf_loader's include path so
-  `#include <stb/stb_image.h>` resolves. gltf_loader.cpp defines
-  `STB_IMAGE_IMPLEMENTATION` to compile the decoder into that one TU.
+- build: header-only; `third_party/` is on the `deren_assets` target's
+  include path so `#include <stb/stb_image.h>` resolves. gltf_loader.cpp
+  defines `STB_IMAGE_IMPLEMENTATION` to compile the decoder into that one TU.
 - license: public domain / MIT (see the header's license comment)
 
 ## VMA (Vulkan Memory Allocator)
@@ -110,6 +110,7 @@ are not listed here.
   every `std::pmr` allocation through it (`mi_aligned_alloc` /
   `mi_free_aligned`).
 - note: vendored so the project needs no system mimalloc (previously the
-  MSYS2 package's `libmimalloc.dll` was linked); the Windows Release exe is
-  fully static, so this dll dependency is gone entirely.
+  MSYS2 package's `libmimalloc.dll` was linked); the allocator hook is
+  compiled into `shared_utility.dll` (the process-wide half), so that dll
+  dependency is gone on every configuration.
 - license: MIT (`LICENSE` in the subtree)

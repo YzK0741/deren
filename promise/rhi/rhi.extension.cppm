@@ -355,8 +355,7 @@ export namespace deren::promise::rhi {
     /// disagree with it, and is the only shape a second backend can serve: a D3D12 backend answers the same
     /// seven questions from ITS own caps, and the engine keeps compiling.
     ///
-    /// THE METHODS ARE THE MEASURED SET, not a device dump: each one is read by the engine today (the call
-    /// sites are named in `docs/rhi/RECORDING_FACE_REFACTOR_STATUS.md` §2.20). A fact nobody reads is dead
+    /// THE METHODS ARE THE MEASURED SET, not a device dump: each one is read by the engine today. A fact nobody reads is dead
     /// vocabulary, so a later need adds a method rather than this type carrying a `VkPhysicalDeviceProperties`.
     struct device_capabilities : extension {
         static constexpr interface_type interface_id = interface_type::device_capabilities;

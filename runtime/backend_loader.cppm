@@ -21,7 +21,7 @@
 // The dependency direction is one-way: this module imports the toolkit and the contract; neither
 // knows it exists, and the runtime does not import IT.
 //
-// THE FOUR THINGS IT GUARANTEES (each one measured during the flip, see DYNAMIC_LINK_PROGRESS.md §18):
+// THE FOUR THINGS IT GUARANTEES (each one measured during the flip):
 //
 //   1. AN ABSOLUTE PATH INTO LoadLibraryExW. The DLL is looked for beside THIS executable
 //      (`executable_directory() / "deren_vulkan.dll"`) and passed as an absolute path, which is what
@@ -32,8 +32,8 @@
 //      image is opened once however many times a caller asks for a root, and a second thread cannot
 //      race a second load.
 //   3. NEVER UNLOADED. The handle is DETACHED from the loader object, which would otherwise close it
-//      in its destructor: `FreeLibrary` after a context had been built and torn down never returned
-//      (DYNAMIC_LINK_V2.md §13), and the resolved entry address stays valid for the life of the
+//      in its destructor: `FreeLibrary` after a context had been built and torn down never returned,
+//      and the resolved entry address stays valid for the life of the
 //      process only because the image is never unmapped.
 //   4. THE CREATION-SIDE HANDSHAKE. `rhi::abi_version` is the entry's FIRST ARGUMENT, so a mismatched
 //      caller is refused by the backend BEFORE an object exists, with the backend's own number in the
@@ -52,7 +52,7 @@
 // this backend (Windows, from a DLL that carries its own GLFW image) it is an `HWND`. A
 // `GLFWwindow*` cannot cross that boundary: GLFW's state is per-image, so a pointer made by the
 // executable's GLFW says nothing to the DLL's copy - MEASURED, and it cost all fourteen render
-// scenarios a panic in `core::init_surface` (DYNAMIC_LINK_PROGRESS.md §18.3). The conversion happens
+// scenarios a panic in `core::init_surface`. The conversion happens
 // HERE rather than in the application because this module is exactly the thing that crosses the image
 // boundary, and rather than in the runtime because the runtime must keep the `GLFWwindow*` for its
 // own callbacks (they run in THIS image's GLFW). Everything else in the structure is passed through
