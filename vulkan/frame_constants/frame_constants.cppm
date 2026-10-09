@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.frame_constants
+// module: deren.engine.frame_constants
 // module version: 0.4.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // ONE FRAME'S SHARED CONSTANTS: the per-frame facts the frame loop produces and a
@@ -25,9 +25,9 @@
 // travels in `pass::resolved_io::frame`.
 //
 // DEPENDENCIES: glm and the Vulkan headers, and NOTHING else - deliberately not
-// `deren.vulkan.primitive`, whose `camera_ubo`/`light_ubo` these fields mirror. The
-// framework must not depend on `deren.vulkan.core` (deren.vulkan.pass names that rule), and
-// `deren.vulkan.primitive` imports it; so the mirror is written out here, and the frame
+// `deren.engine.primitive`, whose `camera_ubo`/`light_ubo` these fields mirror. The
+// framework must not depend on `deren.vulkan.core` (deren.engine.pass names that rule), and
+// `deren.engine.primitive` imports it; so the mirror is written out here, and the frame
 // loop is the ONE place that fills it from the UBOs - which is where the two must
 // agree, in one function, rather than in a type relationship nobody reads.
 //
@@ -40,7 +40,7 @@ module;
 // NO VULKAN HEADER: this module names no native type (it is the frame's facts in the contract's own
 // vocabulary), so the boundary sweep no longer counts it.
 
-export module deren.vulkan.frame_constants;
+export module deren.engine.frame_constants;
 
 export import deren.vstd;
 
@@ -55,7 +55,7 @@ export import deren.vstd;
  * framework deliberately keeps away from passes (see `vulkan.pass::pass_host`).
  */
 
-namespace deren::vulkan {
+namespace deren::engine {
     /**
      * @ingroup vulkan_frame_constants
      * @brief the frame loop's RENDERER SETTINGS, for the ones more than one pass reads
@@ -85,7 +85,7 @@ namespace deren::vulkan {
      * @note every matrix here is the SAME one the camera UBO carries for this frame, so a pass that composes a
      *       push block from it and a shader that reads the UBO cannot disagree about the camera. `proj` keeps
      *       the TAA jitter (the geometry must be sampled at the jittered offsets); `view_proj_unjittered` is
-     *       the pair the motion vectors come from (see `camera_ubo` in deren.vulkan.primitive for the full argument).
+     *       the pair the motion vectors come from (see `camera_ubo` in deren.engine.primitive for the full argument).
      */
     export struct frame_constants {
         /// this frame's view matrix
@@ -108,4 +108,4 @@ namespace deren::vulkan {
         render_settings settings = {};
     };
 
-} // namespace deren::vulkan
+} // namespace deren::engine

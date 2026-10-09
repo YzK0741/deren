@@ -1,6 +1,6 @@
 /**
  * @file mmd_motion.cpp
- * @brief VMD parser implementation for deren.vulkan.animation.mmd_motion
+ * @brief VMD parser implementation for deren.engine.animation.mmd_motion
  *
  * Layout per the OpenMMD VMD specification (only 16 of a bone key's 64 interpolation bytes are
  * used) plus babylon-mmd's field map (src/Loader/Parser/vmdObject.ts) for the [4][4][4] indexing
@@ -22,12 +22,12 @@ module;
 #include <unordered_map>
 #include <vector>
 
-module deren.vulkan.animation.mmd_motion;
+module deren.engine.animation.mmd_motion;
 
 import deren.vstd;
 import deren.utility;
 
-namespace deren::vulkan::animation {
+namespace deren::engine::animation {
     namespace {
 
         constexpr std::size_t vmd_header_bytes = 30;
@@ -638,4 +638,4 @@ namespace deren::vulkan::animation {
         return baked;
     }
 
-} // namespace deren::vulkan::animation
+} // namespace deren::engine::animation

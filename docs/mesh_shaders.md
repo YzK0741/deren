@@ -13,7 +13,7 @@ exists), and TIMINGS (there are none: the counters measure work, not millisecond
   form that acceptance can take now that the vertex path is gone, and forced probes prove which stage produced the
   frames.
 - THE MESHLET PATH IS THE ONE IN USE: every primitive's geometry is cut into 85-triangle meshlets with object-space
-  bounding spheres and normal cones (`deren.vulkan.meshlet`, 3145 records over 103 primitives on Sponza), the records live
+  bounding spheres and normal cones (`deren.engine.meshlet`, 3145 records over 103 primitives on Sponza), the records live
   in a heap table written once at import, and both geometry passes draw them ONE WORKGROUP PER MESHLET - the shadow
   pass and the G-buffer - each meshlet culled against its pass's clip volume before it emits anything. Every mesh
   dispatch goes through `vkCmdDrawMeshTasksIndirectEXT`, and the CAMERA's runs are culled by the HOST before the

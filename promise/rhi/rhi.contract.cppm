@@ -201,7 +201,7 @@ export namespace deren::promise::rhi {
     /// SYMBOL: the engine dispatches it through its own vtable copy, so the boundary's measured count and
     /// the import meter stay at ZERO - what changes is the interface SHAPE, and that is what this number
     /// protects. The same batch moves the loading and the acquisition of the device root out of the
-    /// runtime into `deren.vulkan.backend_loader`, called by `main.cpp` (`runtime` now takes the
+    /// runtime into `deren.engine.backend_loader`, called by `main.cpp` (`runtime` now takes the
     /// `shared_ptr` and refuses an empty one), which is a construction-path change in the same breath.
     /// 19 -> 20 in the RECORDING FACE's verbs (step 1's verbs half -
     /// the descriptors half landed unbumped a batch earlier): `command_buffer` APPENDED the portable

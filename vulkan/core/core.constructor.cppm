@@ -161,7 +161,7 @@ namespace deren::vulkan {
         // targets and two spellings of "clamped" would size two halves of one frame differently. The log
         // line below stays here: reporting the clamp is the backend's, and the engine has nothing to say
         // at the same point.
-        this->render_scale = deren::vulkan::render_layout::clamp_render_scale(this->create_options.render_scale);
+        this->render_scale = deren::engine::render_layout::clamp_render_scale(this->create_options.render_scale);
         if (this->render_scale != this->create_options.render_scale) {
             deren::utility::log("core: render_scale {} clamped to {} (the supported range is 0.1 .. 1.0)", this->create_options.render_scale, this->render_scale);
         }

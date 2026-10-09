@@ -240,13 +240,13 @@ jobs:
       # would need: the binary is never run here, so compiling and linking it under the sanitizers
       # would cost minutes to produce an artifact nobody executes.
       #
-      # glfw is not optional here, which is not obvious from "headless tests". deren.vulkan.math,
-      # deren.vulkan.animation and deren.vulkan.shadow_fit all live in vulkancorekit, whose PUBLIC link interface
+      # glfw is not optional here, which is not obvious from "headless tests". deren.engine.math,
+      # deren.engine.animation and deren.engine.shadow_fit all live in deren_engine, whose PUBLIC link interface
       # carries imgui - so building test_math / test_animation / test_shadow_fit compiles
       # imgui_impl_glfw.cpp and a missing GLFW/glfw3.h fails the build before any test runs (measured:
       # that is what turned this job red, not a sanitizer finding).
       #
-      # The Vulkan packages are needed for two separate reasons: vulkancorekit links Vulkan::Vulkan as
+      # The Vulkan packages are needed for two separate reasons: deren_engine links Vulkan::Vulkan as
       # a PUBLIC dependency, and CMakeLists requires a shader compiler to compile the shaders even in a
       # build that asks for test targets only - the requirement is checked at configure time (slangc; the
       # glslc package stays installed because FindVulkan's shaderc search is what satisfies it here).

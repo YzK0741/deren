@@ -13,19 +13,19 @@ module;
                // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
 #include <span>
 
-module deren.vulkan.pass.upscale;
+module deren.engine.pass.upscale;
 
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw go through
 // the contract, so this file names no `vkCmd*` at all - the same six-site shape fxaa.cpp migrated.
 import deren.promise.rhi;
-import deren.vulkan.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
+import deren.engine.pipelines; // build_upscale_owned: the pass's own pipeline, from its two shaders and the surface's format
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp and fxaa.cpp carry the same alias): the record series
 // names deren::promise::rhi types at every call site below.
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     upscale_pass::~upscale_pass() {
         this->release_owned();
@@ -39,7 +39,7 @@ namespace deren::vulkan::pass {
         return render_resource::upscale_io;
     }
 
-    deren::vulkan::pass::behaviour const& upscale_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& upscale_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -245,4 +245,4 @@ namespace deren::vulkan::pass {
         io.list->end_rendering();
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

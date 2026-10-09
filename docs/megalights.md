@@ -337,7 +337,7 @@ accumulation being live, and the motion measurement that would show its value.
 
 **Next.** The pass class itself (`vulkan/pass/megalights_trace`, the shape a traced compute pass has here -
 two shared sets, its own output at the shared G-buffer set rather than an own set, so two new bindings there,
-one to write and one to sample), its construction and gate in `deren.vulkan.render_start_demo`, the
+one to write and one to sample), its construction and gate in `deren.engine.render_start_demo`, the
 `punctual_replaced` lane that stops `deferred.frag` adding the lights raster-style, and the composite that
 adds the half-resolution result. Then `[render] megalights*` keys and the first measurement - the raw
 estimate's noise against the unshadowed baseline, which is stage 2's acceptance.
@@ -345,7 +345,7 @@ estimate's noise against the unshadowed baseline, which is stage 2's acceptance.
 ### Stage 1 landed: the estimate is in the frame, and the feature-off frame is untouched
 
 `vulkan/pass/megalights_trace` exists (the tracer's shape: two shared sets, no own binding, one image moved
-through `barrier_images`), `pipelines::build_megalights_trace` builds it, `deren.vulkan.render_start_demo`
+through `barrier_images`), `pipelines::build_megalights_trace` builds it, `deren.engine.render_start_demo`
 constructs and gates it, and the runtime records its stage between the `rt_shadow` stage and the `deferred`
 stage. The image reaches the frame through the shared G-buffer set's two new bindings (16 = the storage
 image the trace writes, 17 = the sampler the lighting stage adds it through), and `deferred.frag` does the

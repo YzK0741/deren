@@ -41,11 +41,11 @@ module;
 #include <utility>
 #include <vector>
 
-export module deren.vulkan.pass.chain;
+export module deren.engine.pass.chain;
 
-import deren.vulkan.pass;
+import deren.engine.pass;
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /**
      * @brief an ordered list of passes, with the runner's create and record steps over it
@@ -176,4 +176,4 @@ export namespace deren::vulkan::pass {
         }
     };
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

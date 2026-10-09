@@ -16,17 +16,17 @@ module;
 #include <span>
 #include <string>
 
-module deren.vulkan.pass.megalights_trace;
+module deren.engine.pass.megalights_trace;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers and the dispatch
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines; // build_megalights_trace: the compute pipeline this pass owns
+import deren.engine.render_resource;
+import deren.engine.pipelines; // build_megalights_trace: the compute pipeline this pass owns
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     megalights_trace_pass::~megalights_trace_pass() {
         this->release_owned();
@@ -40,7 +40,7 @@ namespace deren::vulkan::pass {
         return render_resource::megalights_trace_io;
     }
 
-    deren::vulkan::pass::behaviour const& megalights_trace_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& megalights_trace_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -160,4 +160,4 @@ namespace deren::vulkan::pass {
         ++this->frame_index; // the next frame's ray sequence must differ (see the header)
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

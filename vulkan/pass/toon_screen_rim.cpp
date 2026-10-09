@@ -16,26 +16,26 @@ module;
                // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
 #include <span>
 
-module deren.vulkan.pass.toon_screen_rim;
+module deren.engine.pass.toon_screen_rim;
 
 import deren.promise.rhi;
-import deren.vulkan.render_resource;
+import deren.engine.render_resource;
 // (③-D/E A1.0: the `import deren.vulkan.core;` that used to sit here was VESTIGIAL - its own comment
-//  named `deren::vulkan::hdr_format` as the reason, and this file never spells it. The formats themselves
-//  live in the shared `deren.vulkan.render_layout` now, which is where a pass that DOES name one reaches
+//  named `deren::engine::hdr_format` as the reason, and this file never spells it. The formats themselves
+//  live in the shared `deren.engine.render_layout` now, which is where a pass that DOES name one reaches
 //  for it - without importing the backend.)
-import deren.vulkan.pipelines; // make_graphics_pipeline: the contract factory this pass builds through
+import deren.engine.pipelines; // make_graphics_pipeline: the contract factory this pass builds through
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     render_resource::pass_io const& toon_screen_rim_pass::io() const noexcept {
         return render_resource::toon_screen_rim_io;
     }
 
-    deren::vulkan::pass::behaviour const& toon_screen_rim_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& toon_screen_rim_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -187,4 +187,4 @@ namespace deren::vulkan::pass {
         io.list->end_rendering();
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

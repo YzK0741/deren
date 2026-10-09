@@ -18,11 +18,11 @@ module;
 // NO VULKAN HEADER: this demo hands passes their frames and runs the frame's ordering rules - every value it
 // touches is the contract's or the renderer's own.
 
-module deren.vulkan.render_start_demo;
+module deren.engine.render_start_demo;
 
 import deren.utility;
 
-namespace deren::vulkan {
+namespace deren::engine {
 
     std::size_t render_start_demo::attach(runtime& self) noexcept {
         this->runtime_owner = &self;
@@ -559,4 +559,4 @@ namespace deren::vulkan {
         // runner does through recreate_stage, so there is nothing left here to reset.
     }
 
-} // namespace deren::vulkan
+} // namespace deren::engine

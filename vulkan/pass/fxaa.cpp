@@ -13,19 +13,19 @@ module;
 #include <span>
 #include <string>
 
-module deren.vulkan.pass.fxaa;
+module deren.engine.pass.fxaa;
 
 // The record series (abi 20): the two barriers, the rendering scope, the cull mode and the draw now
 // go through the contract, so this file names no `vkCmd*` at all (plan §1 step 4, one pass per commit).
 import deren.promise.rhi;
-import deren.vulkan.pipelines; // build_fxaa_owned: the pass's own pipeline, built from its two shaders and the surface's format
+import deren.engine.pipelines; // build_fxaa_owned: the pass's own pipeline, built from its two shaders and the surface's format
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp carries the same alias): the record series names
 // deren::promise::rhi types at every call site below.
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     fxaa_pass::~fxaa_pass() {
         this->release_owned();
@@ -39,7 +39,7 @@ namespace deren::vulkan::pass {
         return render_resource::fxaa_io;
     }
 
-    deren::vulkan::pass::behaviour const& fxaa_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& fxaa_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -193,4 +193,4 @@ namespace deren::vulkan::pass {
         io.list->end_rendering();
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

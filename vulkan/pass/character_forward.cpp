@@ -15,21 +15,21 @@ module;
 // NO VULKAN HEADER: every barrier, scope and handle in this file is the contract's now (the boundary
 // sweep names the remaining files that still need one, and why).
 
-module deren.vulkan.pass.character_forward;
+module deren.engine.pass.character_forward;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers and the rendering scope
-import deren.vulkan.render_resource;
+import deren.engine.render_resource;
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     render_resource::pass_io const& character_forward_pass::io() const noexcept {
         return render_resource::character_forward_io;
     }
 
-    deren::vulkan::pass::behaviour const& character_forward_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& character_forward_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -205,4 +205,4 @@ namespace deren::vulkan::pass {
         }
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

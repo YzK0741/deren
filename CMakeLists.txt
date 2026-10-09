@@ -226,7 +226,7 @@ endif()
 # library it links, and the process then holds TWO sinks - two `ofstream`s on the same debug.log,
 # two startup rotations, and `rotate_previous_log()` TRUNCATES the file the other copy still has
 # open and appends to (interleaved lines, holes, two sessions in one debug.log.old). The boundary
-# gate is blind to it by construction: it measures deren_vulkan ∩ vulkancorekit, and this is a
+# gate is blind to it by construction: it measures deren_vulkan ∩ deren_engine, and this is a
 # third library that defines no backend symbol.
 #
 # THE SEAM IS STATE, NOT DIRECTORY:
@@ -436,7 +436,7 @@ endif()
 # the header (checked: no other source in the tree includes toml++), so PRIVATE is enough.
 target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 
-# The engine core library (vulkancorekit): Vulkan object management + math + the runtime
+# The engine core library (deren_engine): Vulkan object management + math + the runtime
 # facade + scene tree + the debug GUI + the format-neutral animation controller
 # (vulkan.animation: plays keyframe clips / skins / morphs onto the runtime scene; it never
 # imports a loader - deren::gltf::scenes satisfies its structural source concept at the call site).
@@ -452,8 +452,8 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # / handles / init_utils / pipeline / spirv_parser, and the transition constants) and the 17 files
 # listed below, and NOTHING about render passes.
 #
-# WHY A TARGET AND NOT A DIRECTORY MOVE: every consumer of the backend keeps using vulkancorekit
-# unchanged (the BMI comes across through `target_link_libraries(vulkancorekit PUBLIC deren_vulkan)`,
+# WHY A TARGET AND NOT A DIRECTORY MOVE: every consumer of the backend keeps using deren_engine
+# unchanged (the BMI comes across through `target_link_libraries(deren_engine PUBLIC deren_vulkan)`,
 # the shape static_utility / vstd_lib already have). Products are expected to be byte-identical: same TUs,
 # same flags, same executable - S1-A is the one step of S1 that is constructive.
 #
@@ -461,7 +461,7 @@ target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 # now full: S1-C made this target implement deren::promise::rhi::api_core and prove the contract
 # in-process, and this batch makes the SAME TARGET the DLL whose ONE export
 # (promise/rhi/backend_entry.hpp, abi 18) the executable resolves BY NAME through
-# deren.utility.dynamic_link - never by linking it. `target_link_libraries(vulkancorekit
+# deren.utility.dynamic_link - never by linking it. `target_link_libraries(deren_engine
 # PUBLIC deren_vulkan)` is GONE with it (see that line): an import library would load the backend at
 # process start, before main, which is exactly the load-time binding dynamic_link exists to replace -
 # and a missing DLL would then fail as a system loader error instead of a diagnosable refusal.
@@ -640,7 +640,7 @@ target_include_directories(deren_vulkan
 # to one translation unit, so a single build tree could not host both runtimes, and the LEGACY tree was
 # the CONTROL for the dynamic one (both had to read the same fourteen render hashes). With the legacy
 # sources gone there is nothing to select between and nothing to control, so the file list below is
-# simply what `vulkancorekit` gets. `VR_RUNTIME_SERVES_THE_APP` retires in the same move: it gated the
+# simply what `deren_engine` gets. `VR_RUNTIME_SERVES_THE_APP` retires in the same move: it gated the
 # application, `chores` and `render_start_demo` while the port was incomplete (S1-S3) and has been
 # unconditionally ON since S4's file-list swap.
 #
@@ -666,9 +666,10 @@ set(VR_APP_EXE deren)
 set(VR_FULL_API_MODULES vulkan/render_start_demo/render_start_demo.cppm)
 set(VR_FULL_API_SOURCES vulkan/render_start_demo/render_start_demo.cpp)
 
-add_library(vulkancorekit STATIC)
+add_library(deren_engine STATIC)
+add_library(deren::engine ALIAS deren_engine)
 
-target_sources(vulkancorekit
+target_sources(deren_engine
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
@@ -752,7 +753,7 @@ target_sources(vulkancorekit
 # proxy): the executable carried ~7.1 MB of NON-rendering code, and this target plus its vendored
 # implementation is 3.4 MB of it (gltf_loader 1.73 + fastgltf_vendored 1.65, simdjson included).
 # It is the only large non-rendering block that CAN move, because it depends on nothing in
-# `vulkancorekit` - and a DLL cannot import a symbol out of the executable, so anything that names
+# `deren_engine` - and a DLL cannot import a symbol out of the executable, so anything that names
 # the engine (`chores`) or IS the executable (`main.cpp`) has to stay. `backend_loader` was left
 # alone too: it links glfw, and a DLL would put a THIRD copy of GLFW's global state in the process.
 #
@@ -948,11 +949,11 @@ target_link_libraries(deren_assets
         static_utility
 )
 
-# deren_assets is deliberately absent from vulkancorekit's link interface: the engine core is
+# deren_assets is deliberately absent from deren_engine's link interface: the engine core is
 # loader-agnostic (see the library comment above). The executable links deren_assets itself - the
 # import library, so the image is loaded before main - and main.cpp is its only consumer, passing the
 # parsed deren::gltf::scenes down to the runtime at the call site.
-target_link_libraries(vulkancorekit
+target_link_libraries(deren_engine
         PUBLIC
         glfw
         static_utility
@@ -960,7 +961,7 @@ target_link_libraries(vulkancorekit
         ${CMAKE_DL_LIBS}
         vstd_lib
         # (imgui MOVED OUT: deren_gui_vulkan links it PRIVATE and the engine resolves the plugin by name
-        #  through deren.vulkan.gui_loader - see that target below. No engine target links it any more.)
+        #  through deren.engine.gui_loader - see that target below. No engine target links it any more.)
         # The constexpr builders the engine imports directly (26 sites): the module is
         # neutral (compiled once for both halves), which is what takes those imports off the flip
         # gate's meter - see the target's comment above deren_vulkan.
@@ -973,7 +974,7 @@ if(DEREN_VERIFY_ENGINE_NO_VULKAN)
     file(MAKE_DIRECTORY "${_engine_header_guard}/vulkan")
     file(WRITE "${_engine_header_guard}/vulkan/vulkan.h"
         "#error Vulkan headers are forbidden in engine translation units\n")
-    target_include_directories(vulkancorekit BEFORE PRIVATE "${_engine_header_guard}")
+    target_include_directories(deren_engine BEFORE PRIVATE "${_engine_header_guard}")
 endif()
 
 # Vendored VMA (third_party/vma/vk_mem_alloc.h): vma.cppm includes <vma/vk_mem_alloc.h>,
@@ -982,14 +983,14 @@ endif()
 # preferred (it precedes Vulkan::Vulkan's include dirs). Marked SYSTEM so upstream VMA's
 # warnings are suppressed (the SDK copy is an isystem include for the same reason - VMA code
 # trips -Werror on nullability annotations otherwise).
-target_include_directories(vulkancorekit
+target_include_directories(deren_engine
     SYSTEM PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}/third_party
 )
 
 # The engine side gets the backend's modules (BMIs) and symbols from deren_vulkan. PUBLIC, because a
 # static library's link interface is what carries the module file set to the exe and to the tests
-# (§11.2): vulkancorekit's own name and its outward link surface are unchanged by S1-A.
+# (§11.2): deren_engine's own name and its outward link surface are unchanged by S1-A.
 # THE ENGINE DOES NOT LINK THE BACKEND ANY MORE, and that is what makes the backend a DLL rather than
 # an auto-import library: the runtime resolves `deren_make_api_core` BY NAME out of deren_vulkan.dll
 # (runtime/runtime.constructor.cppm, through deren.utility.dynamic_link, detaching the handle so the
@@ -1002,7 +1003,7 @@ target_include_directories(vulkancorekit
 # this link interface. The APP depends on it as a build ORDER (the DLL must exist before a test runs).
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
-# comment above `vulkancorekit`).
+# comment above `deren_engine`).
 add_executable(deren main.cpp)
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
 # running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
@@ -1012,7 +1013,7 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Rel
 # static_utility: the per-half toolkit. utility.cpp implements the xxHash-based hash functions
 # (deren::utility::xxh3_128bits) on top of the vendored xxhash library, so the dependency is
 # declared here, on the library that actually uses the XXH3_128bits symbol. It propagates to
-# consumers (vulkancorekit / deren_assets / deren) at link time, so the executable does not need to
+# consumers (deren_engine / deren_assets / deren) at link time, so the executable does not need to
 # link xxhash itself. The platform_* TUs live here too - they are per-half by nature (no state).
 target_link_libraries(static_utility
         # The verdict family (pass_failure / fatal) carries the contract's error_info as a value, so
@@ -1082,11 +1083,11 @@ target_link_libraries(app_config
 # (analyse_config: config-file + argv merge, shaders/model location) and shader-loading /
 # pipeline helpers, kept out of main.cpp. Split like the other modules: chores.cppm
 # (export import std pattern) declares, chores.cpp implements. Demo/application layer only -
-# these helpers know about app_config (settings), the runtime (deren.vulkan.runtime) and utility
+# these helpers know about app_config (settings), the runtime (deren.engine.runtime) and utility
 # log/panic, never about glTF.
 #
 # `chores` takes `runtime&` and therefore names the full runtime API - which is exactly what the ONE
-# runtime now serves (its S1-S3 gate retired with the legacy runtime: see `vulkancorekit`'s comment).
+# runtime now serves (its S1-S3 gate retired with the legacy runtime: see `deren_engine`'s comment).
 add_library(chores STATIC)
 
 target_sources(chores
@@ -1101,7 +1102,7 @@ target_sources(chores
 
 target_link_libraries(chores
         app_config
-        vulkancorekit
+        deren_engine
         static_utility
         vstd_lib
 )
@@ -1109,7 +1110,7 @@ target_link_libraries(chores
 target_link_libraries(${PROJECT_NAME}
         backend_loader   # main.cpp calls load_api_core(): the app owns the acquisition (batch ⑥)
         static_utility
-        vulkancorekit
+        deren_engine
         chores
         # AUTO-IMPORT, and it is the opposite rule from the two graphics plugins, which are resolved
         # BY NAME at run time and are not in this link line at all (see the add_dependencies below).
@@ -1281,10 +1282,10 @@ if(VR_BUILD_TESTS)
     # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
     # the source root and no library at all (see the test's header for the invariants).
     target_compile_definitions(test_docs PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # deren.vulkan.meshlet is pure CPU alongside vulkan.math: the split's coverage/bounds/determinism checks need no
+    # deren.engine.meshlet is pure CPU alongside vulkan.math: the split's coverage/bounds/determinism checks need no
     # device, which is the only way they can run in CI (the capture gate's references are machine-specific).
     target_link_libraries(test_meshlet
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
 
@@ -1297,31 +1298,31 @@ if(VR_BUILD_TESTS)
             glm::glm
             vstd_lib
     )
-    # deren.vulkan.math lives in vulkancorekit; the module itself is pure CPU (see math.cppm), the
+    # deren.engine.math lives in deren_engine; the module itself is pure CPU (see math.cppm), the
     # link chain just rides the library's PUBLIC dependencies (Vulkan/glfw are not pulled in
     # unless the math code actually references them).
     target_link_libraries(test_math
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
-    # deren.vulkan.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
+    # deren.engine.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
     # for - usage is a subset of the schema, kind and access fit, a pass's own bindings are contiguous, a pool
     # count is derivable - are checkable WITHOUT a device, which is the only way they can be checked in CI.
     target_link_libraries(test_render_resources
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
-    # deren.vulkan.pass is the framework: its base class and behaviour kinds name Vulkan handle types but never call
+    # deren.engine.pass is the framework: its base class and behaviour kinds name Vulkan handle types but never call
     # Vulkan, so its contract - resolve, apply the behaviour, record, mark, recreate - is testable with a fake
     # host and no device at all.
     target_link_libraries(test_pass
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
-    # deren.vulkan.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
+    # deren.engine.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
     # pure functions, so nothing Vulkan is pulled in.
     target_link_libraries(test_animation
-            vulkancorekit
+            deren_engine
             glm::glm
             vstd_lib
     )
@@ -1338,12 +1339,12 @@ if(VR_BUILD_TESTS)
             deren_assets
             vstd_lib
     )
-    # deren.vulkan.shadow_fit is pure CPU arithmetic (no Vulkan object is touched), and the module lives in
-    # vulkancorekit next to deren.vulkan.math; the link chain brings Vulkan/glfw in, which the tests do not
+    # deren.engine.shadow_fit is pure CPU arithmetic (no Vulkan object is touched), and the module lives in
+    # deren_engine next to deren.engine.math; the link chain brings Vulkan/glfw in, which the tests do not
     # use. This is the first test of the shadow system, which had none: the fit had no device
     # dependency, it just lived where nothing could reach it.
     target_link_libraries(test_shadow_fit
-            vulkancorekit
+            deren_engine
             glm::glm
             vstd_lib
     )
@@ -1394,7 +1395,7 @@ if(VR_BUILD_TESTS)
     # (`probe_make_core` with a chosen `api_version()`) cannot drift from the entry's own behaviour.
     target_link_libraries(test_runtime_injection
             promise
-            vulkancorekit
+            deren_engine
             static_utility
             probe_backend_static
             vstd_lib
@@ -1456,7 +1457,7 @@ endif()
 add_executable(test_runtime_dyn tests/test_runtime_dyn.cpp)
 target_link_libraries(test_runtime_dyn
         backend_loader   # the scaffold calls load_api_core() explicitly (batch ⑥)
-        vulkancorekit
+        deren_engine
         promise
         static_utility
         vstd_lib
@@ -1476,7 +1477,7 @@ add_executable(test_acceleration_structures tests/test_acceleration_structures.c
 target_link_libraries(test_acceleration_structures Vulkan::Vulkan)
 target_link_libraries(test_acceleration_structures
         backend_loader   # load_api_core() explicitly, exactly as the scaffold test does
-        vulkancorekit
+        deren_engine
         promise
         static_utility
         vstd_lib
@@ -1485,7 +1486,7 @@ target_link_libraries(test_acceleration_structures
 add_dependencies(test_acceleration_structures deren_vulkan)
 
 # THE GUI PLUGIN IS BUILT BESIDE THE EXECUTABLE like the renderer backend, and for the same build-order
-# reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.vulkan.gui_loader, so the file
+# reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.engine.gui_loader, so the file
 # has to exist, but the executable must NOT link it (an import library would bind the GUI before main).
 add_dependencies(deren deren_gui_vulkan)
 
@@ -1651,13 +1652,13 @@ foreach(vendored_target IN LISTS VR_VENDORED_TARGETS)
     target_compile_options(${vendored_target} PRIVATE ${VR_VENDORED_RELEASE_OPTIONS})
 endforeach()
 
-target_compile_definitions(vulkancorekit PRIVATE
+target_compile_definitions(deren_engine PRIVATE
         $<$<CONFIG:Debug>:
         _DEBUG
         >
 )
 
-# S1-A (§11.2's fourth list): the backend half had this define while it was compiled by vulkancorekit,
+# S1-A (§11.2's fourth list): the backend half had this define while it was compiled by deren_engine,
 # so the new target carries it too - the split is supposed to be invisible in the products.
 target_compile_definitions(deren_vulkan PRIVATE
         $<$<CONFIG:Debug>:
@@ -1669,7 +1670,7 @@ target_compile_definitions(deren_vulkan PRIVATE
 #    that surface it: the Vulkan app_info (vulkan/core/core.cpp, applicationVersion /
 #    engineVersion), the --version flag and the startup log banner (main.cpp). Bump the number
 #    in project(VERSION) and keep README/docs' "current version" lines in sync.
-foreach(version_target IN ITEMS vulkancorekit ${VR_APP_EXE} deren_vulkan)
+foreach(version_target IN ITEMS deren_engine ${VR_APP_EXE} deren_vulkan)
     target_compile_definitions(${version_target} PRIVATE
             DEREN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
             DEREN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
@@ -1719,7 +1720,7 @@ if(CLANG_FORMAT_EXECUTABLE)
     # root-level module source feeding both the format stamp and a target that depends on other
     # format-listed targets makes ninja see a cycle; format chores.cppm manually with
     # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables vulkancorekit deren_assets ${VR_APP_EXE})
+    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables deren_engine deren_assets ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 

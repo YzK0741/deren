@@ -1,4 +1,4 @@
-// Headless unit tests: deren.vulkan.render_resource (pure CPU) ======================
+// Headless unit tests: deren.engine.render_resource (pure CPU) ======================
 // The description layer exists so that a pass's resources are stated ONCE and the layout, the descriptor
 // writes and the pool counts are generated from that statement instead of being kept in agreement by hand.
 // These tests pin the invariants that make that worth doing, and they can do it without a device - which is
@@ -25,12 +25,12 @@
 #include <string>
 #include <vector>
 
-import deren.vulkan.render_resource;
-import deren.vulkan.pass.upscale; // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
+import deren.engine.render_resource;
+import deren.engine.pass.upscale; // make_easu_constants: the ported FsrEasuCon, checked as arithmetic below
 
 namespace {
-    namespace rr = deren::vulkan::render_resource;
-    namespace up = deren::vulkan::pass;
+    namespace rr = deren::engine::render_resource;
+    namespace up = deren::engine::pass;
 
     /// validate a declaration that holds exactly one binding, so a wrong one can be built in one line
     std::expected<void, std::string> validate_one(rr::pass_binding const& binding) {
@@ -689,7 +689,7 @@ int32_t main() {
             std::string const name = lhs.substr(name_begin == std::string::npos ? 0u : name_begin + 1u);
             std::optional<std::string> const rhs = rhs_after_eq(line, eq);
             // A BRACED INITIALIZER IS NOT A SCALAR, and since A1.0 this file carries more than the grid:
-            // `deren.vulkan.render_layout` also declares the render chain's formats (`gbuffer_formats` is
+            // `deren.engine.render_layout` also declares the render chain's formats (`gbuffer_formats` is
             // an `std::array`).
             //
             // THE BOUNDARY OF THIS SKIP, stated so it cannot be widened by accident: it applies ONLY to an

@@ -20,7 +20,7 @@
 //
 //   2. THE SYNC POINTS, on the sources' TEXT, which IS an oracle: a lane added to `toon_slot` without its
 //      format-table entry, its flag name, its colour-row name or its stride reads another material's data
-//      rather than failing (`deren::vulkan::toon_slot`'s and `toon_colour_lane`'s own notes record that failure
+//      rather than failing (`deren::engine::toon_slot`'s and `toon_colour_lane`'s own notes record that failure
 //      happening once already), and none of those four places is checked by the compiler. This half is the same
 //      shape `test_toon_material_sidecar` uses for the strides, for the same reason.
 //
@@ -2767,10 +2767,10 @@ int32_t main() {
             CHECK_MSG(constructor.find("fgd_desc.format = rhi::image_format::rgba8_unorm;") != std::string::npos,
                       "its format is UNORM and NOT sRGB: the reference's data-block is `Non-Color`, so an sRGB upload would decode all three FGD outputs once (abi 7: the named contract value maps 1:1 to VK_FORMAT_R8G8B8A8_UNORM in the backend)");
             // THE SLOT IS NAMED THROUGH THE SHARED MODULE NOW (S5): the runtime used to spell the backend's
-            // alias (`core::heap_slots::goo_fgd_lut`), and it names `deren.vulkan.render_layout::heap_slots`
+            // alias (`core::heap_slots::goo_fgd_lut`), and it names `deren.engine.render_layout::heap_slots`
             // directly - the same constant, in the module BOTH halves compile (which is what the line above
             // pins). What this check is for is unchanged: the HOST WRITES the slot.
-            CHECK_MSG(constructor.find("write_heap_grid_image(this->vulkan_core, deren::vulkan::render_layout::heap_slots::goo_fgd_lut") != std::string::npos,
+            CHECK_MSG(constructor.find("write_heap_grid_image(this->vulkan_core, deren::engine::render_layout::heap_slots::goo_fgd_lut") != std::string::npos,
                       "and it reaches the slot");
             CHECK_MSG(constructor.find("fgd_desc.mip_levels = 1;") != std::string::npos, "one mip, which is the reference's own `image_user` (no Mip input)");
             // ... AND THE APPLICATION SIDE: the path, the decoder, the format argument and the file's name
@@ -2992,7 +2992,7 @@ int32_t main() {
                 CHECK_MSG(app.find("\"_GooNormalStrength\",") != std::string::npos, "the strength lane's row name");
                 // THE ROW IS A `float`, so it lands in `material_sidecar::scalars` and the GENERIC lane path (which
                 // reads `others`) cannot reach it: the lane needs a branch of its own, like the two `extras` lanes.
-                CHECK_MSG(app.find("lane == deren::vulkan::toon_colour_lane::goo_normal_strength") != std::string::npos,
+                CHECK_MSG(app.find("lane == deren::engine::toon_colour_lane::goo_normal_strength") != std::string::npos,
                           "the app resolves the strength lane through its own branch");
                 CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], strength.x)") != std::string::npos,
                           "and reads it with `material_sidecar::scalar` rather than `others.find`");
@@ -3055,7 +3055,7 @@ int32_t main() {
                 // other way: `main.cpp` names a row only when the row's KIND is invisible in its own log (step 8's
                 // `float` lands in `scalars`, which the log counts and never names), while no `color` row of this
                 // sidecar has ever been printed. The lane's own diagnostic is the frame.
-                CHECK_MSG(app.find("deren::vulkan::toon_colour_lane::goo_aniso_gate") == std::string::npos,
+                CHECK_MSG(app.find("deren::engine::toon_colour_lane::goo_aniso_gate") == std::string::npos,
                           "the gate lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
                 // ... AND THE SHADER HALF, which is where the lane has to arrive: the read, the two components, and the
                 // ARM ORDER of the lerp (the defect this step's E1 fixed - the first argument is the ISOTROPIC
@@ -3101,7 +3101,7 @@ int32_t main() {
                 // A `color` ROW, SO NO BRANCH AND NO DIAGNOSTIC - the same two facts step 10's block asserts for its
                 // own lane, asserted the same way (by the enum spelling being absent from `main.cpp` outside the
                 // row table's ORDER comment).
-                CHECK_MSG(app.find("deren::vulkan::toon_colour_lane::goo_aniso_rough") == std::string::npos,
+                CHECK_MSG(app.find("deren::engine::toon_colour_lane::goo_aniso_rough") == std::string::npos,
                           "the rough lane takes the generic `others` path, so `main.cpp` never names the enum outside the row table's ORDER comment");
                 // THE TWO HOST TABLES. The lookup's ends on this lane now; the GPU one has to override it, because
                 // that table starts every lane at `glm::vec4(1.0f)` and a lane left there would hand every material
@@ -3162,7 +3162,7 @@ int32_t main() {
             // exactly what a "half fix" breaks, and the mirror predicates at the end are the defect itself.
             {
                 // ---- D1: THE BRANCH, ITS PATH, AND WHERE IT SITS IN THE LAMBDA ----
-                std::size_t const branch_at = app.find("lane == deren::vulkan::toon_colour_lane::goo_specular_fgd");
+                std::size_t const branch_at = app.find("lane == deren::engine::toon_colour_lane::goo_specular_fgd");
                 CHECK_MSG(branch_at != std::string::npos,
                           "lane 16 has its own branch in `toon_colour`: a `float`-kind row lands in `scalars`, and only `scalar()` reads those");
                 CHECK_MSG(app.find("material->scalar(toon_colour_row[lane_index], fgd.x)") != std::string::npos,
@@ -4180,7 +4180,7 @@ int32_t main() {
                       "name - naming it with the switch off reads the first sheet, and so does the reverse");
             // ...AND THE BRANCH IS BEFORE THE GENERIC TAIL, which is the silent-failure shape spec §3.3 lists
             // first: placed after `if (model_tex == nullptr)`, this whole route compiles, runs, and never fires.
-            std::size_t const branch_at = app.find("if (lane == deren::vulkan::toon_slot::goo_rs_sheet) {");
+            std::size_t const branch_at = app.find("if (lane == deren::engine::toon_slot::goo_rs_sheet) {");
             std::size_t const tail_at = app.find("if (model_tex == nullptr) {");
             CHECK_MSG(branch_at != std::string::npos && tail_at != std::string::npos && branch_at < tail_at,
                       "RS A8.rsi: the sheet lane's new branch sits BEFORE `toon_texture`'s generic tail - after it, "

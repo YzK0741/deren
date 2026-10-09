@@ -398,7 +398,7 @@ void test_the_toon_family_matcher_reads_mmd_material_names() {
 // claimed by exactly one of the two channels.
 //
 // THE NUMBERING IS ASSERTED HERE TOO, because `register_material` compares the value against the literals 1 and
-// 2 to set the material record's flag bits 6 and 7 (deren.vulkan.runtime does not import the loader's types, so the
+// 2 to set the material record's flag bits 6 and 7 (deren.engine.runtime does not import the loader's types, so the
 // value crosses the boundary as a number). Renumbering this enum would therefore change which shader branch an
 // overlay takes with no compile error anywhere - so the numbers are pinned where the enum is.
 void test_the_overlay_matcher_claims_the_two_masks() {

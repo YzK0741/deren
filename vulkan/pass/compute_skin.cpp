@@ -13,12 +13,12 @@ module;
 #include <utility>
 #include <vector>
 
-module deren.vulkan.pass.compute_skin;
+module deren.engine.pass.compute_skin;
 
-import deren.vulkan.pipelines; // build_compute_skin: the compute pipeline this job owns
+import deren.engine.pipelines; // build_compute_skin: the compute pipeline this job owns
 import deren.utility;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     compute_skin_job::~compute_skin_job() {
         this->release_owned();
@@ -123,4 +123,4 @@ namespace deren::vulkan::pass {
         return true;
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

@@ -4,7 +4,7 @@ module;
 #include <memory>  // std::shared_ptr: the session's recording target is the contract handle
 #include <span>    // std::span: what the endpoint takes
 
-export module deren.vulkan.render_environment;
+export module deren.engine.render_environment;
 
 export import deren.vstd;
 import deren.promise.rhi;
@@ -27,7 +27,7 @@ import deren.promise.rhi;
  * pipeline is already the bound one, so consecutive draws sharing a pipeline do not re-bind
  * (the same saving the old per-pipeline grouping gave, now per session and per draw).
  */
-namespace deren::vulkan {
+namespace deren::engine {
     /**
      * @ingroup vulkan_render_environment
      * @brief per-recording-session render state handed to primitive::draw().
@@ -140,7 +140,7 @@ namespace deren::vulkan {
         bool (*meshlet_culled_write)(void* owner, uint32_t base, std::span<std::byte const> records) = nullptr;
         /**
          * WHERE THIS SESSION'S STAGE BLOCK STARTS RECEIVING THE GEOMETRY LANES, in bytes - i.e. the end of the last
-         * member the block's earlier pushes covered (see deren::vulkan::primitive's `mesh_geometry_push_offset_*` and
+         * member the block's earlier pushes covered (see deren::engine::primitive's `mesh_geometry_push_offset_*` and
          * `mesh_geometry_lanes_offset`). It is per SESSION rather than a constant because the two blocks in this
          * renderer end differently: the scene's after its heap index lanes (108), the shadow pass's after its
          * cascade lane (112). The lanes themselves are read by the shader at `mesh_geometry_lanes_offset`, which is
@@ -286,4 +286,4 @@ namespace deren::vulkan {
             }
         }
     };
-} // namespace deren::vulkan
+} // namespace deren::engine

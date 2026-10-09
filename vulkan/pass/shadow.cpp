@@ -14,15 +14,15 @@ module;
 #include <string>
 #include <vector>
 
-module deren.vulkan.pass.shadow;
+module deren.engine.pass.shadow;
 
 import deren.promise.rhi;
-import deren.vulkan.pipelines; // build_shadow: the depth-only pipeline this pass owns
+import deren.engine.pipelines; // build_shadow: the depth-only pipeline this pass owns
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     shadow_pass::~shadow_pass() {
         this->release_owned();
@@ -37,7 +37,7 @@ namespace deren::vulkan::pass {
         return render_resource::shadow_io;
     }
 
-    deren::vulkan::pass::behaviour const& shadow_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& shadow_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -235,4 +235,4 @@ namespace deren::vulkan::pass {
         }
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

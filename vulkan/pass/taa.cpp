@@ -1,5 +1,5 @@
 // The TAA resolve's implementation: the barriers, the fullscreen draw into the HDR target, and the copy that
-// becomes the next frame's history. Moved out of `deren.vulkan.runtime` unchanged in behaviour - the same barrier
+// becomes the next frame's history. Moved out of `deren.engine.runtime` unchanged in behaviour - the same barrier
 // batches in the same order, the same attachment, the same copy and the same two flags - so the capture gate
 // can decide the move on `deferred_taa_fxaa`, the scenario that runs with TAA on.
 
@@ -11,16 +11,16 @@ module;
 #include <span>
 #include <string>
 
-module deren.vulkan.pass.taa;
+module deren.engine.pass.taa;
 
 import deren.promise.rhi;
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines;
+import deren.engine.render_resource;
+import deren.engine.pipelines;
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     taa_pass::~taa_pass() {
         this->release_owned();
@@ -34,7 +34,7 @@ namespace deren::vulkan::pass {
         return render_resource::taa_io;
     }
 
-    deren::vulkan::pass::behaviour const& taa_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& taa_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -255,4 +255,4 @@ namespace deren::vulkan::pass {
         this->history_written = true;
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

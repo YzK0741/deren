@@ -45,22 +45,22 @@ module;
 #include <utility>
 #include <vector>
 
-export module deren.vulkan.core.filters;
+export module deren.engine.filters;
 // THIS FILE NO LONGER EXPORTS A BACKEND MODULE. It used to `export import deren.vulkan.core;`, which is
-// what made `deren.vulkan.core.filters` a re-porter of the whole concrete class (and why a consumer could
+// what made `deren.engine.filters` a re-porter of the whole concrete class (and why a consumer could
 // reach `core::MAX_FRAMES_IN_FLIGHT` through it transitively). The contract is imported PLAINLY below: the
 // two names a consumer needs are `rhi::max_frames_in_flight` (re-exported as this facade's own constant)
 // and `rhi::api_core` (a member type, not part of any consumer's spelling).
 export import deren.vstd;
 import deren.promise.rhi;                   // the contract's device root, and its ring depth
-export import deren.vulkan.render_resource; // resource_id: what a pass asks for, in the declaration's own vocabulary
+export import deren.engine.render_resource; // resource_id: what a pass asks for, in the declaration's own vocabulary
 
-export namespace deren::vulkan {
+export namespace deren::engine {
 
     /**
      * @brief one resource's device handles, as a pass sees them
      *
-     * The same three handles `deren::vulkan::pass::resolved_binding` carries at record time - a descriptor takes a
+     * The same three handles `deren::engine::pass::resolved_binding` carries at record time - a descriptor takes a
      * VIEW, a barrier takes an IMAGE, and a buffer binding takes a BUFFER - but declared here, on the core side,
      * because `render_resource` is deliberately pure CPU data (no Vulkan type in it) and the framework must not
      * depend on this module. The runtime copies the three fields across, which is the whole conversion.
@@ -151,4 +151,4 @@ export namespace deren::vulkan {
         [[nodiscard]] resource_handles resource(render_resource::resource_id id, uint32_t element) const noexcept;
     };
 
-} // namespace deren::vulkan
+} // namespace deren::engine

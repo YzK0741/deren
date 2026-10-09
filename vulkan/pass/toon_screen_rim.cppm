@@ -41,14 +41,14 @@ module;
 #include <span>
 #include <string_view>
 
-export module deren.vulkan.pass.toon_screen_rim;
+export module deren.engine.pass.toon_screen_rim;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.engine.pass;
+import deren.engine.render_resource;
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /**
      * @brief the screen-space depth rim: a fullscreen additive contour over the shaded frame
@@ -78,7 +78,7 @@ export namespace deren::vulkan::pass {
         ~toon_screen_rim_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -109,7 +109,7 @@ export namespace deren::vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"toon-screen-rim"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the contour is drawn at the frame's resolution
             .extent_of = resource_id::none,
@@ -125,11 +125,11 @@ export namespace deren::vulkan::pass {
         float rim_scale = 4.0f;
         float rim_strength = 0.55f;
         float rim_colour[3] = {1.0f, 0.94f, 0.90f};
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
     /// the pass's own block: the eight composed values plus the colour, and the framework appends the two heap
     /// lanes on top (see the shader).
     static_assert(sizeof(toon_screen_rim_pass::push_constants) == render_resource::toon_screen_rim_io.push->size,
                   "the rim's declared push block must be the size of the struct the pass composes");
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

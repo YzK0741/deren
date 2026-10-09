@@ -2,7 +2,7 @@
 // ============================================================================
 // file: runtime/gui_loader.cppm
 //
-// THE GUI PLUGIN'S LOADER - `deren.vulkan.backend_loader`'s shape, one level up.
+// THE GUI PLUGIN'S LOADER - `deren.engine.backend_loader`'s shape, one level up.
 //
 // WHAT IT DOES: resolves `deren_gui_<api>.dll` BESIDE THE EXECUTABLE, finds the one symbol it exports
 // (`deren_make_gui`), calls it with the caller's `create_info`, and hands back the overlay. The executable
@@ -21,7 +21,7 @@ module;
 #include <string>
 #include <string_view>
 
-export module deren.vulkan.gui_loader;
+export module deren.engine.gui_loader;
 
 export import deren.promise.gui;
 
@@ -35,7 +35,7 @@ namespace {
     constexpr std::string_view gui_entry_symbol = "deren_make_gui";
 } // namespace
 
-namespace deren::vulkan {
+namespace deren::engine {
     /// Load the GUI plugin that serves @p info.api and bring it up.
     ///
     /// An EMPTY pointer is the refusal, and it is always the result of a NAMED log line: an unknown `api`, a
@@ -65,4 +65,4 @@ namespace deren::vulkan {
         static_cast<void>(loaded->detach()); // never unload (see the note above)
         return entry(deren::gui::gui_abi_version, &info);
     }
-} // namespace deren::vulkan
+} // namespace deren::engine

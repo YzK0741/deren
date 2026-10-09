@@ -109,14 +109,14 @@ module;
 #include <string>
 #include <string_view>
 
-export module deren.vulkan.pass.ray_traced_shadow;
+export module deren.engine.pass.ray_traced_shadow;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
+import deren.engine.pass;
+import deren.engine.render_resource;
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /**
      * @brief one ray per pixel against the scene's acceleration structures, terminated on the first hit
@@ -139,7 +139,7 @@ export namespace deren::vulkan::pass {
         ~rt_shadow_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -171,7 +171,7 @@ export namespace deren::vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"rt_shadow"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::ray_tracing,
             .group_size_x = group_size,
             .group_size_y = group_size,
@@ -207,9 +207,9 @@ export namespace deren::vulkan::pass {
         deren::promise::rhi::shader_binding_table_region callable_region = {};
         /// whether the "tracing WxH rays per frame" line has been logged (it used to be the runtime's flag)
         bool logged = false;
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
     static_assert(sizeof(rt_shadow_pass::push_constants) == render_resource::rt_shadow_io.push->size,
                   "the shadow pass's declared push block must be the size of the struct the renderer composes");
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

@@ -26,7 +26,7 @@ class BoundaryTests(unittest.TestCase):
         self.baseline = self.root / "baseline.json"
         self.whitelist = self.root / "whitelist.json"
         self.make_archive("libderen_vulkan.a", "int backend_a(void) { return 1; } int backend_b(void) { return 2; }")
-        self.make_archive("libvulkancorekit.a", "extern int backend_a(void); int engine_entry(void) { return backend_a(); }")
+        self.make_archive("libderen_engine.a", "extern int backend_a(void); int engine_entry(void) { return backend_a(); }")
         self.write_baseline(["backend_a"])
         self.write_whitelist([])
         self.write_synthetic_repo()
@@ -85,14 +85,14 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(self.run_gate().returncode, 0)
 
     def test_same_count_new_dependency_fails(self):
-        self.make_archive("libvulkancorekit.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
+        self.make_archive("libderen_engine.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
         result = self.run_gate()
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("backend_b", result.stdout)
 
     def test_reduction_does_not_hide_new_dependency(self):
         self.write_baseline(["backend_a", "retired_dependency"])
-        self.make_archive("libvulkancorekit.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
+        self.make_archive("libderen_engine.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
         self.assertEqual(self.run_gate().returncode, 1)
 
     def test_growing_update_preserves_baseline_bytes(self):
@@ -103,7 +103,7 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(self.baseline.read_bytes(), before)
 
     def test_replacement_update_is_rejected(self):
-        self.make_archive("libvulkancorekit.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
+        self.make_archive("libderen_engine.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
         before = self.baseline.read_bytes()
         self.assertEqual(self.run_gate("--update").returncode, 1)
         self.assertEqual(self.baseline.read_bytes(), before)
@@ -148,7 +148,7 @@ class BoundaryTests(unittest.TestCase):
     def test_stale_archive_blocks_update(self):
         self.write_baseline(["backend_a", "retired_dependency"])
         backend_time = (self.root / "libderen_vulkan.a").stat().st_mtime
-        os.utime(self.root / "libvulkancorekit.a", (backend_time - 600, backend_time - 600))
+        os.utime(self.root / "libderen_engine.a", (backend_time - 600, backend_time - 600))
         before = self.baseline.read_bytes()
         self.assertEqual(self.run_gate("--update").returncode, 1)
         self.assertEqual(self.baseline.read_bytes(), before)
@@ -180,7 +180,7 @@ class BoundaryTests(unittest.TestCase):
         self.assertIn("backend_b", result.stdout)
 
     def test_nonzero_ratchet_does_not_pass_flip_gate(self):
-        result = self.run_gate("--require-zero", "--consumer", str(self.root / "libvulkancorekit.a"))
+        result = self.run_gate("--require-zero", "--consumer", str(self.root / "libderen_engine.a"))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
     # ---- the flip gate's two instruments (whitelist + import graph) ----------------------------------
@@ -210,7 +210,7 @@ class BoundaryTests(unittest.TestCase):
 
     def test_flip_gate_rejects_a_whitelist_entry_the_ratchet_never_tracked(self):
         # a NEW dependency cannot be whitelisted into existence: the ratchet never recorded it
-        self.make_archive("libvulkancorekit.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
+        self.make_archive("libderen_engine.a", "extern int backend_b(void); int engine_entry(void) { return backend_b(); }")
         self.write_whitelist([("backend_b", "added by hand to silence the gate")])
         app = self.make_application()
         result = self.run_gate("--require-zero", "--app-object", str(app))
@@ -238,45 +238,45 @@ class BoundaryTests(unittest.TestCase):
         self.assertIn("imports  engine/application: 1 site(s) in 1 file(s)", result.stdout)
 
     def test_an_engine_file_that_is_not_a_backend_module_is_not_flagged(self):
-        # `deren.vulkan.core.filters` is declared by ENGINE code (vulkancorekit owns filters.cppm), so a
+        # `deren.engine.filters` is declared by ENGINE code (deren_engine owns filters.cppm), so a
         # name prefix must not put it in the backend's set: only CMake's target list may.
         core = self.root / "vulkan" / "core" / "filter"
         core.mkdir(parents=True, exist_ok=True)
-        (core / "filters.cppm").write_text("export module deren.vulkan.core.filters;\n", encoding="utf-8")
+        (core / "filters.cppm").write_text("export module deren.engine.filters;\n", encoding="utf-8")
         (self.root / "vulkan" / "runtime" / "runtime.cppm").parent.mkdir(parents=True, exist_ok=True)
-        (self.root / "vulkan" / "runtime" / "runtime.cppm").write_text("import deren.vulkan.core.filters;\n", encoding="utf-8")
+        (self.root / "vulkan" / "runtime" / "runtime.cppm").write_text("import deren.engine.filters;\n", encoding="utf-8")
         result = self.run_gate()
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("imports  engine/application: 0 site(s)", result.stdout)
 
     def test_zero_gate_requires_application_evidence(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.write_baseline([])
         result = self.run_gate("--require-zero")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
     def test_zero_gate_accepts_clean_explicit_consumer(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.write_baseline([])
         app = self.make_archive("application.a", "int app_entry(void) { return 0; }")
         result = self.run_gate("--require-zero", "--app-object", str(app))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     def test_duplicate_engine_is_not_application_evidence(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.write_baseline([])
-        result = self.run_gate("--require-zero", "--consumer", str(self.root / "libvulkancorekit.a"))
+        result = self.run_gate("--require-zero", "--consumer", str(self.root / "libderen_engine.a"))
         self.assertEqual(result.returncode, 1)
 
     def test_backend_archive_is_not_application_evidence(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.write_baseline([])
         result = self.run_gate("--require-zero", "--app-object", str(self.root / "libderen_vulkan.a"))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("backend archive", result.stdout)
 
     def test_backend_hardlink_is_not_application_evidence(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.write_baseline([])
         alias = self.root / "backend_alias.a"
         os.link(self.root / "libderen_vulkan.a", alias)
@@ -284,15 +284,15 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
     def test_engine_hardlink_is_not_application_evidence(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.write_baseline([])
         alias = self.root / "engine_alias.a"
-        os.link(self.root / "libvulkancorekit.a", alias)
+        os.link(self.root / "libderen_engine.a", alias)
         result = self.run_gate("--require-zero", "--app-object", str(alias))
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
 
     def test_backend_cannot_be_added_as_engine_consumer(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.write_baseline([])
         app = self.make_archive("application.a", "int app_entry(void) { return 0; }")
         result = self.run_gate("--require-zero", "--app-object", str(app),
@@ -308,13 +308,13 @@ class BoundaryTests(unittest.TestCase):
         self.assertEqual(self.baseline.read_bytes(), before)
 
     def test_chores_without_main_is_not_complete_application_evidence(self):
-        self.make_archive("libvulkancorekit.a", "int engine_entry(void) { return 0; }")
+        self.make_archive("libderen_engine.a", "int engine_entry(void) { return 0; }")
         self.make_archive("libchores.a", "int chore_entry(void) { return 0; }")
         self.write_baseline([])
         self.assertEqual(self.run_gate("--require-zero").returncode, 1)
 
     def test_backend_internal_reference_is_not_a_reverse_dependency(self):
-        self.make_archive("libvulkancorekit.a", "extern int backend_a(void); int shared_helper(void) { return 3; } int engine_entry(void) { return backend_a(); }")
+        self.make_archive("libderen_engine.a", "extern int backend_a(void); int shared_helper(void) { return 3; } int engine_entry(void) { return backend_a(); }")
         objects = []
         for name, source in (("backend_caller", "extern int shared_helper(void); int backend_a(void) { return shared_helper(); }"),
                              ("backend_provider", "int shared_helper(void) { return 5; }")):

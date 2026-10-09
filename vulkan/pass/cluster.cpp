@@ -6,7 +6,7 @@
 //
 // It is the first compute pipeline this branch has taken out of `deren.vulkan.core`: `core::make_cluster_pipeline`
 // built it against the core's own scene pipeline layout, which a pass cannot own. The replacement builds the
-// same shape in `deren.vulkan.pipelines` (one set layout, no push range - `light_cluster.comp` takes no constants),
+// same shape in `deren.engine.pipelines` (one set layout, no push range - `light_cluster.comp` takes no constants),
 // so what changes is WHO owns the layout, not what the driver is asked for.
 
 module;
@@ -16,16 +16,16 @@ module;
 #include <span>
 #include <string>
 
-module deren.vulkan.pass.cluster;
+module deren.engine.pass.cluster;
 
 import deren.promise.rhi;      // the record series (abi 20): the dispatch and the two buffer barriers
-import deren.vulkan.pipelines; // build_cluster: the compute pipeline this pass owns
+import deren.engine.pipelines; // build_cluster: the compute pipeline this pass owns
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     cluster_pass::~cluster_pass() {
         this->release_owned();
@@ -39,7 +39,7 @@ namespace deren::vulkan::pass {
         return render_resource::cluster_io;
     }
 
-    deren::vulkan::pass::behaviour const& cluster_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& cluster_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -141,4 +141,4 @@ namespace deren::vulkan::pass {
         }
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

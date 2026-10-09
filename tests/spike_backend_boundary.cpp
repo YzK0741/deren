@@ -41,7 +41,7 @@
 //                          block built inside that library (abi 18), so the `delete` runs in the image
 //                          that allocated the object without the host naming a deleter symbol at all.
 //                          The static half of the probe proved the shape against a probe; this proves
-//                          it against `deren::vulkan::core`.
+//                          it against `deren::engine::core`.
 //   Q1 sanitizers          not observable from inside a single test: it is decided at BUILD
 //                          time (an instrumented DLL cannot put a second ASan runtime into the
 //                          instrumented process - CMakeLists' probe_backend comment). The

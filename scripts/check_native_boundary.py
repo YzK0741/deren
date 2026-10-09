@@ -151,7 +151,7 @@ def check_objects(build_dir: pathlib.Path, verbose: bool) -> list[str]:
     if nm is None:
         return ["objects: no llvm-nm/nm on PATH (skipped)"]
 
-    objects_dir = build_dir / "CMakeFiles" / "vulkancorekit.dir"
+    objects_dir = build_dir / "CMakeFiles" / "deren_engine.dir"
     if not objects_dir.is_dir():
         return [f"objects: {objects_dir} does not exist (build first, or pass --build-dir)"]
 

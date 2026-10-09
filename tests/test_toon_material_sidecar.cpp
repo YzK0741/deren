@@ -407,7 +407,7 @@ namespace {
         // THE COLOUR TABLE'S STRIDE IS A THIRD CONTRACT OF THE SAME KIND, and it fails the worst of the three: the
         // shader addresses that table FLAT - `material_index * lanes + lane` - so a lane count that drifts does not
         // fail, it reads ANOTHER MATERIAL's colour, one material away per lane of drift. The host's number is an
-        // enum (`deren::vulkan::toon_colour_lane::count`) rather than a float, so the check is on the two SPELLINGS, the
+        // enum (`deren::engine::toon_colour_lane::count`) rather than a float, so the check is on the two SPELLINGS, the
         // way the ramp's `0.5` is checked above: the shader's constant and the enum's last line.
         std::ifstream primitive_file{VR_TEST_SOURCE_DIR "/vulkan/primitive/primitive.cppm"};
         CHECK(primitive_file.good());
@@ -705,7 +705,7 @@ namespace {
         // compiler already forces the two sizes to agree (a mismatch is a type error at `find`), so what is left
         // for a test is the reading: record, then the texture lane blocks, then the colour lanes.
         std::string const key_type =
-            "deren::utility::data_block<sizeof(deren::vulkan::material_record) + deren::vulkan::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4)>";
+            "deren::utility::data_block<sizeof(deren::engine::material_record) + deren::engine::toon_lane_blocks * sizeof(glm::uvec4) + static_cast<std::size_t>(deren::engine::toon_colour_lane::count) * sizeof(glm::vec4)>";
         CHECK(declarations.find(key_type) != std::string::npos);
         CHECK(runtime.find(key_type) != std::string::npos);
         // ... AND IT IS THE ENUM RATHER THAN A NUMBER, which is the drift this repository has already paid for
@@ -721,7 +721,7 @@ namespace {
         // neutral, a copy taken before the lookup resolved, a differently ordered row) would dedup on the wrong
         // set of lanes and split or merge the wrong pairs.
         CHECK(runtime.find("info.toon.colours.data(),") != std::string::npos);
-        CHECK(runtime.find("static_cast<std::size_t>(deren::vulkan::toon_colour_lane::count) * sizeof(glm::vec4));") != std::string::npos);
+        CHECK(runtime.find("static_cast<std::size_t>(deren::engine::toon_colour_lane::count) * sizeof(glm::vec4));") != std::string::npos);
 
         // (c) THE ORDER THAT MAKES THE COLOUR TERM NECESSARY, asserted because it is the reason and not an
         // accident: the key is COMPLETE before the lookup, and the table write sits AFTER it. If a later change

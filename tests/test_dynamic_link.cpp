@@ -287,7 +287,7 @@ namespace {
         // existing tier-1 interface is the vtable case the number exists for, EVEN THOUGH it produces no
         // backend symbol (the engine dispatches it through its own vtable copy: the boundary's measured
         // count and the import meter stay at ZERO). The same batch moved the loading and the acquisition
-        // of the device root out of the runtime into deren.vulkan.backend_loader, called by main.cpp -
+        // of the device root out of the runtime into deren.engine.backend_loader, called by main.cpp -
         // which is why this test's subject (the loader) is now something the app uses rather than
         // something the runtime hides.
         // ABI20 was the RECORDING FACE's merge: `command_list` was DELETED and every one of its verbs is

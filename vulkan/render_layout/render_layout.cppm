@@ -13,17 +13,17 @@ module;
 /// a drift guard (see `core.declarations.cppm`), so both spellings work while the call sites migrate.
 ///
 /// WHY A SHARED TARGET AND NOT A COPY PER HALF: `vulkan_constant_init` is compiled ONCE and linked by
-/// both `deren_vulkan` and `vulkancorekit` (the shape `promise` proves), which is the only arrangement
+/// both `deren_vulkan` and `deren_engine` (the shape `promise` proves), which is the only arrangement
 /// that cannot drift - two BMIs of one module name cannot both be visible to one TU.
 ///
 /// THE NUMBERS ARE MIRRORED IN shaders/heap_slots.glsl AND shaders/heap_slot_constants.glsl, and
 /// tests/test_render_resources.cpp holds the two sides equal by parsing BOTH files; that test's path
 /// moved here with the grid.
-export module deren.vulkan.render_layout;
+export module deren.engine.render_layout;
 
 import deren.promise.rhi;
 
-export namespace deren::vulkan::render_layout {
+export namespace deren::engine::render_layout {
 
     // ================================================================================================
     // THE RENDER CHAIN'S FORMATS (③-D/E item A1, A1.0). They sat in `core` as `core::hdr_format` and
@@ -90,7 +90,7 @@ export namespace deren::vulkan::render_layout {
      *        vulkan/scene_tree/scene_tree.cppm).
      *
      * @note IT LIVES HERE FOR THE SAME REASON `hdr_format` AND `bloom_level_count` DO: the ENGINE needs it -
-     *       `deren.vulkan.primitive` `static_assert`s its own push block against it and derives its exported
+     *       `deren.engine.primitive` `static_assert`s its own push block against it and derives its exported
      *       push-block offsets from it - and the engine may not import a backend module to reach it. A value
      *       compiled once and linked by both halves cannot drift; `core` keeps an alias plus a
      *       `static_assert`, which is the backend's half of the guard. The SECOND range
@@ -210,7 +210,7 @@ export namespace deren::vulkan::render_layout {
         // head turns it changes every frame. It is its own block rather than a field of the camera's: the
         // head frame belongs to the CHARACTER, not to the eye looking at it.
         static constexpr uint32_t scene_head = heap_slot_base + 749u;
-        // THE TOON LIGHT RIG (`deren::vulkan::toon_rig`): the character stage's global numbers - the sun/head-light
+        // THE TOON LIGHT RIG (`deren::engine::toon_rig`): the character stage's global numbers - the sun/head-light
         // split, their shadow-side colours and the chain's scalars - written once from the application's
         // config. ONE descriptor and not a per-frame pair, because the values are fixed for a run exactly as
         // the material table's and the toon lane table's are: nothing writes it while a frame is in flight.
@@ -223,7 +223,7 @@ export namespace deren::vulkan::render_layout {
         // the two-state lighting silently sat in its NIGHT state for every frame of both captures. The
         // captures differed by 0 pixels before this line moved.
         static constexpr uint32_t toon_rig = heap_slot_base + 751u;
-        // THE MATERIAL COLOURS (see `deren::vulkan::toon_colour_lane`): one `vec4` per lane per material, written once
+        // THE MATERIAL COLOURS (see `deren::engine::toon_colour_lane`): one `vec4` per lane per material, written once
         // at import from the same sidecar the texture lanes come from. A buffer of its own because the value is
         // FOUR FLOATS and the material record has nowhere to put it here: the record is INLINE in the per-draw
         // push block (see `sdf_lanes` above for the measurement), so a colour lane could not be a record field
@@ -353,4 +353,4 @@ export namespace deren::vulkan::render_layout {
     static_assert(clamp_render_scale(0.05f) == 0.1f, "the lower bound moved");
     static_assert(clamp_render_scale(1.5f) == 1.0f, "the upper bound moved");
     static_assert(clamp_render_scale(0.75f) == 0.75f, "an in-range value must pass through unchanged");
-} // namespace deren::vulkan::render_layout
+} // namespace deren::engine::render_layout

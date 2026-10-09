@@ -36,7 +36,7 @@ One contract, and every graphics backend is an implementation of it.
   heap, the raw-handle escape. The engine asks for what it needs and keeps compiling when an answer is
   "no".
 - **The backends are DLLs resolved BY NAME** out of the executable's own directory, by absolute path
-  (`deren.vulkan.backend_loader` over `deren.utility.dynamic_link`): `deren_vulkan.dll` exports one
+  (`deren.engine.backend_loader` over `deren.utility.dynamic_link`): `deren_vulkan.dll` exports one
   name and `deren_gui_vulkan.dll` exports one name. The handle is detached and the image is never
   unloaded, so a missing DLL is a named diagnosis rather than a loader error.
 - **The run-time package is five images plus the C++ runtime.** Beside `deren.exe`:
@@ -87,7 +87,7 @@ usually meets them. Each one links to the page or module that holds the detail.
   path, its measurements and the migration that got there.
 - **Megalights.** See \ref md_docs_2megalights "Megalights" for the many-light
   sampling, its reservoirs and its temporal reuse.
-- **Ray-traced shadows.** `deren.vulkan.pass.ray_traced_shadow` sits beside the cascade path; see
+- **Ray-traced shadows.** `deren.engine.pass.ray_traced_shadow` sits beside the cascade path; see
   the module documentation and `docs/reference/` for the source notes it was built from.
 - **A toon character pipeline.** Per-material families (base / skin / face / hair / eye /
   cloth) select which shader lanes run; five optional sidecar lanes (diffuse ramp, shadow
@@ -95,7 +95,7 @@ usually meets them. Each one links to the page or module that holds the detail.
   model can be tuned without recompiling; the face terminator is a distance field
   thresholded against the light angle **in the head's own frame**, not against N.L. The
   MMD/VMD motion path (IK, retargeting, morph tracks, physics baking) lives entirely in
-  `deren.vulkan.animation.mmd_motion`. A missing sidecar is an empty sidecar - the toon lanes
+  `deren.engine.animation.mmd_motion`. A missing sidecar is an empty sidecar - the toon lanes
   simply stay off.
 - **Heap-native descriptors.** No descriptor sets: bindings live in a heap the renderer
   manages. \ref md_docs_2descriptor__heap__migration "Descriptor heap migration" and
@@ -148,11 +148,11 @@ you are free to recombine or rewire them.
   usage; consumed as `import deren.vstd;`, module version 0.1.0a - see `vstd/README.md`)
 - `deren.vulkan.core` - instance / device / swapchain / VMA allocator / pipeline / descriptor
   plumbing
-- `deren.vulkan.scene_tree` - pure-CPU scene storage (transform hierarchy of scene_node objects
+- `deren.engine.scene_tree` - pure-CPU scene storage (transform hierarchy of scene_node objects
   with abstract primitive leaves)
-- `deren.vulkan.primitive` - the GPU primitives (normal / instanced / static draws) plus the
+- `deren.engine.primitive` - the GPU primitives (normal / instanced / static draws) plus the
   material / camera / light UBO records of the GPU scene set
-- `deren.vulkan.runtime` - the frame facade (per-frame-slot scene resources, granular frame
+- `deren.engine.runtime` - the frame facade (per-frame-slot scene resources, granular frame
   phases: poll_events -> recreate_if_minimized -> pace_and_acquire -> begin_recording ->
   record_main_drawcalls -> end_recording -> submit_and_present, plus one-call
   render_frame()), drives the peer scene_tree / primitive modules, debug GUI overlay.
@@ -160,14 +160,14 @@ you are free to recombine or rewire them.
   main pass fans its leaf recording out over the shared task pool (sub_render_task
   batches); each recording worker gets its own render_environment (thread-local
   pipeline-bind state)
-- `deren.vulkan.render_environment` - per-recording-session render state: the session's command
+- `deren.engine.render_environment` - per-recording-session render state: the session's command
   buffer, the available named pipelines (pointer to the runtime's stable name table), the
   session's default pipeline and a deduplicated binder (std::function, injected by the
   runtime) that primitives call through draw(render_environment&). Holds no Vulkan module
   dependency.
-- `deren.vulkan.animation` - animation::controller: glTF keyframe playback / skinning / morphs on
+- `deren.engine.animation` - animation::controller: glTF keyframe playback / skinning / morphs on
   the runtime scene tree (heavy animations fan per-source sampling over a small
-  deren.utility:thread_pool), plus the MMD/VMD motion path in `deren.vulkan.animation.mmd_motion`
+  deren.utility:thread_pool), plus the MMD/VMD motion path in `deren.engine.animation.mmd_motion`
 - `deren.gltf_loader` - pure-CPU glTF/GLB loading: meshes, keyframe animation, skins, morph
   targets, cameras and punctual lights (KHR_lights_punctual); world-AABB + loader
   diagnostics
@@ -182,11 +182,11 @@ Modular composition is the point, not a side effect:
 - `deren.gltf_loader`, `deren.app_config` and `deren.utility` are **pure CPU with no Vulkan dependency** -
   standalone libraries that embed into any host application (`deren.gltf_loader` and its toon-material
   sidecar build into `deren_assets.dll`, so they can also be consumed as one shared image);
-- `deren.vulkan.animation` is **format-neutral and runtime-agnostic**: it drives whatever scene
+- `deren.engine.animation` is **format-neutral and runtime-agnostic**: it drives whatever scene
   storage a caller injects through the `backend` surface and initializes from any loader
   whose data satisfies the structural `source` concept (it imports no loader and no
-  `deren.vulkan.runtime`);
-- `deren.vulkan.core` / `deren.vulkan.runtime` are a configurable facade (`create_info`, granular
+  `deren.engine.runtime`);
+- `deren.vulkan.core` / `deren.engine.runtime` are a configurable facade (`create_info`, granular
   per-frame phase calls) - the demo entry point (`main.cpp` + `deren.chores`) is a thin glue layer
   on top and can be replaced wholesale.
 

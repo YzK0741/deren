@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.ray_tracing
+// module: deren.engine.ray_tracing
 // module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // THE STRUCTURE PHASE: the acceleration structures every traced effect casts rays against, the map that says
@@ -18,7 +18,7 @@
 // renderer keeps is the POLICY (the three knobs and the two predicates), the caster set, the ORDER of the phase,
 // and the scene-set binding it publishes the handle through.
 //
-// Depends on deren.vulkan.acceleration_structure (the two structure classes), deren.vulkan.primitive (the casters it walks
+// Depends on deren.engine.acceleration_structure (the two structure classes), deren.engine.primitive (the casters it walks
 // and the material table the MASK rule reads) and the two PASS modules whose requests it composes - the jobs
 // themselves stay the renderer's for now and are driven through `bake_hooks`.
 // ============================================================================
@@ -32,12 +32,12 @@ module;
 #include <string>
 #include <vector>
 
-export module deren.vulkan.ray_tracing;
+export module deren.engine.ray_tracing;
 
 import deren.promise.rhi; // the contract's buffer handle + object_manager: the copies this phase owns
-import deren.vulkan.acceleration_structure;
-import deren.vulkan.pass.compute_skin; // the skinning job's request, which this module composes
-import deren.vulkan.pass.mask_bake;    // ... and the MASK bake's
+import deren.engine.acceleration_structure;
+import deren.engine.pass.compute_skin; // the skinning job's request, which this module composes
+import deren.engine.pass.mask_bake;    // ... and the MASK bake's
 import deren.utility;
 
 /**
@@ -65,9 +65,9 @@ export import deren.vstd;
 // (③-D/E step 1b: the `export import deren.vulkan.core;` that used to sit here is GONE - this class
 //  holds `rhi::api_core&` plus a device resolved through the escape, so the module no longer imports
 //  the backend at all.)
-export import deren.vulkan.primitive;
+export import deren.engine.primitive;
 
-export namespace deren::vulkan::ray_tracing {
+export namespace deren::engine::ray_tracing {
     /// The contract's names under the short alias this file's neighbours use; it used to arrive with
     /// `deren.vulkan.core`, which this module no longer imports (③-D/E step 1b).
     namespace rhi = deren::promise::rhi;
@@ -295,4 +295,4 @@ export namespace deren::vulkan::ray_tracing {
         std::vector<micromap_resource> micromap_resources = {};
     };
 
-} // namespace deren::vulkan::ray_tracing
+} // namespace deren::engine::ray_tracing

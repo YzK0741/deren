@@ -35,15 +35,15 @@ module;
 #include <string>
 #include <string_view>
 
-export module deren.vulkan.pass.shadow;
+export module deren.engine.pass.shadow;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.render_resource;
-import deren.vulkan.primitive; // max_shadow_cascades: the run of layers this pass's declaration claims
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.engine.pass;
+import deren.engine.render_resource;
+import deren.engine.primitive; // max_shadow_cascades: the run of layers this pass's declaration claims
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /**
      * @brief what the renderer hands the shadow pass: the per-cascade content, the scheduler, and the map's edge
@@ -100,7 +100,7 @@ export namespace deren::vulkan::pass {
         ~shadow_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -139,7 +139,7 @@ export namespace deren::vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"shadow"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics, // a draw per caster, not one fullscreen triangle
             .extent = extent_rule::none,      // the map's edge is the pass's, not the frame's (see the field below)
             .extent_of = resource_id::none,
@@ -160,7 +160,7 @@ export namespace deren::vulkan::pass {
         // called pass_frame, not frame: set_frame()'s frame parameter in shadow.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         shadow_frame pass_frame = {};
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
     /// THE DECLARATION'S PUSH BLOCK is the four-byte cascade index at the scene block's end, and the renderer's
     /// content callback is what pushes it - so the two facts are asserted together here, where both are visible.
@@ -168,8 +168,8 @@ export namespace deren::vulkan::pass {
     static_assert(render_resource::shadow_io.push->stages == (render_resource::stage_flag::vertex | render_resource::stage_flag::fragment),
                   "the cascade index is read by both stages of the depth-only draw");
     /// ... and so is the RUN of layers, because it is the same two-copies-one-fact rule: the declaration claims
-    /// every cascade the map can hold, and `deren.vulkan.primitive` is where that count lives (the light UBO's matrix
+    /// every cascade the map can hold, and `deren.engine.primitive` is where that count lives (the light UBO's matrix
     /// array is the same number).
-    static_assert(static_cast<uint32_t>(render_resource::shadow_io.targets[0].count) == deren::vulkan::max_shadow_cascades, "the shadow pass claims every cascade layer the map can have");
+    static_assert(static_cast<uint32_t>(render_resource::shadow_io.targets[0].count) == deren::engine::max_shadow_cascades, "the shadow pass claims every cascade layer the map can have");
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

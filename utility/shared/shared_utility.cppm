@@ -9,7 +9,7 @@
 // INTO A SHARED LIBRARY BREAKS THAT: a DLL carries its own copy of whatever it links, so the
 // process would hold TWO sinks - two `ofstream`s on the same debug.log and two startup rotations,
 // and `rotate_previous_log()` TRUNCATES the file the other copy is still writing. The boundary gate
-// cannot see it either: that gate measures deren_vulkan ∩ vulkancorekit, and this is a third
+// cannot see it either: that gate measures deren_vulkan ∩ deren_engine, and this is a third
 // library defining no backend symbol. Hence a target of its own, which the flip makes SHARED.
 //
 // WHAT BELONGS HERE is exactly the state that must exist once per PROCESS:

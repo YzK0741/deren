@@ -43,8 +43,8 @@
 #include <vulkan/vulkan.h> // the migrated module's recording takes the driver's command buffer; a TEST may name it (it is not the engine half)
 
 import deren.promise.rhi;
-import deren.vulkan.backend_loader;         // load_api_core(): the acquisition lives outside the runtime
-import deren.vulkan.acceleration_structure; // the module S1 migrates (bottom_level_structures / top_level_structure)
+import deren.engine.backend_loader;         // load_api_core(): the acquisition lives outside the runtime
+import deren.engine.acceleration_structure; // the module S1 migrates (bottom_level_structures / top_level_structure)
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../promise/rhi/backend_entry.hpp"
@@ -53,7 +53,7 @@ import deren.vulkan.acceleration_structure; // the module S1 migrates (bottom_le
 namespace {
     namespace rhi = deren::promise::rhi;
     /// the migrated module's own namespace (geometry_source, ottom_level_structures, ...)
-    namespace as = deren::vulkan::acceleration_structure;
+    namespace as = deren::engine::acceleration_structure;
 
     /// Is this run allowed to build a device? The flag is required rather than defaulted: the device path is
     /// slow (a real instance, device and swapchain) and a machine without a Vulkan device must still run the
@@ -97,7 +97,7 @@ int main(int const argc, char** const argv) {
     }
 
     rhi::create_info const creation = probe_create_info();
-    std::shared_ptr<rhi::api_core> core = deren::vulkan::load_api_core(creation);
+    std::shared_ptr<rhi::api_core> core = deren::engine::load_api_core(creation);
     CHECK(core != nullptr);
     if (core == nullptr) {
         return deren::vk_test::finish("test_acceleration_structures");

@@ -61,7 +61,7 @@ export import deren.vulkan.error_tables;
 // the engine can name the grid without importing this backend. Re-exported, because `core::heap_slots`
 // and the `core::heap_slot_*` constants below are aliases INTO it - a consumer of an alias needs the
 // underlying declaration.
-export import deren.vulkan.render_layout;
+export import deren.engine.render_layout;
 export import :vma_handles;
 
 /**
@@ -116,10 +116,10 @@ namespace deren::vulkan {
     // keeps its own copy and nothing crosses the boundary as data. The values are unchanged.
     export inline constexpr uint32_t scene_texture_capacity = 128;
     // material_push_constants: 6 uints + aligned mat4 = 96 bytes, see vulkan/scene_tree/scene_tree.cppm
-    // MOVED INTO `deren.vulkan.render_layout` by the import-cleanup batch, for the reason `hdr_format` moved
-    // (A1.0): `deren.vulkan.primitive` needs it for its exported push-block offsets, and it may not import a
+    // MOVED INTO `deren.engine.render_layout` by the import-cleanup batch, for the reason `hdr_format` moved
+    // (A1.0): `deren.engine.primitive` needs it for its exported push-block offsets, and it may not import a
     // backend module to get it. The alias plus the assert below are this backend's half of the drift guard.
-    export inline constexpr uint32_t scene_push_constant_size = deren::vulkan::render_layout::scene_push_constant_size;
+    export inline constexpr uint32_t scene_push_constant_size = deren::engine::render_layout::scene_push_constant_size;
     static_assert(scene_push_constant_size == 96u, "the scene push block's size moved");
     /**
      * @ingroup vulkan_core
@@ -139,7 +139,7 @@ namespace deren::vulkan {
      *        single-sample resolve target in it (the ENGINE creates that target now - see
      *        runtime::create_render_chain_targets)
      *
-     * MOVED INTO `deren.vulkan.render_layout` (③-D/E item A1, A1.0): the ENGINE creates these targets now,
+     * MOVED INTO `deren.engine.render_layout` (③-D/E item A1, A1.0): the ENGINE creates these targets now,
      * so the formats it creates them WITH have to live in a module both halves compile. The names stay
      * reachable as `deren::vulkan::hdr_format` / `core::hdr_format` through the aliases below, and the
      * frozen numbers are `static_assert`ed against the module - a drift is a COMPILE ERROR rather than a
@@ -159,13 +159,13 @@ namespace deren::vulkan {
         }
     }
 
-    export inline constexpr VkFormat hdr_format = native_render_format(deren::vulkan::render_layout::hdr_format);
+    export inline constexpr VkFormat hdr_format = native_render_format(deren::engine::render_layout::hdr_format);
 
     /**
      * @ingroup vulkan_core
      * @brief how many color targets the G-buffer pass writes (see gbuffer_formats)
      */
-    export inline constexpr uint32_t gbuffer_target_count = deren::vulkan::render_layout::gbuffer_target_count;
+    export inline constexpr uint32_t gbuffer_target_count = deren::engine::render_layout::gbuffer_target_count;
 
     /**
      * @ingroup vulkan_core
@@ -179,12 +179,12 @@ namespace deren::vulkan {
      * @note every target is single-sampled (1x) on purpose: a G-buffer cannot be multisampled
      *       without per-sample shading, which is the trade that makes TAA the anti-aliasing
      *       (the anti-aliasing story is TAA/FXAA on the lit image instead).
-     * @note the values themselves moved to `deren.vulkan.render_layout` with `hdr_format` (A1.0).
+     * @note the values themselves moved to `deren.engine.render_layout` with `hdr_format` (A1.0).
      */
     export inline constexpr std::array<VkFormat, gbuffer_target_count> gbuffer_formats = [] {
         std::array<VkFormat, gbuffer_target_count> formats{};
         for (std::size_t i = 0; i < formats.size(); ++i) {
-            formats[i] = native_render_format(deren::vulkan::render_layout::gbuffer_formats[i]);
+            formats[i] = native_render_format(deren::engine::render_layout::gbuffer_formats[i]);
         }
         return formats;
     }();
@@ -196,7 +196,7 @@ namespace deren::vulkan {
      *        8-bit would quantize it to ~1/255 of the screen - coarser than the jitter TAA exists to
      *        resolve)
      */
-    export inline constexpr VkFormat gbuffer_velocity_format = native_render_format(deren::vulkan::render_layout::gbuffer_velocity_format);
+    export inline constexpr VkFormat gbuffer_velocity_format = native_render_format(deren::engine::render_layout::gbuffer_velocity_format);
 
     /// THE DRIFT GUARD for the moved formats (A1.0), the same shape ruling D used for the slot grid: the
     /// numbers this backend was built with are frozen HERE, so a change on either side has to be a
@@ -1276,7 +1276,7 @@ namespace deren::vulkan {
         VkDeviceSize heap_material_table_offset = VK_WHOLE_SIZE;
 
         // ==========================================================================================
-        // THE SLOT GRID LIVES IN ITS OWN MODULE (③-D/E batch, ruling D): `deren.vulkan.render_layout`
+        // THE SLOT GRID LIVES IN ITS OWN MODULE (③-D/E batch, ruling D): `deren.engine.render_layout`
         // is compiled by BOTH halves, because the grid is the agreement between the host's writes and
         // the shader's baked `array[index]` indices - and the ENGINE names it in ~95 places, which it
         // could not do through a backend class member without importing the backend.
@@ -1288,25 +1288,25 @@ namespace deren::vulkan {
         // COMPILE ERROR instead of a silently wrong picture (validation cannot see it, and the captures
         // would only show it as a different image).
         // ==========================================================================================
-        using heap_slots = deren::vulkan::render_layout::heap_slots;
-        static constexpr VkDeviceSize heap_slot_stride = deren::vulkan::render_layout::heap_slot_stride;
-        static constexpr uint32_t heap_slot_base = deren::vulkan::render_layout::heap_slot_base;
-        static constexpr uint32_t heap_slot_count = deren::vulkan::render_layout::heap_slot_count;
-        static constexpr uint32_t heap_image_capacity = deren::vulkan::render_layout::heap_image_capacity;
-        static constexpr uint32_t heap_sampler_base = deren::vulkan::render_layout::heap_sampler_base;
-        static constexpr VkDeviceSize heap_sampler_stride = deren::vulkan::render_layout::heap_sampler_stride;
+        using heap_slots = deren::engine::render_layout::heap_slots;
+        static constexpr VkDeviceSize heap_slot_stride = deren::engine::render_layout::heap_slot_stride;
+        static constexpr uint32_t heap_slot_base = deren::engine::render_layout::heap_slot_base;
+        static constexpr uint32_t heap_slot_count = deren::engine::render_layout::heap_slot_count;
+        static constexpr uint32_t heap_image_capacity = deren::engine::render_layout::heap_image_capacity;
+        static constexpr uint32_t heap_sampler_base = deren::engine::render_layout::heap_sampler_base;
+        static constexpr VkDeviceSize heap_sampler_stride = deren::engine::render_layout::heap_sampler_stride;
         [[nodiscard]] static constexpr VkDeviceSize heap_slot_offset(uint32_t const slot) noexcept {
-            return deren::vulkan::render_layout::heap_slot_offset(slot);
+            return deren::engine::render_layout::heap_slot_offset(slot);
         }
         // THE GUARD: the numbers this backend was built with, written out. They are what the shader's
         // baked indices and the captures were made against, so a change on either side must be a
         // deliberate edit HERE as well.
-        static_assert(deren::vulkan::render_layout::heap_slot_base == 16384u, "the slot grid's base moved");
-        static_assert(deren::vulkan::render_layout::heap_slot_count == 1024u, "the slot grid's size moved");
-        static_assert(deren::vulkan::render_layout::heap_slot_stride == 64u, "the slot grid's stride moved");
-        static_assert(deren::vulkan::render_layout::heap_image_capacity == 8u, "the per-image array capacity moved");
-        static_assert(deren::vulkan::render_layout::heap_sampler_base == 2048u, "the sampler grid's base moved");
-        static_assert(deren::vulkan::render_layout::heap_sampler_stride == 32u, "the sampler grid's stride moved");
+        static_assert(deren::engine::render_layout::heap_slot_base == 16384u, "the slot grid's base moved");
+        static_assert(deren::engine::render_layout::heap_slot_count == 1024u, "the slot grid's size moved");
+        static_assert(deren::engine::render_layout::heap_slot_stride == 64u, "the slot grid's stride moved");
+        static_assert(deren::engine::render_layout::heap_image_capacity == 8u, "the per-image array capacity moved");
+        static_assert(deren::engine::render_layout::heap_sampler_base == 2048u, "the sampler grid's base moved");
+        static_assert(deren::engine::render_layout::heap_sampler_stride == 32u, "the sampler grid's stride moved");
         /// @brief the byte offset of slot 0 (see @ref heap_slots), or VK_WHOLE_SIZE when the heap is not in use
         VkDeviceSize heap_grid_offset = VK_WHOLE_SIZE;
 
@@ -1550,7 +1550,7 @@ namespace deren::vulkan {
             float depth_bias_clamp = 0.0f) const;
 
         // The clustered-light-culling compute pipeline is NOT here any more: the CLUSTER PASS owns it
-        // (deren.vulkan.pass.cluster builds it through vulkan.pipelines::build_cluster from the shared scene block
+        // (deren.engine.pass.cluster builds it through vulkan.pipelines::build_cluster from the shared scene block
         // layout). `core::make_cluster_pipeline` built it against the core's own scene pipeline layout, which a
         // pass cannot own - and a pipeline only that pass names is that pass's to build and to release.
 

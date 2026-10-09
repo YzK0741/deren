@@ -16,21 +16,21 @@ module;
 #include <span>
 #include <vector>
 
-module deren.vulkan.pass.scene;
+module deren.engine.pass.scene;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle
-import deren.vulkan.render_resource;
+import deren.engine.render_resource;
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     render_resource::pass_io const& scene_pass::io() const noexcept {
         return render_resource::scene_io;
     }
 
-    deren::vulkan::pass::behaviour const& scene_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& scene_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -220,4 +220,4 @@ namespace deren::vulkan::pass {
         io.list->end_rendering();
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

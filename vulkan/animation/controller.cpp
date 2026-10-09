@@ -4,12 +4,12 @@ module;
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/quaternion.hpp>
 
-module deren.vulkan.animation;
+module deren.engine.animation;
 
 import deren.vstd;
 import deren.utility;
 
-namespace deren::vulkan::animation {
+namespace deren::engine::animation {
     // clip_duration / display_name are module-private helpers declared in the interface unit
     // (controller.cppm); the non-template members below use them from here.
 
@@ -378,16 +378,16 @@ namespace deren::vulkan::animation {
             // unordered_map every frame. Wanted nodes that the DFS never reaches (not in the
             // tree) keep the identity they were filled with.
             std::ranges::fill(this->skin_world_cache, glm::mat4(1.0f));
-            auto const collect_worlds = [this](auto&& self, deren::vulkan::scene_tree::scene_node& node, glm::mat4 const& parent_world) -> void {
+            auto const collect_worlds = [this](auto&& self, deren::engine::scene_tree::scene_node& node, glm::mat4 const& parent_world) -> void {
                 glm::mat4 const world = parent_world * node.local;
                 if (auto const it = this->skin_world_index.find(node.source_index); it != this->skin_world_index.end()) {
                     this->skin_world_cache[it->second] = world;
                 }
-                for (deren::vulkan::scene_tree::scene_node& child : node.children) {
+                for (deren::engine::scene_tree::scene_node& child : node.children) {
                     self(self, child, world);
                 }
             };
-            for (deren::vulkan::scene_tree::scene_node& root : this->host.scene->roots) {
+            for (deren::engine::scene_tree::scene_node& root : this->host.scene->roots) {
                 collect_worlds(collect_worlds, root, glm::mat4(1.0f));
             }
             auto const world_of = [this](std::size_t const source) -> glm::mat4 {
@@ -485,4 +485,4 @@ namespace deren::vulkan::animation {
             this->debug_node_name = it->second.front().node->node_name;
         }
     }
-} // namespace deren::vulkan::animation
+} // namespace deren::engine::animation

@@ -20,17 +20,17 @@ module;
 #include <string>
 #include <vector>
 
-module deren.vulkan.pass.ray_traced_shadow;
+module deren.engine.pass.ray_traced_shadow;
 
 import deren.promise.rhi; // the record series (abi 20): the two barriers, the push block's endpoint and the traceRays escape
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines; // build_rt_shadow: the compute pipeline this pass owns
+import deren.engine.render_resource;
+import deren.engine.pipelines; // build_rt_shadow: the compute pipeline this pass owns
 import deren.utility;
 
 // The contract's spelling, local to this TU (post.cpp, upscale.cpp, taa.cpp carry the same alias).
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     rt_shadow_pass::~rt_shadow_pass() {
         this->release_owned();
@@ -44,7 +44,7 @@ namespace deren::vulkan::pass {
         return render_resource::rt_shadow_io;
     }
 
-    deren::vulkan::pass::behaviour const& rt_shadow_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& rt_shadow_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -217,4 +217,4 @@ namespace deren::vulkan::pass {
         }
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

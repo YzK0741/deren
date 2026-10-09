@@ -30,13 +30,13 @@ module;
 #include <string_view>
 #include <vector>
 
-export module deren.vulkan.pass.compute_skin;
+export module deren.engine.pass.compute_skin;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.engine.pass;
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /// @brief the push block, which is also `compute_skin.comp`'s
     ///
@@ -114,6 +114,6 @@ export namespace deren::vulkan::pass {
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

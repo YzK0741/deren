@@ -1,18 +1,18 @@
 // ============================================================================
-// module: deren.vulkan.backend_loader
+// module: deren.engine.backend_loader
 // module version: 0.1.0a
 //
 // WHERE THE BACKEND IS LOADED, AND WHERE THE DEVICE ROOT IS ACQUIRED (batch ⑥, abi 19).
 //
 // WHY THIS IS A MODULE OF ITS OWN, AND NOT PART OF THE RUNTIME: loading a library and acquiring the
 // device root are APPLICATION decisions - which backend, from where, with which search rules, and what
-// to do when it is not there - while `deren.vulkan.runtime` is the RENDERER. The runtime used to carry
+// to do when it is not there - while `deren.engine.runtime` is the RENDERER. The runtime used to carry
 // both (it loaded `deren_vulkan.dll`, resolved the entry and called it before its own construction), so
 // the app could not answer any of those questions and the renderer owned a policy that is not its job.
 // They are now apart, and the seam is one function:
 //
-//     auto core = deren::vulkan::load_api_core(core_options);   // the app (main.cpp, the scaffold)
-//     deren::vulkan::runtime runtime{core, core_options};       // the renderer, given a root
+//     auto core = deren::engine::load_api_core(core_options);   // the app (main.cpp, the scaffold)
+//     deren::engine::runtime runtime{core, core_options};       // the renderer, given a root
 //
 // AND NOT PART OF `deren.utility`/`static_utility` EITHER, deliberately: that half is a pure-CPU
 // toolkit with no loading semantics (`dynamic_link` below is the MECHANISM - open a named image,
@@ -72,7 +72,7 @@ module;
 #define GLFW_EXPOSE_NATIVE_WIN32 // the HWND behind the caller's GLFWwindow (see the banner)
 #include <GLFW/glfw3native.h>
 
-export module deren.vulkan.backend_loader;
+export module deren.engine.backend_loader;
 
 export import deren.promise.rhi; // create_info / api_core / error_info / abi_version
 
@@ -138,7 +138,7 @@ namespace {
     }
 } // namespace
 
-namespace deren::vulkan {
+namespace deren::engine {
     /**
      * @brief load the backend (once per process) and acquire a device root from it
      * @param desc the contract's ONE creation structure, passed to the backend unchanged
@@ -149,7 +149,7 @@ namespace deren::vulkan {
      *
      * The handshake is inside: `rhi::abi_version` travels as the entry's first argument and the
      * `error_info` the backend fills carries its own number on a mismatch. The `api_core` that comes
-     * back attests its own number through `api_version()`, which `deren::vulkan::runtime` checks before
+     * back attests its own number through `api_version()`, which `deren::engine::runtime` checks before
      * it uses the object - two sides of one fact, guarded where each can be observed.
      */
     export [[nodiscard]] std::shared_ptr<rhi::api_core> load_api_core(rhi::create_info const& desc) {
@@ -175,4 +175,4 @@ namespace deren::vulkan {
         }
         return core;
     }
-} // namespace deren::vulkan
+} // namespace deren::engine

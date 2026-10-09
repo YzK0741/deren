@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.math
+// module: deren.engine.math
 // module version: 0.1.1  (independent of the app version in CMakeLists project(VERSION))
 //
 // CPU-side math: environment cubemap generation / IBL precompute (prefilter,
@@ -12,7 +12,7 @@ module;
 
 #include <cstdint> // int32_t / uint8_t below: the fixed-width names the project's arithmetic types come from
 
-export module deren.vulkan.math;
+export module deren.engine.math;
 export import deren.vstd;
 
 /**
@@ -22,9 +22,9 @@ export import deren.vstd;
  *        irradiance cubemap, BRDF LUT) and half-float conversion
  * @note
  *      - pure CPU math, no Vulkan or GPU resources involved
- *      - a standalone pure-CPU module (the GPU scene/module side lives in deren.vulkan.scene_tree)
+ *      - a standalone pure-CPU module (the GPU scene/module side lives in deren.engine.scene_tree)
  */
-namespace deren::vulkan {
+namespace deren::engine {
 
     /**
      * @ingroup vulkan_math
@@ -119,4 +119,4 @@ namespace deren::vulkan {
      * @brief convert 2-channel float data to a packed RG16F byte stream
      */
     export std::vector<uint8_t> to_half_rg(std::span<float const> data);
-} // namespace deren::vulkan
+} // namespace deren::engine

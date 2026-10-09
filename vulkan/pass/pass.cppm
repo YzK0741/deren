@@ -14,10 +14,10 @@
  *
  * WHERE EACH FACT LIVES, because the point of this layer is that no fact lives twice:
  *
- *  * `deren.vulkan.render_resource` owns WHAT EXISTS and WHAT A PASS USES (pure data, ctest-tested, no device);
+ *  * `deren.engine.render_resource` owns WHAT EXISTS and WHAT A PASS USES (pure data, ctest-tested, no device);
  *  * this module owns HOW A PASS IS CALLED (behaviour), WHAT A PASS IS GIVEN (`resolved_io`), and the ORDER a
  *    stage's passes run in (declaration order, never container order);
- *  * `deren.vulkan.core` keeps owning every image; `deren.vulkan.runtime` keeps owning every pipeline. Neither moves.
+ *  * `deren.vulkan.core` keeps owning every image; `deren.engine.runtime` keeps owning every pipeline. Neither moves.
  *
  * THE ONE INTERFACE A PASS HAS IS `resolved_io`: the handles its own declaration asked for, indexed by its own
  * binding numbers. The runtime resolves them FROM the declaration, so a pass cannot reach a resource it did not
@@ -40,16 +40,16 @@ module;
 #include <string_view>
 #include <vector>
 
-export module deren.vulkan.pass;
+export module deren.engine.pass;
 
 import deren.promise.rhi;
 
-import deren.vulkan.render_resource;
-import deren.vulkan.render_resource.shared;
+import deren.engine.render_resource;
+import deren.engine.render_resource.shared;
 
-export import deren.vulkan.frame_constants; // the per-frame constants a pass reads (see resolved_io::constants)
+export import deren.engine.frame_constants; // the per-frame constants a pass reads (see resolved_io::constants)
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     using render_resource::resource_id;
 
@@ -125,9 +125,9 @@ export namespace deren::vulkan::pass {
         /**
          * The pipelines this pass records with, BY NAME, in the order it will use them.
          *
-         * NAMES RATHER THAN A BUILD REQUEST, decided deliberately: `deren.vulkan.runtime` already owns the pipelines
+         * NAMES RATHER THAN A BUILD REQUEST, decided deliberately: `deren.engine.runtime` already owns the pipelines
          * and already keys them by name (`make_pipeline` / `set_default_pipeline` / `get_pipeline`), so a pass
-         * naming what it needs is the existing mechanism rather than a new one - and it keeps `deren.vulkan.pipelines`
+         * naming what it needs is the existing mechanism rather than a new one - and it keeps `deren.engine.pipelines`
          * where it is, with the heap-native pipelines built there. The host resolves the
          * names into `resolved_io::pipelines`, in this order, so `pipelines[i]` is the i-th name here.
          */
@@ -149,7 +149,7 @@ export namespace deren::vulkan::pass {
         uint32_t slot = 0;        // per-frame-slot resources (shadow maps, the light/camera buffers)
         /// how many swapchain images THIS generation has, which is not the same number as `image_index` and
         /// is what a pass that owns per-image bindings sizes it from. The passes that own them need it,
-        /// and it is the kind of fact that used to be reachable only from inside `deren.vulkan.runtime`
+        /// and it is the kind of fact that used to be reachable only from inside `deren.engine.runtime`
         uint32_t image_count = 0;
         deren::promise::rhi::image_extent extent = {};
     };
@@ -188,7 +188,7 @@ export namespace deren::vulkan::pass {
     /**
      * @brief what a pass is given: its own declaration, resolved
      *
-     * `own` is indexed by the pass's OWN BINDING NUMBER - `deren.vulkan.render_resource`'s validator requires those
+     * `own` is indexed by the pass's OWN BINDING NUMBER - `deren.engine.render_resource`'s validator requires those
      * to be contiguous from zero, so the index IS the declaration's `binding` field and nothing is looked up
      * in the frame path.
      *
@@ -328,13 +328,13 @@ export namespace deren::vulkan::pass {
         std::span<std::byte const> push = {};
         /**
          * THIS FRAME's shared constants: the camera, the fitted scene bounds and the sun, as the frame loop
-         * produced them (see `deren.vulkan.frame_constants`).
+         * produced them (see `deren.engine.frame_constants`).
          *
          * WHY THEY ARE HERE RATHER THAN COMPOSED INTO THE PUSH BLOCK BY THE HOST, which is what happens today:
          * a push block's values come from three places - this frame's facts (here), the pass's own parameters
          * (the pass's), and its own per-dispatch lanes (the pass's) - and only the first is the frame loop's
          * business. Composing the whole block in the renderer is what makes every new pass a new resolver
-         * function in `deren.vulkan.runtime`; handing the facts over as DATA is what lets the pass do it itself,
+         * function in `deren.engine.runtime`; handing the facts over as DATA is what lets the pass do it itself,
          * without a callback that answers arbitrary questions (the shape `pass_host` is deliberately kept away
          * from - see its note).
          *
@@ -570,8 +570,8 @@ export namespace deren::vulkan::pass {
     /**
      * @brief the runner's interface to the renderer: callbacks plus a context, no virtuals, no allocation
      *
-     * The same injection shape `deren.vulkan.animation`'s `backend` uses (a struct of callbacks and a context, passed
-     * in rather than inherited), which is why this framework depends on NEITHER `deren.vulkan.runtime` NOR
+     * The same injection shape `deren.engine.animation`'s `backend` uses (a struct of callbacks and a context, passed
+     * in rather than inherited), which is why this framework depends on NEITHER `deren.engine.runtime` NOR
      * `deren.vulkan.core`: `main.cpp`'s replacement, or a test, can supply one.
      *
      * IT IS THE RUNNER'S, NOT A PASS'S: what a pass is given is `resolved_io` at record time and
@@ -690,13 +690,13 @@ export namespace deren::vulkan::pass {
     };
 
     // =============================================================================================
-    // 3. WHAT A PASS IS - the base every pass derives from, shaped like deren.vulkan.primitive
+    // 3. WHAT A PASS IS - the base every pass derives from, shaped like deren.engine.primitive
     // =============================================================================================
 
     /**
      * @brief the base class of every frame pass: pure virtual, one `final` class per pass
      *
-     * Modelled on `deren.vulkan.primitive`, which has carried the renderer's dynamic dispatch since the primitive
+     * Modelled on `deren.engine.primitive`, which has carried the renderer's dynamic dispatch since the primitive
      * work: a small pure-virtual interface, `final` derived classes, and the CONTRACT written down - there,
      * "the runtime binds the pipeline and the scene block before calling draw()"; here, "the runner validates
      * `io()`, resolves it, applies `behaviour()`, then calls `record()`".
@@ -713,7 +713,7 @@ export namespace deren::vulkan::pass {
         frame_pass& operator=(frame_pass const&) = delete;
         virtual ~frame_pass() = default;
 
-        /// @brief the declaration: what it uses, in `deren.vulkan.render_resource`'s vocabulary
+        /// @brief the declaration: what it uses, in `deren.engine.render_resource`'s vocabulary
         [[nodiscard]] virtual render_resource::pass_io const& io() const noexcept = 0;
         /// @brief how the runner must call it
         [[nodiscard]] virtual behaviour const& behaviour() const noexcept = 0;
@@ -1400,4 +1400,4 @@ export namespace deren::vulkan::pass {
         return resolve_declaration(*this, context, out);
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

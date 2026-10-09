@@ -30,13 +30,13 @@ module;
 #include <string>
 #include <string_view>
 
-export module deren.vulkan.pass.mask_bake;
+export module deren.engine.pass.mask_bake;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
+import deren.engine.pass;
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this job builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /// @brief the push block, which is also `mask_bake.comp`'s
     ///
@@ -127,11 +127,11 @@ export namespace deren::vulkan::pass {
         // called pass_pipeline, not pipeline: the class declares pipeline() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
     /// THE PUSH BLOCK'S SIZE IS PART OF THE SHADER'S CONTRACT, and it is the range the pipeline layout is
     /// created with: 44 bytes, the same as the block `mask_bake.comp` declares. It was 44 all along - the
     /// comment above used to claim 48 on the CPU, which nothing checked until this assertion did.
     static_assert(sizeof(mask_bake_push_constants) == 44, "the bake's push block must stay the size the shader declares");
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

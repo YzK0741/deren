@@ -250,7 +250,7 @@ namespace {
     }
 
     // `[render] toon_shadow_softness` is a five-step ladder (0..4) sanitized in `analyse_config` on the way
-    // into `deren::vulkan::toon_rig`'s ninth lane. THE CASE WORTH A TEST OF ITS OWN IS `nan`, because `std::clamp`
+    // into `deren::engine::toon_rig`'s ninth lane. THE CASE WORTH A TEST OF ITS OWN IS `nan`, because `std::clamp`
     // CANNOT CATCH IT: clamp's comparison form returns its first argument unchanged when both comparisons are
     // false, and for NaN both ARE false - so `clamp(round(nan), 0, 4)` is still NaN. That NaN then rides the
     // lane into the shader's `int(clamp(floor(level + 0.5), 0.0, 4.0))`, and `int(NaN)` is UNDEFINED in

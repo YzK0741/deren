@@ -11,7 +11,7 @@
  * `core::make_cluster_pipeline` built it against the core's own scene pipeline layout); the bind of the shared
  * scene set; the one-dimensional dispatch over the cluster grid; and the TWO BUFFER BARRIERS that make its
  * writes visible to the fragment stages reading them later in the same submission. That last part is why the
- * framework grew `pass_io::barrier_buffers` in the same step - see the header of `deren.vulkan.pass`'s
+ * framework grew `pass_io::barrier_buffers` in the same step - see the header of `deren.engine.pass`'s
  * `resolved_io` for the argument.
  *
  * WHY `extent_rule::none`: this dispatch is `tiles_x * tiles_y * slices` workgroups, a count derived from the
@@ -33,14 +33,14 @@ module;
 #include <string>
 #include <string_view>
 
-export module deren.vulkan.pass.cluster;
+export module deren.engine.pass.cluster;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
+import deren.engine.pass;
+import deren.engine.render_resource;
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /**
      * @brief what the renderer hands the sort: how many clusters this frame has
@@ -67,7 +67,7 @@ export namespace deren::vulkan::pass {
         ~cluster_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -101,7 +101,7 @@ export namespace deren::vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"cluster"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::compute,
             .group_size_x = group_size,
             .group_size_y = 1,
@@ -119,6 +119,6 @@ export namespace deren::vulkan::pass {
         // called pass_frame, not frame: set_frame()'s frame parameter in cluster.cpp would hide a member of that name
         // and MSVC /W4 reports C4458 (an error under /WX).
         cluster_frame pass_frame = {};
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

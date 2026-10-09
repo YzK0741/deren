@@ -12,7 +12,7 @@
  * concept of: a diffuse ramp, a shadow LUT, a specular ramp, a matcap, a face SDF. Those live in a sidecar
  * file the asset pipeline writes next to the model, keyed by MATERIAL NAME, and their names are the asset
  * pipeline's rather than the spec's. Reading it is therefore a different job from reading glTF, and it is
- * kept separate for the same reason `vulkan_loader`-agnostic `vulkancorekit` does not link `gltf_loader`:
+ * kept separate for the same reason `vulkan_loader`-agnostic `deren_engine` does not link `gltf_loader`:
  * two formats, two concerns, two modules.
  *
  * THE FILE, which is tab-separated with a header row and four columns:

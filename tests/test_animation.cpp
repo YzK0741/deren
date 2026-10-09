@@ -1,4 +1,4 @@
-// Headless unit tests: deren.vulkan.animation (pure CPU - format-neutral keyframe sampling)
+// Headless unit tests: deren.engine.animation (pure CPU - format-neutral keyframe sampling)
 // Exercises the glTF keyframe rules implemented by sample_channel / sample_node.
 #include "vk_test.h"
 
@@ -14,11 +14,11 @@
 #include <string_view>
 #include <vector>
 
-import deren.vulkan.animation;
-import deren.vulkan.animation.mmd_motion;
+import deren.engine.animation;
+import deren.engine.animation.mmd_motion;
 
 namespace {
-    using namespace deren::vulkan::animation;
+    using namespace deren::engine::animation;
 
     [[nodiscard]] bool approx(float a, float b, float const eps = 1e-4f) {
         return std::fabs(a - b) <= eps;
@@ -109,7 +109,7 @@ namespace {
         CHECK(!sample_channel(short_values, channel_path::translation, 0.5f).valid);
     }
 
-    // --- deren.vulkan.animation.mmd_motion (VMD) ------------------------------------------------
+    // --- deren.engine.animation.mmd_motion (VMD) ------------------------------------------------
     // The two format details below are the ones that fail silently on a real file, so the
     // synthetic motion writes decoys exactly where a wrong reader would look: bytes 2 and 3 of
     // the interpolation block (which hold the physics flags, not Z's and R's first control

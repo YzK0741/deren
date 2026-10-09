@@ -1,4 +1,4 @@
-// Headless unit tests: deren.vulkan.pass (the framework, no device) =================
+// Headless unit tests: deren.engine.pass (the framework, no device) =================
 // The framework's whole value is a CONTRACT: create once per generation, resolve per frame, skip an inactive
 // pass without resolving it, apply the behaviour before recording, mark once per stage, and tell every pass
 // when the swapchain was rebuilt. Each of those is something this renderer does by hand today, and does
@@ -11,7 +11,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
-#include <glm/glm.hpp> // the frame constants carry glm types (see deren.vulkan.frame_constants)
+#include <glm/glm.hpp> // the frame constants carry glm types (see deren.engine.frame_constants)
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -19,14 +19,14 @@
 #include <vulkan/vulkan.h>
 
 import deren.promise.rhi;
-import deren.vulkan.pass;
-import deren.vulkan.pass.chain;
-import deren.vulkan.render_resource;
-import deren.vulkan.render_resource.shared;
+import deren.engine.pass;
+import deren.engine.pass.chain;
+import deren.engine.render_resource;
+import deren.engine.render_resource.shared;
 
 namespace {
-    namespace vp = deren::vulkan::pass;
-    namespace rr = deren::vulkan::render_resource;
+    namespace vp = deren::engine::pass;
+    namespace rr = deren::engine::render_resource;
 
     /// The own binding every fake pass carries: one sampled image of its OWN at binding 0. What a pass reaches
     /// through the frame's heap is not a declaration the fake host has to spell out - the framework has no set to
@@ -396,7 +396,7 @@ namespace {
         host_state* state_ptr;
     };
 
-    // the names are `deren.vulkan.runtime`'s own pipeline keys, which is what makes this cost nothing new
+    // the names are `deren.engine.runtime`'s own pipeline keys, which is what makes this cost nothing new
     constexpr std::array<std::string_view, 1> compute_pipeline_names = {"megalights_trace"};
     constexpr std::array<std::string_view, 2> fullscreen_pipeline_names = {"post_composite", "fxaa"};
     /// the fullscreen fake pass also declares one render TARGET: an attachment is a use that cannot be a
@@ -416,7 +416,7 @@ namespace {
 } // namespace
 
 int32_t main() {
-    using namespace deren::vulkan::pass;
+    using namespace deren::engine::pass;
 
     host_state state;
     pass_host const host = make_host(state);

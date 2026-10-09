@@ -14,15 +14,15 @@ module;
 #include <span>
 #include <string>
 
-module deren.vulkan.pass.deferred;
+module deren.engine.pass.deferred;
 
 import deren.promise.rhi;
-import deren.vulkan.pipelines; // build_deferred: the pipeline this pass owns
+import deren.engine.pipelines; // build_deferred: the pipeline this pass owns
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     deferred_pass::~deferred_pass() {
         this->release_owned();
@@ -36,7 +36,7 @@ namespace deren::vulkan::pass {
         return render_resource::deferred_io;
     }
 
-    deren::vulkan::pass::behaviour const& deferred_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& deferred_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -181,4 +181,4 @@ namespace deren::vulkan::pass {
         io.list->end_rendering();
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

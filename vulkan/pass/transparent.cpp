@@ -10,21 +10,21 @@ module;
 #include <memory> // std::shared_ptr: the frame's secondary is the contract handle
 #include <span>
 
-module deren.vulkan.pass.transparent;
+module deren.engine.pass.transparent;
 
 import deren.promise.rhi; // the record series (abi 20): the barriers, the rendering scope, the secondary's lifecycle
-import deren.vulkan.render_resource;
+import deren.engine.render_resource;
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     render_resource::pass_io const& transparent_pass::io() const noexcept {
         return render_resource::transparent_io;
     }
 
-    deren::vulkan::pass::behaviour const& transparent_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& transparent_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -159,4 +159,4 @@ namespace deren::vulkan::pass {
         }
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

@@ -36,7 +36,7 @@
 //      was accepted first. A handshake that refused everything would fail this check.
 //
 // HEADLESS ON PURPOSE (in VR_TEST_TARGETS): no window, no instance, no device. The REAL acquisition path
-// is the scaffold test's (tests/test_runtime_dyn.cpp calls deren::vulkan::load_api_core() against the
+// is the scaffold test's (tests/test_runtime_dyn.cpp calls deren::engine::load_api_core() against the
 // real DLL and asserts the runtime took that very object).
 // ============================================================================
 #include "vk_test.h"
@@ -47,8 +47,8 @@
 #include <windows.h> // CreateProcessW: the child-process form of the panic cases (see the banner)
 
 import deren.promise.rhi;
-import deren.vulkan.runtime;
-import deren.vulkan.scene_tree;
+import deren.engine.runtime;
+import deren.engine.scene_tree;
 
 // The injection source: the probe backend's test-only factory (see the header's own note).
 #include "probe_backend.hpp"
@@ -182,18 +182,18 @@ int main(int const argc, char** const argv) {
         auto root = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
         CHECK(root->query_extension(rhi::extension_kind::vulkan_escape) == nullptr);
         auto* const identity = root.get();
-        deren::vulkan::scene_tree::scene scene{};
-        deren::vulkan::runtime engine{root, options};
+        deren::engine::scene_tree::scene scene{};
+        deren::engine::runtime engine{root, options};
         engine.set_scene(scene);
         CHECK(&engine.rhi_face() == identity);
         auto* const frames = root->walk_frames();
         auto const initial_slot = frames->position();
-        CHECK(engine.pace_and_acquire() == deren::vulkan::frame_status::proceed);
-        CHECK(engine.begin_recording() == deren::vulkan::frame_status::proceed);
+        CHECK(engine.pace_and_acquire() == deren::engine::frame_status::proceed);
+        CHECK(engine.begin_recording() == deren::engine::frame_status::proceed);
         CHECK(root->begin_commands() != nullptr);
         engine.record_main_drawcalls();
-        CHECK(engine.end_recording() == deren::vulkan::frame_status::proceed);
-        CHECK(engine.submit_and_present() == deren::vulkan::frame_status::proceed);
+        CHECK(engine.end_recording() == deren::engine::frame_status::proceed);
+        CHECK(engine.submit_and_present() == deren::engine::frame_status::proceed);
         CHECK(frames->position() == (initial_slot + 1u) % frames->slot_count());
         CHECK(root->begin_commands() == nullptr);
         CHECK(root->query_extension(rhi::extension_kind::vulkan_escape) == nullptr);
@@ -212,7 +212,7 @@ int main(int const argc, char** const argv) {
                                        rhi::abi_version);
         }
         // (the empty-root child leaves `root` empty on purpose)
-        deren::vulkan::runtime doomed{std::move(root), creation};
+        deren::engine::runtime doomed{std::move(root), creation};
         deren::vk_test::write_line("injection: THE RUNTIME ACCEPTED A ROOT IT MUST REFUSE - the constructor "
                                    "returned, so the check this test exists for is gone");
         return 0; // only reachable if the refusal disappeared: the parent reads this as a failure
@@ -225,7 +225,7 @@ int main(int const argc, char** const argv) {
         return deren::vk_test::finish("test_runtime_injection");
     }
     CHECK(probe->api_version() == rhi::abi_version);
-    deren::vulkan::runtime_detail::verify_contract_version(*probe); // must not panic
+    deren::engine::runtime_detail::verify_contract_version(*probe); // must not panic
     deren::vk_test::write_line("injection: verify_contract_version accepted a probe root reporting abi {}",
                                probe->api_version());
 

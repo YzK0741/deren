@@ -12,12 +12,12 @@ module;
 #include <string>
 #include <utility>
 
-module deren.vulkan.pass.mask_bake;
+module deren.engine.pass.mask_bake;
 
-import deren.vulkan.pipelines; // build_mask_bake: the compute pipeline this job owns
+import deren.engine.pipelines; // build_mask_bake: the compute pipeline this job owns
 import deren.utility;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     mask_bake_job::~mask_bake_job() {
         this->release_owned();
@@ -93,4 +93,4 @@ namespace deren::vulkan::pass {
         commands.dispatch((bake.triangle_count + group_size - 1u) / group_size, 1, 1);
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

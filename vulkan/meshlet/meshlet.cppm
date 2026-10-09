@@ -27,11 +27,11 @@ module;
 #include <span>
 #include <vector>
 
-export module deren.vulkan.meshlet;
+export module deren.engine.meshlet;
 
 export import deren.vstd;
 
-namespace deren::vulkan {
+namespace deren::engine {
     /**
      * @ingroup vulkan_meshlet
      * @brief the triangles one mesh workgroup emits, i.e. the largest run a meshlet may contain
@@ -277,4 +277,4 @@ namespace deren::vulkan {
         }
         return meshlets;
     }
-} // namespace deren::vulkan
+} // namespace deren::engine

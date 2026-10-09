@@ -28,14 +28,14 @@ module;
 #include <span>
 #include <string_view>
 
-export module deren.vulkan.pass.megalights_temporal;
+export module deren.engine.pass.megalights_temporal;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
+import deren.engine.pass;
+import deren.engine.render_resource;
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the compute pipeline this pass builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /// @brief what the renderer tells the resolve: whether this image's accumulation exists yet
     struct megalights_temporal_frame {
@@ -70,7 +70,7 @@ export namespace deren::vulkan::pass {
         ~megalights_temporal_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -124,7 +124,7 @@ export namespace deren::vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"megalights_temporal"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::compute,
             .group_size_x = group_size,
             .group_size_y = group_size,
@@ -157,9 +157,9 @@ export namespace deren::vulkan::pass {
         // called pass_pipeline, not pipeline: the class declares pipeline_handle() and a member of that name
         // would duplicate it and hide the override.
         std::optional<pipelines::pipeline_handle> pass_pipeline = std::nullopt;
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
     static_assert(sizeof(megalights_temporal_pass::push_constants) == render_resource::megalights_temporal_io.push->size,
                   "the resolve's composed push block must be the size its declaration pins");
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

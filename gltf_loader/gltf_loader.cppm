@@ -34,8 +34,8 @@ export import deren.vstd;
  * @note
  *      - built on fastgltf
  *      - load_model() returns std::expected, failures are reported via error_code
- *      - drawable_iterator models deren::vulkan::scene_drawable_iterator and can be fed directly
- *        to deren::vulkan::runtime::import_scene()
+ *      - drawable_iterator models deren::engine::scene_drawable_iterator and can be fed directly
+ *        to deren::engine::runtime::import_scene()
  */
 namespace deren::gltf {
 
@@ -840,7 +840,7 @@ namespace deren::gltf {
     export std::future<std::expected<scenes, error_code>> load_model_async(std::string_view file_name);
 
     // ---- renderer-ready drawable iteration ------------------------------------------------
-    // Pure CPU types. The runtime's deren::vulkan::scene_drawable_iterator concept is STRUCTURAL over
+    // Pure CPU types. The runtime's deren::engine::scene_drawable_iterator concept is STRUCTURAL over
     // the member shapes below, so this module never needs vulkan.model (or any Vulkan header);
     // the runtime template converts these values into its internal types itself.
 
@@ -1114,7 +1114,7 @@ namespace deren::gltf {
     /**
      * @ingroup gltf_loader
      * @brief iterator over every drawable primitive of the scene that models
-     *        deren::vulkan::scene_drawable_iterator: ++ advances, then geometry/material are read
+     *        deren::engine::scene_drawable_iterator: ++ advances, then geometry/material are read
      *        through the getters (get_vertex / get_index / get_transform + one getter per
      *        material slot), all as pure CPU values. Interleaved geometry is built lazily per
      *        drawable and cached until the next increment. Feed it directly to

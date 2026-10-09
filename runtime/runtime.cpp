@@ -18,20 +18,20 @@ module;
 // standard headers in - inside the module purview it would make the module redeclare names the global module
 // already has (the trap the plugin's own file records).
 
-module deren.vulkan.runtime;
+module deren.engine.runtime;
 
 import deren.promise.gui;
 
-import deren.vulkan.profiling;
-import deren.vulkan.pipelines;
-import deren.vulkan.render_resource;
-import deren.vulkan.render_resource.shared;
+import deren.engine.profiling;
+import deren.engine.pipelines;
+import deren.engine.render_resource;
+import deren.engine.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
-import deren.vulkan.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
-import deren.vulkan.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
-import deren.vulkan.gui_loader;      // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
+import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.engine.pipelines;       // make_graphics_pipeline: the contract factory the named pipelines build through
+import deren.engine.meshlet;         // the meshlet split (docs/mesh_shaders.md step 3): pure CPU, built at upload
+import deren.engine.gui_loader;      // load_gui: resolves deren_gui_<api>.dll by name (plan X2)
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
@@ -39,7 +39,7 @@ import deren.vulkan.gui_loader;      // load_gui: resolves deren_gui_<api>.dll b
 // only forces the (dynamic) initialization before any pmr container in this TU is constructed.
 [[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
-namespace deren::vulkan {
+namespace deren::engine {
     // ---- runtime_detail::graphics_queue_family_of: ONE QUESTION TO THE BACKEND -------------------------
     //
     // WHAT STOOD HERE, AND WHY IT IS GONE: this walked the device's queue families, fetched each graphics
@@ -79,8 +79,8 @@ namespace deren::vulkan {
             return;
         }
         std::uint64_t const tlas_address = tlas->device_address();
-        if (!contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(deren::vulkan::render_layout::heap_slots::tlas + frame_slot), tlas_address, tlas->size_bytes(), rhi::descriptor_type::acceleration_structure)) {
-            deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::tlas + frame_slot);
+        if (!contract_write_heap_buffer(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(deren::engine::render_layout::heap_slots::tlas + frame_slot), tlas_address, tlas->size_bytes(), rhi::descriptor_type::acceleration_structure)) {
+            deren::utility::log("descriptor heap: the top level structure did not reach grid slot {}", deren::engine::render_layout::heap_slots::tlas + frame_slot);
         }
 
         // ... AND THE INSTANCE TABLE, which is rebuilt WITH the structures and whose slot is the same event's: the
@@ -92,8 +92,8 @@ namespace deren::vulkan {
         // out of the escape - the same path every other converted site takes. The pointer is BORROWED from the
         // structure's own slot (see that accessor's note): it is read here and nothing keeps it.
         if (rhi::buffer const* const instance_table = this->structures.instance_table_buffer(frame_slot); instance_table != nullptr) {
-            if (!this->write_heap_buffer(*instance_table, deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot, this->structures.instance_table_size(frame_slot), rhi::descriptor_type::storage_buffer)) {
-                deren::utility::log("descriptor heap: the instance table did not reach grid slot {}", deren::vulkan::render_layout::heap_slots::mask_instances + frame_slot);
+            if (!this->write_heap_buffer(*instance_table, deren::engine::render_layout::heap_slots::mask_instances + frame_slot, this->structures.instance_table_size(frame_slot), rhi::descriptor_type::storage_buffer)) {
+                deren::utility::log("descriptor heap: the instance table did not reach grid slot {}", deren::engine::render_layout::heap_slots::mask_instances + frame_slot);
             }
         }
     }
@@ -115,16 +115,16 @@ namespace deren::vulkan {
             return; // no frame is in flight: there is no recording buffer to open an instance on
         }
         if (this->gbuffer_pass_active()) {
-            std::array<rhi::color_attachment, deren::vulkan::gbuffer_pass_attachment_count> gbuffer_attachments = {};
+            std::array<rhi::color_attachment, deren::engine::gbuffer_pass_attachment_count> gbuffer_attachments = {};
             // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every view below is the CONTRACT
             // view, and the depth is the engine's `depth`-ROLE image.
-            for (uint32_t target = 0; target < deren::vulkan::render_layout::gbuffer_target_count; ++target) {
+            for (uint32_t target = 0; target < deren::engine::render_layout::gbuffer_target_count; ++target) {
                 gbuffer_attachments[target] = rhi::color_attachment{.view = this->gbuffer_image_views[target][image_index].get(),
                                                                     .load = rhi::load_op::clear, // make_color_attachment_info's loadOp
                                                                     .store = rhi::store_op::store,
                                                                     .clear = {}}; // the surface + motion targets clear to zero: no geometry, no motion
             }
-            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count] = rhi::color_attachment{.view = this->velocity_image_views[image_index].get(),
+            gbuffer_attachments[deren::engine::render_layout::gbuffer_target_count] = rhi::color_attachment{.view = this->velocity_image_views[image_index].get(),
                                                                                                             .load = rhi::load_op::clear,
                                                                                                             .store = rhi::store_op::store,
                                                                                                             .clear = {}};
@@ -134,7 +134,7 @@ namespace deren::vulkan {
             // sky - with no background pass anywhere. Under TAA the scene color is the resolve's input
             // image, and the resolve writes the HDR target the post chain reads (see
             // runtime::scene_target_view).
-            gbuffer_attachments[deren::vulkan::render_layout::gbuffer_target_count + 1] =
+            gbuffer_attachments[deren::engine::render_layout::gbuffer_target_count + 1] =
                 rhi::color_attachment{.view = this->taa_active() ? this->scene_color_image_views[image_index].get() : this->hdr_image_views[image_index].get(),
                                       .load = rhi::load_op::clear,
                                       .store = rhi::store_op::store,
@@ -521,7 +521,7 @@ namespace deren::vulkan {
         info.api = deren::gui::api_type::vulkan;
         info.window = static_cast<GLFWwindow*>(this->create_options.native_window);
         info.core = &vk;
-        this->debug_overlay = deren::vulkan::load_gui(info);
+        this->debug_overlay = deren::engine::load_gui(info);
         if (this->debug_overlay == nullptr) {
             deren::utility::log("gui overlay: no plugin answered (the loader's own line says which step failed) - the overlay stays off");
             return false;
@@ -1145,7 +1145,7 @@ namespace deren::vulkan {
             return false;
         }
         std::size_t const base = leaf.push.instance_base;
-        if (base + instanced.instance_count > deren::vulkan::instance_capacity) {
+        if (base + instanced.instance_count > deren::engine::instance_capacity) {
             return false; // slice outside the shared buffer: cannot read it
         }
         auto const* matrices = static_cast<glm::mat4 const*>(this->instance_mapped);
@@ -1243,7 +1243,7 @@ namespace deren::vulkan {
         }
         this->shadow_caster_boxes = shadow_fit::fit_casters(this->shadow_caster_world_boxes, light_dir, unbounded_caster);
 
-        // ---- fit: the pure part (deren.vulkan.shadow_fit) ----
+        // ---- fit: the pure part (deren.engine.shadow_fit) ----
         shadow_fit::fit_params params = {};
         params.proj = this->current_proj_unjittered;
         params.view = this->current_ubo.view;
@@ -1272,7 +1272,7 @@ namespace deren::vulkan {
         this->light_state.light_dir = glm::vec4(fitted.light_dir, 1.0f / static_cast<float>(this->shadow_map_size));
     }
     void runtime::set_shadow_cascades(uint32_t const cascades) noexcept {
-        uint32_t const clamped = std::clamp(cascades, 1u, deren::vulkan::max_shadow_cascades);
+        uint32_t const clamped = std::clamp(cascades, 1u, deren::engine::max_shadow_cascades);
         if (clamped == this->shadow_cascades) {
             return;
         }
@@ -1323,7 +1323,7 @@ namespace deren::vulkan {
         // light buffer as each slot is paced (nothing here touches mapped memory directly).
         this->light_state = make_directional_light_ubo(this->sun_direction, scene_center, scene_radius, static_cast<float>(this->shadow_map_size));
         // the cascade settings are the runtime's, not the UBO builder's: re-apply them over the defaults
-        this->light_state.cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades));
+        this->light_state.cascade_count = static_cast<float>(std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades));
         this->light_state.cascade_blend = this->shadow_cascade_blend;
         // respect the current GUI toggle: the flag in the slot's buffer tells pbr.frag whether
         // the depth map was rendered this frame
@@ -1366,7 +1366,7 @@ namespace deren::vulkan {
     }
 
     // =============================================================================================
-    // THE STRUCTURE PHASE'S SEAM (see deren.vulkan.ray_tracing): what this renderer hands the phase, and the four
+    // THE STRUCTURE PHASE'S SEAM (see deren.engine.ray_tracing): what this renderer hands the phase, and the four
     // hooks that let the phase drive the two jobs this class still owns.
     // =============================================================================================
 
@@ -1428,8 +1428,8 @@ namespace deren::vulkan {
         // and the per-level stride is heap_image_capacity, the same 8 slots every per-swapchain-image array is
         // spaced by.
         uint32_t const source_slot = extra_lane == 0u
-                                         ? deren::vulkan::render_layout::heap_slots::post_color + self->current_image_index
-                                         : deren::vulkan::render_layout::heap_slots::bloom_l0 + (extra_lane - 1u) * deren::vulkan::render_layout::heap_image_capacity + self->current_image_index;
+                                         ? deren::engine::render_layout::heap_slots::post_color + self->current_image_index
+                                         : deren::engine::render_layout::heap_slots::bloom_l0 + (extra_lane - 1u) * deren::engine::render_layout::heap_image_capacity + self->current_image_index;
         return push_with_lanes(self->rhi_face(), self->frame_ring().position(), self->current_image_index, command_buffer, bytes, source_slot, 3u);
     }
 
@@ -1581,19 +1581,19 @@ namespace deren::vulkan {
         if (self->meshlet_culled_mapped == nullptr) {
             return false;
         }
-        uint32_t const count = static_cast<uint32_t>(records.size_bytes() / sizeof(deren::vulkan::meshlet));
-        if (base > deren::vulkan::meshlet_capacity || count > deren::vulkan::meshlet_capacity - base) {
+        uint32_t const count = static_cast<uint32_t>(records.size_bytes() / sizeof(deren::engine::meshlet));
+        if (base > deren::engine::meshlet_capacity || count > deren::engine::meshlet_capacity - base) {
             // a run past the table cannot be compacted into it: the caller answers by NOT culling (the whole run is
             // dispatched and the entry culls itself), which is always correct - the table is the meshlet budget
             static bool logged = false;
             if (!logged) {
                 logged = true;
-                deren::utility::log("mesh culling: a run of {} meshlets at {} does not fit the culled table ({} records) - that draw stays unculled", count, base, deren::vulkan::meshlet_capacity);
+                deren::utility::log("mesh culling: a run of {} meshlets at {} does not fit the culled table ({} records) - that draw stays unculled", count, base, deren::engine::meshlet_capacity);
             }
             return false;
         }
         auto* const table = static_cast<uint8_t*>(self->meshlet_culled_mapped);
-        std::memcpy(table + (static_cast<std::size_t>(self->frame_ring().position()) * deren::vulkan::meshlet_capacity + base) * sizeof(deren::vulkan::meshlet), records.data(), records.size_bytes());
+        std::memcpy(table + (static_cast<std::size_t>(self->frame_ring().position()) * deren::engine::meshlet_capacity + base) * sizeof(deren::engine::meshlet), records.data(), records.size_bytes());
         return true;
     }
 
@@ -1659,7 +1659,7 @@ namespace deren::vulkan {
 
     void runtime::set_toon_rig(toon_rig const& rig) noexcept {
         // A PLAIN COPY INTO THE MAPPED BLOCK, and it is safe for the reason every other once-written table here
-        // is (see deren::vulkan::render_layout::heap_slots::toon_rig): the frame path never rewrites this block, so there is no frame in
+        // is (see deren::engine::render_layout::heap_slots::toon_rig): the frame path never rewrites this block, so there is no frame in
         // flight that could read it half-written. The contract that follows from that is the caller's - write it
         // BEFORE the frame loop, not from inside a frame.
         if (this->toon_rig_mapped != nullptr) {
@@ -1914,7 +1914,7 @@ namespace deren::vulkan {
         //      task stage culls with. Built HERE because this is where the geometry bytes are still in hand and
         //      the layout (stride, index width) is known. The GPU TABLE is filled right below, so a task stage can
         //      read the same records the CPU just computed.
-        result->meshlets = deren::vulkan::build_meshlets(deren::vulkan::meshlet_build_input{
+        result->meshlets = deren::engine::build_meshlets(deren::engine::meshlet_build_input{
             .vertex_data = info.vertex_data,
             .vertex_stride = info.vertex_stride,
             .vertex_count = info.vertex_count,
@@ -1928,15 +1928,15 @@ namespace deren::vulkan {
         // run's first record (`meshlet_base`) and the geometry lanes carry it, so one draw's meshlets are one
         // window. A scene past `meshlet_capacity` keeps the geometry it uploaded and loses only the CULLING for the
         // overflow - logged once, because a budget that silently drops geometry is a hole rather than a limit.
-        std::size_t const room = this->meshlet_total < deren::vulkan::meshlet_capacity ? static_cast<std::size_t>(deren::vulkan::meshlet_capacity) - this->meshlet_total : 0u;
+        std::size_t const room = this->meshlet_total < deren::engine::meshlet_capacity ? static_cast<std::size_t>(deren::engine::meshlet_capacity) - this->meshlet_total : 0u;
         if (result->meshlets.size() > room) {
             if (!this->meshlet_overflow_logged) {
                 this->meshlet_overflow_logged = true;
-                deren::utility::log("meshlet table capacity ({}) exceeded - the extra meshlets are not culled (the geometry is unaffected)", deren::vulkan::meshlet_capacity);
+                deren::utility::log("meshlet table capacity ({}) exceeded - the extra meshlets are not culled (the geometry is unaffected)", deren::engine::meshlet_capacity);
             }
             result->meshlets.resize(room);
         }
-        std::memcpy(static_cast<uint8_t*>(this->meshlet_mapped) + this->meshlet_total * sizeof(deren::vulkan::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(deren::vulkan::meshlet));
+        std::memcpy(static_cast<uint8_t*>(this->meshlet_mapped) + this->meshlet_total * sizeof(deren::engine::meshlet), result->meshlets.data(), result->meshlets.size() * sizeof(deren::engine::meshlet));
         result->meshlet_base = static_cast<uint32_t>(this->meshlet_total);
         this->meshlet_total += result->meshlets.size();
         result->meshlet_count = static_cast<uint32_t>(result->meshlets.size());
@@ -1947,18 +1947,18 @@ namespace deren::vulkan {
         // A meshlet's window is what a MESH stage passes to `SetMeshOutputCounts` and to its index fetch, so a
         // record that is malformed is not a wrong picture: it is a dispatch asking for more output than the device
         // has (the hang the first consumer attempt measured) or a fetch outside the buffer. THE RULE ITSELF IS
-        // `deren::vulkan::meshlet_record_sound` - one definition, asserted by tests/test_meshlet.cpp - and this is the
+        // `deren::engine::meshlet_record_sound` - one definition, asserted by tests/test_meshlet.cpp - and this is the
         // boundary where the records leave the host.
         bool records_sound = true;
-        for (deren::vulkan::meshlet const& meshlet : result->meshlets) {
-            records_sound = records_sound && deren::vulkan::meshlet_record_sound(meshlet, info.index_count);
+        for (deren::engine::meshlet const& meshlet : result->meshlets) {
+            records_sound = records_sound && deren::engine::meshlet_record_sound(meshlet, info.index_count);
         }
         if (!records_sound && !this->meshlet_records_unsound_logged) {
             this->meshlet_records_unsound_logged = true;
             deren::utility::log("meshlet records: a primitive with {} indices produced a meshlet outside its window or over the "
                                 "{} index budget - a mesh stage would ask the device for invalid output (the splitter's invariants are tested in tests/test_meshlet.cpp)",
                                 info.index_count,
-                                deren::vulkan::meshlet_max_indices);
+                                deren::engine::meshlet_max_indices);
         }
 
         if (info.vertex_count > 0 && info.vertex_stride >= sizeof(glm::vec3) && !info.vertex_data.empty()) {
@@ -1995,7 +1995,7 @@ namespace deren::vulkan {
         result->overlay_kind = info.overlay_kind;
         // ... AND THIS LEAF'S OUTLINE WIDTH, for the same list-building reason: the frame has to know which
         // leaves the ① outline group draws BEFORE any draw is recorded, and the material's `_OutlineWidth` is
-        // otherwise only in the GPU colour-lane table (`deren::vulkan::render_layout::heap_slots::toon_colours`) where the frame cannot
+        // otherwise only in the GPU colour-lane table (`deren::engine::render_layout::heap_slots::toon_colours`) where the frame cannot
         // read it. Read out of the SAME `toon_inputs` the shader's lane is built from, so the gate the frame
         // applies and the gate the outline mesh stage applies (`w > 0`) cannot disagree.
         result->outline_width = info.toon.colours[static_cast<std::size_t>(toon_colour_lane::outline_edge)].w;
@@ -2020,13 +2020,13 @@ namespace deren::vulkan {
         scene_tree::scene_node& leaf = this->get_scene().add_root();
         leaf.node_name = std::string(pipeline_name);
         leaf.local = info.model_matrix;  // world = identity * local (root)
-        leaf.attach(std::move(created)); // a deren::vulkan::primitive is a scene_tree::primitive
+        leaf.attach(std::move(created)); // a deren::engine::primitive is a scene_tree::primitive
         this->bvh_dirty = true;          // new leaf -> culling BVH must be rebuilt
         return result;
     }
 
     primitive* runtime::make_instanced_primitive(primitive const& source, std::span<glm::mat4 const> const transforms) {
-        uint32_t const count = std::min<uint32_t>(static_cast<uint32_t>(transforms.size()), deren::vulkan::instance_capacity - this->instance_cursor);
+        uint32_t const count = std::min<uint32_t>(static_cast<uint32_t>(transforms.size()), deren::engine::instance_capacity - this->instance_cursor);
         if (count == 0 || this->instance_mapped == nullptr || !source.is_valid()) {
             return nullptr;
         }
@@ -2048,7 +2048,7 @@ namespace deren::vulkan {
         // have to be handled (advance_motion_transforms skips instanced leaves on purpose: their
         // per-instance matrices are a setup-time quantity, not a per-frame one).
         uint32_t const motion_base = this->motion_cursor;
-        uint32_t const motion_count = std::min<uint32_t>(count, deren::vulkan::scene_motion_capacity - this->motion_cursor);
+        uint32_t const motion_count = std::min<uint32_t>(count, deren::engine::scene_motion_capacity - this->motion_cursor);
         this->motion_cursor += motion_count;
         for (int32_t slot = 0; slot < static_cast<int32_t>(this->frame_ring().slot_count()); ++slot) {
             auto* const published = static_cast<glm::mat4*>(this->motion_mapped[static_cast<std::size_t>(slot)]);
@@ -2121,7 +2121,7 @@ namespace deren::vulkan {
         if (slot >= this->skin_mapped.size() || this->skin_mapped[slot] == nullptr) {
             return;
         }
-        std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(deren::vulkan::scene_skin_capacity) * sizeof(glm::mat4));
+        std::size_t const bytes = std::min(matrices.size_bytes(), static_cast<std::size_t>(deren::engine::scene_skin_capacity) * sizeof(glm::mat4));
         std::memcpy(this->skin_mapped[slot], matrices.data(), bytes);
         // Content fingerprint of this upload: the only per-frame signal that a skinned caster moved
         // (its push.model is constant, the pose lives in these matrices). XXH3 rather than a byte
@@ -2143,4 +2143,4 @@ namespace deren::vulkan {
         this->morph_revision.fetch_add(1, std::memory_order_relaxed); // no upload hook: assume the caller is about to deform the mesh
         return this->morph_mapped[slot];
     }
-} // namespace deren::vulkan
+} // namespace deren::engine

@@ -11,7 +11,7 @@ WHAT THIS IS
 
     and it measures it from the ARCHIVES, not from the source and not from the object
     directories. The object directories are not trustworthy here: `build-release-clang64/
-    CMakeFiles/vulkancorekit.dir` still holds pre-split objects from before S1-A, and a
+    CMakeFiles/deren_engine.dir` still holds pre-split objects from before S1-A, and a
     directory-level count reports 130 where the archive-level truth is 78.
 
 WHY A RATCHET
@@ -40,7 +40,7 @@ THE THIRD INSTRUMENT: THE IMPORT GRAPH
     come from the DLL. `--require-zero` therefore also scans the engine/application sources and
     fails on every import of a module `deren_vulkan` owns. Ownership comes from CMake's own
     `target_sources(deren_vulkan ...)` list, NOT from a name prefix: `vulkan/core/filter/
-    filters.cppm` declares `deren.vulkan.core.filters` but belongs to the ENGINE, while
+    filters.cppm` declares `deren.engine.filters` but belongs to the ENGINE, while
     `vulkan/constant_init/constant_init.cppm` belongs to the BACKEND. Test sources are reported
     separately (they link the backend deliberately) and are not part of the gate.
 
@@ -109,7 +109,7 @@ import tempfile
 from collections import defaultdict
 
 BACKEND_TARGET = "deren_vulkan"
-KIT_TARGET = "vulkancorekit"
+KIT_TARGET = "deren_engine"
 
 # Where the two halves land, per toolchain. MinGW/clang64 archives first, MSVC after.
 #
@@ -120,7 +120,7 @@ KIT_TARGET = "vulkancorekit"
 # archive spellings stay for a STATIC tree, so the gate still measures an intermediate state.
 ARCHIVE_NAMES = {
     BACKEND_TARGET: ("libderen_vulkan.a", "deren_vulkan.lib"),
-    KIT_TARGET: ("libvulkancorekit.a", "vulkancorekit.lib"),
+    KIT_TARGET: ("libderen_engine.a", "deren_engine.lib"),
 }
 BACKEND_DLL_NAMES = ("deren_vulkan.dll", "libderen_vulkan.dll")
 # The process-wide half, which the backend DLL must import (batch ④'s package: the backend ships as
@@ -306,7 +306,7 @@ def check_cpp_runtime(build_dir: str) -> dict:
 # (`nm --defined-only` / `--undefined-only` over the four archives), not by reading the link line.
 UTILITY_SHARED_ARCHIVE = "libshared_utility.a"
 # Every other archive that links the toolkit; the two halves plus the engine library.
-UTILITY_SHARED_CONSUMERS = ("libstatic_utility.a", "libvulkancorekit.a", "libderen_vulkan.a")
+UTILITY_SHARED_CONSUMERS = ("libstatic_utility.a", "libderen_engine.a", "libderen_vulkan.a")
 # The TUs that belong to the process-wide half. If one of these member names shows up in another
 # archive, that archive built its own copy of the shared code (the exact thing the split prevents).
 UTILITY_SHARED_MEMBERS = ("shared_utility.cpp.obj", "shared_utility.cppm.obj", "better_pmr.cpp.obj",
@@ -534,7 +534,7 @@ def backend_modules_of(repo_root: str) -> tuple[set[str], set[str]]:
     """({modules deren_vulkan owns}, {its source files, repo-relative}).
 
     OWNERSHIP COMES FROM THE TARGET, NOT FROM THE NAME. `vulkan/core/filter/filters.cppm` declares
-    `deren.vulkan.core.filters` but belongs to the ENGINE target (vulkancorekit), while
+    `deren.engine.filters` but belongs to the ENGINE target (deren_engine), while
     `vulkan/constant_init/constant_init.cppm` declares `deren.vulkan.constant_init` and belongs to the
     BACKEND - so a name prefix would be wrong in both directions. The list is read out of CMake's own
     `target_sources(deren_vulkan ...)` block, which is what makes this check self-maintaining.
@@ -689,7 +689,7 @@ def main() -> int:
     kit_archive = resolve_archive(args.build_dir, KIT_TARGET)
 
     # A HALF-BUILT TREE UNDER-REPORTS, AND IT DID: rebuilding `deren_vulkan` alone leaves
-    # `vulkancorekit.a` referencing symbols the backend no longer defines, so those references drop
+    # `deren_engine.a` referencing symbols the backend no longer defines, so those references drop
     # out of the intersection and the count FALLS without a line of engine code having changed
     # (measured: 78 -> 76 that way, against 78 -> 77 for the change that was actually made). The
     # Consumers more than 5 minutes older than the backend fail; the build target completes

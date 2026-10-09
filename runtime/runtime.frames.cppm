@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.runtime:frames  - the frame pipeline
+// module: deren.engine.runtime:frames  - the frame pipeline
 //
 // THE FRAME: pace_and_acquire through render_frame, uninterrupted - the per-frame-slot phases, the
 // recording of every stage, the pass plumbing that resolves and verifies them, the resource publication
@@ -21,17 +21,17 @@ module;
 #include <span>   // std::as_bytes for the init_utils calls (the bytes behind a UBO or a zeroed table)
 #include <thread> // std::this_thread::yield in the frame limiter
 
-module deren.vulkan.runtime:frames;
+module deren.engine.runtime:frames;
 
 import :declarations;
 
-import deren.vulkan.profiling;
-import deren.vulkan.pipelines;
-import deren.vulkan.render_resource;
-import deren.vulkan.render_resource.shared;
+import deren.engine.profiling;
+import deren.engine.pipelines;
+import deren.engine.render_resource;
+import deren.engine.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
 import deren.promise.rhi;            // the contract's recording surface: the frame's list, image and read-back slot
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
@@ -39,7 +39,7 @@ import deren.promise.rhi;            // the contract's recording surface: the fr
 // main.cpp's keep-alive and this one coexist safely. The reference itself is never read; it
 // only forces the (dynamic) initialization before any pmr container in this TU is constructed.
 
-namespace deren::vulkan {
+namespace deren::engine {
 
     // ---- THE BUFFER-CREATION HELPERS THE CONVERTED SITES SHARE (see their notes in :declarations) ----
     //
@@ -107,11 +107,11 @@ namespace deren::vulkan {
     }
 
     std::uintptr_t runtime::buffer_address(rhi::buffer const& buffer) const noexcept {
-        return deren::vulkan::buffer_address(this->vulkan_core, buffer);
+        return deren::engine::buffer_address(this->vulkan_core, buffer);
     }
 
     bool runtime::write_heap_buffer(rhi::buffer const& buffer, uint32_t const slot, std::uint64_t const size, rhi::descriptor_type const type) const {
-        return contract_write_heap_buffer(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
+        return contract_write_heap_buffer(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot), this->buffer_address(buffer), size, type);
     }
 
     rhi::frame_walker& runtime::frame_ring() const noexcept {
@@ -162,7 +162,7 @@ namespace deren::vulkan {
     }
 
     frame_status runtime::pace_and_acquire() {
-        deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::pace};
+        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::pace};
 
         // A zero-sized swapchain (a window that has not been sized yet, or was restored from
         // minimized into a 0-sized client area) has no valid attachments: recording would set a
@@ -342,8 +342,8 @@ namespace deren::vulkan {
             //      the swapchain has an extent) disables the pass for that frame: shade_surface() then
             //      loop every light, which is always correct - just slower.
             {
-                this->cluster_tiles_x = std::min((this->render_extent().width + deren::vulkan::cluster_tile_size - 1) / deren::vulkan::cluster_tile_size, deren::vulkan::max_cluster_tiles_x);
-                this->cluster_tiles_y = std::min((this->render_extent().height + deren::vulkan::cluster_tile_size - 1) / deren::vulkan::cluster_tile_size, deren::vulkan::max_cluster_tiles_y);
+                this->cluster_tiles_x = std::min((this->render_extent().width + deren::engine::cluster_tile_size - 1) / deren::engine::cluster_tile_size, deren::engine::max_cluster_tiles_x);
+                this->cluster_tiles_y = std::min((this->render_extent().height + deren::engine::cluster_tile_size - 1) / deren::engine::cluster_tile_size, deren::engine::max_cluster_tiles_y);
                 glm::mat4 const base_proj = this->current_proj_unjittered;
                 bool const degenerate = !(this->current_aspect > 0.0f) || std::abs(base_proj[2][2]) < 1e-6f;
                 float cluster_near = 0.1f;
@@ -358,7 +358,7 @@ namespace deren::vulkan {
                 bool const clustered = this->clustered_lights && this->pass_ready("cluster") && !degenerate && this->cluster_tiles_x > 0 && this->cluster_tiles_y > 0;
                 this->light_state.cluster_grid = glm::vec4(static_cast<float>(this->cluster_tiles_x),
                                                            static_cast<float>(this->cluster_tiles_y),
-                                                           static_cast<float>(deren::vulkan::cluster_slice_count),
+                                                           static_cast<float>(deren::engine::cluster_slice_count),
                                                            clustered ? 1.0f : 0.0f);
                 this->light_state.cluster_depth = glm::vec4(cluster_near,
                                                             cluster_far,
@@ -370,7 +370,7 @@ namespace deren::vulkan {
                 // or in the flat render mode, nothing will ever read the counts (49 KB per frame).
                 bool const cluster_counts_used = this->active_features().clustered;
                 if (cluster_counts_used && this->cluster_count_mapped.size() > static_cast<std::size_t>(frame_slot) && this->cluster_count_mapped[frame_slot] != nullptr) {
-                    std::memset(this->cluster_count_mapped[frame_slot], 0, static_cast<std::size_t>(deren::vulkan::max_cluster_count) * sizeof(uint32_t));
+                    std::memset(this->cluster_count_mapped[frame_slot], 0, static_cast<std::size_t>(deren::engine::max_cluster_count) * sizeof(uint32_t));
                 }
             }
             std::memcpy(this->light_mapped[frame_slot], &this->light_state, sizeof(light_ubo));
@@ -388,7 +388,7 @@ namespace deren::vulkan {
         this->active_slot = frame_slot;
         // ... and the frame's shared constants are THIS frame's from here on: the camera record, the light
         // UBO and the fitted scene bounds above are all final at this point, and every pass of the frame reads
-        // the same numbers the shaders see (see deren.vulkan.frame_constants).
+        // the same numbers the shaders see (see deren.engine.frame_constants).
         this->update_frame_constants();
         return frame_status::proceed;
     }
@@ -408,7 +408,7 @@ namespace deren::vulkan {
         for (scene_tree::scene_node const& root : this->bound_scene->roots) {
             scene_tree::visit_primitives(root, this->scene_transform, [this, published](scene_tree::scene_node const& node, glm::mat4 const& world) {
                 uint32_t const index = node.primitive_leaf->motion_slot();
-                if (index == scene_tree::no_motion_slot || index >= deren::vulkan::scene_motion_capacity) {
+                if (index == scene_tree::no_motion_slot || index >= deren::engine::scene_motion_capacity) {
                     return; // instanced (filled at setup) or out of range: nothing to advance
                 }
                 // Publish what this leaf looked like one frame ago, THEN remember this frame's world
@@ -442,7 +442,7 @@ namespace deren::vulkan {
     }
 
     frame_status runtime::begin_recording() {
-        deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::begin};
+        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::begin};
         rhi::api_core& vk = this->vulkan_core; // the heap calls below take the contract face itself, not a native handle
         if (this->bound_scene == nullptr) {
             deren::utility::panic("runtime::begin_recording() called before set_scene() bound a scene");
@@ -710,7 +710,7 @@ namespace deren::vulkan {
                         // every cascade's frustum: a caster that only shadows the far range must still
                         // be drawn, so the union over the cascades is the exact caster set (a cull per
                         // cascade is cheap against the BVH)
-                        for (uint32_t cascade = 0; cascade < std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades); ++cascade) {
+                        for (uint32_t cascade = 0; cascade < std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades); ++cascade) {
                             deren::utility::frustum const light_frustum = deren::utility::make_frustum(this->light_state.light_view_proj[cascade]);
                             auto const in_light = this->cull_bvh->frustum_cull(light_frustum);
                             this->shadow_casters.reserve(this->shadow_casters.size() + in_light.size());
@@ -798,7 +798,7 @@ namespace deren::vulkan {
     }
 
     void runtime::record_main_drawcalls() {
-        deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::scene};
+        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::scene};
         if (!this->frame_command_buffer()) {
             return; // no frame is open (see begin_recording): there is nothing to record into
         }
@@ -810,9 +810,9 @@ namespace deren::vulkan {
         //      cluster's list. Runs before the shadow pass so the barrier that publishes its buffers
         //      is as early as possible; nothing before it reads the lists.
         {
-            deren::vulkan::profiling::cpu_phase_timer const cluster_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::cluster};
+            deren::engine::profiling::cpu_phase_timer const cluster_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::cluster};
             // THE CLUSTER SORT records its own dispatch and its own two buffer barriers now
-            // (deren.vulkan.pass.cluster); what is this loop's is WHERE it runs - before the passes that read the
+            // (deren.engine.pass.cluster); what is this loop's is WHERE it runs - before the passes that read the
             // bins - and the frame data it is handed, which the chain's owner supplies (see prepare_stage).
             pass::stage const cluster_stage = {.name = "cluster", .passes = this->cluster_pass, .marks = false};
             this->prepare_stage(cluster_stage);
@@ -827,7 +827,7 @@ namespace deren::vulkan {
         //      with the flag on renders exactly like one with it off - what this records is the input
         //      the ray-traced pass will need, not a change to the image.
         //
-        // THE WORK IS THE STRUCTURE SET'S (deren.vulkan.ray_tracing) and the POLICY is this loop's: WHETHER the
+        // THE WORK IS THE STRUCTURE SET'S (deren.engine.ray_tracing) and the POLICY is this loop's: WHETHER the
         // structures are wanted at all (`rt_structures_wanted`), and that they are built and re-instanced HERE -
         // before any rendering instance opens. What the set returns is why it gave up; what that means for a knob
         // (the refit's own failure turns `rt_skin_bake` off) is decided here.
@@ -896,7 +896,7 @@ namespace deren::vulkan {
         // set still points at them, so there is nothing to record - not even the read barriers.
         bool const shadow_reuse = this->shadow_rendered_version[frame_slot] == this->shadow_content_version && this->shadow_rendered_models[frame_slot] == geometry_signature;
         if (features.shadow && !shadow_reuse) {
-            deren::vulkan::profiling::cpu_phase_timer const shadow_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::shadow}; // the sub-phase of scene that records every cascade
+            deren::engine::profiling::cpu_phase_timer const shadow_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::shadow}; // the sub-phase of scene that records every cascade
             if (static_cast<bool>(this->shadow_images[static_cast<std::size_t>(frame_slot)])) {
                 // Secondary: inherit only the depth attachment (dynamic rendering 1.3). The
                 // shadow map is single-sampled; viewMask 0 = no multiview. The rendering
@@ -907,7 +907,7 @@ namespace deren::vulkan {
                 // primary), and a buffer without SIMULTANEOUS_USE may not be executed twice in one
                 // primary anyway. The content is only the leaves/pipelines; the per-cascade difference
                 // is that single push.
-                // ---- THE SHADOW PASS RECORDS IT (deren.vulkan.pass.shadow) ----
+                // ---- THE SHADOW PASS RECORDS IT (deren.engine.pass.shadow) ----
                 // What stays HERE is what the pass cannot know: the reuse test above (which is why this whole block
                 // is inside it), the map's OWN image and its layer count (the hand-back below covers every
                 // allocated layer, including the spare ones), and the bookkeeping that makes the next frame's reuse
@@ -973,7 +973,7 @@ namespace deren::vulkan {
     }
 
     // =============================================================================================
-    // THE SHADOW PASS's content callback and its scheduler (deren.vulkan.pass.shadow)
+    // THE SHADOW PASS's content callback and its scheduler (deren.engine.pass.shadow)
     // =============================================================================================
     //
     // THE RESOLVER THAT USED TO BE HERE IS GONE (S3.8): the layers this frame renders were a hand-written
@@ -1043,14 +1043,14 @@ namespace deren::vulkan {
     }
 
     void runtime::run_shadow_tasks(void* const owner, std::span<std::function<void()>> const tasks) {
-        static_cast<runtime*>(owner)->run_tasks(tasks, deren::vulkan::task_priority::recording);
+        static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
     void runtime::record_scene() {
         this->record_scene_attachments();
         this->update_pass_geometry();
         // THE SCENE PASS records the surface write: the instance over its six declared targets, the segmented
         // draw of the visible leaves, and closing the instance - all inside one function now (see
-        // deren.vulkan.pass.scene for why that is the point of this extraction).
+        // deren.engine.pass.scene for why that is the point of this extraction).
         if (this->gbuffer_pass_active()) {
             pass::stage const scene_stage = {.name = "scene", .passes = this->scene_pass, .marks = false};
             this->prepare_stage(scene_stage);
@@ -1091,7 +1091,7 @@ namespace deren::vulkan {
         if (frame_commands == nullptr) {
             return; // no frame is in flight: there is no recording buffer to move the attachments on
         }
-        std::array<rhi::image_barrier, deren::vulkan::gbuffer_pass_attachment_count + 1> attachment_barriers = {};
+        std::array<rhi::image_barrier, deren::engine::gbuffer_pass_attachment_count + 1> attachment_barriers = {};
         uint32_t barrier_count = 0;
         auto const add_render_barrier = [&attachment_barriers, &barrier_count](rhi::image_use const from, rhi::image_use const to, rhi::image* const image) {
             attachment_barriers[barrier_count] = rhi::image_barrier{.resource = image,
@@ -1105,7 +1105,7 @@ namespace deren::vulkan {
             // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4): every handle below is the CONTRACT image
             // the escape used to derive a native one from, exactly like the scene-colour target's (which
             // scene_target_image answers for both of its branches now).
-            for (uint32_t target = 0; target < deren::vulkan::render_layout::gbuffer_target_count; ++target) {
+            for (uint32_t target = 0; target < deren::engine::render_layout::gbuffer_target_count; ++target) {
                 add_render_barrier(rhi::image_use::undefined, rhi::image_use::color_attachment, this->gbuffer_images[target][this->current_image_index].get());
             }
             add_render_barrier(rhi::image_use::undefined, rhi::image_use::color_attachment, this->velocity_images[this->current_image_index].get());
@@ -1205,10 +1205,10 @@ namespace deren::vulkan {
         // this keeps the stored values valid. The shadow pipeline is deliberately excluded: its
         // viewport is the fixed shadow-map size, which the shadow pass's content callback sets (see the pass).
         // ... and the post chain's pipelines are NOT resynced here any more: they belong to the post composite
-        // PASS (deren.vulkan.pass.post), which declares `resync_viewport` for the composite and derives each bloom
+        // PASS (deren.engine.pass.post), which declares `resync_viewport` for the composite and derives each bloom
         // level's extent from its own declaration - so the viewport comes from the pass's declaration instead of
         // from a list this class maintains. The two blocks that used to be here are what that field replaced.
-        // ... and FXAA's pipeline is NOT resynced here either: it is the FXAA PASS's now (deren.vulkan.pass.fxaa),
+        // ... and FXAA's pipeline is NOT resynced here either: it is the FXAA PASS's now (deren.engine.pass.fxaa),
         // which declares `resync_viewport` like the rest of the post chain.
         // ... and the same for the G-buffer pair: gbuffer_pipeline is the opaque pass's default
         // pipeline (begin_pipeline applies the stored viewport) and gbuffer_debug_pipeline is a
@@ -1232,13 +1232,13 @@ namespace deren::vulkan {
         // ... and the debug view's pipeline is not resynced here either: it is its PASS's now (vulkan.pass.
         // gbuffer_debug), which declares resync_viewport like every other fullscreen pass in this chain.
         // ... and the deferred lighting stage's is not here either, for a stronger reason than the TAA
-        // resolve's below: it is a PASS (deren.vulkan.pass.deferred), it declares `resync_viewport = true`, so the
+        // resolve's below: it is a PASS (deren.engine.pass.deferred), it declares `resync_viewport = true`, so the
         // runner sets the viewport and scissor from the extent its own declaration produced. The old
         // `deferred_pipeline->viewport = ...` line existed because a pipeline object caches what
         // begin_pipeline() applies; the pass never calls begin_pipeline, the runner binds the pipeline.
         // The TAA resolve's pipeline and viewport are NOT resynced here: the runner sets a fullscreen pass's
         // viewport and scissor from the extent its declaration produced, which is what `resync_viewport`
-        // means once a pass states it (see deren.vulkan.pass's behaviour). The hazard this list used to guard - a
+        // means once a pass states it (see deren.engine.pass's behaviour). The hazard this list used to guard - a
         // fullscreen pass setting a zero-width viewport because it was left out - is gone by construction.
     }
 
@@ -1325,7 +1325,7 @@ namespace deren::vulkan {
         // lanes start one word later than the scene block's (see mesh_geometry_offset_shadow). Set for BOTH forms
         // of the pass, because both stage blocks declare the lanes - the vertex entry simply never reads them, and
         // a descriptor-heap pipeline requires every declared byte to have been pushed before the draw.
-        env.mesh_geometry_push_offset = deren::vulkan::mesh_geometry_push_offset_shadow;
+        env.mesh_geometry_push_offset = deren::engine::mesh_geometry_push_offset_shadow;
         env.buffer_address = &runtime::mesh_buffer_address;
         env.push_at = &runtime::push_geometry_block;
         if (mesh_stage) {
@@ -1363,7 +1363,7 @@ namespace deren::vulkan {
     }
 
     // ---- post-processing: HDR scene target -> exposure + ACES + gamma -> swapchain ----
-    // The post chain's PIPELINES are the composite PASS's (deren.vulkan.pass.post, built by `pipelines::build_post`
+    // The post chain's PIPELINES are the composite PASS's (deren.engine.pass.post, built by `pipelines::build_post`
     // inside its create step), and its DESCRIPTOR SETS are gone with every other set in this renderer: the
     // composite, the four bloom levels and FXAA read their images through the frame's heap (the HDR target, the
     // bloom levels, the LDR image, the G-buffer depth and normal are all grid slots the shaders name themselves).
@@ -1394,11 +1394,11 @@ namespace deren::vulkan {
         // 深度写入仍由绘制时的动态状态控制，mesh/meshlet 共用同一份创建配方。
         auto const build_gbuffer = [this, fragment_shader_code](std::span<uint8_t const> const stage_code) {
             std::array<rhi::image_format, gbuffer_pass_attachment_count> const formats = {
-                deren::vulkan::render_layout::gbuffer_formats[0],
-                deren::vulkan::render_layout::gbuffer_formats[1],
-                deren::vulkan::render_layout::gbuffer_formats[2],
-                deren::vulkan::render_layout::gbuffer_velocity_format,
-                deren::vulkan::render_layout::hdr_format,
+                deren::engine::render_layout::gbuffer_formats[0],
+                deren::engine::render_layout::gbuffer_formats[1],
+                deren::engine::render_layout::gbuffer_formats[2],
+                deren::engine::render_layout::gbuffer_velocity_format,
+                deren::engine::render_layout::hdr_format,
             };
             std::array<rhi::blend_mode, gbuffer_pass_attachment_count> const blends = {
                 rhi::blend_mode::opaque,
@@ -1439,7 +1439,7 @@ namespace deren::vulkan {
         return {};
     }
 
-    // THE DEFERRED LIGHTING PASS'S FRAME (deren.vulkan.pass.deferred). The pass owns the barrier, the two per-image
+    // THE DEFERRED LIGHTING PASS'S FRAME (deren.engine.pass.deferred). The pass owns the barrier, the two per-image
     // input transitions, the LOAD instance, the push and the draw; what the host resolves is the
     // FRAME - which image is lit and the values the push carries - plus deciding that this frame cannot run at all.
     //
@@ -1502,7 +1502,7 @@ namespace deren::vulkan {
     void runtime::record_transparent_pass() {
         // THE TRANSPARENT PASS records the blended geometry: the two hand-off barriers, the LOAD instance over
         // its two declared targets, one secondary and the depth hand-back - all in one function now (see
-        // deren.vulkan.pass.transparent). Like the scene pass it is SKIPPED without resolving anything on a frame
+        // deren.engine.pass.transparent). Like the scene pass it is SKIPPED without resolving anything on a frame
         // whose culling left nothing blended, which is what keeps a frame with no blended leaves byte-exact.
         pass::stage const transparent_stage = {.name = "transparent", .passes = this->transparent_pass, .marks = false};
         this->prepare_stage(transparent_stage);
@@ -1562,7 +1562,7 @@ namespace deren::vulkan {
         return turned_on;
     }
 
-    // The TAA resolve's factory is gone: `deren.vulkan.pass.taa` builds its own pipeline and owns its per-image
+    // The TAA resolve's factory is gone: `deren.engine.pass.taa` builds its own pipeline and owns its per-image
     // history flags in its create step, from its own declaration and its own shaders (the app registers those).
 
     bool runtime::ensure_gbuffer_depth_sampled(std::shared_ptr<rhi::command_buffer> command_buffer, uint32_t const image_index) {
@@ -1599,8 +1599,8 @@ namespace deren::vulkan {
         }
         // color_attachment -> shader_read for every stored surface target, in ONE contract batch (what the
         // raw vkCmdPipelineBarrier2 carried).
-        std::array<rhi::image_barrier, deren::vulkan::render_layout::gbuffer_target_count> barriers = {};
-        for (uint32_t target = 0; target < deren::vulkan::render_layout::gbuffer_target_count; ++target) {
+        std::array<rhi::image_barrier, deren::engine::render_layout::gbuffer_target_count> barriers = {};
+        for (uint32_t target = 0; target < deren::engine::render_layout::gbuffer_target_count; ++target) {
             barriers[target] = rhi::image_barrier{.resource = this->gbuffer_images[target][image_index].get(),
                                                   .from = rhi::image_use::color_attachment,
                                                   .to = rhi::image_use::shader_read,
@@ -1755,7 +1755,7 @@ namespace deren::vulkan {
                                       this->mesh_shaders_unavailable_reason);
             }
             deren::utility::log("mesh shaders: REQUIRED and available - every geometry stage is dispatched (push block {} B, within {} B push constants / {} B push data)",
-                                deren::vulkan::mesh_stage_block_size,
+                                deren::engine::mesh_stage_block_size,
                                 push_constants,
                                 push_data);
         }
@@ -1825,11 +1825,11 @@ namespace deren::vulkan {
         if (!runtime_detail::mesh_shader_available_of(this->rhi_face())) {
             return unavailable("the device has no mesh shader feature");
         }
-        if (push_constants < deren::vulkan::mesh_stage_block_size) {
-            return unavailable(std::format("maxPushConstantsSize is {} B, under the {} B block a mesh stage needs", push_constants, deren::vulkan::mesh_stage_block_size));
+        if (push_constants < deren::engine::mesh_stage_block_size) {
+            return unavailable(std::format("maxPushConstantsSize is {} B, under the {} B block a mesh stage needs", push_constants, deren::engine::mesh_stage_block_size));
         }
-        if (push_data < deren::vulkan::mesh_stage_block_size) {
-            return unavailable(std::format("the heap's maxPushDataSize is {} B, under the {} B block a mesh stage needs", push_data, deren::vulkan::mesh_stage_block_size));
+        if (push_data < deren::engine::mesh_stage_block_size) {
+            return unavailable(std::format("the heap's maxPushDataSize is {} B, under the {} B block a mesh stage needs", push_data, deren::engine::mesh_stage_block_size));
         }
         if (reason != nullptr) {
             reason->clear();
@@ -1923,8 +1923,8 @@ namespace deren::vulkan {
     }
 
     void runtime::update_frame_constants() noexcept {
-        // THE ONE PLACE THE FACTS TYPE AND THE UBOs HAVE TO AGREE. `deren.vulkan.frame_constants` deliberately does not
-        // include `camera_ubo`/`light_ubo` (the pass framework must not depend on deren.vulkan.primitive, which imports
+        // THE ONE PLACE THE FACTS TYPE AND THE UBOs HAVE TO AGREE. `deren.engine.frame_constants` deliberately does not
+        // include `camera_ubo`/`light_ubo` (the pass framework must not depend on deren.engine.primitive, which imports
         // core), so the fields are copied here - one site to check, instead of a type relationship spread across
         // two modules that only a reader of both would notice breaking.
         this->frame_facts.view = this->current_ubo.view;
@@ -2037,7 +2037,7 @@ namespace deren::vulkan {
         for (std::size_t target = 0; target < this->gbuffer_images.size(); ++target) {
             owned_family(render_resource::resource_id::gbuffer_targets, static_cast<uint32_t>(target), this->gbuffer_images[target], this->gbuffer_image_views[target]);
         }
-        for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
+        for (uint32_t level = 0; level < deren::engine::render_layout::bloom_level_count; ++level) {
             owned_family(render_resource::resource_id::bloom, level, this->bloom_images[level], this->bloom_image_views[level]);
         }
         // `scene_color` is an ALIAS rather than a family of its own: the scene-side passes write the TAA input
@@ -2240,7 +2240,7 @@ namespace deren::vulkan {
         }
         // the secondaries inherit the instance's attachments: the three surface targets in order, the velocity
         // target, and the scene colour - the same order the pass's declaration lists them in
-        this->scene_color_formats = {deren::vulkan::render_layout::gbuffer_formats[0], deren::vulkan::render_layout::gbuffer_formats[1], deren::vulkan::render_layout::gbuffer_formats[2], deren::vulkan::render_layout::gbuffer_velocity_format, deren::vulkan::render_layout::hdr_format};
+        this->scene_color_formats = {deren::engine::render_layout::gbuffer_formats[0], deren::engine::render_layout::gbuffer_formats[1], deren::engine::render_layout::gbuffer_formats[2], deren::engine::render_layout::gbuffer_velocity_format, deren::engine::render_layout::hdr_format};
         return pass::scene_frame{
             .leaves = this->frame_visible,
             .segments = this->scene_segment_view,
@@ -2382,7 +2382,7 @@ namespace deren::vulkan {
         // with its geometry window pushed instead of bound (see primitive::mesh_dispatch). The WINDOW itself is
         // pushed by every session - a vertex pipeline's stages declare the same lanes and a heap pipeline requires
         // them written - so `mesh_stage` is the only per-session flag, and the bind callback above sets it per draw.
-        env.mesh_geometry_push_offset = deren::vulkan::mesh_geometry_push_offset_scene;
+        env.mesh_geometry_push_offset = deren::engine::mesh_geometry_push_offset_scene;
         env.buffer_address = &runtime::mesh_buffer_address;
         env.push_at = &runtime::push_geometry_block;
         env.draw_mesh_tasks = &runtime::draw_mesh_tasks;                   // only ever called when mesh_stage is true
@@ -2401,7 +2401,7 @@ namespace deren::vulkan {
 
     /// the renderer's scheduler, handed to the pass so the segment fan-out stays the frame loop's policy
     void runtime::run_scene_tasks(void* owner, std::span<std::function<void()>> const tasks) {
-        static_cast<runtime*>(owner)->run_tasks(tasks, deren::vulkan::task_priority::recording);
+        static_cast<runtime*>(owner)->run_tasks(tasks, deren::engine::task_priority::recording);
     }
 
     // THE SCENE PASS'S RESOLVER IS GONE (S3): its six targets, its shared set and its extent are resolved from
@@ -2424,7 +2424,7 @@ namespace deren::vulkan {
             .secondary = transparent,
             .make_environment = &runtime::make_scene_environment,
             .owner = this,
-            .color_format = deren::vulkan::render_layout::hdr_format,
+            .color_format = deren::engine::render_layout::hdr_format,
             .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
         };
@@ -2481,7 +2481,7 @@ namespace deren::vulkan {
         // for a culled leaf would be an unoccluded shell over the whole frame (see `frame_outline`).
         //
         // THE WIDTH IS READ OFF THE PRIMITIVE (`primitive::outline_width`) rather than out of the material's
-        // colour lane, because the lane lives in the GPU table (`deren::vulkan::render_layout::heap_slots::toon_colours`) and the frame
+        // colour lane, because the lane lives in the GPU table (`deren::engine::render_layout::heap_slots::toon_colours`) and the frame
         // cannot read it without a readback. That mirror is filled from the same `toon_inputs` the shader's lane
         // is built from, so this gate and the mesh stage's own `w > 0` cannot drift apart.
         //
@@ -2534,7 +2534,7 @@ namespace deren::vulkan {
             // ... and the outline group's pipeline name, on the overlay's terms exactly: empty when it was never
             // built, which the pass reads as "there is no outline to draw" (see `outline_ready` above).
             .outline_pipeline_name = outline_ready ? outline_pipeline_name : std::string_view{},
-            .color_format = deren::vulkan::render_layout::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
+            .color_format = deren::engine::render_layout::hdr_format, // one HDR target, and NOT the swapchain format - see the pass
             .depth_format = rhi::image_format::depth,
             .extent = this->render_extent(),
         };
@@ -2558,7 +2558,7 @@ namespace deren::vulkan {
         // they are gathered into the scratch array the returned span points at, and that array is a
         // member because a span over a local would dangle the moment this function returned.
         uint32_t const slot = this->frame_ring().position();
-        uint32_t const cascades = std::clamp(this->shadow_cascades, 1u, deren::vulkan::max_shadow_cascades);
+        uint32_t const cascades = std::clamp(this->shadow_cascades, 1u, deren::engine::max_shadow_cascades);
         for (uint32_t cascade = 0; cascade < cascades; ++cascade) {
             // abi 21: the per-cascade buffer is a CALLER-OWNED contract handle, and the frame carries the
             // BORROWED POINTER to it (`shadow_frame::cascades` is `std::span<rhi::command_buffer* const>`):
@@ -2591,7 +2591,7 @@ namespace deren::vulkan {
             .fxaa_resolves = this->post_fxaa_active(),
             .upscale_resolves = this->post_upscale_active(),
             .debug_view = this->active_features().gbuffer_debug,
-            .cluster_count = this->cluster_tiles_x * this->cluster_tiles_y * deren::vulkan::cluster_slice_count,
+            .cluster_count = this->cluster_tiles_x * this->cluster_tiles_y * deren::engine::cluster_slice_count,
         };
     }
 
@@ -2645,7 +2645,7 @@ namespace deren::vulkan {
         this->post_composite_stage = {at("post_composite")};
         this->bloom_pass = {at("post_bloom_0"), at("post_bloom_1"), at("post_bloom_2"), at("post_bloom_3")};
         this->fxaa_pass = {at("fxaa")};
-        // ... and the resolve that scales the render chain back up to the output (deren.vulkan.pass.upscale): the
+        // ... and the resolve that scales the render chain back up to the output (deren.engine.pass.upscale): the
         // frame's last writer whenever `render_scale < 1.0` and its pipeline exists. It is looked up like every
         // other stage here; the frame loop records it after the FXAA stage, with which it is mutually exclusive.
         this->upscale_pass = {at("upscale")};
@@ -2864,7 +2864,7 @@ namespace deren::vulkan {
             if (image == nullptr) {
                 return;
             }
-            [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot),
+            [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot),
                                                                             *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0}, rhi::descriptor_type::sampled_image);
         };
         auto const target_image = [](auto const& owned) -> rhi::image const* { return owned.get(); };
@@ -2874,14 +2874,14 @@ namespace deren::vulkan {
             // THE G-BUFFER CLUSTER IS THE ENGINE'S OWN (③-D/E A1.4), so every handle below comes through the
             // contract's escape; an empty manager writes nothing, which is what the null-image early return
             // inside `write_sampled_target` already means.
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_albedo + image_slot, target_image(this->gbuffer_images[0][heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_normal + image_slot, target_image(this->gbuffer_images[1][heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_material + image_slot, target_image(this->gbuffer_images[2][heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_depth + image_slot, target_image(this->gbuffer_depth_images[heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::gbuffer_velocity + image_slot, target_image(this->velocity_images[heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::taa_current + image_slot, target_image(this->scene_color_images[heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::post_color + image_slot, target_image(this->hdr_images[heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::display_color + image_slot, target_image(this->ldr_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_albedo + image_slot, target_image(this->gbuffer_images[0][heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_normal + image_slot, target_image(this->gbuffer_images[1][heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_material + image_slot, target_image(this->gbuffer_images[2][heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_depth + image_slot, target_image(this->gbuffer_depth_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::gbuffer_velocity + image_slot, target_image(this->velocity_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::taa_current + image_slot, target_image(this->scene_color_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::post_color + image_slot, target_image(this->hdr_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::display_color + image_slot, target_image(this->ldr_images[heap_image]));
             // ... and the same for every OTHER per-image target a shader samples or writes: the temporal
             // history, the megalights chain (sampled AND its storage twin), and the four bloom levels, which
             // the grid packs `heap_image_capacity` apart.
@@ -2889,7 +2889,7 @@ namespace deren::vulkan {
                 if (image == nullptr) {
                     return;
                 }
-                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::vulkan::render_layout::heap_slot_offset(slot),
+                [[maybe_unused]] bool const written = contract_write_heap_image(this->rhi_face(), deren::engine::render_layout::heap_slot_offset(slot),
                                                                                 *image, rhi::image_view_desc{.layer_count = 0, .mip_count = 0, .role = rhi::view_role::storage}, rhi::descriptor_type::storage_image);
             };
             // THE TAA HISTORY IMAGE IS THE ENGINE'S OWN (③-D/E A1.1): the raw handle comes through the
@@ -2897,18 +2897,18 @@ namespace deren::vulkan {
             // length - `heap_image` is the acquired image index, already inside the rhi::max_swapchain_images
             // bound the frame's end_recording checks.
             if (heap_image < rhi::max_swapchain_images && static_cast<bool>(this->taa_history_images[heap_image])) {
-                write_sampled_target(deren::vulkan::render_layout::heap_slots::taa_history + image_slot, this->taa_history_images[heap_image].get());
+                write_sampled_target(deren::engine::render_layout::heap_slots::taa_history + image_slot, this->taa_history_images[heap_image].get());
             }
             // THE HALF-RESOLUTION CHAIN IS THE ENGINE'S OWN TOO (③-D/E A1.5): the same escape, and the same
             // "an empty manager writes nothing" shape - the fixed-size arrays make a length guard meaningless,
             // and `native_target` answers VK_NULL_HANDLE for a slot the creation refused.
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_trace + image_slot, target_image(this->ml_images[heap_image]));
-            write_storage_target(deren::vulkan::render_layout::heap_slots::ml_trace_storage + image_slot, target_image(this->ml_images[heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_resolved + image_slot, target_image(this->ml_resolve_images[heap_image]));
-            write_storage_target(deren::vulkan::render_layout::heap_slots::ml_resolved_storage + image_slot, target_image(this->ml_resolve_images[heap_image]));
-            write_sampled_target(deren::vulkan::render_layout::heap_slots::ml_history + image_slot, target_image(this->ml_history_images[heap_image]));
-            for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
-                write_sampled_target(deren::vulkan::render_layout::heap_slots::bloom_l0 + level * deren::vulkan::render_layout::heap_image_capacity + image_slot, target_image(this->bloom_images[level][heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::ml_trace + image_slot, target_image(this->ml_images[heap_image]));
+            write_storage_target(deren::engine::render_layout::heap_slots::ml_trace_storage + image_slot, target_image(this->ml_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::ml_resolved + image_slot, target_image(this->ml_resolve_images[heap_image]));
+            write_storage_target(deren::engine::render_layout::heap_slots::ml_resolved_storage + image_slot, target_image(this->ml_resolve_images[heap_image]));
+            write_sampled_target(deren::engine::render_layout::heap_slots::ml_history + image_slot, target_image(this->ml_history_images[heap_image]));
+            for (uint32_t level = 0; level < deren::engine::render_layout::bloom_level_count; ++level) {
+                write_sampled_target(deren::engine::render_layout::heap_slots::bloom_l0 + level * deren::engine::render_layout::heap_image_capacity + image_slot, target_image(this->bloom_images[level][heap_image]));
             }
         }
 
@@ -3027,7 +3027,7 @@ namespace deren::vulkan {
 
     void runtime::record_scene_tail() {
         // NO vkCmdEndRendering HERE ANY MORE: the scene PASS owns its instance and closes it at the end of its
-        // own record (see deren.vulkan.pass.scene). That line used to be the far half of a pair whose near half was
+        // own record (see deren.engine.pass.scene). That line used to be the far half of a pair whose near half was
         // three functions away - the coupling this extraction removed.
         // GPU timing: the geometry instance ended where the scene pass closed it (the surface write).
         this->gpu_mark(gpu_mark_id::scene_end);
@@ -3043,7 +3043,7 @@ namespace deren::vulkan {
             // start from) and before the lighting stage (which multiplies the sun term by the result).
             // Running it before the G-buffer pass would mean starting rays from the PREVIOUS frame's
             // surface, so the position is not a detail - it is the ordering constraint. The PASS owns the
-            // recording (deren.vulkan.pass.ray_traced_shadow); what is this loop's is the position and the off path below.
+            // recording (deren.engine.pass.ray_traced_shadow); what is this loop's is the position and the off path below.
             pass::stage const rt_shadow_stage = {.name = "rt_shadow", .passes = this->rt_shadow_pass, .marks = false};
             // THIS STAGE'S ONE FRAME-ORDER DUTY, done by the chain's OWNER now that the passes are its: this stage
             // may be the first sampler of the stored surface this frame, and whoever samples it FIRST publishes the
@@ -3113,7 +3113,7 @@ namespace deren::vulkan {
                                                                                .to = rhi::image_use::shader_read,
                                                                                .range = rhi::subresource_range{.base_mip = 0u, .mip_count = 1u, .base_layer = 0u, .layer_count = 1u}});
             }
-            // THE LIGHTING STAGE IS A PASS (deren.vulkan.pass.deferred), and what the frame still owes it is one answer
+            // THE LIGHTING STAGE IS A PASS (deren.engine.pass.deferred), and what the frame still owes it is one answer
             // plus the stage's own frame-order duty: it is a
             // sampler of the stored surface, and whoever samples it FIRST publishes the G-buffer instance's
             // attachment writes. Both are the chain OWNER's now (see prepare_stage) - the runtime's `prepare` call
@@ -3183,7 +3183,7 @@ namespace deren::vulkan {
 
         // TAA resolve: blend the scene color with the reprojected history into the HDR target the post
         // chain reads, then copy the result into the history image for the next frame that renders this
-        // swapchain image. The PASS owns all of that now (deren.vulkan.pass.taa), and the two things below are the
+        // swapchain image. The PASS owns all of that now (deren.engine.pass.taa), and the two things below are the
         // part it cannot own yet:
         //
         //  * the G-buffer depth's transition to a sampled layout, whose "was it written this frame" flag
@@ -3209,7 +3209,7 @@ namespace deren::vulkan {
 
         // G-buffer debug mode (an inspection of the stored data, never combined with the lighting
         // stage or TAA): turn one channel into a visible image in the HDR target. THE PASS owns the recording
-        // (deren.vulkan.pass.geometry_buffer_debug); what stays here is the frame - the target's own transition (which has to
+        // (deren.engine.pass.geometry_buffer_debug); what stays here is the frame - the target's own transition (which has to
         // happen even when the pass cannot draw, because the post chain samples that image), the two per-image
         // hand-backs its frame carries, and the fallback that clears the target when there is no set to draw with.
         if (this->gbuffer_pass_active() && !this->deferred_lit_active()) {
@@ -3260,7 +3260,7 @@ namespace deren::vulkan {
     }
 
     // =============================================================================================
-    // THE POST CHAIN (deren.vulkan.pass.post)
+    // THE POST CHAIN (deren.engine.pass.post)
     // =============================================================================================
     //
     // NO RESOLVER IS LEFT FOR IT (S3). The composite's declaration resolves generically except for the one
@@ -3280,7 +3280,7 @@ namespace deren::vulkan {
         // ONE definition of "the FXAA pass is this frame's last writer": the resolver picks the composite's target
         // and pipeline variant with it, the frame loop decides the overlay's owner with it, the feature registry
         // reports it, and set_fxaa() already folds the pipeline's existence into `fxaa_on` for the same reason. The
-        // pipeline is the FXAA PASS's now (deren.vulkan.pass.fxaa), which is why this asks the pass rather than a member.
+        // pipeline is the FXAA PASS's now (deren.engine.pass.fxaa), which is why this asks the pass rather than a member.
         //
         // ... AND IT CANNOT BE TRUE ON A FRAME THE UPSCALE RUNS, which is a CORRECTNESS rule rather than tidiness:
         // the two passes read the SAME LDR image and both want to be the frame's last writer, and FXAA's edge
@@ -3295,7 +3295,7 @@ namespace deren::vulkan {
     bool runtime::post_upscale_active() const noexcept {
         // ONE definition of "the upscale pass is this frame's last writer", composed from the two facts that
         // decide it: the render chain is running BELOW the output size, and the pass built the pipeline it
-        // records with (deren.vulkan.pass.upscale, created by create_passes()).
+        // records with (deren.engine.pass.upscale, created by create_passes()).
         //
         // AT render_scale == 1.0 THE ANSWER IS FALSE BY CONSTRUCTION, and that is the whole reason this
         // predicate is not just `pass_ready`: the render extent returns the swapchain's extent at 1.0, so
@@ -3319,7 +3319,7 @@ namespace deren::vulkan {
     }
 
     // =============================================================================================
-    // THE G-BUFFER DEBUG VIEW (deren.vulkan.pass.geometry_buffer_debug)
+    // THE G-BUFFER DEBUG VIEW (deren.engine.pass.geometry_buffer_debug)
     // =============================================================================================
     //
     // THE G-BUFFER DEBUG VIEW'S RESOLVER AND ITS `ensure_inputs` CALLBACK ARE GONE (S3). Its declaration resolves
@@ -3424,7 +3424,7 @@ namespace deren::vulkan {
         {
         }
 
-        // ---- THE BLOOM CHAIN, as a stage of FOUR passes (deren.vulkan.pass.post) ----
+        // ---- THE BLOOM CHAIN, as a stage of FOUR passes (deren.engine.pass.post) ----
         // The chain is four instances of one class; the level IS the pass boundary (each binds a different one of
         // the post family's five sets), and what the host resolves for each is in resolve_post_bloom. The RUNNER
         // gates them: the pass declares the feature `bloom`, which is `bloom_intensity > 0` and the chain's
@@ -3445,7 +3445,7 @@ namespace deren::vulkan {
             // arrays by it, so the backend's alias is no longer the only spelling of it
             // EVERY LEVEL IS ONE undefined -> shader_read TRANSITION (the recipe the raw barrier copied), on
             // the frame's recording buffer.
-            for (uint32_t level = 0; level < deren::vulkan::render_layout::bloom_level_count; ++level) {
+            for (uint32_t level = 0; level < deren::engine::render_layout::bloom_level_count; ++level) {
                 (void)this->frame_command_buffer()->barrier(rhi::image_barrier{.resource = this->bloom_images[level][index].get(),
                                                                                .from = rhi::image_use::undefined,
                                                                                .to = rhi::image_use::shader_read,
@@ -3470,7 +3470,7 @@ namespace deren::vulkan {
         // GPU timing: the composite (and the debug overlay, when it draws here) is done.
         this->gpu_mark(gpu_mark_id::composite_end);
 
-        // ---- THE FXAA RESOLVE, as a stage of one pass (deren.vulkan.pass.fxaa) ----
+        // ---- THE FXAA RESOLVE, as a stage of one pass (deren.engine.pass.fxaa) ----
         // It is the frame's LAST writer whenever it runs, so it is the pass that carries the overlay - the other
         // half of the split the composite's frame above states. The runner gates it on the feature `fxaa`, which is
         // `post_fxaa_active()`: the same predicate that decided this frame's composite TARGET, so the pass runs
@@ -3482,7 +3482,7 @@ namespace deren::vulkan {
         // the composite already ended the frame's display work, so this interval is ~0.
         this->gpu_mark(gpu_mark_id::fxaa_end);
 
-        // ---- THE UPSCALE RESOLVE, as a stage of one pass (deren.vulkan.pass.upscale) ----
+        // ---- THE UPSCALE RESOLVE, as a stage of one pass (deren.engine.pass.upscale) ----
         // It is the frame's LAST writer on the frames it runs (the render chain is smaller than the output), so
         // it is the pass that carries the overlay there - the third and last case of the split the composite's
         // frame states. The runner gates it on the feature `upscale`, which is `post_upscale_active()`: the same
@@ -3500,7 +3500,7 @@ namespace deren::vulkan {
         return true;
     }
     frame_status runtime::end_recording() {
-        deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::post};
+        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::post};
         rhi::api_core& vk = this->vulkan_core;
         if (!this->frame_command_buffer()) {
             return frame_status::end_recording_failed; // no frame is open: there is nothing to close
@@ -3623,7 +3623,7 @@ namespace deren::vulkan {
                                 this->resource_check_mismatched,
                                 this->resource_check_frames);
         }
-        deren::vulkan::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::vulkan::profiling::cpu_phase::submit};
+        deren::engine::profiling::cpu_phase_timer const phase_timer{this->cpu_timings, deren::engine::profiling::cpu_phase::submit};
 
         // SUBMIT + PRESENT GO THROUGH THE CONTRACT (abi 14): the frame verb the contract was missing
         // is here, so the engine no longer names the backend's submission primitive. The list is the
@@ -3651,7 +3651,7 @@ namespace deren::vulkan {
             deren::utility::log("runtime: frame submit was refused ({})", static_cast<std::uint32_t>(submitted));
             return frame_status::submit_failed;
         }
-        this->cpu_timings.add(deren::vulkan::profiling::cpu_phase::submit_queue, std::chrono::steady_clock::now() - submit_started);
+        this->cpu_timings.add(deren::engine::profiling::cpu_phase::submit_queue, std::chrono::steady_clock::now() - submit_started);
         auto const present_started = std::chrono::steady_clock::now();
         // THE PRESENT LADDER GOES THROUGH THE ERROR MECHANISM: `present()` answers the contract's
         // vocabulary, and the translation is the backend's at the present call site - SUBOPTIMAL is
@@ -3659,7 +3659,7 @@ namespace deren::vulkan {
         // the acquire site must NOT inherit. The engine reads the code; it never touches a VkResult
         // and never names the image: the backend presents the image its own acquire took.
         rhi::error const presented = this->rhi_face().present();
-        this->cpu_timings.add(deren::vulkan::profiling::cpu_phase::present, std::chrono::steady_clock::now() - present_started);
+        this->cpu_timings.add(deren::engine::profiling::cpu_phase::present, std::chrono::steady_clock::now() - present_started);
         if (presented == rhi::error::out_of_date) {
             deren::utility::log("present out of date, recreating swapchain");
             // THE REBUILD IS THE SWAPCHAIN'S OWN VERB (abi 14), and only a generation that was
@@ -3704,4 +3704,4 @@ namespace deren::vulkan {
         }
         return this->submit_and_present();
     }
-} // namespace deren::vulkan
+} // namespace deren::engine

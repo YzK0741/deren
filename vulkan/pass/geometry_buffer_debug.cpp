@@ -12,15 +12,15 @@ module;
 #include <span>
 #include <string>
 
-module deren.vulkan.pass.geometry_buffer_debug;
+module deren.engine.pass.geometry_buffer_debug;
 
 import deren.promise.rhi;
-import deren.vulkan.pipelines; // build_gbuffer_debug: the view pipeline, and that is all the pass takes from the builder
+import deren.engine.pipelines; // build_gbuffer_debug: the view pipeline, and that is all the pass takes from the builder
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     gbuffer_debug_pass::~gbuffer_debug_pass() {
         this->release_owned();
@@ -34,7 +34,7 @@ namespace deren::vulkan::pass {
         return render_resource::gbuffer_debug_io;
     }
 
-    deren::vulkan::pass::behaviour const& gbuffer_debug_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& gbuffer_debug_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -159,4 +159,4 @@ namespace deren::vulkan::pass {
         io.list->end_rendering();
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

@@ -24,7 +24,7 @@
   "backend_surface_shape": "export table",
   "consumers": [
     {
-      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libvulkancorekit.a",
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libderen_engine.a",
       "members": [
         "acceleration_structure.cpp.obj",
         "acceleration_structure.cppm.obj",
@@ -200,7 +200,7 @@
     "ok": true
   },
   "joiners": [],
-  "kit_archive": "libvulkancorekit.a",
+  "kit_archive": "libderen_engine.a",
   "kit_members": 77,
   "leavers": [
     "deren_make_api_core"

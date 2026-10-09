@@ -15,11 +15,11 @@ module;
 #include <utility>
 #include <vector>
 
-module deren.vulkan.ray_tracing;
+module deren.engine.ray_tracing;
 
 import deren.utility;
 
-namespace deren::vulkan::ray_tracing {
+namespace deren::engine::ray_tracing {
 
     namespace rhi = deren::promise::rhi;
 
@@ -668,4 +668,4 @@ namespace deren::vulkan::ray_tracing {
         return {};
     }
 
-} // namespace deren::vulkan::ray_tracing
+} // namespace deren::engine::ray_tracing

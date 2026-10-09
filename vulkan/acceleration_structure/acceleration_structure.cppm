@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.acceleration_structure
+// module: deren.engine.acceleration_structure
 // module version: 1.0.0  (independent of the app version in CMakeLists project(VERSION))
 //
 // Ray-tracing acceleration structures: the bottom level structures of the
@@ -22,7 +22,7 @@ module;
 #include <string>
 #include <vector>
 
-export module deren.vulkan.acceleration_structure;
+export module deren.engine.acceleration_structure;
 
 import deren.promise.rhi; // the contract's buffer handle + object_manager: the storage/scratch owners
 export import deren.vstd;
@@ -66,7 +66,7 @@ export import deren.vstd;
  *    its bind-pose shadow until a compute skinning pass exists to write deformed vertices somewhere a
  *    build can read.
  */
-namespace deren::vulkan::acceleration_structure {
+namespace deren::engine::acceleration_structure {
     /// The contract's names under the short alias this file's ~95 neighbours use; it used to arrive with
     /// `deren.vulkan.core`, which this module no longer imports (③-D/E step 1b).
     namespace rhi = deren::promise::rhi;
@@ -397,4 +397,4 @@ namespace deren::vulkan::acceleration_structure {
             return this->stats;
         }
     };
-} // namespace deren::vulkan::acceleration_structure
+} // namespace deren::engine::acceleration_structure

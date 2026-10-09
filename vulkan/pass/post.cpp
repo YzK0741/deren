@@ -14,13 +14,13 @@ module;
 #include <span>
 #include <string>
 
-module deren.vulkan.pass.post;
+module deren.engine.pass.post;
 
 import deren.promise.rhi;      // the record series (abi 20): the barriers, the rendering scope, the draw
-import deren.vulkan.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
+import deren.engine.pipelines; // build_post: the chain's two pipelines, one per colour format the chain renders into
 import deren.utility;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     namespace rhi = deren::promise::rhi;
 
@@ -41,7 +41,7 @@ namespace deren::vulkan::pass {
         return render_resource::post_composite_io;
     }
 
-    deren::vulkan::pass::behaviour const& post_composite_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& post_composite_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -264,7 +264,7 @@ namespace deren::vulkan::pass {
         // The behaviour is a MEMBER because the ELEMENT is part of it: four instances of this class cannot share
         // one declaration of "which resource my extent comes from". Everything else is every other fullscreen
         // pass's: the runner sets the viewport and scissor from the extent the rule produced.
-        this->pass_behaviour = deren::vulkan::pass::behaviour{
+        this->pass_behaviour = deren::engine::pass::behaviour{
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::resource,
             .extent_of = resource_id::bloom,
@@ -280,7 +280,7 @@ namespace deren::vulkan::pass {
         return *this->declared_io;
     }
 
-    deren::vulkan::pass::behaviour const& post_bloom_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& post_bloom_pass::behaviour() const noexcept {
         return this->pass_behaviour;
     }
 
@@ -381,4 +381,4 @@ namespace deren::vulkan::pass {
         }
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

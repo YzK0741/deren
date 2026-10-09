@@ -141,7 +141,7 @@ namespace deren::chores {
     // Load a fragment/mesh SPIR-V pair for a named pipeline and create it via runtime; panic on failure. THE VERTEX
     // FILE IS GONE (docs/mesh_shaders.md step 4): a named geometry pipeline is built from a MESH stage and the
     // meshlet entry beside it, and the runtime refuses a name with no mesh module rather than falling back.
-    void load_and_create_pipeline(deren::vulkan::runtime& runtime,
+    void load_and_create_pipeline(deren::engine::runtime& runtime,
                                   std::filesystem::path const& shaders_dir,
                                   std::string_view const pipeline_name,
                                   std::string_view const fragment_file,
@@ -166,7 +166,7 @@ namespace deren::chores {
     // Create the demo pipelines up front: the standard PBR pipeline (used by the imported scene)
     // and the directional shadow pass (depth-only). The legacy triangle demo pipeline is
     // deliberately not created here - nothing draws it anymore.
-    void setup_pipeline(deren::vulkan::runtime& runtime, std::filesystem::path const& shaders_dir) {
+    void setup_pipeline(deren::engine::runtime& runtime, std::filesystem::path const& shaders_dir) {
         // Standard PBR pipeline: the imported scene's primitives bind to it (the FIRST pipeline
         // created becomes the runtime's implicit default)
         load_and_create_pipeline(runtime, shaders_dir, "pbr", "pbr.frag.spv", "pbr.mesh.spv", "pbr.meshlet.spv");
@@ -334,7 +334,7 @@ namespace deren::chores {
         }
 
         {
-            // The post chain is a PASS PAIR now (deren.vulkan.pass.post): the composite owns the chain's two pipelines,
+            // The post chain is a PASS PAIR now (deren.engine.pass.post): the composite owns the chain's two pipelines,
             // and the four bloom levels record with them. So the app REGISTERS the two shaders the pass builds
             // from (post.vert's synthetic triangle and post.frag, whose `mode` lane selects the stage) and the pass
             // does the rest in create_passes() below.
@@ -356,7 +356,7 @@ namespace deren::chores {
         }
 
         {
-            // The shadow pass is a PASS (deren.vulkan.pass.shadow): the app REGISTERS its two shaders and the pass builds
+            // The shadow pass is a PASS (deren.engine.pass.shadow): the app REGISTERS its two shaders and the pass builds
             // the depth-only pipeline itself, from them and the context's depth format - which is why there is no
             // make_* here any more. Optional: without the pipeline the scene simply renders without shadows.
             std::vector<uint8_t> fragment_code;
@@ -379,7 +379,7 @@ namespace deren::chores {
             // without it (or with [render] clustered_lights = false) shade_surface() loops every
             // active light, which is the brute-force reference the clustered path is verified on.
             // IT IS A PASS: the app registers the shader and the pass builds its own compute pipeline from it (see
-            // deren.vulkan.pass.cluster) - create_passes() below runs that step, and
+            // deren.engine.pass.cluster) - create_passes() below runs that step, and
             // the pass logs its own outcome. It has to be registered HERE, before that call, because a pass
             // created before its shader exists builds nothing and says so.
             std::vector<uint8_t> compute_code;
@@ -406,7 +406,7 @@ namespace deren::chores {
             if (!gbuffer_result) {
                 deren::utility::log("gbuffer pipeline disabled: {}", gbuffer_result.error());
             } else {
-                // The debug view is a PASS (deren.vulkan.pass.geometry_buffer_debug): the app registers its two shaders and the
+                // The debug view is a PASS (deren.engine.pass.geometry_buffer_debug): the app registers its two shaders and the
                 // pass builds its pipeline, which is all it owns. The samplers those declarations
                 // choose between are the device root's now (`core::create_samplers`).
                 // ... AND THIS IS `post.vert.spv`, NOT A GEOMETRY STAGE: a synthetic fullscreen triangle, which is a
@@ -416,7 +416,7 @@ namespace deren::chores {
                 load_shader(shaders_dir, "gbuffer_debug.frag.spv", fragment_code);
                 runtime.register_shader("post.vert.spv", vertex_code);
                 runtime.register_shader("gbuffer_debug.frag.spv", fragment_code);
-                // The deferred lighting stage is a PASS (deren.vulkan.pass.deferred): the app REGISTERS the two
+                // The deferred lighting stage is a PASS (deren.engine.pass.deferred): the app REGISTERS the two
                 // shaders it builds from and the pass builds its own pipeline from them, which is why one
                 // register call for each replaces the old `make_deferred_pipeline(vertex_code, fragment_code)`
                 // call here.
@@ -425,7 +425,7 @@ namespace deren::chores {
                 runtime.register_shader("post.vert.spv", vertex_code);
                 runtime.register_shader("deferred.frag.spv", fragment_code);
                 // TAA resolve (deferred-only). IT IS A PASS TOO: the app registers the two shaders and the
-                // pass builds its own pipeline from them (see deren.vulkan.pass.taa) - the create_passes() call
+                // pass builds its own pipeline from them (see deren.engine.pass.taa) - the create_passes() call
                 // below is what runs that step, for every pass at once. The vertex
                 // stage is post.vert's synthetic triangle, the same one the debug view and the post chain use.
                 //
@@ -447,7 +447,7 @@ namespace deren::chores {
             // frame is byte-identical by construction: the gate's scenarios were verified to that).
             //
             // IT IS A PASS: the app registers the shader and the pass builds its own compute pipeline
-            // from it (see deren.vulkan.pass.megalights_trace) - `create_passes()` below runs that step.
+            // from it (see deren.engine.pass.megalights_trace) - `create_passes()` below runs that step.
             std::vector<uint8_t> megalights_code;
             load_shader(shaders_dir, "megalights_trace.comp.spv", megalights_code);
             runtime.register_shader("megalights_trace.comp.spv", megalights_code);
@@ -460,7 +460,7 @@ namespace deren::chores {
 
             // Ray-traced sun shadows: one ray per pixel against the scene's acceleration structures. IT IS A
             // PASS, so its shaders have to be registered BEFORE create_passes() below - the pass builds its own
-            // ray-tracing pipeline from them (see deren.vulkan.pass.ray_traced_shadow), and a pass created
+            // ray-tracing pipeline from them (see deren.engine.pass.ray_traced_shadow), and a pass created
             // before its shaders exist builds nothing and says so. Optional, and the builder refuses on a device
             // without a ray-tracing pipeline: without it the cascaded shadow maps keep running.
             std::vector<uint8_t> rt_shadow_raygen_code;
@@ -484,7 +484,7 @@ namespace deren::chores {
             // a ray), the other re-skins the casters and refits their structures per frame (without it a
             // skinned caster's traced shadow is cast by its BIND POSE). Both are built by `create_passes()`
             // below, from the SAME context and the same resource channel every pass gets (see
-            // deren.vulkan.pass.mask_bake and deren.vulkan.pass.compute_skin), so their shaders are registered here too.
+            // deren.engine.pass.mask_bake and deren.engine.pass.compute_skin), so their shaders are registered here too.
             std::vector<uint8_t> mask_bake_code;
             load_shader(shaders_dir, "mask_bake.comp.spv", mask_bake_code);
             runtime.register_shader("mask_bake.comp.spv", mask_bake_code);
@@ -526,15 +526,15 @@ namespace deren::chores {
     // Optional instancing stress: grid_side > 1 (config or argv) draws the first imported
     // primitive as a grid_side x grid_side grid in ONE instanced draw call (an
     // instanced_draw_primitive appended to the scene tree - the frame loop is untouched)
-    void add_instancing_grid(deren::vulkan::runtime& runtime, int32_t const grid_side, float const scene_radius) {
+    void add_instancing_grid(deren::engine::runtime& runtime, int32_t const grid_side, float const scene_radius) {
         if (grid_side <= 1) {
             return;
         }
-        std::vector<deren::vulkan::primitive const*> const pbr_primitives = runtime.get_primitives("pbr");
+        std::vector<deren::engine::primitive const*> const pbr_primitives = runtime.get_primitives("pbr");
         if (pbr_primitives.empty()) {
             return;
         }
-        deren::vulkan::primitive const& source = *pbr_primitives[0];
+        deren::engine::primitive const& source = *pbr_primitives[0];
         std::vector<glm::mat4> transforms;
         transforms.reserve(static_cast<size_t>(grid_side) * grid_side);
         float const spacing = 2.5f * scene_radius; // keep instances apart: measure draw scaling, not overdraw
@@ -555,11 +555,11 @@ namespace deren::chores {
     // and animation mirrors in sync. The overlay's glTF-side content (authored camera names,
     // orbit-camera seeding) arrives as display names + a selection callback, so this helper
     // never touches glTF types.
-    void setup_gui(deren::vulkan::runtime& runtime,
+    void setup_gui(deren::engine::runtime& runtime,
                    bool const use_gui,
                    deren::app_config::app_settings const& settings,
                    gui_bindings& bindings,
-                   deren::vulkan::animation::controller& animation,
+                   deren::engine::animation::controller& animation,
                    std::vector<std::string> const& camera_names,
                    std::function<void(int32_t)> const& on_camera_selected) {
         if (!use_gui) {
@@ -870,19 +870,19 @@ namespace deren::chores {
         deren::utility::log("gui: Dear ImGui debug overlay enabled");
     }
 
-    void apply_point_lights(deren::vulkan::runtime& runtime, gui_bindings const& bindings, std::span<deren::vulkan::punctual_light const> const extra) {
+    void apply_point_lights(deren::engine::runtime& runtime, gui_bindings const& bindings, std::span<deren::engine::punctual_light const> const extra) {
         // build the enabled demo lights into a fixed stack array (limit = the light UBO's
         // array size) and push it; the span form keeps set_point_lights cheap to call per frame.
         // `extra` is the [lighting] demo_lights stress set (M5), appended after the overlay's slots
         // so the overlay keeps working - both share the UBO's light array, so the overlay's slots
         // win when the two together would overflow it.
-        std::array<deren::vulkan::punctual_light, deren::vulkan::max_punctual_lights> active = {};
+        std::array<deren::engine::punctual_light, deren::engine::max_punctual_lights> active = {};
         uint32_t count = 0;
         for (gui_bindings::light_slot const& slot : bindings.point_lights) {
-            if (!slot.enabled || count >= deren::vulkan::max_punctual_lights) {
+            if (!slot.enabled || count >= deren::engine::max_punctual_lights) {
                 continue;
             }
-            deren::vulkan::punctual_light& light = active[count++];
+            deren::engine::punctual_light& light = active[count++];
             light.position = glm::vec3(slot.position[0], slot.position[1], slot.position[2]);
             light.color = glm::vec3(slot.color[0], slot.color[1], slot.color[2]);
             light.intensity = slot.intensity;
@@ -897,8 +897,8 @@ namespace deren::chores {
                 light.spot_inner_cos = std::cos(glm::radians(inner_deg));
             }
         }
-        for (deren::vulkan::punctual_light const& light : extra) {
-            if (count >= deren::vulkan::max_punctual_lights) {
+        for (deren::engine::punctual_light const& light : extra) {
+            if (count >= deren::engine::max_punctual_lights) {
                 break;
             }
             active[count++] = light;
@@ -908,9 +908,9 @@ namespace deren::chores {
 
     // Wire an animation backend to the runtime: the scene tree it drives, its per-frame-slot
     // morph/skin buffers (active slot for per-frame writes, explicit slot for setup bakes) and
-    // its shared task pool. The controller sees only this surface, never deren::vulkan::runtime.
-    deren::vulkan::animation::backend make_animation_backend(deren::vulkan::runtime& runtime) {
-        deren::vulkan::animation::backend backend;
+    // its shared task pool. The controller sees only this surface, never deren::engine::runtime.
+    deren::engine::animation::backend make_animation_backend(deren::engine::runtime& runtime) {
+        deren::engine::animation::backend backend;
         backend.scene = &runtime.get_scene();
         backend.morph_scratch_active = [&runtime]() -> float* {
             return static_cast<float*>(runtime.morph_scratch());
@@ -928,7 +928,7 @@ namespace deren::chores {
             runtime.scene_changed();
         };
         backend.run_tasks = [&runtime](std::span<std::function<void()>> tasks) {
-            runtime.run_tasks(tasks, deren::vulkan::task_priority::animation);
+            runtime.run_tasks(tasks, deren::engine::task_priority::animation);
         };
         backend.task_worker_count = [&runtime]() -> int32_t {
             return runtime.task_pool_threads();

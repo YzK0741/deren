@@ -9,7 +9,7 @@ module;
 #include <string>
 #include <utility>
 
-module deren.vulkan.acceleration_structure;
+module deren.engine.acceleration_structure;
 
 import deren.utility;
 
@@ -34,7 +34,7 @@ import deren.utility;
 // attachment rides the description and this refusal goes away).
 // ============================================================================
 
-namespace deren::vulkan::acceleration_structure {
+namespace deren::engine::acceleration_structure {
     namespace rhi = deren::promise::rhi;
 
     namespace {
@@ -263,4 +263,4 @@ namespace deren::vulkan::acceleration_structure {
         slot const& target = this->slots[frame_slot];
         return target.records ? target.records.get() : nullptr;
     }
-} // namespace deren::vulkan::acceleration_structure
+} // namespace deren::engine::acceleration_structure

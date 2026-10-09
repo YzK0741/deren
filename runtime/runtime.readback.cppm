@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.runtime:readback  - the screenshot read-back, READ half
+// module: deren.engine.runtime:readback  - the screenshot read-back, READ half
 //
 // THE READ HALF OF THE SCREENSHOT, AND NOTHING ELSE. Since S2 batch 2 the COPY is recorded through the
 // promise contract's recording surface, inside the frame it belongs to (see end_recording in
@@ -27,13 +27,13 @@ module;
 #include <string>
 #include <vector>
 
-module deren.vulkan.runtime:readback;
+module deren.engine.runtime:readback;
 
 import :declarations;
 
 import deren.promise.rhi;
 
-namespace deren::vulkan {
+namespace deren::engine {
     std::expected<runtime::frame_image, std::string> runtime::acquire_current_frame_image() {
         // NO `screenshot_pending` CHECK HERE, AND THAT IS A MEASURED DECISION rather than an omission:
         // the one caller is `if (consume_screenshot_request()) { acquire_current_frame_image(); }`
@@ -107,4 +107,4 @@ namespace deren::vulkan {
         this->screenshot_pending = false;
         return captured;
     }
-} // namespace deren::vulkan
+} // namespace deren::engine

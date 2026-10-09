@@ -20,7 +20,7 @@ The tree has 56 modules. These keep a short spelling, and each one is a NAME rat
 
 The rule renamed `app_config` -> `application_configuration`, `vulkan.gui` ->
 `deren.vulkan.graphical_user_interface` and `vulkan.pass.{rt_shadow,gbuffer_debug}` ->
-`deren.vulkan.pass.{ray_traced_shadow,geometry_buffer_debug}`. The `app_config` STRUCT, the `gui` CLASS
+`deren.engine.pass.{ray_traced_shadow,geometry_buffer_debug}`. The `app_config` STRUCT, the `gui` CLASS
 and the `gbuffer_debug` / `rt_shadows` CONFIG KEYS kept their spelling, because none of them is a module
 name.
 
@@ -34,7 +34,7 @@ measured per module rather than judged:
   `deren.vulkan.core.pipeline:spirv_parser`, and `deren.utility:better_pmr`, `:bvh`, `:data_block`, `:frame_clock`,
   `:frame_stats`, `:thread_pool`;
 * it stayed a module: `deren.vulkan.core.handles` (12 importers outside the family),
-  `deren.vulkan.render_resource.shared` (10), `deren.vulkan.core.pipeline` (6), `deren.vulkan.core.filters` (1). Converting
+  `deren.engine.render_resource.shared` (10), `deren.vulkan.core.pipeline` (6), `deren.engine.filters` (1). Converting
   those would force every consumer to import the whole parent, which is the opposite of what the split is
   for.
 

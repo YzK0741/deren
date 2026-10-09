@@ -9,9 +9,9 @@ module;
 #include <memory>
 #include <utility>
 
-module deren.vulkan.core.filters;
+module deren.engine.filters;
 
-namespace deren::vulkan {
+namespace deren::engine {
 
     // =============================================================================================
     // the application's view
@@ -57,4 +57,4 @@ namespace deren::vulkan {
         return {}; // the owner has none: a pass's "cannot build" branch, which every pass already has
     }
 
-} // namespace deren::vulkan
+} // namespace deren::engine

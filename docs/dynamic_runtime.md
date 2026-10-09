@@ -59,7 +59,7 @@ A backend is not asked what it is; it is asked what it can do.
 
 ## The loaders: how a backend becomes an object
 
-`deren.vulkan.backend_loader` is the policy and `deren.utility.dynamic_link` is the mechanism under it.
+`deren.engine.backend_loader` is the policy and `deren.utility.dynamic_link` is the mechanism under it.
 Four guarantees, each measured while the boundary was built:
 
 1. **An absolute path into the loader.** The DLL is looked for beside THIS executable
@@ -73,7 +73,7 @@ Four guarantees, each measured while the boundary was built:
    raw native error, the backend's text, the failure point) and reports it before returning an empty
    `shared_ptr`. A missing DLL is a message, not a system dialog.
 
-The GUI is reached the same way: `deren.vulkan.gui_loader` resolves `deren_gui_<api>.dll`, and the
+The GUI is reached the same way: `deren.engine.gui_loader` resolves `deren_gui_<api>.dll`, and the
 overlay crosses as the `deren::gui::overlay` interface plus one C entry.
 
 ## The run-time package

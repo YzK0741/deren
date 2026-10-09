@@ -33,14 +33,14 @@ module;
 #include <string>
 #include <string_view>
 
-export module deren.vulkan.pass.geometry_buffer_debug;
+export module deren.engine.pass.geometry_buffer_debug;
 import deren.promise.rhi;
 
-import deren.vulkan.pass;
-import deren.vulkan.render_resource;
-import deren.vulkan.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
+import deren.engine.pass;
+import deren.engine.render_resource;
+import deren.engine.pipelines; // vk_pipeline: the RAII owner of the pipeline this pass builds
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /// @brief what the renderer hands the view: the two per-image pieces of bookkeeping it cannot own
     /**
@@ -80,7 +80,7 @@ export namespace deren::vulkan::pass {
         ~gbuffer_debug_pass() override;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -114,7 +114,7 @@ export namespace deren::vulkan::pass {
         static constexpr std::array<std::string_view, 1> pipeline_names = {"gbuffer-debug"};
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::fullscreen,
             .extent = extent_rule::full, // the view runs at the frame's resolution
             .extent_of = resource_id::none,
@@ -130,9 +130,9 @@ export namespace deren::vulkan::pass {
         // and MSVC /W4 reports C4458 (an error under /WX).
         /// the channel the view shows (see set_channel); the default is the renderer's historical normal channel
         int32_t debug_channel = 1;
-    }; // namespace deren::vulkan::pass
+    }; // namespace deren::engine::pass
 
     static_assert(sizeof(gbuffer_debug_pass::push_constants) == render_resource::gbuffer_debug_io.push->size,
                   "the debug view's declared push block must be the size of the struct the renderer composes");
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

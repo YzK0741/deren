@@ -30,16 +30,16 @@ module;
 #include <span>
 #include <string_view>
 
-export module deren.vulkan.pass.transparent;
+export module deren.engine.pass.transparent;
 
 import deren.promise.rhi; // the contract command buffer the frame's secondary is
-import deren.vulkan.pass;
-import deren.vulkan.render_resource;
-import deren.vulkan.render_resource.shared;
-import deren.vulkan.primitive;
-import deren.vulkan.render_environment;
+import deren.engine.pass;
+import deren.engine.render_resource;
+import deren.engine.render_resource.shared;
+import deren.engine.primitive;
+import deren.engine.render_environment;
 
-export namespace deren::vulkan::pass {
+export namespace deren::engine::pass {
 
     /// @brief what the renderer hands the transparent pass: the sorted leaves, one secondary, and the draw state
     struct transparent_frame {
@@ -74,7 +74,7 @@ export namespace deren::vulkan::pass {
         ~transparent_pass() override = default;
 
         [[nodiscard]] render_resource::pass_io const& io() const noexcept override;
-        [[nodiscard]] deren::vulkan::pass::behaviour const& behaviour() const noexcept override;
+        [[nodiscard]] deren::engine::pass::behaviour const& behaviour() const noexcept override;
         [[nodiscard]] std::string_view feature() const noexcept override;
         void create(pass_context const& context) override;
         void on_swapchain_recreated(pass_host const& host) override;
@@ -86,7 +86,7 @@ export namespace deren::vulkan::pass {
         static constexpr std::array<std::string_view, 0> pipeline_names = {}; // the leaves name their pipelines
         // called pass_behaviour, not behaviour: the class declares behaviour() and a member of that name
         // would duplicate it and hide the override.
-        inline static constexpr deren::vulkan::pass::behaviour pass_behaviour = {
+        inline static constexpr deren::engine::pass::behaviour pass_behaviour = {
             .kind = behaviour_kind::graphics,
             .extent = extent_rule::full,
             .extent_of = resource_id::none,
@@ -99,4 +99,4 @@ export namespace deren::vulkan::pass {
         transparent_frame pass_frame = {};
     };
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass

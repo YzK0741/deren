@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.runtime  - THE CONTRACT-ONLY RUNTIME (dynamic-backend migration, step 2)
+// module: deren.engine.runtime  - THE CONTRACT-ONLY RUNTIME (dynamic-backend migration, step 2)
 //
 // WHY A SECOND RUNTIME EXISTS: the flip turns `deren_vulkan` into a library loaded by name, and from that
 // moment no engine file may import a module the backend owns. The runtime that names `core` is the biggest
@@ -8,7 +8,7 @@
 // every raw Vulkan handle through `query_extension<rhi::vulkan_escape>()`.
 //
 // THE MODULE NAME AND THE PARTITION NAMES ARE THE LEGACY RUNTIME'S, deliberately: `main.cpp`, `chores`, the
-// passes and the tests import `deren.vulkan.runtime` and must not change a line when the file list switches
+// passes and the tests import `deren.engine.runtime` and must not change a line when the file list switches
 // to this runtime (`-DVR_RUNTIME=dynamic`). One runtime per BUILD TREE, because two BMIs of one module name
 // cannot both be visible to one translation unit - and the legacy tree stays the CONTROL for this one: both
 // must read the same fourteen render hashes (docs/dynamic_runtime.md, section 1).
@@ -23,5 +23,5 @@
 // CMake compiles every partition in the module's file set, so their definitions are archived and the linker
 // finds them.
 // ============================================================================
-export module deren.vulkan.runtime;
+export module deren.engine.runtime;
 export import :declarations;

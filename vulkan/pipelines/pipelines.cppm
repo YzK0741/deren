@@ -7,7 +7,7 @@
  *        deren.vulkan.core.pipeline (that one knows HOW to build a pipeline, this one knows what each pass's
  *        pipeline looks like - formats, sample counts, blend state, push-constant ranges).
  *
- * Extracted from deren.vulkan.runtime, whose implementation had grown past 4900 lines. The builders are
+ * Extracted from deren.engine.runtime, whose implementation had grown past 4900 lines. The builders are
  * stateless, and EVERY ONE OF THEM NOW TAKES THE CONTRACT (`rhi::api_core`) ALONE (abi 21): they used to take
  * a `VkDevice` as well - a leftover from the years when a builder created its pipeline raw through the escape -
  * and after the last raw builder (the heap probe's graphics pipeline) moved onto `create_pipeline`, not one of
@@ -33,13 +33,13 @@ module;
 #include <span>
 #include <string>
 
-export module deren.vulkan.pipelines;
+export module deren.engine.pipelines;
 
 import deren.promise.rhi;
-import deren.vulkan.render_resource;
-import deren.vulkan.render_layout;
+import deren.engine.render_resource;
+import deren.engine.render_layout;
 
-namespace deren::vulkan::pipelines {
+namespace deren::engine::pipelines {
 
     namespace rhi = deren::promise::rhi;
 
@@ -728,4 +728,4 @@ namespace deren::vulkan::pipelines {
         this->contract = nullptr;
     }
 
-} // namespace deren::vulkan::pipelines
+} // namespace deren::engine::pipelines

@@ -1,5 +1,5 @@
 // ============================================================================
-// module: deren.vulkan.runtime:probes  - the heap probes, which are diagnostics rather than production
+// module: deren.engine.runtime:probes  - the heap probes, which are diagnostics rather than production
 //
 // run_heap_probe reads back one slot of the bindless texture array to prove the host wrote it, and
 // run_heap_graphics_probe renders the bindings of one material through the heap-native shaders and
@@ -23,16 +23,16 @@ module;
 #include <thread> // std::this_thread::yield in the frame limiter
 #include <vector> // the destination of a host image copy, when that read-back path is taken
 
-module deren.vulkan.runtime:probes;
+module deren.engine.runtime:probes;
 
 import :declarations;
-import deren.vulkan.profiling;
-import deren.vulkan.pipelines;
-import deren.vulkan.render_resource;
-import deren.vulkan.render_resource.shared;
+import deren.engine.profiling;
+import deren.engine.pipelines;
+import deren.engine.render_resource;
+import deren.engine.render_resource.shared;
 
 import deren.utility;
-import deren.vulkan.frame_constants; // one frame's shared constants (see update_frame_constants)
+import deren.engine.frame_constants; // one frame's shared constants (see update_frame_constants)
 
 // Route std::pmr allocations through mimalloc for this TU (deren.utility:better_pmr). Idempotent:
 // init_pmr() returns the same process-wide singleton no matter which TU calls it first, so
@@ -40,7 +40,7 @@ import deren.vulkan.frame_constants; // one frame's shared constants (see update
 // only forces the (dynamic) initialization before any pmr container in this TU is constructed.
 [[maybe_unused]] static auto& pmr = deren::utility::init_pmr(); // NOLINT(keep-alive)
 
-namespace deren::vulkan {
+namespace deren::engine {
     std::shared_ptr<rhi::command_buffer> runtime::make_probe_commands(std::string_view const what) {
         // ONE PROBE'S OWN RECORDING SESSION, THROUGH THE CONTRACT (abi 22): a primary command buffer the backend
         // owns, begun with the one-time-submit usage the raw pool's TRANSIENT flag used to spell. The pool, the
@@ -84,7 +84,7 @@ namespace deren::vulkan {
         // Slot 0 of the sampler heap is the texture sampler: the first of the six core::create_samplers makes, in
         // the order shaders/heap_slots.glsl names (the contract test compares that order, and the host has no
         // per-sampler constant because it keeps them as a list).
-        uint32_t const sampler_slot = static_cast<uint32_t>(deren::vulkan::render_layout::heap_sampler_base);
+        uint32_t const sampler_slot = static_cast<uint32_t>(deren::engine::render_layout::heap_sampler_base);
         std::span<uint8_t const> const spirv = this->registered_shader("heap_probe.comp.spv");
         if (!contract_heap_ready(vk) || spirv.empty()) {
             return; // no heap, no grid or no shader: nothing to probe with, and no heap path to protect
@@ -363,4 +363,4 @@ namespace deren::vulkan {
                             mesh_shader ? "MESH" : "GRAPHICS");
     }
 
-} // namespace deren::vulkan
+} // namespace deren::engine

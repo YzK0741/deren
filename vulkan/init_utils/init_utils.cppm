@@ -45,7 +45,7 @@ export import deren.vulkan.core; // the vma handles + the vk_* wrappers this int
 /**
  * @file vulkan/init_utils/init_utils.cppm
  * @defgroup vulkan_init_utils_runtime Runtime Init Utils
- * @brief the resource-creation patterns deren.vulkan.runtime's initialization repeats
+ * @brief the resource-creation patterns deren.engine.runtime's initialization repeats
  *
  * Every function here was lifted out of a `runtime::init_*` / `runtime::ensure_*` member, and each one
  * exists because the SAME sequence appeared at more than one site with a different string in it: create

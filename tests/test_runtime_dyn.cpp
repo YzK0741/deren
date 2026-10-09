@@ -17,7 +17,7 @@
 //      module is the number it PASSES to the entry (abi 18: the version is an argument, and a mismatch
 //      is refused by the backend with its own number in the diagnostic) - "both sides compile the
 //      contract", the premise the C ABI is built on.
-//   2. THE CONSTRUCTION (`--with-device`): `deren::vulkan::runtime{create_info}` builds the whole device
+//   2. THE CONSTRUCTION (`--with-device`): `deren::engine::runtime{create_info}` builds the whole device
 //      (instance, device, swapchain, descriptor heap) through `deren_make_api_core()`. No `core` is named
 //      anywhere on that path, which is the entire reason this runtime exists. SINCE THE SHARED FLIP that
 //      call arrives BY NAME out of `deren_vulkan.dll` (the runtime's loader step), so a successful
@@ -38,8 +38,8 @@
 #include <string_view>
 
 import deren.promise.rhi;
-import deren.vulkan.runtime;
-import deren.vulkan.backend_loader; // load_api_core(): the acquisition lives outside the runtime
+import deren.engine.runtime;
+import deren.engine.backend_loader; // load_api_core(): the acquisition lives outside the runtime
 
 // After the imports it needs: the header names deren::promise::rhi types (see its own note).
 #include "../promise/rhi/backend_entry.hpp"
@@ -92,7 +92,7 @@ int main(int const argc, char** const argv) {
         // executable, resolves its one export and performs the creation-side handshake - and the runtime
         // is then handed the root together with the same options. A `nullptr` here is a named diagnosis
         // that the loader already wrote; the runtime would refuse it anyway (loudly).
-        std::shared_ptr<deren::promise::rhi::api_core> core = deren::vulkan::load_api_core(creation);
+        std::shared_ptr<deren::promise::rhi::api_core> core = deren::engine::load_api_core(creation);
         CHECK(core != nullptr);
         if (core == nullptr) {
             return deren::vk_test::finish("test_runtime_dyn");
@@ -101,7 +101,7 @@ int main(int const argc, char** const argv) {
         // move and check both afterwards - the renderer holds THAT object (not a wrapper, not a copy of its
         // own), so the layering claim of batch ⑥ is observable on a REAL root rather than only argued.
         rhi::api_core* const acquired = core.get();
-        deren::vulkan::runtime dynamic{std::move(core), creation};
+        deren::engine::runtime dynamic{std::move(core), creation};
         CHECK(core == nullptr);                 // moved into the runtime, not shared by accident
         CHECK(&dynamic.rhi_face() == acquired); // the face IS the object the loader handed over
 

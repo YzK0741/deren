@@ -9,11 +9,11 @@ module;
 #include <utility>
 #include <vector>
 
-module deren.vulkan.shadow_fit;
+module deren.engine.shadow_fit;
 
 import deren.utility;
 
-namespace deren::vulkan::shadow_fit {
+namespace deren::engine::shadow_fit {
     namespace {
         /// light space is a pure rotation: lookAt(origin, -light_dir, up) makes light-space z equal to
         /// dot(light_dir, p), which is what the near/far derivation below relies on
@@ -250,4 +250,4 @@ namespace deren::vulkan::shadow_fit {
         }
         return result;
     }
-} // namespace deren::vulkan::shadow_fit
+} // namespace deren::engine::shadow_fit

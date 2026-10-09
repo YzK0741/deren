@@ -5,7 +5,7 @@
  * @brief Borrowed RHI objects shared by resource declarations, in a nested module.
  * @defgroup vulkan_render_resource_shared Render Resource Shared Handles
  *
- * WHY THIS IS A MODULE OF ITS OWN rather than part of `deren.vulkan.render_resource`, and it is not tidiness: the
+ * WHY THIS IS A MODULE OF ITS OWN rather than part of `deren.engine.render_resource`, and it is not tidiness: the
  * description layer is deliberately PURE CPU - its own enums, no Vulkan type - and that is what lets its
  * invariants (usage is a subset of the schema, kind and access fit, a pass's own bindings are contiguous, a
  * pool count is derivable) be checked in `ctest` on a machine with no GPU. The capture gate cannot run in CI
@@ -33,12 +33,12 @@ module;
 
 #include <cstdint>
 
-export module deren.vulkan.render_resource.shared;
+export module deren.engine.render_resource.shared;
 
-import deren.vulkan.render_resource;
+import deren.engine.render_resource;
 import deren.promise.rhi;
 
-export namespace deren::vulkan::render_resource::shared {
+export namespace deren::engine::render_resource::shared {
 
     /**
      * @brief the samplers this renderer owns, addressed by what a declaration asks for
@@ -81,4 +81,4 @@ export namespace deren::vulkan::render_resource::shared {
         }
     };
 
-} // namespace deren::vulkan::render_resource::shared
+} // namespace deren::engine::render_resource::shared

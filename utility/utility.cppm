@@ -750,7 +750,7 @@ namespace deren::utility {
      * timeBeginPeriod, which would raise the timer resolution for every process on the machine; the
      * POSIX one restarts a relative nanosleep on EINTR.
      * The wait is still only good to microseconds, so a caller that wants to land exactly on a deadline
-     * sleeps to a safe margin early and spins the remainder (the frame limiter in deren.vulkan.runtime sleeps
+     * sleeps to a safe margin early and spins the remainder (the frame limiter in deren.engine.runtime sleeps
      * to one millisecond before its deadline, then yields until the deadline arrives).
      */
     export void sleep_for_nanoseconds(int64_t nanoseconds);

@@ -1,12 +1,12 @@
 // ============================================================================
-// module: deren.vulkan.primitive  (peer of deren.vulkan.scene_tree / deren.vulkan.runtime - the
+// module: deren.engine.primitive  (peer of deren.engine.scene_tree / deren.engine.runtime - the
 //         GPU primitives that live in the scene-tree leaves, plus the GPU
 //         material / camera / light UBO records of the scene block; versioned in
-//         lock-step with deren.vulkan.runtime, see that module's banner)
+//         lock-step with deren.engine.runtime, see that module's banner)
 // module version: 0.8.1a  (independent of the app version in CMakeLists project(VERSION))
 //
-// GPU scene contents (namespace deren::vulkan):
-//   - deren::vulkan::primitive (owns geometry buffers + material push constants,
+// GPU scene contents (namespace deren::engine):
+//   - deren::engine::primitive (owns geometry buffers + material push constants,
 //     implements the pure-CPU abstract scene_tree::primitive) and its draw
 //     strategies normal_draw_primitive / instanced_draw_primitive /
 //     static_draw_primitive
@@ -35,17 +35,17 @@ module;
 #include <cstddef> // offsetof (layout guard below)
 #include <glm/glm.hpp>
 
-export module deren.vulkan.primitive;
+export module deren.engine.primitive;
 import deren.promise.rhi; // the contract's buffer handle + object_manager: this module's geometry owners
 // The scene push block's size (a shared-module constant, like the formats and the bloom level count): this
 // module `static_assert`s its own material block against it and derives its exported push-block offsets from
 // it, which is exactly why it lives where BOTH halves compile it rather than in the backend's class.
-import deren.vulkan.render_layout;
+import deren.engine.render_layout;
 export import deren.vstd;
-export import deren.vulkan.render_environment;
-export import deren.vulkan.scene_tree; // the abstract leaf interface these implement
-export import deren.vulkan.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
-namespace deren::vulkan {
+export import deren.engine.render_environment;
+export import deren.engine.scene_tree; // the abstract leaf interface these implement
+export import deren.engine.meshlet;    // the meshlet split this primitive's geometry carries (docs/mesh_shaders.md step 3)
+namespace deren::engine {
     /**
      * @ingroup vulkan_primitive
      * @brief camera UBO content, layout matches the CameraUBO block in shaders/shading.glsl (no model
@@ -686,7 +686,7 @@ namespace deren::vulkan {
     // `export` BECAUSE THE RUNTIME NEEDS IT FOR A TYPE: the material dedup key is a `data_block` whose size is
     // `sizeof(record) + toon_lane_blocks * sizeof(uvec4) + toon_colour_lane::count * sizeof(vec4)`, and that key is
     // declared in `runtime.declarations.cppm` - a different module. A non-exported constant is not visible there
-    // (measured: "declaration of 'toon_lane_blocks' must be imported from module 'deren.vulkan.primitive' before it is
+    // (measured: "declaration of 'toon_lane_blocks' must be imported from module 'deren.engine.primitive' before it is
     // required"), which is why the sibling above it is module-private and this one is not.
     //
     // THE KEY HAS A THIRD TERM AND IT IS THE COLOUR LANES - the `toon_colour_lane::count` `vec4`s below, which
@@ -1343,7 +1343,7 @@ namespace deren::vulkan {
      *
      * These come from the model's toon material SIDECAR rather than from glTF, and the runtime does not read
      * that file: it asks a `toon_lookup` the application installs (see `runtime::set_toon_lookup`), because
-     * `vulkancorekit` deliberately does not depend on `gltf_loader` and the sidecar reader lives there. An
+     * `deren_engine` deliberately does not depend on `gltf_loader` and the sidecar reader lives there. An
      * INVALID input means "this material has no such map" - and `flags` is what says whether the artist wanted
      * it at all, which is a different question: a map can exist while its `_Use` flag is off.
      */
@@ -1790,7 +1790,7 @@ namespace deren::vulkan {
         // (offset 32 in the block): align explicitly so the CPU layout matches the shader
         alignas(16) glm::mat4 model = glm::mat4(1.0f);
     };
-    static_assert(sizeof(material_push_constants) == deren::vulkan::render_layout::scene_push_constant_size);
+    static_assert(sizeof(material_push_constants) == deren::engine::render_layout::scene_push_constant_size);
 
     /**
      * @ingroup vulkan_primitive
@@ -1815,7 +1815,7 @@ namespace deren::vulkan {
      * run to the BLOCK's end rather than to the lanes' end.
      */
     export constexpr uint32_t mesh_geometry_lanes_offset = 112;
-    export constexpr uint32_t mesh_geometry_push_offset_scene = deren::vulkan::render_layout::scene_push_constant_size + 3u * sizeof(uint32_t);
+    export constexpr uint32_t mesh_geometry_push_offset_scene = deren::engine::render_layout::scene_push_constant_size + 3u * sizeof(uint32_t);
     /// ... and the shadow pass's own end: the same offset plus the cascade lane its block declares
     export constexpr uint32_t mesh_geometry_push_offset_shadow = mesh_geometry_push_offset_scene + sizeof(uint32_t);
     /**
@@ -1867,7 +1867,7 @@ namespace deren::vulkan {
      *        the accumulated world matrix straight into push.model (the push block layout is
      *        shared, so draw() keeps working unchanged)
      */
-    export class primitive : public deren::vulkan::scene_tree::primitive {
+    export class primitive : public deren::engine::scene_tree::primitive {
     public:
         ~primitive() override = default;
 
@@ -1890,7 +1890,7 @@ namespace deren::vulkan {
         uint32_t vertex_count = 0;
         // Bytes per vertex of the interleaved layout (position first). Only the acceleration-structure
         // build reads it: the raster pipelines get the stride from their vertex input state, so this is
-        // the one consumer that has to be told (see deren.vulkan.acceleration_structure).
+        // the one consumer that has to be told (see deren.engine.acceleration_structure).
         uint32_t vertex_stride = 0;
         /**
          * THE PRIMITIVE'S MESHLETS, in the order `build_meshlets` produced them (docs/mesh_shaders.md step 3):
@@ -1902,7 +1902,7 @@ namespace deren::vulkan {
          * and the split is the part of that step worth having early - it is arithmetic whose bugs are invisible
          * on screen, so it is built and tested (tests/test_meshlet.cpp) before anything consumes it.
          */
-        std::vector<deren::vulkan::meshlet> meshlets = {};
+        std::vector<deren::engine::meshlet> meshlets = {};
         /// where this primitive's run of meshlets starts in the GPU TABLE (docs/mesh_shaders.md step 3): the value
         /// the geometry lanes carry, so a task stage can turn "my meshlet workgroup" into a record index
         uint32_t meshlet_base = 0;
@@ -1924,7 +1924,7 @@ namespace deren::vulkan {
         // push.motion_base and the fragment stage turns the difference into TAA's motion vector.
         // no_motion_slot = not tracked frame to frame (an instanced draw, whose slots are filled
         // once at setup with its own instance transforms, so its object motion reads as zero).
-        uint32_t motion_slot_index = deren::vulkan::scene_tree::no_motion_slot;
+        uint32_t motion_slot_index = deren::engine::scene_tree::no_motion_slot;
 
         /** @brief where this leaf's previous world matrix lives (see the member) */
         [[nodiscard]] uint32_t motion_slot() const noexcept override {
@@ -2187,7 +2187,7 @@ namespace deren::vulkan {
     /**
      * @ingroup vulkan_primitive
      * @brief build the camera UBO from orbit camera state (the camera orbits the target point)
-     * @param yaw yaw angle in radians (see deren::vulkan::runtime::camera)
+     * @param yaw yaw angle in radians (see deren::engine::runtime::camera)
      * @param pitch pitch angle in radians
      * @param distance camera distance from the target
      * @param target the point the camera looks at and orbits around (e.g. the centered scene origin,
@@ -2252,4 +2252,4 @@ namespace deren::vulkan {
      * @note ortho box sized to cover a sphere of the given radius around scene_center, along @p sun_direction
      */
     export light_ubo make_directional_light_ubo(glm::vec3 const& sun_direction, glm::vec3 const& scene_center, float scene_radius, float shadow_map_size);
-} // namespace deren::vulkan
+} // namespace deren::engine

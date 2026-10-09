@@ -14,26 +14,26 @@ module;
 #include <glm/glm.hpp> // the push block's inverse view-projection (`io.constants.inv_view_proj`)
 #include <span>
 
-module deren.vulkan.pass.goo_rim;
+module deren.engine.pass.goo_rim;
 
 import deren.promise.rhi;
-import deren.vulkan.render_resource;
+import deren.engine.render_resource;
 // (③-D/E A1.0: the `import deren.vulkan.core;` that used to sit here was VESTIGIAL - its own comment
-//  named `deren::vulkan::hdr_format` as the reason, and this file never spells it. The formats themselves
-//  live in the shared `deren.vulkan.render_layout` now, which is where a pass that DOES name one reaches
+//  named `deren::engine::hdr_format` as the reason, and this file never spells it. The formats themselves
+//  live in the shared `deren.engine.render_layout` now, which is where a pass that DOES name one reaches
 //  for it - without importing the backend.)
-import deren.vulkan.pipelines; // make_graphics_pipeline: the contract factory this pass builds through
+import deren.engine.pipelines; // make_graphics_pipeline: the contract factory this pass builds through
 import deren.utility;
 
 namespace rhi = deren::promise::rhi;
 
-namespace deren::vulkan::pass {
+namespace deren::engine::pass {
 
     render_resource::pass_io const& goo_rim_pass::io() const noexcept {
         return render_resource::goo_rim_io;
     }
 
-    deren::vulkan::pass::behaviour const& goo_rim_pass::behaviour() const noexcept {
+    deren::engine::pass::behaviour const& goo_rim_pass::behaviour() const noexcept {
         return pass_behaviour;
     }
 
@@ -92,7 +92,7 @@ namespace deren::vulkan::pass {
                                                        std::span<rhi::blend_mode const>(blends));
         if (!built) {
             // The reason is dropped for the same toolchain reason as the pair above; the pipeline builder logs the
-            // cause itself (see `deren::vulkan::make_pipeline`).
+            // cause itself (see `deren::engine::make_pipeline`).
             deren::utility::log("goo rim disabled: the pipeline builder refused (see the pipeline log above)");
             this->release_owned();
             return;
@@ -167,4 +167,4 @@ namespace deren::vulkan::pass {
         io.list->end_rendering();
     }
 
-} // namespace deren::vulkan::pass
+} // namespace deren::engine::pass
