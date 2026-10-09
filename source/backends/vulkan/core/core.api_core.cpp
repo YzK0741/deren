@@ -1726,8 +1726,8 @@ namespace deren::vulkan {
         };
         // ONE MODULE PER STAGE, each destroyed when this function returns (a module is needed only while the
         // pipeline is created): the RAII wrappers below cover every path out, refusals included.
-        // Ordinary AS bindings still read the same heap. This avoids heap-native integer-to-AS
-        // conversion, which loses the device on affected NVIDIA drivers during traversal.
+        // Ordinary AS bindings still read the same heap. This avoids ResourceHeapEXT-based AS
+        // loads, which lose the device on the NVIDIA driver tested by the native traversal probe.
         // Own all stage mapping arrays until pipeline creation has consumed them.
         std::vector<std::vector<VkDescriptorSetAndBindingMappingEXT>> mappings(desc.ray_tracing_stages.size());
         std::vector<VkShaderDescriptorSetAndBindingMappingInfoEXT> mapping_infos(desc.ray_tracing_stages.size());

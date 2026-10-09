@@ -44,6 +44,9 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
         rhi::ray_tracing_group{.closest_hit = 2},
     };
     constexpr std::uint32_t offset = (16384u + 1000u) * 64u; // deliberately different from the renderer's TLAS slots
+    auto const heap_binding = heap->bindings().resource;
+    CHECK(heap_binding.address != 0 && heap_binding.size >= offset + 64u + sizeof(std::uint64_t));
+    if (heap_binding.address == 0 || heap_binding.size < offset + 64u + sizeof(std::uint64_t)) { return; }
     std::array<rhi::acceleration_structure_heap_binding, 1> const bindings = {
         rhi::acceleration_structure_heap_binding{.binding = 7, .byte_offset = offset, .array_stride = 64, .array_count = 2},
     };
@@ -131,10 +134,11 @@ static void check_rt_traversal(deren::promise::rhi::api_core& core,
                              .memory = {.from = rhi::buffer_use::acceleration_structure_write, .to = rhi::buffer_use::acceleration_structure_read}}))) { return; }
     if (!checked(heap->bind({.commands = commands.get()}))) { return; }
     if (!checked(commands->bind_pipeline(*pipeline))) { return; }
-    struct push { std::uint64_t destination; std::uint32_t slot; std::uint32_t padding = 0; };
+    struct push { std::uint64_t destination; std::uint32_t slot; std::uint32_t padding = 0; std::uint64_t resource_heap; };
+    static_assert(sizeof(push) == 24 && offsetof(push, resource_heap) == 16);
     auto const region = [stride](std::uint64_t address) { return rhi::shader_binding_table_region{.address = address, .size = stride, .stride = stride}; };
     for (std::uint32_t slot = 0; slot < 2; ++slot) {
-        push const data{.destination = addresses.buffer_address(*output, 0), .slot = slot};
+        push const data{.destination = addresses.buffer_address(*output, 0), .slot = slot, .resource_heap = heap_binding.address};
         if (!checked(heap->push_data({.commands = commands.get(), .data = std::as_bytes(std::span(&data, 1))}))) { return; }
         commands->trace_rays(region(aligned), region(aligned + stride), region(aligned + 2 * stride), {}, 3, 1, 1);
     }

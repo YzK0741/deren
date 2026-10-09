@@ -1,7 +1,7 @@
 // A deterministic traversal acceptance probe. Each frame slot has a different TLAS transform.
 #include "heap_access.slang"
 [[vk::binding(7, 0)]] RaytracingAccelerationStructure scene[2];
-struct ProbePush { uint2 destination; uint frame_slot; };
+struct ProbePush { uint2 destination; uint frame_slot; uint padding; uint2 resource_heap; };
 [[vk::push_constant]] ConstantBuffer<ProbePush> pc;
 struct ProbePayload { uint hit; };
 
@@ -21,9 +21,23 @@ void probe_trace(RaytracingAccelerationStructure structure)
 }
 [shader("raygeneration")]
 void rgen_main() { probe_trace(scene[pc.frame_slot]); }
-// Diagnostic counterpart: identical rays and output, with heap-native AS loading.
+// Read the same AS entries directly from the bound heap's GPU address. The current
+// NVIDIA driver loses the device when ResourceHeapEXT supplies this pointer; BDA
+// keeps native heap loading and integer-to-AS conversion without any binding mapping.
 [shader("raygeneration")]
-void native_main() { probe_trace(heap_at<RaytracingAccelerationStructure>(16384u + 1000u + pc.frame_slot)); }
+void native_main()
+{
+    uint64_t heap = (uint64_t(pc.resource_heap.y) << 32) | uint64_t(pc.resource_heap.x);
+    uint64_t address = *(uint64_t*)(heap + uint64_t(16384u + 1000u + pc.frame_slot) * 64u);
+    RaytracingAccelerationStructure structure = spirv_asm {
+        result:$$RaytracingAccelerationStructure = OpConvertUToAccelerationStructureKHR $address;
+    };
+    probe_trace(structure);
+}
+// Retain the original built-in variant for driver/compiler diagnosis. It can be
+// compiled independently with -entry builtin_main, using the same probe push block.
+[shader("raygeneration")]
+void builtin_main() { probe_trace(heap_at<RaytracingAccelerationStructure>(16384u + 1000u + pc.frame_slot)); }
 [shader("closesthit")]
 void chit_main(inout ProbePayload payload, BuiltInTriangleIntersectionAttributes attributes) { payload.hit = 1; }
 [shader("miss")]
