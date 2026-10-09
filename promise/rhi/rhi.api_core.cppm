@@ -514,14 +514,19 @@ export namespace deren::promise::rhi {
     /// ENUMERATOR'S NUMBER MOVES, which is the entire content of "values are only ever APPENDED". Where an
     /// enum's values are contiguous there is nothing to mark (see `error`: its six general values continue
     /// the run at 13-18); the rule is about the numbers, not about the syntax.
+    ///
+    /// EVERY VALUE IS WRITTEN OUT, which is the belt to that braces: with the sequence implicit, inserting
+    /// a value in the middle would renumber everything after it and the "only appended" rule would be
+    /// broken by a one-line edit that looks harmless. It also answers clang-tidy's
+    /// `readability-enum-initial-value`, which the mixture of implicit and explicit values tripped.
     enum class image_format : std::uint32_t { unknown = 0,
-                                              rgba8_unorm,
-                                              rgba8_srgb,
-                                              bgra8_unorm,
-                                              bgra8_srgb,
-                                              r16g16_sfloat,              ///< two half-float channels (BRDF LUT)
-                                              r16g16b16a16_sfloat,        ///< four half-float channels (environment/irradiance cubes)
-                                              r32g32b32_sfloat,           ///< three 32-bit float channels
+                                              rgba8_unorm = 1,
+                                              rgba8_srgb = 2,
+                                              bgra8_unorm = 3,
+                                              bgra8_srgb = 4,
+                                              r16g16_sfloat = 5,          ///< two half-float channels (BRDF LUT)
+                                              r16g16b16a16_sfloat = 6,    ///< four half-float channels (environment/irradiance cubes)
+                                              r32g32b32_sfloat = 7,       ///< three 32-bit float channels
                                               depth = 0x7FFFFFFFu,        ///< ROLE: a depth attachment the backend shapes
                                               r16_sfloat = 0x80000000u }; ///< APPENDED: one half-float channel (ray-traced visibility)
 
@@ -539,10 +544,9 @@ export namespace deren::promise::rhi {
         case image_format::rgba8_unorm:
         case image_format::rgba8_srgb:
         case image_format::bgra8_unorm:
-        case image_format::bgra8_srgb:
+        case image_format::bgra8_srgb:    // 4 x 8-bit
+        case image_format::r16g16_sfloat: // 2 x half-float: the same four bytes, so one branch
             return 4u;
-        case image_format::r16g16_sfloat:
-            return 4u; // two half-floats
         case image_format::r16g16b16a16_sfloat:
             return 8u; // four half-floats
         case image_format::r32g32b32_sfloat:
