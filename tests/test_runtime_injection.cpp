@@ -48,6 +48,7 @@
 
 import deren.promise.rhi;
 import deren.vulkan.runtime;
+import deren.vulkan.scene_tree;
 
 // The injection source: the probe backend's test-only factory (see the header's own note).
 #include "probe_backend.hpp"
@@ -59,6 +60,7 @@ namespace {
     constexpr char const* mismatch_mode = "--child-version-mismatch";
     constexpr char const* empty_root_mode = "--child-empty-root";
     constexpr char const* accepted_probe_mode = "--child-accepted-probe";
+    constexpr char const* portable_frame_mode = "--child-portable-frame";
 
     [[nodiscard]] bool has_flag(int const argc, char** const argv, char const* const flag) {
         for (int i = 1; i < argc; ++i) {
@@ -69,12 +71,24 @@ namespace {
         return false;
     }
 
-    /// Run THIS executable with @p flag and answer its exit status (0 = it returned normally).
+    /// The child's outcome: whether it RAN, and what it exited with. The two are different questions.
+    ///
+    /// WHY THEY ARE SPLIT (a review finding on the batch that added the portable-frame child): "could not
+    /// spawn", "did not exit in time" and "the exit code could not be read" are NOT "exited with 0", and a
+    /// call site that compares a bare status against 0 reads a spawn failure as SUCCESS - a green check
+    /// over a frame that was never run. So the launch/wait/read chain reports `ran`, and every call site
+    /// requires it, on the refusal paths and on the accepting one alike.
+    struct child_outcome {
+        bool ran = false; ///< created, waited for, and its exit code read
+        DWORD status = 0; ///< meaningful only when `ran`
+    };
+
+    /// Run THIS executable with @p flag and answer whether it ran and what it returned.
     ///
     /// CreateProcessW rather than std::system, deliberately: `system` goes through the command
     /// interpreter, whose exit-code translation would hide what is being checked (a fail-fast abort
     /// reports 0xC0000409 verbatim through the process API; cmd.exe would report its own number).
-    [[nodiscard]] DWORD child_status(char const* const self, char const* const flag) {
+    [[nodiscard]] child_outcome run_child(char const* const self, char const* const flag) {
         std::string const command = "\"" + std::string{self} + "\" " + flag;
         std::wstring const wide(command.begin(), command.end());
 
@@ -84,14 +98,20 @@ namespace {
         if (CreateProcessW(nullptr, const_cast<wchar_t*>(wide.c_str()), nullptr, nullptr, FALSE, 0, nullptr, nullptr,
                            &startup, &child) == FALSE) {
             deren::vk_test::write_line("injection: could not spawn the child for {} (error {})", flag, GetLastError());
-            return 0; // "returned normally" -> the caller fails this check, which is the safe direction
+            return {}; // ran == false: the call site fails, and it fails for the right reason
         }
-        WaitForSingleObject(child.hProcess, 60000);
-        DWORD status = 0;
-        GetExitCodeProcess(child.hProcess, &status);
+        child_outcome outcome;
+        if (WaitForSingleObject(child.hProcess, 60000) != WAIT_OBJECT_0) {
+            deren::vk_test::write_line("injection: the child for {} did not exit within 60 s", flag);
+        } else if (GetExitCodeProcess(child.hProcess, &outcome.status) == FALSE) {
+            deren::vk_test::write_line("injection: could not read the exit status of the child for {} (error {})", flag,
+                                       GetLastError());
+        } else {
+            outcome.ran = true;
+        }
         CloseHandle(child.hThread);
         CloseHandle(child.hProcess);
-        return status;
+        return outcome;
     }
 
     /// The LAST panic message in this directory's debug.log (the sink flushes before it terminates).
@@ -116,6 +136,32 @@ namespace {
 
 int main(int const argc, char** const argv) {
     rhi::create_info const creation{};
+
+    if (has_flag(argc, argv, portable_frame_mode)) {
+        rhi::create_info options{};
+        options.window_width = 4;
+        options.window_height = 4;
+        options.window_visible = false;
+        auto root = deren::vk_test::probe_make_core(options, rhi::abi_version, true);
+        CHECK(root->query_extension(rhi::extension_kind::vulkan_escape) == nullptr);
+        auto* const identity = root.get();
+        deren::vulkan::scene_tree::scene scene{};
+        deren::vulkan::runtime engine{root, options};
+        engine.set_scene(scene);
+        CHECK(&engine.rhi_face() == identity);
+        auto* const frames = root->walk_frames();
+        auto const initial_slot = frames->position();
+        CHECK(engine.pace_and_acquire() == deren::vulkan::frame_status::proceed);
+        CHECK(engine.begin_recording() == deren::vulkan::frame_status::proceed);
+        CHECK(root->begin_commands() != nullptr);
+        engine.record_main_drawcalls();
+        CHECK(engine.end_recording() == deren::vulkan::frame_status::proceed);
+        CHECK(engine.submit_and_present() == deren::vulkan::frame_status::proceed);
+        CHECK(frames->position() == (initial_slot + 1u) % frames->slot_count());
+        CHECK(root->begin_commands() == nullptr);
+        CHECK(root->query_extension(rhi::extension_kind::vulkan_escape) == nullptr);
+        return deren::vk_test::finish("portable_runtime_frame");
+    }
 
     // ---- THE CHILDREN: each must die in the constructor, for its own reason ------------------------
     if (has_flag(argc, argv, mismatch_mode) || has_flag(argc, argv, empty_root_mode) ||
@@ -147,23 +193,27 @@ int main(int const argc, char** const argv) {
                                probe->api_version());
 
     // ---- 2/3. THE TWO REFUSALS, OBSERVED FROM CHILD PROCESSES -------------------------------------
-    DWORD const mismatch_status = child_status(argv[0], mismatch_mode);
+    child_outcome const mismatch = run_child(argv[0], mismatch_mode);
     std::string const mismatch_panic = last_panic();
-    DWORD const empty_status = child_status(argv[0], empty_root_mode);
-    CHECK_MSG(mismatch_status != 0, "a root reporting the wrong abi must make the runtime abort");
-    CHECK_MSG(empty_status != 0, "an empty root must make the runtime abort");
+    child_outcome const empty = run_child(argv[0], empty_root_mode);
+    CHECK_MSG(mismatch.ran && mismatch.status != 0, "a root reporting the wrong abi must make the runtime abort");
+    CHECK_MSG(empty.ran && empty.status != 0, "an empty root must make the runtime abort");
     CHECK_MSG(mismatch_panic.find("reports abi") != std::string::npos,
               "the abi refusal names both numbers");
     CHECK_MSG(mismatch_panic.find(std::to_string(rhi::abi_version)) != std::string::npos,
               "the abi refusal names the number this image compiled");
 
     // ---- 4. THE PROBE IS ACCEPTED FIRST (the accepting path, one step past the handshake) ---------
-    DWORD const probe_status = child_status(argv[0], accepted_probe_mode);
+    child_outcome const probe_child = run_child(argv[0], accepted_probe_mode);
     std::string const probe_panic = last_panic();
-    CHECK_MSG(probe_status != 0, "a device-less probe root still cannot complete the construction");
+    CHECK_MSG(probe_child.ran && probe_child.status != 0, "a device-less probe root still cannot complete the construction");
     CHECK_MSG(probe_panic.find("graphics queue") != std::string::npos,
               "an agreeing probe root gets PAST the handshake - it dies at the device facts instead, which "
               "is what shows it was accepted");
+    child_outcome const portable = run_child(argv[0], portable_frame_mode);
+    CHECK_MSG(portable.ran && portable.status == 0,
+              "a non-Vulkan root must construct, record, submit and present one frame (and the child must "
+              "actually have run: a failure to start it is not a pass)");
 
     return deren::vk_test::finish("test_runtime_injection");
 }

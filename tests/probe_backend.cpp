@@ -68,11 +68,15 @@ import deren.promise.rhi;
 
 #include "../promise/rhi/backend_entry.hpp"
 
+#include <algorithm>
+#include <bit>
+#include <cstddef>
 #include <cstdint>
 #include <expected> // std::expected: the contract's `image::get_content()` (abi 25) answers one
 #include <source_location>
 #include <span>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -585,6 +589,130 @@ namespace {
 
     /// The probe's api_core. `final` so that a missing override is a compile error
     /// rather than an inherited pure virtual in an abstract class nobody notices.
+    // CPU recording resources for the portability path. No driver or graphics library is used.
+    struct cpu_buffer final : rhi::buffer {
+        std::uint64_t bytes = 0;
+        std::vector<std::byte> content;
+        explicit cpu_buffer(rhi::buffer_desc const& desc)
+            : bytes(desc.size) {
+            bool const host = desc.usage == rhi::buffer_usage::uniform_coherent ||
+                              desc.usage == rhi::buffer_usage::uniform_cached ||
+                              desc.usage == rhi::buffer_usage::storage_coherent ||
+                              desc.usage == rhi::buffer_usage::readback_coherent;
+            if (host) {
+                content.resize(static_cast<std::size_t>(desc.size));
+                std::copy(desc.initial_bytes.begin(), desc.initial_bytes.end(), content.begin());
+            }
+        }
+        void release() noexcept override {
+            delete this;
+        }
+        std::uint64_t size() const noexcept override {
+            return bytes;
+        }
+        std::span<std::byte> mapped() noexcept override {
+            return content;
+        }
+    };
+    struct cpu_image_view final : rhi::image_view {
+        void release() noexcept override {
+            delete this;
+        }
+    };
+    struct cpu_image final : rhi::image {
+        rhi::image_extent shape;
+        rhi::image_format pixel_format;
+        std::uint32_t layers, mips;
+        explicit cpu_image(rhi::image_desc const& desc)
+            : shape(desc.extent)
+            , pixel_format(desc.format)
+            , layers(desc.array_layers)
+            , mips(desc.mip_levels != 0 ? desc.mip_levels : std::bit_width(std::max(desc.extent.width, desc.extent.height))) {
+        }
+        void release() noexcept override {
+            delete this;
+        }
+        rhi::image_extent extent() const noexcept override {
+            return shape;
+        }
+        rhi::image_format format() const noexcept override {
+            return pixel_format;
+        }
+        std::expected<rhi::image_content, rhi::error> get_content(rhi::image_copy_region const&) const override {
+            return std::unexpected(rhi::error::unsupported);
+        }
+        rhi::image_view* make_view(rhi::image_view_desc const& desc) override {
+            if (desc.base_layer >= layers || desc.base_mip >= mips ||
+                (desc.layer_count != 0 && desc.layer_count > layers - desc.base_layer) ||
+                (desc.mip_count != 0 && desc.mip_count > mips - desc.base_mip))
+                return nullptr;
+            return new cpu_image_view;
+        }
+    };
+    struct cpu_sampler final : rhi::sampler {
+        void release() noexcept override {
+            delete this;
+        }
+    };
+    struct cpu_capabilities final : rhi::device_capabilities {
+        bool mesh_shader() const noexcept override {
+            return false;
+        }
+        bool ray_query() const noexcept override {
+            return false;
+        }
+        std::uint32_t max_push_constants_size() const noexcept override {
+            return 256;
+        }
+        std::uint32_t graphics_queue_family() const noexcept override {
+            return 0;
+        }
+        rhi::shader_binding_table_properties shader_binding_table() const noexcept override {
+            return {};
+        }
+        std::uint64_t acceleration_structure_scratch_alignment() const noexcept override {
+            return 1;
+        }
+        std::uint64_t max_acceleration_structure_instances() const noexcept override {
+            return 0;
+        }
+    };
+    struct cpu_heap final : rhi::descriptor_heap {
+        std::uint32_t image_writes = 0, buffer_writes = 0;
+        bool ready() const noexcept override {
+            return true;
+        }
+        rhi::descriptor_heap_properties properties() const noexcept override {
+            rhi::descriptor_heap_properties info{};
+            info.max_push_data = 256;
+            info.buffer_descriptor_size = 64;
+            info.image_descriptor_size = 64;
+            info.sampler_descriptor_size = 32;
+            return info;
+        }
+        rhi::heap_bindings bindings() const noexcept override {
+            return {};
+        }
+        rhi::error write_image(rhi::heap_image_write_info const& info) noexcept override {
+            if (info.resource == nullptr || info.view == nullptr || info.offset % 64 != 0)
+                return rhi::error::invalid_argument;
+            ++image_writes;
+            return rhi::error::ok;
+        }
+        rhi::error write_buffer(rhi::heap_buffer_write_info const& info) noexcept override {
+            if (info.address == 0 || info.size == 0 || info.offset % 64 != 0)
+                return rhi::error::invalid_argument;
+            ++buffer_writes;
+            return rhi::error::ok;
+        }
+        rhi::error bind(rhi::heap_bind_info const& info) const noexcept override {
+            return info.commands != nullptr ? rhi::error::ok : rhi::error::invalid_argument;
+        }
+        rhi::error push_data(rhi::heap_push_info const& info) const noexcept override {
+            return info.commands == nullptr ? rhi::error::invalid_argument : rhi::validate_heap_push_range(info.offset, info.data.size(), 256);
+        }
+    };
+
     struct impl final : rhi::api_core {
         /// THE CONTRACT'S THIRD HANDSHAKE (abi 19), with a knob: the engine checks this against its
         /// own `rhi::abi_version`, and the injection test needs BOTH answers - the agreeing one and
@@ -595,6 +723,8 @@ namespace {
         }
 
         [[nodiscard]] rhi::ability_bits abilities() const noexcept override {
+            if (portable_mode)
+                return rhi::to_bits(rhi::extension_kind::device_address) | rhi::to_bits(rhi::extension_kind::device_capabilities) | rhi::to_bits(rhi::extension_kind::descriptor_heap);
             // TWO ABILITIES SINCE abi 19: the escape joined device_address, because the ENGINE's runtime
             // asks it for the presentation format before any frame exists (`escape()` dereferences what
             // `query_extension<vulkan_escape>()` answers, so an injected root has to serve it - see
@@ -608,7 +738,11 @@ namespace {
             case rhi::extension_kind::device_address:
                 return &this->address;
             case rhi::extension_kind::vulkan_escape:
-                return &this->escape;
+                return portable_mode ? nullptr : &this->escape;
+            case rhi::extension_kind::device_capabilities:
+                return portable_mode ? &cpu_caps : nullptr;
+            case rhi::extension_kind::descriptor_heap:
+                return portable_mode ? &heap : nullptr;
             default:
                 return nullptr; // not announced, so not available (§3.6)
             }
@@ -619,12 +753,14 @@ namespace {
         }
 
         [[nodiscard]] rhi::buffer* create_buffer(rhi::buffer_desc const& desc) override {
+            if (portable_mode)
+                return desc.initial_bytes.size() <= desc.size ? new cpu_buffer(desc) : nullptr;
             this->buffer.size_bytes = desc.size;
             return &this->buffer;
         }
 
-        [[nodiscard]] rhi::image* create_image(rhi::image_desc const&) override {
-            return nullptr;
+        [[nodiscard]] rhi::image* create_image(rhi::image_desc const& desc) override {
+            return portable_mode && desc.extent.width != 0 && desc.extent.height != 0 && desc.array_layers != 0 && desc.format != rhi::image_format::unknown ? new cpu_image(desc) : nullptr;
         }
 
         /// TIER-1 SINCE ABI 26 AND NULL HERE, which is this fake's whole stance: it has no device, so an
@@ -641,6 +777,8 @@ namespace {
         }
 
         [[nodiscard]] rhi::sampler* create_sampler(rhi::sampler_desc const& desc) override {
+            if (portable_mode)
+                return new cpu_sampler;
             // abi 16: the descriptor's new fields have to CROSS, so the probe keeps it and the test reads it
             // back (a nullptr answer would make the crossing untestable - the same reason create_buffer
             // returns its stand-in rather than nothing).
@@ -677,7 +815,7 @@ namespace {
             // THE ECHO OF THE CREATION DESCRIPTOR (see deren_make_api_core below): the field the test
             // filled is the field the test reads back - a descriptor that never reached the library
             // cannot produce the number.
-            info.image_index = this->creation_window_width;
+            info.image_index = portable_mode ? 0u : this->creation_window_width;
             // ... AND THE FRAME IS OPEN: this is the window `begin_commands()` and the recording verbs
             // answer in, the same window the real backend's acquire opens (see begin_commands()).
             this->frame_open = true;
@@ -768,6 +906,9 @@ namespace {
             return &this->command_buffer;
         }
 
+        bool portable_mode = false;
+        cpu_capabilities cpu_caps;
+        cpu_heap heap;
         probe_buffer buffer{};
         probe_sampler sampler{};                  ///< abi 16: the descriptor echo the sampler test reads
         probe_frame_image borrowed_frame_image{}; ///< abi 16 (item B): the borrowed frame image and its owned view
@@ -805,6 +946,7 @@ namespace {
         impl() noexcept {
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
             // states: a view handed out with a null owner dereferences null on its first call.
+            this->commands.owner = this;
             this->walker.owner = this;
             this->swapchain_view.owner = this;
             this->command_buffer.owner = this;
@@ -830,7 +972,7 @@ namespace {
         // timing verbs answer in it, exactly as they do after the real backend's acquire.
         this->owner->frame_open = true;
         this->owner->frame_acquired = true;
-        return {.frame = {.frame_index = this->owner->current_slot, .image_index = this->owner->creation_window_width}, .result = {}};
+        return {.frame = {.frame_index = this->owner->current_slot, .image_index = this->owner->portable_mode ? 0u : this->owner->creation_window_width}, .result = {}};
     }
 
     void probe_frame_walker::walk_to_next() noexcept {
@@ -945,11 +1087,12 @@ deren_make_api_core(std::uint32_t abi_version, deren::promise::rhi::create_info 
 // instead of re-compiling the probe (two copies of it would drift).
 namespace deren::vk_test {
     std::shared_ptr<deren::promise::rhi::api_core> probe_make_core(deren::promise::rhi::create_info const& desc,
-                                                                   std::uint32_t const reported_api_version) {
+                                                                   std::uint32_t const reported_api_version, bool const portable_mode) {
         auto created = std::make_shared<impl>();
         created->creation_window_width = static_cast<std::uint32_t>(desc.window_width);
         created->creation_window_height = static_cast<std::uint32_t>(desc.window_height);
         created->reported_api_version = reported_api_version;
+        created->portable_mode = portable_mode;
         return created;
     }
 } // namespace deren::vk_test
