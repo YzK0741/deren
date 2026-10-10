@@ -526,11 +526,12 @@ export namespace deren::promise::rhi {
                                               rgba8_srgb = 2,
                                               bgra8_unorm = 3,
                                               bgra8_srgb = 4,
-                                              r16g16_sfloat = 5,          ///< two half-float channels (BRDF LUT)
-                                              r16g16b16a16_sfloat = 6,    ///< four half-float channels (environment/irradiance cubes)
-                                              r32g32b32_sfloat = 7,       ///< three 32-bit float channels
-                                              depth = 0x7FFFFFFFu,        ///< ROLE: a depth attachment the backend shapes
-                                              r16_sfloat = 0x80000000u }; ///< APPENDED: one half-float channel (ray-traced visibility)
+                                              r16g16_sfloat = 5,        ///< two half-float channels (BRDF LUT)
+                                              r16g16b16a16_sfloat = 6,  ///< four half-float channels (environment/irradiance cubes)
+                                              r32g32b32_sfloat = 7,     ///< three 32-bit float channels
+                                              depth = 0x7FFFFFFFu,      ///< ROLE: a depth attachment the backend shapes
+                                              r16_sfloat = 0x80000000u, ///< APPENDED: one half-float channel (ray-traced visibility)
+    };
 
     /// How many bytes ONE texel of @p format takes in host memory. `unknown` answers 0 (a format the
     /// contract cannot describe), and `depth` answers 0 as well: a depth ROLE has no host spelling here,
@@ -1691,7 +1692,7 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) = 0;
 
         /// ABI 31. Success retains the group for recorded work; nullptr clears it.
-        [[nodiscard]] virtual error load_texture_group(texture_group_ref const&) {
+        [[nodiscard]] virtual error load_texture_group(texture_group_ref const& /*group*/) {
             return error::unsupported;
         }
     };
@@ -1997,9 +1998,10 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;
 
         /// ABI 31. Raw inputs are borrowed only during this call. Failure returns empty.
-        [[nodiscard]] virtual texture_group_ref assign_texture_group(texture_group_info const&, error* result = nullptr) {
-            if (result != nullptr)
+        [[nodiscard]] virtual texture_group_ref assign_texture_group(texture_group_info const& /*info*/, error* result = nullptr) {
+            if (result != nullptr) {
                 *result = error::unsupported;
+            }
             return {};
         }
     };

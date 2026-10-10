@@ -150,9 +150,15 @@ export namespace deren::promise::rhi {
     /// the tests iterate (`abilities()` set => `query_extension()` non-null, and the reverse), so the
     /// list is spelled in ONE place instead of per caller.
     [[nodiscard]] constexpr auto all_extension_kinds() noexcept -> std::array<extension_kind, 7> {
-        return {extension_kind::device_address, extension_kind::descriptor_heap, extension_kind::mesh_shader,
-                extension_kind::host_image_copy, extension_kind::vulkan_escape,
-                extension_kind::device_capabilities, extension_kind::shader_group_access};
+        return {
+            extension_kind::device_address,
+            extension_kind::descriptor_heap,
+            extension_kind::mesh_shader,
+            extension_kind::host_image_copy,
+            extension_kind::vulkan_escape,
+            extension_kind::device_capabilities,
+            extension_kind::shader_group_access,
+        };
     }
 
     static_assert(to_bits(extension_kind::device_address) == 0x1u, "the ability bits are ABI: they do not move");

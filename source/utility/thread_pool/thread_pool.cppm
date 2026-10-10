@@ -168,7 +168,7 @@ namespace deren::utility {
                     // rare, so the thundering-herd cost is negligible.
                     this->idle.notify_all();
                 }
-                cv.wait(lock, [this, &token]() {
+                cv.wait(lock, [this, &token] {
                     return !this->task_queue.empty() || token.stop_requested();
                 });
                 this->active_thread.fetch_add(1);
@@ -178,18 +178,16 @@ namespace deren::utility {
                     return;
                 }
 
-                if (token.stop_requested()) {
-                    if (this->policy == shutdown_policy::discard) {
-                        // every still-queued task is dropped without running: unwind their
-                        // pending counts so priority waiters are not stuck forever
-                        while (!this->task_queue.empty()) {
-                            this->note_task_finished(this->task_queue.top().priority);
-                            this->task_queue.pop();
-                        }
-                        this->active_thread.fetch_sub(1);
-                        this->idle.notify_all();
-                        return;
+                if (token.stop_requested() && this->policy == shutdown_policy::discard) {
+                    // every still-queued task is dropped without running: unwind their
+                    // pending counts so priority waiters are not stuck forever
+                    while (!this->task_queue.empty()) {
+                        this->note_task_finished(this->task_queue.top().priority);
+                        this->task_queue.pop();
                     }
+                    this->active_thread.fetch_sub(1);
+                    this->idle.notify_all();
+                    return;
                 }
 
                 current_task = this->task_queue.top().action;

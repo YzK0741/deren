@@ -357,7 +357,8 @@ namespace deren::utility {
      *       scalar is written little-endian (and a raw POD struct keeps the host's order).
      */
     export enum class endian { little,
-                               big };
+                               big,
+    };
 
     /**
      * @ingroup utility

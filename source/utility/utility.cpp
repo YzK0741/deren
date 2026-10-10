@@ -357,7 +357,8 @@ std::expected<void, std::string> deren::utility::write_png(std::filesystem::path
                 static_cast<uint8_t>(block & 0xFFu),
                 static_cast<uint8_t>((block >> 8) & 0xFFu),
                 static_cast<uint8_t>(~block & 0xFFu),
-                static_cast<uint8_t>((~block >> 8) & 0xFFu)};
+                static_cast<uint8_t>((~block >> 8) & 0xFFu),
+            };
             if (auto const written = write_binary(payload, header, std::span{raw}.subspan(offset, block)); !written) {
                 return failed(written);
             }

@@ -296,9 +296,11 @@ namespace deren::utility::dynamic_link {
         void* const address = GetProcAddress(this->handle, terminated.c_str());
         if (address == nullptr) {
             unsigned long const code = GetLastError();
-            return std::unexpected(load_error{static_cast<std::int32_t>(code),
-                                              std::format("the library has no symbol '{}' ({})", name,
-                                                          failed_message("GetProcAddress", code))});
+            return std::unexpected(load_error{
+                static_cast<std::int32_t>(code),
+                std::format("the library has no symbol '{}' ({})", name,
+                            failed_message("GetProcAddress", code)),
+            });
         }
 #else
         static_cast<void>(dlerror()); // clear the pending error so the next call is unambiguous
