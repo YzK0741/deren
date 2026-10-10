@@ -287,7 +287,8 @@ export namespace deren::promise::rhi {
     /// of their own. The geometry that consults one declares it with `acceleration_structure_geometry::
     /// opacity_micromap` - a CONTRACT handle, never a driver's.
     /// 27 -> 28: swapchain::format() appends the pre-acquire presentation format query.
-    inline constexpr std::uint32_t abi_version = 28u;
+    /// 28 -> 29: image::share() and image_view::get_image() append owning parent-reference access.
+    inline constexpr std::uint32_t abi_version = 29u;
 
     /// Why a promise entry point could not do what it was asked.
     ///

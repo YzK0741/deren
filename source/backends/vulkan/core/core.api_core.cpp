@@ -1401,18 +1401,37 @@ namespace deren::vulkan {
         view_info.subresourceRange.levelCount = mips;
         view_info.subresourceRange.layerCount = layers;
 
+        auto answer = std::make_unique<owned_image_view>();
+        answer->parent_image = this->share();
+        answer->device = this->owner->logical_device;
         VkImageView handle = VK_NULL_HANDLE;
         if (vkCreateImageView(this->owner->logical_device, &view_info, nullptr, &handle) != VK_SUCCESS || handle == VK_NULL_HANDLE) {
             deren::utility::log("rhi: make_view refused: vkCreateImageView failed");
             return nullptr;
         }
-        auto* const answer = new owned_image_view();
         answer->native_view = handle;
-        answer->device = this->owner->logical_device;
-        return answer;
+        return answer.release();
+    }
+
+    std::shared_ptr<deren::promise::rhi::image> core::owned_image::share() {
+        std::lock_guard const lock(this->shared_owner_mutex);
+        if (auto retained = this->shared_owner.lock()) {
+            return retained;
+        }
+        this->references.fetch_add(1, std::memory_order_relaxed);
+        // On control-block allocation failure shared_ptr also calls this deleter,
+        // balancing the retained reference. Destruction stays inside the backend.
+        auto retained = std::shared_ptr<deren::promise::rhi::image>(this, [](deren::promise::rhi::image* value) {
+            value->release();
+        });
+        this->shared_owner = retained;
+        return retained;
     }
 
     void core::owned_image::release() noexcept {
+        if (this->references.fetch_sub(1, std::memory_order_acq_rel) != 1) {
+            return;
+        }
         {
             std::lock_guard const lock(this->owner->contract_images_mutex);
             this->owner->contract_images.erase(this);

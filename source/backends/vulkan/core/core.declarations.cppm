@@ -29,6 +29,7 @@ module;
 
 #include <GLFW/glfw3.h>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <memory>
 #include <mutex>
@@ -633,6 +634,9 @@ namespace deren::vulkan {
         /// a uint64) is what the escape's `native_image()` resolves through `get_image_detail()` - an
         /// UNLOCKED BORROW whose values are copied out, never whose pointer.
         struct owned_image final : deren::promise::rhi::image {
+            std::atomic<std::uint32_t> references{1}; // factory ownership + shared control blocks
+            std::mutex shared_owner_mutex;
+            std::weak_ptr<deren::promise::rhi::image> shared_owner;
             /// the core that created this image: `make_view()` needs the device, and every owned
             /// object that calls back into the backend carries its owner (the shape `frame_escape`
             /// and `buffer_address_view` use)
@@ -662,6 +666,7 @@ namespace deren::vulkan {
             [[nodiscard]] ::deren::promise::rhi::image_extent extent() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_format format() const noexcept override;
             [[nodiscard]] deren::promise::rhi::image_view* make_view(deren::promise::rhi::image_view_desc const& desc) override;
+            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> share() override;
             /// abi 25's read-back: the image's CONTENT in host memory, performed by the IMPLEMENTATION
             /// (`vkCopyImageToMemoryEXT`) - no staging buffer, no copy command, no submission. It refuses with
             /// the contract's named `unsupported` when the descriptor did not declare
@@ -669,15 +674,14 @@ namespace deren::vulkan {
             /// ability is absent, and with `invalid_argument` when this is not an owned image.
             [[nodiscard]] std::expected<deren::promise::rhi::image_content, deren::promise::rhi::error> get_content(
                 deren::promise::rhi::image_copy_region const& region) const override;
-            /// give the reference back: `delete this`, whose destructor resets `owned`
+            /// Drop one retained reference; the final release resets `owned`.
             void release() noexcept override;
         };
 
-        /// AN OWNED IMAGE VIEW: what `owned_image::make_view()` hands out. The view holds NO reference
-        /// to the image (the caller keeps its own image handle alive), only the `VkImageView` its
-        /// destructor destroys - a view outliving its image is a Vulkan error the validation layers
-        /// name, so the caller's ordering duty is documented, not mechanized.
+        /// An owned view retains its parent until after destroying the native view.
+        /// Views of borrowed swapchain images carry no parent owner.
         struct owned_image_view final : deren::promise::rhi::image_view {
+            std::shared_ptr<deren::promise::rhi::image> parent_image;
             VkImageView native_view = VK_NULL_HANDLE;
             /// the device the view was created on; the destructor needs it and the object must not
             /// outlive the core it came from (the core's own cleanup order guarantees that)
@@ -686,6 +690,9 @@ namespace deren::vulkan {
             /// the `VkImageView` is a raw handle with no RAII owner of its own, so the view's
             /// destruction is this object's destructor
             ~owned_image_view() noexcept override;
+            [[nodiscard]] std::shared_ptr<deren::promise::rhi::image> get_image() const noexcept override {
+                return parent_image;
+            }
             /// give the view back: `delete this`, whose destructor destroys the `VkImageView`
             void release() noexcept override;
         };

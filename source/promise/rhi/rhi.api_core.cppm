@@ -888,19 +888,33 @@ export namespace deren::promise::rhi {
         /// contract default is: a caller compiled against an older contract and a callee compiled against a
         /// newer one must agree on what "no region" means, and that can only be the header's text.
         [[nodiscard]] virtual std::expected<image_content, error> get_content(image_copy_region const& region = {}) const = 0;
+
+        /// Copy an owning reference without consuming the caller's factory reference.
+        /// Borrowed images and backends without shared ownership return empty.
+        /// The api_core and backend library must outlive all strong and weak resource references.
+        /// While shared references exist, repeated calls use the same control block.
+        /// Use this instead of constructing an independent shared_ptr from a raw image.
+        [[nodiscard]] virtual std::shared_ptr<image> share() {
+            return {};
+        }
     };
 
     /// A view of an image, owned by the backend: the contract's substitute for a raw `VkImageView`.
-    /// The image it was made from keeps its own reference; releasing the view does not release the
-    /// image. The raw handle travels through `vulkan_escape::native_image_view()`.
+    /// Backends supporting shared parent references retain owned images independently of the factory reference.
+    /// Views of borrowed frame images retain no parent and must respect the frame lifetime.
+    /// The raw handle travels through `vulkan_escape::native_image_view()`.
     struct image_view : object {
         static constexpr interface_type interface_id = interface_type::image_view;
         image_view() noexcept
             : object(interface_id) {
         }
         virtual ~image_view() noexcept = default;
-        /// see `buffer::release()`; this drops the VIEW, never the image behind it
+        /// Drop the view, including its retained parent reference after native view destruction.
         virtual void release() noexcept = 0;
+        /// Copy the parent owner; empty for borrowed swapchain images or unsupported backends.
+        [[nodiscard]] virtual std::shared_ptr<image> get_image() const noexcept {
+            return {};
+        }
     };
 
     /// Capabilities an image needs beyond its shape - same rule as `buffer_flag`: the caller says WHAT

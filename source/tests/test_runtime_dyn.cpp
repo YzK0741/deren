@@ -72,7 +72,7 @@ int main(int const argc, char** const argv) {
     // abi 21 is the recording face's owner half (`api_core::make_command_buffer`); this pin moves with the
     // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's own note).
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
-    CHECK(rhi::abi_version == 28u);
+    CHECK(rhi::abi_version == 29u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -111,6 +111,49 @@ int main(int const argc, char** const argv) {
         CHECK(dynamic.valid());
 
         rhi::api_core& face = dynamic.rhi_face();
+        // A view and a copied parent reference each retain the original image identity.
+        rhi::image_desc parent_desc{};
+        parent_desc.extent = {.width = 4u, .height = 4u, .depth = 1u};
+        parent_desc.format = rhi::image_format::rgba8_unorm;
+        parent_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        rhi::object_manager<rhi::image> original{face.create_image(parent_desc)};
+        CHECK(original);
+        if (original) {
+            auto* const identity = original.get();
+            auto first_owner = original->share();
+            CHECK(first_owner != nullptr);
+            std::weak_ptr<rhi::image> first_lifetime = first_owner;
+            first_owner.reset();
+            CHECK(first_lifetime.expired());
+            CHECK(original->extent().width == 4u); // factory reference is independent
+            rhi::object_manager<rhi::image_view> view{original->make_view({})};
+            CHECK(view);
+            if (view) {
+                auto parent = view->get_image();
+                CHECK_MSG(parent != nullptr, "an owned image view must retain its parent");
+                if (parent) {
+                    CHECK(parent.get() == identity);
+                    auto direct = original->share();
+                    CHECK(!parent.owner_before(direct) && !direct.owner_before(parent));
+                    std::weak_ptr<rhi::image> lifetime = parent;
+                    direct.reset();
+                    parent.reset();
+                    original.reset();
+                    CHECK(!lifetime.expired()); // only the view retains it
+                    parent = view->get_image();
+                    CHECK(parent.get() == identity);
+                    view.reset();
+                    CHECK(parent->extent().width == 4u);
+                    CHECK(parent->format() == rhi::image_format::rgba8_unorm);
+                    rhi::object_manager<rhi::image_view> sibling{parent->make_view({})};
+                    CHECK(sibling);
+                    parent.reset();
+                    CHECK(!lifetime.expired());
+                    sibling.reset();
+                    CHECK(lifetime.expired());
+                }
+            }
+        }
         // The allocation size may exceed the initialization span only when it is empty.
         // The backing array stays large enough to make the old over-read deterministic and safe here.
         std::array<std::byte, 64> bytes{};
@@ -141,6 +184,18 @@ int main(int const argc, char** const argv) {
 
         CHECK(face.frame_swapchain() != nullptr);
         CHECK(face.frame_swapchain()->format() != rhi::image_format::unknown);
+        auto const acquired_frame = face.frame_begin();
+        (void)acquired_frame;
+        auto* const borrowed_image = face.frame_image();
+        CHECK(borrowed_image != nullptr);
+        if (borrowed_image != nullptr) {
+            CHECK(!borrowed_image->share());
+            rhi::object_manager<rhi::image_view> borrowed_view{borrowed_image->make_view({})};
+            CHECK(borrowed_view);
+            if (borrowed_view) {
+                CHECK(!borrowed_view->get_image());
+            }
+        }
         deren::vk_test::write_line("runtime_dyn: constructed through deren_make_api_core(); presentation format = {}",
                                    static_cast<std::uint32_t>(face.frame_swapchain()->format()));
     }

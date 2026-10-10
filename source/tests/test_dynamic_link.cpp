@@ -297,7 +297,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 28u);
+        CHECK(rhi::abi_version == 29u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
