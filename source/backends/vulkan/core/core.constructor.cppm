@@ -368,6 +368,10 @@ namespace deren::vulkan {
         poll_submissions(true);
         commands_view.group_refs.clear();
         commands_view.secondary_refs.clear();
+        texture_groups.cache.clear();
+        texture_groups.dummy_view.reset();
+        texture_groups.dummy_image.reset();
+        texture_groups.records.reset();
         this->do_cleanup();
     }
 

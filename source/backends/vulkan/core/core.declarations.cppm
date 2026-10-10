@@ -300,6 +300,7 @@ namespace deren::vulkan {
         /// `copy_image_to_buffer`, the timing pair) are the FRAME's: they answer `not_ready` on a list
         /// that is not the frame's, which is the window their own contract notes already name.
         struct owned_command_buffer;
+        struct owned_pipeline;
         struct frame_commands : deren::promise::rhi::command_buffer {
             explicit frame_commands(std::string_view const name = "deren_frame_commands_vulkan") noexcept
                 : deren::promise::rhi::command_buffer(name) {
@@ -311,8 +312,10 @@ namespace deren::vulkan {
             bool executable = false;
             bool simultaneous_use = false;
             bool one_time_submit = false;
+            owned_pipeline const* bound_pipeline = nullptr;
             std::vector<deren::promise::rhi::texture_group_ref> group_refs;
             std::vector<std::shared_ptr<owned_command_buffer>> secondary_refs;
+            [[nodiscard]] deren::promise::rhi::error load_texture_group(deren::promise::rhi::texture_group_ref const& group) override;
             /// `use()` ANSWERS with an `error` now (it does not drop a barrier silently); this flag is only
             /// about how often the backend spells out the REASON for a refusal, so a per-frame caller
             /// cannot turn one broken pair into a log flood
@@ -772,6 +775,7 @@ namespace deren::vulkan {
         /// `make_pipeline` result (vertex input derived from the SPIR-V, the dynamic viewport/scissor
         /// state, the heap-native layout-less creation) wrapped in the contract's ownership.
         struct owned_pipeline final : deren::promise::rhi::pipeline {
+            deren::promise::rhi::texture_group_binding group_binding{};
             owned_pipeline() noexcept
                 : deren::promise::rhi::pipeline("deren_pipeline_vulkan") {
             }
@@ -958,7 +962,15 @@ namespace deren::vulkan {
         std::mutex contract_images_mutex;
         std::unordered_set<deren::promise::rhi::image const*> contract_images;
         struct texture_group_state {
+            static constexpr std::uint32_t table_slot = 17664;
+            static constexpr std::uint32_t texture_base = 17665;
             std::mutex mutex;
+            bool gpu_ready = false;
+            std::unordered_set<deren::promise::rhi::texture_group const*> live_groups;
+            VkDeviceSize reserved_offset = VK_WHOLE_SIZE;
+            deren::promise::rhi::object_manager<deren::promise::rhi::buffer> records;
+            deren::promise::rhi::object_manager<deren::promise::rhi::image> dummy_image;
+            deren::promise::rhi::object_manager<deren::promise::rhi::image_view> dummy_view;
             std::array<bool, 1024> groups{};
             // Slot 0 is reserved for the dummy descriptor.
             std::array<bool, 2048> views{};
@@ -991,6 +1003,8 @@ namespace deren::vulkan {
             }
         };
         texture_group_state texture_groups;
+        [[nodiscard]] deren::promise::rhi::error initialize_texture_groups();
+        [[nodiscard]] deren::promise::rhi::error validate_texture_group_pipeline(deren::promise::rhi::pipeline_desc const& desc);
         struct pending_submission {
             core* owner = nullptr;
             VkFence fence = VK_NULL_HANDLE;

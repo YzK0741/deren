@@ -39,3 +39,25 @@ It also exposed and fixed the existing NULL inheritance-info case for a plain se
 
 Validation: runtime device 1124/1124; CTest 20/20; frozen rendering 14/14 matched,
 with validation/log checks passed. Group retention by load and GPU sampling remain pending.
+
+## Heap sampling stage
+
+pipeline_desc::texture_group declares the reserved uint token offset and shader stages.
+SPIR-V reflection validates its type, offset, stage coverage and device push limits.
+Binding an enabled pipeline initializes the empty group; load retains the group, and portable
+push writes cannot overlap its token. Registry checks reject foreign groups/commands/pipelines.
+
+The backend publishes 80-byte records and full-mip sampled views in an independent heap window:
+table slot 17664, texture base 17665. The originally planned slot overlapped the existing legacy
+array, so this window is separately reserved and checked against capacity. Slang padding uses
+uint[3]; uint3 would align the record to a 96-byte stride and was caught by GPU readback.
+
+The validation-enabled probe passes 89 checks, including primary and secondary sampling behind
+a timeline gate, caller image/group/command release, new group creation while earlier work waits,
+A/B/empty groups, slot 15, failed load preserving state and pipeline switching. Release build,
+runtime device 1124 checks, CTest 20/20 and frozen rendering 14/14 pass.
+
+Records are host-coherent and written before submission. Visibility follows Vulkan's
+[Host Write Ordering Guarantees](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-submission-host-writes);
+load does not insert a HOST barrier inside dynamic rendering. Actual draw integration and
+the ordinary descriptor-array pipeline remain pending.

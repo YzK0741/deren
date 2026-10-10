@@ -1766,6 +1766,7 @@ set(VR_SHADER_INCLUDES
     # `test_shader_sources` now compares this list against every #include in source/shaders/, so the next include cannot
     # be forgotten the same way.
     "${VR_SHADER_SRC_DIR}/heap_access.slang"
+    "${VR_SHADER_SRC_DIR}/texture_group.slang"
     "${VR_SHADER_SRC_DIR}/mesh_geometry.slang"
     # character_forward.slang IS INCLUDED BY A LEAF NOW, which is why it is here: the outline fragment stage
     # includes it for `toon_diffuse` (the same reason `toon_params.slang` is above - a second copy of that chain
@@ -1907,6 +1908,7 @@ set(VR_SLANG_SOURCES
     heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
     # The COMPUTE half is its own file because it has its own push layout (one push block per stage).
     heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
+    texture_group_probe.slang:main:compute:texture_group_probe.comp.spv
     # compute_skin.slang feeds the acceleration structures the deformed vertex positions; its A/B needs the
     # skinned fixture with rt_shadow on (see docs/slang_migration.md).
     compute_skin.slang:comp_main:compute:compute_skin.comp.spv
@@ -2009,4 +2011,6 @@ endif()
 if(TARGET test_runtime_dyn)
     add_dependencies(test_runtime_dyn shaders)
 endif()
+add_dependencies(test_texture_group shaders)
+target_compile_definitions(test_texture_group PRIVATE VR_TEXTURE_GROUP_SHADER_PATH="${VR_SHADER_OUT_DIR}/texture_group_probe.comp.spv")
 message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles source/shaders/*.spv into ${VR_SHADER_OUT_DIR}")

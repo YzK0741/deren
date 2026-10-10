@@ -1113,6 +1113,14 @@ export namespace deren::promise::rhi {
     /// depth attachment; `unknown` as the depth format means the pipeline has NO depth attachment).
     /// The blend modes are per color attachment in attachment order; EMPTY means every target is
     /// overwritten (opaque), which is what a G-buffer surface target needs. Same append-only guard.
+    enum class texture_group_profile : std::uint32_t { sampled_2d_16 = 0 };
+    struct texture_group_binding {
+        bool enabled = false;
+        std::uint32_t push_byte_offset = 0;
+        // vertex=1, fragment=2, compute=4, mesh=8.
+        std::uint32_t shader_stage_bits = 0;
+        texture_group_profile profile = texture_group_profile::sampled_2d_16;
+    };
     struct pipeline_desc {
         std::uint32_t struct_size = sizeof(pipeline_desc); ///< size of this structure as the CALLER compiled it
         std::span<image_format const> color_formats;       ///< attachment order; empty = depth-only
@@ -1171,6 +1179,7 @@ export namespace deren::promise::rhi {
         /// Optional AS shader bindings into the heap. Appended and guarded by struct_size;
         /// older callers keep an empty list. Currently supported by ray-tracing pipelines.
         std::span<acceleration_structure_heap_binding const> acceleration_structure_bindings;
+        texture_group_binding texture_group{};
     };
 
     /// The descriptors of the remaining factories. Opaque until S1 (see the banner).

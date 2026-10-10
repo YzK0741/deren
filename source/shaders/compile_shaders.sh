@@ -81,6 +81,7 @@ heap_probe.slang:main:vertex:heap_probe.vert.spv
 heap_probe.slang:frag_main:fragment:heap_probe.frag.spv
 heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
 heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
+texture_group_probe.slang:main:compute:texture_group_probe.comp.spv
 rt_shadow.slang:chit_main:closesthit:rt_shadow.rchit.spv
 rt_shadow.slang:miss_main:miss:rt_shadow.rmiss.spv
 rt_shadow.slang:rgen_main:raygeneration:rt_shadow.rgen.spv

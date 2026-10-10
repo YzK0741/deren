@@ -728,6 +728,8 @@ namespace deren::vulkan {
             if (covered_by(declared, offsetof(rhi_pipeline_desc, acceleration_structure_bindings), sizeof(rhi_pipeline_desc::acceleration_structure_bindings))) {
                 options.acceleration_structure_bindings = desc.acceleration_structure_bindings;
             }
+            if (covered_by(declared, offsetof(rhi_pipeline_desc, texture_group), sizeof(rhi_pipeline_desc::texture_group)))
+                options.texture_group = desc.texture_group;
             return options;
         }
 
@@ -900,7 +902,16 @@ namespace deren::vulkan {
                 // the owned type without RTTI), and a foreign pointer would be a caller bug rather than a case to
                 // survive: the contract's ownership note says touching a released handle is undefined, and
                 // nothing on the engine side can obtain one of these without going through this backend.
-                auto* const buffer = static_cast<core::frame_commands*>(commands);
+                std::lock_guard lock(owner.contract_command_buffers_mutex);
+                if (!owner.contract_command_buffers.contains(commands)) {
+                    result = rhi::error::invalid_argument;
+                    return VK_NULL_HANDLE;
+                }
+                auto* const buffer = static_cast<core::owned_command_buffer*>(commands);
+                if (!buffer->recording) {
+                    result = rhi::error::not_ready;
+                    return VK_NULL_HANDLE;
+                }
                 result = rhi::error::ok;
                 return buffer->native();
             }
@@ -1026,6 +1037,31 @@ namespace deren::vulkan {
         VkCommandBuffer const commands = heap_commands(*this->owner, info.commands, info.header.next, result);
         if (result != rhi::error::ok)
             return result;
+        // The native escape is responsible for its own state. Portable writes must
+        // preserve the pipeline's backend-owned group token.
+        if (info.commands != nullptr && info.header.next == nullptr) {
+            frame_commands const* recorded = nullptr;
+            if (info.commands == &owner->commands_view)
+                recorded = &owner->commands_view;
+            else {
+                std::lock_guard lock(owner->contract_command_buffers_mutex);
+                if (!owner->contract_command_buffers.contains(info.commands))
+                    return rhi::error::invalid_argument;
+                recorded = static_cast<owned_command_buffer const*>(info.commands);
+            }
+            if (!recorded->recording)
+                return rhi::error::not_ready;
+            if (recorded->bound_pipeline) {
+                std::lock_guard lock(owner->contract_pipelines_mutex);
+                if (!owner->contract_pipelines.contains(recorded->bound_pipeline))
+                    return rhi::error::invalid_argument;
+            }
+            if (recorded->bound_pipeline && recorded->bound_pipeline->group_binding.enabled) {
+                auto offset = recorded->bound_pipeline->group_binding.push_byte_offset;
+                if (info.offset < offset + 4 && info.offset + info.data.size() > offset)
+                    return rhi::error::invalid_argument;
+            }
+        }
         return this->owner->descriptor_heaps.push_data(commands, info.offset, info.data) ? rhi::error::ok : rhi::error::operation_failed;
     }
 
@@ -1530,6 +1566,10 @@ namespace deren::vulkan {
 
     rhi::pipeline* core::create_pipeline(rhi::pipeline_desc const& declared_desc) {
         rhi::pipeline_desc const desc = sanitize_pipeline_desc(declared_desc);
+        if (desc.texture_group.enabled && validate_texture_group_pipeline(desc) != rhi::error::ok) {
+            deren::utility::log("rhi: incompatible texture-group pipeline binding");
+            return nullptr;
+        }
         char const* const what = desc.debug_name != nullptr ? desc.debug_name : "unnamed pipeline";
 
         // ---- THE COMPUTE SPELLING IS ITS OWN PATH (abi 21) ---------------------------------------
@@ -1622,6 +1662,7 @@ namespace deren::vulkan {
             this->contract_pipelines.insert(answer);
         }
         answer->owned.emplace(std::move(pipeline.value()));
+        answer->group_binding = desc.texture_group;
         answer->native_handle = answer->owned->get_pipeline();
         return answer;
     }
@@ -1699,6 +1740,7 @@ namespace deren::vulkan {
         answer->owned.emplace(pipeline, this->logical_device);
         answer->native_handle = pipeline;
         answer->bind_point = VK_PIPELINE_BIND_POINT_COMPUTE;
+        answer->group_binding = desc.texture_group;
         return answer;
     }
 
@@ -2120,6 +2162,7 @@ namespace deren::vulkan {
             secondary_refs.clear();
             group_refs.clear();
             executable = false;
+            bound_pipeline = nullptr;
             recording = true;
             simultaneous_use = (flags & VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT) != 0;
             one_time_submit = (flags & VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT) != 0;
@@ -2196,6 +2239,7 @@ namespace deren::vulkan {
             secondary_refs.clear();
             group_refs.clear();
             executable = false;
+            bound_pipeline = nullptr;
             recording = true;
         }
         return result;
@@ -2972,6 +3016,8 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::bind_pipeline(rhi::pipeline const& handle) {
+        if (!recording)
+            return rhi::error::not_ready;
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
@@ -2979,8 +3025,21 @@ namespace deren::vulkan {
         if (handle.type != "deren_pipeline_vulkan") {
             return rhi::error::invalid_argument;
         }
+        {
+            std::lock_guard lock(owner->contract_pipelines_mutex);
+            if (!owner->contract_pipelines.contains(&handle))
+                return rhi::error::invalid_argument;
+        }
         auto const* const owned = static_cast<owned_pipeline const*>(&handle);
         vkCmdBindPipeline(command_buffer, owned->bind_point, owned->native_handle);
+        bound_pipeline = owned;
+        if (owned->group_binding.enabled) {
+            std::uint32_t token = 0;
+            owner->descriptor_heaps.record_bind(command_buffer);
+            if (!owner->descriptor_heaps.push_data(command_buffer, owned->group_binding.push_byte_offset,
+                                                   std::as_bytes(std::span(&token, 1))))
+                return rhi::error::operation_failed;
+        }
         return rhi::error::ok;
     }
 

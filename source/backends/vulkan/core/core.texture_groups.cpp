@@ -2,15 +2,118 @@
 module;
 #include <algorithm>
 #include <array>
+#include <cstring>
 #include <memory>
 #include <mutex>
 #include <new>
+#include <span>
+#include <spirv-reflect/spirv_reflect.h>
 #include <vulkan/vulkan.h>
 module deren.vulkan.core;
 import :declarations;
 
 namespace deren::vulkan {
     namespace rhi = deren::promise::rhi;
+
+    rhi::error core::initialize_texture_groups() {
+        std::lock_guard lock(texture_groups.mutex);
+        if (texture_groups.gpu_ready)
+            return rhi::error::ok;
+        if (!descriptor_heaps.ready())
+            return rhi::error::unsupported;
+        auto const base = VkDeviceSize(texture_group_state::table_slot) * 64;
+        if (texture_groups.reserved_offset == VK_WHOLE_SIZE) {
+            auto offset = descriptor_heaps.reserve_bytes(2049u * 64u, base);
+            if (offset != base)
+                return rhi::error::unsupported;
+            texture_groups.reserved_offset = offset;
+        }
+        rhi::object_manager<rhi::buffer> records{create_buffer({.size = 2049u * 80u,
+                                                                .usage = rhi::buffer_usage::storage_coherent,
+                                                                .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
+        if (!records || records->mapped().size() < 2049u * 80u)
+            return rhi::error::out_of_device_memory;
+        std::memset(records->mapped().data(), 0, records->mapped().size());
+        std::uint32_t pixel = 0;
+        rhi::image_desc desc{};
+        desc.extent = {.width = 1, .height = 1, .depth = 1};
+        desc.format = rhi::image_format::rgba8_unorm;
+        desc.flags = rhi::to_bits(rhi::image_flag::sampled);
+        desc.initial_bytes = std::as_bytes(std::span(&pixel, 1));
+        rhi::object_manager<rhi::image> dummy{create_image(desc)};
+        if (!dummy)
+            return rhi::error::out_of_device_memory;
+        rhi::object_manager<rhi::image_view> view{dummy->make_view({})};
+        if (!view)
+            return rhi::error::operation_failed;
+        auto const& image = *static_cast<owned_image const*>(dummy.get());
+        VkImageViewCreateInfo info{};
+        info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+        info.image = image.native_handle;
+        info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+        info.format = image.resolved_format;
+        info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1};
+        if (!descriptor_heaps.write_image(VkDeviceSize(texture_group_state::texture_base) * 64, info, VK_IMAGE_LAYOUT_GENERAL) ||
+            !descriptor_heaps.write_buffer(base, address_view.buffer_address(*records, 0), records->size(), VK_DESCRIPTOR_TYPE_STORAGE_BUFFER))
+            return rhi::error::operation_failed;
+        texture_groups.records = std::move(records);
+        texture_groups.dummy_image = std::move(dummy);
+        texture_groups.dummy_view = std::move(view);
+        texture_groups.gpu_ready = true;
+        return rhi::error::ok;
+    }
+
+    rhi::error core::validate_texture_group_pipeline(rhi::pipeline_desc const& desc) {
+        auto const& binding = desc.texture_group;
+        if (rhi::validate_heap_push_range(binding.push_byte_offset, 4, heap_view.properties().max_push_data) != rhi::error::ok)
+            return rhi::error::invalid_argument;
+        if (binding.profile != rhi::texture_group_profile::sampled_2d_16 || !desc.ray_tracing_stages.empty())
+            return rhi::error::unsupported;
+        VkPhysicalDeviceProperties properties{};
+        vkGetPhysicalDeviceProperties(physical_device, &properties);
+        if ((binding.push_byte_offset & 3u) != 0 || binding.push_byte_offset > properties.limits.maxPushConstantsSize - 4 ||
+            binding.shader_stage_bits == 0 || (binding.shader_stage_bits & ~15u))
+            return rhi::error::invalid_argument;
+        auto inspect = [&binding](std::span<std::byte const> code, std::uint32_t stage) {
+            SpvReflectShaderModule module{};
+            if (spvReflectCreateShaderModule(code.size(), code.data(), &module) != SPV_REFLECT_RESULT_SUCCESS)
+                return false;
+            bool token = false, valid = true, heap = false;
+            for (std::uint32_t c = 0; c < module.capability_count; ++c)
+                heap |= module.capabilities[c].value == SpvCapabilityDescriptorHeapEXT;
+            bool const reads = (binding.shader_stage_bits & stage) != 0;
+            for (std::uint32_t p = 0; p < module.push_constant_block_count; ++p) {
+                auto const& block = module.push_constant_blocks[p];
+                for (std::uint32_t m = 0; m < block.member_count; ++m) {
+                    auto const& member = block.members[m];
+                    bool overlap = member.absolute_offset < binding.push_byte_offset + 4 &&
+                                   member.absolute_offset + member.size > binding.push_byte_offset;
+                    if (!overlap)
+                        continue;
+                    bool exact = reads && member.absolute_offset == binding.push_byte_offset && member.size == 4 &&
+                                 member.type_description && member.type_description->type_flags == SPV_REFLECT_TYPE_FLAG_INT &&
+                                 member.numeric.scalar.width == 32 && member.numeric.scalar.signedness == 0;
+                    if (exact && !token)
+                        token = true;
+                    else
+                        valid = false;
+                }
+            }
+            spvReflectDestroyShaderModule(&module);
+            return valid && heap && (!reads || token);
+        };
+        if (desc.first_stage == rhi::shader_stage::compute) {
+            if (binding.shader_stage_bits != 4 || !inspect(desc.compute_code, 4))
+                return rhi::error::invalid_argument;
+        } else {
+            auto first = desc.first_stage == rhi::shader_stage::mesh ? 8u : 1u;
+            if (binding.shader_stage_bits & ~(first | 2u))
+                return rhi::error::invalid_argument;
+            if (!inspect(desc.vertex_code, first) || !inspect(desc.fragment_code, 2))
+                return rhi::error::invalid_argument;
+        }
+        return initialize_texture_groups();
+    }
 
     core::texture_group_state::sampled_view_lease::~sampled_view_lease() noexcept {
         if (state != nullptr) {
@@ -21,9 +124,11 @@ namespace deren::vulkan {
     }
 
     core::owned_texture_group::~owned_texture_group() noexcept {
-        if (owner != nullptr && allocation < owner->texture_groups.groups.size()) {
+        if (owner != nullptr) {
             std::lock_guard lock(owner->texture_groups.mutex);
-            owner->texture_groups.groups[allocation] = false;
+            owner->texture_groups.live_groups.erase(this);
+            if (allocation < owner->texture_groups.groups.size())
+                owner->texture_groups.groups[allocation] = false;
         }
     }
 
@@ -66,6 +171,9 @@ namespace deren::vulkan {
                     images[i] = image->share();
             }
         }
+        auto initialized = initialize_texture_groups();
+        if (initialized != rhi::error::ok)
+            return fail(initialized);
         auto answer = std::unique_ptr<owned_texture_group>(new (std::nothrow) owned_texture_group);
         if (!answer)
             return fail(rhi::error::out_of_host_memory);
@@ -101,12 +209,24 @@ namespace deren::vulkan {
                         status = rhi::error::out_of_host_memory;
                         break;
                     }
-                    fresh->view = rhi::object_manager<rhi::image_view>(images[i]->make_view({}));
+                    fresh->view = rhi::object_manager<rhi::image_view>(images[i]->make_view({.mip_count = 0}));
                     if (!fresh->view) {
                         status = rhi::error::operation_failed;
                         break;
                     }
                     fresh->slot = static_cast<std::uint32_t>(free - texture_groups.views.begin());
+                    auto const& image = *static_cast<owned_image const*>(images[i].get());
+                    VkImageViewCreateInfo view_info{};
+                    view_info.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
+                    view_info.image = image.native_handle;
+                    view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
+                    view_info.format = image.resolved_format;
+                    view_info.subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, image.mip_levels, 0, 1};
+                    if (!descriptor_heaps.write_image((VkDeviceSize(texture_group_state::texture_base) + fresh->slot) * 64,
+                                                      view_info, VK_IMAGE_LAYOUT_GENERAL)) {
+                        status = rhi::error::operation_failed;
+                        break;
+                    }
                     *free = true;
                     fresh->state = &texture_groups;
                     cached = fresh;
@@ -116,11 +236,54 @@ namespace deren::vulkan {
                 answer->record.present_mask |= 1u << i;
                 answer->views[i] = std::move(lease);
             }
+            if (status == rhi::error::ok) {
+                if (answer->allocation < 1024) {
+                    auto offset = (answer->allocation * 2u + 1u) * sizeof(texture_group_record);
+                    std::memcpy(texture_groups.records->mapped().data() + offset, &answer->record, sizeof(answer->record));
+                }
+                texture_groups.live_groups.insert(answer.get());
+            }
         }
         if (status != rhi::error::ok)
             return fail(status);
         if (result != nullptr)
             *result = rhi::error::ok;
         return rhi::texture_group_ref(answer.release(), [](rhi::texture_group* group) { group->release(); });
+    }
+    rhi::error core::frame_commands::load_texture_group(rhi::texture_group_ref const& group) {
+        if (!recording || native() == VK_NULL_HANDLE)
+            return rhi::error::not_ready;
+        owner->poll_submissions();
+        if (!bound_pipeline)
+            return rhi::error::unsupported;
+        {
+            std::lock_guard lock(owner->contract_pipelines_mutex);
+            if (!owner->contract_pipelines.contains(bound_pipeline))
+                return rhi::error::invalid_argument;
+        }
+        if (!bound_pipeline->group_binding.enabled)
+            return rhi::error::unsupported;
+        std::uint32_t token = 0;
+        if (group) {
+            std::lock_guard lock(owner->texture_groups.mutex);
+            if (!owner->texture_groups.live_groups.contains(group.get()))
+                return rhi::error::invalid_argument;
+            auto const& owned = *static_cast<owned_texture_group const*>(group.get());
+            if (owned.allocation < 1024)
+                token = owned.allocation * 2u + 1u;
+        }
+        if (!owner->descriptor_heaps.ready())
+            return rhi::error::not_ready;
+        bool retained = group && std::find(group_refs.begin(), group_refs.end(), group) == group_refs.end();
+        if (retained)
+            group_refs.push_back(group);
+        owner->descriptor_heaps.record_bind(native());
+        if (!owner->descriptor_heaps.push_data(native(), bound_pipeline->group_binding.push_byte_offset,
+                                               std::as_bytes(std::span(&token, 1)))) {
+            if (retained)
+                group_refs.pop_back();
+            return rhi::error::operation_failed;
+        }
+        return rhi::error::ok;
     }
 } // namespace deren::vulkan
