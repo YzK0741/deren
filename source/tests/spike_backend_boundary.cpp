@@ -116,6 +116,9 @@ namespace {
      * because "not handed out by the backend" is what this side knows and the DLL cannot.
      */
     struct foreign_command_buffer final : rhi::command_buffer {
+        foreign_command_buffer() noexcept
+            : rhi::command_buffer("foreign_command_buffer") {
+        }
         // the owner-side lifecycle, in the same everything-refused shape: this stand-in is "not
         // handed out by the backend" for BOTH questions the contract asks (submit's list and
         // execute's buffer), so one class answers both.
@@ -619,7 +622,7 @@ namespace {
             // a kind outside the two roles the contract names is the factory's one refusal
             CHECK(core->create_command_buffer(rhi::command_buffer_desc{.kind = static_cast<rhi::command_buffer_kind>(99u)}) == nullptr);
             if (primary && secondary) {
-                CHECK(primary->type() == rhi::command_buffer::interface_id);
+                CHECK(primary->type == "deren_command_buffer_vulkan");
                 // THE BORROWED RECORDING VIEW IS GONE WITH `command_list` (its `recording()` and the
                 // view it returned): the owned buffer IS the recording face now, so the distinction
                 // this line used to draw - the view is NOT the frame's list - is drawn against the

@@ -55,6 +55,9 @@ namespace {
     /// verb that would need one is a no-op; the two timing verbs answer `unsupported`, the honest
     /// answer for an object that cannot timestamp (the probe backend's own rule).
     struct contract_command_buffer final : deren::promise::rhi::command_buffer {
+        contract_command_buffer() noexcept
+            : deren::promise::rhi::command_buffer("contract_command_buffer") {
+        }
         void release() noexcept override {
         }
 
@@ -183,6 +186,9 @@ namespace {
     std::shared_ptr<deren::promise::rhi::command_buffer> const fake_cmd = std::make_shared<contract_command_buffer>();
     class contract_sampler final : public deren::promise::rhi::sampler {
     public:
+        contract_sampler() noexcept
+            : deren::promise::rhi::sampler("contract_sampler") {
+        }
         void release() noexcept override {
         }
     };

@@ -37,6 +37,8 @@ namespace {
     namespace fs = std::filesystem;
     namespace rhi = deren::promise::rhi;
 
+    static_assert(std::is_same_v<decltype(rhi::object::type), std::string_view const>);
+
     // 推送常量的地址与长度都以4字节为单位；越界检查必须避免加法溢出。
     static_assert(rhi::validate_heap_push_range(0u, 4u, 4u) == rhi::error::ok);
     static_assert(rhi::validate_heap_push_range(4u, 4u, 8u) == rhi::error::ok);
@@ -66,8 +68,6 @@ namespace {
         info.header.next = &extra;
         return rhi::validate_structure(info.header, rhi::structure_type::heap_buffer_write, sizeof(info)) == rhi::error::unsupported;
     }());
-    static_assert(rhi::buffer::interface_id != rhi::image::interface_id);
-    static_assert(rhi::extension_interface_type(rhi::extension_kind::descriptor_heap) == rhi::descriptor_heap::interface_id);
     static_assert(std::is_standard_layout_v<rhi::vulkan_heap_image_info> && offsetof(rhi::vulkan_heap_image_info, header) == 0);
     static_assert(std::is_standard_layout_v<rhi::vulkan_command_buffer_info> && offsetof(rhi::vulkan_command_buffer_info, header) == 0);
     static_assert([] {
@@ -111,6 +111,9 @@ namespace {
      * knows and the probe cannot.
      */
     struct foreign_command_buffer final : rhi::command_buffer {
+        foreign_command_buffer() noexcept
+            : rhi::command_buffer("foreign_command_buffer") {
+        }
         // the owner-side lifecycle, in the same everything-refused shape: this stand-in answers BOTH
         // questions the contract asks (submit's list and execute's buffer), so one class serves both.
         void release() noexcept override {
@@ -297,7 +300,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 29u);
+        CHECK(rhi::abi_version == 30u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -342,7 +345,7 @@ namespace {
         if (core == nullptr) {
             return;
         }
-        CHECK(core->type() == rhi::api_core::interface_id);
+        CHECK_MSG(core->type == "deren_api_core_probe", "object.type must identify the concrete implementation across static and DLL boundaries");
 
         // Ownership is real and it came WITH the answer: the control block holds the backend's own
         // deleter (for the DLL half, one built inside that DLL), the count is observable, and copying
@@ -381,7 +384,7 @@ namespace {
                 CHECK_MSG(ability != nullptr, which_half);
                 if (ability != nullptr) {
                     CHECK(ability->kind() == kind);
-                    CHECK(ability->type() == rhi::extension_interface_type(kind));
+                    CHECK(!ability->type.empty());
                 }
             } else {
                 CHECK_MSG(ability == nullptr, which_half);
@@ -403,7 +406,7 @@ namespace {
         rhi::buffer* const buffer = core->create_buffer(rhi::buffer_desc{.size = 64u});
         CHECK(buffer != nullptr);
         if (buffer != nullptr) {
-            CHECK(buffer->type() == rhi::buffer::interface_id);
+            CHECK(buffer->type == "deren_buffer_probe");
             CHECK(buffer->size() == 64u);
             if (address_ability != nullptr) {
                 // -fno-rtti: the caller knows what it asked for, so the downcast is a static_cast
@@ -525,7 +528,7 @@ namespace {
         rhi::command_buffer* const recorded = core->create_command_buffer(rhi::command_buffer_desc{.kind = rhi::command_buffer_kind::primary});
         CHECK_MSG(recorded != nullptr, which_half);
         if (recorded != nullptr) {
-            CHECK(recorded->type() == rhi::command_buffer::interface_id);
+            CHECK(recorded->type == "deren_command_buffer_probe");
             // THE FRAME-SCOPED VERBS REFUSE A BUFFER THAT IS NOT THE FRAME'S (the contract's own window
             // for `use` and the timing pair): `recording()` and its borrowed view are GONE with
             // `command_list` - the owned buffer IS the recording face now - so what used to be asserted
@@ -570,7 +573,7 @@ namespace {
             rhi::sampler* const made = core->create_sampler(desc);
             CHECK_MSG(made != nullptr, which_half);
             if (made != nullptr) {
-                CHECK(made->type() == rhi::interface_type::sampler);
+                CHECK(made->type == "deren_sampler_probe");
                 made->release();
             }
             // ... and a descriptor spelled with the DEFAULTS is the old behaviour exactly, which is what
@@ -610,7 +613,7 @@ namespace {
                 rhi::image_view* const whole = frame->make_view(rhi::image_view_desc{});
                 CHECK_MSG(whole != nullptr, which_half);
                 if (whole != nullptr) {
-                    CHECK(whole->type() == rhi::interface_type::image_view);
+                    CHECK(whole->type == "deren_image_view_probe");
                     whole->release(); // the OWNED view: this is the call that has to arrive
                 }
                 rhi::image_view_desc outside{};

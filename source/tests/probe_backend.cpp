@@ -86,6 +86,9 @@ namespace {
 
     /// The probe's buffer: a real object, statically allocated (see the banner).
     struct probe_buffer final : rhi::buffer {
+        probe_buffer() noexcept
+            : rhi::buffer("deren_buffer_probe") {
+        }
         /// THE PROBE'S `release()` IS OBSERVABLE ON PURPOSE, which is what makes the owned-handle path
         /// testable at all: the buffer is statically allocated, so there is no reference count to drop,
         /// but the call still has to ARRIVE (the test releases through `object_manager`, then reads
@@ -117,6 +120,9 @@ namespace {
     /// it: the image's own `release()` is the borrowed no-op, the view's is observable, and a range outside
     /// the single-layer/single-mip shape is refused by name (nullptr), never clamped.
     struct probe_image_view final : rhi::image_view {
+        probe_image_view() noexcept
+            : rhi::image_view("deren_image_view_probe") {
+        }
         void release() noexcept override {
             this->released = true;
         }
@@ -125,6 +131,9 @@ namespace {
     };
 
     struct probe_frame_image final : rhi::image {
+        probe_frame_image() noexcept
+            : rhi::image("deren_frame_image_probe") {
+        }
         void release() noexcept override {
             // BORROWED: the real backend logs once and releases nothing (the engine owns no reference to the
             // swapchain image). The probe's observable channel is an echo instead of a log, so a test can tell
@@ -168,6 +177,9 @@ namespace {
     /// the value the caller spelled. `release()` is observable for the same reason `probe_buffer`'s is: the
     /// object is statically allocated, so the call has to ARRIVE.
     struct probe_sampler final : rhi::sampler {
+        probe_sampler() noexcept
+            : rhi::sampler("deren_sampler_probe") {
+        }
         void release() noexcept override {
             this->released = true;
             this->seen = {};
@@ -184,6 +196,9 @@ namespace {
     /// IT HAS ONE METHOD (buffer addresses) since abi 5: the acceleration-structure half moved to
     /// `ray_tracing`, which is the only ability that can hand out that operand.
     struct probe_device_address final : rhi::device_address {
+        probe_device_address() noexcept
+            : rhi::device_address("deren_device_address_probe") {
+        }
 
         [[nodiscard]] std::uint64_t buffer_address(rhi::buffer const& resource, std::uint64_t offset) const noexcept override {
             return address_base + resource.size() + offset;
@@ -204,6 +219,9 @@ namespace {
     /// which is what a device-less probe can honestly claim. Broadcasting `vulkan_escape` alongside
     /// `device_address` is what makes the probe usable as an injected root at all.
     struct probe_escape final : rhi::vulkan_escape {
+        probe_escape() noexcept
+            : rhi::vulkan_escape("deren_vulkan_escape_probe") {
+        }
         [[nodiscard]] void* native_instance() const noexcept override {
             return nullptr;
         }
@@ -316,6 +334,9 @@ namespace {
     /// how the frame-scoped verbs tell "the frame's" from "the caller's" exactly as the real backend's
     /// `target != VK_NULL_HANDLE` test does.
     struct probe_command_buffer final : rhi::command_buffer {
+        probe_command_buffer() noexcept
+            : rhi::command_buffer("deren_command_buffer_probe") {
+        }
         impl* owner = nullptr;
         rhi::command_buffer_kind kind_echo = rhi::command_buffer_kind::primary;
         rhi::command_buffer_flags usage_echo = rhi::no_command_buffer_flags;
@@ -572,6 +593,9 @@ namespace {
     /// is the contract's rule for a not-yet-sized window. The bodies live below `impl` (they reach its
     /// echo through the owner pointer, which the constructor sets).
     struct probe_swapchain final : rhi::swapchain {
+        probe_swapchain() noexcept
+            : rhi::swapchain("deren_swapchain_probe") {
+        }
         impl* owner = nullptr;
 
         /// A BORROWED view: this surface is a static member of the probe, so there is no reference to
@@ -594,7 +618,8 @@ namespace {
         std::uint64_t bytes = 0;
         std::vector<std::byte> content;
         explicit cpu_buffer(rhi::buffer_desc const& desc)
-            : bytes(desc.size) {
+            : rhi::buffer("deren_buffer_cpu_probe")
+            , bytes(desc.size) {
             bool const host = desc.usage == rhi::buffer_usage::uniform_coherent ||
                               desc.usage == rhi::buffer_usage::uniform_cached ||
                               desc.usage == rhi::buffer_usage::storage_coherent ||
@@ -615,6 +640,9 @@ namespace {
         }
     };
     struct cpu_image_view final : rhi::image_view {
+        cpu_image_view() noexcept
+            : rhi::image_view("deren_image_view_cpu_probe") {
+        }
         void release() noexcept override {
             delete this;
         }
@@ -624,7 +652,8 @@ namespace {
         rhi::image_format pixel_format;
         std::uint32_t layers, mips;
         explicit cpu_image(rhi::image_desc const& desc)
-            : shape(desc.extent)
+            : rhi::image("deren_image_cpu_probe")
+            , shape(desc.extent)
             , pixel_format(desc.format)
             , layers(desc.array_layers)
             , mips(desc.mip_levels != 0 ? desc.mip_levels : std::bit_width(std::max(desc.extent.width, desc.extent.height))) {
@@ -650,11 +679,17 @@ namespace {
         }
     };
     struct cpu_sampler final : rhi::sampler {
+        cpu_sampler() noexcept
+            : rhi::sampler("deren_sampler_cpu_probe") {
+        }
         void release() noexcept override {
             delete this;
         }
     };
     struct cpu_capabilities final : rhi::device_capabilities {
+        cpu_capabilities() noexcept
+            : rhi::device_capabilities("deren_device_capabilities_cpu_probe") {
+        }
         bool mesh_shader() const noexcept override {
             return false;
         }
@@ -678,6 +713,9 @@ namespace {
         }
     };
     struct cpu_heap final : rhi::descriptor_heap {
+        cpu_heap() noexcept
+            : rhi::descriptor_heap("deren_descriptor_heap_cpu_probe") {
+        }
         std::uint32_t image_writes = 0, buffer_writes = 0;
         bool ready() const noexcept override {
             return true;
@@ -943,7 +981,8 @@ namespace {
         probe_swapchain swapchain_view{};   // not `swapchain`: a type name, not a member name
         probe_gpu_profiler profiler_view{}; // not `profiler`: the accessor above owns that name
 
-        impl() noexcept {
+        impl() noexcept
+            : rhi::api_core("deren_api_core_probe") {
             // THE OWNER IS SET IN THE CONSTRUCTOR - the same lesson the real backend's constructor
             // states: a view handed out with a null owner dereferences null on its first call.
             this->commands.owner = this;

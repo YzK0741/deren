@@ -40,6 +40,7 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <span>
+#include <string_view>
 
 export module deren.promise.rhi:extension;
 
@@ -166,8 +167,8 @@ export namespace deren::promise::rhi {
     /// specific kind, so it already knows the type (plan §3.3).
     struct extension : object {
     protected:
-        explicit extension(interface_type const type) noexcept
-            : object(type) {
+        explicit extension(std::string_view const name) noexcept
+            : object(name) {
         }
 
     public:
@@ -188,10 +189,10 @@ export namespace deren::promise::rhi {
     /// it hostage to a resource the backend could not yet make. One ability per operand stays honest;
     /// bundling an unreachable operand with a reachable one gets the bit announced never, or wrongly.
     struct device_address : extension {
-        static constexpr interface_type interface_id = interface_type::device_address;
+
         static constexpr extension_kind extension_id = extension_kind::device_address;
-        device_address() noexcept
-            : extension(interface_id) {
+        explicit device_address(std::string_view const name) noexcept
+            : extension(name) {
         }
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
@@ -205,10 +206,10 @@ export namespace deren::promise::rhi {
     /// Record size comes from device_capabilities::shader_binding_table(). Zero groups,
     /// out-of-range groups, insufficient output and foreign/non-RT pipelines are invalid_argument.
     struct shader_group_access : extension {
-        static constexpr interface_type interface_id = interface_type::shader_group_access;
+
         static constexpr extension_kind extension_id = extension_kind::shader_group_access;
-        shader_group_access() noexcept
-            : extension(interface_id) {
+        explicit shader_group_access(std::string_view const name) noexcept
+            : extension(name) {
         }
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
@@ -220,10 +221,10 @@ export namespace deren::promise::rhi {
     /// 可选的bindless heap服务；使用通用资源/地址/命令语义。原生参数只能显式放在next中。
     /// 不承诺所有后端支持；广播此能力必须提供可用实现，不能用空操作冒充。
     struct descriptor_heap : extension {
-        static constexpr interface_type interface_id = interface_type::descriptor_heap;
+
         static constexpr extension_kind extension_id = extension_kind::descriptor_heap;
-        descriptor_heap() noexcept
-            : extension(interface_id) {
+        explicit descriptor_heap(std::string_view const name) noexcept
+            : extension(name) {
         }
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
@@ -286,10 +287,10 @@ export namespace deren::promise::rhi {
 
     /// tier-2 ability: mesh and task shaders.
     struct mesh_shader : extension {
-        static constexpr interface_type interface_id = interface_type::mesh_shader;
+
         static constexpr extension_kind extension_id = extension_kind::mesh_shader;
-        mesh_shader() noexcept
-            : extension(interface_id) {
+        explicit mesh_shader(std::string_view const name) noexcept
+            : extension(name) {
         }
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
@@ -324,10 +325,10 @@ export namespace deren::promise::rhi {
     /// to make the image's writes visible to the host first (a barrier and a wait, see
     /// docs/host_image_copy.md).
     struct host_image_copy : extension {
-        static constexpr interface_type interface_id = interface_type::host_image_copy;
+
         static constexpr extension_kind extension_id = extension_kind::host_image_copy;
-        host_image_copy() noexcept
-            : extension(interface_id) {
+        explicit host_image_copy(std::string_view const name) noexcept
+            : extension(name) {
         }
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
@@ -358,10 +359,10 @@ export namespace deren::promise::rhi {
     /// THE METHODS ARE THE MEASURED SET, not a device dump: each one is read by the engine today. A fact nobody reads is dead
     /// vocabulary, so a later need adds a method rather than this type carrying a `VkPhysicalDeviceProperties`.
     struct device_capabilities : extension {
-        static constexpr interface_type interface_id = interface_type::device_capabilities;
+
         static constexpr extension_kind extension_id = extension_kind::device_capabilities;
-        device_capabilities() noexcept
-            : extension(interface_id) {
+        explicit device_capabilities(std::string_view const name) noexcept
+            : extension(name) {
         }
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;
@@ -525,28 +526,6 @@ export namespace deren::promise::rhi {
         std::uint32_t view_mask = 0;                 ///< VkCommandBufferInheritanceRenderingInfo::viewMask
     };
 
-    [[nodiscard]] constexpr interface_type extension_interface_type(extension_kind const kind) noexcept {
-        switch (kind) {
-        case extension_kind::device_address:
-            return interface_type::device_address;
-        case extension_kind::descriptor_heap:
-            return interface_type::descriptor_heap;
-        case extension_kind::mesh_shader:
-            return interface_type::mesh_shader;
-        case extension_kind::ray_tracing: // RETIRED: no interface answers to it any more (see its bit's note)
-            return interface_type::ray_tracing;
-        case extension_kind::host_image_copy:
-            return interface_type::host_image_copy;
-        case extension_kind::vulkan_escape:
-            return interface_type::vulkan_escape;
-        case extension_kind::device_capabilities:
-            return interface_type::device_capabilities;
-        case extension_kind::shader_group_access:
-            return interface_type::shader_group_access;
-        }
-        return interface_type::unknown;
-    }
-
     /// tier-2 ability: the raw Vulkan handles a pass needs when the contract has no concept for what it
     /// does. ONLY a Vulkan backend can answer these, which is exactly why this is an ability and not
     /// tier-1; a non-Vulkan backend does not announce the bit, and G1/G2 then require `nullptr` from
@@ -599,10 +578,10 @@ export namespace deren::promise::rhi {
     };
 
     struct vulkan_escape : extension {
-        static constexpr interface_type interface_id = interface_type::vulkan_escape;
+
         static constexpr extension_kind extension_id = extension_kind::vulkan_escape;
-        vulkan_escape() noexcept
-            : extension(interface_id) {
+        explicit vulkan_escape(std::string_view const name) noexcept
+            : extension(name) {
         }
         [[nodiscard]] extension_kind kind() const noexcept final {
             return extension_id;

@@ -288,7 +288,8 @@ export namespace deren::promise::rhi {
     /// opacity_micromap` - a CONTRACT handle, never a driver's.
     /// 27 -> 28: swapchain::format() appends the pre-acquire presentation format query.
     /// 28 -> 29: image::share() and image_view::get_image() append owning parent-reference access.
-    inline constexpr std::uint32_t abi_version = 29u;
+    /// 29 -> 30: object stores a concrete implementation name instead of an interface enum.
+    inline constexpr std::uint32_t abi_version = 30u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
@@ -424,52 +425,17 @@ export namespace deren::promise::rhi {
     static_assert(offsetof(error_info, message) == 16, "error_info's pinned layout moved");
     static_assert(offsetof(error_info, where) == 32, "error_info's pinned layout moved");
 
-    /// 接口身份由RHI定义，不能由后端重解释；数值只追加，不复用。
-    enum class interface_type : std::uint32_t {
-        unknown = 0,
-        api_core = 1,
-        buffer = 2,
-        image = 3,
-        image_view = 4,
-        sampler = 5,
-        shader = 6,
-        pipeline = 7,
-        swapchain = 8,
-        query = 9,
-        command_list = 10,   ///< RETIRED: the face was absorbed into `command_buffer`; the NUMBER stays (never renumber).
-        command_buffer = 11, ///< appended in abi 15: the owned recording handle `create_command_buffer()` hands out
-        /// APPENDED IN ABI 26: the acceleration-structure handle became TIER-1 furniture (like `buffer` and
-        /// `image`) when the `ray_tracing` ability was retired - the number continues the object range.
-        acceleration_structure = 12,
-        /// APPENDED IN ABI 27: its micromap sibling, for the same reason (plan S1's P4).
-        micromap = 13,
-        device_address = 0x100,
-        descriptor_heap = 0x101,
-        mesh_shader = 0x102,
-        ray_tracing = 0x103,
-        host_image_copy = 0x104,
-        vulkan_escape = 0x105,
-        /// APPENDED: the tier-2 `device_capabilities` ability - what the DEVICE can do, asked once through the
-        /// extension mechanism instead of the engine re-deriving it from the API (see the ability's own note).
-        device_capabilities = 0x106,
-        shader_group_access = 0x107,
-    };
-
-    /// 只用于接口识别/调试，不是设备归属、对象存活或具体实现布局的证明。
+    /// Concrete implementation identity. Names must have static storage duration.
+    /// A name is not proof of device ownership or object lifetime.
     class object {
     public:
-        [[nodiscard]] constexpr interface_type type() const noexcept {
-            return this->type_;
-        }
+        std::string_view const type;
 
     protected:
-        constexpr explicit object(interface_type const type) noexcept
-            : type_(type) {
+        constexpr explicit object(std::string_view const name) noexcept
+            : type(name) {
         }
-        ~object() = default; // 禁止经共同根delete；保持各接口既有的release/析构路径。
-
-    private:
-        interface_type const type_;
+        ~object() = default; // Destruction stays on each interface's release path.
     };
 
     enum class structure_type : std::uint32_t {

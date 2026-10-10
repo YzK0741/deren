@@ -90,7 +90,7 @@ namespace {
 
 int main(int const argc, char** const argv) {
     deren::vk_test::write_line("as_probe: this executable compiled abi {}", rhi::abi_version);
-    CHECK(rhi::abi_version == 29u);
+    CHECK(rhi::abi_version == 30u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("as_probe: device path skipped (pass --with-device to run the real instrument)");

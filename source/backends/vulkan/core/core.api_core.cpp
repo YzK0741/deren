@@ -2371,7 +2371,7 @@ namespace deren::vulkan {
     }
 
     rhi::image_format core::frame_image_slot::format() const noexcept {
-        return this->owner->swapchain_view_.format();
+        return this->owner->presentation_surface.format();
     }
 
     VkImage core::frame_image_slot::handle() const noexcept {
@@ -2690,7 +2690,7 @@ namespace deren::vulkan {
         // core itself owns (the same object `use()` accepts by identity) - so the identity check is the
         // second acceptance, with the format the swapchain was created with.
         auto const resolve_image = [&](rhi::image const* const resource, VkImage& native, VkFormat& format) -> rhi::error {
-            if (resource == nullptr || resource->type() != rhi::interface_type::image) {
+            if (resource == nullptr || (resource->type != "deren_image_vulkan" && resource->type != "deren_frame_image_vulkan")) {
                 return rhi::error::invalid_argument;
             }
             if (static_cast<void const*>(resource) == static_cast<void const*>(&self->frame_image_view)) {
@@ -2751,7 +2751,7 @@ namespace deren::vulkan {
             if (buffer_count >= buffer_barriers.size()) {
                 return rhi::error::invalid_argument;
             }
-            if (one.resource == nullptr || one.resource->type() != rhi::interface_type::buffer) {
+            if (one.resource == nullptr || one.resource->type != "deren_buffer_vulkan") {
                 return rhi::error::invalid_argument;
             }
             auto const* const owned = static_cast<owned_buffer const*>(one.resource);
@@ -2832,7 +2832,7 @@ namespace deren::vulkan {
             return rhi::error::invalid_argument;
         }
         auto const resolve_view = [&](rhi::image_view const* const view) -> VkImageView {
-            if (view == nullptr || view->type() != rhi::interface_type::image_view) {
+            if (view == nullptr || view->type != "deren_image_view_vulkan") {
                 return VK_NULL_HANDLE;
             }
             return static_cast<owned_image_view const*>(view)->native_view;
@@ -2918,7 +2918,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (handle.type() != rhi::interface_type::pipeline) {
+        if (handle.type != "deren_pipeline_vulkan") {
             return rhi::error::invalid_argument;
         }
         auto const* const owned = static_cast<owned_pipeline const*>(&handle);
@@ -2931,7 +2931,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (handle.type() != rhi::interface_type::buffer) {
+        if (handle.type != "deren_buffer_vulkan") {
             return rhi::error::invalid_argument;
         }
         auto const* const owned = static_cast<owned_buffer const*>(&handle);
@@ -2946,7 +2946,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (handle.type() != rhi::interface_type::buffer) {
+        if (handle.type != "deren_buffer_vulkan") {
             return rhi::error::invalid_argument;
         }
         auto const* const owned = static_cast<owned_buffer const*>(&handle);
@@ -3294,7 +3294,7 @@ namespace deren::vulkan {
                 // first attached it in the wrong place). THE INDEX ARRAY IS THIS BACKEND'S - it built the micromap
                 // and owns the buffer - which is what makes the contract's attachment one handle and a usage record.
                 if (source.opacity_micromap != nullptr) {
-                    if (source.opacity_micromap->type() != rhi::interface_type::micromap) {
+                    if (source.opacity_micromap->type != "deren_micromap_vulkan") {
                         deren::utility::log("rhi: create_acceleration_structure refused: a geometry's opacity micromap is not a handle this backend handed out");
                         delete structure;
                         return nullptr;
@@ -3430,7 +3430,7 @@ namespace deren::vulkan {
         if (self->micromap_build == nullptr) {
             return rhi::error::unsupported; // no VK_EXT_opacity_micromap on this device (see the constructor)
         }
-        if (target.type() != rhi::interface_type::micromap) {
+        if (target.type != "deren_micromap_vulkan") {
             return rhi::error::invalid_argument; // a handle this backend did not hand out
         }
         auto& micromap = static_cast<owned_micromap&>(target);
@@ -3501,7 +3501,7 @@ namespace deren::vulkan {
         if (self->acceleration_structure_build == nullptr) {
             return rhi::error::unsupported; // no VK_KHR_acceleration_structure on this device (see the constructor)
         }
-        if (target.type() != rhi::interface_type::acceleration_structure) {
+        if (target.type != "deren_acceleration_structure_vulkan") {
             return rhi::error::invalid_argument; // a handle this backend did not hand out (the provenance rule)
         }
         auto& structure = static_cast<owned_acceleration_structure&>(target);
@@ -3565,7 +3565,7 @@ namespace deren::vulkan {
         if (self->acceleration_structure_build == nullptr) {
             return rhi::error::unsupported;
         }
-        if (target.type() != rhi::interface_type::acceleration_structure) {
+        if (target.type != "deren_acceleration_structure_vulkan") {
             return rhi::error::invalid_argument;
         }
         auto& structure = static_cast<owned_acceleration_structure&>(target);
@@ -3683,7 +3683,7 @@ namespace deren::vulkan {
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (argument_buffer.type() != rhi::interface_type::buffer) {
+        if (argument_buffer.type != "deren_buffer_vulkan") {
             return rhi::error::invalid_argument;
         }
         if (self->mesh_dispatch_indirect == nullptr) {
@@ -3757,8 +3757,8 @@ namespace deren::vulkan {
         VkFormat destination_format = VK_FORMAT_UNDEFINED;
         {
             std::lock_guard const lock(self->contract_images_mutex);
-            if (copy.source == nullptr || copy.destination == nullptr || copy.source->type() != rhi::interface_type::image ||
-                copy.destination->type() != rhi::interface_type::image || !self->contract_images.contains(copy.source) ||
+            if (copy.source == nullptr || copy.destination == nullptr || (copy.source->type != "deren_image_vulkan" && copy.source->type != "deren_frame_image_vulkan") ||
+                (copy.destination->type != "deren_image_vulkan" && copy.destination->type != "deren_frame_image_vulkan") || !self->contract_images.contains(copy.source) ||
                 !self->contract_images.contains(copy.destination)) {
                 return rhi::error::invalid_argument;
             }
@@ -3806,7 +3806,7 @@ namespace deren::vulkan {
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (destination.type() != rhi::interface_type::buffer || source.type() != rhi::interface_type::buffer) {
+        if (destination.type != "deren_buffer_vulkan" || source.type != "deren_buffer_vulkan") {
             return rhi::error::invalid_argument;
         }
         auto const* const destination_owned = static_cast<owned_buffer const*>(&destination);
@@ -3836,7 +3836,7 @@ namespace deren::vulkan {
         if (self == nullptr || command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        if (target.type() != rhi::interface_type::image) {
+        if ((target.type != "deren_image_vulkan" && target.type != "deren_frame_image_vulkan")) {
             return rhi::error::invalid_argument;
         }
         std::lock_guard const lock(self->contract_images_mutex);
@@ -4312,7 +4312,7 @@ namespace deren::vulkan {
     }
 
     rhi::swapchain* core::frame_swapchain() noexcept {
-        return &this->swapchain_view_;
+        return &this->presentation_surface;
     }
 
     rhi::error core::submit(rhi::command_buffer& commands) {

@@ -12,7 +12,7 @@
 // follows from the cross-boundary rules in §4.2:
 //
 //   - operations are virtual, the destructor is `virtual ... noexcept`, and the
-//     common object root carries only a sealed interface identity (ABI12). No owning
+//     common object root carries a static concrete implementation name (ABI30). No owning
 //     data or non-inline definition crosses this interface: the vtable is the boundary,
 //     and destruction has to reach the backend's own `operator delete`;
 //   - an OWNED handle carries ONE REFERENCE, dropped by `release()`, once, inside the
@@ -684,9 +684,9 @@ export namespace deren::promise::rhi {
     /// structure's storage: a caller that holds the handle cannot get the alignment or the index array wrong,
     /// which is exactly what the engine used to do by hand.
     struct micromap : object {
-        static constexpr interface_type interface_id = interface_type::micromap;
-        micromap() noexcept
-            : object(interface_id) {
+
+        explicit micromap(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~micromap() noexcept = default;
 
@@ -772,9 +772,9 @@ export namespace deren::promise::rhi {
     ///
     /// ONE REFERENCE, dropped through `release()`, like every owned handle in this contract.
     struct acceleration_structure : object {
-        static constexpr interface_type interface_id = interface_type::acceleration_structure;
-        acceleration_structure() noexcept
-            : object(interface_id) {
+
+        explicit acceleration_structure(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~acceleration_structure() noexcept = default;
 
@@ -800,9 +800,9 @@ export namespace deren::promise::rhi {
     };
 
     struct buffer : object {
-        static constexpr interface_type interface_id = interface_type::buffer;
-        buffer() noexcept
-            : object(interface_id) {
+
+        explicit buffer(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~buffer() noexcept = default;
 
@@ -843,9 +843,9 @@ export namespace deren::promise::rhi {
 
     /// An image, owned by the backend and released by the caller through `release()`.
     struct image : object {
-        static constexpr interface_type interface_id = interface_type::image;
-        image() noexcept
-            : object(interface_id) {
+
+        explicit image(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~image() noexcept = default;
 
@@ -904,9 +904,9 @@ export namespace deren::promise::rhi {
     /// Views of borrowed frame images retain no parent and must respect the frame lifetime.
     /// The raw handle travels through `vulkan_escape::native_image_view()`.
     struct image_view : object {
-        static constexpr interface_type interface_id = interface_type::image_view;
-        image_view() noexcept
-            : object(interface_id) {
+
+        explicit image_view(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~image_view() noexcept = default;
         /// Drop the view, including its retained parent reference after native view destruction.
@@ -1185,9 +1185,9 @@ export namespace deren::promise::rhi {
     /// has to reach the backend's destructor, which is the property the boundary rests
     /// on.
     struct sampler : object {
-        static constexpr interface_type interface_id = interface_type::sampler;
-        sampler() noexcept
-            : object(interface_id) {
+
+        explicit sampler(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~sampler() noexcept = default;
         /// see `buffer::release()`
@@ -1195,9 +1195,9 @@ export namespace deren::promise::rhi {
     };
 
     struct shader : object {
-        static constexpr interface_type interface_id = interface_type::shader;
-        shader() noexcept
-            : object(interface_id) {
+
+        explicit shader(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~shader() noexcept = default;
         /// see `buffer::release()`
@@ -1205,9 +1205,9 @@ export namespace deren::promise::rhi {
     };
 
     struct pipeline : object {
-        static constexpr interface_type interface_id = interface_type::pipeline;
-        pipeline() noexcept
-            : object(interface_id) {
+
+        explicit pipeline(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~pipeline() noexcept = default;
         /// see `buffer::release()`
@@ -1215,9 +1215,9 @@ export namespace deren::promise::rhi {
     };
 
     struct swapchain : object {
-        static constexpr interface_type interface_id = interface_type::swapchain;
-        swapchain() noexcept
-            : object(interface_id) {
+
+        explicit swapchain(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~swapchain() noexcept = default;
         /// see `buffer::release()`
@@ -1247,9 +1247,9 @@ export namespace deren::promise::rhi {
     };
 
     struct query : object {
-        static constexpr interface_type interface_id = interface_type::query;
-        query() noexcept
-            : object(interface_id) {
+
+        explicit query(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~query() noexcept = default;
         /// see `buffer::release()`
@@ -1288,20 +1288,20 @@ export namespace deren::promise::rhi {
         object_manager() noexcept = default;
 
         /// take the reference @p owned carries (null is allowed: a factory that refused hands back null)
-        explicit object_manager(object* const owned) noexcept
-            : owned_{owned} {
+        explicit object_manager(object* const handle) noexcept
+            : owned{handle} {
         }
 
         object_manager(object_manager&& other) noexcept
-            : owned_{other.owned_} {
-            other.owned_ = nullptr;
+            : owned{other.owned} {
+            other.owned = nullptr;
         }
 
         object_manager& operator=(object_manager&& other) noexcept {
             if (this != &other) {
                 this->reset();
-                this->owned_ = other.owned_;
-                other.owned_ = nullptr;
+                this->owned = other.owned;
+                other.owned = nullptr;
             }
             return *this;
         }
@@ -1317,43 +1317,43 @@ export namespace deren::promise::rhi {
         /// one. **The object may outlive this call** - release is not destruction when the resource is
         /// shared (see the ownership note above).
         void reset() noexcept {
-            if (this->owned_ != nullptr) {
-                this->owned_->release();
-                this->owned_ = nullptr;
+            if (this->owned != nullptr) {
+                this->owned->release();
+                this->owned = nullptr;
             }
         }
 
         /// give up the reference WITHOUT releasing it (the caller takes over the `release()`)
         [[nodiscard]] object* release() noexcept {
-            object* const released = this->owned_;
-            this->owned_ = nullptr;
+            object* const released = this->owned;
+            this->owned = nullptr;
             return released;
         }
 
         void swap(object_manager& other) noexcept {
-            object* const temporary = this->owned_;
-            this->owned_ = other.owned_;
-            other.owned_ = temporary;
+            object* const temporary = this->owned;
+            this->owned = other.owned;
+            other.owned = temporary;
         }
 
         [[nodiscard]] object* get() const noexcept {
-            return this->owned_;
+            return this->owned;
         }
 
         [[nodiscard]] object* operator->() const noexcept {
-            return this->owned_;
+            return this->owned;
         }
 
         [[nodiscard]] object& operator*() const noexcept {
-            return *this->owned_;
+            return *this->owned;
         }
 
         [[nodiscard]] explicit operator bool() const noexcept {
-            return this->owned_ != nullptr;
+            return this->owned != nullptr;
         }
 
     private:
-        object* owned_ = nullptr;
+        object* owned = nullptr;
     };
 
     // ---- THE COMMAND BUFFER: THE OWNED RECORDING HANDLE (abi 15) ------------------------------------
@@ -1478,9 +1478,9 @@ export namespace deren::promise::rhi {
     /// SESSION rather than memory: the verbs below are that session's lifecycle, and the backend keeps
     /// the pool, the query pool and the API's state machine behind them.
     struct command_buffer : object {
-        static constexpr interface_type interface_id = interface_type::command_buffer;
-        command_buffer() noexcept
-            : object(interface_id) {
+
+        explicit command_buffer(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~command_buffer() noexcept = default;
 
@@ -1796,9 +1796,9 @@ export namespace deren::promise::rhi {
     /// interface the plan lets be "big"), and deliberately not allowed to learn engine
     /// concepts (§4.1 item 2).
     struct api_core : object {
-        static constexpr interface_type interface_id = interface_type::api_core;
-        api_core() noexcept
-            : object(interface_id) {
+
+        explicit api_core(std::string_view const name) noexcept
+            : object(name) {
         }
         virtual ~api_core() noexcept = default;
 
@@ -1968,7 +1968,7 @@ export namespace deren::promise::rhi {
     template <typename ability>
     [[nodiscard]] ability* query_extension(api_core& core) noexcept {
         extension* const result = core.query_extension(ability::extension_id);
-        if (result == nullptr || result->kind() != ability::extension_id || result->type() != ability::interface_id) {
+        if (result == nullptr || result->kind() != ability::extension_id) {
             return nullptr;
         }
         return static_cast<ability*>(result);

@@ -50,6 +50,14 @@ import deren.engine.backend_loader; // load_api_core(): the acquisition lives ou
 namespace {
     namespace rhi = deren::promise::rhi;
 
+    struct foreign_image_view final : rhi::image_view {
+        foreign_image_view() noexcept
+            : rhi::image_view("foreign_image_view") {
+        }
+        void release() noexcept override {
+        }
+    };
+
     /// Is this run allowed to build a device? The flag is required rather than defaulted because the device
     /// path is slow (a real instance, device, swapchain and heap) and because a machine without a Vulkan
     /// device must still be able to run the handshake half.
@@ -72,7 +80,7 @@ int main(int const argc, char** const argv) {
     // abi 21 is the recording face's owner half (`api_core::make_command_buffer`); this pin moves with the
     // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's own note).
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
-    CHECK(rhi::abi_version == 29u);
+    CHECK(rhi::abi_version == 30u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -111,6 +119,22 @@ int main(int const argc, char** const argv) {
         CHECK(dynamic.valid());
 
         rhi::api_core& face = dynamic.rhi_face();
+        CHECK(face.type == "deren_api_core_vulkan");
+        auto commands = face.make_command_buffer({});
+        CHECK(commands != nullptr);
+        if (commands) {
+            CHECK(commands->type == "deren_command_buffer_vulkan");
+            CHECK(commands->begin_recording({}) == rhi::error::ok);
+            foreign_image_view foreign_view;
+            std::array<rhi::color_attachment, 1> attachments{{{.view = &foreign_view}}};
+            rhi::rendering_info rendering{};
+            rendering.area.width = 4u;
+            rendering.area.height = 4u;
+            rendering.colors = attachments;
+            CHECK_MSG(commands->begin_rendering(rendering) == rhi::error::invalid_argument,
+                      "a different image_view implementation must be refused before a Vulkan downcast");
+            CHECK(commands->end_recording() == rhi::error::ok);
+        }
         // A view and a copied parent reference each retain the original image identity.
         rhi::image_desc parent_desc{};
         parent_desc.extent = {.width = 4u, .height = 4u, .depth = 1u};
@@ -119,6 +143,7 @@ int main(int const argc, char** const argv) {
         rhi::object_manager<rhi::image> original{face.create_image(parent_desc)};
         CHECK(original);
         if (original) {
+            CHECK(original->type == "deren_image_vulkan");
             auto* const identity = original.get();
             auto first_owner = original->share();
             CHECK(first_owner != nullptr);
@@ -129,6 +154,7 @@ int main(int const argc, char** const argv) {
             rhi::object_manager<rhi::image_view> view{original->make_view({})};
             CHECK(view);
             if (view) {
+                CHECK(view->type == "deren_image_view_vulkan");
                 auto parent = view->get_image();
                 CHECK_MSG(parent != nullptr, "an owned image view must retain its parent");
                 if (parent) {
@@ -189,6 +215,7 @@ int main(int const argc, char** const argv) {
         auto* const borrowed_image = face.frame_image();
         CHECK(borrowed_image != nullptr);
         if (borrowed_image != nullptr) {
+            CHECK(borrowed_image->type == "deren_frame_image_vulkan");
             CHECK(!borrowed_image->share());
             rhi::object_manager<rhi::image_view> borrowed_view{borrowed_image->make_view({})};
             CHECK(borrowed_view);

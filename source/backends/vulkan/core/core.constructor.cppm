@@ -148,7 +148,8 @@ namespace deren::vulkan {
     // member initialiser rather than a delegating constructor because the two spellings collapsed
     // into one signature - `core(create_info const&)` is the only constructor left to delegate to.
     core::core(deren::promise::rhi::create_info const& desc)
-        : create_options{sanitize_create_info(desc)} {
+        : deren::promise::rhi::api_core("deren_api_core_vulkan")
+        , create_options{sanitize_create_info(desc)} {
         // THE RENDER SCALE BEFORE ANYTHING IS CREATED: `init_swap_chain` below sets `swap_chain_extent`,
         // which `render_extent()` multiplies, and `create_depth_resources` is created with the result (the
         // ENGINE's render targets are created with it too, but by the engine, through the contract).
@@ -309,7 +310,7 @@ namespace deren::vulkan {
         // lesson, measured by the spike as 2 FAILs before anything else could look at it).
         this->frames_view.owner = this;
         this->profiler_view.owner = this;
-        this->swapchain_view_.owner = this;
+        this->presentation_surface.owner = this;
         this->escape_view.owner = this;
         this->heap_view.owner = this;
         this->address_view.owner = this;
@@ -351,7 +352,7 @@ namespace deren::vulkan {
         for (deren::promise::rhi::extension_kind const kind : deren::promise::rhi::all_extension_kinds()) {
             bool const announced = deren::promise::rhi::has_ability(this->abilities(), kind);
             deren::promise::rhi::extension* const ability = this->query_extension(kind);
-            bool const serves = ability != nullptr && ability->kind() == kind && ability->type() == promise::rhi::extension_interface_type(kind);
+            bool const serves = ability != nullptr && ability->kind() == kind;
             if (announced != serves) {
                 deren::utility::log("rhi: abilities() and query_extension() disagree about extension_kind {} (announced {}, answers {})",
                                     static_cast<std::uint32_t>(kind),
