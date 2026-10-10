@@ -8,7 +8,7 @@
 
 **Tech Stack:** C++23 modules、Slang、现有 RHI、CMake/CTest、GPU 时间戳与截图回归。
 
-**Spec:** 本计划中的“范围与成功标准”和“数据及模块边界”定义本阶段规格；具体实现接口须在开工前核对现有 RHI 后确定。
+**Spec:** [细化设计规格](../specs/2026-10-10-gaussian-splatting-design.md)补充数据布局、排序、绘制、帧内合成及 RHI 缺口，状态为供评审。本文件仍为阶段路线，待规格确认后细化为实施任务。
 
 ## 范围与成功标准
 
