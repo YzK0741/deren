@@ -4,9 +4,14 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
+#include <memory>
+#include <span>
+#include <vector>
+import deren.promise.rhi;
 import deren.gaussian_loader;
 import deren.engine.gaussian_splatting;
 namespace gs = deren::engine::gaussian_splatting;
@@ -67,6 +72,15 @@ namespace {
         CHECK(result);
         CHECK(result->bounds_min[0] < 1.0f);
         CHECK(result->bounds_max[0] > 1.0f);
+        a = sample();
+        a.particles[0].center = {1e30f, 1e30f, 1e30f};
+        a.particles[0].scale = {1e-8f, 1e-8f, 1e-8f};
+        result = gs::pack_asset(a);
+        CHECK(result);
+        if (result) {
+            CHECK(result->bounds_min[0] < a.particles[0].center[0]);
+            CHECK(result->bounds_max[0] > a.particles[0].center[0]);
+        }
         a = sample();
         a.particles[0].rotation = {-1, 0, 0, 0};
         a.particles[0].opacity = 0;
@@ -210,10 +224,237 @@ void test_sorting() {
     CHECK(gs::sort_draw_references({}, {})->empty());
 }
 
+namespace rhi = deren::promise::rhi;
+struct upload_probe;
+struct probe_buffer : rhi::buffer {
+    unsigned index;
+    int& releases;
+    std::uint64_t capacity;
+    probe_buffer(unsigned i, int& r, std::uint64_t size)
+        : buffer("gaussian_probe_buffer")
+        , index(i)
+        , releases(r)
+        , capacity(size) {
+    }
+    void release() noexcept override {
+        ++releases;
+        delete this;
+    }
+    std::uint64_t size() const noexcept override {
+        return capacity;
+    }
+    std::span<std::byte> mapped() noexcept override {
+        return {};
+    }
+};
+struct probe_address : rhi::device_address {
+    unsigned zero_at = 0, unaligned_at = 0;
+    probe_address()
+        : device_address("gaussian_probe_address") {
+    }
+    std::uint64_t buffer_address(rhi::buffer const& b, std::uint64_t) const noexcept override {
+        auto const& buffer = static_cast<probe_buffer const&>(b);
+        return buffer.index == zero_at ? 0 : buffer.index * 4096ull + (buffer.index == unaligned_at ? 1 : 0);
+    }
+};
+struct upload_probe : rhi::api_core {
+    bool supported = true;
+    unsigned fail_at = 0, calls = 0, undersized_at = 0;
+    int releases = 0;
+    probe_address address;
+    std::vector<rhi::buffer_desc> descriptors;
+    std::vector<std::vector<std::byte>> bytes;
+    upload_probe()
+        : api_core("gaussian_upload_probe") {
+    }
+    rhi::ability_bits abilities() const noexcept override {
+        return supported ? rhi::to_bits(rhi::extension_kind::device_address) : 0;
+    }
+    rhi::extension* query_extension(rhi::extension_kind kind) noexcept override {
+        return supported && kind == rhi::extension_kind::device_address ? &address : nullptr;
+    }
+    rhi::buffer* create_buffer(rhi::buffer_desc const& desc) override {
+        ++calls;
+        if (calls == fail_at)
+            return nullptr;
+        auto copy = desc;
+        copy.initial_bytes = {};
+        descriptors.push_back(copy);
+        bytes.emplace_back(desc.initial_bytes.begin(), desc.initial_bytes.end());
+        return new probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size);
+    }
+    rhi::swapchain* create_swapchain(rhi::swapchain_desc const&) override {
+        return nullptr;
+    }
+    rhi::image* create_image(rhi::image_desc const&) override {
+        return nullptr;
+    }
+    rhi::acceleration_structure* create_acceleration_structure(rhi::acceleration_structure_desc const&) override {
+        return nullptr;
+    }
+    rhi::micromap* create_micromap(rhi::micromap_desc const&) override {
+        return nullptr;
+    }
+    rhi::sampler* create_sampler(rhi::sampler_desc const&) override {
+        return nullptr;
+    }
+    rhi::shader* create_shader(rhi::shader_desc const&) override {
+        return nullptr;
+    }
+    rhi::pipeline* create_pipeline(rhi::pipeline_desc const&) override {
+        return nullptr;
+    }
+    rhi::query* create_query(rhi::query_desc const&) override {
+        return nullptr;
+    }
+    rhi::command_buffer* begin_commands() override {
+        return nullptr;
+    }
+    rhi::image* frame_image() noexcept override {
+        return nullptr;
+    }
+    rhi::buffer* frame_readback_buffer() noexcept override {
+        return nullptr;
+    }
+    rhi::submit_info frame_begin() override {
+        return {};
+    }
+    rhi::error present() override {
+        return rhi::error::unsupported;
+    }
+    void wait_idle() override {
+        CHECK(false);
+    }
+    rhi::frame_walker* walk_frames() noexcept override {
+        return nullptr;
+    }
+    rhi::gpu_profiler* profiler() noexcept override {
+        return nullptr;
+    }
+    rhi::swapchain* frame_swapchain() noexcept override {
+        return nullptr;
+    }
+    rhi::error submit(rhi::command_buffer&) override {
+        return rhi::error::unsupported;
+    }
+    rhi::command_buffer* create_command_buffer(rhi::command_buffer_desc const&) override {
+        return nullptr;
+    }
+    std::shared_ptr<rhi::command_buffer> make_command_buffer(rhi::command_buffer_desc const&) override {
+        return {};
+    }
+    std::uint32_t api_version() const noexcept override {
+        return rhi::abi_version;
+    }
+};
+void test_upload() {
+    auto packed = gs::pack_asset(sample());
+    CHECK(packed);
+    if (!packed)
+        return;
+    upload_probe probe;
+    auto result = gs::upload_asset(probe, *packed);
+    CHECK(result && *result);
+    if (result && *result) {
+        CHECK((*result)->particle_count() == 1);
+        CHECK((*result)->byte_size() == 240);
+        CHECK((*result)->sh_degree() == 0);
+        CHECK((*result)->geometry_address() == 4096);
+        CHECK((*result)->sh_address() == 8192);
+        CHECK((*result)->bounds_min() == packed->bounds_min);
+        CHECK((*result)->bounds_max() == packed->bounds_max);
+        CHECK(probe.descriptors.size() == 2);
+        CHECK(probe.descriptors[0].size == 48);
+        CHECK(probe.descriptors[1].size == 192);
+        for (auto const& d : probe.descriptors) {
+            CHECK(d.usage == rhi::buffer_usage::storage_gpu_only);
+            CHECK(rhi::has_flag(d.flags, rhi::buffer_flag::storage));
+            CHECK(rhi::has_flag(d.flags, rhi::buffer_flag::device_address));
+        }
+        CHECK(std::memcmp(probe.bytes[0].data(), packed->geometry.data(), 48) == 0);
+        CHECK(std::memcmp(probe.bytes[1].data(), packed->sh.data(), 192) == 0);
+        auto shared = *result;
+        result->reset();
+        CHECK(probe.releases == 0);
+        shared.reset();
+        CHECK(probe.releases == 2);
+    }
+    upload_probe absent;
+    absent.supported = false;
+    auto failed = gs::upload_asset(absent, *packed);
+    CHECK(!failed && failed.error().code == gs::error_code::unsupported);
+    CHECK(absent.calls == 0);
+    for (unsigned i = 1; i <= 2; ++i) {
+        upload_probe failing;
+        failing.fail_at = i;
+        failed = gs::upload_asset(failing, *packed);
+        CHECK(!failed && failed.error().code == gs::error_code::allocation_failure);
+        CHECK(failing.releases == static_cast<int>(i) - 1);
+    }
+    for (unsigned i = 1; i <= 2; ++i) {
+        upload_probe zero;
+        zero.address.zero_at = i;
+        failed = gs::upload_asset(zero, *packed);
+        CHECK(!failed && failed.error().code == gs::error_code::invalid_address);
+        CHECK(zero.releases == static_cast<int>(i));
+    }
+    for (unsigned i = 1; i <= 2; ++i) {
+        upload_probe short_buffer;
+        short_buffer.undersized_at = i;
+        failed = gs::upload_asset(short_buffer, *packed);
+        CHECK(!failed && failed.error().code == gs::error_code::allocation_failure);
+        CHECK(short_buffer.releases == static_cast<int>(i));
+    }
+    for (unsigned i = 1; i <= 2; ++i) {
+        upload_probe unaligned;
+        unaligned.address.unaligned_at = i;
+        failed = gs::upload_asset(unaligned, *packed);
+        CHECK(!failed && failed.error().code == gs::error_code::invalid_address);
+        CHECK(unaligned.releases == static_cast<int>(i));
+    }
+    upload_probe empty;
+    empty.supported = false;
+    auto nothing = gs::pack_asset(deren::gaussian::asset{});
+    result = gs::upload_asset(empty, *nothing);
+    CHECK(result && *result);
+    if (result && *result) {
+        CHECK((*result)->particle_count() == 0);
+        CHECK((*result)->geometry_address() == 0);
+        CHECK((*result)->sh_address() == 0);
+    }
+    CHECK(empty.calls == 0);
+    auto bad = [&](auto mutate) {auto p=*packed;mutate(p);upload_probe check;auto invalid=gs::upload_asset(check,p);CHECK(!invalid && invalid.error().code==gs::error_code::invalid_argument);CHECK(check.calls==0); };
+    bad([](auto& p) { p.sh.clear(); });
+    bad([](auto& p) { p.sh_degree = 4; });
+    bad([](auto& p) { p.geometry[0].center_opacity[3] = 2; });
+    bad([](auto& p) { p.geometry[0].covariance_x[0] = -1; });
+    bad([](auto& p) { p.geometry[0].covariance_x[1] = 100; });
+    bad([](auto& p) { p.sh[0].coefficients[0] = std::numeric_limits<float>::quiet_NaN(); });
+    bad([](auto& p) { p.geometry[0].covariance_x[3] = 1; });
+    bad([](auto& p) { p.bounds_min[0] = 100; });
+    bad([](auto& p) { p.sh[0].coefficients[47] = 1; });
+    bad([](auto& p) { p.geometry[0].center_opacity[0] = std::numeric_limits<float>::infinity(); });
+    bad([](auto& p) { p.bounds_max[0] = std::numeric_limits<float>::quiet_NaN(); });
+    upload_probe narrow;
+    auto manual = *packed;
+    manual.bounds_min = {1, 2, 3};
+    manual.bounds_max = {1, 2, 3};
+    auto rebuilt = gs::upload_asset(narrow, manual);
+    CHECK(rebuilt && *rebuilt);
+    if (rebuilt && *rebuilt) {
+        CHECK((*rebuilt)->bounds_min() == packed->bounds_min);
+        CHECK((*rebuilt)->bounds_max() == packed->bounds_max);
+    }
+    upload_probe limited;
+    failed = gs::upload_asset(limited, *packed, {1, 239});
+    CHECK(!failed && failed.error().code == gs::error_code::limit_exceeded);
+    CHECK(limited.calls == 0);
+}
 int main() {
     test_packing();
     test_invalid_packing();
     test_models();
     test_sorting();
+    test_upload();
     return deren::vk_test::finish("gaussian_splatting");
 }

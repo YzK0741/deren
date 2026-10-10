@@ -54,7 +54,7 @@ Namespace: `deren::engine::gaussian_splatting`.
 - `sort_camera`: finite world position and unit forward direction. No projection or culling in this foundational API.
 - `sort_draw_references(span<sort_instance const>, sort_camera const&, foundation_limits const& = {}) -> expected<vector<draw_reference>, foundation_error>`.
 - `gpu_asset`: immutable published metadata and owned geometry/SH buffers; exposes counts, bounds and addresses. Factory returns `shared_ptr<gpu_asset const>`.
-- `upload_asset(rhi::api_core&, packed_asset const&) -> expected<shared_ptr<gpu_asset const>, foundation_error>`.
+- `upload_asset(rhi::api_core&, packed_asset const&, foundation_limits const& = {}) -> expected<shared_ptr<gpu_asset const>, foundation_error>`.
 
 ## Task 1: validated geometry/SH packing and layout
 
@@ -76,13 +76,13 @@ Namespace: `deren::engine::gaussian_splatting`.
 
 ## Task 3: transactional static GPU upload
 
-- [ ] Add a minimal fake RHI core/device_address/buffer implementation in the test file, following existing headless dependency-injection tests. Record buffer descriptors and release counts.
-- [ ] Add failing tests for exact initial bytes, storage/device_address flags, GPU-only usage, byte accounting, unsupported address capability, first/second allocation failure, zero first/second address, mismatched packed counts and invalid packed metadata.
-- [ ] Empty assets succeed with zero addresses and no allocation. Test successful shared ownership releases each buffer exactly once after the last owner drops. No GPU submission is exercised or implied here.
-- [ ] Implement `upload_asset` with `rhi::query_extension<rhi::device_address>`, `api_core::create_buffer`, `buffer_desc::initial_bytes`, `buffer_usage::storage_gpu_only`, and storage/device_address flags. Obtain addresses with `buffer_address(buffer, 0)`.
-- [ ] Own buffers with existing RHI object ownership conventions and publish the shared asset only after both buffers and addresses succeed. Validate packed input again because it is public; do not retain upload spans beyond creation.
-- [ ] Document API, budgets, ownership and completion-slot responsibilities. Future frame snapshots must retain these assets until GPU work completes; this factory alone does not supply that submission lifetime.
-- [ ] Run full Release build, all CTest tests, clang-format-check, check-backend-boundary and applicable clang-tidy sequentially with builds. Review the final diff and commit.
+- [x] Add a minimal fake RHI core/device_address/buffer implementation in the test file, following existing headless dependency-injection tests. Record buffer descriptors and release counts.
+- [x] Add failing tests for exact initial bytes, storage/device_address flags, GPU-only usage, byte accounting, unsupported address capability, first/second allocation failure, zero first/second address, mismatched packed counts and invalid packed metadata.
+- [x] Empty assets succeed with zero addresses and no allocation. Test successful shared ownership releases each buffer exactly once after the last owner drops. No GPU submission is exercised or implied here.
+- [x] Implement `upload_asset` with `rhi::query_extension<rhi::device_address>`, `api_core::create_buffer`, `buffer_desc::initial_bytes`, `buffer_usage::storage_gpu_only`, and storage/device_address flags. Obtain addresses with `buffer_address(buffer, 0)`.
+- [x] Own buffers with existing RHI object ownership conventions and publish the shared asset only after both buffers and addresses succeed. Validate packed input again because it is public; do not retain upload spans beyond creation.
+- [x] Document API, budgets, ownership and completion-slot responsibilities. Future frame snapshots must retain these assets until GPU work completes; this factory alone does not supply that submission lifetime.
+- [x] Run full Release build, all CTest tests, clang-format-check, check-backend-boundary and applicable clang-tidy sequentially with builds. Review the final diff and commit.
 - [ ] Push authorized commits and confirm Release/Debug, strict LLVM 23 analysis and ASan/UBSan CI pass before reporting completion.
 
 ## Following batch

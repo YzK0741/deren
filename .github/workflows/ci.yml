@@ -140,7 +140,10 @@ jobs:
           # A hand-maintained list that can go stale silently is a failure mode of its own.
           # app_config is the TARGET name; its sources live in source/application_configuration/ (the dir was
           # renamed and this list was not).
-          TIDY_FILES="source/application_configuration/application_configuration.cppm \
+          TIDY_FILES="source/engine/gaussian_splatting/gaussian_splatting.cppm \
+            source/engine/gaussian_splatting/gaussian_splatting.cpp \
+            source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp \
+            source/application_configuration/application_configuration.cppm \
             source/application_configuration/application_configuration.cpp \
             source/utility/data_block.cppm source/utility/utility.cppm source/utility/utility.cpp \
             source/utility/thread_pool/thread_pool.cppm \

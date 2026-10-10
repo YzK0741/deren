@@ -52,9 +52,19 @@ namespace deren::engine::gaussian_splatting {
             if (std::abs(length - 1) > 1e-4) {
                 return invalid("quaternion must be normalized within 1e-4");
             }
-            double const w = p.rotation[0] / length, x = p.rotation[1] / length, y = p.rotation[2] / length, z = p.rotation[3] / length;
+            double const w = p.rotation[0] / length;
+            double const x = p.rotation[1] / length;
+            double const y = p.rotation[2] / length;
+            double const z = p.rotation[3] / length;
             std::array<std::array<double, 3>, 3> const rotation = {{{1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)}, {2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)}, {2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)}}};
-            auto entry = [&](unsigned i, unsigned j) { double result=0;for(unsigned k=0;k<3;++k) { double const s=p.scale[k]; result+=rotation[i][k]*rotation[j][k]*s*s; } return result; };
+            auto entry = [&](unsigned i, unsigned j) {
+                double result = 0;
+                for (unsigned k = 0; k < 3; ++k) {
+                    double const scale = p.scale[k];
+                    result += rotation[i][k] * rotation[j][k] * scale * scale;
+                }
+                return result;
+            };
             std::array<double, 6> const covariance = {entry(0, 0), entry(0, 1), entry(0, 2), entry(1, 1), entry(1, 2), entry(2, 2)};
             for (double c : covariance) {
                 if (!float_finite(c)) {
@@ -66,17 +76,19 @@ namespace deren::engine::gaussian_splatting {
         std::expected<std::array<float, 6>, foundation_error> support_bounds(deren::gaussian::particle const& p, std::array<double, 6> const& cov) {
             std::array<float, 6> result{};
             constexpr std::array<unsigned, 3> diagonals = {0, 3, 5};
-            for (unsigned i = 0; i < 3; ++i) {
+            for (glm::length_t i = 0; i < 3; ++i) {
                 double const radius = 3 * std::sqrt(cov[diagonals[i]]);
-                double const low = static_cast<double>(p.center[i]) - radius, high = static_cast<double>(p.center[i]) + radius;
+                double const low = static_cast<double>(p.center[i]) - radius;
+                double const high = static_cast<double>(p.center[i]) + radius;
                 if (!float_finite(low) || !float_finite(high)) {
                     return invalid("support bounds exceed float32 range");
                 }
-                float lo = static_cast<float>(low), hi = static_cast<float>(high);
-                if (static_cast<double>(lo) > low) {
+                float lo = static_cast<float>(low);
+                float hi = static_cast<float>(high);
+                if (static_cast<double>(lo) > low || (radius > 0 && low == p.center[i])) {
                     lo = std::nextafter(lo, -std::numeric_limits<float>::infinity());
                 }
-                if (static_cast<double>(hi) < high) {
+                if (static_cast<double>(hi) < high || (radius > 0 && high == p.center[i])) {
                     hi = std::nextafter(hi, std::numeric_limits<float>::infinity());
                 }
                 if (!std::isfinite(lo) || !std::isfinite(hi)) {
@@ -90,8 +102,8 @@ namespace deren::engine::gaussian_splatting {
     } // namespace
 
     std::expected<glm::mat4, foundation_error> validate_model(glm::mat4 const& model) {
-        for (unsigned i = 0; i < 4; ++i) {
-            for (unsigned j = 0; j < 4; ++j) {
+        for (glm::length_t i = 0; i < 4; ++i) {
+            for (glm::length_t j = 0; j < 4; ++j) {
                 if (!std::isfinite(model[i][j])) {
                     return invalid("non-finite model matrix");
                 }
@@ -103,7 +115,7 @@ namespace deren::engine::gaussian_splatting {
         glm::dmat4 const m{model};
         std::array<glm::dvec3, 3> axes = {glm::dvec3{m[0]}, glm::dvec3{m[1]}, glm::dvec3{m[2]}};
         std::array<double, 3> lengths{};
-        for (unsigned i = 0; i < 3; ++i) {
+        for (glm::length_t i = 0; i < 3; ++i) {
             lengths[i] = glm::length(axes[i]);
             if (!(lengths[i] > 0)) {
                 return invalid("singular model matrix");
@@ -115,7 +127,7 @@ namespace deren::engine::gaussian_splatting {
                 return invalid("non-uniform scale is unsupported");
             }
         }
-        for (unsigned i = 0; i < 3; ++i) {
+        for (glm::length_t i = 0; i < 3; ++i) {
             for (unsigned j = i + 1; j < 3; ++j) {
                 if (std::abs(glm::dot(axes[i], axes[j])) > 1e-5) {
                     return invalid("shear is unsupported");
@@ -127,8 +139,8 @@ namespace deren::engine::gaussian_splatting {
         }
         glm::dmat4 const inverse = glm::inverse(m);
         glm::mat4 result{0};
-        for (unsigned i = 0; i < 4; ++i) {
-            for (unsigned j = 0; j < 4; ++j) {
+        for (glm::length_t i = 0; i < 4; ++i) {
+            for (glm::length_t j = 0; j < 4; ++j) {
                 if (!float_finite(inverse[i][j])) {
                     return invalid("inverse model exceeds float32 range");
                 }
@@ -138,7 +150,7 @@ namespace deren::engine::gaussian_splatting {
         return result;
     }
     std::expected<std::vector<draw_reference>, foundation_error> sort_draw_references(std::span<sort_instance const> instances, sort_camera const& camera, foundation_limits const& limits) {
-        for (unsigned i = 0; i < 3; ++i) {
+        for (glm::length_t i = 0; i < 3; ++i) {
             if (!std::isfinite(camera.position[i]) || !std::isfinite(camera.forward[i])) {
                 return invalid("non-finite camera");
             }
@@ -204,7 +216,7 @@ namespace deren::engine::gaussian_splatting {
                     return std::unexpected(bounds.error());
                 }
                 glm::dvec4 const world = model * glm::dvec4{p.center[0], p.center[1], p.center[2], 1};
-                for (unsigned axis = 0; axis < 3; ++axis) {
+                for (glm::length_t axis = 0; axis < 3; ++axis) {
                     if (!float_finite(world[axis])) {
                         return invalid("transformed center exceeds float32 range");
                     }
@@ -220,7 +232,8 @@ namespace deren::engine::gaussian_splatting {
             if (a.depth != b.depth) {
                 return a.depth > b.depth;
             }
-            auto const aid = instances[a.reference.instance_index].stable_id, bid = instances[b.reference.instance_index].stable_id;
+            auto const aid = instances[a.reference.instance_index].stable_id;
+            auto const bid = instances[b.reference.instance_index].stable_id;
             if (aid != bid) {
                 return aid < bid;
             }
@@ -280,7 +293,7 @@ namespace deren::engine::gaussian_splatting {
             std::copy_n(p.sh.begin(), used, sh.coefficients.begin());
             result.geometry.push_back(record);
             result.sh.push_back(sh);
-            for (unsigned i = 0; i < 3; ++i) {
+            for (glm::length_t i = 0; i < 3; ++i) {
                 result.bounds_min[i] = first ? bounds[i] : std::min(result.bounds_min[i], bounds[i]);
                 result.bounds_max[i] = first ? bounds[i + 3] : std::max(result.bounds_max[i], bounds[i + 3]);
             }

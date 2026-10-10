@@ -658,6 +658,7 @@ target_sources(deren_engine
     PRIVATE
         source/engine/filters/filters.cpp
         source/engine/gaussian_splatting/gaussian_splatting.cpp
+        source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp
         source/engine/math/math.cpp
         ${VR_RUNTIME_PRIVATE_SOURCES}
         source/engine/pass/taa.cpp
