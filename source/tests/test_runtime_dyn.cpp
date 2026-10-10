@@ -119,6 +119,22 @@ int main(int const argc, char** const argv) {
         CHECK(dynamic.valid());
 
         rhi::api_core& face = dynamic.rhi_face();
+        {
+            auto secondary = face.make_command_buffer({.kind = rhi::command_buffer_kind::secondary});
+            auto primary = face.make_command_buffer({});
+            CHECK(secondary && primary);
+            if (secondary && primary) {
+                CHECK(secondary->begin_recording({}) == rhi::error::ok);
+                CHECK(secondary->end_recording() == rhi::error::ok);
+                CHECK(primary->begin_recording({}) == rhi::error::ok);
+                CHECK(primary->execute(*secondary) == rhi::error::ok);
+                CHECK_MSG(secondary->begin_recording({}) == rhi::error::not_ready,
+                          "a secondary retained by a recorded primary must not be overwritten");
+                primary.reset();
+                CHECK(secondary->begin_recording({}) == rhi::error::ok);
+                CHECK(secondary->end_recording() == rhi::error::ok);
+            }
+        }
         CHECK(face.type == "deren_api_core_vulkan");
         auto commands = face.make_command_buffer({});
         CHECK(commands != nullptr);

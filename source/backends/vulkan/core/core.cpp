@@ -195,7 +195,10 @@ namespace deren::vulkan {
         wait_info.semaphoreCount = 1;
         wait_info.pSemaphores = &this->frame_done_semaphores[slot];
         wait_info.pValues = &value;
-        return vkWaitSemaphores(this->logical_device, &wait_info, UINT64_MAX);
+        auto const result = vkWaitSemaphores(this->logical_device, &wait_info, UINT64_MAX);
+        if (result == VK_SUCCESS)
+            poll_submissions();
+        return result;
     }
 
     void core::to_next_frame() noexcept {
@@ -240,8 +243,26 @@ namespace deren::vulkan {
         submit_info.pCommandBuffers = &command_buffer;
         submit_info.signalSemaphoreCount = 2;
         submit_info.pSignalSemaphores = signal_semaphores;
+        auto submission = std::make_unique<pending_submission>();
+        submission->owner = this;
+        submission->timeline = frame_done_semaphores[slot];
+        submission->value = signal_value;
+        submission->groups = commands_view.group_refs;
+        submission->secondaries = commands_view.secondary_refs;
+        std::lock_guard lock(submissions_mutex);
+        for (auto const& secondary : submission->secondaries)
+            if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire)))
+                return VK_NOT_READY;
+        pending_submissions.reserve(pending_submissions.size() + 1);
         VkResult const result = vkQueueSubmit(this->graphics_queue_handle, 1, &submit_info, VK_NULL_HANDLE);
         if (result == VK_SUCCESS) {
+            submission->submitted = true;
+            for (auto const& secondary : submission->secondaries) {
+                secondary->pending.fetch_add(1, std::memory_order_release);
+                if (secondary->one_time_submit)
+                    secondary->executable = false;
+            }
+            pending_submissions.push_back(std::move(submission));
             this->frame_done_values[slot] = signal_value;
             // THE FRAME IS HANDED OVER, so there is no frame in flight to record into any more:
             // begin_commands()/frame_image() answer nullptr until the next acquire. This is the other
@@ -337,6 +358,7 @@ namespace deren::vulkan {
 
         // 1. Wait for the device to be idle
         vkDeviceWaitIdle(logical_device);
+        poll_submissions(true);
 
         // 2. AND EVERY RENDER TARGET BELONGS TO THE ENGINE (③-D/E A1.7), so this function destroys NOTHING
         //    of the chain: the HDR/LDR pair (A1.3), the G-buffer cluster (A1.4), the stochastic-chain trio
@@ -724,6 +746,7 @@ namespace deren::vulkan {
 
     void core::wait_idle() const noexcept {
         vkDeviceWaitIdle(this->logical_device);
+        poll_submissions(true);
     }
 
 } // namespace deren::vulkan

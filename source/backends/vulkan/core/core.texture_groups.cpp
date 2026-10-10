@@ -28,6 +28,7 @@ namespace deren::vulkan {
     }
 
     rhi::texture_group_ref core::assign_texture_group(rhi::texture_group_info const& info, rhi::error* result) {
+        poll_submissions();
         auto fail = [result](rhi::error value) -> rhi::texture_group_ref {
             if (result != nullptr)
                 *result = value;

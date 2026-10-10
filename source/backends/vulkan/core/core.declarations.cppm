@@ -299,6 +299,7 @@ namespace deren::vulkan {
         /// `command_buffer::recording()`). The frame-scoped verbs below (`use`,
         /// `copy_image_to_buffer`, the timing pair) are the FRAME's: they answer `not_ready` on a list
         /// that is not the frame's, which is the window their own contract notes already name.
+        struct owned_command_buffer;
         struct frame_commands : deren::promise::rhi::command_buffer {
             explicit frame_commands(std::string_view const name = "deren_frame_commands_vulkan") noexcept
                 : deren::promise::rhi::command_buffer(name) {
@@ -306,6 +307,12 @@ namespace deren::vulkan {
             core* owner = nullptr;
             /// the buffer this list records into: null = the frame's slot buffer, set = an owned one
             VkCommandBuffer target = VK_NULL_HANDLE;
+            bool recording = false;
+            bool executable = false;
+            bool simultaneous_use = false;
+            bool one_time_submit = false;
+            std::vector<deren::promise::rhi::texture_group_ref> group_refs;
+            std::vector<std::shared_ptr<owned_command_buffer>> secondary_refs;
             /// `use()` ANSWERS with an `error` now (it does not drop a barrier silently); this flag is only
             /// about how often the backend spells out the REASON for a refusal, so a per-frame caller
             /// cannot turn one broken pair into a log flood
@@ -391,6 +398,10 @@ namespace deren::vulkan {
             }
             /// the buffer and its command pool; the pool dies with this object
             vk_command_buffer buffer;
+            deren::promise::rhi::command_buffer_kind kind = deren::promise::rhi::command_buffer_kind::primary;
+            std::atomic<std::uint32_t> references{1};
+            std::atomic<std::uint32_t> recording_users{0};
+            std::atomic<std::uint32_t> pending{0};
 
             /// one log per buffer, not one per call: a begin that repeats a refusal must not flood the log
             bool refused_chain_logged = false;
@@ -980,6 +991,21 @@ namespace deren::vulkan {
             }
         };
         texture_group_state texture_groups;
+        struct pending_submission {
+            core* owner = nullptr;
+            VkFence fence = VK_NULL_HANDLE;
+            VkSemaphore timeline = VK_NULL_HANDLE;
+            std::uint64_t value = 0;
+            std::shared_ptr<owned_command_buffer> primary;
+            std::vector<deren::promise::rhi::texture_group_ref> groups;
+            std::vector<std::shared_ptr<owned_command_buffer>> secondaries;
+            bool submitted = false;
+            ~pending_submission() noexcept;
+        };
+        mutable std::mutex submissions_mutex;
+        mutable std::vector<std::unique_ptr<pending_submission>> pending_submissions;
+        void poll_submissions(bool all = false) const noexcept;
+        [[nodiscard]] std::shared_ptr<owned_command_buffer> retain_command(owned_command_buffer& command, bool recorded_secondary);
         /// THE COMMAND BUFFERS `create_command_buffer()` HANDED OUT (abi 15), the same registry shape
         /// `contract_images` uses and for the same reason: `execute()` and the escape's native-handle
         /// answer must tell "a buffer this backend made" from "some pointer a caller has" WITHOUT

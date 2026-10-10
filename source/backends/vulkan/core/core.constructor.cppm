@@ -365,6 +365,9 @@ namespace deren::vulkan {
 
     core::~core() {
         vkDeviceWaitIdle(this->logical_device);
+        poll_submissions(true);
+        commands_view.group_refs.clear();
+        commands_view.secondary_refs.clear();
         this->do_cleanup();
     }
 

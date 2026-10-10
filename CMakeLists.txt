@@ -531,6 +531,7 @@ target_sources(deren_vulkan
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
         source/backends/vulkan/core/core.api_core.cpp
         source/backends/vulkan/core/core.texture_groups.cpp
+        source/backends/vulkan/core/core.submission_lifetimes.cpp
         # The ONE C entry point, DEFINED for the real backend (source/promise/rhi/backend_entry.hpp, abi 18).
         # A plain TU rather than a module implementation unit, because the entry has to be reachable BY
         # NAME from an image that imports no module of this target - the same reason
@@ -1404,6 +1405,11 @@ target_link_libraries(test_runtime_dyn
 # Same build-order rule as the app: this test CONSTRUCTS a runtime, so the DLL it resolves at run time
 # has to exist first (it does not link it).
 add_dependencies(test_runtime_dyn deren_vulkan)
+
+# Device-only texture-group and submission-lifetime probe, outside headless CTest.
+add_executable(test_texture_group source/tests/test_texture_group.cpp)
+target_link_libraries(test_texture_group backend_loader promise static_utility vstd_lib Vulkan::Vulkan)
+add_dependencies(test_texture_group deren_vulkan)
 
 # ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
 #

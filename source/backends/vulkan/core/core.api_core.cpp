@@ -1929,6 +1929,7 @@ namespace deren::vulkan {
         // list and every owned buffer.
         answer->owner = this;
         answer->target = *answer->buffer;
+        answer->kind = kind;
         {
             // THE PROVENANCE REGISTRY, the same shape `contract_images` uses: `execute()` and the
             // escape's native-handle answer must tell a buffer this backend made from a pointer a
@@ -1958,6 +1959,8 @@ namespace deren::vulkan {
     }
 
     void core::owned_command_buffer::release() noexcept {
+        if (references.fetch_sub(1, std::memory_order_acq_rel) != 1)
+            return;
         {
             std::lock_guard const lock(this->owner->contract_command_buffers_mutex);
             this->owner->contract_command_buffers.erase(this);
@@ -1969,6 +1972,8 @@ namespace deren::vulkan {
     }
 
     rhi::error core::owned_command_buffer::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
+        if (pending.load(std::memory_order_acquire) != 0 || recording_users.load(std::memory_order_acquire) != 0 || recording)
+            return rhi::error::not_ready;
         // THE ABI GUARD for the begin info: only the prefix the caller declares is read.
         std::uint32_t const declared = declared_info.struct_size;
         rhi::command_buffer_flags usage = rhi::no_command_buffer_flags;
@@ -1992,6 +1997,7 @@ namespace deren::vulkan {
         VkBindHeapInfoEXT resource_bind = {};
         VkBindHeapInfoEXT sampler_bind = {};
         VkCommandBufferInheritanceInfo inheritance = {};
+        inheritance.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO;
         bool const inherits = next != nullptr;
         if (inherits) {
             rendering.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_RENDERING_INFO;
@@ -2107,16 +2113,32 @@ namespace deren::vulkan {
             // The inheritance info is passed whenever ANY of it was filled: the caller's attachment chain
             // or this backend's own heap entry (see above). When neither applies - a primary, or a
             // secondary begun for inline recording - `pInheritanceInfo` must be NULL.
-            .pInheritanceInfo = (inherits || inheritance.pNext != nullptr) ? &inheritance : nullptr,
+            .pInheritanceInfo = kind == rhi::command_buffer_kind::secondary ? &inheritance : nullptr,
         };
-        return generic_error(vkBeginCommandBuffer(*this->buffer, &begin));
+        auto const result = generic_error(vkBeginCommandBuffer(*this->buffer, &begin));
+        if (result == rhi::error::ok) {
+            secondary_refs.clear();
+            group_refs.clear();
+            executable = false;
+            recording = true;
+            simultaneous_use = (flags & VK_COMMAND_BUFFER_USAGE_SIMULTANEOUS_USE_BIT) != 0;
+            one_time_submit = (flags & VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT) != 0;
+        }
+        return result;
     }
 
     rhi::error core::owned_command_buffer::end_recording() noexcept {
+        if (!recording)
+            return rhi::error::not_ready;
         if (*this->buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        return generic_error(vkEndCommandBuffer(*this->buffer));
+        auto const result = generic_error(vkEndCommandBuffer(*this->buffer));
+        if (result == rhi::error::ok) {
+            recording = false;
+            executable = true;
+        }
+        return result;
     }
 
     // ---- THE FRAME'S BORROWED BUFFER: the four lifecycle verbs, refused BY NAME (see the note in
@@ -2131,6 +2153,8 @@ namespace deren::vulkan {
     }
 
     rhi::error core::frame_commands::begin_recording(rhi::command_buffer_begin_info const& declared_info) {
+        if (recording)
+            return rhi::error::not_ready;
         // THE FRAME'S OWN RECORDING RIDES THE CONTRACT NOW (abi 26), and the two verbs under this comment are
         // why the frame loop stopped calling `vkBeginCommandBuffer`/`vkEndCommandBuffer` itself: the buffer is
         // the CORE's (`frame_command_buffer()`), the API's state machine behind it is exactly what the
@@ -2167,18 +2191,34 @@ namespace deren::vulkan {
             .flags = flags,
             .pInheritanceInfo = nullptr, // a primary has no inheritance
         };
-        return generic_error(vkBeginCommandBuffer(command_buffer, &begin));
+        auto const result = generic_error(vkBeginCommandBuffer(command_buffer, &begin));
+        if (result == rhi::error::ok) {
+            secondary_refs.clear();
+            group_refs.clear();
+            executable = false;
+            recording = true;
+        }
+        return result;
     }
 
     rhi::error core::frame_commands::end_recording() noexcept {
+        if (!recording)
+            return rhi::error::not_ready;
         VkCommandBuffer const command_buffer = this->native();
         if (command_buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
-        return generic_error(vkEndCommandBuffer(command_buffer));
+        auto const result = generic_error(vkEndCommandBuffer(command_buffer));
+        if (result == rhi::error::ok) {
+            recording = false;
+            executable = true;
+        }
+        return result;
     }
 
     rhi::error core::frame_commands::execute(rhi::command_buffer& secondary) {
+        if (!recording)
+            return rhi::error::not_ready;
         // THE FRAME'S OWN RECORDING EXECUTES SECONDARIES TOO, AND THAT IS THE PASS LAYER'S `execute`: the
         // borrowed frame buffer IS a recording buffer, so `io.list->execute(*secondary)` (scene, shadow,
         // transparent) arrives here. Only begin/end/submit stay the frame loop's (the three verbs above);
@@ -2196,15 +2236,26 @@ namespace deren::vulkan {
                 return rhi::error::invalid_argument;
             }
         }
-        auto const& other = static_cast<core::owned_command_buffer const&>(secondary);
+        auto& other = static_cast<core::owned_command_buffer&>(secondary);
+        if (!other.simultaneous_use && other.recording_users.load(std::memory_order_acquire))
+            return rhi::error::not_ready;
+        if (other.kind != rhi::command_buffer_kind::secondary)
+            return rhi::error::invalid_argument;
+        if (!other.executable || other.recording || other.pending.load(std::memory_order_acquire))
+            return rhi::error::not_ready;
         VkCommandBuffer const native_secondary = *other.buffer;
         if (native_secondary == VK_NULL_HANDLE) {
             return rhi::error::not_ready; // the secondary was released
         }
+        secondary_refs.push_back(owner->retain_command(other, true));
         vkCmdExecuteCommands(command_buffer, 1, &native_secondary);
         return rhi::error::ok;
     }
     rhi::error core::owned_command_buffer::execute(rhi::command_buffer& secondary) {
+        if (!recording)
+            return rhi::error::not_ready;
+        if (kind != rhi::command_buffer_kind::primary)
+            return rhi::error::invalid_argument;
         if (*this->buffer == VK_NULL_HANDLE) {
             return rhi::error::not_ready;
         }
@@ -2216,7 +2267,13 @@ namespace deren::vulkan {
                 return rhi::error::invalid_argument;
             }
         }
-        auto const& other = static_cast<core::owned_command_buffer const&>(secondary);
+        auto& other = static_cast<core::owned_command_buffer&>(secondary);
+        if (!other.simultaneous_use && other.recording_users.load(std::memory_order_acquire))
+            return rhi::error::not_ready;
+        if (other.kind != rhi::command_buffer_kind::secondary)
+            return rhi::error::invalid_argument;
+        if (!other.executable || other.recording || other.pending.load(std::memory_order_acquire))
+            return rhi::error::not_ready;
         VkCommandBuffer const native = *other.buffer;
         if (native == VK_NULL_HANDLE) {
             return rhi::error::not_ready; // the secondary was released
@@ -2224,6 +2281,7 @@ namespace deren::vulkan {
         // ONE SECONDARY PER CALL: vkCmdExecuteCommands takes an array, and the contract's unit is the
         // single secondary every API in this family executes. This records into THIS buffer, which the
         // caller promised is recording (the state itself is not queryable through Vulkan).
+        secondary_refs.push_back(owner->retain_command(other, true));
         vkCmdExecuteCommands(*this->buffer, 1, &native);
         return rhi::error::ok;
     }
@@ -4334,7 +4392,11 @@ namespace deren::vulkan {
                     return rhi::error::invalid_argument; // a list this backend did not hand out (provenance)
                 }
             }
-            auto const& owned = static_cast<core::owned_command_buffer const&>(commands);
+            auto& owned = static_cast<core::owned_command_buffer&>(commands);
+            if (owned.kind != rhi::command_buffer_kind::primary)
+                return rhi::error::invalid_argument;
+            if (!owned.executable || owned.recording || owned.pending.load(std::memory_order_acquire))
+                return rhi::error::not_ready;
             VkCommandBuffer const native = *owned.buffer;
             if (native == VK_NULL_HANDLE || this->graphics_queue_handle == VK_NULL_HANDLE) {
                 return rhi::error::not_ready;
@@ -4348,7 +4410,34 @@ namespace deren::vulkan {
                                            .pCommandBuffers = &native,
                                            .signalSemaphoreCount = 0,
                                            .pSignalSemaphores = nullptr};
-            return generic_error(vkQueueSubmit(this->graphics_queue_handle, 1, &one_shot, VK_NULL_HANDLE));
+            auto submission = std::make_unique<pending_submission>();
+            submission->owner = this;
+            submission->primary = retain_command(owned, false);
+            submission->groups = owned.group_refs;
+            submission->secondaries = owned.secondary_refs;
+            VkFenceCreateInfo const fence_info{.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO, .pNext = nullptr, .flags = 0};
+            auto created = vkCreateFence(logical_device, &fence_info, nullptr, &submission->fence);
+            if (created != VK_SUCCESS)
+                return generic_error(created);
+            std::lock_guard lock(submissions_mutex);
+            for (auto const& secondary : submission->secondaries)
+                if (!secondary->executable || (!secondary->simultaneous_use && secondary->pending.load(std::memory_order_acquire)))
+                    return rhi::error::not_ready;
+            pending_submissions.reserve(pending_submissions.size() + 1);
+            auto const submitted = vkQueueSubmit(graphics_queue_handle, 1, &one_shot, submission->fence);
+            if (submitted == VK_SUCCESS) {
+                owned.pending.fetch_add(1, std::memory_order_release);
+                if (owned.one_time_submit)
+                    owned.executable = false;
+                for (auto const& secondary : submission->secondaries) {
+                    secondary->pending.fetch_add(1, std::memory_order_release);
+                    if (secondary->one_time_submit)
+                        secondary->executable = false;
+                }
+                submission->submitted = true;
+                pending_submissions.push_back(std::move(submission));
+            }
+            return generic_error(submitted);
         }
         if (!this->frame_in_flight) {
             return rhi::error::not_ready;
