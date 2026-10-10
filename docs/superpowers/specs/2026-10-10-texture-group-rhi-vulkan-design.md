@@ -88,7 +88,8 @@ present_mask 不是 enabled_mask；绑定了扩展纹理并不意味着管线必
 
 ABI 29 增加 image::share() 与 image_view::get_image()。Vulkan owned image 的 view
 持有原 RHI image 的共享拥有引用；get_image() 复制该引用，原 factory 引用可以单独释放。
-同一时期的 share() 共用控制块，deleter 在 backend 内调用 release()；object 仍只携带接口身份。
+同一时期的 share() 共用控制块，deleter 在 backend 内调用 release()。
+ABI 30 的 object.type 是 backend 提供的只读具体实现名称，例如 deren_image_vulkan；不携带资源拥有状态。
 借用 swapchain image 的 share() 以及其 view 的 get_image() 返回空，不延长帧或交换链寿命。
 
 Vulkan assign 的步骤是：校验 image 来源与属性，取得 image::share()，再创建组内 view。
@@ -239,7 +240,7 @@ descriptor set/layout 创建、绑定、pool 与更新完全由 Vulkan backend �
 - Vulkan shader 实现：heap 与 array 的组解析/纹理加载实现；公共 Slang 入口保持一致。
 - engine：创建/保存 shared_ptr，绘制调用 load；材质参数和管线扩展规则继续由 engine 定义。
 
-当前 ABI 为 29（image/view 父引用已落地）。追加 factory/load 到现有 vtable 属于 ABI 变化，实施时需要再次升级版本并补拒绝旧 DLL 的测试。
+当前 ABI 为 30（image/view 父引用与具体实现名称已落地）。追加 factory/load 到现有 vtable 属于 ABI 变化，实施时需要再次升级版本并补拒绝旧 DLL 的测试。
 pipeline_desc 新字段须按 struct_size 读取，旧描述默认不使用 texture group。
 具体源码拆分在实施计划中确定；不为了做这个接口顺带修改全项目模块命名。
 
