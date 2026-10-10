@@ -12,7 +12,7 @@ Ninja, shaders compiled by `slangc`. `-Werror` is on for first-party code in eve
 this compiler emits but CI's does not is a build failure here rather than a curiosity.
 
 MSVC is a second configuration the BUILD FILES support but the scripts and CI do not drive:
-`scripts/windows/build.ps1` requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
+`source/scripts/windows/build.ps1` requires `clang++` and `.github/workflows/ci.yml` installs MSYS2 clang64. The three
 cache variables an MSVC build needs are documented in the README rather than here.
 
 Everything below about GCC is a MEASUREMENT, not a promise. The audit ran GCC 16.2 (MinGW, ucrt64) against the
@@ -33,7 +33,7 @@ undefined reference to `std::__write_to_terminal(void*, std::span<char, ...>)'
 ```
 
 `nm --defined-only libstdc++.a` finds no definition of either, and `bits/print.h`'s `vprint_unicode` is what
-references them. The tree therefore uses **`deren::utility::print` / `deren::utility::println`** (`utility/utility.cppm`),
+references them. The tree therefore uses **`deren::utility::print` / `deren::utility::println`** (`source/utility/utility.cppm`),
 which are `std::print`'s semantics with the project owning them: `std::format_string` parameters, so the format
 string is still checked at compile time, one `std::fwrite`, no flush, and `std::format` taken from `deren.vstd`.
 
@@ -57,7 +57,7 @@ define it, which is why the clang64 build never saw this.
 
 ### A `std::unique_ptr` over a forward-declared type needs no in-class initializer
 
-`vulkan/acceleration_structure/acceleration_structure.cppm` holds two `std::unique_ptr<entry_points>` whose
+`source/engine/acceleration_structure/acceleration_structure.cppm` holds two `std::unique_ptr<entry_points>` whose
 type is only forward-declared there (the definition is in the .cpp), which is the ordinary pImpl shape. Both had
 `= {}`, and **libstdc++ instantiates `~unique_ptr<entry_points>` at that default member initializer itself**,
 stopping on `default_delete`'s `static_assert(sizeof(_Tp)>0)`; libc++ does not. Declaring the destructor out of
@@ -71,7 +71,7 @@ without an initializer, and the initialization happens in the implementation uni
 
 ## One clang bug, worked around rather than fixed
 
-`tests/vk_test.h` formats its own output (`std::format` + one `std::fwrite`) and deliberately does NOT call the
+`source/tests/vk_test.h` formats its own output (`std::format` + one `std::fwrite`) and deliberately does NOT call the
 project's print family. The reason is a **clang 22.1.8 crash**: with an inline function in that header calling
 the module's variadic template, `test_shadow_fit.cpp` and `test_animation.cpp` die in code generation
 ("clang frontend command failed due to signal", inside `EmitBuiltinNewDeleteCall` /

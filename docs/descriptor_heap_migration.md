@@ -92,7 +92,7 @@ descriptor - without it the validation layer rejects the heap write itself, with
 right), and the shader's declaration.
 
 THE CAMERA AND THE LIGHT ARE STORAGE DESCRIPTORS FOR THIS REASON (see `runtime.constructor.cppm`'s two
-heap writes and `shading.glsl`'s camera/light blocks): Slang's
+heap writes and `shading.slang`'s camera/light blocks): Slang's
 `DescriptorHandle<ConstantBuffer<T>>` always fetches through a `StorageBuffer`-class pointer - a Slang
 `ConstantBuffer` handle never emits `Uniform` - so the GLSL side had to declare those blocks `buffer` as
 well. The layout did not move, and that was CHECKED RATHER THAN ASSUMED: `CameraUBO` keeps its offsets
@@ -105,17 +105,17 @@ section 9.
 ## Shader inventory (the resources each stage reads, and the binding each one came from)
 
 There is no `layout(set = ` left to grep: the `.frag` / `.vert` / `.comp` sources this table was built from
-are retired to `shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST USED TO LIVE HERE`), and the
+are retired to `source/reference/shaders/glsl.old/` (see `CMakeLists.txt`'s `THE GLSL STAGE LIST USED TO LIVE HERE`), and the
 stages this build compiles are Slang leaves - `docs/slang_migration.md` and `docs/shaders.md` record them.
 So the table below is a RECORD of what each retired file declared (a reader can still check each row against
 the archived source), not a description of any file's current contents: the host keeps the same resources under
-the same classic binding numbers in `vulkan/core/core.declarations.cppm`, and every shader now reads them as
+the same classic binding numbers in `source/backends/vulkan/core/core.declarations.cppm`, and every shader now reads them as
 `heap_slots_textures`-style array entries instead of declaring a binding at all.
 
 | file (retired) | the bindings it declared | where they live now |
 | --- | --- | --- |
-| `shading.glsl` (shared) | 0 CameraUBO, 2 env cube, 3 irradiance cube, 4 BRDF LUT, 7 LightUBO, 8 shadow array, 11/12 cluster | - |
-| `surface.glsl` (shared) | 1 `textures[]`, 5 materials | - |
+| `shading.slang` (shared) | 0 CameraUBO, 2 env cube, 3 irradiance cube, 4 BRDF LUT, 7 LightUBO, 8 shadow array, 11/12 cluster | - |
+| `surface.slang` (shared) | 1 `textures[]`, 5 materials | - |
 | `pbr.vert` | 0 camera, 6 instance transforms, 13 previous transforms, 9 skin matrices, 10 morph | - |
 | `shadow.vert` | 6, 9, 10, 7 | - |
 | `shadow.frag` | 1, 5 | - |
@@ -184,7 +184,7 @@ the TLAS has BECAUSE it is rebuilt every frame.
 
 THE SIZE IS COMPUTED IN THE RAY-TRACING MODULE, NOT THE ACCELERATION-STRUCTURE ONE - and that correction cost a
 build, so it is written down: the TLAS this renderer uses is built by **`ray_tracing::structure_set`**
-(`vulkan/ray_tracing/ray_tracing.cppm`, `build()`/`update()` in `ray_tracing.cpp`), whose public surface today is
+(`source/engine/ray_tracing/ray_tracing.cppm`, `build()`/`update()` in `ray_tracing.cpp`), whose public surface today is
 `handle(frame_slot)`, `instance_table(frame_slot)`, `casters()`, `attempted()`, `ready()`. The
 `acceleration_structure` module's `top_level_structure` also creates a top level structure with
 `create.size = sizes.accelerationStructureSize`, and that is the module the first version of this note pointed at;
@@ -321,29 +321,29 @@ change per site:
 
 | file | lines |
 | --- | --- |
-| `vulkan/runtime/runtime.cpp` | 2299 (the shadow cascade index) |
-| `vulkan/primitive/primitive.cpp` | 26, 78, 116 |
-| `vulkan/pass/mask_bake.cpp` | 128 |
-| `vulkan/pass/compute_skin.cpp` | 143 |
-| `vulkan/pass/fxaa.cpp` | 175 |
-| `vulkan/pass/geometry_buffer_debug.cpp` | 158 |
-| `vulkan/pass/deferred.cpp` | 173 |
-| `vulkan/pass/ray_traced_shadow.cpp` | 204 |
-| `vulkan/pass/megalights_trace.cpp` | 152 |
-| `vulkan/pass/megalights_temporal.cpp` | 217 |
-| `vulkan/pass/post.cpp` | 244, 356 |
-| `vulkan/pass/taa.cpp` | 237 |
+| `source/engine/runtime/runtime.cpp` | 2299 (the shadow cascade index) |
+| `source/engine/primitive/primitive.cpp` | 26, 78, 116 |
+| `source/engine/pass/mask_bake.cpp` | 128 |
+| `source/engine/pass/compute_skin.cpp` | 143 |
+| `source/engine/pass/fxaa.cpp` | 175 |
+| `source/engine/pass/geometry_buffer_debug.cpp` | 158 |
+| `source/engine/pass/deferred.cpp` | 173 |
+| `source/engine/pass/ray_traced_shadow.cpp` | 204 |
+| `source/engine/pass/megalights_trace.cpp` | 152 |
+| `source/engine/pass/megalights_temporal.cpp` | 217 |
+| `source/engine/pass/post.cpp` | 244, 356 |
+| `source/engine/pass/taa.cpp` | 237 |
 
 **Pipeline layouts that must become null, with the heap flag replacing them (13).**
-`vulkan/pipelines/pipelines.cppm` creates one per builder (lines 240, 337, 378, 417, 462, 640, 737, 810, 960,
-1001, 1070); `vulkan/core/core.cpp` creates the shared `scene_pipeline_layout` (1542) - which is RETAINED but
+`source/engine/pipelines/pipelines.cppm` creates one per builder (lines 240, 337, 378, 417, 462, 640, 737, 810, 960,
+1001, 1070); `source/backends/vulkan/core/core.cpp` creates the shared `scene_pipeline_layout` (1542) - which is RETAINED but
 never handed to a converted pipeline, because a set layout is still what the not-yet-converted passes name; and
 the compute pipelines are created at lines 437, 482, 674, 709 (the probe, already flagged), 757, 980, plus the
 ray-tracing one at ~907.
 
-**Graphics pipelines.** `vulkan/core/pipeline/pipeline.cpp:206` is the single `vkCreateGraphicsPipelines` in the
+**Graphics pipelines.** `source/backends/vulkan/core/pipeline/pipeline.cpp:206` is the single `vkCreateGraphicsPipelines` in the
 renderer (the `make_pipeline` in `core.pipeline`, which the G-buffer, post and debug passes all go through), and
-`vulkan/core/core.cpp`'s G-buffer builder is the other one - so "every graphics pipeline" is really two
+`source/backends/vulkan/core/core.cpp`'s G-buffer builder is the other one - so "every graphics pipeline" is really two
 functions plus whatever `make_pipeline`'s callers pass.
 
 **Shaders (24 stages).** The inventory table above lists the bindings the retired GLSL sources declared; each
@@ -422,7 +422,7 @@ than a frame pass, and it only runs under `[render] rt_mask_bake`, which no gate
 could not reach a reference frame. The conversion was written and COMPILED (glslc accepts it first try):
 
 ```glsl
-#include "heap_slots.glsl"
+#include "heap_slots.slang"
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) uniform texture2D heap_textures[];
 layout(descriptor_heap) uniform sampler heap_samplers[];
 layout(descriptor_heap, descriptor_stride = heap_slot_stride) readonly buffer MaskMaterials { MaskMaterial materials[]; } heap_material_tables[];
@@ -487,7 +487,7 @@ descriptor heap: slot grid at 1048576 (1024 slots x 64 B; textures 0 materials 5
 ```
 
 - The resource grid's base is **1 MiB** and its stride **64 B**; the slot numbers (relative to that base) are
-  the constants in `shaders/heap_slots.glsl` and `core::heap_slots`. 703 of the 1024 slots are named.
+  the constants in `source/shaders/heap_slots.slang` and `core::heap_slots`. 703 of the 1024 slots are named.
 - The SAMPLER heap is a second grid at a **64 KiB** base with the device's 32 B stride: the API caps that heap
   at 128 KiB, so it cannot use the resource grid's 1 MiB. Refused unless the device's reserved window fits
   below the base and its sampler stride is 32 B.

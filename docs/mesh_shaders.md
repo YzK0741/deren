@@ -13,7 +13,7 @@ exists), and TIMINGS (there are none: the counters measure work, not millisecond
   form that acceptance can take now that the vertex path is gone, and forced probes prove which stage produced the
   frames.
 - THE MESHLET PATH IS THE ONE IN USE: every primitive's geometry is cut into 85-triangle meshlets with object-space
-  bounding spheres and normal cones (`deren.vulkan.meshlet`, 3145 records over 103 primitives on Sponza), the records live
+  bounding spheres and normal cones (`deren.engine.meshlet`, 3145 records over 103 primitives on Sponza), the records live
   in a heap table written once at import, and both geometry passes draw them ONE WORKGROUP PER MESHLET - the shadow
   pass and the G-buffer - each meshlet culled against its pass's clip volume before it emits anything. Every mesh
   dispatch goes through `vkCmdDrawMeshTasksIndirectEXT`, and the CAMERA's runs are culled by the HOST before the
@@ -162,7 +162,7 @@ is the only shader group in this renderer that verifies itself - the runtime dis
 initialization, reads a pixel back, and logs the result against a value it knows in advance - which is
 exactly what a stage no scenario renders needs.
 
-`shaders/heap_probe.slang` therefore has three entries: `main` (vertex), `mesh_main` (mesh) and
+`source/shaders/heap_probe.slang` therefore has three entries: `main` (vertex), `mesh_main` (mesh) and
 `frag_main` (fragment). The mesh entry carries the same heap fetch as the compute probe, through the
 shim, and the host runs the pair back to back:
 
@@ -245,10 +245,10 @@ possible). A step is not done until its route says so, plus `ctest` 10/10, `spir
 vulkan1.3` on every emitted `.spv`, and zero validation findings.
 
 **A NOTE ON NAMES, because every step below is named after the stage it converted.** "`pbr.vert` becomes a mesh
-stage" means "the geometry entry `shaders/pbr.slang` used to hold is replaced by its `mesh_main`": the Slang
-migration made every shader source a `.slang` file (the GLSL originals live in `shaders/glsl.old/`), and step 4
+stage" means "the geometry entry `source/shaders/pbr.slang` used to hold is replaced by its `mesh_main`": the Slang
+migration made every shader source a `.slang` file (the GLSL originals live in `source/reference/shaders/glsl.old/`), and step 4
 deleted those two vertex entries outright. So `pbr.vert` / `shadow.vert` below name A PATH, not a file that exists
-in the tree today - and `shaders/pbr.slang` / `shaders/shadow.slang` are where the entries actually are.
+in the tree today - and `source/shaders/pbr.slang` / `source/shaders/shadow.slang` are where the entries actually are.
 
 **"The gate" means the CORE set, and the exact scope matters because the numbers above were not all
 taken over the same one.** `check_render.ps1` defines fourteen scenarios and tags five of them `core`; the
@@ -266,12 +266,12 @@ existing pass.
 ### Step 1 - `shadow.vert` becomes a mesh stage (DONE)
 
 The smallest real geometry stage: one vertex stream, a depth-only fragment stage, and a pass whose only variability
-is the cascade's projection - a uniform, not a per-vertex input. `shaders/shadow.slang` now carries a third entry,
+is the cascade's projection - a uniform, not a per-vertex input. `source/shaders/shadow.slang` now carries a third entry,
 `mesh_main`, and the pass builds a second pipeline from it (`shadow.mesh.spv`, MESH + the SAME fragment stage).
 `shadow_pass::pipeline()` answers with the mesh form whenever it exists, so the frame loop is unchanged: the two
 pipelines are one pass drawn two ways, and `record_cascade` now says which one it handed over.
 
-**How the geometry reaches the stage.** `shaders/mesh_geometry.slang` is the shared fetch: a device address cast to
+**How the geometry reaches the stage.** `source/shaders/mesh_geometry.slang` is the shared fetch: a device address cast to
 a pointer, the engine's 64-byte interleaved vertex read as untyped words bit-cast to float, and the index buffer
 read as 32-bit words with the 16-bit case taken as the half its index falls in (the same two tricks
 `compute_skin.slang` and `rt_shadow.slang` already use). The DRAW hands the stage its whole geometry window -
@@ -337,14 +337,14 @@ and the validation layer stayed clean with the mesh path active.
 
 ### Step 2 - `pbr.vert` becomes a mesh stage (DONE: the G-buffer, the forward/unlit/transparent leaves and the shadow pass all have mesh forms)
 
-`shaders/pbr.slang` carries a third entry, `mesh_main`, built into a second G-buffer pipeline
+`source/shaders/pbr.slang` carries a third entry, `mesh_main`, built into a second G-buffer pipeline
 (`pbr.mesh.spv` + the SAME `gbuffer.frag`), and the scene session prefers it the way the shadow pass prefers its
 own: `runtime::make_gbuffer_pipeline` builds both pipelines from the code the app hands over, and
 `make_scene_environment` picks the mesh one and marks the session `mesh_stage`. The vertex body is now
 `pbr_shade_vertex(const MeshVertex, vertex_index, instance_index)` - the second half of the objective's "one shared
 fetch instead of two mirrored vertex-input declarations": `shadow.slang` and `pbr.slang` each declare their five
 attributes once, hand them to a body they share with their own `mesh_main`, and read the same 64-byte record through
-the same `shaders/mesh_geometry.slang` fetch.
+the same `source/shaders/mesh_geometry.slang` fetch.
 
 This is the widest coverage a geometry port can have: the G-buffer pass draws every opaque leaf of every scenario,
 so nine of the ten gate scenarios exercise it (`unlit` shades through the forward pipeline, `transparent_blend`
@@ -420,7 +420,7 @@ in the tree and gate-green; per-meshlet backface culling was implemented twice, 
 (see the negative result below); the task stage the objective names as the pre-culling mechanism is blocked by a
 compiler bug (see the blocker note at the top) and turned out not to be needed for the culling itself.
 
-`vulkan/meshlet/meshlet.cppm` is a pure-CPU module that cuts one draw window into meshlets: runs of at most
+`source/engine/meshlet/meshlet.cppm` is a pure-CPU module that cuts one draw window into meshlets: runs of at most
 `meshlet_max_triangles` (85, the mesh stage's output budget from section 2) triangles in index order, each with an
 object-space bounding sphere over the axis-aligned box of the vertices it touches. `runtime::create_primitive`
 builds them at upload - where the geometry bytes and the layout are still in hand - appends them to the GPU table,
@@ -453,7 +453,7 @@ IT IS A MODULE OF ITS OWN AND A PURE ONE on purpose: the split is arithmetic ove
 bugs are the invisible kind - a sphere that is too small culls a visible meshlet (a hole in the shadow map, on the
 frames where it happens to face the light) and an overlapping window draws triangles twice (invisible in a depth
 pass, wrong for anything blended). Nothing in a captured frame says which of those happened, so the properties are
-asserted on the CPU instead, by `tests/test_meshlet.cpp`, which CI runs:
+asserted on the CPU instead, by `source/tests/test_meshlet.cpp`, which CI runs:
 
 | property | check |
 | --- | --- |
@@ -642,7 +642,7 @@ launches never made.
 HOW IT IS WIRED, and the four things it deliberately does not do:
 
 - the host culls in `primitive::push_meshlet_lanes` with **copies of the shader's own two helpers**
-  (`matrix_max_axis_scale`, `clip_sphere_visible` in `shaders/mesh_geometry.slang`). The duplication is the safety
+  (`matrix_max_axis_scale`, `clip_sphere_visible` in `source/shaders/mesh_geometry.slang`). The duplication is the safety
   argument, not laziness: a meshlet the stage would have kept must never be rejected, and the only way to be sure is
   to run the same conservative test - the radius bound is a row-sum bound on both matrices, and the clip test uses
   `w + radius` on every plane.
@@ -679,7 +679,7 @@ reading, and the retry settled both:
   `set_cull_mode` already computes), which is what any future attempt has to respect.
 - **the helper's own note about `cone_cos` was backwards.** It claimed `1` means "no statement, never cull"; the
   cone's half-angle is `acos(cone_cos)`, so `1` is an EXACT cone and the value that never culls is `0`, where the
-  threshold `-sqrt(1 - cone_cos^2)` is `-1`. Fixed in `shaders/mesh_geometry.slang`.
+  threshold `-sqrt(1 - cone_cos^2)` is `-1`. Fixed in `source/shaders/mesh_geometry.slang`.
 
 WITH BOTH FIXED - restricted to the single-sided draws where the pass really does drop back faces - the test still
 changes `deferred`, `unlit` and `sponza`, 3 of the core 5, and so does its INVERTED form (`deferred` `ECEBFA87...`
@@ -746,8 +746,8 @@ WHAT WAS REMOVED, in the order it went:
 
 | what | how |
 | --- | --- |
-| the two geometry `vertex_main` entries | deleted from `shaders/pbr.slang` and `shaders/shadow.slang`; the shared bodies they called stay, because the mesh stages are their callers now |
-| their `.spv` from all four registries | `CMakeLists.txt`, `shaders/compile_shaders.ps1`, `shaders/compile_shaders.sh`, `chores.cpp` - `tests/test_shader_sources.cpp` parses all of them, so a half-done removal fails CI by name (and the two modules were deleted from the build tree, because `CMAKE_SUPPRESS_REGENERATION=ON` means a stale rule would otherwise keep compiling them) |
+| the two geometry `vertex_main` entries | deleted from `source/shaders/pbr.slang` and `source/shaders/shadow.slang`; the shared bodies they called stay, because the mesh stages are their callers now |
+| their `.spv` from all four registries | `CMakeLists.txt`, `source/shaders/compile_shaders.ps1`, `source/shaders/compile_shaders.sh`, `chores.cpp` - `source/tests/test_shader_sources.cpp` parses all of them, so a half-done removal fails CI by name (and the two modules were deleted from the build tree, because `CMAKE_SUPPRESS_REGENERATION=ON` means a stale rule would otherwise keep compiling them) |
 | the pipeline builders | `runtime::make_pipeline` (named `pbr`/`unlit`) and `make_gbuffer_pipeline` take a fragment stage plus the MESH/meshlet modules; a missing or refused mesh module is an ERROR, and the G-buffer pass is no longer registered in `gbuffer_pipeline` (its vertex form) at all |
 | the shadow pass's vertex form | `create` builds the MESH form first and requires it - a refusal DISABLES the pass rather than falling back - and `pipeline()`/`pipeline_ready()` consult only the mesh forms |
 | the draw paths | `bind_geometry_and_push` is gone (`vkCmdBindVertexBuffers` + `vkCmdDrawIndexed` for scene geometry), and the three `if (env.mesh_stage)` branches became a guard: a session with no mesh pipeline bound draws nothing and says so once |
@@ -769,9 +769,9 @@ form it replaced.
 ## 6. Traps already measured (so nobody re-measures them)
 
 - **A shader the build compiles and the escape-hatch scripts do not is invisible until someone uses the
-  scripts.** `shaders/compile_shaders.ps1`/`.sh` MIRROR `CMakeLists.txt`'s `VR_SLANG_SOURCES` by hand, and the
+  scripts.** `source/shaders/compile_shaders.ps1`/`.sh` MIRROR `CMakeLists.txt`'s `VR_SLANG_SOURCES` by hand, and the
   mesh migration left `heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv` out of both - so a machine without
-  CMake would have lost the mesh probe and its log-line proof. `tests/test_shader_sources.cpp` now parses all
+  CMake would have lost the mesh probe and its log-line proof. `source/tests/test_shader_sources.cpp` now parses all
   four places a `.spv` is named (the CMake list, both scripts, and `chores.cpp`'s loads) and requires them to
   agree, requires the three `.mesh.spv` names to exist, and requires every `mesh_main` a `.slang` file declares
   to have an entry. It runs in CI (both jobs) and is written to FAIL: deleting a mesh entry, or a script entry,
@@ -782,7 +782,7 @@ form it replaced.
   mesh entries sharing their source had been rebuilt - one pipeline whose two stages declared different push
   blocks, and no validation finding, no wrong picture and no build error anywhere. It surfaced as a byte
   difference against the scripts' output (21 of 27 identical, 6 not) and is now a test check: every `#include`
-  found in `shaders/` must be in `VR_SHADER_INCLUDES`.
+  found in `source/shaders/` must be in `VR_SHADER_INCLUDES`.
 - **A mesh stage's outputs are WRITE-ONLY.** `E54005: cannot read values from mesh shader outputs` - so
   the "keep a fetch alive through a branch the fragment stage never takes" idiom does not compile. The
   probe writes the fetched value into an output lane no fragment stage reads

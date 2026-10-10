@@ -4,7 +4,7 @@
 
 # Third-party code / assets
 std/** linguist-vendored
-third_party/** linguist-vendored
+source/third_party/** linguist-vendored
 gltf_model/** linguist-vendored
 
 # Non-code folders (docs, screenshots)

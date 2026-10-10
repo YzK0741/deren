@@ -1,11 +1,11 @@
 # MegaLights: how UE 5.8.2 lights many shadowed punctual lights, and what this renderer would take from it
 
 A study of the UE 5.8.2 source (available at `C:\UnrealEngine-5.8.2-release`), read for the capability this
-renderer does not have at all: **its punctual lights cast no shadows**. `shaders/shading.glsl:923` says so in
+renderer does not have at all: **its punctual lights cast no shadows**. `source/shaders/shading.glsl:923` says so in
 as many words ("punctual lights (point/spot, no shadow casting in this version)"), and the clustered loop
 below it walks the pixel's cluster list and accumulates radiance with no visibility term - so a demo light
 behind a column lights the wall in front of it. The sun is the only shadowed light, through the cascades
-(`calc_shadow`) or through one ray-traced visibility ray per pixel (`shaders/rt_shadow.slang`).
+(`calc_shadow`) or through one ray-traced visibility ray per pixel (`source/shaders/rt_shadow.slang`).
 
 MegaLights is Epic's answer to the same problem at a scale this renderer never reaches: it evaluates a few
 STOCHASTIC samples of the light set per pixel, traces one visibility ray per sample, and denoises the result
@@ -29,8 +29,8 @@ sample texels (`MegaLights/MegaLightsSampling.usf:286-300`, `MegaLights.cpp:60-6
 The candidates are the lights of the pixel's LIGHT GRID CELL - `min(NumMegaLights, MaxCulledLightsPerCell)`,
 with `MaxCulledLightsPerCell = 32` (`Sampling.usf:317-320`, `LightGridCommon.ush:76-79`,
 `LightGridInjection.cpp:123`). This is the same structure this renderer already builds for the deferred path:
-`shaders/light_cluster.slang` bins the punctual lights into 64 px tiles x 16 depth slices with a fixed
-capacity of `deren::vulkan::cluster_light_capacity = 32` per cluster, and `shaders/shading.glsl` reads that list per
+`source/shaders/light_cluster.slang` bins the punctual lights into 64 px tiles x 16 depth slices with a fixed
+capacity of `deren::vulkan::cluster_light_capacity = 32` per cluster, and `source/shaders/shading.glsl` reads that list per
 pixel. **The port gets its candidate set for free, and UE's cell cap is numerically the same 32.**
 
 For every candidate the sampler computes a target PDF weight (`MegaLights/MegaLightsLightTargetPDF.ush:23-59`):
@@ -150,7 +150,7 @@ project's GI chain most obviously lacked: **a static pixel accumulates up to 12 
 sampling confidence is high - so the spatial filter does not have to do the noise removal on its own.**
 The GI chain used a fixed 0.9 EMA (10 frames) forever, which is why its spatial filter was wide and the
 dark parts went soft (`docs/megalights.md` has the measurement); that chain was removed, and
-`shaders/megalights_temporal.slang:9` records the same measurement as the reason its own accumulation is
+`source/shaders/megalights_temporal.slang:9` records the same measurement as the reason its own accumulation is
 a running mean whose cap is `ML_MAX_FRAMES = 12`.
 
 The history is clamped into a neighbourhood statistics box rather than a min/max of the noisy current frame:
@@ -202,11 +202,11 @@ The pieces this renderer already has, and what they map to:
 
 | UE | here |
 |---|---|
-| the culled light grid cell (`MaxCulledLightsPerCell = 32`) | `shaders/light_cluster.slang`'s cluster list, capacity `cluster_light_capacity = 32` |
+| the culled light grid cell (`MaxCulledLightsPerCell = 32`) | `source/shaders/light_cluster.slang`'s cluster list, capacity `cluster_light_capacity = 32` |
 | 15-bit light index, 32768 lights | `max_punctual_lights = 128`, so a light index is a byte |
 | visible/hidden probabilistic bit-hash (2^-10) | an EXACT 128-bit mask per tile - 4 uints, no hashing |
-| `GetLocalLightAttenuation`, IES, light functions | `light.punctual_lights[]` in the light UBO, already evaluated by `shaders/shading.glsl` |
-| inline `RayQuery` shadow ray, front-face culled, accept-first-hit | `shaders/rt_shadow.slang`'s shadow ray, same flags |
+| `GetLocalLightAttenuation`, IES, light functions | `light.punctual_lights[]` in the light UBO, already evaluated by `source/shaders/shading.glsl` |
+| inline `RayQuery` shadow ray, front-face culled, accept-first-hit | `source/shaders/rt_shadow.slang`'s shadow ray, same flags |
 | 13 tile modes, indirect dispatch buckets, per-mode permutations | nothing - one BRDF, one path |
 | `R11G11B10` lighting + separate diffuse/specular histories | the GI chain's `RGBA16F` images, at half resolution, per swapchain image |
 | `RWSceneColor +=` in the spatial denoiser | `deferred_pass`'s additive blend into `scene_color` (`make_color_blend_attachment_additive`), the shape `ml_resolve` would copy |

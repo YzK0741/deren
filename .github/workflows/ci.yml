@@ -3,10 +3,10 @@ name: ci
 # Build + headless tests on every push to master and every pull request.
 #
 # Why MSYS2 clang64: the project is C++23 modules on clang + libc++, and the
-# STL module (vstd/vstd.cppm, a trimmed fork of the generated libc++ std module)
+# STL module (source/vstd/vstd.cppm, a trimmed fork of the generated libc++ std module)
 # is tied to that toolchain - the only environment that guarantees a
 # byte-compatible libc++ is the same MSYS2 clang64 the project is developed in. The headless unit tests
-# (tests/, ctest) run on the CPU-only modules; the Release build of the full
+# (source/tests/, ctest) run on the CPU-only modules; the Release build of the full
 # project (including the Vulkan executable) is the compile gate. No GPU is
 # needed - nothing is executed that requires a Vulkan device.
 #
@@ -134,26 +134,26 @@ jobs:
 
       - name: clang-tidy (pure-CPU modules, warnings are errors)
         run: |
-          # THE LIST IS CHECKED BEFORE IT IS USED. utility/thread_pool/thread_pool.cpp and
-          # utility/BVH/bvh.cpp sat in this list after the module renames moved them to .cppm, and
+          # THE LIST IS CHECKED BEFORE IT IS USED. source/utility/thread_pool/thread_pool.cpp and
+          # source/utility/BVH/bvh.cpp sat in this list after the module renames moved them to .cppm, and
           # clang-tidy's "no such file or directory" kept master red while every other gate passed.
           # A hand-maintained list that can go stale silently is a failure mode of its own.
-          # app_config is the TARGET name; its sources live in application_configuration/ (the dir was
+          # app_config is the TARGET name; its sources live in source/application_configuration/ (the dir was
           # renamed and this list was not).
-          TIDY_FILES="application_configuration/application_configuration.cppm \
-            application_configuration/application_configuration.cpp \
-            utility/data_block.cppm utility/utility.cppm utility/utility.cpp \
-            utility/thread_pool/thread_pool.cppm \
-            utility/BVH/bvh.cppm \
-            utility/frame_clock/frame_clock.cppm \
-            utility/frame_stats/frame_stats.cppm \
-            utility/shared/better_pmr.cpp \
-            utility/dynamic_link.cppm \
-            promise/rhi/rhi.cppm \
-            promise/rhi/rhi.contract.cppm \
-            promise/rhi/rhi.core_desc.cppm \
-            promise/rhi/rhi.extension.cppm \
-            promise/rhi/rhi.api_core.cppm"
+          TIDY_FILES="source/application_configuration/application_configuration.cppm \
+            source/application_configuration/application_configuration.cpp \
+            source/utility/data_block.cppm source/utility/utility.cppm source/utility/utility.cpp \
+            source/utility/thread_pool/thread_pool.cppm \
+            source/utility/BVH/bvh.cppm \
+            source/utility/frame_clock/frame_clock.cppm \
+            source/utility/frame_stats/frame_stats.cppm \
+            source/utility/shared/better_pmr.cpp \
+            source/utility/dynamic_link.cppm \
+            source/promise/rhi/rhi.cppm \
+            source/promise/rhi/rhi.contract.cppm \
+            source/promise/rhi/rhi.core_desc.cppm \
+            source/promise/rhi/rhi.extension.cppm \
+            source/promise/rhi/rhi.api_core.cppm"
           for f in $TIDY_FILES; do
             if [ ! -f "$f" ]; then
               echo "clang-tidy list names a file that does not exist: $f"
@@ -167,7 +167,7 @@ jobs:
       # through its import library BEFORE main, resolves deren_vulkan.dll and deren_gui_vulkan.dll BY NAME
       # out of its own directory, imports shared_utility.dll for the process-wide sink, takes the C++
       # runtime from libc++.dll, and finds the compiled SPIR-V by walking up from the working directory to
-      # `shaders/` (deren::chores::analyse_config). Uploading `build/deren.exe` alone - what this job did
+      # `source/shaders/` (deren::chores::analyse_config). Uploading `build/deren.exe` alone - what this job did
       # before - shipped a download that could not start, and nothing said so.
       #
       # THE LIST IS CHECKED, NOT ASSUMED, for the same reason the clang-tidy list above is: a package that
@@ -240,13 +240,13 @@ jobs:
       # would need: the binary is never run here, so compiling and linking it under the sanitizers
       # would cost minutes to produce an artifact nobody executes.
       #
-      # glfw is not optional here, which is not obvious from "headless tests". deren.vulkan.math,
-      # deren.vulkan.animation and deren.vulkan.shadow_fit all live in vulkancorekit, whose PUBLIC link interface
+      # glfw is not optional here, which is not obvious from "headless tests". deren.engine.math,
+      # deren.engine.animation and deren.engine.shadow_fit all live in deren_engine, whose PUBLIC link interface
       # carries imgui - so building test_math / test_animation / test_shadow_fit compiles
       # imgui_impl_glfw.cpp and a missing GLFW/glfw3.h fails the build before any test runs (measured:
       # that is what turned this job red, not a sanitizer finding).
       #
-      # The Vulkan packages are needed for two separate reasons: vulkancorekit links Vulkan::Vulkan as
+      # The Vulkan packages are needed for two separate reasons: deren_engine links Vulkan::Vulkan as
       # a PUBLIC dependency, and CMakeLists requires a shader compiler to compile the shaders even in a
       # build that asks for test targets only - the requirement is checked at configure time (slangc; the
       # glslc package stays installed because FindVulkan's shaderc search is what satisfies it here).
@@ -295,7 +295,7 @@ jobs:
         # as "Not Run" - the job goes red for a reason that looks like a test bug. That is exactly what
         # made this job red on master twice (runs 34844586370 and 35441060587) and then a THIRD time:
         # `test_meshlet` was registered by CMake and absent from this list (found and fixed with
-        # tests/test_docs.cpp, which now compares the two lists and fails by name). No sanitizer has
+        # source/tests/test_docs.cpp, which now compares the two lists and fails by name). No sanitizer has
         # ever reported anything in this job.
         #
         # test_shader_sources IS THE SHADER PIPELINE'S OWN GATE and it is deliberately here as well as in the

@@ -14,17 +14,17 @@ The work rode on the `descriptor-heap-migration` branch while it was in flight, 
 ## What is done, and what verifies it
 
 1. **Every descriptor is in the heaps.** A fixed slot grid at a 1 MiB base with a 64 B stride
-   (`core::heap_slots`, mirrored in `shaders/heap_slots.glsl`), the sampler grid at 64 KiB with a 32 B
-   stride, and a host write site for every slot the shader header names - `tests/test_render_resources.cpp`
+   (`core::heap_slots`, mirrored in `source/shaders/heap_slots.slang`), the sampler grid at 64 KiB with a 32 B
+   stride, and a host write site for every slot the shader header names - `source/tests/test_render_resources.cpp`
    fails if a name appears in one and not the other, and it also pins the values, the scalars and the
    sampler order.
-2. **Every shader is heap-native.** `layout(set = ` appears **zero** times in `shaders/`; the shader
+2. **Every shader is heap-native.** `layout(set = ` appears **zero** times in `source/shaders/`; the shader
    build is green. Nineteen files were converted, including the ray-tracing pair and the three compute
    stages.
 3. **Every pipeline is created against `layout = VK_NULL_HANDLE`** - graphics through
    `core::pipeline`, compute and ray tracing through the builders in `pipelines.cppm`.
 4. **Every push travels as data.** `vkCmdPushConstants` appears **zero** times outside comments in
-   `vulkan/`: all 21 sites now go through `vkCmdPushDataEXT`. The frame's passes use
+   `source/backends/vulkan/`: all 21 sites now go through `vkCmdPushDataEXT`. The frame's passes use
    `resolved_io::push_block`; the primitive draws use `render_environment::push_block`; the mask bake,
    the skinning dispatch and the shadow cascade use endpoints of their own shape.
 5. **The frame binds the heaps once**, in `runtime::begin_recording`, and the per-frame and
@@ -38,7 +38,7 @@ The work rode on the `descriptor-heap-migration` branch while it was in flight, 
 
 ### (a) Descriptor binds - DONE
 
-`vkCmdBindDescriptorSets` now appears **zero** times in `vulkan/`. Every bind is gone: the scene pass's
+`vkCmdBindDescriptorSets` now appears **zero** times in `source/backends/vulkan/`. Every bind is gone: the scene pass's
 per-segment bind and the transparent pass's per-secondary one (each of which existed because a secondary
 inherits no state from its primary - the heap bind has the same property, and the runtime makes it when
 it records the buffer), plus the sets in `fxaa`, `gbuffer_debug`, `cluster`, `deferred`, `post` (both
@@ -58,7 +58,7 @@ The third push lane now carries it, so the host hands the absolute slot over and
 (`docs/descriptor_heap_migration.md` records the fix); the note below is the reasoning that made it a
 separate piece of work rather than a two-line change.
 
-`shaders/post.frag` reads `post_source_texture[pc.post_source_slot]` - and that index is an
+`source/shaders/post.frag` reads `post_source_texture[pc.post_source_slot]` - and that index is an
 **absolute** heap slot, not a base plus `heap_image_index` (contrast the four bloom levels two lines
 below it, which are `bloom_lN_texture[heap_slots_bloom_lN + heap_image_index]`). So the *host* has to
 resolve the source, per frame, per swapchain image:
@@ -70,10 +70,10 @@ resolve the source, per frame, per swapchain image:
 | composite (mode 2) | `post_color + io.frame.image_index` (it takes the bloom levels itself, by constant) |
 
 `post_color` is 639 and the bloom chain is 647/655/663/671 - stride 8, those are the
-`core::heap_slots` / `heap_slots.glsl` constants.
+`core::heap_slots` / `heap_slots.slang` constants.
 
 **Why this is not a two-line fix.** A pass may not import `deren.vulkan.core`: no pass does today (they import
-`deren.vulkan.core.handles` and `deren.vulkan.render_resource`, and the split is deliberate - the grid is the
+`deren.vulkan.core.handles` and `deren.engine.render_resource`, and the split is deliberate - the grid is the
 renderer's, and a pass that knows it could take over an image family). So the pass cannot name 639. The
 host must hand the slot over, exactly as it hands over `shared_set_layout`, `shared_pipeline_layout` and
 `push_block`: a callback on `pass_context`/`pass_host` that answers "what is the post chain's source
@@ -85,7 +85,7 @@ entry - rather than its source.
 ### (c) The objects nothing points at any more - DONE
 
 They were created, written and read by no shader, and they have since been deleted: `core::scene_pipeline_layout` and
-`scene_descriptor_set_layout` (`vulkan/core/core.cpp:1536`, `:1412`), `core::create_descriptor_pool`
+`scene_descriptor_set_layout` (`source/backends/vulkan/core/core.cpp:1536`, `:1412`), `core::create_descriptor_pool`
 (`:1353`), `runtime::scene_sets`, `runtime::gbuffer_family`, `runtime::post_family`,
 `pipelines::make_post_set_layout` / `make_gbuffer_set_layout`, `bindings::make_set_layout` /
 `write_set` / `image_set_family`, the passes' `pipeline_layout_` / `set_layout_` members and their
@@ -291,7 +291,7 @@ the bindless texture array - and the log had read for weeks:
 **Cause.** The 1x1 white fallback texture is created in the runtime's constructor and never passes
 through `register_material`'s heap-write loop, so its slot stayed EMPTY. Every material slot with no
 texture points at that index - Sponza's stone carries no occlusion map - so `s.ao` sampled as 0, and
-`shaders/shading.glsl` multiplies BOTH the diffuse ambient and the specular IBL by `s.ao`: those
+`source/shaders/shading.slang` multiplies BOTH the diffuse ambient and the specular IBL by `s.ao`: those
 surfaces were left with the sun's direct light and nothing else. That is also why it looked
 Sponza-only: the assets whose materials DO carry an occlusion map (DamagedHelmet, and the five
 scenarios built on it) were untouched, and the metal sweep was the opposite of insensitive - `s.ao`

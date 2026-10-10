@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 4.3)
 
 # CMake gates its `import std;` support - which the MSVC dialect of vstd needs, see
-# vstd/vstd_msvc.cppm - behind an experiment id that must be set BEFORE project(). Compiler
+# source/vstd/vstd_msvc.cppm - behind an experiment id that must be set BEFORE project(). Compiler
 # detection is where CMake decides whether the toolchain can provide the standard library module,
 # and with the gate closed it rejects the CXX_MODULE_STD property outright ("Experimental `import
 # std` support not enabled when detecting toolchain; it must be set before `CXX` is enabled").
@@ -9,7 +9,7 @@ cmake_minimum_required(VERSION 4.3)
 # sits in the cmake binary next to the variable name, and CMake keeps gate ids stable across
 # releases. It is set for every toolchain on purpose, because `MSVC` is not defined until after
 # project() - and it is only USED by the MSVC branch at `vstd_lib` below: clang64 builds
-# vstd/vstd.cppm exactly as before, and its exe was measured byte-identical with this line in place.
+# source/vstd/vstd.cppm exactly as before, and its exe was measured byte-identical with this line in place.
 set(CMAKE_EXPERIMENTAL_CXX_IMPORT_STD "f35a9ac6-8463-4d38-8eec-5d6008153e7d" CACHE STRING
     "CMake's gate for the experimental `import std;` support (CMake >= 3.30).")
 
@@ -40,8 +40,8 @@ if(VR_GLM_INCLUDE_DIR)
     # ...AND at directory scope, because not every target that includes <glm/...> links glm::glm:
     # `deren.utility` (BVH) and `deren.gltf_loader` both include it while linking only each other, and under clang
     # that worked purely because glm lived on the compiler's implicit include path. Measured on MSVC
-    # without this line: three C1083s - utility/BVH/bvh.cppm(3), gltf_loader/gltf_loader.cppm(18),
-    # gltf_loader/gltf_loader.cpp(6). This call is inside the VR_GLM_INCLUDE_DIR branch on purpose: when
+    # without this line: three C1083s - source/utility/BVH/bvh.cppm(3), source/gltf_loader/gltf_loader.cppm(18),
+    # source/gltf_loader/gltf_loader.cpp(6). This call is inside the VR_GLM_INCLUDE_DIR branch on purpose: when
     # the variable is empty (every clang build) no include directory is added anywhere and the command
     # lines stay exactly what they were.
     include_directories(SYSTEM "${VR_GLM_INCLUDE_DIR}")
@@ -140,7 +140,7 @@ if(MSVC)
             /WX
             /permissive-
             # /Zc:__cplusplus is not what vstd reads (it takes the language level from _MSVC_LANG, which
-            # reports 202400 even without this flag - see vstd/vstd_compat.inc), but a correct
+            # reports 202400 even without this flag - see source/vstd/vstd_compat.inc), but a correct
             # __cplusplus is what every OTHER library and header in the tree expects, so it is on.
             /Zc:__cplusplus
             /utf-8
@@ -177,9 +177,9 @@ endif()
 
 # The project's STL module is `deren.vstd`, and there are two dialects of it - the toolchain picks:
 #
-#   clang64 (the shipped build): vstd/vstd.cppm - modified from libc++'s (LLVM) generated
-#     std-module output and trimmed to the headers the project uses (see vstd/README.md).
-#   MSVC: vstd/vstd_msvc.cppm - `export module deren.vstd; export import std;`, i.e. the MSVC
+#   clang64 (the shipped build): source/vstd/vstd.cppm - modified from libc++'s (LLVM) generated
+#     std-module output and trimmed to the headers the project uses (see source/vstd/README.md).
+#   MSVC: source/vstd/vstd_msvc.cppm - `export module deren.vstd; export import std;`, i.e. the MSVC
 #     toolchain's own std module re-exported under the project's module name.
 #
 # The MSVC dialect exists because of a compiler bug, measured on this tree rather than guessed:
@@ -188,7 +188,7 @@ endif()
 # std::array / std::tuple through it - 7 of the 326 objects before this switch, all of them
 # importers of vstd - while the same consumers compile clean against the toolchain's std module.
 # The minimal reproductions and the bisection are in
-# build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md; vstd/vstd_msvc.cppm states what the dialect
+# build-release-clang64/msvc/lead_lab/ICE_FINDINGS.md; source/vstd/vstd_msvc.cppm states what the dialect
 # costs (MSVC STL instead of libc++, and no VSTD_* macro face).
 #
 # CXX_MODULE_STD makes CMake build that std module itself and hand it to vstd_lib's compile: a
@@ -206,14 +206,14 @@ if(MSVC)
             PUBLIC
             FILE_SET CXX_MODULES
             FILES
-            vstd/vstd_msvc.cppm
+            source/vstd/vstd_msvc.cppm
     )
 else()
     target_sources(vstd_lib
             PUBLIC
             FILE_SET CXX_MODULES
             FILES
-            vstd/vstd.cppm
+            source/vstd/vstd.cppm
     )
 endif()
 
@@ -226,7 +226,7 @@ endif()
 # library it links, and the process then holds TWO sinks - two `ofstream`s on the same debug.log,
 # two startup rotations, and `rotate_previous_log()` TRUNCATES the file the other copy still has
 # open and appends to (interleaved lines, holes, two sessions in one debug.log.old). The boundary
-# gate is blind to it by construction: it measures deren_vulkan ∩ vulkancorekit, and this is a
+# gate is blind to it by construction: it measures deren_vulkan ∩ deren_engine, and this is a
 # third library that defines no backend symbol.
 #
 # THE SEAM IS STATE, NOT DIRECTORY:
@@ -271,7 +271,7 @@ endif()
 #      the executable imports libc++.dll and uses the UCRT heap, so both images share ONE C++ runtime
 #      and ONE heap - which is what makes an allocation on one side and a free on the other safe in
 #      this configuration. That premise is now MACHINE-CHECKED rather than assumed: see the
-#      C++-runtime check in scripts/check_backend_boundary.py (dll imports enumerated, no static
+#      C++-runtime check in source/scripts/check_backend_boundary.py (dll imports enumerated, no static
 #      libc++ in any image).
 #   3. THE REASON THE SPLIT EXISTS IS STATE, NOT MEMORY. One log sink per process: two copies mean two
 #      `ofstream`s on one debug.log and two startup rotations, and `rotate_previous_log()` TRUNCATES
@@ -282,7 +282,7 @@ endif()
 # rather than a prohibition: the sink copies what it queues on its own side, and the formatting stays
 # in the caller's template instantiation, so no template has to be an exported symbol. Nothing in the
 # rules above requires that - it is simply the shape the sink's door settled on.
-# THE PROCESS-WIDE GUARD IS THE ROTATION CLAIM (utility/shared/log_rotation_claim.cpp): an OS-named
+# THE PROCESS-WIDE GUARD IS THE ROTATION CLAIM (source/utility/shared/log_rotation_claim.cpp): an OS-named
 # object keyed by the process id, so even if a second copy of the sink ever appears in one process the
 # second one does NOT rotate the file the first one is writing.
 # =============================================================================================
@@ -293,7 +293,7 @@ endif()
 # `rotate_previous_log()` TRUNCATING the file the other copy still has open. `shared_utility` being a
 # DLL is what prevents it: the executable and deren_vulkan.dll both import THIS image, so the OS loads
 # one copy of the sink for the whole process. The rotation claim
-# (utility/shared/log_rotation_claim.cpp, an OS-named object keyed by the process id) stays as the
+# (source/utility/shared/log_rotation_claim.cpp, an OS-named object keyed by the process id) stays as the
 # second line of defence, and this batch is where it is first genuinely needed - and where it was
 # MEASURED, on the artifacts: one rotation for the whole process, not one per image.
 add_library(shared_utility SHARED)
@@ -309,19 +309,19 @@ target_sources(shared_utility
         FILES
         # The sink, the rotation, panic convergence, the allocator hook. Its tools go into
         # `deren.utility` below, which re-exports this module.
-        utility/shared/shared_utility.cppm
+        source/utility/shared/shared_utility.cppm
         PRIVATE
-        utility/shared/shared_utility.cpp
+        source/utility/shared/shared_utility.cpp
         # The allocator hook's definitions. IT IS NOT A PARTITION, AND THAT IS MEASURED: a partition
         # of a module that is itself re-exported (`deren.utility` re-exports `deren.utility.shared`)
         # makes clang 22.1.8 crash while semantically analysing a consumer's std::format call
         # (utility.cpp's write_png, reproduced with -fsyntax-only; the crash disappears when the
         # partition re-export becomes a plain import). So the hook is declared in the primary
         # interface and defined here - no partition, nothing lost.
-        utility/shared/better_pmr.cpp
+        source/utility/shared/better_pmr.cpp
         # The once-per-process rotation claim, a plain (non-module) TU for the platform_* reason:
         # <windows.h> does not belong in a module's global module fragment.
-        utility/shared/log_rotation_claim.cpp
+        source/utility/shared/log_rotation_claim.cpp
 )
 
 add_library(static_utility STATIC)
@@ -330,12 +330,12 @@ target_sources(static_utility
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        utility/utility.cppm
-        utility/data_block.cppm
-        utility/BVH/bvh.cppm
-        utility/frame_clock/frame_clock.cppm
-        utility/frame_stats/frame_stats.cppm
-        utility/thread_pool/thread_pool.cppm
+        source/utility/utility.cppm
+        source/utility/data_block.cppm
+        source/utility/BVH/bvh.cppm
+        source/utility/frame_clock/frame_clock.cppm
+        source/utility/frame_stats/frame_stats.cppm
+        source/utility/thread_pool/thread_pool.cppm
         # The loader the RHI boundary is built on: the only place in the tree that
         # asks the platform for a library. It is a module of its own rather than a `utility:` partition
         # because a partition cannot be imported by another target's module without dragging `deren.utility`
@@ -345,13 +345,13 @@ target_sources(static_utility
         # IT STAYS HERE, NOT IN shared_utility: it is the key that loads the backend, so putting it
         # behind the process-wide library would make "load shared_utility" a prerequisite of "load
         # the backend" - a bootstrap chain with nothing to gain.
-        utility/dynamic_link.cppm
+        source/utility/dynamic_link.cppm
         PRIVATE
-        utility/utility.cpp
+        source/utility/utility.cpp
 )
 
 # The RHI boundary's contract (m03159): a module of virtual base classes,
-# deren.promise.rhi, which lives in promise/rhi/ - the outer segment names the family of contract
+# deren.promise.rhi, which lives in source/promise/rhi/ - the outer segment names the family of contract
 # interfaces and the inner one the graphics-API instance of it (m03716, corrected by m03931). It is a
 # module rather than a directory of headers because BOTH
 # sides of the boundary compile it - the engine's targets and a backend DLL each read the same
@@ -359,23 +359,23 @@ target_sources(static_utility
 # and it is listed here, once, for the same reason. There is no .cpp: every declaration below this
 # line is an interface, so the STATIC target exists only to carry the module's file set (the shape
 # vstd_lib has for deren.vstd). The C ABI surface is deliberately NOT here (m03159): it is
-# promise/rhi/backend_entry.hpp - in the same directory, but a plain header, not a partition and not
+# source/promise/rhi/backend_entry.hpp - in the same directory, but a plain header, not a partition and not
 # in the file set below, because an entry point is not a virtual base class. The keyword it is
-# declared with is a build concern and lives in utility/abi_export.hpp (m04074).
+# declared with is a build concern and lives in source/utility/abi_export.hpp (m04074).
 add_library(promise STATIC)
 
 target_sources(promise
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        promise/rhi/rhi.cppm
-        promise/rhi/rhi.contract.cppm
+        source/promise/rhi/rhi.cppm
+        source/promise/rhi/rhi.contract.cppm
         # The creation parameters, as a contract type: the program fills it, the backend builds its
         # context from it, and the factory that takes it (S2) needs no backend-specific structure.
-        promise/rhi/rhi.core_desc.cppm
-        promise/rhi/rhi.extension.cppm
-        promise/rhi/rhi.api_core.cppm
-        promise/gui/gui.cppm
+        source/promise/rhi/rhi.core_desc.cppm
+        source/promise/rhi/rhi.extension.cppm
+        source/promise/rhi/rhi.api_core.cppm
+        source/promise/gui/gui.cppm
 )
 
 # THE CONTRACT IS UNINSTRUMENTED IN THE SANITIZER JOB, AND THAT IS A LINK REQUIREMENT, NOT A PREFERENCE.
@@ -410,10 +410,10 @@ target_sources(app_config
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        application_configuration/application_configuration.cppm
+        source/application_configuration/application_configuration.cppm
 
     PRIVATE
-        application_configuration/application_configuration.cpp
+        source/application_configuration/application_configuration.cpp
 )
 
 if(VR_TOMLPP_INCLUDE_DIR)
@@ -436,81 +436,19 @@ endif()
 # the header (checked: no other source in the tree includes toml++), so PRIVATE is enough.
 target_compile_definitions(app_config PRIVATE TOML_EXCEPTIONS=0)
 
-# The engine core library (vulkancorekit): Vulkan object management + math + the runtime
-# facade + scene tree + the debug GUI + the format-neutral animation controller
-# (vulkan.animation: plays keyframe clips / skins / morphs onto the runtime scene; it never
-# imports a loader - deren::gltf::scenes satisfies its structural source concept at the call site).
-# This library does NOT depend on deren_assets (pure CPU, used by the demo layer only).
-# ============================================================================================
-# ============================================================================================
-# deren_vulkan - THE BACKEND HALF AS A TARGET OF ITS OWN (S1-A).
-#
-# The minimum cut, measured with deren-ab/rhi/_s1_import_graph.py: the import closure of the seed
-# {deren.vulkan.core, deren.vulkan.init_utils} is 7 modules with ZERO edges leaving the closure.
-# A wider cut drags bindings / pipelines / render_resource / scene_tree in, which is not S1 - that
-# is S3. So this target carries exactly the engine-service layer (core, its vma / descriptor-heap
-# / handles / init_utils / pipeline / spirv_parser, and the transition constants) and the 17 files
-# listed below, and NOTHING about render passes.
-#
-# WHY A TARGET AND NOT A DIRECTORY MOVE: every consumer of the backend keeps using vulkancorekit
-# unchanged (the BMI comes across through `target_link_libraries(vulkancorekit PUBLIC deren_vulkan)`,
-# the shape static_utility / vstd_lib already have). Products are expected to be byte-identical: same TUs,
-# same flags, same executable - S1-A is the one step of S1 that is constructive.
-#
-# SHARED, AND THAT IS THE FLIP ITSELF (the migration's last batch). The order the plan asked for is
-# now full: S1-C made this target implement deren::promise::rhi::api_core and prove the contract
-# in-process, and this batch makes the SAME TARGET the DLL whose ONE export
-# (promise/rhi/backend_entry.hpp, abi 18) the executable resolves BY NAME through
-# deren.utility.dynamic_link - never by linking it. `target_link_libraries(vulkancorekit
-# PUBLIC deren_vulkan)` is GONE with it (see that line): an import library would load the backend at
-# process start, before main, which is exactly the load-time binding dynamic_link exists to replace -
-# and a missing DLL would then fail as a system loader error instead of a diagnosable refusal.
-#
-# -DDEREN_BACKEND_SPIKE RETIRED IN THIS BATCH, and it retired by SUCCEEDING: it existed to build this
-# target SHARED in a throwaway tree so the boundary's four known-unknowns were measured before the
-# migration was paid for. SHARED is the main configuration now, so the
-# option and its `if()` branches are deleted rather than left as a switch that means "the same thing,
-# but hidden". Two things it carried become permanent instead of conditional: the dllexport half of
-# the boundary (DEREN_API_SHARED + DEREN_API_BUILD) and the sanitizer suppression below. The spike
-# TEST stays, unconditionally built and deliberately NOT registered with ctest (it loads a DLL and with
-# --with-device builds a real context, so it cannot belong to the headless set that tests/test_docs.cpp
-# compares against the workflow).
-# ============================================================================================
-
-# ============================================================================================
-# deren.vulkan.constant_init - THE VULKAN CONSTEXPR BUILDERS, COMPILED FOR BOTH HALVES.
-#
-# WHY IT IS NOT IN deren_vulkan ANY MORE (③-E's import instrument, measured): the module depends on
-# NOTHING but the Vulkan headers (its own header says so), yet the engine imports it in 26 sites across
-# 23 files. While the file sits in deren_vulkan, every one of those imports is an import of a BACKEND
-# module - which the flip's import gate refuses and which a SHARED backend cannot serve at all, because
-# the BMI would have to come from the DLL. Moving the file to a target of its own makes the module
-# neutral (both halves compile it into their own image through this target) and takes those 33 import
-# points off the meter.
-#
-# WHY A TARGET AND NOT "LIST THE SAME .cppm IN BOTH TARGETS": two BMIs of the same module name would
-# both be visible to one TU of a target that links both owners, and a translation unit cannot import
-# the same module from two definitions. The proven shape in this repository is one owning target linked
-# by both - `promise` does exactly that for the contract. (The engine no longer links deren_vulkan at
-# all since the flip, so today this argument is about `promise` and `vulkan_constant_init`, both of
-# which the engine and the backend DO share.)
-#
-# FLAGS: the shared COMPILE_OPTIONS set (the foreach below), and deliberately NOT deren_vulkan's
-# `-fno-sanitize=all`: that suppression exists because an INSTRUMENTED DLL cannot carry a second ASan
-# runtime, and this target is never the DLL's code path (the DLL is uninstrumented by construction -
-# see deren_vulkan's sanitizer suppression; `promise`, which both halves also share, carries the same
-# suppression for the reason stated at its own target - the probe DLL links the contract's objects and
-# cannot be built out of instrumented ones).
-# ============================================================================================
+# The portable engine owns scene storage, animation, render passes and the runtime.
+# Graphics implementations live in source/backends/vulkan and are loaded by the
+# engine through the RHI/GUI contracts, without linking their import libraries.
+# Keep portable layout definitions in a separate shared target used by both halves.
 # Native structure builders belong to the backend; renderer layout is a portable shared module.
 add_library(vulkan_constant_init STATIC)
 target_sources(vulkan_constant_init PUBLIC FILE_SET CXX_MODULES FILES
-    vulkan/constant_init/constant_init.cppm)
+    source/backends/vulkan/constant_init/constant_init.cppm)
 target_link_libraries(vulkan_constant_init PUBLIC Vulkan::Vulkan)
 
 add_library(renderer_layout STATIC)
 target_sources(renderer_layout PUBLIC FILE_SET CXX_MODULES FILES
-    vulkan/render_layout/render_layout.cppm)
+    source/engine/render_layout/render_layout.cppm)
 target_link_libraries(renderer_layout PUBLIC promise)
 
 # ============================================================================================
@@ -521,7 +459,7 @@ target_link_libraries(renderer_layout PUBLIC promise)
 # `deren.vulkan.core` with definitions in a module implementation unit. A module attachment is a
 # LINK-TIME fact - a consumer needs the module's initializer and its decorated symbols - and a DLL
 # can serve those only by exporting its module surface. `deren_vulkan.dll` exports EXACTLY ONE name
-# by design (promise/rhi/backend_entry.hpp), so the tables had to become ordinary functions in a
+# by design (source/promise/rhi/backend_entry.hpp), so the tables had to become ordinary functions in a
 # target that (a) the backend links (core.api_core.cpp / core.cpp call them) and (b) the tables'
 # unit test links, WITHOUT the test having to import a backend module. Same TUs on both sides, one
 # definition, no BMI: the shape this repository already proved twice.
@@ -533,7 +471,7 @@ target_sources(vulkan_error_tables
         FILES
         # The translators AND the diagnostic builder, as a module: VkResult -> contract error, once
         # per call-site family.
-        vulkan/core/error_tables.cppm
+        source/backends/vulkan/core/error_tables.cppm
 )
 # The contract's module is the dependency of the interface unit itself (it re-exports it, so an
 # importer needs no second import just to name an `error`).
@@ -542,10 +480,10 @@ target_link_libraries(vulkan_error_tables PUBLIC promise Vulkan::Vulkan)
 add_library(deren_vulkan SHARED)
 add_library(deren::vulkan ALIAS deren_vulkan)
 # Same rule as shared_utility: the backend ships as `deren_vulkan.dll`, which is what the runtime's
-# loader looks for beside the executable (runtime/runtime.constructor.cppm).
+# loader looks for beside the executable (source/engine/runtime/runtime.constructor.cppm).
 set_target_properties(deren_vulkan PROPERTIES PREFIX "")
 
-# The dllexport side of the boundary (utility/abi_export.hpp). The importing side needs neither
+# The dllexport side of the boundary (source/utility/abi_export.hpp). The importing side needs neither
 # macro: the executable resolves the entry by NAME through dynamic_link and is not linked against
 # this library at all, so only the probe/test consumers ever see `dllimport`.
 target_compile_definitions(deren_vulkan PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
@@ -559,7 +497,7 @@ target_compile_definitions(deren_vulkan PRIVATE DEREN_API_SHARED DEREN_API_BUILD
     #     Exception Code: 0xC000001D   (ld.lld, clang 22.1.8, --coff)
     #
     # so the instrumented objects of a SHARED C++ library are not a shape this toolchain can link at
-    # all. The suppression below is the same one tests/probe_backend.cpp already carries, and it is
+    # all. The suppression below is the same one source/tests/probe_backend.cpp already carries, and it is
     # the reason the flip COSTS THE BACKEND ITS SANITIZER COVERAGE: the DLL is uninstrumented by
     # construction, and an instrumented process cannot host a second sanitizer runtime anyway.
     # Keeping the coverage means running the sanitizers over the STATIC half, which is why this is
@@ -573,35 +511,37 @@ target_sources(deren_vulkan
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        vulkan/core/core.cppm
-        vulkan/core/core.declarations.cppm
-        vulkan/core/core.constructor.cppm
-        vulkan/core/vma/vma.cppm
-        vulkan/core/descriptor_heap/descriptor_heap.cppm
-        vulkan/core/vma/handles/vma_handles.cppm
-        vulkan/core/handles/handles.cppm
-        vulkan/core/init_utils/init_utils.cppm
-        vulkan/init_utils/init_utils.cppm
-        vulkan/core/pipeline/pipeline.cppm
-        vulkan/core/pipeline/spirv_parser.cppm
-        # (vulkan/constant_init/constant_init.cppm MOVED OUT: it is `vulkan_constant_init` now - the
+        source/backends/vulkan/core/core.cppm
+        source/backends/vulkan/core/core.declarations.cppm
+        source/backends/vulkan/core/core.constructor.cppm
+        source/backends/vulkan/core/vma/vma.cppm
+        source/backends/vulkan/core/descriptor_heap/descriptor_heap.cppm
+        source/backends/vulkan/core/vma/handles/vma_handles.cppm
+        source/backends/vulkan/core/handles/handles.cppm
+        source/backends/vulkan/core/init_utils/init_utils.cppm
+        source/backends/vulkan/init_utils/init_utils.cppm
+        source/backends/vulkan/core/pipeline/pipeline.cppm
+        source/backends/vulkan/core/pipeline/spirv_parser.cppm
+        # (source/backends/vulkan/constant_init/constant_init.cppm MOVED OUT: it is `vulkan_constant_init` now - the
         #  engine imports it in 26 places and a backend module cannot serve the flip - see that
         #  target's comment above deren_vulkan)
     PRIVATE
-        vulkan/core/core.cpp
+        source/backends/vulkan/core/core.cpp
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
-        vulkan/core/core.api_core.cpp
-        # The ONE C entry point, DEFINED for the real backend (promise/rhi/backend_entry.hpp, abi 18).
+        source/backends/vulkan/core/core.api_core.cpp
+        source/backends/vulkan/core/core.texture_groups.cpp
+        source/backends/vulkan/core/core.submission_lifetimes.cpp
+        # The ONE C entry point, DEFINED for the real backend (source/promise/rhi/backend_entry.hpp, abi 18).
         # A plain TU rather than a module implementation unit, because the entry has to be reachable BY
         # NAME from an image that imports no module of this target - the same reason
-        # tests/probe_backend.cpp is a plain TU. With this target SHARED it is the dllexport side of the
+        # source/tests/probe_backend.cpp is a plain TU. With this target SHARED it is the dllexport side of the
         # boundary, and the export table carries exactly this one `deren_*` name.
-        vulkan/core/core.entry.cpp
-        vulkan/core/handles/handles.cpp
-        vulkan/init_utils/init_utils.cpp
-        vulkan/core/pipeline/pipeline.cpp
-        third_party/spirv-reflect/spirv_reflect.c
+        source/backends/vulkan/core/core.entry.cpp
+        source/backends/vulkan/core/handles/handles.cpp
+        source/backends/vulkan/init_utils/init_utils.cpp
+        source/backends/vulkan/core/pipeline/pipeline.cpp
+        source/third_party/spirv-reflect/spirv_reflect.c
 )
 # The error translators (see the target above): a static library, so the DLL carries its own copy of
 # them - which is correct, because the ENGINE never calls them; the unit test links the same target
@@ -609,7 +549,7 @@ target_sources(deren_vulkan
 target_link_libraries(deren_vulkan
         vulkan_error_tables
         # The backend implements the contract, so the contract's module is a dependency of THIS target
-        # and of nothing else in the backend's direction (promise/rhi/*.cppm imports nothing back).
+        # and of nothing else in the backend's direction (source/promise/rhi/*.cppm imports nothing back).
         promise
         # The Vulkan constexpr builders both halves compile (see the target's comment above): the
         # backend keeps using them unchanged, they simply stop being a backend-owned module.
@@ -624,15 +564,15 @@ target_link_libraries(deren_vulkan
 )
 target_include_directories(deren_vulkan
     SYSTEM PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party
 )
 
 # ================================================================================================
 # THE RENDERER RUNTIME, AND WHY THERE IS EXACTLY ONE NOW (the dynamic-backend migration's S5, the flip).
 #
-# `runtime/` at the repository root IS the renderer runtime. It reaches the backend ONLY through the
+# `source/engine/runtime/` at the repository root IS the renderer runtime. It reaches the backend ONLY through the
 # contract (`deren_make_api_core()` + `rhi::api_core` + the raw-handle escape) and never names `core`.
-# `vulkan/runtime/` - the runtime that DID name it and that lived inside the backend's own directory -
+# `source/engine/runtime/` - the runtime that DID name it and that lived inside the backend's own directory -
 # is deleted with this batch. See docs/dynamic_runtime.md for the design.
 #
 # THE `-DVR_RUNTIME=legacy|dynamic` OPTION IS RETIRED WITH THOSE FILES, and that is the honest shape
@@ -640,7 +580,7 @@ target_include_directories(deren_vulkan
 # to one translation unit, so a single build tree could not host both runtimes, and the LEGACY tree was
 # the CONTROL for the dynamic one (both had to read the same fourteen render hashes). With the legacy
 # sources gone there is nothing to select between and nothing to control, so the file list below is
-# simply what `vulkancorekit` gets. `VR_RUNTIME_SERVES_THE_APP` retires in the same move: it gated the
+# simply what `deren_engine` gets. `VR_RUNTIME_SERVES_THE_APP` retires in the same move: it gated the
 # application, `chores` and `render_start_demo` while the port was incomplete (S1-S3) and has been
 # unconditionally ON since S4's file-list swap.
 #
@@ -650,99 +590,100 @@ target_include_directories(deren_vulkan
 # repository points at it any more - the gates run in the surviving tree.
 # ================================================================================================
 set(VR_RUNTIME_MODULES
-    runtime/runtime.cppm
-    runtime/runtime.declarations.cppm
-    runtime/runtime.constructor.cppm
-    runtime/runtime.frames.cppm
-    runtime/runtime.probes.cppm
-    runtime/runtime.readback.cppm
+    source/engine/runtime/runtime.cppm
+    source/engine/runtime/runtime.declarations.cppm
+    source/engine/runtime/runtime.constructor.cppm
+    source/engine/runtime/runtime.frames.cppm
+    source/engine/runtime/runtime.probes.cppm
+    source/engine/runtime/runtime.readback.cppm
 )
 set(VR_RUNTIME_PRIVATE_SOURCES
-    runtime/runtime.cpp
+    source/engine/runtime/runtime.cpp
 )
 # The two places the app owns, named once so the target lists below read the same everywhere.
 set(VR_FULL_API_TARGETS deren chores)
 set(VR_APP_EXE deren)
-set(VR_FULL_API_MODULES vulkan/render_start_demo/render_start_demo.cppm)
-set(VR_FULL_API_SOURCES vulkan/render_start_demo/render_start_demo.cpp)
+set(VR_FULL_API_MODULES source/engine/render_start_demo/render_start_demo.cppm)
+set(VR_FULL_API_SOURCES source/engine/render_start_demo/render_start_demo.cpp)
 
-add_library(vulkancorekit STATIC)
+add_library(deren_engine STATIC)
+add_library(deren::engine ALIAS deren_engine)
 
-target_sources(vulkancorekit
+target_sources(deren_engine
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        vulkan/core/filter/filters.cppm
-        vulkan/math/math.cppm
+        source/engine/filters/filters.cppm
+        source/engine/math/math.cppm
         ${VR_RUNTIME_MODULES}
-        vulkan/pipelines/pipelines.cppm
-        vulkan/render_resource/render_resource.cppm
-        vulkan/render_resource/shared.cppm
-        vulkan/frame_constants/frame_constants.cppm
-        vulkan/pass/pass.cppm
-        vulkan/pass/taa.cppm
-        vulkan/pass/scene.cppm
-        vulkan/pass/transparent.cppm
-        vulkan/pass/character_forward.cppm
-        vulkan/pass/toon_screen_rim.cppm
-        vulkan/pass/goo_rim.cppm
-        vulkan/pass/megalights_trace.cppm
-        vulkan/pass/megalights_temporal.cppm
-        vulkan/pass/ray_traced_shadow.cppm
-        vulkan/pass/mask_bake.cppm
-        vulkan/pass/compute_skin.cppm
-        vulkan/pass/cluster.cppm
-        vulkan/pass/deferred.cppm
-        vulkan/pass/post.cppm
-        vulkan/pass/fxaa.cppm
-        vulkan/pass/upscale.cppm
-        vulkan/pass/geometry_buffer_debug.cppm
-        vulkan/pass/shadow.cppm
-        vulkan/pass/chain.cppm
+        source/engine/pipelines/pipelines.cppm
+        source/engine/render_resource/render_resource.cppm
+        source/engine/render_resource/shared.cppm
+        source/engine/frame_constants/frame_constants.cppm
+        source/engine/pass/pass.cppm
+        source/engine/pass/taa.cppm
+        source/engine/pass/scene.cppm
+        source/engine/pass/transparent.cppm
+        source/engine/pass/character_forward.cppm
+        source/engine/pass/toon_screen_rim.cppm
+        source/engine/pass/goo_rim.cppm
+        source/engine/pass/megalights_trace.cppm
+        source/engine/pass/megalights_temporal.cppm
+        source/engine/pass/ray_traced_shadow.cppm
+        source/engine/pass/mask_bake.cppm
+        source/engine/pass/compute_skin.cppm
+        source/engine/pass/cluster.cppm
+        source/engine/pass/deferred.cppm
+        source/engine/pass/post.cppm
+        source/engine/pass/fxaa.cppm
+        source/engine/pass/upscale.cppm
+        source/engine/pass/geometry_buffer_debug.cppm
+        source/engine/pass/shadow.cppm
+        source/engine/pass/chain.cppm
         ${VR_FULL_API_MODULES}
-        vulkan/profiling/profiling.cppm
-        vulkan/shadow_fit/shadow_fit.cppm
-        vulkan/acceleration_structure/acceleration_structure.cppm
-        vulkan/ray_tracing/ray_tracing.cppm
-        vulkan/scene_tree/scene_tree.cppm
-        vulkan/meshlet/meshlet.cppm
-        vulkan/primitive/primitive.cppm
-        vulkan/render_environment/render_environment.cppm
+        source/engine/profiling/profiling.cppm
+        source/engine/shadow_fit/shadow_fit.cppm
+        source/engine/acceleration_structure/acceleration_structure.cppm
+        source/engine/ray_tracing/ray_tracing.cppm
+        source/engine/scene_tree/scene_tree.cppm
+        source/engine/meshlet/meshlet.cppm
+        source/engine/primitive/primitive.cppm
+        source/engine/render_environment/render_environment.cppm
         # (the GUI module MOVED to deren_gui_vulkan - see that target's comment) and the loader the
         # engine uses instead: it resolves deren_gui_<api>.dll by name through the boundary header.
-        runtime/gui_loader.cppm
-        vulkan/animation/controller.cppm
-        vulkan/animation/mmd_motion.cppm
+        source/engine/runtime/gui_loader.cppm
+        source/engine/animation/controller.cppm
+        source/engine/animation/mmd_motion.cppm
     PRIVATE
-        vulkan/core/filter/filters.cpp
-        vulkan/math/math.cpp
+        source/engine/filters/filters.cpp
+        source/engine/math/math.cpp
         ${VR_RUNTIME_PRIVATE_SOURCES}
-        vulkan/pass/taa.cpp
-        vulkan/pass/scene.cpp
-        vulkan/pass/transparent.cpp
-        vulkan/pass/character_forward.cpp
-        vulkan/pass/toon_screen_rim.cpp
-        vulkan/pass/goo_rim.cpp
-        vulkan/pass/megalights_trace.cpp
-        vulkan/pass/megalights_temporal.cpp
-        vulkan/pass/ray_traced_shadow.cpp
-        vulkan/pass/mask_bake.cpp
-        vulkan/pass/compute_skin.cpp
-        vulkan/pass/cluster.cpp
-        vulkan/pass/deferred.cpp
-        vulkan/pass/post.cpp
-        vulkan/pass/fxaa.cpp
-        vulkan/pass/upscale.cpp
-        vulkan/pass/geometry_buffer_debug.cpp
-        vulkan/pass/shadow.cpp
+        source/engine/pass/taa.cpp
+        source/engine/pass/scene.cpp
+        source/engine/pass/transparent.cpp
+        source/engine/pass/character_forward.cpp
+        source/engine/pass/toon_screen_rim.cpp
+        source/engine/pass/goo_rim.cpp
+        source/engine/pass/megalights_trace.cpp
+        source/engine/pass/megalights_temporal.cpp
+        source/engine/pass/ray_traced_shadow.cpp
+        source/engine/pass/mask_bake.cpp
+        source/engine/pass/compute_skin.cpp
+        source/engine/pass/cluster.cpp
+        source/engine/pass/deferred.cpp
+        source/engine/pass/post.cpp
+        source/engine/pass/fxaa.cpp
+        source/engine/pass/upscale.cpp
+        source/engine/pass/geometry_buffer_debug.cpp
+        source/engine/pass/shadow.cpp
         ${VR_FULL_API_SOURCES}
-        vulkan/shadow_fit/shadow_fit.cpp
-        vulkan/acceleration_structure/acceleration_structure.cpp
-        vulkan/ray_tracing/ray_tracing.cpp
-        vulkan/scene_tree/scene_tree.cpp
-        vulkan/primitive/primitive.cpp
-        vulkan/animation/controller.cpp
-        vulkan/animation/mmd_motion.cpp
+        source/engine/shadow_fit/shadow_fit.cpp
+        source/engine/acceleration_structure/acceleration_structure.cpp
+        source/engine/ray_tracing/ray_tracing.cpp
+        source/engine/scene_tree/scene_tree.cpp
+        source/engine/primitive/primitive.cpp
+        source/engine/animation/controller.cpp
+        source/engine/animation/mmd_motion.cpp
 )
 # ================================================================================================
 # deren_assets - THE ASSET-LOADING STACK, AS AN AUTO-IMPORTED DLL (the binary-balance batch).
@@ -752,8 +693,8 @@ target_sources(vulkancorekit
 # proxy): the executable carried ~7.1 MB of NON-rendering code, and this target plus its vendored
 # implementation is 3.4 MB of it (gltf_loader 1.73 + fastgltf_vendored 1.65, simdjson included).
 # It is the only large non-rendering block that CAN move, because it depends on nothing in
-# `vulkancorekit` - and a DLL cannot import a symbol out of the executable, so anything that names
-# the engine (`chores`) or IS the executable (`main.cpp`) has to stay. `backend_loader` was left
+# `deren_engine` - and a DLL cannot import a symbol out of the executable, so anything that names
+# the engine (`chores`) or IS the executable (`source/app/main.cpp`) has to stay. `backend_loader` was left
 # alone too: it links glfw, and a DLL would put a THIRD copy of GLFW's global state in the process.
 #
 # AUTO-IMPORT, DELIBERATELY - THE OPPOSITE RULE FROM THE TWO GRAPHICS PLUGINS. The backend and the
@@ -777,7 +718,7 @@ target_sources(vulkancorekit
 # sources, the flags (the "compile options" foreach below still names this target, by its new name),
 # and the types passed across the seam (`deren::gltf::scenes`). Both images compile `deren.vstd`
 # from the same interface unit and both import libc++.dll - the premise the utility split already
-# rests on, and the one scripts/check_backend_boundary.py checks on the artifacts.
+# rests on, and the one source/scripts/check_backend_boundary.py checks on the artifacts.
 #
 # NO SANITIZER SUPPRESSION, AND THAT IS MEASURED RATHER THAN ASSUMED. The CI sanitizers job builds
 # these tests with -fsanitize=address,undefined and then RUNS them, which is the shape that made
@@ -796,17 +737,17 @@ target_sources(deren_assets
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        gltf_loader/gltf_loader.cppm
+        source/gltf_loader/gltf_loader.cppm
         # The TOON MATERIAL SIDECAR is a module of its own rather than more code in gltf_loader, because what
         # it reads is not glTF: a glTF material carries the spec's five texture slots and six factors, and a
         # toon character needs a second set (a diffuse ramp, a shadow LUT, a specular ramp, a matcap, a face
         # SDF) that glTF has no concept of and that lives in a sidecar keyed by MATERIAL NAME. Two formats,
         # two concerns, two modules - and it is in this target because it is a model-loading concern.
-        gltf_loader/toon_material_sidecar.cppm
+        source/gltf_loader/toon_material_sidecar.cppm
 
     PRIVATE
-        gltf_loader/gltf_loader.cpp
-        gltf_loader/toon_material_sidecar.cpp
+        source/gltf_loader/gltf_loader.cpp
+        source/gltf_loader/toon_material_sidecar.cpp
 )
 
 # THE EXTRAS PARSE CALLBACK'S ONE HEADER, and it is SYSTEM on purpose: fastgltf reports a material's `extras`
@@ -816,10 +757,10 @@ target_sources(deren_assets
 # sees a simdjson type: the extras are copied out into `deren::gltf::material`'s own maps before `load_model` returns.
 target_include_directories(deren_assets
     SYSTEM PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/simdjson/singleheader
 )
 
-# fastgltf + simdjson, vendored under third_party/ (the sources ship in the repo, so no
+# fastgltf + simdjson, vendored under source/third_party/ (the sources ship in the repo, so no
 # network FetchContent is needed and both Windows/MSYS2 and Linux build self-contained).
 # fastgltf's headers deliberately do NOT include simdjson (it is hidden inside the .cpp
 # files), so only two translation units ever see it: this library's own sources, and
@@ -830,17 +771,17 @@ target_include_directories(deren_assets
 # translation units are compiled here as plain C++ (vendored code does not follow the
 # project's -Werror set, mirroring the imgui/xxhash policy).
 add_library(fastgltf_vendored STATIC
-        third_party/fastgltf/src/fastgltf.cpp
-        third_party/fastgltf/src/base64.cpp
-        third_party/fastgltf/src/io.cpp
-        third_party/simdjson/singleheader/simdjson.cpp
+        source/third_party/fastgltf/src/fastgltf.cpp
+        source/third_party/fastgltf/src/base64.cpp
+        source/third_party/fastgltf/src/io.cpp
+        source/third_party/simdjson/singleheader/simdjson.cpp
 )
 
 target_include_directories(fastgltf_vendored
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/fastgltf/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/fastgltf/include
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/simdjson/singleheader
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/simdjson/singleheader
 )
 
 # stb_image.h (vendored): gltf_loader.cpp decodes embedded/external textures with it
@@ -849,30 +790,30 @@ add_library(stb_vendored INTERFACE)
 
 target_include_directories(stb_vendored
     INTERFACE
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party
 )
 
-# Dear ImGui (vendored under third_party/imgui, see the sources there): the Vulkan + GLFW
+# Dear ImGui (vendored under source/third_party/imgui, see the sources there): the Vulkan + GLFW
 # backends are compiled as plain C++ (imgui is not a module and does not follow the project's
 # -Werror policy — upstream code triggers warnings we do not own). No clang-format: the
-# PROJECT_FORMAT_SOURCES glob only covers main/application_configuration/gltf_loader/utility/
-# vulkan/tests/promise, never third_party.
+# PROJECT_FORMAT_SOURCES glob only covers main/source/application_configuration/source/gltf_loader/source/utility/
+# engine/backends/tests/promise, never vendored third-party code.
 add_library(imgui STATIC)
 
 target_sources(imgui
     PRIVATE
-        third_party/imgui/imgui.cpp
-        third_party/imgui/imgui_draw.cpp
-        third_party/imgui/imgui_tables.cpp
-        third_party/imgui/imgui_widgets.cpp
-        third_party/imgui/backends/imgui_impl_glfw.cpp
-        third_party/imgui/backends/imgui_impl_vulkan.cpp
+        source/third_party/imgui/imgui.cpp
+        source/third_party/imgui/imgui_draw.cpp
+        source/third_party/imgui/imgui_tables.cpp
+        source/third_party/imgui/imgui_widgets.cpp
+        source/third_party/imgui/backends/imgui_impl_glfw.cpp
+        source/third_party/imgui/backends/imgui_impl_vulkan.cpp
 )
 
 target_include_directories(imgui
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/imgui/backends
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/imgui
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/imgui/backends
 )
 
 target_link_libraries(imgui
@@ -881,21 +822,21 @@ target_link_libraries(imgui
         glfw
 )
 
-# xxHash (vendored under third_party/xxhash, see the LICENSE there): non-cryptographic
+# xxHash (vendored under source/third_party/xxhash, see the LICENSE there): non-cryptographic
 # content hashing (XXH3_128bits) used by deren::utility::xxh3_128bits for image/texture dedup.
 # Compiled as its own plain-C target, mirroring the imgui policy above (vendored
 # code does not follow the project's -Werror set). static_utility links it (the hash functions are
 # pure and per-half - they are not process-wide state).
 add_library(xxhash STATIC
-        third_party/xxhash/xxhash.c
+        source/third_party/xxhash/xxhash.c
 )
 
 target_include_directories(xxhash
     PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/xxhash
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/xxhash
 )
 
-# mimalloc (vendored under third_party/mimalloc, v3.4.4, MIT — see the LICENSE there):
+# mimalloc (vendored under source/third_party/mimalloc, v3.4.4, MIT — see the LICENSE there):
 # allocator backing deren.utility.shared:better_pmr, which routes every std::pmr allocation through
 # it (shared_utility.cppm -> :better_pmr -> mi_aligned_alloc / mi_free_aligned). It moved to
 # shared_utility with the allocator hook, because setting the process's default std::pmr resource is
@@ -904,29 +845,29 @@ target_include_directories(xxhash
 # xxhash policy (vendored code does not follow the project's -Werror set; headers are
 # SYSTEM so the -Werror consumers that include <mimalloc.h> do not see upstream warnings).
 add_library(mimalloc_vendored STATIC
-        third_party/mimalloc/src/alloc.c
-        third_party/mimalloc/src/alloc-aligned.c
-        third_party/mimalloc/src/alloc-posix.c
-        third_party/mimalloc/src/arena.c
-        third_party/mimalloc/src/arena-meta.c
-        third_party/mimalloc/src/bitmap.c
-        third_party/mimalloc/src/heap.c
-        third_party/mimalloc/src/init.c
-        third_party/mimalloc/src/libc.c
-        third_party/mimalloc/src/options.c
-        third_party/mimalloc/src/os.c
-        third_party/mimalloc/src/page.c
-        third_party/mimalloc/src/page-map.c
-        third_party/mimalloc/src/random.c
-        third_party/mimalloc/src/stats.c
-        third_party/mimalloc/src/theap.c
-        third_party/mimalloc/src/threadlocal.c
-        third_party/mimalloc/src/prim/prim.c
+        source/third_party/mimalloc/src/alloc.c
+        source/third_party/mimalloc/src/alloc-aligned.c
+        source/third_party/mimalloc/src/alloc-posix.c
+        source/third_party/mimalloc/src/arena.c
+        source/third_party/mimalloc/src/arena-meta.c
+        source/third_party/mimalloc/src/bitmap.c
+        source/third_party/mimalloc/src/heap.c
+        source/third_party/mimalloc/src/init.c
+        source/third_party/mimalloc/src/libc.c
+        source/third_party/mimalloc/src/options.c
+        source/third_party/mimalloc/src/os.c
+        source/third_party/mimalloc/src/page.c
+        source/third_party/mimalloc/src/page-map.c
+        source/third_party/mimalloc/src/random.c
+        source/third_party/mimalloc/src/stats.c
+        source/third_party/mimalloc/src/theap.c
+        source/third_party/mimalloc/src/threadlocal.c
+        source/third_party/mimalloc/src/prim/prim.c
 )
 
 target_include_directories(mimalloc_vendored
     SYSTEM PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party/mimalloc/include
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party/mimalloc/include
 )
 
 if(WIN32)
@@ -948,11 +889,11 @@ target_link_libraries(deren_assets
         static_utility
 )
 
-# deren_assets is deliberately absent from vulkancorekit's link interface: the engine core is
+# deren_assets is deliberately absent from deren_engine's link interface: the engine core is
 # loader-agnostic (see the library comment above). The executable links deren_assets itself - the
-# import library, so the image is loaded before main - and main.cpp is its only consumer, passing the
+# import library, so the image is loaded before main - and source/app/main.cpp is its only consumer, passing the
 # parsed deren::gltf::scenes down to the runtime at the call site.
-target_link_libraries(vulkancorekit
+target_link_libraries(deren_engine
         PUBLIC
         glfw
         static_utility
@@ -960,7 +901,7 @@ target_link_libraries(vulkancorekit
         ${CMAKE_DL_LIBS}
         vstd_lib
         # (imgui MOVED OUT: deren_gui_vulkan links it PRIVATE and the engine resolves the plugin by name
-        #  through deren.vulkan.gui_loader - see that target below. No engine target links it any more.)
+        #  through deren.engine.gui_loader - see that target below. No engine target links it any more.)
         # The constexpr builders the engine imports directly (26 sites): the module is
         # neutral (compiled once for both halves), which is what takes those imports off the flip
         # gate's meter - see the target's comment above deren_vulkan.
@@ -973,26 +914,26 @@ if(DEREN_VERIFY_ENGINE_NO_VULKAN)
     file(MAKE_DIRECTORY "${_engine_header_guard}/vulkan")
     file(WRITE "${_engine_header_guard}/vulkan/vulkan.h"
         "#error Vulkan headers are forbidden in engine translation units\n")
-    target_include_directories(vulkancorekit BEFORE PRIVATE "${_engine_header_guard}")
+    target_include_directories(deren_engine BEFORE PRIVATE "${_engine_header_guard}")
 endif()
 
-# Vendored VMA (third_party/vma/vk_mem_alloc.h): vma.cppm includes <vma/vk_mem_alloc.h>,
+# Vendored VMA (source/third_party/vma/vk_mem_alloc.h): vma.cppm includes <vma/vk_mem_alloc.h>,
 # resolved against this third_party include root. The header also ships in the Vulkan SDK's
 # Include/vma, but Linux distro Vulkan packages do not provide it, so the vendored copy is
 # preferred (it precedes Vulkan::Vulkan's include dirs). Marked SYSTEM so upstream VMA's
 # warnings are suppressed (the SDK copy is an isystem include for the same reason - VMA code
 # trips -Werror on nullability annotations otherwise).
-target_include_directories(vulkancorekit
+target_include_directories(deren_engine
     SYSTEM PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}/third_party
+        ${CMAKE_CURRENT_SOURCE_DIR}/source/third_party
 )
 
 # The engine side gets the backend's modules (BMIs) and symbols from deren_vulkan. PUBLIC, because a
 # static library's link interface is what carries the module file set to the exe and to the tests
-# (§11.2): vulkancorekit's own name and its outward link surface are unchanged by S1-A.
+# (§11.2): deren_engine's own name and its outward link surface are unchanged by S1-A.
 # THE ENGINE DOES NOT LINK THE BACKEND ANY MORE, and that is what makes the backend a DLL rather than
 # an auto-import library: the runtime resolves `deren_make_api_core` BY NAME out of deren_vulkan.dll
-# (runtime/runtime.constructor.cppm, through deren.utility.dynamic_link, detaching the handle so the
+# (source/engine/runtime/runtime.constructor.cppm, through deren.utility.dynamic_link, detaching the handle so the
 # image is never unloaded - the measured FreeLibrary deadlock), and the boundary's one whitelisted
 # symbol disappears from the link with it. The module BMIs this line used to carry PUBLIC were needed
 # by NOTHING on the engine side (the import meter reads 0 sites / 0 files); the tests that do import a
@@ -1002,8 +943,8 @@ target_include_directories(vulkancorekit
 # this link interface. The APP depends on it as a build ORDER (the DLL must exist before a test runs).
 
 # THE APPLICATION (the runtime switch and the S1-S3 gate that used to wrap this are retired: see the
-# comment above `vulkancorekit`).
-add_executable(deren main.cpp)
+# comment above `deren_engine`).
+add_executable(deren source/app/main.cpp)
 # Release builds link as a Windows GUI-subsystem executable: no console window appears when
 # running. On the MSYS2 clang64 / MinGW-w64 toolchain WIN32_EXECUTABLE maps to -mwindows; the CRT
 # still calls main(), only the subsystem changes. Debug keeps the console for terminal log output.
@@ -1012,12 +953,12 @@ set_target_properties(${PROJECT_NAME} PROPERTIES WIN32_EXECUTABLE $<$<CONFIG:Rel
 # static_utility: the per-half toolkit. utility.cpp implements the xxHash-based hash functions
 # (deren::utility::xxh3_128bits) on top of the vendored xxhash library, so the dependency is
 # declared here, on the library that actually uses the XXH3_128bits symbol. It propagates to
-# consumers (vulkancorekit / deren_assets / deren) at link time, so the executable does not need to
+# consumers (deren_engine / deren_assets / deren) at link time, so the executable does not need to
 # link xxhash itself. The platform_* TUs live here too - they are per-half by nature (no state).
 target_link_libraries(static_utility
         # The verdict family (pass_failure / fatal) carries the contract's error_info as a value, so
         # the contract's module is a dependency of THIS target. The direction stays one-way: the
-        # contract imports nothing back (promise/rhi/*.cppm), and nothing in utility crosses a
+        # contract imports nothing back (source/promise/rhi/*.cppm), and nothing in utility crosses a
         # process boundary carrying one - these are same-binary types.
         promise
         vstd_lib
@@ -1028,7 +969,7 @@ target_link_libraries(static_utility
 )
 
 # shared_utility: the process-wide half. better_pmr routes std::pmr allocations through the
-# vendored mimalloc (third_party/mimalloc), so the dependency moved here with the allocator hook -
+# vendored mimalloc (source/third_party/mimalloc), so the dependency moved here with the allocator hook -
 # the executable no longer needs MSYS2's libmimalloc.dll. vstd_lib is all it needs besides: the
 # module imports NEITHER the contract nor static_utility.
 target_link_libraries(shared_utility
@@ -1044,7 +985,7 @@ target_link_libraries(shared_utility
 # backend, from where, with which search rules, or what a failure means - and the renderer owned a
 # policy that is not its job. The module now sits between them:
 #
-#     auto core = deren::vulkan::load_api_core(core_options);   // main.cpp (the app decides)
+#     auto core = deren::vulkan::load_api_core(core_options);   // source/app/main.cpp (the app decides)
 #     deren::vulkan::runtime runtime{core, core_options};       // the renderer (given a root)
 #
 # NOT IN static_utility, deliberately: that half is the pure-CPU toolkit with no loading semantics,
@@ -1059,7 +1000,7 @@ target_sources(backend_loader
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        runtime/backend_loader.cppm
+        source/engine/runtime/backend_loader.cppm
 )
 target_link_libraries(backend_loader
         promise          # the contract: create_info / api_core / abi_version
@@ -1067,7 +1008,7 @@ target_link_libraries(backend_loader
         glfw             # glfwGetWin32Window: the ONE field translated for the wire
 )
 
-# The file dialog (utility/platform_dialog.cpp, for the config's `model = "ask"`) is GetOpenFileNameW,
+# The file dialog (source/utility/platform_dialog.cpp, for the config's `model = "ask"`) is GetOpenFileNameW,
 # which lives in the common dialog library. Windows-only, like the backend itself.
 if(WIN32)
     target_link_libraries(static_utility comdlg32)
@@ -1078,38 +1019,38 @@ target_link_libraries(app_config
         vstd_lib
 )
 
-# Demo bootstrap chores (root-level module, next to main.cpp): main's startup-config analysis
-# (analyse_config: config-file + argv merge, shaders/model location) and shader-loading /
-# pipeline helpers, kept out of main.cpp. Split like the other modules: chores.cppm
-# (export import std pattern) declares, chores.cpp implements. Demo/application layer only -
-# these helpers know about app_config (settings), the runtime (deren.vulkan.runtime) and utility
+# Demo bootstrap chores (root-level module, next to source/app/main.cpp): main's startup-config analysis
+# (analyse_config: config-file + argv merge, source/shaders/model location) and shader-loading /
+# pipeline helpers, kept out of main.cpp. Split like the other modules: source/app/chores.cppm
+# (export import std pattern) declares, source/app/chores.cpp implements. Demo/application layer only -
+# these helpers know about app_config (settings), the runtime (deren.engine.runtime) and utility
 # log/panic, never about glTF.
 #
 # `chores` takes `runtime&` and therefore names the full runtime API - which is exactly what the ONE
-# runtime now serves (its S1-S3 gate retired with the legacy runtime: see `vulkancorekit`'s comment).
+# runtime now serves (its S1-S3 gate retired with the legacy runtime: see `deren_engine`'s comment).
 add_library(chores STATIC)
 
 target_sources(chores
     PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        chores.cppm
+        source/app/chores.cppm
 
     PRIVATE
-        chores.cpp
+        source/app/chores.cpp
 )
 
 target_link_libraries(chores
         app_config
-        vulkancorekit
+        deren_engine
         static_utility
         vstd_lib
 )
 
 target_link_libraries(${PROJECT_NAME}
-        backend_loader   # main.cpp calls load_api_core(): the app owns the acquisition (batch ⑥)
+        backend_loader   # source/app/main.cpp calls load_api_core(): the app owns the acquisition (batch ⑥)
         static_utility
-        vulkancorekit
+        deren_engine
         chores
         # AUTO-IMPORT, and it is the opposite rule from the two graphics plugins, which are resolved
         # BY NAME at run time and are not in this link line at all (see the add_dependencies below).
@@ -1122,7 +1063,7 @@ target_link_libraries(${PROJECT_NAME}
         # (imgui is NOT linked here: the GUI is a plugin loaded by name - see deren_gui_vulkan.)
 )
 # BUILD ORDER, NOT LINKAGE: the runtime resolves deren_make_api_core out of deren_vulkan.dll at run
-# time (runtime/runtime.constructor.cppm), so the DLL has to exist beside the executable - but the
+# time (source/engine/runtime/runtime.constructor.cppm), so the DLL has to exist beside the executable - but the
 # executable must NOT link it (an import library would load the backend before main, which is the
 # load-time binding the flip removes). A missing DLL is then a NAMED loader panic instead of a system
 # 'entry point not found' dialog. shared_utility.dll comes in through static_utility's link interface;
@@ -1192,7 +1133,7 @@ else()
 endif()
 
 # ---------------------------------------------------------------------------------------------
-# Headless unit tests (no GPU, no external test framework - see tests/vk_test.h): each test is
+# Headless unit tests (no GPU, no external test framework - see source/tests/vk_test.h): each test is
 # an ordinary module consumer that imports the module under test and links its library, so the
 # tests compile with the exact interfaces the rest of the code uses. CTest runs them in a
 # per-build scratch directory (module logging writes debug.log there, not into the source
@@ -1204,18 +1145,18 @@ if(VR_BUILD_TESTS)
     enable_testing()
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     add_test(NAME test_native_boundary_zero
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_native_boundary.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/scripts/check_native_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}" --require-zero)
 
     add_test(NAME test_backend_boundary
         COMMAND "${Python3_EXECUTABLE}" -m unittest discover
-                -s "${CMAKE_CURRENT_SOURCE_DIR}/tests" -p "test_*boundary.py" -v)
+                -s "${CMAKE_CURRENT_SOURCE_DIR}/source/tests" -p "test_*boundary.py" -v)
     set_tests_properties(test_backend_boundary PROPERTIES
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run"
         ENVIRONMENT "TMP=${CMAKE_CURRENT_BINARY_DIR}/test-run;TEMP=${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # 完整产品先构建，再量 main/chores/引擎归档，避免半构建产生假性下降。
     add_custom_target(check-backend-boundary
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_backend_boundary.py"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/scripts/check_backend_boundary.py"
                 --build-dir "${CMAKE_CURRENT_BINARY_DIR}"
                 --report "${CMAKE_CURRENT_BINARY_DIR}/backend_boundary_report.json"
         DEPENDS deren
@@ -1229,7 +1170,7 @@ if(VR_BUILD_TESTS)
     # serial). They cannot collide now.
 
     foreach(test_target IN ITEMS ${VR_TEST_TARGETS})
-        add_executable(${test_target} tests/${test_target}.cpp)
+        add_executable(${test_target} source/tests/${test_target}.cpp)
         add_test(NAME ${test_target} COMMAND $<TARGET_FILE:${test_target}>)
         file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run/${test_target}")
         set_tests_properties(${test_target} PROPERTIES
@@ -1242,32 +1183,32 @@ if(VR_BUILD_TESTS)
     set(VR_VULKAN_QUERY_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/test-generated/vulkan_query_fixture.h")
     set(VR_TEXTURE_REGIONS_FIXTURE "${CMAKE_CURRENT_BINARY_DIR}/test-generated/texture_regions_fixture.h")
     add_custom_command(OUTPUT "${VR_VULKAN_QUERY_FIXTURE}" "${VR_TEXTURE_REGIONS_FIXTURE}"
-        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/generate_vulkan_query_fixture.py"
-                --source "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/core/init_utils/init_utils.cppm"
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/source/tests/generate_vulkan_query_fixture.py"
+                --source "${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/core/init_utils/init_utils.cppm"
                 --output "${VR_VULKAN_QUERY_FIXTURE}"
-                --vma-source "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/core/vma/vma.cppm"
+                --vma-source "${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/core/vma/vma.cppm"
                 --regions-output "${VR_TEXTURE_REGIONS_FIXTURE}"
-        DEPENDS tests/generate_vulkan_query_fixture.py vulkan/core/init_utils/init_utils.cppm vulkan/core/vma/vma.cppm
+        DEPENDS source/tests/generate_vulkan_query_fixture.py source/backends/vulkan/core/init_utils/init_utils.cppm source/backends/vulkan/core/vma/vma.cppm
         VERBATIM)
     target_sources(test_vulkan_capabilities PRIVATE "${VR_VULKAN_QUERY_FIXTURE}")
     target_include_directories(test_vulkan_capabilities PRIVATE
         "${CMAKE_CURRENT_BINARY_DIR}/test-generated" "${Vulkan_INCLUDE_DIRS}")
     target_include_directories(test_texture_upload_layout PRIVATE
-        "${CMAKE_CURRENT_SOURCE_DIR}/vulkan/core/vma" "${Vulkan_INCLUDE_DIRS}" "${CMAKE_CURRENT_BINARY_DIR}/test-generated")
+        "${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/core/vma" "${Vulkan_INCLUDE_DIRS}" "${CMAKE_CURRENT_BINARY_DIR}/test-generated")
     target_sources(test_texture_upload_layout PRIVATE "${VR_TEXTURE_REGIONS_FIXTURE}")
 
     # source root for fixture/model paths (tests no longer assume the repo root is the cwd)
     target_compile_definitions(test_app_config PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     target_compile_definitions(test_gltf_loader PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # test_toon_material_sidecar reads the sidecars under tests/fixtures/toon/, so it needs the source root
+    # test_toon_material_sidecar reads the sidecars under source/tests/fixtures/toon/, so it needs the source root
     # for the same reason test_gltf_loader does - and it asserts the MISSING-file path too, which is a path
     # that must NOT exist, so the root has to be the real one rather than the build tree.
     target_compile_definitions(test_toon_material_sidecar PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # test_render_resources reads shaders/heap_slots.glsl and vulkan/core/core.declarations.cppm to compare the slot grid's two
+    # test_render_resources reads source/shaders/heap_slots.slang and source/backends/vulkan/core/core.declarations.cppm to compare the slot grid's two
     # sources of truth (see the last block of that test): both are text, neither is generated from the other.
     target_compile_definitions(test_render_resources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_shader_sources parses the FOUR places a .spv is named (VR_SLANG_SOURCES, the two compile scripts, and
-    # chores.cpp's load_shader calls) and compares them: one shader built by the build and not by the scripts is
+    # source/app/chores.cpp's load_shader calls) and compares them: one shader built by the build and not by the scripts is
     # the drift that test exists for, and it is the mesh path's CI gate (see the test's header).
     target_compile_definitions(test_shader_sources PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
     # test_goo_toon_math evaluates the REWRITTEN toon chain's iris arithmetic (read out of the reference's own
@@ -1281,10 +1222,10 @@ if(VR_BUILD_TESTS)
     # documents themselves, CMakeLists' VR_TEST_TARGETS and the workflow that mirrors it - so it needs
     # the source root and no library at all (see the test's header for the invariants).
     target_compile_definitions(test_docs PRIVATE VR_TEST_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
-    # deren.vulkan.meshlet is pure CPU alongside vulkan.math: the split's coverage/bounds/determinism checks need no
+    # deren.engine.meshlet is pure CPU alongside vulkan.math: the split's coverage/bounds/determinism checks need no
     # device, which is the only way they can run in CI (the capture gate's references are machine-specific).
     target_link_libraries(test_meshlet
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
 
@@ -1297,31 +1238,31 @@ if(VR_BUILD_TESTS)
             glm::glm
             vstd_lib
     )
-    # deren.vulkan.math lives in vulkancorekit; the module itself is pure CPU (see math.cppm), the
+    # deren.engine.math lives in deren_engine; the module itself is pure CPU (see math.cppm), the
     # link chain just rides the library's PUBLIC dependencies (Vulkan/glfw are not pulled in
     # unless the math code actually references them).
     target_link_libraries(test_math
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
-    # deren.vulkan.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
+    # deren.engine.render_resource is pure CPU on purpose (its own enums, no Vulkan type): the invariants it exists
     # for - usage is a subset of the schema, kind and access fit, a pass's own bindings are contiguous, a pool
     # count is derivable - are checkable WITHOUT a device, which is the only way they can be checked in CI.
     target_link_libraries(test_render_resources
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
-    # deren.vulkan.pass is the framework: its base class and behaviour kinds name Vulkan handle types but never call
+    # deren.engine.pass is the framework: its base class and behaviour kinds name Vulkan handle types but never call
     # Vulkan, so its contract - resolve, apply the behaviour, record, mark, recreate - is testable with a fake
     # host and no device at all.
     target_link_libraries(test_pass
-            vulkancorekit
+            deren_engine
             vstd_lib
     )
-    # deren.vulkan.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
+    # deren.engine.animation is format-neutral / runtime-agnostic; the sampling tests only touch the
     # pure functions, so nothing Vulkan is pulled in.
     target_link_libraries(test_animation
-            vulkancorekit
+            deren_engine
             glm::glm
             vstd_lib
     )
@@ -1338,18 +1279,18 @@ if(VR_BUILD_TESTS)
             deren_assets
             vstd_lib
     )
-    # deren.vulkan.shadow_fit is pure CPU arithmetic (no Vulkan object is touched), and the module lives in
-    # vulkancorekit next to deren.vulkan.math; the link chain brings Vulkan/glfw in, which the tests do not
+    # deren.engine.shadow_fit is pure CPU arithmetic (no Vulkan object is touched), and the module lives in
+    # deren_engine next to deren.engine.math; the link chain brings Vulkan/glfw in, which the tests do not
     # use. This is the first test of the shadow system, which had none: the fit had no device
     # dependency, it just lived where nothing could reach it.
     target_link_libraries(test_shadow_fit
-            vulkancorekit
+            deren_engine
             glm::glm
             vstd_lib
     )
 
     # ---- the RHI boundary's loader, and the fixture its test loads ----
-    # probe_backend is a stand-in for the C ABI over promise/rhi/: ONE source file compiled twice, as a DLL (the
+    # probe_backend is a stand-in for the C ABI over source/promise/rhi/: ONE source file compiled twice, as a DLL (the
     # export macro in its "building a DLL" mode) and as a static library (macro inert). test_dynamic_link
     # therefore sees both halves of DEREN_API_EXPORT at once: it opens the DLL by path and calls the
     # static half directly, and the two must agree. The duplication of the source is the point - it is
@@ -1360,7 +1301,7 @@ if(VR_BUILD_TESTS)
     # an instrumented DLL would not link at all, and if it did it would put a SECOND ASan runtime into
     # the instrumented process, which aborts on load. The DLL is loaded BY a sanitized process and must
     # not be sanitized itself; the static half is linked into the test and IS instrumented.
-    add_library(probe_backend SHARED tests/probe_backend.cpp)
+    add_library(probe_backend SHARED source/tests/probe_backend.cpp)
     target_compile_definitions(probe_backend PRIVATE DEREN_API_SHARED DEREN_API_BUILD)
     # The project's compile options are NOT repeated here: the project-wide sweep near the end of this
     # file covers every first-party target, this one included. Only the sanitizer exception stays local.
@@ -1376,7 +1317,7 @@ if(VR_BUILD_TESTS)
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
             LIBRARY_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
-    add_library(probe_backend_static STATIC tests/probe_backend.cpp)
+    add_library(probe_backend_static STATIC source/tests/probe_backend.cpp)
     # The same promise module the DLL half reads: the two halves compile one interface unit each,
     # which is the "both sides compile the contract" rule in §4.1, not a shared binary.
     target_link_libraries(probe_backend_static PRIVATE promise)
@@ -1394,7 +1335,7 @@ if(VR_BUILD_TESTS)
     # (`probe_make_core` with a chosen `api_version()`) cannot drift from the entry's own behaviour.
     target_link_libraries(test_runtime_injection
             promise
-            vulkancorekit
+            deren_engine
             static_utility
             probe_backend_static
             vstd_lib
@@ -1407,7 +1348,7 @@ if(VR_BUILD_TESTS)
     # test whose fixture is missing and report a loader error as a test failure.
     add_dependencies(test_dynamic_link probe_backend)
 
-    # The error mechanism's translation tables (vulkan/core/core.error.cpp), fed every plausible
+    # The error mechanism's translation tables (source/backends/vulkan/core/core.error.cpp), fed every plausible
     # VkResult and asserted per call-site family. Pure CPU: the backend archive is linked for the
     # translators' definitions only - the test creates no device, no window, no instance - and the
     # contract module supplies the unified values (rhi::error / error_info / zone_of).
@@ -1422,10 +1363,10 @@ if(VR_BUILD_TESTS)
 
     # ---- the boundary spike ---------------------------------------------------------------------
     # NOT in VR_TEST_TARGETS on purpose: it loads a DLL and (with --with-device) creates a real
-    # context, so it cannot belong to the headless ctest set - and tests/test_docs.cpp compares that
+    # context, so it cannot belong to the headless ctest set - and source/tests/test_docs.cpp compares that
     # list against the workflow, so putting it there would be a lie in CI. It is registered as a test
     # only in the spike tree, where the option is on and CI is not the consumer.
-    add_executable(test_backend_boundary_spike tests/spike_backend_boundary.cpp)
+    add_executable(test_backend_boundary_spike source/tests/spike_backend_boundary.cpp)
     # The ABSOLUTE path of the library under test: the spike's whole Q5 is that loading by
     # absolute path uses LOAD_LIBRARY_SEARCH_DLL_LOAD_DIR | LOAD_LIBRARY_SEARCH_DEFAULT_DIRS and
     # therefore never searches %PATH%.
@@ -1440,7 +1381,7 @@ if(VR_BUILD_TESTS)
     # failure (the same rule test_dynamic_link lives by).
     add_dependencies(test_backend_boundary_spike deren_vulkan)
     # NOT `add_test`: this spike loads a DLL and, with --with-device, builds a real context, so it
-    # cannot be in the headless ctest set (tests/test_docs.cpp compares that set against the
+    # cannot be in the headless ctest set (source/tests/test_docs.cpp compares that set against the
     # workflow). It is RUN by the batch that touches the boundary, which is what its report is for.
 endif()
 
@@ -1451,12 +1392,12 @@ endif()
 # handle escape -> teardown) still holds. Since S5 it is built in the ONE configuration there is.
 #
 # SPIKE-SHAPED ON PURPOSE, like `test_backend_boundary_spike` above and for the same reasons: it creates a
-# real device (so it cannot be in the headless ctest set, and tests/test_docs.cpp compares that list
+# real device (so it cannot be in the headless ctest set, and source/tests/test_docs.cpp compares that list
 # against the workflow) and it is NOT in VR_TEST_TARGETS.
-add_executable(test_runtime_dyn tests/test_runtime_dyn.cpp)
+add_executable(test_runtime_dyn source/tests/test_runtime_dyn.cpp)
 target_link_libraries(test_runtime_dyn
         backend_loader   # the scaffold calls load_api_core() explicitly (batch ⑥)
-        vulkancorekit
+        deren_engine
         promise
         static_utility
         vstd_lib
@@ -1465,18 +1406,23 @@ target_link_libraries(test_runtime_dyn
 # has to exist first (it does not link it).
 add_dependencies(test_runtime_dyn deren_vulkan)
 
+# Device-only texture-group and submission-lifetime probe, outside headless CTest.
+add_executable(test_texture_group source/tests/test_texture_group.cpp)
+target_link_libraries(test_texture_group backend_loader promise static_utility vstd_lib Vulkan::Vulkan)
+add_dependencies(test_texture_group deren_vulkan)
+
 # ---- THE ACCELERATION-STRUCTURE DEVICE PROBE (plan S1's P0) ------------------------------------------
 #
 # SPIKE-SHAPED LIKE `test_runtime_dyn` ABOVE, for the same reason (it creates a real device, so it cannot
 # belong to the headless ctest set) - and it is the SMALL instrument the acceleration-structure migration runs
 # against: a three-vertex triangle, one instance, a hidden 64x64 window and VALIDATION ON, where the repo's
 # only other ray-tracing instrument is the full Sponza scene at 1080x960 (see the file's own header comment).
-add_executable(test_acceleration_structures tests/test_acceleration_structures.cpp)
+add_executable(test_acceleration_structures source/tests/test_acceleration_structures.cpp)
 # This GPU probe calls native fence/queue functions itself.
 target_link_libraries(test_acceleration_structures Vulkan::Vulkan)
 target_link_libraries(test_acceleration_structures
         backend_loader   # load_api_core() explicitly, exactly as the scaffold test does
-        vulkancorekit
+        deren_engine
         promise
         static_utility
         vstd_lib
@@ -1485,7 +1431,7 @@ target_link_libraries(test_acceleration_structures
 add_dependencies(test_acceleration_structures deren_vulkan)
 
 # THE GUI PLUGIN IS BUILT BESIDE THE EXECUTABLE like the renderer backend, and for the same build-order
-# reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.vulkan.gui_loader, so the file
+# reason - the runtime resolves `deren_gui_vulkan.dll` by NAME through deren.engine.gui_loader, so the file
 # has to exist, but the executable must NOT link it (an import library would bind the GUI before main).
 add_dependencies(deren deren_gui_vulkan)
 
@@ -1494,7 +1440,7 @@ add_dependencies(deren deren_gui_vulkan)
 #
 # WHAT LIVES HERE: the vendored ImGui sources (through the `imgui` static library, PRIVATE) and the whole
 # `deren.vulkan.graphical_user_interface` module, plus the C entry that adapts the module's overlay to the
-# `deren::gui::overlay` boundary (vulkan/graphical_user_interface/gui_dll.cpp). THE DLL IS WHAT LINKS
+# `deren::gui::overlay` boundary (source/backends/vulkan/graphical_user_interface/gui_dll.cpp). THE DLL IS WHAT LINKS
 # `vulkan-1`: the host resolves `deren_make_gui` by NAME through its loader and links nothing of this target,
 # so `deren.exe` stops importing vulkan-1.dll - every one of those imports came from
 # `imgui_impl_vulkan.cpp`, which is compiled in here.
@@ -1503,7 +1449,7 @@ add_dependencies(deren deren_gui_vulkan)
 # test it, then delete the old path" order). The next step is the loader plus the runtime's rewiring.
 # ============================================================================================
 add_library(deren_gui_vulkan SHARED)
-add_executable(test_gui_plugin tests/test_gui_plugin.cpp)
+add_executable(test_gui_plugin source/tests/test_gui_plugin.cpp)
 target_compile_definitions(test_gui_plugin PRIVATE VR_GUI_PLUGIN_DLL="$<TARGET_FILE:deren_gui_vulkan>")
 target_link_libraries(test_gui_plugin PRIVATE static_utility vstd_lib promise)
 add_dependencies(test_gui_plugin deren_gui_vulkan)
@@ -1513,10 +1459,10 @@ target_sources(deren_gui_vulkan
         PUBLIC
         FILE_SET CXX_MODULES
         FILES
-        vulkan/graphical_user_interface/graphical_user_interface.cppm
+        source/backends/vulkan/graphical_user_interface/graphical_user_interface.cppm
         PRIVATE
-        vulkan/graphical_user_interface/graphical_user_interface.cpp
-        vulkan/graphical_user_interface/gui_dll.cpp
+        source/backends/vulkan/graphical_user_interface/graphical_user_interface.cpp
+        source/backends/vulkan/graphical_user_interface/gui_dll.cpp
 )
 # The project's compile options are not repeated here either - the sweep near the end of this file
 # covers this DLL like every other first-party target; only the boundary macros are target-specific.
@@ -1588,7 +1534,7 @@ unset(_deren_type)
 # deprecated (std::iterator, std::wbuffer_convert/wstring_convert, std::rel_ops, std::is_pod,
 # std::aligned_storage/aligned_union, std::float_denorm_style). MSVC's STL announces each of those
 # through C4996, so with the MSVC branch's /W4 /WX the module cannot compile its own re-exports:
-# measured 11 C4996 in vstd/std/{iterator(245),limits(12),locale(73,76),type_traits(338,340,342),
+# measured 11 C4996 in source/vstd/std/{iterator(245),limits(12),locale(73,76),type_traits(338,340,342),
 # utility(94-97)}.inc, the first of which becomes `error C2220: warnings treated as errors` and stops
 # the build. Suppressed for vstd_lib ONLY - every other target keeps the full /W4 /WX set, so this
 # costs the project's own code nothing. The alternative MSVC offers (_SILENCE_ALL_CXX2x_*_WARNINGS
@@ -1651,13 +1597,13 @@ foreach(vendored_target IN LISTS VR_VENDORED_TARGETS)
     target_compile_options(${vendored_target} PRIVATE ${VR_VENDORED_RELEASE_OPTIONS})
 endforeach()
 
-target_compile_definitions(vulkancorekit PRIVATE
+target_compile_definitions(deren_engine PRIVATE
         $<$<CONFIG:Debug>:
         _DEBUG
         >
 )
 
-# S1-A (§11.2's fourth list): the backend half had this define while it was compiled by vulkancorekit,
+# S1-A (§11.2's fourth list): the backend half had this define while it was compiled by deren_engine,
 # so the new target carries it too - the split is supposed to be invisible in the products.
 target_compile_definitions(deren_vulkan PRIVATE
         $<$<CONFIG:Debug>:
@@ -1666,10 +1612,10 @@ target_compile_definitions(deren_vulkan PRIVATE
 )
 
 # -- version: single source of truth is project(VERSION) above. Injected into the C++ targets
-#    that surface it: the Vulkan app_info (vulkan/core/core.cpp, applicationVersion /
-#    engineVersion), the --version flag and the startup log banner (main.cpp). Bump the number
+#    that surface it: the Vulkan app_info (source/backends/vulkan/core/core.cpp, applicationVersion /
+#    engineVersion), the --version flag and the startup log banner (source/app/main.cpp). Bump the number
 #    in project(VERSION) and keep README/docs' "current version" lines in sync.
-foreach(version_target IN ITEMS vulkancorekit ${VR_APP_EXE} deren_vulkan)
+foreach(version_target IN ITEMS deren_engine ${VR_APP_EXE} deren_vulkan)
     target_compile_definitions(${version_target} PRIVATE
             DEREN_VERSION_MAJOR=${PROJECT_VERSION_MAJOR}
             DEREN_VERSION_MINOR=${PROJECT_VERSION_MINOR}
@@ -1685,22 +1631,23 @@ endforeach()
 find_program(CLANG_FORMAT_EXECUTABLE clang-format)
 
 if(CLANG_FORMAT_EXECUTABLE)
-    # promise/rhi/ holds the contract module (`*.cppm`) AND the one header that is deliberately not
-    # part of it (`backend_entry.hpp`); utility/abi_export.hpp is the macro header. All three are
+    # source/promise/rhi/ holds the contract module (`*.cppm`) AND the one header that is deliberately not
+    # part of it (`backend_entry.hpp`); source/utility/abi_export.hpp is the macro header. All three are
     # compiled by both sides of the boundary, so they are listed by extension rather than by the
     # *.cpp* wildcard the others use.
     file(GLOB_RECURSE PROJECT_FORMAT_SOURCES CONFIGURE_DEPENDS
-            ${CMAKE_CURRENT_SOURCE_DIR}/main.cpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/application_configuration/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/gltf_loader/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/utility/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/runtime/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/vulkan/core/vma/texture_upload_layout.h
-            ${CMAKE_CURRENT_SOURCE_DIR}/tests/*.cpp*
-            ${CMAKE_CURRENT_SOURCE_DIR}/promise/rhi/*.cppm
-            ${CMAKE_CURRENT_SOURCE_DIR}/promise/rhi/*.hpp
-            ${CMAKE_CURRENT_SOURCE_DIR}/utility/abi_export.hpp)
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/app/main.cpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/application_configuration/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/gltf_loader/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/utility/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/engine/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/engine/runtime/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/backends/vulkan/core/vma/texture_upload_layout.h
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/tests/*.cpp*
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/promise/rhi/*.cppm
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/promise/rhi/*.hpp
+            ${CMAKE_CURRENT_SOURCE_DIR}/source/utility/abi_export.hpp)
 
     set(CLANG_FORMAT_STAMP "${CMAKE_CURRENT_BINARY_DIR}/.clang-format.stamp")
 
@@ -1717,9 +1664,9 @@ if(CLANG_FORMAT_EXECUTABLE)
 
     # Format all project targets before compiling (chores is deliberately NOT in this list: a
     # root-level module source feeding both the format stamp and a target that depends on other
-    # format-listed targets makes ninja see a cycle; format chores.cppm manually with
-    # 'clang-format -i chores.cppm' - same style, just not automatic)
-    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables vulkancorekit deren_assets ${VR_APP_EXE})
+    # format-listed targets makes ninja see a cycle; format source/app/chores.cppm manually with
+    # 'clang-format -i source/app/chores.cppm' - same style, just not automatic)
+    foreach(_tgt shared_utility static_utility backend_loader promise app_config deren_vulkan vulkan_constant_init renderer_layout vulkan_error_tables deren_engine deren_assets ${VR_APP_EXE})
         add_dependencies(${_tgt} clang-format)
     endforeach()
 
@@ -1736,13 +1683,13 @@ endif()
 # The platform halves of utility live in plain (non-module) TUs so that <windows.h> stays out of a
 # module's global module fragment - including it there made libc++'s operator new ambiguous in every
 # TU that imported `deren.utility`. One file per platform facility; the module side only sees their C
-# entry points (see utility/platform_sleep.cpp, platform_path.cpp and platform_dialog.cpp). They are
+# entry points (see source/utility/platform_sleep.cpp, platform_path.cpp and platform_dialog.cpp). They are
 # per-half (no state), so they live in static_utility; shared_utility has its own plain TU for the
-# process-wide rotation claim (utility/shared/log_rotation_claim.cpp), kept there for the same reason.
+# process-wide rotation claim (source/utility/shared/log_rotation_claim.cpp), kept there for the same reason.
 target_sources(static_utility PRIVATE
-        utility/platform_sleep.cpp
-        utility/platform_path.cpp
-        utility/platform_dialog.cpp
+        source/utility/platform_sleep.cpp
+        source/utility/platform_path.cpp
+        source/utility/platform_dialog.cpp
 )
 # ---- SLANG -> SPIR-V: the build owns the step (docs/slang_migration.md) ----
 # Editing a .glsl without recompiling used to leave you running stale SPIR-V ("my shader change does
@@ -1756,7 +1703,7 @@ target_sources(static_utility PRIVATE
 #    gitignore by hand, or forget to regenerate;
 #  - the runtime finds it without any search-order guesswork, because that directory is a sibling of
 #    the executable and locate_shaders_dir() prefers a sibling of the running binary;
-#  - -I still points at the SOURCE directory, so #include "surface.glsl" resolves against the real
+#  - -I still points at the SOURCE directory, so #include "surface.slang" resolves against the real
 #    sources rather than against copies.
 # A mirror/ POST_BUILD step was tried first and is worse: a POST_BUILD command only runs when the
 # executable is RELINKED, so a shader-only edit recompiled the .spv and left the copy stale (measured).
@@ -1764,9 +1711,9 @@ target_sources(static_utility PRIVATE
 # executable lands in the build directory, so build/shaders is its sibling. A multi-config generator
 # would put the binary in a per-config subdirectory and the runtime would fall back to its cwd walk.
 #
-# shaders/compile_shaders.ps1 / .sh remain as a manual escape hatch for a machine without CMake; they
-# compile in place, which is what a reader of the source tree would expect from a manual tool.
-set(VR_SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/shaders")
+# source/shaders/compile_shaders.ps1 / .sh remain as a manual escape hatch for a machine without CMake; they
+# compile into the repository shaders/ output directory used by the runtime fallback.
+set(VR_SHADER_SRC_DIR "${CMAKE_CURRENT_SOURCE_DIR}/source/shaders")
 set(VR_SHADER_OUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/shaders")
 # The Vulkan SDK ships slangc in Bin/ and sets VULKAN_SDK when its environment script is sourced, but
 # that directory is not necessarily on PATH - notably in an MSVC build, where the developer shell
@@ -1779,7 +1726,7 @@ if(NOT VR_SLANGC_EXECUTABLE)
     message(FATAL_ERROR
         "slangc not found. It ships with a Slang release (the Vulkan SDK's Bin directory carries one too), "
         "and every shader in this project is built from a .slang source - the GLSL FALLBACK THIS RULE USED "
-        "TO HAVE IS GONE, along with the GLSL stage sources themselves (shaders/glsl.old/) - so a build "
+        "TO HAVE IS GONE, along with the GLSL stage sources themselves (source/reference/shaders/glsl.old/) - so a build "
         "without it would be the one that silently compiles modules the project no longer uses. Install "
         "Slang or the Vulkan SDK, or add slangc to PATH.")
 endif()
@@ -1787,49 +1734,48 @@ endif()
 # files and glslc takes milliseconds, so recompiling an unaffected shader is cheaper than the
 # dependency bookkeeping that would avoid it.
 set(VR_SHADER_INCLUDES
-    "${VR_SHADER_SRC_DIR}/surface.glsl"
-    # material_record.glsl is the Material LAYOUT, split out of surface.glsl so a FULLSCREEN stage can name
-    # the type it reads from the material table - a fullscreen stage cannot include surface.glsl at all (its
+    "${VR_SHADER_SRC_DIR}/surface.slang"
+    # material_record.slang is the Material LAYOUT, split out of surface.slang so a FULLSCREEN stage can name
+    # the type it reads from the material table - a fullscreen stage cannot include surface.slang at all (its
     # shared scene push block is 144 bytes, over the 128-byte limit). It is here for the same reason the
     # other bodies are: a field added to it must rebuild every stage that reads the table.
-    "${VR_SHADER_SRC_DIR}/material_record.glsl"
+    "${VR_SHADER_SRC_DIR}/material_record.slang"
     # toon_params.slang is the TOON FAMILY TABLE, shared by every stage that shades a character (the
     # character-forward stage and the screen-space rim). It is here for the reason the bodies below are:
     # editing a family's parameters must rebuild every stage that read them, and a stage left on stale SPIR-V
     # would shade with the previous table - which looks like a tuning that did not take rather than like a
     # build error.
     "${VR_SHADER_SRC_DIR}/toon_params.slang"
-    "${VR_SHADER_SRC_DIR}/shading.glsl"
-    "${VR_SHADER_SRC_DIR}/sky.glsl"
-    # ibl_specular.glsl is included by shading.glsl, so it belongs here for the same reason the three above
+    "${VR_SHADER_SRC_DIR}/shading.slang"
+    "${VR_SHADER_SRC_DIR}/sky.slang"
+    # ibl_specular.slang is included by shading.slang, so it belongs here for the same reason the three above
     # do: editing it alone must not leave stale SPIR-V behind.
-    "${VR_SHADER_SRC_DIR}/ibl_specular.glsl"
-    # heap_slot_constants.glsl is the SLOT GRID's shader-side source of truth (core.declarations.cppm is the
+    "${VR_SHADER_SRC_DIR}/ibl_specular.slang"
+    # heap_slot_constants.slang is the SLOT GRID's shader-side source of truth (render_layout.cppm is the
     # host's): a shader that includes it and is not rebuilt after it changes would index the heap by stale
     # numbers, which validation cannot see. The C++ side is compared against it by a test (see
-    # test_render_resources). It is its own file rather than part of heap_slots.glsl because the Slang
-    # migration needs the same numbers - see docs/slang_migration.md - and heap_slots.glsl (the GLSL heap
-    # arrays and the fetch helper) includes it.
-    "${VR_SHADER_SRC_DIR}/heap_slot_constants.glsl"
-    "${VR_SHADER_SRC_DIR}/heap_slots.glsl"
+    # test_render_resources). heap_slots.slang and heap_access.slang include the same constants.
+    "${VR_SHADER_SRC_DIR}/heap_slot_constants.slang"
+    "${VR_SHADER_SRC_DIR}/heap_slots.slang"
     # heap_access.slang and mesh_geometry.slang are the two OTHER includes every leaf pulls in - the shim's heap
     # accessors, and the device-address geometry fetch a mesh stage uses instead of the input assembler. Both were
     # missing from this list, and the mesh one cost a measurement to find: the build tree's pbr.vert.spv and
     # shadow.frag.spv were STALE (built before the geometry lanes existed) while the mesh entries sharing their
     # source had been rebuilt, so the two halves of one pipeline declared different blocks - visible only as a
     # byte difference against the escape-hatch scripts' output, never as a wrong picture.
-    # `test_shader_sources` now compares this list against every #include in shaders/, so the next include cannot
+    # `test_shader_sources` now compares this list against every #include in source/shaders/, so the next include cannot
     # be forgotten the same way.
     "${VR_SHADER_SRC_DIR}/heap_access.slang"
+    "${VR_SHADER_SRC_DIR}/texture_group.slang"
     "${VR_SHADER_SRC_DIR}/mesh_geometry.slang"
     # character_forward.slang IS INCLUDED BY A LEAF NOW, which is why it is here: the outline fragment stage
     # includes it for `toon_diffuse` (the same reason `toon_params.slang` is above - a second copy of that chain
     # is the duplicate this repository refuses), so editing it must rebuild `outline.frag.spv` too.
-    # `test_shader_sources` requires every `#include` found in shaders/ to be listed here, which is what would
+    # `test_shader_sources` requires every `#include` found in source/shaders/ to be listed here, which is what would
     # have caught the omission: an unlisted include leaves STALE SPIR-V that nothing but a byte comparison sees.
     "${VR_SHADER_SRC_DIR}/character_forward.slang"
     # goo_toon.slang IS INCLUDED BY THE REWRITTEN CHAIN'S OWN STAGE, and it is listed here for the SAME reason
-    # character_forward.slang is one line above: `shaders/goo_toon.slang` includes it for `toon_diffuse` (the old
+    # character_forward.slang is one line above: `source/shaders/goo_toon.slang` includes it for `toon_diffuse` (the old
     # body every non-iris family is still shaded by), so editing it must rebuild `goo_toon.frag.spv` as well -
     # otherwise the old chain's fix lands in one .spv and not the other, which is a difference between two stages
     # that must agree, visible only as a byte comparison. See `goo_toon_pipeline_name`'s note for why the two
@@ -1837,13 +1783,13 @@ set(VR_SHADER_INCLUDES
     "${VR_SHADER_SRC_DIR}/goo_toon.slang"
     # goo_rim.slang is THE REWRITTEN CHAIN'S THIRD STAGE and it is listed for the reason the two lines above are:
     # it reads the same two shared tables those stages do (`toon_params.slang`'s family table and
-    # `material_record.glsl`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
+    # `material_record.slang`'s layout), so an edit to either must rebuild `goo_rim.frag.spv` as well - a stage left
     # on stale SPIR-V would read a material record with different field offsets, which is a wrong texture or a
     # wrong family rather than a build error.
     "${VR_SHADER_SRC_DIR}/goo_rim.slang"
 )
 # (THE GLSL STAGE LIST USED TO LIVE HERE: twenty-four names, glslc's input, kept in step with the sources by
-# hand. Every one of them is in shaders/glsl.old/ now and built from Slang instead, so the list is gone -
+# hand. Every one of them is in source/reference/shaders/glsl.old/ now and built from Slang instead, so the list is gone -
 # VR_SLANG_SOURCES below IS the list of what this build compiles.)
 set(VR_SHADER_OUTPUTS "")
 # ---- SLANG SOURCES: the GLSL -> Slang migration, one shader at a time (docs/slang_migration.md) --------
@@ -1853,8 +1799,6 @@ set(VR_SHADER_OUTPUTS "")
 # acceptance for every port is the capture gate staying byte-identical.
 #
 # THE FLAGS ARE THE BINDING CONTRACT, and every one of them was measured rather than guessed:
-#   -allow-glsl                 ... the shared slot constants are a plain `const uint` file (valid GLSL);
-#                                   Slang rejects a non-static global const without this (E31224).
 #   -capability spvDescriptorHeapEXT ... without it Slang emits the descriptor-set model instead of the heap.
 #   -spirv-resource-heap-stride 64 / -spirv-sampler-heap-stride 32 ... this renderer's grid is a flat 64-byte
 #                                   slot grid plus a 32-byte sampler heap, not Slang's per-type default.
@@ -1964,6 +1908,7 @@ set(VR_SLANG_SOURCES
     heap_probe.slang:mesh_main:mesh:heap_probe.mesh.spv
     # The COMPUTE half is its own file because it has its own push layout (one push block per stage).
     heap_probe_comp.slang:comp_main:compute:heap_probe.comp.spv
+    texture_group_probe.slang:main:compute:texture_group_probe.comp.spv
     # compute_skin.slang feeds the acceleration structures the deformed vertex positions; its A/B needs the
     # skinned fixture with rt_shadow on (see docs/slang_migration.md).
     compute_skin.slang:comp_main:compute:compute_skin.comp.spv
@@ -2011,7 +1956,7 @@ foreach(entry IN LISTS VR_SLANG_SOURCES)
     add_custom_command(
         OUTPUT "${VR_SHADER_OUT_DIR}/${slang_output}"
         COMMAND ${CMAKE_COMMAND} -E make_directory "${VR_SHADER_OUT_DIR}"
-        COMMAND "${VR_SLANGC_EXECUTABLE}" "${VR_SHADER_SRC_DIR}/${slang_source}" -I "${VR_SHADER_SRC_DIR}" -allow-glsl -DVR_SLANG
+        COMMAND "${VR_SLANGC_EXECUTABLE}" "${VR_SHADER_SRC_DIR}/${slang_source}" -I "${VR_SHADER_SRC_DIR}"
                 -target spirv -profile spirv_1_6 -capability spvDescriptorHeapEXT
                 -spirv-resource-heap-stride 64 -spirv-sampler-heap-stride 32
                 -fvk-use-gl-layout -matrix-layout-column-major
@@ -2033,7 +1978,7 @@ list(APPEND VR_SHADER_OUTPUTS ${VR_SLANG_OUTPUTS})
 # THERE IS NO glslc RULE ANY MORE, and no VR_GLSL_SOURCES to compute: every stage is built from a .slang
 # source above, so the split ("which sources does glslc still have to build?") that this section used to
 # compute while the migration ran has no members left. The retired GLSL stage sources are archived in
-# shaders/glsl.old/ and are NOT part of the build - they exist to be read next to their ports.
+# source/reference/shaders/glsl.old/ and are NOT part of the build - they exist to be read next to their ports.
 # the runtime's log names the SOURCE file it is loading the SPIR-V for, and it looks for that name in
 # the same directory: copy the sources there so the log points at a file a reader of the build tree
 # can actually open. Not a correctness requirement - the .spv beside it is what gets loaded. The list is
@@ -2050,7 +1995,7 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND} -E copy_directory "${VR_SHADER_SRC_DIR}" "${VR_SHADER_OUT_DIR}"
     COMMAND ${CMAKE_COMMAND} -E touch "${VR_SHADER_OUT_DIR}/.sources-copied"
     DEPENDS ${VR_SHADER_OUTPUTS} ${VR_SHADER_SOURCE_COPIES} ${VR_SHADER_INCLUDES}
-    COMMENT "copying the GLSL sources beside the compiled shaders"
+    COMMENT "copying the Slang sources beside the compiled shaders"
     VERBATIM
 )
 add_custom_target(shaders ALL DEPENDS ${VR_SHADER_OUTPUTS} "${VR_SHADER_OUT_DIR}/.sources-copied")
@@ -2066,4 +2011,6 @@ endif()
 if(TARGET test_runtime_dyn)
     add_dependencies(test_runtime_dyn shaders)
 endif()
-message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles shaders/*.spv into ${VR_SHADER_OUT_DIR}")
+add_dependencies(test_texture_group shaders)
+target_compile_definitions(test_texture_group PRIVATE VR_TEXTURE_GROUP_SHADER_PATH="${VR_SHADER_OUT_DIR}/texture_group_probe.comp.spv")
+message(STATUS "slangc: ${VR_SLANGC_EXECUTABLE} - every build compiles source/shaders/*.spv into ${VR_SHADER_OUT_DIR}")

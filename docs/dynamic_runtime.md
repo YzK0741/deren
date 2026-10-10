@@ -7,11 +7,11 @@ to the device through that interface alone. Everything a second backend has to s
 **Measured at this version** (on the artifacts, not read from the code): `deren.exe` imports **no**
 graphics API, the engine's object files carry **no** unresolved `vk*` symbol, and **no** engine source
 names the graphics API. A backend *module* is not importable by the engine either - the loader is the
-only door, and `scripts/check_backend_boundary.py` is the gate that keeps it that way.
+only door, and `source/scripts/check_backend_boundary.py` is the gate that keeps it that way.
 
 ## The contract: `deren.promise.rhi`
 
-`promise/rhi/` is the contract, and BOTH sides of the boundary compile it: the engine's targets and
+`source/promise/rhi/` is the contract, and BOTH sides of the boundary compile it: the engine's targets and
 each backend DLL read the same interface unit instead of a shared header, which is what keeps the two
 compilations from drifting.
 
@@ -29,7 +29,7 @@ slot to an existing interface bumps the number**, while **adding a new ability o
 
 ## The C entry: one symbol, resolved by name
 
-`promise/rhi/backend_entry.hpp` declares the boundary's entire C ABI, and it is deliberately tiny.
+`source/promise/rhi/backend_entry.hpp` declares the boundary's entire C ABI, and it is deliberately tiny.
 
 * **`deren_make_api_core` is the only export.** Its FIRST argument is `rhi::abi_version`, so a
   mismatched backend is refused BEFORE an object exists, with the backend's own number in the
@@ -41,7 +41,7 @@ slot to an existing interface bumps the number**, while **adding a new ability o
 * **The GUI plugin takes the same shape**: `deren_gui_vulkan.dll` exports one name, `deren_make_gui`.
 
 The keyword that makes a symbol visible across a DLL boundary lives in ONE header,
-`utility/abi_export.hpp`, chosen from the build mode rather than from a platform `#ifdef` at every
+`source/utility/abi_export.hpp`, chosen from the build mode rather than from a platform `#ifdef` at every
 declaration.
 
 ## Capabilities: abilities and extensions
@@ -59,7 +59,7 @@ A backend is not asked what it is; it is asked what it can do.
 
 ## The loaders: how a backend becomes an object
 
-`deren.vulkan.backend_loader` is the policy and `deren.utility.dynamic_link` is the mechanism under it.
+`deren.engine.backend_loader` is the policy and `deren.utility.dynamic_link` is the mechanism under it.
 Four guarantees, each measured while the boundary was built:
 
 1. **An absolute path into the loader.** The DLL is looked for beside THIS executable
@@ -73,7 +73,7 @@ Four guarantees, each measured while the boundary was built:
    raw native error, the backend's text, the failure point) and reports it before returning an empty
    `shared_ptr`. A missing DLL is a message, not a system dialog.
 
-The GUI is reached the same way: `deren.vulkan.gui_loader` resolves `deren_gui_<api>.dll`, and the
+The GUI is reached the same way: `deren.engine.gui_loader` resolves `deren_gui_<api>.dll`, and the
 overlay crosses as the `deren::gui::overlay` interface plus one C entry.
 
 ## The run-time package
@@ -89,7 +89,7 @@ Five images plus the C++ runtime, all beside each other:
 | `shared_utility.dll` | import library | the process-wide log sink, the rotation claim and the allocator hook - one copy per process by construction |
 
 `libc++.dll` is imported by all of them, which is the premise that lets a contract value carrying STL
-containers cross the seam. The build's compiled `shaders/` directory sits beside them, because the
+containers cross the seam. The build's compiled `source/shaders/` directory sits beside them, because the
 executable locates it by walking up from its working directory.
 
 ## Writing a second backend
@@ -120,8 +120,8 @@ is crossed.
 
 | gate | question |
 | --- | --- |
-| `scripts/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
-| `scripts/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
+| `source/scripts/check_native_boundary.py` | the executable's import table, the engine objects' unresolved symbols, and the engine sources' vocabulary |
+| `source/scripts/check_backend_boundary.py` | the symbol ratchet, the whitelist (empty now) and the export table of each plugin |
 | the render gates (`check_render.ps1`, `check_gui.ps1`, `check_rt.ps1`) | that the application really runs the backend it resolved: 14 frozen pixel-identical scenarios, a GUI on/off pair, and a GPU ray-traversal probe |
 
 ## Still open

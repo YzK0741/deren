@@ -1,0 +1,190 @@
+// The screen-space depth rim's implementation: the pipeline (one ADDITIVE target, no depth attachment), the
+// fullscreen draw, and nothing else.
+//
+// MODELLED ON geometry_buffer_debug.cpp, and what is MISSING from it is the point: no barriers, and no
+// clear. No barriers because the two images this pass samples are already in a sampled layout - the G-buffer
+// targets and the depth are published by the stage PREAMBLE (the renderer's per-image bookkeeping, see
+// toon_screen_rim's stage in runtime.frames.cppm), and this pass is never the one that took them out of it.
+// No clear because the target is LOADed: the whole point is to ADD to the frame the character-forward stage
+// produced, not to replace it.
+
+module;
+
+#include <array>
+#include <cstdint>
+#include <new> // ::operator new's aligned overloads must be VISIBLE here: the deferred
+               // __libcpp_allocate codegen crashes without them (clang 22, measured this session)
+#include <span>
+
+module deren.engine.pass.toon_screen_rim;
+
+import deren.promise.rhi;
+import deren.engine.render_resource;
+// (③-D/E A1.0: the `import deren.vulkan.core;` that used to sit here was VESTIGIAL - its own comment
+//  named `deren::engine::hdr_format` as the reason, and this file never spells it. The formats themselves
+//  live in the shared `deren.engine.render_layout` now, which is where a pass that DOES name one reaches
+//  for it - without importing the backend.)
+import deren.engine.pipelines; // make_graphics_pipeline: the contract factory this pass builds through
+import deren.utility;
+
+namespace rhi = deren::promise::rhi;
+
+namespace deren::engine::pass {
+
+    render_resource::pass_io const& toon_screen_rim_pass::io() const noexcept {
+        return render_resource::toon_screen_rim_io;
+    }
+
+    deren::engine::pass::behaviour const& toon_screen_rim_pass::behaviour() const noexcept {
+        return pass_behaviour;
+    }
+
+    std::string_view toon_screen_rim_pass::feature() const noexcept {
+        // THE CHARACTER-FORWARD FEATURE, not one of its own: the contour belongs to the toon character stage
+        // and means nothing without it, so one switch turns both on. Gating it here is also what keeps every
+        // capture scenario byte-identical while that feature is off - the runner asks this before it resolves
+        // the declaration, so a frame with no character never even transitions an image for this pass.
+        //
+        // ... AND IT IS ITS OWN NAME RATHER THAN `character_forward`, WHICH IT USED TO SHARE, because the
+        // REWRITTEN toon chain must not wear TWO rims either: this pass draws the ARTICLE's screen-space contour
+        // (`toon_screen_rim.slang`), and the Goo reference the rewrite follows has no such contour - its
+        // screen-space piece is `DepthRim`, which the rewrite's second step defers (see
+        // `deren-ab/goo_step2_rim_spec.md` §9-U1/U2/U4/U5). Sharing the name made the two impossible to separate:
+        // `feature_active` is asked once per NAME, so "the rim stage is off" and "the character stage is off"
+        // were one answer and the switch could only turn off both.
+        //
+        // THE NAME IS NOT A NEW CONFIG KEY and does not become one: `[render]` keys are the runtime's registry
+        // (see `runtime::feature_active`), and this is a name that table composes - the owner's decision is in
+        // `render_start_demo::feature_active`, where the rewritten chain's own answer (`goo_toon` AND its
+        // pipeline) is what turns THIS stage off. The article's rim would otherwise be drawn on top of the
+        // reference's.
+        return "toon_screen_rim";
+    }
+
+    void toon_screen_rim_pass::create(pass_context const& context) {
+        if (context.face == nullptr) {
+            return;
+        }
+        if (this->built_against != nullptr && this->built_against != context.face) {
+            this->release_owned();
+        }
+        this->built_against = context.face;
+        if (this->pass_pipeline.has_value()) {
+            return; // already built for this device
+        }
+        std::span<uint8_t const> const vertex_spirv = context.shader != nullptr ? context.shader(context.owner, vertex_shader_name) : std::span<uint8_t const>{};
+        std::span<uint8_t const> const fragment_spirv = context.shader != nullptr ? context.shader(context.owner, fragment_shader_name) : std::span<uint8_t const>{};
+        if (vertex_spirv.empty() || fragment_spirv.empty()) {
+            deren::utility::log("toon screen rim disabled: the owner has no {} or {}", vertex_shader_name, fragment_shader_name);
+            return;
+        }
+        // ONE colour target and it is the HDR one, because this pass runs INSIDE the HDR chain (after the
+        // lighting stage, before the resolve) - a rim written to the swapchain would be tonemapped twice.
+        std::array<rhi::image_format, 1> const formats = {rhi::image_format::r16g16b16a16_sfloat};
+        // ADDITIVE: the rim is a contribution to the frame, not a replacement for it. This is the opposite of
+        // the character-forward stage's overwrite, and the two are deliberately different passes for it.
+        std::array<rhi::blend_mode, 1> const blends = {rhi::blend_mode::additive};
+        auto built = pipelines::make_graphics_pipeline(*context.face,
+                                                       std::span<rhi::image_format const>(formats),
+                                                       rhi::image_format::unknown, // NO depth attachment: the depth is sampled, not tested
+                                                       vertex_spirv,
+                                                       fragment_spirv,
+                                                       1u,
+                                                       /*depth_test_enabled=*/false,
+                                                       0.0f,
+                                                       0.0f,
+                                                       0.0f,
+                                                       std::span<rhi::blend_mode const>(blends));
+        if (!built) {
+            deren::utility::log("toon screen rim disabled: {}", built.error());
+            this->release_owned();
+            return;
+        }
+        built->viewport = rhi::viewport{.x = 0.0f, .y = 0.0f, .width = 1.0f, .height = 1.0f, .min_depth = 0.0f, .max_depth = 1.0f}; // the runner resyncs it from io.extent
+        built->scissor = rhi::rect{.offset_x = 0, .offset_y = 0, .width = 1u, .height = 1u};
+        this->pass_pipeline = std::move(*built);
+        deren::utility::log("SUCCESS: toon screen rim pipeline created (a fullscreen additive contour from the depth)");
+    }
+
+    void toon_screen_rim_pass::on_swapchain_recreated(pass_host const&) {
+        // Nothing to reset: the pipeline depends on the HDR target's format and on nothing whose size changes,
+        // and the viewport/scissor are resynced by the runner (see pass_behaviour::resync_viewport).
+    }
+
+    void toon_screen_rim_pass::release_owned() noexcept {
+        this->pass_pipeline.reset();
+    }
+
+    toon_screen_rim_pass::~toon_screen_rim_pass() {
+        this->release_owned();
+    }
+
+    bool toon_screen_rim_pass::pipeline_ready() const noexcept {
+        return this->pass_pipeline.has_value();
+    }
+
+    deren::promise::rhi::pipeline* toon_screen_rim_pass::pipeline_handle() const noexcept {
+        return this->pass_pipeline.has_value() ? this->pass_pipeline->contract : nullptr;
+    }
+
+    void toon_screen_rim_pass::set_shape(float const width, float const scale, float const strength) noexcept {
+        this->rim_width = width;
+        this->rim_scale = scale;
+        this->rim_strength = strength;
+    }
+
+    void toon_screen_rim_pass::set_colour(float const r, float const g, float const b) noexcept {
+        this->rim_colour[0] = r;
+        this->rim_colour[1] = g;
+        this->rim_colour[2] = b;
+    }
+
+    void toon_screen_rim_pass::record(resolved_io const& io) {
+        if (!this->pipeline_ready() || io.targets.empty() || io.extent.width == 0 || io.extent.height == 0) {
+            return; // the runner resolves all of this or skips the pass (see frame_pass::resolve)
+        }
+        // THE CONTRACT VIEW IS THE GUARD (plan X5 B2): the raw lane is gone, and a null handle is exactly the
+        // "this frame has no target" this refusal is about.
+        deren::promise::rhi::image_view* const target_view = io.targets[0].view_handle;
+        if (target_view == nullptr) {
+            return;
+        }
+        // LOAD, not clear: this instance ADDS to the frame the character-forward stage wrote. THE RENDERING SCOPE
+        // RIDES THE CONTRACT NOW (abi 20): one colour attachment, LOAD + STORE (what the raw helper spelled), no
+        // depth - the whole scope this pass opens.
+        std::array<rhi::color_attachment, 1> const colors = {
+            rhi::color_attachment{.view = io.targets[0].view_handle, .load = rhi::load_op::load, .store = rhi::store_op::store, .clear = {}},
+        };
+        rhi::rendering_info const rendering_info{
+            .struct_size = sizeof(rhi::rendering_info),
+            .area = {.offset_x = 0, .offset_y = 0, .width = io.extent.width, .height = io.extent.height},
+            .layer_count = 1,
+            .colors = colors,
+            .depth = {},
+            .has_depth = false,
+            .secondary_contents = false, // nothing here executes a secondary command buffer
+        };
+        if (io.list->begin_rendering(rendering_info) != rhi::error::ok) {
+            return;
+        }
+        io.list->set_cull_mode(rhi::cull_mode::none); // the synthetic triangle has no facing to cull
+        // NO SET TO BIND: the depth and the albedo are per-swapchain-image heap slots the shader indexes with
+        // the image index its push block carries. The two projection terms are the frame's (they are the same
+        // pair the debug view's depth channel linearizes with), and the rest is this pass's own parameter.
+        push_constants const push = {
+            .proj_22 = io.constants.proj[2][2],
+            .proj_32 = io.constants.proj[3][2],
+            .rim_width = this->rim_width,
+            .rim_scale = this->rim_scale,
+            .rim_strength = this->rim_strength,
+            .pad0 = 0.0f,
+            .pad1 = 0.0f,
+            .pad2 = 0.0f,
+            .rim_colour = {this->rim_colour[0], this->rim_colour[1], this->rim_colour[2], 1.0f},
+        };
+        [[maybe_unused]] bool const pushed = io.push_block(*io.cmd, pass::push_bytes(push));
+        io.list->draw(3, 1, 0, 0);
+        io.list->end_rendering();
+    }
+
+} // namespace deren::engine::pass

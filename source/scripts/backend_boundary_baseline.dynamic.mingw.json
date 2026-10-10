@@ -1,0 +1,234 @@
+{
+  "application_evidence": {
+    "chores_archives": [
+      "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libchores.a"
+    ],
+    "complete": true,
+    "explicit_app_objects": [],
+    "main_objects": [
+      "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\CMakeFiles\\deren.dir\\main.cpp.obj"
+    ]
+  },
+  "backend_archive": "deren_vulkan.dll",
+  "backend_imports": {
+    "engine_application": [],
+    "sources_scanned": 137,
+    "tests_informational": []
+  },
+  "backend_modules": [
+    "deren.vulkan.core",
+    "deren.vulkan.core.handles",
+    "deren.vulkan.core.pipeline",
+    "deren.vulkan.init_utils"
+  ],
+  "backend_surface_shape": "export table",
+  "consumers": [
+    {
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libderen_engine.a",
+      "members": [
+        "acceleration_structure.cpp.obj",
+        "acceleration_structure.cppm.obj",
+        "bindings.cppm.obj",
+        "chain.cppm.obj",
+        "character_forward.cpp.obj",
+        "character_forward.cppm.obj",
+        "cluster.cpp.obj",
+        "cluster.cppm.obj",
+        "compute_skin.cpp.obj",
+        "compute_skin.cppm.obj",
+        "controller.cpp.obj",
+        "controller.cppm.obj",
+        "deferred.cpp.obj",
+        "deferred.cppm.obj",
+        "filters.cpp.obj",
+        "filters.cppm.obj",
+        "frame_constants.cppm.obj",
+        "fxaa.cpp.obj",
+        "fxaa.cppm.obj",
+        "geometry_buffer_debug.cpp.obj",
+        "geometry_buffer_debug.cppm.obj",
+        "goo_rim.cpp.obj",
+        "goo_rim.cppm.obj",
+        "graphical_user_interface.cpp.obj",
+        "graphical_user_interface.cppm.obj",
+        "mask_bake.cpp.obj",
+        "mask_bake.cppm.obj",
+        "math.cpp.obj",
+        "math.cppm.obj",
+        "megalights_temporal.cpp.obj",
+        "megalights_temporal.cppm.obj",
+        "megalights_trace.cpp.obj",
+        "megalights_trace.cppm.obj",
+        "meshlet.cppm.obj",
+        "mmd_motion.cpp.obj",
+        "mmd_motion.cppm.obj",
+        "pass.cppm.obj",
+        "pipelines.cppm.obj",
+        "post.cpp.obj",
+        "post.cppm.obj",
+        "primitive.cpp.obj",
+        "primitive.cppm.obj",
+        "profiling.cppm.obj",
+        "ray_traced_shadow.cpp.obj",
+        "ray_traced_shadow.cppm.obj",
+        "ray_tracing.cpp.obj",
+        "ray_tracing.cppm.obj",
+        "readback.cpp.obj",
+        "readback.cppm.obj",
+        "render_environment.cppm.obj",
+        "render_resource.cppm.obj",
+        "render_start_demo.cpp.obj",
+        "render_start_demo.cppm.obj",
+        "runtime.constructor.cppm.obj",
+        "runtime.cpp.obj",
+        "runtime.cppm.obj",
+        "runtime.declarations.cppm.obj",
+        "runtime.frames.cppm.obj",
+        "runtime.probes.cppm.obj",
+        "runtime.readback.cppm.obj",
+        "scene.cpp.obj",
+        "scene.cppm.obj",
+        "scene_tree.cpp.obj",
+        "scene_tree.cppm.obj",
+        "shadow.cpp.obj",
+        "shadow.cppm.obj",
+        "shadow_fit.cpp.obj",
+        "shadow_fit.cppm.obj",
+        "shared.cppm.obj",
+        "taa.cpp.obj",
+        "taa.cppm.obj",
+        "toon_screen_rim.cpp.obj",
+        "toon_screen_rim.cppm.obj",
+        "transparent.cpp.obj",
+        "transparent.cppm.obj",
+        "upscale.cpp.obj",
+        "upscale.cppm.obj"
+      ]
+    },
+    {
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\libchores.a",
+      "members": [
+        "chores.cpp.obj",
+        "chores.cppm.obj"
+      ]
+    },
+    {
+      "file": "C:\\Users\\23530\\Desktop\\yzk\\deren\\build-release-dyn-clang64\\CMakeFiles\\deren.dir\\main.cpp.obj",
+      "members": []
+    }
+  ],
+  "count": 0,
+  "cpp_runtime": {
+    "dll": "libc++.dll",
+    "images": {
+      "deren.exe": {
+        "dynamic_cxx_runtime": true,
+        "imports": [
+          "shared_utility.dll",
+          "KERNEL32.dll",
+          "libc++.dll",
+          "api-ms-win-crt-stdio-l1-1-0.dll",
+          "api-ms-win-crt-runtime-l1-1-0.dll",
+          "api-ms-win-crt-locale-l1-1-0.dll",
+          "api-ms-win-crt-math-l1-1-0.dll",
+          "api-ms-win-crt-heap-l1-1-0.dll",
+          "api-ms-win-crt-private-l1-1-0.dll",
+          "api-ms-win-crt-string-l1-1-0.dll",
+          "api-ms-win-crt-convert-l1-1-0.dll",
+          "vulkan-1.dll",
+          "api-ms-win-crt-environment-l1-1-0.dll",
+          "comdlg32.dll",
+          "api-ms-win-crt-utility-l1-1-0.dll",
+          "api-ms-win-crt-time-l1-1-0.dll",
+          "USER32.dll",
+          "SHELL32.dll",
+          "GDI32.dll"
+        ]
+      },
+      "deren_vulkan.dll": {
+        "dynamic_cxx_runtime": true,
+        "imports": [
+          "vulkan-1.dll",
+          "shared_utility.dll",
+          "KERNEL32.dll",
+          "libc++.dll",
+          "api-ms-win-crt-heap-l1-1-0.dll",
+          "api-ms-win-crt-string-l1-1-0.dll",
+          "api-ms-win-crt-runtime-l1-1-0.dll",
+          "api-ms-win-crt-private-l1-1-0.dll",
+          "api-ms-win-crt-utility-l1-1-0.dll",
+          "api-ms-win-crt-stdio-l1-1-0.dll",
+          "api-ms-win-crt-convert-l1-1-0.dll",
+          "comdlg32.dll",
+          "api-ms-win-crt-math-l1-1-0.dll",
+          "api-ms-win-crt-locale-l1-1-0.dll",
+          "USER32.dll",
+          "GDI32.dll",
+          "SHELL32.dll"
+        ]
+      }
+    },
+    "ok": true
+  },
+  "cross_boundary_symbols": [],
+  "defined_in_backend": 1,
+  "dll_surface": {
+    "dll": "deren_vulkan.dll",
+    "exports": [
+      "deren_make_api_core"
+    ],
+    "imports": [
+      "vulkan-1.dll",
+      "shared_utility.dll",
+      "KERNEL32.dll",
+      "libc++.dll",
+      "api-ms-win-crt-heap-l1-1-0.dll",
+      "api-ms-win-crt-string-l1-1-0.dll",
+      "api-ms-win-crt-runtime-l1-1-0.dll",
+      "api-ms-win-crt-private-l1-1-0.dll",
+      "api-ms-win-crt-utility-l1-1-0.dll",
+      "api-ms-win-crt-stdio-l1-1-0.dll",
+      "api-ms-win-crt-convert-l1-1-0.dll",
+      "comdlg32.dll",
+      "api-ms-win-crt-math-l1-1-0.dll",
+      "api-ms-win-crt-locale-l1-1-0.dll",
+      "USER32.dll",
+      "GDI32.dll",
+      "SHELL32.dll"
+    ],
+    "imports_shared_utility": true,
+    "ok": true
+  },
+  "joiners": [],
+  "kit_archive": "libderen_engine.a",
+  "kit_members": 77,
+  "leavers": [
+    "deren_make_api_core"
+  ],
+  "nm": "C:\\msys64\\clang64\\bin\\llvm-nm.EXE",
+  "owning_stl_count": 0,
+  "owning_stl_symbols": [],
+  "reverse_boundary_symbols": [],
+  "shared_utility": {
+    "archive": "libshared_utility.a",
+    "copies": [],
+    "defined_symbols": 615,
+    "dll": "shared_utility.dll",
+    "ok": true,
+    "referenced_by": {
+      "deren.exe": 1,
+      "deren_vulkan.dll": 1
+    },
+    "shared_members": []
+  },
+  "stale_consumers": [],
+  "symbol_sources": {},
+  "usages": 0,
+  "whitelist": {
+    "count": 0,
+    "hits": [],
+    "path": "C:\\Users\\23530\\Desktop\\yzk\\deren\\scripts\\backend_boundary_whitelist_dynamic.json",
+    "stale": [],
+    "untracked_by_the_ratchet": []
+  }
+}

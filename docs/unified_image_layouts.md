@@ -18,7 +18,7 @@ the guarantee, so it needs no entry point beyond `vkGetPhysicalDeviceFeatures2`.
 IT DOES NOT REMOVE MEMORY BARRIERS, and the proposal says so in as many words: barriers are still
 required for correctness, and on some hardware still for performance, "even if both src and dst layouts
 are VK_IMAGE_LAYOUT_GENERAL". What this step therefore removed is the LAYOUT dimension of every barrier,
-not the barrier: every barrier in `vulkan/constant_init/constant_init.cppm` still names its two stages
+not the barrier: every barrier in `source/backends/vulkan/constant_init/constant_init.cppm` still names its two stages
 and its access masks, and those are untouched. That is the single most important sentence here, because
 the failure mode of deleting a barrier that still mattered is a race, and a race is not visible in a
 byte-identical frame gate.
@@ -45,19 +45,19 @@ unchanged (section 4).
 
 ## 2. The change, layer by layer
 
-* `vulkan/core/init_utils/init_utils.cppm` - the feature struct, the extension probe, BOTH passes of the
+* `source/backends/vulkan/core/init_utils/init_utils.cppm` - the feature struct, the extension probe, BOTH passes of the
   feature chain (the one before `vkGetPhysicalDeviceFeatures2` and the rebuilt one that `vkCreateDevice`
   actually uses; forgetting the second pass silently drops the struct), the availability flag, the
   video policy bit and a startup log line.
-* `vulkan/core/core.constructor.cppm` - the extension NAME is pushed unconditionally and a device without
+* `source/backends/vulkan/core/core.constructor.cppm` - the extension NAME is pushed unconditionally and a device without
   `unifiedImageLayouts` panics at startup, in the style of the existing dynamic-rendering requirement.
   There is deliberately no fallback path: two layout regimes would be two renderers.
-* `vulkan/constant_init/constant_init.cppm` - 21 barrier constants and 4 attachment-info helpers: the
+* `source/backends/vulkan/constant_init/constant_init.cppm` - 21 barrier constants and 4 attachment-info helpers: the
   seven retired layouts became GENERAL. The constants keep their NAMES (they name roles:
   `shadow_map_sampling_transition`, `sampling_to_transfer_dst_transition`, ...) and the section header
   now states the rule, because a barrier whose two layouts are both GENERAL is still a real barrier.
-* `vulkan/core/vma/vma.cppm`, `vulkan/runtime/runtime.{probes,readback,frames,constructor}.cppm`,
-  `vulkan/pass/{taa,megalights_temporal}.cpp`, `vulkan/core/core.constructor.cppm` - copies, clears and
+* `source/backends/vulkan/core/vma/vma.cppm`, `source/engine/runtime/runtime.{probes,readback,frames,constructor}.cppm`,
+  `source/engine/pass/{taa,megalights_temporal}.cpp`, `source/backends/vulkan/core/core.constructor.cppm` - copies, clears and
   every heap image descriptor write. The descriptor one is not cosmetic: a heap image descriptor states
   the layout the image is in, so a descriptor claiming `SHADER_READ_ONLY_OPTIMAL` for an image that is
   really in GENERAL is a lie validation rejects.
@@ -67,7 +67,7 @@ unchanged (section 4).
   own bindings in GENERAL); with one layout there is nothing to state. `docs/pass_io_design.md` keeps the
   history and says why step 4 no longer takes a layout as input.
 
-`third_party/imgui` still names `VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL`; it is third-party code and
+`source/third_party/imgui` still names `VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL`; it is third-party code and
 out of scope, and the engine never lets imgui own an image that this renderer transitions.
 
 ## 3. The retired layouts, counted
@@ -81,7 +81,7 @@ pass caught 32 more that were comment prose naming the layouts without the `VK_I
 `UNDEFINED` and
 `PRESENT_SRC_KHR` were not touched. Exactly two places still name a retired layout, and both are
 QUOTES rather than descriptions: `docs/megalights.md` reproduces a validation message from a run made
-before this change, and `vulkan/runtime/runtime.frames.cppm` quotes the driver's "expects ...
+before this change, and `source/engine/runtime/runtime.frames.cppm` quotes the driver's "expects ...
 SHADER_READ_ONLY_OPTIMAL ... current layout is UNDEFINED" with a note that GENERAL is what it expects
 now. A blind text substitution had rewritten the second quote, which is how it was caught: a quoted
 error message is evidence and must not be edited to match the current code.
@@ -90,7 +90,7 @@ error message is evidence and must not be edited to match the current code.
 
 * `cmake --build build-release-clang64 -j 12`: exit 0.
 * `ctest --test-dir build-release-clang64`: 13/13.
-* `scripts/windows/check_render.ps1 -Full`: all 14 scene hashes IDENTICAL to the run made immediately
+* `source/scripts/windows/check_render.ps1 -Full`: all 14 scene hashes IDENTICAL to the run made immediately
   before this step. The scene hash is the first 16 hex digits of the PNG file's SHA-256, so identical
   hashes mean byte-identical frames.
 * The run is Release, on this machine's GPU, with the Khronos validation layer active; no VUID or error

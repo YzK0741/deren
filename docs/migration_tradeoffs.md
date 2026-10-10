@@ -151,11 +151,11 @@ and the TESTS:
 
 - the push contract is a VUID plus a helper that always pushes the whole block;
 - the slot grid is a pair of constants files that have to agree (compared by
-  `tests/test_render_resources.cpp`);
+  `source/tests/test_render_resources.cpp`);
 - the record layouts are `static_assert`ed against what `spirv-dis` shows;
-- the shader list lives in four places (compared by `tests/test_shader_sources.cpp`);
+- the shader list lives in four places (compared by `source/tests/test_shader_sources.cpp`);
 - and the documents themselves are now a BUILD INPUT whose invariants are checked by
-  `tests/test_docs.cpp` - every `docs/*.md` in Doxyfile's INPUT, ASCII only because pdflatex reads
+  `source/tests/test_docs.cpp` - every `docs/*.md` in Doxyfile's INPUT, ASCII only because pdflatex reads
   them, anchors that resolve, fences that balance, and no document naming a heap slot that no file
   declares.
 

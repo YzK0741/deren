@@ -1,9 +1,9 @@
 # Stochastic punctual lighting (MegaLights-style): shadowed point and spot lights at a fixed ray budget
 
-This renderer's punctual lights are unshadowed. `shaders/shading.glsl`'s cluster loop accumulates
+This renderer's punctual lights are unshadowed. `source/shaders/shading.slang`'s cluster loop accumulates
 `light.punctual_lights[]` with no visibility term, so a demo light behind a column lights the wall in front
 of it; the sun is the only shadowed light (cascades, or one ray-traced ray per pixel in
-`shaders/rt_shadow.comp`). "One shadow ray per light per pixel" fixes the look but costs O(lights) rays per
+`source/shaders/rt_shadow.comp`). "One shadow ray per light per pixel" fixes the look but costs O(lights) rays per
 pixel, which is the opposite of what the clustered path was built for.
 
 This feature is the other estimator, ported from Unreal's MegaLights: each pixel picks a FEW lights with
@@ -16,7 +16,7 @@ staging, and the measurements as they land.
 
 | UE needs | here |
 |---|---|
-| a culled light grid cell (`MaxCulledLightsPerCell = 32`) | `shaders/light_cluster.comp`'s cluster list, `deren::vulkan::cluster_light_capacity = 32` - the same number |
+| a culled light grid cell (`MaxCulledLightsPerCell = 32`) | `source/shaders/light_cluster.comp`'s cluster list, `deren::vulkan::cluster_light_capacity = 32` - the same number |
 | 15-bit light indices, 32768 lights | `max_punctual_lights = 128`, so an index fits a byte |
 | visible/hidden light HASHES with a 2^-10 false-positive rate | an EXACT 128-bit mask per tile (4 uints): the light count is bounded, so no hashing is needed |
 | 13 tile modes, indirect dispatch buckets, per-mode shading permutations | nothing: one BRDF, one path |
@@ -25,11 +25,11 @@ staging, and the measurements as they land.
 
 ## The design
 
-**The estimator lives in `shaders/megalights_trace.comp`** (written): one thread per half-resolution pixel,
+**The estimator lives in `source/shaders/megalights_trace.comp`** (written): one thread per half-resolution pixel,
 the pixel's cluster list as candidates, UE's log-compressed target PDF `W = log2(Lum * smoothFalloff(Lum) + 1)`,
 a weighted reservoir over the candidates, one `rayQuery` visibility ray per selected sample, and UE's
 firefly cap on each sample's weight. The BRDF and the attenuation are NOT copies: `punctual_light_radiance`
-and `evaluate_direct_light` are shared with `shaders/shading.glsl`, and `cluster_index_at(pixel, pos)` takes
+and `evaluate_direct_light` are shared with `source/shaders/shading.slang`, and `cluster_index_at(pixel, pos)` takes
 the pixel as a parameter so that a compute shader can include that file at all (a `gl_FragCoord` reference
 anywhere in the translation unit - even in a function compute never calls - fails to compile).
 
@@ -126,7 +126,7 @@ vkCmdPipelineBarrier2(): pImageMemoryBarriers[1].image (VkImage 0x43...) cannot 
 
 `0x43` was identified by logging the handle of every per-image family (each image consumes three vk ids, so
 `velocity[0] = 0x40` puts `velocity[1]` at `0x43`): **the motion-vector target**. The TAA resolve recorded its
-transition UNCONDITIONALLY (`vulkan/pass/taa.cpp`), on the assumption its own comment states - that it is the
+transition UNCONDITIONALLY (`source/engine/pass/taa.cpp`), on the assumption its own comment states - that it is the
 frame's first sampler of the velocity, which the `require_velocity_publish` call in the demo's `taa` prepare
 compensates for. This chain's temporal resolve samples the velocity too, and its stage runs BEFORE TAA, so by
 the time TAA recorded its barrier the image was already SHADER_READ and the unconditional transition claimed a
@@ -167,9 +167,9 @@ what it buys.
 | asked for | where it is |
 |---|---|
 | the reference note | `docs/reference/megalights_stochastic_lighting.md`, consolidated from four `file:line` notes in `build/dsh-scratch/ue-notes/` |
-| stochastic sampling of a few lights per pixel | `shaders/megalights_trace.comp`: the cluster list as candidates, the log-compressed target PDF, a weighted reservoir, the firefly cap |
+| stochastic sampling of a few lights per pixel | `source/shaders/megalights_trace.comp`: the cluster list as candidates, the log-compressed target PDF, a weighted reservoir, the firefly cap |
 | one ray-query visibility ray per sample | same shader, one `rayQuery` per selected sample with UE's shrinking origin bias |
-| spatiotemporal denoising | `shaders/megalights_temporal.comp`: a per-pixel running mean with a 12-frame cap, grazing-widened depth rejection, a mean/stddev clamp, and the 3x3 variance-weighted spatial pre-filter |
+| spatiotemporal denoising | `source/shaders/megalights_temporal.comp`: a per-pixel running mean with a 12-frame cap, grazing-widened depth rejection, a mean/stddev clamp, and the 3x3 variance-weighted spatial pre-filter |
 | real shadows on punctual lights, for the first time | measured: 14.6% of pixels move, 138801 darker against 12775 brighter, mean -0.771, worst 88 |
 | cost decoupled from the light count | measured: `demo_lights` 6 -> 48 (8x) moves nothing (`lighting 0.35 ms`, `gi 1.09 -> 1.10 ms`) |
 | GUI and config switches | `[render] megalights` / `megalights_samples` / `megalights_spatial_sigma`; the overlay's `megalights` checkbox and `ml samples` / `ml sigma` sliders |
@@ -185,7 +185,7 @@ take.
 ### Round 7: the spatial half is in, and the cost decoupling is measured
 
 **The spatial half of the spatio-temporal denoiser** is a variance-weighted 3x3 pre-filter inside the temporal pass
-(`spatial_mean` in `shaders/megalights_temporal.comp`): filtering the frame's own estimate before the
+(`spatial_mean` in `source/shaders/megalights_temporal.comp`): filtering the frame's own estimate before the
 accumulation costs no second pass, image or descriptor family, at the price of not having the accumulated
 moments as its variance estimate - stated in the shader rather than hidden. Its width is
 `[render] megalights_spatial_sigma` (default 1.5, 0 = the temporal-only chain) and the overlay's `ml sigma`
@@ -273,9 +273,9 @@ to the declaration the pipeline builds.
 **What is left, and it is one wire:** with `megalights = true` the pass is created and its declaration
 resolves, but `record()` is still never entered - the runner skips it and logs no reason, and the frame stays
 byte-identical to round 3's raw estimate (59.2089 / 64.2010 / 64.0021), which is how this was noticed at all.
-The two `TEMPORARY: the lifecycle bisect` log lines left in `vulkan/pass/megalights_temporal.cpp` will say so
+The two `TEMPORARY: the lifecycle bisect` log lines left in `source/engine/pass/megalights_temporal.cpp` will say so
 the moment it starts recording, and the next step is to read the runner's per-pass gate in
-`vulkan/pass/pass.cppm`'s `record_stage` rather than to guess: everything the pass controls (readiness, the
+`source/engine/pass/pass.cppm`'s `record_stage` rather than to guess: everything the pass controls (readiness, the
 feature name, the declaration) has now been verified from the outside.
 
 VERIFIED IN THIS STATE: all eight test binaries pass; the four gate scenarios sit at their exact hashes with
@@ -285,10 +285,10 @@ round 3's, byte for byte, which is the honest statement that the accumulation is
 
 ### Round 4: the temporal resolve is written, and its WIRING is parked on an open defect
 
-Built and compiling, running as code but NOT recorded: `shaders/megalights_temporal.comp` (the running mean
+Built and compiling, running as code but NOT recorded: `source/shaders/megalights_temporal.comp` (the running mean
 with a per-pixel frame count, UE's grazing-widened depth rejection, the mean/stddev neighbourhood clamp, and
 the frame count riding in the history's alpha lane - the policy is `docs/reference/
-megalights_stochastic_lighting.md` section 4), `vulkan/pass/megalights_temporal.cppm/.cpp` (the GI resolve's
+megalights_stochastic_lighting.md` section 4), `source/engine/pass/megalights_temporal.cppm/.cpp` (the GI resolve's
 shape, with the depth and velocity read from the shared G-buffer set instead of per-image own bindings so the
 chain needs no second stage for its ordering rule), `megalights_temporal_io`, the `ml_resolve` / `ml_history`
 resource families, the `frame_results` / `frame_facts` fields, and the demo's construction, setter and collect
@@ -319,14 +319,14 @@ accumulation being live, and the motion measurement that would show its value.
   `file:line` notes in `build/dsh-scratch/ue-notes/`), including the two readings it corrects - the
   "light complexity" pass is visualization-only (so there is no adaptive sample budget to build) and the
   composite lives inside the spatial denoiser (so no resolve pass is needed here either).
-* `shaders/megalights_trace.comp`: the whole estimator - the cluster list as candidates, the
+* `source/shaders/megalights_trace.comp`: the whole estimator - the cluster list as candidates, the
   log-compressed target PDF, the weighted reservoir, one `rayQuery` per selected sample, the firefly cap,
   and the unblocked-sample fraction in alpha. Compiles (`megalights_trace.comp.spv`).
 * Two SHARED refactors, both frame-exact by the gate's own hashes (`deferred` `98740BE429FA32C7`,
   `sponza` `22C2B33B4B6721FA`, `default_gi` `310220DA64A91257` - each identical to its value before the
   refactor, `flaky 0`): `punctual_light_radiance()` is now the one definition of a light's attenuation
   (the cluster loop and the estimator both call it), and `cluster_index_at(pixel, world_pos)` plus
-  `shade_input::pixel` remove the last `gl_FragCoord` from `shaders/shading.glsl`, which is what lets a
+  `shade_input::pixel` remove the last `gl_FragCoord` from `source/shaders/shading.slang`, which is what lets a
   COMPUTE shader include it at all.
 * The plumbing that does not move a frame: the `ml_trace` resource family (schema entry, `core` images,
   the runtime's `family(...)` registration), the `megalights_trace_io` declaration (the tracer's shape
@@ -335,17 +335,17 @@ accumulation being live, and the motion measurement that would show its value.
   `test_render_resources`' schema-size and declaration checks, whose hand-synced counts moved with it),
   and a gate scenario is validation clean with the same hash as before the change.
 
-**Next.** The pass class itself (`vulkan/pass/megalights_trace`, the shape a traced compute pass has here -
+**Next.** The pass class itself (`source/engine/pass/megalights_trace`, the shape a traced compute pass has here -
 two shared sets, its own output at the shared G-buffer set rather than an own set, so two new bindings there,
-one to write and one to sample), its construction and gate in `deren.vulkan.render_start_demo`, the
+one to write and one to sample), its construction and gate in `deren.engine.render_start_demo`, the
 `punctual_replaced` lane that stops `deferred.frag` adding the lights raster-style, and the composite that
 adds the half-resolution result. Then `[render] megalights*` keys and the first measurement - the raw
 estimate's noise against the unshadowed baseline, which is stage 2's acceptance.
 
 ### Stage 1 landed: the estimate is in the frame, and the feature-off frame is untouched
 
-`vulkan/pass/megalights_trace` exists (the tracer's shape: two shared sets, no own binding, one image moved
-through `barrier_images`), `pipelines::build_megalights_trace` builds it, `deren.vulkan.render_start_demo`
+`source/engine/pass/megalights_trace` exists (the tracer's shape: two shared sets, no own binding, one image moved
+through `barrier_images`), `pipelines::build_megalights_trace` builds it, `deren.engine.render_start_demo`
 constructs and gates it, and the runtime records its stage between the `rt_shadow` stage and the `deferred`
 stage. The image reaches the frame through the shared G-buffer set's two new bindings (16 = the storage
 image the trace writes, 17 = the sampler the lighting stage adds it through), and `deferred.frag` does the

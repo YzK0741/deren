@@ -1,7 +1,7 @@
 # `vulkan.pass_io`: describing a pass's inputs and outputs the way Vulkan already does
 
 The layer every pass in this renderer describes its inputs and outputs with, and the design the code
-implements: the types below live in `vulkan/render_resource`, and the per-pass declarations are its consumers.
+implements: the types below live in `source/backends/vulkan/render_resource`, and the per-pass declarations are its consumers.
 
 **STATUS NOTE, because this document's premise is now half history.** It is built around descriptor
 sets - "a pass's inputs and outputs are ALREADY descriptor sets", below - and those are gone: the
@@ -22,9 +22,9 @@ between the G-buffer pass, the lighting stage, the stochastic punctual lighting 
 is the substrate; each pass's private family (TAA 4 bindings, post 9, the lighting chain's temporal resolve 5)
 is its own I/O. What exists today is that interface written TWICE BY HAND and kept in agreement by discipline:
 
-* the layout, in `vulkan/pipelines/pipelines.cppm` (`build_resolve_pipeline` builds a 5-binding layout with a
+* the layout, in `source/engine/pipelines/pipelines.cppm` (`build_resolve_pipeline` builds a 5-binding layout with a
   loop whose storage case is `b == 4u`, `build_gbuffer_debug` a 16-binding one whose storage cases are enumerated);
-* the descriptor WRITES, in `vulkan/runtime/runtime.cpp`'s `ensure_*_descriptors()`, as a parallel array of views, a
+* the descriptor WRITES, in `source/engine/runtime/runtime.cpp`'s `ensure_*_descriptors()`, as a parallel array of views, a
   parallel array of `VkDescriptorImageInfo`, and ternaries that decide storage-vs-sampler and which sampler.
 
 Both drifts this pair can have are already in this project's history, and both were found by the validation
@@ -58,9 +58,9 @@ The repository's conventions, which this follows: module names are flat peers un
 mirrors the module's suffix (`namespace deren::vulkan::bindings`), types are `snake_case`, a builder's result carries
 `_owned`, and capacities/constants are lower_snake_case.
 
-    module            deren.vulkan.render_resource               (doxygen: @defgroup vulkan_render_resource)
+    module            deren.engine.render_resource               (doxygen: @defgroup engine_render_resource)
     namespace         deren::vulkan::render_resource
-    files             vulkan/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
+    files             source/engine/render_resource/render_resource.cppm  (CMake: FILE_SET, as every module)
 
 | name | kind | what it is | why this name |
 | --- | --- | --- | --- |
@@ -128,7 +128,7 @@ transition exists because the multi-bounce feedback samples last frame's resolve
 
 Beside the pass they describe, not in a central table: `pass_io` is a description OF a pass. While a pass still
 lives in `runtime.cpp`, its declaration lives in a small unit of its own next to it (for the first conversion,
-`vulkan/pass_io/probe_io.cppm` exporting `gi_probe_io`, the probe cache's 9 bindings and its push block); when
+`source/backends/vulkan/pass_io/probe_io.cppm` exporting `gi_probe_io`, the probe cache's 9 bindings and its push block); when
 that pass is later extracted into `vulkan.gi_probe` (the first extraction in `docs/runtime_split.md`), the
 declaration moves with it and the runtime only passes the `resource_views` in. The resource list itself
 (`resource_id` + `resource_info`) belongs to `deren.vulkan.core`, because `core` is the only place the complete image
@@ -199,14 +199,14 @@ was open in the first draft of this document:
 * **the command buffer is handed out per frame, at recording time, and never stored.** That is what lets a pass
   hold no device state between frames - and it closes the first draft's hard gap, in which a pass had nothing to
   record into at all.
-* **pipelines are referenced by NAME for now**, and this costs nothing new: `deren.vulkan.runtime` already keys its
+* **pipelines are referenced by NAME for now**, and this costs nothing new: `deren.engine.runtime` already keys its
   pipelines by name (`make_pipeline` / `set_default_pipeline` / `get_pipeline`), so a pass names what it records
   with and the host resolves those names into `resolved_io::pipelines`, in order. The 840 lines of
-  `deren.vulkan.pipelines` stay where they are, with the pipeline layouts still built there.
+  `deren.engine.pipelines` stay where they are, with the pipeline layouts still built there.
 * **handles stay with their owner, and the SHARED ones get a nested module.** The rule is the schema's own
   scopes applied to ownership: a pass's private family belongs to that pass, anything the frame loop alone
   touches stays in the frame loop, and a handle more than one consumer needs and none owns goes to
-  `deren.vulkan.render_resource.shared` - nested, because this layer must stay pure CPU (section 1) while
+  `deren.engine.render_resource.shared` - nested, because this layer must stay pure CPU (section 1) while
   `VkSampler` is not. The six samplers are its first tenant: a declaration names a `sampler_hint` and never a
   `VkSampler`, so a pass cannot pick the wrong filter, and `bindings::write_set` resolves the hint against a
   `sampler_set` the runtime fills once. Shared IMAGE and BUFFER handles are deliberately absent until a
@@ -250,10 +250,10 @@ one thing this layer exists to prevent.
 
 ## 9. Status
 
-    description module (deren.vulkan.render_resource)   DONE: the schema, the usage records, the validators,
+    description module (deren.engine.render_resource)   DONE: the schema, the usage records, the validators,
                                                         the pool counts, and one real declaration (the probe
                                                         cache); pure CPU, so ctest covers its invariants
-    framework module (deren.vulkan.pass)                DONE: behaviour vocabulary, resolved_io, the base class,
+    framework module (deren.engine.pass)                DONE: behaviour vocabulary, resolved_io, the base class,
                                                         the two interfaces (above), stage, and the three
                                                         runner functions. What only a real pass could
                                                         discover, added in two rounds: the generation's
@@ -277,13 +277,13 @@ one thing this layer exists to prevent.
                                                         `behaviour_kind::graphics`/`instanced` (a draw into a
                                                         stage-opened instance) still say out loud that they are not
                                                         driven
-    shared handles (deren.vulkan.render_resource.shared) DONE for the samplers, which is the first tenant: the probe
+    shared handles (deren.engine.render_resource.shared) DONE for the samplers, which is the first tenant: the probe
                                                         cache's writes now CHOOSE one through its declaration
                                                         (`sampler_hint`) instead of naming a `VkSampler`, and
                                                         `bindings` no longer defines a second `sampler_set` of
                                                         its own; the shared image/buffer handles follow a
                                                         consumer, not this table
-    the second consumer: deren.vulkan.pass.taa           DONE, and it is the temporal resolve - the first GRAPHICS
+    the second consumer: deren.engine.pass.taa           DONE, and it is the temporal resolve - the first GRAPHICS
                                                         pass, and the one that proves the other half of the
                                                         shape: a declared render target, its own rendering
                                                         instance (the load op is the pass's), the runner's
@@ -334,7 +334,7 @@ one thing this layer exists to prevent.
                                                         own outcome, and `runtime::register_shader` +
                                                         `runtime::create_passes` are the app's two calls:
                                                         the app owns the FILE, the pass owns the PIPELINE.
-                                                        WHAT IT DISCOVERED is in `deren.vulkan.pass` itself (the
+                                                        WHAT IT DISCOVERED is in `deren.engine.pass` itself (the
                                                         create-time host, the generation's image count, the
                                                         layout and the host-composed push, non-const record,
                                                         and an image handle next to the view) and in section

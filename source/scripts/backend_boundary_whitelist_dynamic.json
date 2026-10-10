@@ -1,0 +1,38 @@
+{
+  "why": [
+    "THE FLIP WHITELIST, AND IT IS EMPTY BY MEASUREMENT: the boundary reached ZERO in the SHARED flip.",
+    "`--require-zero` still runs this file, so an EMPTY list is a claim that can fail - one new reference",
+    "to a backend symbol from engine/application code turns up as OUTSIDE the whitelist and stops the gate.",
+    "The three symbols that used to be listed left in order, each recorded under `departures`:",
+    "the module initializer (③-D/E step 2), then `deren_destroy_api_core` and `deren_abi_version` (abi 18,",
+    "the entry surface collapsing to one function), and finally `deren_make_api_core` itself once the",
+    "runtime resolved it BY NAME instead of linking it. The remaining instrument for the surface is the",
+    "DLL's export table (exactly one name) plus the import meter, both checked on the artifacts.",
+    "LIST MAY ONLY SHRINK: an entry with no live hit is a failure, an entry the ratchet never tracked is",
+    "refused, and --update never writes this file."
+  ],
+  "departures": [
+    {
+      "symbol": "_ZGIW5derenW6vulkanW4core",
+      "left_in": "③-D/E step 2 (the merged runtime slice, abi 17)",
+      "reason": "initializer for module deren.vulkan.core. It was in this list as the one exception the import graph FORCED: the dynamic engine imported the backend module through two engine facades (source/backends/vulkan/readback/readback.cppm and the legacy runtime's own declarations, the second of which this tree does not compile). The slice converted source/backends/vulkan/readback to `rhi::api_core&` and dropped its import, so the initializer left the dynamic tree's measured set - the legacy runtime's file is the only importer left, and this tree does not build it. An exit, not a silence."
+    },
+    {
+      "symbol": "deren_destroy_api_core",
+      "left_in": "the SHARED flip (abi 18)",
+      "reason": "the deleter entry point is DELETED, not silenced: `deren_make_api_core` now RETURNS a `std::shared_ptr<api_core>` whose control block carries the backend's own deleter, so no host resolves a destroy symbol any more and the engine references none. The old spelling existed to keep \"one C++ runtime\" out of the boundary's premises; that premise is now measured and machine-checked (`cxx deren.exe imports libc++.dll`, which covers the backend DLL too), so the entry set went from three symbols to one. An exit, not a silence."
+    },
+    {
+      "symbol": "deren_abi_version",
+      "left_in": "the SHARED flip (abi 18)",
+      "reason": "recorded for completeness rather than as a removed HIT: this symbol was never in the whitelist, because the engine never referenced it - it was an EXPORT the host called by name. It is deleted with the same batch: the version is now the entry's FIRST ARGUMENT, and a mismatch is refused with the backend's own number inside `error_info.native_code`. The export surface therefore carries exactly one `deren_*` symbol, which the DLL export gate checks on the artifact."
+    },
+    {
+      "symbol": "deren_make_api_core",
+      "left_in": "the SHARED flip (abi 18)",
+      "reason": "the boundary reaches ZERO: with `vulkan_error_tables`/`error_tables` moved out and the loader in place, the engine's last reference to a backend symbol is gone - the runtime loads `deren_vulkan.dll` and resolves this name AT RUN TIME (dynamic_link + detach), so nothing in the executable's objects names it. The whitelist existed to allow a symbol that was still linked; there is none, and the list is empty by MEASUREMENT, not by deletion: the DLL's export table (which now carries exactly this one name) is the surface the gate checks instead, and it is checked on the artifact."
+    }
+  ],
+  "count": 0,
+  "entries": []
+}
