@@ -86,12 +86,15 @@ present_mask 不是 enabled_mask；绑定了扩展纹理并不意味着管线必
 
 ## 4. 保活与设备生命周期
 
-当前 owned_image 包含可复制的 vk_image 拥有引用；复制会通过分配器 retain callback 增加引用。
-owned_image_view 本身不保活 image，因此不能只缓存 VkImageView 或原 image*。
+ABI 29 增加 image::share() 与 image_view::get_image()。Vulkan owned image 的 view
+持有原 RHI image 的共享拥有引用；get_image() 复制该引用，原 factory 引用可以单独释放。
+同一时期的 share() 共用控制块，deleter 在 backend 内调用 release()；object 仍只携带接口身份。
+借用 swapchain image 的 share() 以及其 view 的 get_image() 返回空，不延长帧或交换链寿命。
 
-Vulkan assign 的步骤是：校验 image 来源与属性，然后复制 owned_image::owned，
-再复制构造 view 所需的格式、mip、layer 等值。创建完成后，原 RHI image 包装对象可释放，
-组内的 vk_image 仍然保留底层 VkImage/VMA allocation。
+Vulkan assign 的步骤是：校验 image 来源与属性，取得 image::share()，再创建组内 view。
+创建完成后，调用者的原引用可以释放，组内共享引用仍保留 RHI 包装对象与底层 VkImage/VMA allocation。
+若调用者已有 image_view，可通过 get_image() 获得输入；V1 仍按整张普通 2D image 创建组内 view，
+不会因此保留输入 view 的子资源范围。不能只缓存裸 VkImageView 或 image*。
 
 其他后端也必须具有等价的资源拥有引用。无法从输入 image 获得有效保活引用时拒绝创建，
 不能以“调用者大概还持有纹理”为接口实现。
@@ -114,6 +117,8 @@ submit 必须持有自己的一份引用。secondary 使用的组与命令分配
 
 设备根生命周期沿用现有资源规则：api_core/device 必须在其资源与 GPU 工作全部结束后再销毁。
 shared_ptr<texture_group> 不自动延长 api_core。关闭 renderer 时先排空提交、释放命令/材质组，再卸载 backend。
+image 的共享控制块也由 backend 生成；其 weak_ptr 仍可能调用 DLL 内的控制块析构代码，
+因此强、弱引用都必须在卸载 backend 前释放。
 若以后允许资源组跨 renderer 存活，需引入独立 device lifetime lease，不能只保留原 core*。
 
 ## 5. Vulkan 内部对象
@@ -121,7 +126,7 @@ shared_ptr<texture_group> 不自动延长 api_core。关闭 renderer 时先排�
 ```text
 owned_texture_group
   owner / device identity
-  owning_images[16]             // vk_image 拥有引用，空槽为空
+  owning_images[16]             // shared_ptr<image> 拥有引用，空槽为空
   sampled_view_leases[16]       // 实际 sampled view 与对应描述符的缓存租约
   gpu_record_lease              // 内部 record id 与表中范围
   present_mask
@@ -234,7 +239,7 @@ descriptor set/layout 创建、绑定、pool 与更新完全由 Vulkan backend �
 - Vulkan shader 实现：heap 与 array 的组解析/纹理加载实现；公共 Slang 入口保持一致。
 - engine：创建/保存 shared_ptr，绘制调用 load；材质参数和管线扩展规则继续由 engine 定义。
 
-当前 ABI 为 28。追加 factory/load 到现有 vtable 属于 ABI 变化，实施时需要升级版本并补拒绝旧 DLL 的测试。
+当前 ABI 为 29（image/view 父引用已落地）。追加 factory/load 到现有 vtable 属于 ABI 变化，实施时需要再次升级版本并补拒绝旧 DLL 的测试。
 pipeline_desc 新字段须按 struct_size 读取，旧描述默认不使用 texture group。
 具体源码拆分在实施计划中确定；不为了做这个接口顺带修改全项目模块命名。
 
