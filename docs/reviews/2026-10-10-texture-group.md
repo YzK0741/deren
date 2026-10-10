@@ -59,5 +59,19 @@ runtime device 1124 checks, CTest 20/20 and frozen rendering 14/14 pass.
 
 Records are host-coherent and written before submission. Visibility follows Vulkan's
 [Host Write Ordering Guarantees](https://docs.vulkan.org/spec/latest/chapters/synchronization.html#synchronization-submission-host-writes);
-load does not insert a HOST barrier inside dynamic rendering. Actual draw integration and
-the ordinary descriptor-array pipeline remain pending.
+load does not insert a HOST barrier inside dynamic rendering. Actual draw integration remains pending.
+
+## Scope correction: API binding unification
+
+User clarification: Vulkan requires no backwards-compatible descriptor-array path.
+The common assign/load contract unifies API backend operations; Vulkan uses only descriptor heap.
+The uncommitted Vulkan array experiment was withdrawn. The GPU table now contains 1025 records
+(empty + 1024 groups), removing the second record reserved per group. Descriptor capacity remains
+2048 views including dummy; its 2049-descriptor reservation includes the table descriptor.
+Other API backend mappings are future work; ordinary graphics probe and unlit integration remain pending.
+
+Scope correction validation: full Release build, CTest 20/20, texture-group GPU 89/89,
+runtime device 1124/1124. User also requests local merge into master and future work directly
+on master. Existing tracked probe-DLL deletion remains outside this change.
+Frozen rendering regression: 14/14 matched with validation/log checks passed.
+Pre-merge independent review found no important or critical defect in the texture-group changes.

@@ -1,6 +1,6 @@
 # Texture group：RHI 接口与 Vulkan 实现设计
 
-日期：2026-10-10。状态：设计草案，尚未修改产品接口或实现。
+日期：2026-10-10。状态：RHI、Vulkan heap 与 compute GPU 探针已实现；普通 draw 和 unlit 接入待完成。
 本方案采用本轮讨论确定的使用方式，替代前稿的固定九槽与 material_id 优先绑定建议。
 
 ## 1. 对外用法
@@ -180,8 +180,8 @@ profile = sampled_2d_16
 ```
 
 创建时核对 shader 的参数布局、profile、push 范围与设备限制。组参数不能与现有 draw 参数重叠。
-heap 模式通过 vkCmdPushDataEXT 写这个 uint；数组模式通过 vkCmdPushConstants 写相同语义的 uint。
-后端拥有 pipeline layout 或 heap 创建标志，引擎不选择这两个命令。
+Vulkan 通过 vkCmdPushDataEXT 写这个 uint；其他 API 在自己的后端映射等价参数。
+后端拥有具体绑定机制，引擎只调用 assign_texture_group / load_texture_group。
 
 现有 scene shader 的 push block 已有模型、frame、geometry 等数据；不能直接占用 spare_lane，
 也不能忽视 mesh shader 的块大小。为组 id 选择明确的新偏移，并同步修改所有共享该块的 shader 和 CPU 布局，
@@ -213,40 +213,33 @@ sampler 第一版沿用现有共享 sampler，不在组里添加隐式的第 17 
 PBR 与扩展槽位的默认值、激活条件写在 pipeline shader 中。RHI 不知道 diffuse_ramp 等材质语义。
 实际是否发生非一致索引必须正确传递到资源索引路径，不能为了更短的指令假定索引总是 uniform。
 
-## 9. Vulkan 两种存储模式
+## 9. 各 API 的绑定映射
 
-**Descriptor heap**：复用现有 resource/sampler heap 与 descriptor 写入服务。
-view cache 返回 sampled2D 的物理槽索引，GpuTextureGroup 存该索引；backend Slang 层换算为 heap handle。
-GPU group table 自身也通过后端的 buffer 访问方式读取。heap 一次按命令所需绑定，不每 draw 新建 heap。
+用户明确不需要为现有 Vulkan 后端提供向下兼容。本轮统一的是各 API 的绑定操作，
+并非在 Vulkan 内部提供两种描述符模型。
 
-**无界数组**：分配 sampled image 描述符数组、共享 sampler 与 GPU group table 的 buffer binding。
-shader 使用相同 token/record/slot 语义，访问 texture_array[index]。
-descriptor set/layout 创建、绑定、pool 与更新完全由 Vulkan backend 管理。
-这不是 VK_EXT_descriptor_buffer 路径；UE 的 descriptor buffer 仅是参考，不是本轮目标。
+Vulkan 仅复用现有 descriptor heap：view cache 返回 sampled2D 槽索引，GPU record 存相对索引；
+backend Slang 层换算为 heap handle。group table 也通过 heap 读取。
+Vulkan 不添加 runtime-array 变体、descriptor set 回退或设备创建回退。
 
-数组路径查询并启用实际使用的 descriptor indexing、runtime array 与相应非一致索引能力。
-不能把 variable descriptor count 和 update-after-bind 当作一律必需的条件：
-初版可分配固定配置容量的完整数组，并以 dummy 填充未使用项；使用可变数量时其 binding 必须符合布局限制。
-若在已绑定/待执行 set 上更新描述符，必须使用有效的 feature/flag 组合或版本化 set；
-不存在“描述符数组永远可以直接改”的默认承诺。未使用槽位也不能在 GPU 正在读取时复用。
-
-两条路径分别编译 shader 访问实现并建立匹配 pipeline。引擎代码使用同一个 factory/load，
-但实现需要同时迁移 group table buffer 和 sampler，不能仅替换 texture Sample 就宣称双模式完成。
+其他 API 可在自己的后端将同一个 assign/load 映射到纹理数组、描述符表等原生机制。
+它们自行管理容量、绑定、发布和提交寿命；当前未实现的后端继续返回 unsupported。
+engine 不感知具体模型，公共 shader 入口保持槽位和采样语义一致。
 
 ## 10. ABI 与实现位置
 
 - promise.rhi：新增 texture_group 类型、info、interface id、能力信息；api_core 新增 factory，command_buffer 新增 load。
 - Vulkan core：owned_texture_group、group/view/descriptor registry、GPU group table、命令与提交引用跟踪。
-- Vulkan shader 实现：heap 与 array 的组解析/纹理加载实现；公共 Slang 入口保持一致。
+- Vulkan shader 实现：heap 的组解析/纹理加载实现；公共 Slang 入口保持一致。
 - engine：创建/保存 shared_ptr，绘制调用 load；材质参数和管线扩展规则继续由 engine 定义。
 
-当前 ABI 为 30（image/view 父引用与具体实现名称已落地）。追加 factory/load 到现有 vtable 属于 ABI 变化，实施时需要再次升级版本并补拒绝旧 DLL 的测试。
+当前 ABI 为 31；factory/load 已追加到接口，版本测试同步拒绝旧 DLL。
 pipeline_desc 新字段须按 struct_size 读取，旧描述默认不使用 texture group。
 具体源码拆分在实施计划中确定；不为了做这个接口顺带修改全项目模块命名。
 
 ## 11. 首轮范围与测试
 
-首轮只做 sampled2D16、共享 sampler、不可变组、普通/实例化 draw，及 Vulkan heap/数组双模式探针。
+首轮只做 sampled2D16、共享 sampler、不可变组、普通/实例化 draw，及 Vulkan heap 探针。
 不加入可变组 update API、混合资源类型、每 indirect draw 独立组、AS 或任意设备根生命周期扩展。
 
 必须验证：
@@ -256,7 +249,7 @@ pipeline_desc 新字段须按 struct_size 读取，旧描述默认不使用 text
 3. load 后释放调用者组引用，甚至提交后释放命令的 CPU 引用，GPU 仍读取正确结果。
 4. 同组复用、A/B 组交替、pipeline 切换、空组清除和 secondary 录制。
 5. 提交尚未完成时不能复用 record/描述符槽；每次提交与所有实际队列的完成跟踪正确。
-6. heap/数组两种 shader 给出相同的已知采样结果，验证日志干净；随后扩大到现有冻结图像场景。
+6. heap shader 给出正确的已知采样结果，验证日志干净；随后扩大到现有冻结图像场景。
 7. 创建失败完整回滚；不支持设备/旧 ABI/不兼容 pipeline 有明确错误。
 
-该草案尚未通过编译或 GPU 验证；本轮只设计接口与实现步骤。
+资源模型、提交保活和 heap compute 采样已通过编译及 GPU 验证；详见进度报告。普通 draw 与 unlit 接入仍待完成。

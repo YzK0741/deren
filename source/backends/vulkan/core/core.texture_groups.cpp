@@ -28,10 +28,10 @@ namespace deren::vulkan {
                 return rhi::error::unsupported;
             texture_groups.reserved_offset = offset;
         }
-        rhi::object_manager<rhi::buffer> records{create_buffer({.size = 2049u * 80u,
+        rhi::object_manager<rhi::buffer> records{create_buffer({.size = 1025u * 80u,
                                                                 .usage = rhi::buffer_usage::storage_coherent,
                                                                 .flags = rhi::to_bits(rhi::buffer_flag::device_address)})};
-        if (!records || records->mapped().size() < 2049u * 80u)
+        if (!records || records->mapped().size() < 1025u * 80u)
             return rhi::error::out_of_device_memory;
         std::memset(records->mapped().data(), 0, records->mapped().size());
         std::uint32_t pixel = 0;
@@ -238,7 +238,7 @@ namespace deren::vulkan {
             }
             if (status == rhi::error::ok) {
                 if (answer->allocation < 1024) {
-                    auto offset = (answer->allocation * 2u + 1u) * sizeof(texture_group_record);
+                    auto offset = (answer->allocation + 1u) * sizeof(texture_group_record);
                     std::memcpy(texture_groups.records->mapped().data() + offset, &answer->record, sizeof(answer->record));
                 }
                 texture_groups.live_groups.insert(answer.get());
@@ -270,7 +270,7 @@ namespace deren::vulkan {
                 return rhi::error::invalid_argument;
             auto const& owned = *static_cast<owned_texture_group const*>(group.get());
             if (owned.allocation < 1024)
-                token = owned.allocation * 2u + 1u;
+                token = owned.allocation + 1u;
         }
         if (!owner->descriptor_heaps.ready())
             return rhi::error::not_ready;
