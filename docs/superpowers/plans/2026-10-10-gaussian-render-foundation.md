@@ -67,12 +67,12 @@ Namespace: `deren::engine::gaussian_splatting`.
 
 ## Task 2: instance validation and deterministic global references
 
-- [ ] Add failing tests for translation, rotation and positive uniform scale; reject non-affine bottom rows, non-uniform scale, shear, reflection, singular/overflowing inverse and non-finite matrix values. Use relative tolerance 1e-5 for equal scales/orthogonality, with finite inverse required.
-- [ ] Add ordering tests: centers at z=-1/-3 with camera forward (0,0,-1) place -3 first; reversed forward reverses the order. Two instances of a shared asset interleave by world depth. Equal depths sort by stable ID then local index regardless of input order.
-- [ ] Test zero particles, duplicate stable IDs, null asset input, non-unit/zero camera forward, non-finite camera/depth, and exact/one-over total reference budgets; observe RED.
-- [ ] Implement `sort_draw_references` with validated inputs and double-precision world center/depth arithmetic. Store only references in output, leave static properties unchanged. Validate IDs for all instances, including empty ones.
-- [ ] No culling at this stage: emit all valid references. Conservative support-domain frustum checks and near-plane omission belong to the raster batch, so this function cannot be mistaken for a visible-list builder.
-- [ ] Run focused tests and commit the CPU baseline independently.
+- [x] Add failing tests for translation, rotation and positive uniform scale; reject non-affine bottom rows, non-uniform scale, shear, reflection, singular/overflowing inverse and non-finite matrix values. Use relative tolerance 1e-5 for equal scales/orthogonality, with finite inverse required.
+- [x] Add ordering tests: centers at z=-1/-3 with camera forward (0,0,-1) place -3 first; reversed forward reverses the order. Two instances of a shared asset interleave by world depth. Equal depths sort by stable ID then local index regardless of input order.
+- [x] Test zero particles, duplicate stable IDs, null asset input, non-unit/zero camera forward, non-finite camera/depth, and exact/one-over total reference budgets; observe RED.
+- [x] Implement `sort_draw_references` with validated inputs and double-precision world center/depth arithmetic. Store only references in output, leave static properties unchanged. Validate IDs for all instances, including empty ones.
+- [x] No culling at this stage: emit all valid references. Conservative support-domain frustum checks and near-plane omission belong to the raster batch, so this function cannot be mistaken for a visible-list builder.
+- [x] Run focused tests and commit the CPU baseline independently.
 
 ## Task 3: transactional static GPU upload
 

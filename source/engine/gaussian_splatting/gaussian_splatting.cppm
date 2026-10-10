@@ -4,6 +4,7 @@ module;
 #include <cstdint>
 #include <expected>
 #include <glm/glm.hpp>
+#include <span>
 #include <string>
 #include <vector>
 export module deren.engine.gaussian_splatting;
@@ -48,6 +49,17 @@ export namespace deren::engine::gaussian_splatting {
         std::uint32_t sh_degree = 0;
         std::array<float, 3> bounds_min{}, bounds_max{};
     };
+    struct sort_instance {
+        deren::gaussian::asset const* asset = nullptr;
+        glm::mat4 model{1.0f};
+        std::uint64_t stable_id = 0;
+    };
+    struct sort_camera {
+        glm::vec3 position{0};
+        glm::vec3 forward{0, 0, -1};
+    };
+    [[nodiscard]] std::expected<glm::mat4, foundation_error> validate_model(glm::mat4 const& model);
+    [[nodiscard]] std::expected<std::vector<draw_reference>, foundation_error> sort_draw_references(std::span<sort_instance const> instances, sort_camera const& camera, foundation_limits const& limits = {});
     [[nodiscard]] std::expected<std::uint64_t, foundation_error> packed_byte_size(std::uint64_t count, foundation_limits const& limits = {});
     [[nodiscard]] std::expected<packed_asset, foundation_error> pack_asset(deren::gaussian::asset const& input, foundation_limits const& limits = {});
 } // namespace deren::engine::gaussian_splatting

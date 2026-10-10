@@ -5,7 +5,9 @@ module;
 #include <cstddef>
 #include <cstdint>
 #include <expected>
+#include <glm/glm.hpp>
 #include <limits>
+#include <span>
 #include <string>
 #include <vector>
 module deren.engine.gaussian_splatting;
@@ -86,6 +88,151 @@ namespace deren::engine::gaussian_splatting {
             return result;
         }
     } // namespace
+
+    std::expected<glm::mat4, foundation_error> validate_model(glm::mat4 const& model) {
+        for (unsigned i = 0; i < 4; ++i) {
+            for (unsigned j = 0; j < 4; ++j) {
+                if (!std::isfinite(model[i][j])) {
+                    return invalid("non-finite model matrix");
+                }
+            }
+        }
+        if (model[0][3] != 0 || model[1][3] != 0 || model[2][3] != 0 || model[3][3] != 1) {
+            return invalid("model matrix must be affine");
+        }
+        glm::dmat4 const m{model};
+        std::array<glm::dvec3, 3> axes = {glm::dvec3{m[0]}, glm::dvec3{m[1]}, glm::dvec3{m[2]}};
+        std::array<double, 3> lengths{};
+        for (unsigned i = 0; i < 3; ++i) {
+            lengths[i] = glm::length(axes[i]);
+            if (!(lengths[i] > 0)) {
+                return invalid("singular model matrix");
+            }
+            axes[i] /= lengths[i];
+        }
+        for (unsigned i = 1; i < 3; ++i) {
+            if (std::abs(lengths[i] - lengths[0]) > 1e-5 * std::max(lengths[i], lengths[0])) {
+                return invalid("non-uniform scale is unsupported");
+            }
+        }
+        for (unsigned i = 0; i < 3; ++i) {
+            for (unsigned j = i + 1; j < 3; ++j) {
+                if (std::abs(glm::dot(axes[i], axes[j])) > 1e-5) {
+                    return invalid("shear is unsupported");
+                }
+            }
+        }
+        if (glm::dot(glm::cross(axes[0], axes[1]), axes[2]) <= 0) {
+            return invalid("reflection is unsupported");
+        }
+        glm::dmat4 const inverse = glm::inverse(m);
+        glm::mat4 result{0};
+        for (unsigned i = 0; i < 4; ++i) {
+            for (unsigned j = 0; j < 4; ++j) {
+                if (!float_finite(inverse[i][j])) {
+                    return invalid("inverse model exceeds float32 range");
+                }
+                result[i][j] = static_cast<float>(inverse[i][j]);
+            }
+        }
+        return result;
+    }
+    std::expected<std::vector<draw_reference>, foundation_error> sort_draw_references(std::span<sort_instance const> instances, sort_camera const& camera, foundation_limits const& limits) {
+        for (unsigned i = 0; i < 3; ++i) {
+            if (!std::isfinite(camera.position[i]) || !std::isfinite(camera.forward[i])) {
+                return invalid("non-finite camera");
+            }
+        }
+        glm::dvec3 const forward{camera.forward};
+        if (std::abs(glm::length(forward) - 1) > 1e-5) {
+            return invalid("camera forward must be unit length within 1e-5");
+        }
+        if (instances.size() > std::numeric_limits<std::uint32_t>::max()) {
+            return limited("too many instances");
+        }
+        std::uint64_t total = 0;
+        // Count before allocating either keys or references.
+        for (auto const& instance : instances) {
+            if (!instance.asset) {
+                return invalid("null CPU asset");
+            }
+            if (instance.asset->sh_degree > 3) {
+                return invalid("SH degree must be 0..3");
+            }
+            auto inverse = validate_model(instance.model);
+            if (!inverse) {
+                return std::unexpected(inverse.error());
+            }
+            auto const count = instance.asset->particles.size();
+            if (count > std::numeric_limits<std::uint32_t>::max() || count > std::numeric_limits<std::uint32_t>::max() - total) {
+                return limited("draw count exceeds uint32");
+            }
+            total += count;
+            if (total > limits.max_references || total > limits.max_packed_bytes / sizeof(draw_reference) || total > std::numeric_limits<std::size_t>::max() / sizeof(draw_reference)) {
+                return limited("draw references exceed budget");
+            }
+        }
+        std::vector<std::uint64_t> ids;
+        ids.reserve(instances.size());
+        for (auto const& i : instances) {
+            ids.push_back(i.stable_id);
+        }
+        std::sort(ids.begin(), ids.end());
+        if (std::adjacent_find(ids.begin(), ids.end()) != ids.end()) {
+            return invalid("duplicate stable instance ID");
+        }
+        struct depth_reference {
+            double depth;
+            draw_reference reference;
+        };
+        std::vector<depth_reference> keyed;
+        if (total > keyed.max_size()) {
+            return limited("sort scratch exceeds addressable size");
+        }
+        keyed.reserve(static_cast<std::size_t>(total));
+        for (std::size_t i = 0; i < instances.size(); ++i) {
+            auto const& instance = instances[i];
+            glm::dmat4 const model{instance.model};
+            for (std::size_t j = 0; j < instance.asset->particles.size(); ++j) {
+                auto const& p = instance.asset->particles[j];
+                auto cov = covariance_of(p);
+                if (!cov) {
+                    return std::unexpected(cov.error());
+                }
+                auto bounds = support_bounds(p, *cov);
+                if (!bounds) {
+                    return std::unexpected(bounds.error());
+                }
+                glm::dvec4 const world = model * glm::dvec4{p.center[0], p.center[1], p.center[2], 1};
+                for (unsigned axis = 0; axis < 3; ++axis) {
+                    if (!float_finite(world[axis])) {
+                        return invalid("transformed center exceeds float32 range");
+                    }
+                }
+                double const depth = glm::dot(glm::dvec3{world} - glm::dvec3{camera.position}, forward);
+                if (!std::isfinite(depth)) {
+                    return invalid("non-finite sort depth");
+                }
+                keyed.push_back({depth, {static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(j)}});
+            }
+        }
+        std::sort(keyed.begin(), keyed.end(), [&](depth_reference const& a, depth_reference const& b) {
+            if (a.depth != b.depth) {
+                return a.depth > b.depth;
+            }
+            auto const aid = instances[a.reference.instance_index].stable_id, bid = instances[b.reference.instance_index].stable_id;
+            if (aid != bid) {
+                return aid < bid;
+            }
+            return a.reference.local_gaussian_index < b.reference.local_gaussian_index;
+        });
+        std::vector<draw_reference> result;
+        result.reserve(static_cast<std::size_t>(total));
+        for (auto const& k : keyed) {
+            result.push_back(k.reference);
+        }
+        return result;
+    }
     std::expected<std::uint64_t, foundation_error> packed_byte_size(std::uint64_t count, foundation_limits const& limits) {
         constexpr std::uint64_t stride = sizeof(geometry_record) + sizeof(sh_record);
         if (count > std::numeric_limits<std::uint32_t>::max() || count > limits.max_references || count > std::numeric_limits<std::uint64_t>::max() / stride || count > std::numeric_limits<std::size_t>::max() / stride) {
