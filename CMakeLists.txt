@@ -728,6 +728,10 @@ target_sources(deren_engine
 # passes 183/0, and the DLL carries no unresolved `asan*` symbol. Copying the suppression here would
 # cost the loader's sanitizer coverage and buy nothing.
 # ================================================================================================
+add_library(gaussian_loader STATIC)
+target_sources(gaussian_loader PUBLIC FILE_SET CXX_MODULES FILES source/gaussian_loader/gaussian_loader.cppm
+    PRIVATE source/gaussian_loader/gaussian_loader.cpp)
+
 add_library(deren_assets SHARED)
 # The file NAME is part of the design, like shared_utility's: MinGW's default `lib` prefix would
 # produce libderen_assets.dll, so it is removed on purpose (the import library keeps its
@@ -1162,7 +1166,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
+    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1268,6 +1272,7 @@ if(VR_BUILD_TESTS)
     )
     # deren_assets is pure CPU (fastgltf + stb vendored, linked PRIVATE into that DLL); the
     # test loads the repo's gltf_model/DamagedHelmet sample from the working directory.
+    target_link_libraries(test_gaussian_loader PRIVATE gaussian_loader)
     target_link_libraries(test_gltf_loader
             deren_assets
             glm::glm

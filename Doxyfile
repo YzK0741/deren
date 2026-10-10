@@ -1093,6 +1093,7 @@ INPUT                  = ./source/shaders \
 				./docs/megalights.md \
 				./docs/deformation_motion_vectors.md \
 				./docs/gltf_loader_usage.md \
+                         ./docs/gaussian_loader.md \
 				./docs/slang_migration.md \
 				./docs/descriptor_heap_migration.md \
 				./docs/descriptor_heap_handover.md \
