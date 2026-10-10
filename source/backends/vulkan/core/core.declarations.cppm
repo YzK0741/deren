@@ -34,6 +34,7 @@ module;
 #include <memory>
 #include <mutex>
 #include <span>
+#include <unordered_map>
 #include <unordered_set>
 #include <vulkan/vulkan.h>
 
@@ -945,6 +946,40 @@ namespace deren::vulkan {
         frame_heap heap_view;
         std::mutex contract_images_mutex;
         std::unordered_set<deren::promise::rhi::image const*> contract_images;
+        struct texture_group_state {
+            std::mutex mutex;
+            std::array<bool, 1024> groups{};
+            // Slot 0 is reserved for the dummy descriptor.
+            std::array<bool, 2048> views{};
+            struct sampled_view_lease {
+                texture_group_state* state = nullptr;
+                std::uint32_t slot = 0;
+                deren::promise::rhi::object_manager<deren::promise::rhi::image_view> view;
+                ~sampled_view_lease() noexcept;
+            };
+            std::unordered_map<deren::promise::rhi::image const*, std::weak_ptr<sampled_view_lease>> cache;
+        };
+        struct texture_group_record {
+            std::array<std::uint32_t, 16> indices{};
+            std::uint32_t present_mask = 0;
+            std::array<std::uint32_t, 3> padding{};
+        };
+        static_assert(sizeof(texture_group_record) == 80);
+        static_assert(offsetof(texture_group_record, present_mask) == 64);
+        struct owned_texture_group final : deren::promise::rhi::texture_group {
+            owned_texture_group() noexcept
+                : deren::promise::rhi::texture_group("deren_texture_group_vulkan") {
+            }
+            core* owner = nullptr;
+            std::array<std::shared_ptr<texture_group_state::sampled_view_lease>, 16> views{};
+            texture_group_record record{};
+            std::uint32_t allocation = 1024;
+            ~owned_texture_group() noexcept override;
+            void release() noexcept override {
+                delete this;
+            }
+        };
+        texture_group_state texture_groups;
         /// THE COMMAND BUFFERS `create_command_buffer()` HANDED OUT (abi 15), the same registry shape
         /// `contract_images` uses and for the same reason: `execute()` and the escape's native-handle
         /// answer must tell "a buffer this backend made" from "some pointer a caller has" WITHOUT
@@ -1125,6 +1160,8 @@ namespace deren::vulkan {
         // of the same fact the entry's first argument guards on the creation side - and it is a contract
         // virtual, so it emits no symbol of its own and the boundary's measured count stays at zero.
         [[nodiscard]] std::uint32_t api_version() const noexcept override;
+        [[nodiscard]] deren::promise::rhi::texture_group_ref assign_texture_group(
+            deren::promise::rhi::texture_group_info const& info, deren::promise::rhi::error* result = nullptr) override;
         [[nodiscard]] deren::promise::rhi::ability_bits abilities() const noexcept override;
         [[nodiscard]] deren::promise::rhi::extension* query_extension(deren::promise::rhi::extension_kind kind) noexcept override;
 

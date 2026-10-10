@@ -16,6 +16,7 @@
 // source/promise/rhi/backend_entry.hpp, rather than again here.
 #include "vk_test.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
@@ -300,7 +301,7 @@ namespace {
         // interface, which is what the number exists for. The PODs of the same batch (the compute pipeline
         // spelling, the barrier stage hint, the global memory barrier) are `struct_size`-guarded appends and
         // do not move it.
-        CHECK(rhi::abi_version == 30u);
+        CHECK(rhi::abi_version == 31u);
         CHECK(static_cast<std::uint32_t>(rhi::error::ok) == 0u);
         CHECK(static_cast<std::uint32_t>(rhi::error::abi_mismatch) == 7u);
 
@@ -345,6 +346,14 @@ namespace {
         if (core == nullptr) {
             return;
         }
+        rhi::texture_group_info empty_group{};
+        CHECK(empty_group.textures.size() == 16u);
+        CHECK(std::all_of(empty_group.textures.begin(), empty_group.textures.end(),
+                          [](auto const& slot) { return !slot.has_value(); }));
+        empty_group.textures[15] = nullptr;
+        rhi::error group_error = rhi::error::ok;
+        CHECK(!core->assign_texture_group(empty_group, &group_error));
+        CHECK(group_error == rhi::error::unsupported);
         CHECK_MSG(core->type == "deren_api_core_probe", "object.type must identify the concrete implementation across static and DLL boundaries");
 
         // Ownership is real and it came WITH the answer: the control block holds the backend's own

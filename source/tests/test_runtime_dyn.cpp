@@ -80,7 +80,7 @@ int main(int const argc, char** const argv) {
     // abi 21 is the recording face's owner half (`api_core::make_command_buffer`); this pin moves with the
     // contract's constant, and the two spellings must never drift (see test_dynamic_link.cpp's own note).
     deren::vk_test::write_line("runtime_dyn: this executable compiled abi {} (the entry takes it as its first argument)", rhi::abi_version);
-    CHECK(rhi::abi_version == 30u);
+    CHECK(rhi::abi_version == 31u);
 
     if (!wants_device(argc, argv)) {
         deren::vk_test::write_line("runtime_dyn: device path skipped (pass --with-device to construct the runtime)");
@@ -136,13 +136,101 @@ int main(int const argc, char** const argv) {
             CHECK(commands->end_recording() == rhi::error::ok);
         }
         // A view and a copied parent reference each retain the original image identity.
+        rhi::texture_group_info empty_info{};
+        rhi::error group_error = rhi::error::invalid_argument;
+        auto empty_group = face.assign_texture_group(empty_info, &group_error);
+        CHECK(empty_group && group_error == rhi::error::ok);
+        CHECK(empty_group && empty_group->type == "deren_texture_group_vulkan");
+        empty_info.textures[15] = nullptr;
+        CHECK(face.assign_texture_group(empty_info, &group_error) && group_error == rhi::error::ok);
+        empty_info.struct_size = sizeof(empty_info) - 1u;
+        CHECK(!face.assign_texture_group(empty_info, &group_error));
+        CHECK(group_error == rhi::error::invalid_argument);
         rhi::image_desc parent_desc{};
         parent_desc.extent = {.width = 4u, .height = 4u, .depth = 1u};
         parent_desc.format = rhi::image_format::rgba8_unorm;
         parent_desc.flags = rhi::to_bits(rhi::image_flag::sampled);
         rhi::object_manager<rhi::image> original{face.create_image(parent_desc)};
         CHECK(original);
+        for (auto shape : {0u, 1u, 2u}) {
+            auto invalid_desc = parent_desc;
+            if (shape == 0)
+                invalid_desc.array_layers = 2;
+            if (shape == 1) {
+                invalid_desc.array_layers = 6;
+                invalid_desc.flags |= rhi::to_bits(rhi::image_flag::cube_compatible);
+            }
+            if (shape == 2)
+                invalid_desc.flags = rhi::to_bits(rhi::image_flag::storage);
+            rhi::object_manager<rhi::image> invalid{face.create_image(invalid_desc)};
+            CHECK(invalid);
+            if (invalid) {
+                rhi::texture_group_info info{};
+                info.textures[0] = invalid.get();
+                CHECK(!face.assign_texture_group(info, &group_error));
+                CHECK(group_error == rhi::error::invalid_argument);
+            }
+        }
         if (original) {
+            {
+                rhi::texture_group_info info{};
+                info.textures[0] = original.get();
+                info.textures[15] = original.get();
+                auto retained = original->share();
+                std::weak_ptr<rhi::image> lifetime = retained;
+                auto group = face.assign_texture_group(info, &group_error);
+                retained.reset();
+                CHECK(group && group_error == rhi::error::ok);
+                CHECK(!lifetime.expired());
+                group.reset();
+                CHECK(lifetime.expired());
+            }
+            {
+                rhi::texture_group_info info{};
+                std::array<rhi::object_manager<rhi::image>, 16> inputs{};
+                for (std::size_t i = 0; i < inputs.size(); ++i) {
+                    inputs[i] = rhi::object_manager<rhi::image>(face.create_image(parent_desc));
+                    CHECK(inputs[i]);
+                    info.textures[i] = inputs[i].get();
+                }
+                std::vector<rhi::texture_group_ref> groups;
+                for (unsigned i = 0; i < 1024; ++i) {
+                    groups.push_back(face.assign_texture_group(info, &group_error));
+                    CHECK(groups.back() && group_error == rhi::error::ok);
+                }
+                CHECK(!face.assign_texture_group(info, &group_error));
+                CHECK(group_error == rhi::error::out_of_device_memory);
+                CHECK(face.assign_texture_group({}, &group_error) && group_error == rhi::error::ok);
+                groups[500].reset();
+                auto replacement = face.assign_texture_group(info, &group_error);
+                CHECK(replacement && group_error == rhi::error::ok);
+            }
+            {
+                auto other_device = deren::engine::load_api_core(creation);
+                CHECK(other_device);
+                if (other_device) {
+                    rhi::object_manager<rhi::image> foreign{other_device->create_image(parent_desc)};
+                    CHECK(foreign);
+                    rhi::texture_group_info info{};
+                    info.textures[0] = foreign.get();
+                    CHECK(!face.assign_texture_group(info, &group_error));
+                    CHECK(group_error == rhi::error::invalid_argument);
+                }
+            }
+            {
+                rhi::object_manager<rhi::image> released{face.create_image(parent_desc)};
+                auto retained = released->share();
+                std::weak_ptr<rhi::image> lifetime = retained;
+                rhi::texture_group_info info{};
+                info.textures[0] = released.get();
+                auto group = face.assign_texture_group(info, &group_error);
+                retained.reset();
+                CHECK(group && group_error == rhi::error::ok);
+                released.reset();
+                CHECK(!lifetime.expired());
+                group.reset();
+                CHECK(lifetime.expired());
+            }
             CHECK(original->type == "deren_image_vulkan");
             auto* const identity = original.get();
             auto first_owner = original->share();
@@ -215,6 +303,10 @@ int main(int const argc, char** const argv) {
         auto* const borrowed_image = face.frame_image();
         CHECK(borrowed_image != nullptr);
         if (borrowed_image != nullptr) {
+            rhi::texture_group_info info{};
+            info.textures[0] = borrowed_image;
+            CHECK(!face.assign_texture_group(info, &group_error));
+            CHECK(group_error == rhi::error::invalid_argument);
             CHECK(borrowed_image->type == "deren_frame_image_vulkan");
             CHECK(!borrowed_image->share());
             rhi::object_manager<rhi::image_view> borrowed_view{borrowed_image->make_view({})};

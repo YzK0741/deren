@@ -45,9 +45,11 @@
 // ============================================================================
 module;
 
+#include <array>
 #include <cstdint>
-#include <expected>    // std::expected: `image::get_content()` answers the bytes OR the named reason
-#include <memory>      // std::shared_ptr: the ownership `make_command_buffer` hands over
+#include <expected> // std::expected: `image::get_content()` answers the bytes OR the named reason
+#include <memory>   // std::shared_ptr: the ownership `make_command_buffer` hands over
+#include <optional>
 #include <span>        // std::span: buffer::mapped() hands the caller the bytes of a host-visible buffer
 #include <string_view> // std::string_view: gpu_profiler's stage names ride the boundary as views
 #include <vector>      // std::vector: the CONTENT `image::get_content()` returns
@@ -1477,6 +1479,23 @@ export namespace deren::promise::rhi {
     /// the ownership note above). What is specific to this type is that the resource is a RECORDING
     /// SESSION rather than memory: the verbs below are that session's lifecycle, and the backend keeps
     /// the pool, the query pool and the API's state machine behind them.
+    inline constexpr std::uint32_t texture_group_capacity = 16u;
+
+    struct texture_group_info {
+        std::uint32_t struct_size = sizeof(texture_group_info);
+        std::array<std::optional<image*>, texture_group_capacity> textures{};
+    };
+
+    /// Immutable sampled 2D slots. The device and backend must outlive all references.
+    struct texture_group : object {
+        explicit texture_group(std::string_view name) noexcept
+            : object(name) {
+        }
+        virtual ~texture_group() noexcept = default;
+        virtual void release() noexcept = 0;
+    };
+    using texture_group_ref = std::shared_ptr<texture_group>;
+
     struct command_buffer : object {
 
         explicit command_buffer(std::string_view const name) noexcept
@@ -1661,6 +1680,11 @@ export namespace deren::promise::rhi {
         [[nodiscard]] virtual error copy_image(image_copy const& copy) = 0;
         [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source, std::uint64_t size, std::uint64_t source_offset, std::uint64_t destination_offset) = 0;
         [[nodiscard]] virtual error clear_color_image(image const& target, std::array<float, 4> const& color, subresource_range const& range) = 0;
+
+        /// ABI 31. Success retains the group for recorded work; nullptr clears it.
+        [[nodiscard]] virtual error load_texture_group(texture_group_ref const&) {
+            return error::unsupported;
+        }
     };
 
     /// What starting a frame hands back.
@@ -1962,6 +1986,13 @@ export namespace deren::promise::rhi {
         /// meter are unaffected by it (the flip's whole premise). What it DOES cost is a vtable slot on
         /// an existing tier-1 interface - an APPEND, hence abi 19.
         [[nodiscard]] virtual std::uint32_t api_version() const noexcept = 0;
+
+        /// ABI 31. Raw inputs are borrowed only during this call. Failure returns empty.
+        [[nodiscard]] virtual texture_group_ref assign_texture_group(texture_group_info const&, error* result = nullptr) {
+            if (result != nullptr)
+                *result = error::unsupported;
+            return {};
+        }
     };
 
     /// 在已完成ABI握手的有效对象上检查扩展身份；不能验证悬空指针或不可信后端。

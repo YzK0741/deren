@@ -530,6 +530,7 @@ target_sources(deren_vulkan
         # The RHI contract's virtuals for this backend (plan §11.4, S1-C): `core` derives from
         # `deren::promise::rhi::api_core`, so this is where abilities() and the frame calls live.
         source/backends/vulkan/core/core.api_core.cpp
+        source/backends/vulkan/core/core.texture_groups.cpp
         # The ONE C entry point, DEFINED for the real backend (source/promise/rhi/backend_entry.hpp, abi 18).
         # A plain TU rather than a module implementation unit, because the entry has to be reachable BY
         # NAME from an image that imports no module of this target - the same reason

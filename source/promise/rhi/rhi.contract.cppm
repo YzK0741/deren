@@ -289,7 +289,8 @@ export namespace deren::promise::rhi {
     /// 27 -> 28: swapchain::format() appends the pre-acquire presentation format query.
     /// 28 -> 29: image::share() and image_view::get_image() append owning parent-reference access.
     /// 29 -> 30: object stores a concrete implementation name instead of an interface enum.
-    inline constexpr std::uint32_t abi_version = 30u;
+    /// 30 -> 31: immutable texture groups and command-buffer group loading.
+    inline constexpr std::uint32_t abi_version = 31u;
 
     /// Why a promise entry point could not do what it was asked.
     ///
