@@ -2,6 +2,10 @@
 
 日期：2026-10-10。状态：供讨论的设计方案，尚未实施。
 
+后续讨论已改为“固定 16 槽、PBR 五槽前缀、管线自由后缀、assign/load 接口”。
+最新接口与 Vulkan 实现设计见 [Texture group 设计](2026-10-10-texture-group-rhi-vulkan-design.md)。
+本文保留作为路线比较参考；固定九槽、material_id 优先绑定等建议不再是当前选定方案。
+
 ## 1. 目标与推荐方案
 
 让 engine 表达“这一组资源按什么顺序供 shader 使用”，由 RHI/backend 负责描述符模型、物理槽位、写入与生命周期。
