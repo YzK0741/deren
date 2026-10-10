@@ -80,6 +80,7 @@
 
 ## 参考与后续决策
 
+- [2026-10-10 资料调研与源码阅读入口](../../research/2026-10-10-gaussian-splatting.md)：NVIDIA 示例、论文、资产与 deren 接入判断。
 - [3DGS 原论文与数据](https://repo-sam.inria.fr/fungraph/3d-gaussian-splatting/)：参考场景表示和可见性相关光栅方法。
 - [NVIDIA Vulkan 示例](https://github.com/nvpro-samples/vk_gaussian_splatting)：对照顶点、mesh shader、排序和混合路线。
 - [光照及阴影说明](https://nvpro-samples.github.io/vk_gaussian_splatting/deep-dives/lighting_and_shadows/)：区分带采集光照的外观与真正的物理重光照。
