@@ -97,6 +97,11 @@ export namespace deren::promise::rhi {
         acceleration_structure_storage = 7, ///< memory an acceleration structure lives in; allocate-only
         acceleration_structure_scratch = 8, ///< an acceleration structure build's scratch space; allocate-only
         storage_gpu_only = 9,               ///< a storage buffer only the GPU touches; allocate-only
+        /// Host-visible STAGING: the SOURCE of a copy recorded into a device buffer inside a frame. Its twin is
+        /// `readback_coherent` (the destination of a GPU -> CPU copy), and it exists because NO other intent carries
+        /// TRANSFER_SRC - so without it a staging buffer cannot be created through this vocabulary at all, and the
+        /// recording face's `copy_buffer` would be refused for its source. See the viewer's frame-ordered upload.
+        staging_source = 10,
     };
 
     /// Capabilities a buffer needs BEYOND its memory intent.

@@ -1165,6 +1165,12 @@ namespace deren::vulkan {
         case rhi::buffer_usage::storage_gpu_only:
             type = buffer_type::storage_gpu_only;
             break;
+        // APPENDED for the frame-ordered upload: the staging side of a `copy_buffer` a frame records. One to one,
+        // like every other case here - the contract's own note says a new value must not silently become whatever
+        // the integer happens to mean in this backend.
+        case rhi::buffer_usage::staging_source:
+            type = buffer_type::staging_source;
+            break;
         }
 
         // THE CAPABILITY FLAGS ARE THE ONLY VULKAN USAGE BITS THE CONTRACT NAMES, and they are named

@@ -96,6 +96,10 @@ namespace deren::vulkan {
                                         // source/shaders/mask_bake.slang). The same flags as the scratch type,
                                         // because both need exactly that; they are separate variants
                                         // because the INTENT is what a reader is looking for.
+        staging_source,                 // HOST_VISIBLE + HOST_COHERENT with TRANSFER_SRC: the SOURCE of a copy the
+                                        // frame records, which is what puts an upload in the frame's own command
+                                        // buffer instead of in the CPU's timing. The twin of readback_coherent,
+                                        // which is the same idea in the other direction.
     };
 
     /**
@@ -474,6 +478,14 @@ namespace {
                          VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
             break;
         }
+        case deren::vulkan::buffer_type::staging_source: {
+            // WRITTEN BY THE HOST, read by the GPU (transfer): the mirror of the read-back type, so the same
+            // host-visible mapping, with sequential writes instead of random reads.
+            info.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
+            info.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT |
+                         VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+            break;
+        }
         }
         return info;
     }
@@ -524,6 +536,11 @@ namespace {
         case deren::vulkan::buffer_type::storage_gpu_only: {
             info.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT |
                          VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT;
+            break;
+        }
+        case deren::vulkan::buffer_type::staging_source: {
+            // TRANSFER_SRC is the whole point of the type: it is the read side of a `copy_buffer` a frame records.
+            info.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
             break;
         }
         }
@@ -1090,6 +1107,9 @@ namespace deren::vulkan {
         case buffer_type::uniform_cached:
         case buffer_type::storage_coherent:
         case buffer_type::readback_coherent:
+        // the staging source is the same family as the read-back type: HOST_VISIBLE and MAPPED, so the host writes
+        // its bytes through the mapping and no staging copy of a staging copy is needed.
+        case buffer_type::staging_source:
             // Upload via direct mapping (a null data pointer means "allocate only": the read-back
             // type has nothing to upload, the GPU fills it later)
             upload_success = direct_upload(allocation, alloc_info, data, size_byte);
