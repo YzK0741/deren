@@ -111,4 +111,20 @@ TWO CORRECTNESS RULES EARNED THEIR COMMITS HERE, both from measurements rather t
 
 WHAT IS STILL OPEN, in the order it matters: (1) a frame with no imported geometry must be drivable, and (2) the depth clear must not depend on a leaf being present - which together would let the placeholder go back to being transparent, or disappear. Both are engine work rather than viewer work.
 
+### Known issue: the FIRST swapchain resize corrupts a cloud-only frame
+
+REPRODUCED, and it is specific to this path rather than to resizing in general. Recipe: start the viewer with the cloud's path in `model`, let it settle, then resize the window once (any size) and look - the frame fills with blue and olive blocks (splats projected through garbage) with the bouquet pushed into a corner. Resizing a SECOND time clears it, which is the sharpest clue in the report: generation 0 to generation 1 is the transition that leaves something stale, and the next one is fine.
+
+THE THREE RUNS THAT LOCALISE IT (same binary, same window, same scripted `MoveWindow` resize):
+
+| run | config | after one resize |
+| --- | --- | --- |
+| cloud only (the viewer as shipped) | `model` = the `.ply` | CORRUPT |
+| control 1 | `model` = `gltf_model/DamagedHelmet.gltf`, minimal config | clean |
+| control 2 | THIS viewer config with `model` swapped to the helmet | clean |
+
+So neither the resize path in general nor any key in the viewer's configuration is at fault: the difference is the cloud plus the placeholder - that is, a scene whose only leaf was created by `runtime::make_primitive` and a frame that draws splats, versus a scene built by `import_scene`. The suspected state is the per-generation publication of the scene's own data (the material/instance records `make_primitive` writes, and the push/heap binding the splat stage is resolved through) rather than any image the engine recreates, because the engine recreates those for every generation and a model frame proves that half works.
+
+NOT YET FIXED. The two candidate fixes, both bounded: publish that state per generation in the runtime (the engine fix), or move the placeholder onto the import path, which is the route the controls above prove is generation-correct.
+
 TO RUN IT: put the cloud's path in `model`, keep `gltf_model/DamagedHelmet.gltf` (or another model) findable from the working directory so the scene lookup succeeds, and start the viewer from the project root or the build directory. Left-drag orbits, the wheel zooms, F12 writes a screenshot through `[paths] screenshot_dir`, F1 toggles the panel and Escape quits; the panel's `gpu (60f)` and `cpu (60f)` rows are the costs measured above.
