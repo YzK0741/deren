@@ -97,14 +97,17 @@ namespace deren::engine::gaussian_splatting {
     } // namespace
     std::expected<std::shared_ptr<gpu_asset const>, foundation_error> upload_asset(deren::promise::rhi::api_core& core, packed_asset const& asset, foundation_limits const& limits) {
         namespace rhi = deren::promise::rhi;
+        deren::utility::log("gaussian upload: enter ({} geometry, {} SH)", asset.geometry.size(), asset.sh.size());
         auto size = packed_byte_size(asset.geometry.size(), limits);
         if (!size) {
             return std::unexpected(size.error());
         }
+        deren::utility::log("gaussian upload: byte size ok ({})", *size);
         auto bounds = validate_packed(asset);
         if (!bounds) {
             return std::unexpected(bounds.error());
         }
+        deren::utility::log("gaussian upload: packed data validated");
         std::shared_ptr<gpu_asset> result(new gpu_asset{});
         result->count = static_cast<std::uint32_t>(asset.geometry.size());
         result->degree = asset.sh_degree;
@@ -116,7 +119,18 @@ namespace deren::engine::gaussian_splatting {
         if (result->count == 0) {
             return std::shared_ptr<gpu_asset const>{std::move(result)};
         }
+        deren::utility::log("gaussian upload: result fields written; asking whether device_address is announced");
+        // ASK THE BIT BEFORE THE OBJECT, which is what the contract's own words prescribe ("a bit is announced only
+        // if the ability object exists AND can serve the objects this backend produces"; for every set bit
+        // query_extension() must answer). The Vulkan backend's own header says it reports vulkan_escape and NOTHING
+        // ELSE - device_address among the deferred ones - so this path must REFUSE cleanly here rather than query an
+        // ability the backend does not serve. Measured: querying anyway ended the process with 0xC0000005 inside
+        // query_extension(), which is what this guard turns into the diagnostic below.
+        if ((core.abilities() & rhi::to_bits(rhi::extension_kind::device_address)) == 0) {
+            return failure(error_code::unsupported, "backend does not announce device_address (the Gaussian raster path projects through buffer addresses)");
+        }
         auto* address = rhi::query_extension<rhi::device_address>(core);
+        deren::utility::log("gaussian upload: device_address query returned {}", address != nullptr);
         if (!address) {
             return failure(error_code::unsupported, "backend lacks device_address");
         }
