@@ -189,3 +189,32 @@ Read after probe B narrowed the corruption to the stage's own runtime work, and 
 | `waitUntilIdleAndReset()` carries an explicit contract: "wait for any in-flight sort to complete and clear stale data. Must be called before deleting splat sets whose positions may be referenced" | the per-slot retention in `gaussian_frames` covers the snapshot's lifetime; nothing covers a buffer a frame may still be reading |
 
 THE CHANGE THAT FOLLOWS, one change with two payoffs: allocate the reference/instance buffers ONCE PER FRAME SLOT in the runtime and refill them in place - the design's "retained until the slot completes", read the way NVIDIA reads it - instead of creating them per frame inside `prepare_raster_frame`. If the per-frame creation through the contract's `create_buffer` is what a swapchain rebuild trips over (probe B says the corruption lives in the stage's own work), that removes it; and it removes the per-frame allocation and staging copy the performance work measured. The `lazy` viewpoint check is the second, independent win: a static camera should not re-sort at all.
+
+### Probes C and D: the draw and the ensure calls are both exonerated - the snapshot write is what is left
+
+TWO MORE RUNS, both under the visual protocol (scripted resize, every capture looked at), and both subtract one thing
+from probe B's "the stage's own work":
+
+* PROBE C, the draw removed: with the camera pointed 1000 units off the cloud every splat is culled (`0 visible of
+  562,974`, logged), so the pass records nothing while the stage still resolves, still ensures and still builds a
+  snapshot. Three runs: two clean, one corrupt. The DRAW is not the cause.
+* PROBE D, the ensures removed: the two `ensure_gbuffer_*` calls were deleted from the stage (its neighbours declare
+  "no frame-order duty of its own" for the same reason: the lighting stage is what samples the depth, and the pass's
+  own record owns the transitions it needs). Four runs: two corrupt. The ENSURES are not the cause either.
+
+WHAT IS LEFT is the one thing every corrupt configuration has in common and no clean one does: THE SNAPSHOT WRITE
+ITSELF - `make_gaussian_frame` filling the slot's buffers through `mapped()` (or, before Task 8, creating and
+uploading new ones). And that is precisely the hazard NVIDIA's own API names in its contract:
+
+    waitUntilIdleAndReset() - "Wait for any in-flight sort to complete and clear stale data. Must be called before
+    deleting splat sets whose positions may be referenced."
+
+The intermittent rate fits that reading rather than a wrong layout: a resize changes how many frames the presentation
+engine has in flight, and the per-slot ring tracks frames the QUEUE has completed, which is not the same moment as a
+frame no longer being PRESENTED. Rewriting a slot's bytes in the window between those two moments corrupts exactly
+what a scripted resize perturbs.
+
+THE NEXT STEP, one line of research rather than a guess: find which completion the runtime's ring actually waits on
+for a slot (the timeline it signals on submit), and whether the presented image can still be read when the same slot
+comes round. If it can, the honest fix is to wait for that slot's presentation before refilling it (or to keep one
+more slot than the presentation engine holds).

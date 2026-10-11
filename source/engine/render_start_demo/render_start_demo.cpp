@@ -172,17 +172,15 @@ namespace deren::engine {
                 self.transparent->set_frame(services.make_transparent_frame(services.owner));
             }
         } else if (stage == "gaussian") {
-            // THIS STAGE SAMPLES THE LIT HDR IMAGE AND THE OPAQUE DEPTH, so it owes the same frame-order duty the
-            // G-buffer samplers do: those surfaces were written by the lighting stage as ATTACHMENTS, and whoever
-            // samples them first this time has to publish those writes. The pass's declaration fixes the LAYOUT it
-            // reads; it says nothing about who wrote the pixels, and on a frame where NOTHING was shaded - a
-            // gaussian-only scene has no leaves at all - nothing else publishes them, which is a GPU fault rather
-            // than a wrong pixel. Gated on the same predicate the runner gates THIS STAGE on, so a frame that
-            // records no splats does not touch either surface.
-            if (services.feature_active != nullptr && services.feature_active(services.owner, "gaussian")) {
-                static_cast<void>(services.ensure_gbuffer_targets_sampled(services.owner, services.cmd, services.image_index));
-                static_cast<void>(services.ensure_gbuffer_depth_sampled(services.owner, services.cmd, services.image_index));
-            }
+            // NO FRAME-ORDER DUTY OF ITS OWN, and that is what the neighbouring stages say about themselves for the
+            // same reason: the lighting stage is the one that samples the depth, so `ensure_gbuffer_depth_sampled` is
+            // already what that stage did, and the splat pass's own `record` owns the two transitions between
+            // "sampled" and "attachment" it needs (see deren.engine.pass.gaussian_splatting). An ensure here was
+            // tried, on the hunch that a cloud-only frame had no other sampler to publish the writes - and it is the
+            // one thing probe C leaves standing: with every splat culled (0 visible of 562,974, so the pass records
+            // nothing) a scripted resize STILL corrupts, which removes the draw and leaves these two calls as the
+            // stage's only remaining effect on the frame's images.
+            //
             // The SNAPSHOT is the runtime's, because it owns the camera and the frame's completion points (see
             // make_gaussian_frame); an empty one means this frame draws no splats, which the pass treats as a no-op.
             if (self.gaussian != nullptr) {
