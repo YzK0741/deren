@@ -68,7 +68,12 @@ namespace deren::chores {
 
     /**
      * @ingroup chores
-     * @brief attach the gaussian viewer's PLACEHOLDER scene to @p runtime: one opaque black triangle behind the cloud
+     * @brief attach the gaussian viewer's PLACEHOLDER scene to @p runtime: one small opaque black triangle, far behind the cloud
+     *
+     * IT IS SCAFFOLDING, NOT SCENERY, and it was mistaken for scenery the moment it existed: a full-frustum version of
+     * it covered the sky and made the frame look like "the cloud on black". Shrinking it to one unit, sixty units
+     * behind the cloud (about seven pixels at the camera's 45 degree field) revealed what the background had really
+     * been all along - the environment - and it now hides behind the bouquet instead.
      *
      * TWO MEASURED REASONS, and the second one is why it is not transparent:
      *   * THE ENGINE CANNOT YET DRIVE A FRAME WITH NO IMPORTED GEOMETRY. With an empty scene the first frame's

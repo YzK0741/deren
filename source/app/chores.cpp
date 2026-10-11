@@ -559,16 +559,22 @@ namespace deren::chores {
             glm::uvec4 joints = glm::uvec4(0u);
             glm::vec4 weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
         };
-        // A BIG TRIANGLE BEHIND THE CLOUD, AND THAT IS THE POINT: it is OPAQUE, so the scene pass has a leaf to
-        // write the depth buffer with, and the splat pass - which tests the depth it takes - then passes over it.
-        // Measured without it: an empty scene (or a transparent-only one) leaves the depth unwritten, every splat
-        // fails the test, and the frame is black even though the pass records a full draw (562,974 visible, record
-        // error 0). It sits eight units back, behind the cloud's own [-0.81, 1.50] and inside any sane far plane,
-        // and it is BLACK, so what the viewer shows is the cloud on black rather than the cloud on nothing.
+        // A SMALL TRIANGLE, WELL BEHIND THE CLOUD - and every one of those three words is a constraint:
+        //   * OPAQUE, because the depth buffer has to be written by something in the opaque pass: with a transparent
+        //     placeholder the frame was legal and the splat pass recorded a full draw (562,974 visible, record error
+        //     0) and the image was still black, because every splat failed a depth test against a depth nothing had
+        //     written.
+        //   * BEHIND the cloud (z = -60 against the cloud's own [-0.81, 1.50]), so the splats pass that test and
+        //     composite over it instead of being occluded by it.
+        //   * SMALL: one unit across, about seven pixels at that distance with the camera's 45 degree field - and
+        //     the orbit camera's far plane is `max(100, ...)`, so it stays inside the frustum rather than being
+        //     clipped (a clipped leaf is NO opaque leaf, which is the state this exists to avoid).
+        // It is black, and the frame's clear is black, so wherever it lands it is indistinguishable from no
+        // background at all - which is the point: it is scaffolding, not scenery.
         std::array<placeholder_vertex, 3> const vertices = {{
-            {.position = {-50.0f, -50.0f, -8.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}},
-            {.position = {50.0f, -50.0f, -8.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}},
-            {.position = {0.0f, 50.0f, -8.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.5f, 1.0f}},
+            {.position = {-0.5f, -0.5f, -60.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}},
+            {.position = {0.5f, -0.5f, -60.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}},
+            {.position = {0.0f, 0.5f, -60.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.5f, 1.0f}},
         }};
         std::array<std::uint32_t, 3> const indices = {0u, 1u, 2u};
         deren::engine::primitive_create_info info = {};
@@ -589,7 +595,8 @@ namespace deren::chores {
         if (leaf == nullptr) {
             deren::utility::panic(std::source_location::current(), "the placeholder triangle could not be created (is the 'pbr' pipeline missing?)");
         }
-        deren::utility::log("placeholder scene: one {} triangle {} units behind the cloud ({} byte vertices, {} of them)", info.factors.alpha_blend ? "transparent" : "opaque", 8.0f, info.vertex_stride, info.vertex_count);
+        deren::utility::log("placeholder scene: one {} triangle {} units behind the cloud, {} units across ({} byte vertices, {} of them)", info.factors.alpha_blend ? "transparent" : "opaque", 60.0f, 1.0f, info.vertex_stride,
+                            info.vertex_count);
     }
 
     void add_instancing_grid(deren::engine::runtime& runtime, int32_t const grid_side, float const scene_radius) {
