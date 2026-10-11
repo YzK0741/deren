@@ -2449,7 +2449,11 @@ namespace deren::engine {
     }
 
     std::shared_ptr<gaussian_splatting::raster_frame const> runtime::make_gaussian_frame() noexcept {
+        // THIS SLOT'S SNAPSHOT, and the slot is the ring's position - which is the only index under which retaining
+        // one snapshot per frame is correct (see the member's note: the swapchain image index is NOT it).
+        std::shared_ptr<gaussian_splatting::raster_frame const>& slot = this->gaussian_frames[static_cast<std::size_t>(this->frame_ring().position()) % this->gaussian_frames.size()];
         if (!this->gaussian_asset) {
+            slot.reset();
             return {};
         }
         // THE CAMERA IS THE RENDERER'S OWN, unjittered: the splats are projected from the same view-projection the
@@ -2465,9 +2469,14 @@ namespace deren::engine {
             // and the mesh rendering that surrounds it is untouched (the design's own failure rule).
             deren::utility::log("gaussian: this frame's snapshot was refused (error {}); the splats are skipped and the meshes render as usual",
                                 static_cast<int32_t>(frame.error().code));
+            slot.reset();
             return {};
         }
-        return *frame;
+        // THE SLOT'S PREVIOUS SNAPSHOT IS DROPPED HERE AND NOWHERE ELSE: this slot's frame has completed, so its
+        // buffers are safe to release - and every OTHER slot's snapshot is still held, which is the whole point of
+        // the array.
+        slot = *frame;
+        return slot;
     }
 
     // THE TRANSPARENT PASS'S RESOLVER IS GONE TOO (S3), for the same reason as the scene pass's: two declared

@@ -956,6 +956,18 @@ namespace deren::engine {
         std::shared_ptr<gaussian_splatting::raster_asset const> gaussian_asset = {};
         std::vector<gaussian_splatting::raster_instance> gaussian_instances = {};
         /**
+         * THE SNAPSHOTS, ONE PER FRAME SLOT - the design's own retention rule rather than a cache.
+         *
+         * A snapshot's buffers (the sorted references, 4.5 MB at the acceptance cloud) have to stay alive until the
+         * SLOT's frame has completed, so one slot's snapshot may only be replaced once its own frame is done - which
+         * is exactly what the ring guarantees and what holding ONE latest snapshot did not: measured after a WINDOW
+         * RESIZE, where more frames are in flight while the swapchain is rebuilt, the still-in-flight frame read a
+         * buffer the next prepare had already released, and the frame came out as blocky splats over an
+         * uninitialised background. Indexed by the ring's POSITION, never by the swapchain image index (the design
+         * says so, and the two differ the moment the image count changes).
+         */
+        std::array<std::shared_ptr<gaussian_splatting::raster_frame const>, rhi::max_frames_in_flight> gaussian_frames = {};
+        /**
          * THE CHARACTER-FORWARD PASS (deren.engine.pass.character_forward): the same OPAQUE leaves a second time,
          * shaded by the toon pipeline and written OVER the deferred result at depth-EQUAL. It sits after the
          * transparent pass (a toon body drawn under a blended surface would be composited over, which is the
