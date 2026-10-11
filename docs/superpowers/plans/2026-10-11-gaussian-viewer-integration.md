@@ -209,3 +209,34 @@ source/engine/render_start_demo/*.
 - [ ] Independent review of this batch; address findings with RED/GREEN; push and confirm both CI jobs; record
       scope, limits and what remains (GPU sorting, unified transparency, real-asset acceptance with
       Bouquet of Flowers).
+
+## Task 9: put the frame's upload INSIDE the frame (NVIDIA's tryConsumeAndUploadCpuSortingResult)
+
+WHY, from the comparison: NVIDIA keeps ONE long-lived device buffer per semantic role and delivers each frame's
+content through an upload RECORDED IN THE FRAME (splat_set_manager_vk.h: m_splatSortingIndicesDevice plus
+tryConsumeAndUploadCpuSortingResult(cmd, ...), with updateSortingBuffers() creating only on a mode/size change). This
+viewer writes the device-visible buffers from the CPU - create_buffer(initial_bytes) before Task 8, mapped() since -
+at a moment with NO ordering relationship to any frame's execution. Every measurement collected here fits that shape:
+the corruption needs the stage's own runtime work, survives removing the draw and the ensure calls, is intermittent,
+and was unmoved by per-frame creation, per-slot retention, in-place refill or a generation reset - none of which
+changes WHERE the write sits.
+
+THE VERB EXISTS, and it is on the recording face:
+  rhi.api_core.cppm:1691  [[nodiscard]] virtual error copy_buffer(buffer& destination, buffer const& source,
+                                                                  std::uint64_t size, std::uint64_t source_offset ...) = 0;
+declared with copy_image in the command_buffer verb list, so it records into the frame's own command buffer.
+
+THE ONE BLOCKER, named rather than discovered halfway: WHICH INTENT A COPY DESTINATION NEEDS. The contract's own note
+says storage_gpu_only is allocate-only - "its Vk usage carries no TRANSFER_DST and create_buffer refuses initial
+contents" - so no intent in the enum today gives a device-local buffer that a frame copy may write; using
+storage_coherent (host-visible) as the destination would make the copy pointless. So this task starts with that
+question: either a new buffer intent (a contract change, which is the honest home for it) or an existing route this
+analysis has not found.
+
+STEPS, once the intent question is answered:
+1. per slot: a host staging buffer (CPU-written, no device address) plus the long-lived device buffers the pass binds;
+2. prepare_raster_frame / refill writes the STAGING buffer and returns the frame describing the copy;
+3. the splat pass records copy_buffer(device, staging, bytes) in its own record(), next to the barriers it already
+   records - which is the frame-ordered upload;
+4. the acceptance is unchanged and measurable: the visual protocol (three scripted resizes, every capture LOOKED at)
+   plus the cost line and the gates.
