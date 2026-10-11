@@ -593,12 +593,17 @@ namespace deren::vulkan {
             if (vkCreateWin32SurfaceKHR(this->instance, &win32_info, nullptr, &this->surface) != VK_SUCCESS) {
                 deren::utility::panic("can not init surface (vkCreateWin32SurfaceKHR on the caller's HWND)");
             }
-            return;
-        }
-        if (glfwCreateWindowSurface(this->instance, this->window, nullptr, &this->surface) != VK_SUCCESS) {
+        } else if (glfwCreateWindowSurface(this->instance, this->window, nullptr, &this->surface) != VK_SUCCESS) {
             deren::utility::panic("can not init surface");
         }
 
+        // REGISTERED ON BOTH PATHS, AND THE `else if` ABOVE IS THE POINT: the caller-window path used to
+        // `return` right here, which skipped exactly this registration and leaked the surface - on every
+        // run, because that is the path the engine takes now (it hands the backend its own HWND). Measured
+        // with validation on: "vkDestroyInstance(): VkInstance ... has 1 leaked objects that have not been
+        // destroyed. VkSurfaceKHR ..." (VUID-vkDestroyInstance-instance-00629). The order is load-bearing
+        // too: cleanups run LIFO (deren::utility::enable_stack_destruct), and the instance registers its
+        // own cleanup earlier in the constructor, so the surface must be destroyed before it.
         this->register_cleanup([this] {
             vkDestroySurfaceKHR(this->instance, this->surface, nullptr);
         });
