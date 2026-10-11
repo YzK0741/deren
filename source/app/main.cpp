@@ -507,12 +507,20 @@ int main(int argc, char** argv) {
                               "model '{}' has no extension this build reads: name a .gltf/.glb scene or a .ply gaussian splat cloud",
                               model_path);
     }
-    // A .ply NAMES THE CLOUD AND NOTHING ELSE, which is the design's gaussian-ONLY scene: no glTF load is started
-    // at all, so nothing is imported, shaded or animated below, and the cloud is the whole scene. The decision is
-    // the same classification the refusal above used - the path's extension - so the two cannot disagree.
+    // A .ply NAMES THE CLOUD, and the cloud is what the run is ABOUT - but a scene is still loaded, and that is an
+    // INTERIM with a measured reason: THE ENGINE CANNOT PRESENT A FRAME WITH NO IMPORTED GEOMETRY. With an empty
+    // scene, the first frame's submission and the next frame's open both fail 11 = device_lost, with ZERO VUIDs, an
+    // empty stderr, and unchanged by `shadow`, `clustered_lights`, `gui`, `unlit`, by switching the splat stage off
+    // entirely, or by adding a geometry-carrying instancing grid; a frame WITH a model submits fine, and a plain
+    // model frame does too. So the model below is imported as usual and then PUSHED OUT OF FRAME (see
+    // scene_import_shift), which is what leaves the flowers as the only thing on screen. The honest fix belongs to
+    // the engine - an empty scene has to be drivable - and it is recorded in
+    // docs/superpowers/plans/2026-10-11-gaussian-viewer-integration.md.
+    // A .ply NAMES THE CLOUD AND NO MODEL IS LOADED WITH IT: the frame instead gets the PLACEHOLDER leaf that
+    // `deren::chores::add_placeholder_triangle` builds below - see its own note for why the engine needs one and why
+    // it is a transparent triangle - so nothing of a model is read, shaded or shown. The glTF path is untouched,
+    // async overlap with the cubemap above included.
     bool const gaussian_only = model_format == deren::app_config::model_format::gaussian_ply;
-    // The future stays EMPTY on that path (and every consumer below reads an empty scene rather than being
-    // special-cased), while the glTF path keeps its async overlap with the cubemap above untouched.
     auto load_future = gaussian_only ? std::future<std::expected<deren::gltf::scenes, deren::gltf::error_code>>{}
                                      : deren::gltf::load_model_async(model_path);
 
@@ -691,10 +699,13 @@ int main(int argc, char** argv) {
     //    scene" means frame the cloud instead of a default model nobody configured.
     deren::gltf::scene_bounds bounds = {};
     if (gaussian_only) {
+        // NO MODEL TO DESCRIBE, and the diagnostics panic on a scene with no drawable primitive - which an empty one
+        // is. The bounds the shadow fit, the area light and the camera fit frame are the CLOUD'S OWN, which is what
+        // makes "frame the scene" mean frame the cloud on this path.
         bounds.valid = true;
         bounds.min = gaussian_min;
         bounds.max = gaussian_max;
-        deren::utility::log("gaussian: no model is imported - the scene is the cloud's own bounds");
+        deren::utility::log("gaussian: no model is imported - the frame's only leaf is the placeholder triangle");
     } else {
         bounds = deren::gltf::log_scene_diagnostics(*scenes);
     }
@@ -2620,6 +2631,10 @@ int main(int argc, char** argv) {
     // the cloud's own centre and a distance that holds two and a half of its radii - and because this runs BEFORE
     // the capture-camera override below, an explicit --capture-camera still wins over it.
     if (gaussian_only) {
+        // THE LEAF THAT MAKES THE FRAME LEGAL, built here rather than loaded and attached AFTER the scene tree is
+        // bound (the import above is what binds it, so this cannot move earlier): one fully transparent triangle a
+        // kilometre below the world, and the only geometry in the scene - it draws nothing (see the helper's note).
+        deren::chores::add_placeholder_triangle(runtime);
         runtime.camera.target = (gaussian_min + gaussian_max) * 0.5f;
         runtime.camera.distance = glm::length(gaussian_max - gaussian_min) * 0.5f * 2.5f;
     }

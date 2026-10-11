@@ -544,6 +544,54 @@ namespace deren::chores {
     // Optional instancing stress: grid_side > 1 (config or argv) draws the first imported
     // primitive as a grid_side x grid_side grid in ONE instanced draw call (an
     // instanced_draw_primitive appended to the scene tree - the frame loop is untouched)
+    void add_placeholder_triangle(deren::engine::runtime& runtime) {
+        // THE GAUSSIAN VIEWER'S PLACEHOLDER SCENE, BUILT RATHER THAN LOADED - see the declaration for why it
+        // exists at all and why it is a triangle and not a model.
+        //
+        // THE VERTEX LAYOUT IS THE ENGINE'S (gltf_loader's `vertex`: position, normal, uv, joints, weights = 64 B),
+        // because the pbr pipeline's input state is built from that same structure: a mismatch here is a GPU fault
+        // rather than a compile error, which is exactly why the fields are laid out the way the loader lays them
+        // out instead of in some local order that happens to look tidy.
+        struct placeholder_vertex {
+            glm::vec3 position;
+            glm::vec3 normal;
+            glm::vec2 uv;
+            glm::uvec4 joints = glm::uvec4(0u);
+            glm::vec4 weights = glm::vec4(1.0f, 0.0f, 0.0f, 0.0f);
+        };
+        // A BIG TRIANGLE BEHIND THE CLOUD, AND THAT IS THE POINT: it is OPAQUE, so the scene pass has a leaf to
+        // write the depth buffer with, and the splat pass - which tests the depth it takes - then passes over it.
+        // Measured without it: an empty scene (or a transparent-only one) leaves the depth unwritten, every splat
+        // fails the test, and the frame is black even though the pass records a full draw (562,974 visible, record
+        // error 0). It sits eight units back, behind the cloud's own [-0.81, 1.50] and inside any sane far plane,
+        // and it is BLACK, so what the viewer shows is the cloud on black rather than the cloud on nothing.
+        std::array<placeholder_vertex, 3> const vertices = {{
+            {.position = {-50.0f, -50.0f, -8.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.0f, 0.0f}},
+            {.position = {50.0f, -50.0f, -8.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {1.0f, 0.0f}},
+            {.position = {0.0f, 50.0f, -8.0f}, .normal = {0.0f, 0.0f, 1.0f}, .uv = {0.5f, 1.0f}},
+        }};
+        std::array<std::uint32_t, 3> const indices = {0u, 1u, 2u};
+        deren::engine::primitive_create_info info = {};
+        info.vertex_data = std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(vertices.data()), sizeof(vertices)};
+        info.vertex_stride = sizeof(placeholder_vertex);
+        info.vertex_count = static_cast<std::uint32_t>(vertices.size());
+        info.index_data = std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const*>(indices.data()), sizeof(indices)};
+        info.index_type = deren::promise::rhi::index_type::uint32;
+        info.index_count = static_cast<std::uint32_t>(indices.size());
+        // OPAQUE BLACK: opaque is what writes the depth the splat pass tests against, and black is what this frame
+        // showed anyway (see the note above), so the viewer's background stays what it was - the cloud on black.
+        info.factors.base_color_factor = glm::vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        info.factors.metallic_factor = 0.0f;
+        info.factors.roughness_factor = 1.0f;
+        info.factors.alpha_blend = false;
+        info.double_sided = true;
+        deren::engine::primitive* const leaf = runtime.make_primitive("pbr", info);
+        if (leaf == nullptr) {
+            deren::utility::panic(std::source_location::current(), "the placeholder triangle could not be created (is the 'pbr' pipeline missing?)");
+        }
+        deren::utility::log("placeholder scene: one {} triangle {} units behind the cloud ({} byte vertices, {} of them)", info.factors.alpha_blend ? "transparent" : "opaque", 8.0f, info.vertex_stride, info.vertex_count);
+    }
+
     void add_instancing_grid(deren::engine::runtime& runtime, int32_t const grid_side, float const scene_radius) {
         if (grid_side <= 1) {
             return;

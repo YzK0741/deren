@@ -68,6 +68,29 @@ namespace deren::chores {
 
     /**
      * @ingroup chores
+     * @brief attach the gaussian viewer's PLACEHOLDER scene to @p runtime: one opaque black triangle behind the cloud
+     *
+     * TWO MEASURED REASONS, and the second one is why it is not transparent:
+     *   * THE ENGINE CANNOT YET DRIVE A FRAME WITH NO IMPORTED GEOMETRY. With an empty scene the first frame's
+     *     submission and the next frame's open both fail 11 = device_lost, with zero VUIDs and an empty stderr, and
+     *     unchanged by `shadow`, `clustered_lights`, `gui`, `unlit`, by switching the splat stage off entirely, or by
+     *     adding a geometry-carrying instancing grid - while a frame WITH a leaf submits fine.
+     *   * THE DEPTH BUFFER HAS TO BE WRITTEN BY SOMETHING OPAQUE. With a transparent leaf (the first version of
+     *     this) the frame was legal and the splat pass recorded a full draw - 562,974 visible splats, `record_error
+     *     0` - and the image was still black, because every splat failed the depth test against a depth buffer
+     *     nothing had written. The black backdrop writes it, and the cloud then shows over it.
+     *
+     * So a splat-cloud-only run gives the frame the smallest leaf that satisfies both: a big opaque black triangle
+     * eight units behind the cloud, built here rather than loaded, so no model is ever read, shaded or shown and the
+     * viewer's background is the black it would have been anyway.
+     *
+     * @note call it before the first frame and while the runtime is idle, like every other scene-tree writer
+     *       (`register_material`'s timing rule)
+     */
+    export void add_placeholder_triangle(deren::engine::runtime& runtime);
+
+    /**
+     * @ingroup chores
      * @brief load a vertex/fragment SPIR-V pair and create the pipeline via the runtime; panic
      *        on load or creation failure
      */
