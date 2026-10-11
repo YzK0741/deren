@@ -4,16 +4,47 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <limits>
 #include <memory>
+#include <new>
 #include <span>
 #include <vector>
 import deren.promise.rhi;
 import deren.gaussian_loader;
 import deren.engine.gaussian_splatting;
+// Observe only the allocation sizes made inside a sort call. Input construction is outside this window.
+namespace allocation_probe {
+    bool enabled = false;
+    std::size_t largest = 0;
+} // namespace allocation_probe
+void* operator new(std::size_t size) {
+    if (allocation_probe::enabled && size > allocation_probe::largest) {
+        allocation_probe::largest = size;
+    }
+    if (void* result = std::malloc(size == 0 ? 1 : size)) {
+        return result;
+    }
+    std::abort();
+}
+void* operator new[](std::size_t size) {
+    return ::operator new(size);
+}
+void operator delete(void* pointer) noexcept {
+    std::free(pointer);
+}
+void operator delete[](void* pointer) noexcept {
+    std::free(pointer);
+}
+void operator delete(void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
+void operator delete[](void* pointer, std::size_t) noexcept {
+    std::free(pointer);
+}
 namespace gs = deren::engine::gaussian_splatting;
 namespace {
     deren::gaussian::asset sample() {
@@ -445,10 +476,69 @@ void test_upload() {
         CHECK((*rebuilt)->bounds_min() == packed->bounds_min);
         CHECK((*rebuilt)->bounds_max() == packed->bounds_max);
     }
+    bad([](auto& p) { p.geometry[0].covariance_x = {1,0,0,0}; p.geometry[0].covariance_yz = {1e-6f,9e-4f,1e-6f,0}; });
     upload_probe limited;
     failed = gs::upload_asset(limited, *packed, {1, 239});
     CHECK(!failed && failed.error().code == gs::error_code::limit_exceeded);
     CHECK(limited.calls == 0);
+}
+
+void test_invalid_sort_allocation() {
+    auto check = [](auto mutate) {
+        auto asset = sample();
+        asset.particles.resize(4096, asset.particles[0]);
+        mutate(asset.particles[0]);
+        std::array<gs::sort_instance, 1> instances = {gs::sort_instance{&asset, glm::mat4{1}, 1}};
+        allocation_probe::largest = 0;
+        allocation_probe::enabled = true;
+        auto result = gs::sort_draw_references(instances, {});
+        allocation_probe::enabled = false;
+        CHECK(!result && result.error().code == gs::error_code::invalid_argument);
+        CHECK(allocation_probe::largest < 1024); // A diagnostic string is allowed; a 64 KiB key array is not.
+    };
+    check([](auto& p) { p.scale[0] = 0; });
+    check([](auto& p) { p.rotation = {0, 0, 0, 0}; });
+    check([](auto& p) { p.opacity = 2; });
+    check([](auto& p) { p.sh[0] = std::numeric_limits<float>::quiet_NaN(); });
+}
+void test_covariance_tolerance() {
+    auto packed = *gs::pack_asset(sample());
+    auto good = [&](std::array<float, 4> x, std::array<float, 4> yz) {
+        auto asset = packed;
+        asset.geometry[0].covariance_x = x;
+        asset.geometry[0].covariance_yz = yz;
+        upload_probe probe;
+        auto result = gs::upload_asset(probe, asset);
+        CHECK(result && *result);
+    };
+    good({1, 2, 3, 0}, {4, 6, 9, 0});                          // rank one: v v^T, v=(1,2,3)
+    good({1, 0, 0, 0}, {1, 0, 0, 0});                          // rank two
+    good({0, 0, 0, 0}, {0, 0, 0, 0});                          // float-underflowed point covariance
+    good({1, std::nextafter(1.0f, 2.0f), 0, 0}, {1, 0, 1, 0}); // one-ULP negative eigenvalue
+    auto bad = [&](std::array<float, 4> x, std::array<float, 4> yz) {
+        auto asset = packed;
+        asset.geometry[0].covariance_x = x;
+        asset.geometry[0].covariance_yz = yz;
+        upload_probe probe;
+        auto result = gs::upload_asset(probe, asset);
+        CHECK(!result && result.error().code == gs::error_code::invalid_argument);
+        CHECK(probe.calls == 0);
+    };
+    bad({1, 0, 0, 0}, {1e-6f, 2.1e-6f, 1e-6f, 0}); // just beyond the direct eigenvalue bound
+    bad({1, 0.7f, 0.7f, 0}, {1, -0.03f, 1, 0});    // all pairwise minors positive, determinant negative
+    bad({1, 1.000002f, 0, 0}, {1, 0, 1, 0});
+    for (float angle : {0.15f, 0.6f, 1.1f}) {
+        auto input = sample();
+        input.particles[0].scale = {1, 1e-6f, 1e-12f};
+        input.particles[0].rotation = {std::cos(angle), 0, 0, std::sin(angle)};
+        auto converted = gs::pack_asset(input);
+        CHECK(converted);
+        if (!converted)
+            continue;
+        upload_probe probe;
+        auto result = gs::upload_asset(probe, *converted);
+        CHECK(result && *result);
+    }
 }
 int main() {
     test_packing();
@@ -456,5 +546,7 @@ int main() {
     test_models();
     test_sorting();
     test_upload();
+    test_invalid_sort_allocation();
+    test_covariance_tolerance();
     return deren::vk_test::finish("gaussian_splatting");
 }

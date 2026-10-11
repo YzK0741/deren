@@ -184,6 +184,30 @@ namespace deren::engine::gaussian_splatting {
                 return limited("draw references exceed budget");
             }
         }
+        // Validate public particle data and transformed centers before any scene-sized allocation.
+        for (auto const& instance : instances) {
+            glm::dmat4 const model{instance.model};
+            for (auto const& p : instance.asset->particles) {
+                auto cov = covariance_of(p);
+                if (!cov) {
+                    return std::unexpected(cov.error());
+                }
+                auto bounds = support_bounds(p, *cov);
+                if (!bounds) {
+                    return std::unexpected(bounds.error());
+                }
+                glm::dvec4 const world = model * glm::dvec4{p.center[0], p.center[1], p.center[2], 1};
+                for (glm::length_t axis = 0; axis < 3; ++axis) {
+                    if (!float_finite(world[axis])) {
+                        return invalid("transformed center exceeds float32 range");
+                    }
+                }
+                double const depth = glm::dot(glm::dvec3{world} - glm::dvec3{camera.position}, forward);
+                if (!std::isfinite(depth)) {
+                    return invalid("non-finite sort depth");
+                }
+            }
+        }
         std::vector<std::uint64_t> ids;
         ids.reserve(instances.size());
         for (auto const& i : instances) {
@@ -207,24 +231,8 @@ namespace deren::engine::gaussian_splatting {
             glm::dmat4 const model{instance.model};
             for (std::size_t j = 0; j < instance.asset->particles.size(); ++j) {
                 auto const& p = instance.asset->particles[j];
-                auto cov = covariance_of(p);
-                if (!cov) {
-                    return std::unexpected(cov.error());
-                }
-                auto bounds = support_bounds(p, *cov);
-                if (!bounds) {
-                    return std::unexpected(bounds.error());
-                }
                 glm::dvec4 const world = model * glm::dvec4{p.center[0], p.center[1], p.center[2], 1};
-                for (glm::length_t axis = 0; axis < 3; ++axis) {
-                    if (!float_finite(world[axis])) {
-                        return invalid("transformed center exceeds float32 range");
-                    }
-                }
                 double const depth = glm::dot(glm::dvec3{world} - glm::dvec3{camera.position}, forward);
-                if (!std::isfinite(depth)) {
-                    return invalid("non-finite sort depth");
-                }
                 keyed.push_back({depth, {static_cast<std::uint32_t>(i), static_cast<std::uint32_t>(j)}});
             }
         }

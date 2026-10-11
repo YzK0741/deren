@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - Work directly on master as requested; preserve the preexisting deletion of `deren_probe_backend_detach_probe.dll`.
-- User removed the quota stop requirement; this supersedes the older roadmap and loader plan.
+- Latest user instruction reinstates stopping at 5% remaining quota and recording progress; subsequent resume retains this threshold.
 - Engine code imports no Vulkan types, backend modules or native escape. No Gaussian-specific RHI objects or ABI changes.
 - Geometry stride 48 bytes, SH stride 192 bytes, instance stride 160 bytes and draw-reference stride 8 bytes. Match the existing column-major GLM/Slang convention.
 - Accept affine translation/rotation/positive uniform scale; reject non-uniform scale, shear, reflection and non-finite transforms.

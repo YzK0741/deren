@@ -33,9 +33,13 @@ namespace deren::engine::gaussian_splatting {
             double const b = g.covariance_yz[0] / scale;
             double const f = g.covariance_yz[1] / scale;
             double const c = g.covariance_yz[2] / scale;
-            // Allow float32 rounding noise in the packed symmetric matrix, not material negative variance.
+            // Bound negative eigenvalues directly: C/scale + tolerance*I must be PSD.
+            // A tolerance on determinants/minors instead would hide much larger negative variances.
             constexpr double tolerance = 1e-6;
-            return a * b - d * d >= -tolerance && a * c - e * e >= -tolerance && b * c - f * f >= -tolerance && a * b * c + 2 * d * e * f - a * f * f - b * e * e - c * d * d >= -tolerance;
+            double const shifted_a = a + tolerance;
+            double const shifted_b = b + tolerance;
+            double const shifted_c = c + tolerance;
+            return shifted_a * shifted_b - d * d >= 0 && shifted_a * shifted_c - e * e >= 0 && shifted_b * shifted_c - f * f >= 0 && shifted_a * shifted_b * shifted_c + 2 * d * e * f - shifted_a * f * f - shifted_b * e * e - shifted_c * d * d >= 0;
         }
         std::expected<std::array<float, 6>, foundation_error> validate_packed(packed_asset const& asset) {
             if (asset.sh_degree > 3 || asset.geometry.size() != asset.sh.size()) {
