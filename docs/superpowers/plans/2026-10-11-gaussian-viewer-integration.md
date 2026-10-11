@@ -287,3 +287,43 @@ reverted rather than left red (the `staging_source` intent itself is committed a
 
 SO TASK 9 IS ONE ATOMIC CHANGE: the four-step wiring above, the staging size check, and the test's five assertions
 together, verified by the raster test and then by the visual protocol on a scripted resize.
+
+---
+
+## Task 9 attempt, reverted again: the destination intent does not exist (measured)
+
+The wiring was implemented a second time (device buffer + `staging_source` staging buffer per array, a
+`raster_frame::record_uploads(command_buffer&)` recording `copy_buffer(device, staging, bytes, 0, 0)`, the staging
+half's size checked, and the call made from the pass's `record(io)` - `copy_buffer` is `vkCmdCopyBuffer2`, so it has
+to be inside the frame's recording scope, which `record(io)` is and `make_gaussian_frame` is not).
+
+RESULT: the cloud-only run crashes. `deren.exe --config gaussian-viewer/viewer.toml --capture-frames 5` exits
+`0xC0000005` on its first frame. A temporary probe plus the backend's own logging placed it exactly:
+
+* the last line written before the crash is the creation of the frame's instance pair;
+* the backend's own `rhi: create_buffer ... B usage ... flags ...` line (core.api_core.cpp:1240) never appears,
+  so the crash is inside `vma_allocator::create_buffer` rather than after it.
+
+CAUSE: the destination was created as `rhi::buffer_usage::uniform_gpu_only`, the intent the Task 9 analysis named
+("uniform_gpu_only is UNIFORM | TRANSFER_DST (vma.cppm)"), and that analysis is right about the Vulkan usage bits
+but wrong about what the allocator DOES with the type:
+
+* `vma.cppm:1118-1123` routes `buffer_type::uniform_gpu_only` through `staging_upload(buffer, data, size_byte)` -
+  it REQUIRES initial contents, and this destination has none (`initial_bytes` empty, so `data == nullptr`): a
+  null-source upload, hence the fault;
+* the types that DO mean allocate-only refuse contents by construction (`vma.cppm:1125-1132`: `storage_gpu_only`,
+  `acceleration_structure_storage`, `acceleration_structure_scratch`), but their Vulkan usage carries NO
+  `TRANSFER_DST`, which a `vkCmdCopyBuffer2` destination must have.
+
+SO: no existing buffer intent is both allocate-only and TRANSFER_DST. The destination a frame-recorded upload needs
+does not exist today, and Task 9 therefore starts with a contract + allocator addition (an allocate-only,
+device-local intent whose Vk usage carries `TRANSFER_DST`, with `storage` and `device_address` added as flags on
+top) - not with the wiring. That is the blocker, and it is a different one from the one this section named.
+
+WHAT THE TESTS DID AND DID NOT CATCH: with the wiring in, `test_gaussian_raster` passed 157/0,
+`test_gaussian_splatting` 393/0 and `ctest` 23/23 - because the test probe models `mapped()` per usage but not "a
+device-only type requires contents", so it cannot produce this fault. The real-backend run is the instrument that
+catches it, and the resize protocol remains the acceptance for the corruption itself.
+
+STATE: the wiring was reverted in the commit after this note (the tree is back to the state where the cloud-only
+viewer runs and the first resize is the only defect). Nothing in the reverted change remains.
