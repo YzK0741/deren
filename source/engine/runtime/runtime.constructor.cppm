@@ -1236,6 +1236,14 @@ namespace deren::engine {
         // accumulation restarted, and a new generation IS that restart (see frame_facts::gi_cold_start).
         // ... and the furnace cube is a new image too, so its level has to be written again.
         this->furnace_cube_ready = false;
+        // ... AND THE SPLAT SNAPSHOTS GO WITH THE GENERATION. This is the step NVIDIA's own renderer takes in its
+        // onResize() - a resize there is an explicit re-initialisation of everything that names a target
+        // (m_gBuffers.update, every dependent system re-pointed at the NEW depth/colour images, the descriptor sets
+        // re-written, and resetFrameCounter()) - and it is the one structural difference the comparison left
+        // standing: this viewer's snapshots carry device addresses into buffers and belong to a frame, and a
+        // generation has neither. Holding the previous generation's answers across the boundary is what the
+        // known-issue section of docs/gaussian_splatting.md was chasing.
+        this->gaussian_frames = {};
     }
 
     // ---- THE ENGINE'S OWN RENDER-CHAIN TARGETS (③-D/E A1) ----------------------------------------------
