@@ -495,7 +495,27 @@ int main(int argc, char** argv) {
     auto env_future = environment_pixels.empty()
                           ? deren::engine::generate_environment_cubemap_async(env_size, sun_direction)
                           : deren::engine::generate_environment_cubemap_from_equirect_async(std::move(environment_pixels), environment_width, environment_height, env_size, settings.lighting.environment_intensity);
+    // WHICH LOADER READS THE MODEL IS THE PATH'S OWN EXTENSION (app_config::model_format_of), decided HERE and
+    // before anything is opened, so "what is this file?" has one answer - and a path this build cannot read is
+    // NAMED as such rather than handed to the scene importer, which would answer with a parse error about a
+    // format the file never claimed to be.
+    deren::app_config::model_format const model_format = deren::app_config::model_format_of(model_path);
+    if (model_format == deren::app_config::model_format::unsupported) {
+        deren::utility::panic(std::source_location::current(),
+                              "model '{}' has no extension this build reads: name a .gltf/.glb scene or a .ply gaussian splat cloud",
+                              model_path);
+    }
     auto load_future = deren::gltf::load_model_async(model_path);
+    if (model_format == deren::app_config::model_format::gaussian_ply) {
+        // THE .ply BRANCH IS NOT WIRED YET, AND SAYING SO IS THE POINT: the cloud's loader is proven (see the
+        // asset test) but nothing draws one yet - the viewer stage that records it between the lighting stage
+        // and the transparent pass is the next task of
+        // docs/superpowers/plans/2026-10-11-gaussian-viewer-integration.md. Handing the path to the scene
+        // importer instead would answer with a glTF parse error about a file that never claimed to be glTF.
+        deren::utility::panic(std::source_location::current(),
+                              "'{}' is a gaussian splat cloud: this build loads .ply assets but has no stage that draws one yet",
+                              model_path);
+    }
 
     // 4b. THE WINDOW IS THE APPLICATION'S (see glfw_window_host above): GLFW is initialised and the window
     //     created HERE, before the runtime, so that the declaration order above gives the teardown order the

@@ -50,12 +50,14 @@ namespace deren::chores {
         // 3. Pick the model file: `model = "ask"` opens the platform's own file dialog first (the config's
         //    way of saying "let me choose at startup"); otherwise settings.model when configured/argv-given;
         //    else the default model under settings.paths.model_dir (or the auto-located gltf_model/).
+        //    WHICH LOADER READS IT IS THE FILE'S OWN EXTENSION (see app_config::model_format_of), so the dialog
+        //    offers both families and neither the title nor the filter promises glTF alone.
         if (deren::app_config::wants_model_dialog(settings)) {
             // A CANCELLED DIALOG IS NOT AN ERROR, and neither is a build with no way to ask: both fall
             // through to the same default chain an empty model takes, so the app still starts with
             // something on screen. The two are logged apart inside ask_open_file, because "I said no" and
             // "nobody could ask me" are different answers and only one of them is the user's decision.
-            if (std::optional<std::filesystem::path> const chosen = deren::utility::ask_open_file("choose a glTF/GLB model to render", "*.glb;*.gltf")) {
+            if (std::optional<std::filesystem::path> const chosen = deren::utility::ask_open_file("choose a model to render (.gltf/.glb scene, .ply gaussian splat cloud)", "*.glb;*.gltf;*.ply")) {
                 config.model_path = chosen->string();
             } else {
                 deren::utility::log("model: 'ask' produced no file, using the default model");
