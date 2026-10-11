@@ -54,6 +54,44 @@ Files: a small generator under source/scripts/ (or the existing probe helper), p
 - [ ] Decide the config spelling (`[render] gaussian = "<path>"`, empty = off) and the auto-locate behaviour,
       next to `model`/`background_glb`.
 
+## Task 8: recycle the snapshot's buffers per frame slot (NVIDIA's consume pattern)
+
+WHY: probe B put the resize corruption in the splat STAGE's own runtime work, and NVIDIA's own sorter does the
+opposite of this viewer in three places (docs/gaussian_splatting.md records the comparison): it re-sorts only when the
+viewpoint changed, it hands its result over by SWAP into a caller-owned vector with the buffers as members, and it has
+an explicit wait-for-in-flight contract. This task is the first of those to act on.
+
+WHERE THE ALLOCATION IS: `raster.gpu.cpp:215-237`, inside `prepare_raster_frame` - two `core.create_buffer` calls per
+frame (`storage_coherent`, `storage | device_address`, `initial_bytes` from the freshly built vectors) and then the
+push block's two device addresses. At the acceptance cloud that is 4.5 MB created, uploaded and released per frame,
+which is both the performance cost measured earlier and the per-frame creation a swapchain rebuild may trip over.
+
+THE CHANGE:
+
+1. `raster_frame` keeps its two buffers (it already does) plus their CAPACITIES, and gains a member
+   `std::expected<void, foundation_error> refill(std::span<raster_instance const>, raster_camera const&, foundation_limits const&)`
+   - a member, so it needs no new friend and can touch its own privates.
+2. The body of `prepare_raster_frame` from the camera check through `result->push.visible_count` (lines 39-194) is
+   EXTRACTED into a shared helper that fills a frame's contents (instances, sorted references, counters, push, and a
+   failure result), so `prepare_raster_frame` and `refill` cannot drift.
+3. `refill` then: computes the required bytes; if they fit the existing buffers, WRITES INTO THE MAPPED MEMORY and
+   keeps the addresses unchanged; only if they exceed the capacity does it re-create that one buffer (and recompute
+   that address). The addresses therefore stay valid across frames, which is the whole point.
+4. The runtime already keeps one snapshot per frame slot (`gaussian_frames`); `make_gaussian_frame` calls `refill` on
+   that slot's frame instead of `prepare_raster_frame` building a new one, and only creates on the first use of the
+   slot (or when a growth forces it).
+
+TO ANSWER FIRST, because the recipe stops here without it: how a `storage_coherent` buffer is WRITTEN after creation -
+the contract's buffer interface may expose a mapped pointer, a `write`, or nothing but the upload-at-create path. Grep
+`source/promise/rhi` for the buffer verbs before starting; if the contract has no write verb, the honest alternative is
+a per-slot buffer created once with `initial_bytes` sized to the frame's own budget (`limits.max_packed_bytes`) and
+never grown - the sizes are then stable by construction.
+
+ACCEPTANCE, both measurable:
+- [ ] the per-frame `create_buffer` lines disappear from a normal run (they are 2 per frame today);
+- [ ] the visual protocol passes: three scripted resizes, every capture LOOKED at, no garbage;
+- [ ] the cost line still reports the same visible counts, and the gates stay green.
+
 ## Task 7: the placeholder goes through import_scene (fixes the resize corruption)
 
 WHY: measured in docs/gaussian_splatting.md's known issue. A leaf created by `runtime::make_primitive` loses its
