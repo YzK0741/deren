@@ -54,6 +54,46 @@ Files: a small generator under source/scripts/ (or the existing probe helper), p
 - [ ] Decide the config spelling (`[render] gaussian = "<path>"`, empty = off) and the auto-locate behaviour,
       next to `model`/`background_glb`.
 
+## Task 7: the placeholder goes through import_scene (fixes the resize corruption)
+
+WHY: measured in docs/gaussian_splatting.md's known issue. A leaf created by `runtime::make_primitive` loses its
+scene data when the swapchain is rebuilt (first resize: the frame comes out as uninitialised memory - 4 of 4 runs),
+while `import_scene`'s leaves survive it (the helmet controls are clean). So the placeholder triangle is wrapped as a
+hand-built glTF scene and imported, which is the route the controls prove is generation-correct.
+
+EVERYTHING IT NEEDS, read off the loader so it does not have to be rediscovered:
+
+* `deren::gltf::vertex_portion { std::vector<uint8_t> data; component_type component; }` (gltf_loader.cppm:238).
+* `deren::gltf::component_type` (gltf_loader.cppm:46): `float_t = 5126`, `unsigned_short_t = 5123`.
+* `deren::gltf::primitive` (346): `std::map<std::string, vertex_portion> vertex;` (the ATTRIBUTE names the loader
+  assembles into the engine's 64-byte interleaved vertex), `std::vector<uint8_t> index;`,
+  `component_type index_component_type;`, `uint32_t material_index`.
+* `deren::gltf::mesh` (363): `std::vector<primitive> primitives;`.
+* `deren::gltf::node` (602): `name`, `local_transform`, `std::vector<mesh> meshes`, `transform_matrix`,
+  `source_index`, and the TRS base pose (`translation`/`rotation`/`scale`, identity by default).
+* `deren::gltf::scene` (632): `std::string name; std::vector<node> nodes; std::vector<std::size_t> root_indices;`.
+* `deren::gltf::scenes`: `std::vector<material> materials;` plus `std::vector<scene> scene;`, and the iterators
+  `nodes_begin()` / `nodes_end()`.
+* `deren::gltf::resolve_materials(scenes)` (1105) produces the `std::vector<resolved_material>` that
+  `drawable_iterator(scenes, materials)` (1124) takes; `get_vertex()`/`get_index()` call the iterator's
+  `ensure_built()`, which is where the portions become the engine layout - so the portions are what to fill, not the
+  interleaved bytes.
+* The call is the one the app already makes for a model:
+  `runtime.import_scene(scenes.nodes_begin(), scenes.nodes_end(), drawable_iterator(scenes, materials), drawable_iterator{}, glm::vec3(0.0f))`.
+
+STEPS: (1) build the three attribute portions (POSITION 12 B, NORMAL 12 B, TEXCOORD_0 8 B per vertex) and the
+uint16 index block for the existing triangle's vertices; (2) assemble scenes -> scene -> node -> mesh -> primitive
+with `material_index = 0`; (3) one `deren::gltf::material{}` (the default, white opaque: the leaf is seven pixels
+BEHIND the bouquet at the screen centre, so its colour is not observable); (4) `resolve_materials`, then
+`import_scene`; (5) add `import deren.gltf_loader;` to chores.cpp after its module declaration and make the chores
+target depend on gltf_loader in CMakeLists if it does not already; (6) re-run the scripted resize (the sky-region
+difference must fall from 64+ to 0-2) and re-run the gates.
+
+- [ ] Portions + primitive + node + scene built in `deren::chores::add_placeholder_triangle`
+- [ ] `chores` imports/links gltf_loader
+- [ ] The scripted resize measures 0-2 in the sky region (was 64.5)
+- [ ] Gates: build, CTest, format, backend boundary
+
 ## Task 1: the model path decides the loader, and the asset lives
 
 Files: source/application_configuration/*, source/app/chores.cpp (model selection + the file dialog's
