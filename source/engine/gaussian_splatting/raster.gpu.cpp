@@ -228,94 +228,50 @@ namespace deren::engine::gaussian_splatting {
         for (auto const& input : inputs) {
             result->owners.push_back(input.asset);
         }
-        // THE TWO ARRAYS, EACH AS A DEVICE BUFFER + A STAGING BUFFER (plan Task 9): the shader reads the DEVICE
-        // one through its address, and this frame's content arrives through a copy RECORDED IN THE FRAME (see
-        // `record_uploads`). The device buffer is `uniform_gpu_only` + `storage` + `device_address`: device-local,
-        // TRANSFER_DST - which is exactly what a frame-recorded copy needs (vma.cppm's note) - and NOT
-        // host-visible. The staging buffer is the one the CPU writes through `mapped()`.
-        rhi::buffer_desc device_desc;
-        device_desc.usage = rhi::buffer_usage::uniform_gpu_only;
-        device_desc.flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
-        rhi::buffer_desc staging_desc;
-        staging_desc.usage = rhi::buffer_usage::staging_source;
-        if (!result->instance_buffer || !result->instance_staging || result->instance_capacity < instance_bytes) {
-            device_desc.size = instance_bytes;
-            staging_desc.size = instance_bytes;
-            result->instance_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(device_desc)};
-            result->instance_staging = rhi::object_manager<rhi::buffer>{core.create_buffer(staging_desc)};
+        rhi::buffer_desc desc;
+        desc.usage = rhi::buffer_usage::storage_coherent;
+        desc.flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
+        if (result->instance_buffer && result->instance_capacity >= instance_bytes) {
+            // IN PLACE: host-visible, so `mapped()` is the write the contract names for exactly this, and the bytes
+            // may be touched once the frame that wrote them has completed - which the caller's per-slot ring
+            // guarantees (the node the contract's own comment attaches to `mapped()`).
+            std::span<std::byte> const mapped = result->instance_buffer->mapped();
+            if (mapped.size() < instance_bytes) {
+                return failure(error_code::allocation_failure, "raster instance buffer is not mapped");
+            }
+            std::memcpy(mapped.data(), result->instance_data.data(), static_cast<std::size_t>(instance_bytes));
+        } else {
+            desc.initial_bytes = std::as_bytes(std::span{result->instance_data});
+            desc.size = instance_bytes;
+            result->instance_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
             result->instance_capacity = instance_bytes;
         }
         if (!result->instance_buffer || result->instance_buffer->size() < instance_bytes) {
             return failure(error_code::allocation_failure, "raster instance upload failed");
         }
-        // THE SIZE IS CHECKED ON BOTH HALVES (plan Task 9): the device half always was, and the staging half was
-        // not - which is the gap a copy of `instance_bytes` out of a buffer that was not that long walks into.
-        if (!result->instance_staging || result->instance_staging->size() < instance_bytes) {
-            return failure(error_code::allocation_failure, "raster instance staging is too small");
-        }
-        {
-            // IN PLACE: the staging half is host-visible, so `mapped()` is the write the contract names for
-            // exactly this, and the bytes may be touched once the frame that COPIED them has completed - which
-            // the caller's per-slot ring guarantees (the node the contract's own comment attaches to `mapped()`).
-            std::span<std::byte> const mapped = result->instance_staging->mapped();
-            if (mapped.size() < instance_bytes) {
-                return failure(error_code::allocation_failure, "raster instance staging is not mapped");
-            }
-            std::memcpy(mapped.data(), result->instance_data.data(), static_cast<std::size_t>(instance_bytes));
-        }
-        result->instance_upload_bytes = instance_bytes;
-        // THE ADDRESS IS THE DEVICE BUFFER'S, because that is what the shader reads - the staging buffer is
-        // never addressed by a shader.
         result->push.instances_address = address->buffer_address(*result->instance_buffer, 0);
         if (result->push.instances_address == 0 || result->push.instances_address % alignof(instance_record) != 0) {
             return failure(error_code::invalid_address, "invalid raster instance address");
         }
-        if (!result->reference_buffer || !result->reference_staging || result->reference_capacity < reference_bytes) {
-            device_desc.size = reference_bytes;
-            staging_desc.size = reference_bytes;
-            result->reference_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(device_desc)};
-            result->reference_staging = rhi::object_manager<rhi::buffer>{core.create_buffer(staging_desc)};
+        if (result->reference_buffer && result->reference_capacity >= reference_bytes) {
+            std::span<std::byte> const mapped = result->reference_buffer->mapped();
+            if (mapped.size() < reference_bytes) {
+                return failure(error_code::allocation_failure, "raster reference buffer is not mapped");
+            }
+            std::memcpy(mapped.data(), result->reference_data.data(), static_cast<std::size_t>(reference_bytes));
+        } else {
+            desc.initial_bytes = std::as_bytes(std::span{result->reference_data});
+            desc.size = reference_bytes;
+            result->reference_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
             result->reference_capacity = reference_bytes;
         }
         if (!result->reference_buffer || result->reference_buffer->size() < reference_bytes) {
             return failure(error_code::allocation_failure, "raster reference upload failed");
         }
-        if (!result->reference_staging || result->reference_staging->size() < reference_bytes) {
-            return failure(error_code::allocation_failure, "raster reference staging is too small");
-        }
-        {
-            std::span<std::byte> const mapped = result->reference_staging->mapped();
-            if (mapped.size() < reference_bytes) {
-                return failure(error_code::allocation_failure, "raster reference staging is not mapped");
-            }
-            std::memcpy(mapped.data(), result->reference_data.data(), static_cast<std::size_t>(reference_bytes));
-        }
-        result->reference_upload_bytes = reference_bytes;
         result->push.references_address = address->buffer_address(*result->reference_buffer, 0);
         if (result->push.references_address == 0 || result->push.references_address % alignof(draw_reference) != 0) {
             return failure(error_code::invalid_address, "invalid raster reference address");
         }
         return std::shared_ptr<raster_frame const>{std::move(result)};
-    }
-
-    rhi::error raster_frame::record_uploads(rhi::command_buffer& commands) const noexcept {
-        // THE FRAME'S OWN ORDER (plan Task 9): each array's bytes are copied from the staging buffer the CPU just
-        // wrote into the device buffer the shader reads, and `copy_buffer` is a RECORDING verb - so the write sits
-        // inside this frame's command buffer and the driver orders it against the frame's draws. This is NVIDIA's
-        // `tryConsumeAndUploadCpuSortingResult(cmd, ...)` in this engine's vocabulary, and the ordering it adds is
-        // the whole difference from the shape that corrupted: a `mapped()` write had none.
-        if (this->instance_upload_bytes != 0) {
-            deren::promise::rhi::error const copied = commands.copy_buffer(*this->instance_buffer, *this->instance_staging, this->instance_upload_bytes, 0, 0);
-            if (copied != deren::promise::rhi::error::ok) {
-                return copied;
-            }
-        }
-        if (this->reference_upload_bytes != 0) {
-            deren::promise::rhi::error const copied = commands.copy_buffer(*this->reference_buffer, *this->reference_staging, this->reference_upload_bytes, 0, 0);
-            if (copied != deren::promise::rhi::error::ok) {
-                return copied;
-            }
-        }
-        return deren::promise::rhi::error::ok;
     }
 } // namespace deren::engine::gaussian_splatting

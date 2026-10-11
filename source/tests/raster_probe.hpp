@@ -9,19 +9,11 @@ namespace raster_test {
         unsigned index;
         int& releases;
         std::uint64_t capacity;
-        /// THE HOST'S VIEW OF THIS BUFFER, and it is the usage that decides whether there is one (plan Task 9):
-        /// a `staging_source` (or `storage_coherent`) buffer is the one a host may write, so `mapped()` hands out
-        /// real bytes - which is what the frame's staging write needs - while a device-only buffer keeps the empty
-        /// span the rest of this suite relies on (`mapped()` as the contract's "not host-visible" answer).
-        bool host_visible = false;
-        std::vector<std::byte> host_bytes;
-        raster_probe_buffer(unsigned i, int& r, std::uint64_t size, bool const visible)
+        raster_probe_buffer(unsigned i, int& r, std::uint64_t size)
             : buffer("gaussian_raster_probe_buffer")
             , index(i)
             , releases(r)
-            , capacity(size)
-            , host_visible(visible)
-            , host_bytes(visible ? static_cast<std::size_t>(size) : 0u) {
+            , capacity(size) {
         }
         void release() noexcept override {
             ++releases;
@@ -31,7 +23,7 @@ namespace raster_test {
             return capacity;
         }
         std::span<std::byte> mapped() noexcept override {
-            return this->host_visible ? std::span<std::byte>{this->host_bytes} : std::span<std::byte>{};
+            return {};
         }
     };
     struct raster_probe_address : rhi::device_address {
@@ -89,10 +81,7 @@ namespace raster_test {
             copy.initial_bytes = {};
             descriptors.push_back(copy);
             bytes.emplace_back(desc.initial_bytes.begin(), desc.initial_bytes.end());
-            // THE USAGE DECIDES HOST VISIBILITY (plan Task 9): the frame's staging half is a `staging_source`
-            // buffer and must answer `mapped()` with real bytes, while the device half it copies INTO must not.
-            bool const host_visible = desc.usage == rhi::buffer_usage::staging_source || desc.usage == rhi::buffer_usage::storage_coherent;
-            return new raster_probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size, host_visible);
+            return new raster_probe_buffer(calls, releases, calls == undersized_at ? desc.size - 1 : desc.size);
         }
         rhi::swapchain* create_swapchain(rhi::swapchain_desc const&) override {
             return nullptr;
