@@ -263,3 +263,27 @@ whose read-back twin is the exact precedent - host-visible and coherent, created
 types and `VK_BUFFER_USAGE_TRANSFER_SRC_BIT` in the usage switch; and the one-to-one case in
 core.api_core.cpp:1137-1168. Then Task 9's four steps can be written, and its acceptance is the visual protocol that
 found this bug in the first place.
+
+### Task 9: the wiring was written, and what it revealed (reverted to keep the tree green)
+
+The staging/device split and the frame-recorded copy were implemented - a `staging_source` buffer pair written from
+the CPU, `uniform_gpu_only + storage|device_address` buffers the draw binds, and `raster_frame::record_uploads(cmd)`
+called from `make_gaussian_frame` on `frame_command_buffer()`, which is exactly NVIDIA's
+tryConsumeAndUploadCpuSortingResult(cmd, ...) in this engine's vocabulary. It compiled, and
+`test_gaussian_raster` then failed on five assertions that are the task's real acceptance work, so the wiring was
+reverted rather than left red (the `staging_source` intent itself is committed and green):
+
+* test_gaussian_raster.cpp:360-361 assert the created buffer is `storage_coherent` with a device address. Under the
+  split the first frame buffers are the STAGING pair (`staging_source`, no address) and the device pair is
+  `uniform_gpu_only` with `storage | device_address`, so both assertions move to the right descriptor indices.
+* :384, :388 and :390 steer the probe by COUNTING creations (`probe.calls + 1`, `+ 2`), and the split turns two
+  creations per frame into four, so those offsets shift; :390's undersized-buffer case then lands on a different
+  buffer than the one it meant to truncate.
+* :392 is the one that is a REAL GAP rather than bookkeeping: the staging buffer's size was never checked after
+  creation (only the device buffer's was, and the reuse path checked `mapped().size()`), so a truncated staging
+  buffer would have gone unnoticed. The fix is one condition - `!result->instance_staging || result->instance_staging->size() < instance_bytes`
+  beside the device check - and it is why the test exists.
+* :401 (`weak.expired()` after the frame is dropped) moves with the same probe offsets.
+
+SO TASK 9 IS ONE ATOMIC CHANGE: the four-step wiring above, the staging size check, and the test's five assertions
+together, verified by the raster test and then by the visual protocol on a scripted resize.
