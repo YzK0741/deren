@@ -3,6 +3,7 @@
 #include <array>
 #include <bit>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <span>
@@ -109,6 +110,71 @@ int main() {
     if (large_center) {
         CHECK(double(large_center->bounds_min[0]) <= 1e10 - 3);
         CHECK(double(large_center->bounds_max[0]) >= 1e10 + 3);
+    }
+    // THE REAL INRIA 3DGS DIALECT, in the order those files actually carry it: binary little endian, with the
+    // normals a viewer ignores AND the forty-five f_rest coefficients of degree 3. The cases above build the
+    // property list up from the minimal set; this one is the shape of a real asset - NVIDIA's CC BY-SA 4.0
+    // flowers_1.ply, which the viewer plan fetches, is exactly 62 floats per vertex over 562,974 vertices - so a
+    // loader change that only breaks the real layout (an unknown property in the middle, a coefficient count that
+    // no longer matches the band count) fails here rather than at the viewer.
+    {
+        std::string real = "ply\nformat binary_little_endian 1.0\nelement vertex 2\n";
+        for (auto name : {"x", "y", "z", "nx", "ny", "nz", "f_dc_0", "f_dc_1", "f_dc_2"})
+            real += "property float " + std::string(name) + "\n";
+        for (unsigned i = 0; i < 45; ++i)
+            real += "property float f_rest_" + std::to_string(i) + "\n";
+        for (auto name : {"opacity", "scale_0", "scale_1", "scale_2", "rot_0", "rot_1", "rot_2", "rot_3"})
+            real += "property float " + std::string(name) + "\n";
+        real += "end_header\n";
+        auto push = [&real](float value) {
+            auto bits = std::bit_cast<std::uint32_t>(value);
+            for (unsigned b = 0; b < 4; ++b)
+                real += char((bits >> (b * 8)) & 255);
+        };
+        for (int vertex = 0; vertex < 2; ++vertex) {
+            push(float(1 + vertex));
+            push(2.0f);
+            push(3.0f); // center
+            push(0.0f);
+            push(0.0f);
+            push(1.0f); // normal: the viewer ignores it, the loader must not
+            push(0.25f);
+            push(0.5f);
+            push(0.75f); // f_dc
+            for (unsigned i = 0; i < 45; ++i)
+                push(float(100 + i)); // f_rest: each value names its own slot
+            push(2.0f);               // opacity (logit)
+            push(-3.0f);
+            push(-3.0f);
+            push(-3.0f); // scale (log)
+            push(1.0f);
+            push(0.0f);
+            push(0.0f);
+            push(0.0f); // rotation
+        }
+        auto real_model = parse(real);
+        CHECK(real_model && real_model->particles.size() == 2);
+        if (real_model) {
+            CHECK(real_model->sh_degree == 3);
+            CHECK(real_model->particles[0].center[0] == 1 && real_model->particles[1].center[0] == 2);
+            CHECK(real_model->particles[0].sh[0] == 0.25f && real_model->particles[0].sh[2] == 0.75f);
+            // The coefficients come back channel-major, the layout the shader and the packer share: the first
+            // three higher-band words are f_rest_0, f_rest_15 and f_rest_30.
+            CHECK(real_model->particles[0].sh[3] == 100.f && real_model->particles[0].sh[4] == 115.f &&
+                  real_model->particles[0].sh[5] == 130.f);
+        }
+    }
+    // AN OPT-IN REAL ASSET: the acceptance model is 133 MB and lives outside the repository, so point
+    // DEREN_GAUSSIAN_ASSET at a .ply (the viewer plan fetches NVIDIA's CC BY-SA 4.0 flowers_1) and this loads it
+    // through the same entry the viewer uses. Unset - which is every CI run - the case is skipped, so the suite
+    // never depends on a download.
+    if (char const* const asset = std::getenv("DEREN_GAUSSIAN_ASSET")) {
+        auto loaded = gs::load_ply(asset);
+        CHECK_MSG(loaded, asset);
+        if (loaded) {
+            CHECK(loaded->particles.size() > 100000);
+            CHECK(loaded->sh_degree == 3);
+        }
     }
     std::ofstream("gaussian-fixture.ply", std::ios::binary) << binary;
     CHECK(gs::load_ply("gaussian-fixture.ply"));
