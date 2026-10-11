@@ -64,8 +64,8 @@ Interfaces: make_raster_asset(core, gaussian::asset by value, limits) binds immu
 
 Files: add an isolated RHI probe under the Gaussian raster module and connect an explicit existing probe entry or standalone test driver after reading the backend bootstrap interface. No normal-frame wait_idle for retention.
 
-- [ ] Run small float HDR readback cases: red/blue alpha0.5 overlap center RGB (0.5,0,0.25), anisotropic coverage, SH sign, transformed second instance and opaque depth occlusion.
-- [ ] Use a nontrivial camera/model and nonzero local/instance indices to exercise matrix and 48/192/160/8-byte layouts; inspect against CPU reference.
-- [ ] Record actual GPU/device and numerical tolerance. If GPU capabilities prevent execution, report that limitation and preserve the probe; do not claim rendered validation.
+- [x] Run small float HDR readback cases: red/blue alpha0.5 overlap center RGB (0.5,0,0.25), anisotropic coverage, SH sign, transformed second instance and opaque depth occlusion.
+- [x] Use a nontrivial camera/model and nonzero local/instance indices to exercise matrix and 48/192/160/8-byte layouts; inspect against CPU reference.
+- [x] Record actual GPU/device and numerical tolerance. If GPU capabilities prevent execution, report that limitation and preserve the probe; do not claim rendered validation.
 - [ ] Run full build/CTest, format, zero backend boundary and strict analysis; dispatch the required independent final reviewer, address important findings with RED/GREEN.
 - [ ] Push authorized commits and confirm remote LLVM23/Debug/ASan CI; record scope, limitations and next viewer-integration work.

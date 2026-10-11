@@ -10,6 +10,7 @@ module;
 // the allocator instantiations resolve. Do not remove this include to "clean up".
 
 #include <array>
+#include <cstdlib>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <span>
@@ -17,6 +18,7 @@ module;
 module deren.chores;
 
 import deren.promise.gui;
+import deren.engine.gaussian_splatting.probe;
 
 namespace deren::chores {
     // Resolve the startup config in one step: merge config file + argv into the app settings,
@@ -509,6 +511,14 @@ namespace deren::chores {
             load_shader(shaders_dir, "gaussian_raster.frag.spv", gaussian_fragment_code);
             runtime.register_shader("gaussian_raster.vert.spv", gaussian_vertex_code);
             runtime.register_shader("gaussian_raster.frag.spv", gaussian_fragment_code);
+            if (auto const* enabled = std::getenv("DEREN_GAUSSIAN_PROBE"); enabled != nullptr && std::string_view{enabled} == "1") {
+                auto report = deren::engine::gaussian_splatting::run_raster_probe(runtime.rhi_face(), gaussian_vertex_code, gaussian_fragment_code);
+                if (report) {
+                    deren::utility::log("Gaussian raster probe: PASS {} cases / {} pixels, maximum RGB error {}", report->cases, report->pixels, report->maximum_error);
+                } else {
+                    deren::utility::log("Gaussian raster probe: FAIL {}", report.error().message);
+                }
+            }
             std::vector<uint8_t> heap_probe_vertex_code;
             load_shader(shaders_dir, "heap_probe.vert.spv", heap_probe_vertex_code);
             runtime.register_shader("heap_probe.vert.spv", heap_probe_vertex_code);

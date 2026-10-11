@@ -7,6 +7,7 @@
 #include <limits>
 import deren.engine.gaussian_splatting;
 import deren.engine.gaussian_splatting.raster;
+import deren.engine.gaussian_splatting.probe;
 import deren.engine.pass;
 import deren.engine.pass.gaussian_splatting;
 #include "raster_probe.hpp"
@@ -381,5 +382,12 @@ int main() {
     test_sh_kernel();
     test_frame_upload();
     test_raster_pass();
+    raster_probe_core unsupported_probe;
+    auto missing_stages = gs::run_raster_probe(unsupported_probe, {}, {});
+    CHECK(!missing_stages && missing_stages.error().code == gs::error_code::invalid_argument);
+    std::array<std::uint8_t, 4> dummy_shader = {3, 2, 35, 7};
+    auto unsupported = gs::run_raster_probe(unsupported_probe, dummy_shader, dummy_shader);
+    CHECK(!unsupported && unsupported.error().code == gs::error_code::unsupported);
+    CHECK(unsupported_probe.calls == 0);
     return deren::vk_test::finish("gaussian_raster");
 }

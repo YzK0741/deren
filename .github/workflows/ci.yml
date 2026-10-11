@@ -146,6 +146,8 @@ jobs:
           source/engine/gaussian_splatting/raster.cppm \
           source/engine/gaussian_splatting/raster.cpp \
           source/engine/gaussian_splatting/raster.gpu.cpp \
+          source/engine/gaussian_splatting/probe.cppm \
+          source/engine/gaussian_splatting/probe.cpp \
           source/engine/pass/gaussian_splatting.cppm \
           source/engine/pass/gaussian_splatting.cpp \
             source/application_configuration/application_configuration.cppm \

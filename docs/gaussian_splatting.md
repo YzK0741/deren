@@ -47,7 +47,7 @@ The engine/device/backend root must outlive these buffer owners. This asset does
 
 ## Validation
 
-`test_gaussian_splatting` is headless and included in normal CTest and the ASan/UBSan build list. It checks fixed byte layouts, analytic rotated covariance, SH bands, conservative bounds, invalid inputs, budgets, transforms, multi-instance sorting/ties and RHI descriptor/bytes/failure cleanup using fake buffers. GPU shader interpretation and actual draws still require the next-stage layout probe and HDR readback tests.
+`test_gaussian_splatting` is headless and included in normal CTest and the ASan/UBSan build list. It checks fixed byte layouts, analytic rotated covariance, SH bands, conservative bounds, invalid inputs, budgets, transforms, multi-instance sorting/ties and RHI descriptor/bytes/failure cleanup using fake buffers. The isolated raster probe checks actual shader interpretation and HDR readback as described below.
 
 ## Raster snapshots and pass
 
@@ -55,12 +55,28 @@ The engine/device/backend root must outlive these buffer owners. This asset does
 
 `prepare_raster_frame(core, span<raster_instance const>, raster_camera, limits)` validates input, globally sorts references, rejects support outside the frustum and omits support intersecting the near plane. It uploads an immutable coherent instance table and visible references with initial bytes. The byte budget includes both uploads; the existing sorting scratch and retained CPU sources are separate. Invalid inputs fail before frame GPU allocation. A frame with no visible splats uploads nothing. Failures release partial uploads.
 
-`raster_camera` contains the real VP matrix, world camera position and pixel viewport. The accepted camera is a finite, nonsingular forward-depth [0,1] perspective projection with finite far plane; orthographic, reversed depth and infinite far are rejected. Include the engine's projection Y flip in the matrix. Model transforms retain the positive uniform scale restriction. Projection uses the actual VP Jacobian in pixel units, 0.3 pixel² covariance regularization and a Cholesky square root. CPU helpers `project_splat`, `evaluate_sh` and `fragment_alpha` provide numerical references.
+`raster_camera` contains the real VP matrix, world camera position and pixel viewport. The accepted camera is a finite, nonsingular forward-depth [0,1] perspective projection with finite far plane; orthographic, reversed depth and infinite far are rejected. Include the engine's projection Y flip in the matrix. Model transforms retain the positive uniform scale restriction. Projection uses the actual VP Jacobian in pixel units, 0.3 pixel^2 covariance regularization and a Cholesky square root. CPU helpers `project_splat`, `evaluate_sh` and `fragment_alpha` provide numerical references.
 
-The Slang pair reads 48/192/160/8-byte BDA records and a 112-byte push block. Explicit VP/model columns match GLM storage. SH degree 0..3 uses the local camera-to-center direction, adds 0.5 and clamps negative radiance without an upper HDR clamp. Six vertices form each splat quad. The fragment kernel uses radius² <=9, alpha <=0.99 and discards alpha <1/255. Back-to-front drawing uses unpremultiplied color with ordinary alpha blending.
+The Slang pair reads 48/192/160/8-byte BDA records and a 112-byte push block. Explicit VP/model columns match GLM storage. SH degree 0..3 uses the local camera-to-center direction, adds 0.5 and clamps negative radiance without an upper HDR clamp. Six vertices form each splat quad. The fragment kernel uses radius^2 <=9, alpha <=0.99 and discards alpha <1/255. Back-to-front drawing uses unpremultiplied color with ordinary alpha blending.
 
 Create `gaussian_splatting_pass` with the HDR target format (default RGBA16F), supply its two registered shaders through `pass_context`, then call `set_frame(snapshot)`. Resolve the existing scene-color and opaque-depth targets with the snapshot's viewport and a push-data callback. The pass LOADs both attachments, disables face culling and depth writes, depth-tests the center, draws six vertices per visible reference and returns depth to `shader_read`. It reports recording refusals through `last_error()` and performs no draw on failed prerequisites.
 
 The pass owns its currently assigned snapshot only. The render host must separately keep every submitted snapshot until GPU completion before replacing/releasing it; use completion slots, not swapchain image indices. Immutable uploads avoid overwriting pending device addresses, with a per-frame allocation cost to measure at viewer integration. Snapshot preparation and the normal pass never call `wait_idle`.
 
-Headless `test_gaussian_raster` checks mathematical references, a rotated/transformed off-center camera against numerical differentiation, snapshot sorting/culling/budgets/unload retention, failed uploads and pass recording behavior. Both shaders are built by CMake and the standalone scripts and loaded by the app. SPIR-V validation confirms push offsets 0/16/32/48/64/80/88/96/100/104/108. Actual GPU output is checked by the subsequent isolated probe; headless checks alone do not prove rendering.
+Headless `test_gaussian_raster` checks mathematical references, a rotated/transformed off-center camera against numerical differentiation, snapshot sorting/culling/budgets/unload retention, failed uploads and pass recording behavior. Both shaders are built by CMake and the standalone scripts and loaded by the app. SPIR-V validation confirms push offsets 0/16/32/48/64/80/88/96/100/104/108. The isolated probe below checks actual GPU output; headless checks alone do not prove rendering.
+
+## Isolated GPU probe
+
+`run_raster_probe(core, vertex_spirv, fragment_spirv)` renders four tiny RGBA16F scenes and compares all RGB pixels with the CPU reference. It uses only RHI creation, a primary command buffer, the pass and `image::get_content`. Cases cover known red/blue alpha 0.5 overlap (center RGB (0.5,0,0.25)), opaque depth occlusion, degree 1 SH direction, and degree 3 HDR anisotropy with two rotated/scaled instances, a noncentral camera and nonzero record indices. The absolute RGB tolerance is 0.005, covering RGBA16F storage and blend rounding.
+
+This diagnostic explicitly waits for its own submissions; it is disabled during normal startup. Set `DEREN_GAUSSIAN_PROBE=1` to opt in, or run the hidden Windows helper with an existing valid app config:
+
+```powershell
+./source/scripts/windows/gaussian_raster_probe.ps1 -Config <config.toml> -BuildDir build-release-dyn-clang64
+```
+
+The config must locate this build's shaders and an available model, as for any app run. The helper runs two capture frames, requires a probe PASS and refuses validation errors. Its log lives under the build's `gaussian-raster-probe` directory (or `-WorkDir`). This does not wire Gaussian assets into the normal viewer or scene frame chain.
+
+Verified 2026-10-11 on NVIDIA GeForce RTX 4060 Laptop GPU, driver 617.42: four cases / 4092 pixels, maximum RGB error 0.0008074641, no Vulkan validation errors. The clear-only negative run failed the overlap center with RGB (0,0,0), proving the readback comparison can detect a missing draw. The same run exposed and corrected the static factory's earlier allocate-only upload mismatch.
+
+The projection/SH/raster approach follows NVIDIA's [vk_gaussian_splatting vertex reference](https://github.com/nvpro-samples/vk_gaussian_splatting/blob/main/shaders/threedgs_raster.vert.slang). Our record layout, Cholesky ellipse basis, 3-sigma domain and frame ownership follow this engine's design.

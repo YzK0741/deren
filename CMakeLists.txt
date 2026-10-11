@@ -616,6 +616,7 @@ target_sources(deren_engine
         source/engine/filters/filters.cppm
         source/engine/gaussian_splatting/gaussian_splatting.cppm
         source/engine/gaussian_splatting/raster.cppm
+        source/engine/gaussian_splatting/probe.cppm
         source/engine/math/math.cppm
         ${VR_RUNTIME_MODULES}
         source/engine/pipelines/pipelines.cppm
@@ -662,6 +663,7 @@ target_sources(deren_engine
         source/engine/gaussian_splatting/gaussian_splatting.cpp
         source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp
         source/engine/gaussian_splatting/raster.cpp
+        source/engine/gaussian_splatting/probe.cpp
         source/engine/gaussian_splatting/raster.gpu.cpp
         source/engine/math/math.cpp
         ${VR_RUNTIME_PRIVATE_SOURCES}
