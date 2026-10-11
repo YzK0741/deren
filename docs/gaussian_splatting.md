@@ -218,3 +218,31 @@ THE NEXT STEP, one line of research rather than a guess: find which completion t
 for a slot (the timeline it signals on submit), and whether the presented image can still be read when the same slot
 comes round. If it can, the honest fix is to wait for that slot's presentation before refilling it (or to keep one
 more slot than the presentation engine holds).
+
+### The comparison that names the class of bug: where the per-frame upload is ORDERED
+
+NVIDIA's splat data is organized as ONE long-lived device buffer per semantic role, with the per-frame CONTENT
+arriving through an upload recorded INSIDE the frame's command buffer:
+
+    // ===== SORTING BUFFERS =====  (splat_set_manager_vk.h)
+    nvvk::LargeBuffer m_splatSortingIndicesDevice;    // one, not one per frame
+    nvvk::LargeBuffer m_splatSortingDistancesDevice;
+    nvvk::Buffer      m_splatSortingIndicesHost;      // the CPU sort's result lands here
+    void tryConsumeAndUploadCpuSortingResult(VkCommandBuffer cmd, ...);   // host -> device, IN the frame
+    bool updateSortingBuffers(...);                   // creates/destroys on mode or size change, not per frame
+
+THIS VIEWER DOES THE OPPOSITE: prepare_raster_frame writes the device-visible buffers from the CPU - through
+mapped() since Task 8, through create_buffer(initial_bytes) before it - at a moment that has NO ordering relationship
+with any frame's execution. The device buffer is correct in both variants; what is missing is that the write is not
+*in* the frame.
+
+That is exactly the shape of every observation collected here: the corruption requires the stage's own runtime work
+(probe B, and it survives removing the draw in probe C and the ensure calls in probe D), it is intermittent rather
+than deterministic, and it is unaffected by per-frame creation, per-slot retention, in-place mapped() refill or a
+generation reset - because none of those changes WHERE the write sits relative to the frame.
+
+THE NEXT STEP IT POINTS AT: upload the frame's references inside the frame's own command buffer, the way
+tryConsumeAndUploadCpuSortingResult does - a staging buffer written from the CPU, then a recorded host-to-device copy
+into the long-lived device buffer - and check first whether the contract offers a buffer-copy verb for a frame's
+command buffer (the static asset path uploads through create_buffer(initial_bytes), which is a creation-time copy,
+not a frame-ordered one).
