@@ -37,7 +37,7 @@ Reference output is 8 bytes per particle and is checked against the byte budget.
 
 ## Static GPU upload and ownership
 
-`upload_asset(core, packed, limits)` returns `expected<shared_ptr<gpu_asset const>, foundation_error>`. It uses only the existing RHI APIs: GPU-only storage buffers, initial bytes and `device_address`. A nonempty asset on a backend without that extension returns unsupported. Empty assets create no buffers and have zero addresses.
+`upload_asset(core, packed, limits)` returns `expected<shared_ptr<gpu_asset const>, foundation_error>`. It uses only the existing RHI APIs: the upload-capable `uniform_gpu_only` memory intent plus the `storage` flag, initial bytes and `device_address`. `storage_gpu_only` is allocate-only and cannot receive initial bytes. A nonempty asset on a backend without that extension returns unsupported. Empty assets create no buffers and have zero addresses.
 
 Packed input is validated again: counts, degree, finite geometry/SH, opacity, padding, unused SH bands, valid bounds and positive-semidefinite covariance. Covariance validation requires the normalized matrix plus 1e-6 times identity to be positive semidefinite. This bounds any negative eigenvalue directly by 1e-6 times the largest absolute entry, allowing float rounding without a separate tolerance on its principal minors or determinant. GPU bounds are recomputed conservatively from the actual packed covariance, so they may differ slightly from CPU bounds. Supplied bounds must be finite, ordered and contain centers; narrowing them cannot narrow the published GPU bounds.
 

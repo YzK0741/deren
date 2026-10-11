@@ -306,6 +306,10 @@ struct upload_probe : rhi::api_core {
     }
     rhi::buffer* create_buffer(rhi::buffer_desc const& desc) override {
         ++calls;
+        // The published storage_gpu_only intent is allocate-only.
+        if (desc.usage == rhi::buffer_usage::storage_gpu_only && !desc.initial_bytes.empty()) {
+            return nullptr;
+        }
         if (calls == fail_at)
             return nullptr;
         auto copy = desc;
@@ -398,7 +402,7 @@ void test_upload() {
         CHECK(probe.descriptors[0].size == 48);
         CHECK(probe.descriptors[1].size == 192);
         for (auto const& d : probe.descriptors) {
-            CHECK(d.usage == rhi::buffer_usage::storage_gpu_only);
+            CHECK(d.usage == rhi::buffer_usage::uniform_gpu_only);
             CHECK(rhi::has_flag(d.flags, rhi::buffer_flag::storage));
             CHECK(rhi::has_flag(d.flags, rhi::buffer_flag::device_address));
         }

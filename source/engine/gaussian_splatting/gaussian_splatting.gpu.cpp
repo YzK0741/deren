@@ -120,7 +120,9 @@ namespace deren::engine::gaussian_splatting {
             return failure(error_code::unsupported, "backend lacks device_address");
         }
         rhi::buffer_desc desc{};
-        desc.usage = rhi::buffer_usage::storage_gpu_only;
+        // storage_gpu_only is allocate-only. This existing GPU upload intent
+        // accepts initial bytes; the storage flag additionally permits SSBO reads.
+        desc.usage = rhi::buffer_usage::uniform_gpu_only;
         desc.flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
         desc.initial_bytes = std::as_bytes(std::span{asset.geometry});
         desc.size = desc.initial_bytes.size();
