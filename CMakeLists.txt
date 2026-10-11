@@ -615,6 +615,7 @@ target_sources(deren_engine
         FILES
         source/engine/filters/filters.cppm
         source/engine/gaussian_splatting/gaussian_splatting.cppm
+        source/engine/gaussian_splatting/raster.cppm
         source/engine/math/math.cppm
         ${VR_RUNTIME_MODULES}
         source/engine/pipelines/pipelines.cppm
@@ -659,6 +660,7 @@ target_sources(deren_engine
         source/engine/filters/filters.cpp
         source/engine/gaussian_splatting/gaussian_splatting.cpp
         source/engine/gaussian_splatting/gaussian_splatting.gpu.cpp
+        source/engine/gaussian_splatting/raster.cpp
         source/engine/math/math.cpp
         ${VR_RUNTIME_PRIVATE_SOURCES}
         source/engine/pass/taa.cpp
@@ -1170,7 +1172,7 @@ if(VR_BUILD_TESTS)
         DEPENDS deren
         VERBATIM)
 
-    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
+    set(VR_TEST_TARGETS test_app_config test_utility test_math test_animation test_gltf_loader test_gaussian_loader test_gaussian_splatting test_gaussian_raster test_toon_material_sidecar test_shadow_fit test_render_resources test_pass test_shader_sources test_meshlet test_goo_toon_math test_docs test_dynamic_link test_vulkan_capabilities test_texture_upload_layout test_error_mapping test_runtime_injection)
     file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/test-run")
     # EACH TEST GETS ITS OWN WORKING DIRECTORY (planned X5 housekeeping): several tests write and read files
     # there - test_runtime_injection reads the panic text a CHILD process left behind - and with ONE shared
@@ -1277,6 +1279,7 @@ if(VR_BUILD_TESTS)
     # deren_assets is pure CPU (fastgltf + stb vendored, linked PRIVATE into that DLL); the
     # test loads the repo's gltf_model/DamagedHelmet sample from the working directory.
     target_link_libraries(test_gaussian_splatting PRIVATE deren_engine)
+    target_link_libraries(test_gaussian_raster PRIVATE deren_engine)
     target_link_libraries(test_gaussian_loader PRIVATE gaussian_loader)
     target_link_libraries(test_gltf_loader
             deren_assets

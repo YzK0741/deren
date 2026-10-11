@@ -40,12 +40,12 @@ Files: create source/engine/gaussian_splatting/raster.cppm, raster.cpp, source/t
 
 Interfaces: raster_camera (VP, world position, viewport), raster_push, projection_visibility, projected_splat; validate_raster_camera -> expected<sort_camera, foundation_error>; project_splat(geometry_record, model, camera) -> expected<projected_splat, foundation_error>; evaluate_sh(sh_record, degree, normalized direction) -> expected<glm::vec3, foundation_error>; fragment_alpha(opacity, normalized_coordinate) -> float.
 
-- [ ] Add tests for the 112-byte offsets; identity perspective covariance (25.3,0,100.3), off-axis Jacobian (31.55,-3.125,101.8625), projection Y, uniform scale and rotated anisotropy.
-- [ ] Test near-plane omission, behind/outside support and a surviving edge splat; zero viewport, nonfinite/orthographic camera, malformed geometry/SH, SH direction/signs through degree 3 and HDR values above 1.
-- [ ] Test alpha at center, radius 3, beyond radius 3, cap, threshold and invalid input.
-- [ ] Run the new executable with scaffolding returning unsupported: expect failing behavioral checks.
-- [ ] Implement validated references in double; use a Cholesky covariance square root (the same ellipse as the sample's eigenbasis, with potentially more quad overdraw).
-- [ ] Build test_gaussian_raster; CTest -R 'test_gaussian_(loader|splatting|raster)' must pass. Commit this deliverable.
+- [x] Add tests for the 112-byte offsets; identity perspective covariance (25.3,0,100.3), off-axis Jacobian (31.55,-3.125,101.8625), projection Y, uniform scale and rotated anisotropy.
+- [x] Test near-plane omission, behind/outside support and a surviving edge splat; zero viewport, nonfinite/orthographic camera, malformed geometry/SH, SH direction/signs through degree 3 and HDR values above 1.
+- [x] Test alpha at center, radius 3, beyond radius 3, cap, threshold and invalid input.
+- [x] Run the new executable with scaffolding returning unsupported: expect failing behavioral checks.
+- [x] Implement validated references in double; use a Cholesky covariance square root (the same ellipse as the sample's eigenbasis, with potentially more quad overdraw).
+- [x] Build test_gaussian_raster; CTest -R 'test_gaussian_(loader|splatting|raster)' must pass. Commit this deliverable.
 
 ## Task 2: immutable frame upload, Slang pair and RHI pass
 
