@@ -240,3 +240,26 @@ STEPS, once the intent question is answered:
    records - which is the frame-ordered upload;
 4. the acceptance is unchanged and measurable: the visual protocol (three scripted resizes, every capture LOOKED at)
    plus the cost line and the gates.
+
+### Task 9's blocker, answered from the allocator's own tables
+
+The question was which intent a copy DESTINATION needs. Both halves are now known, read off vma.cppm:
+
+* THE DESTINATION EXISTS TODAY. `buffer_type::uniform_gpu_only` is `VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT |
+  VK_BUFFER_USAGE_TRANSFER_DST_BIT` (vma.cppm:496-499), and the contract's `buffer_flag::storage` appends
+  `VK_BUFFER_USAGE_STORAGE_BUFFER_BIT` while `device_address` appends the address bit - so
+  `buffer_usage::uniform_gpu_only` with `storage | device_address` is a DEVICE-LOCAL buffer a frame copy may write and
+  the shader may read as an SSBO. It is exactly the pair the immutable static tables already use, which is why the
+  contract's own note calls staging-copy-at-creation "the upload mechanism" for that intent.
+* THE SOURCE DOES NOT, and that is the one addition this task needs: no `buffer_usage` carries
+  `VK_BUFFER_USAGE_TRANSFER_SRC_BIT` (the whole usage table is vma.cppm:485-529), so a host-visible STAGING buffer
+  cannot be created through the contract today, and `copy_buffer(destination, source, ...)` would be refused by
+  Vulkan for its source.
+
+SO THE CONTRACT ADDITION IS ONE INTENT, in the three places the backend's own note says a new contract value must be
+written out rather than cast: `buffer_usage::staging_source` next to `readback_coherent` (rhi.api_core.cppm:89-100,
+whose read-back twin is the exact precedent - host-visible and coherent, created without contents);
+`buffer_type::staging_source` in vma.cppm:75-99 with `VMA_MEMORY_USAGE_CPU_TO_GPU` beside the other host-visible
+types and `VK_BUFFER_USAGE_TRANSFER_SRC_BIT` in the usage switch; and the one-to-one case in
+core.api_core.cpp:1137-1168. Then Task 9's four steps can be written, and its acceptance is the visual protocol that
+found this bug in the first place.
