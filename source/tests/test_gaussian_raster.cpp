@@ -357,7 +357,17 @@ namespace {
         CHECK((*frame)->references().back().instance_index == 0 && (*frame)->references().back().local_gaussian_index == 0);
         CHECK((*frame)->instances().size() == 2 && (*frame)->byte_size() == 360);
         CHECK((*frame)->params().instances_address != 0 && (*frame)->params().references_address != 0);
-        CHECK(probe.descriptors[2].usage == rhi::buffer_usage::storage_coherent);
+        // THE PAIR PER ARRAY (plan Task 9): a DEVICE buffer the shader reads through its address
+        // (`uniform_gpu_only` + storage + device_address) and a HOST-VISIBLE STAGING buffer the CPU writes
+        // (`staging_source`), created device-then-staging for the instance array and then for the reference one -
+        // so the four creations after `make_raster_asset`'s two are indices 2..5. The old assertion named the
+        // single `storage_coherent` buffer that stood here, which the shader read directly and the CPU wrote with
+        // no ordering relationship to any frame: the shape this task removes.
+        CHECK(probe.descriptors.size() >= 6);
+        CHECK(probe.descriptors[2].usage == rhi::buffer_usage::uniform_gpu_only);
+        CHECK(probe.descriptors[3].usage == rhi::buffer_usage::staging_source);
+        CHECK(probe.descriptors[4].usage == rhi::buffer_usage::uniform_gpu_only);
+        CHECK(probe.descriptors[5].usage == rhi::buffer_usage::staging_source);
         CHECK(rhi::has_flag(probe.descriptors[2].flags, rhi::buffer_flag::device_address));
         unsigned const calls = probe.calls;
         auto limited = gs::prepare_raster_frame(probe, items, camera(), {8, 359});
@@ -383,10 +393,14 @@ namespace {
         probe.address.unaligned_at = probe.calls + 1;
         CHECK(!gs::prepare_raster_frame(probe, items, camera()));
         probe.address.unaligned_at = 0;
-        probe.address.zero_at = probe.calls + 2;
+        // THE DEVICE HALF IS THE ONE WITH AN ADDRESS (plan Task 9): the zero-address probe must therefore hit the
+        // FIRST creation of the pair, not the second - the staging buffer has no address for the shader to read.
+        probe.address.zero_at = probe.calls + 1;
         auto invalid_address = gs::prepare_raster_frame(probe, items, camera());
         CHECK(!invalid_address && invalid_address.error().code == gs::error_code::invalid_address);
         probe.address.zero_at = 0;
+        // ... and the STAGING half is the one whose size can be short, which is the check this task adds: the
+        // device buffer was always checked and the staging buffer was not.
         probe.undersized_at = probe.calls + 2;
         auto short_upload = gs::prepare_raster_frame(probe, items, camera());
         CHECK(!short_upload && short_upload.error().code == gs::error_code::allocation_failure);

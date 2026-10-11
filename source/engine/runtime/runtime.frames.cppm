@@ -2465,7 +2465,7 @@ namespace deren::engine {
         camera.extent = this->render_extent();
         // THE SLOT'S OWN FRAME IS HANDED BACK FOR REUSE, so a steady-state frame writes into the buffers it already
         // has (4.5 MB at the acceptance cloud, created and released every frame before this) and allocates nothing:
-        // the contract's `mapped()` is the write for a `storage_coherent` buffer, and this slot's own frame has
+        // the CPU's bytes go into the frame's STAGING buffers through `mapped()`, and this slot's own frame has
         // completed by the time the ring comes round again, which is the rule that comment states.
         auto const frame = gaussian_splatting::prepare_raster_frame(this->rhi_face(), this->gaussian_instances, camera, gaussian_splatting::foundation_limits{}, slot.get());
         if (!frame) {
@@ -2475,6 +2475,21 @@ namespace deren::engine {
                                 static_cast<int32_t>(frame.error().code));
             slot.reset();
             return {};
+        }
+        // ---- THE UPLOAD GOES INTO THE FRAME (plan Task 9) ------------------------------------------------
+        // THE ONE ORDERING THE PREVIOUS SHAPE DID NOT HAVE: the CPU wrote the buffer the shader read directly, at a
+        // moment with no relation to any frame's execution. Now the bytes reach the device buffer through a copy
+        // RECORDED in this frame's command buffer, which is exactly where NVIDIA's upload sits
+        // (`tryConsumeAndUploadCpuSortingResult(cmd, ...)`) - and the corruption that motivated this (the first
+        // swapchain resize of a cloud-only frame) was the frame whose preparation the rebuild moves relative to the
+        // previous frame's execution.
+        if (std::shared_ptr<rhi::command_buffer> const commands = this->frame_command_buffer(); commands != nullptr) {
+            deren::promise::rhi::error const recorded = (*frame)->record_uploads(*commands);
+            if (recorded != rhi::error::ok) {
+                deren::utility::log("gaussian: this frame's upload could not be recorded (error {}); the splats are skipped and the meshes render as usual",
+                                    static_cast<int32_t>(recorded));
+                return {};
+            }
         }
         // THE SLOT'S PREVIOUS SNAPSHOT IS DROPPED HERE AND NOWHERE ELSE: this slot's frame has completed, so its
         // buffers are safe to release - and every OTHER slot's snapshot is still held, which is the whole point of

@@ -77,6 +77,23 @@ export namespace deren::engine::gaussian_splatting {
         raster_frame& operator=(raster_frame const&) = delete;
         raster_frame(raster_frame&&) = delete;
         raster_frame& operator=(raster_frame&&) = delete;
+        /// RECORD THIS FRAME'S UPLOAD INTO THE FRAME (plan Task 9, NVIDIA's tryConsumeAndUploadCpuSortingResult).
+        ///
+        /// THE SHAPE OF THE FIX, and why the previous one corrupted: this frame's two arrays used to BE the
+        /// shader's buffers - host-visible, written through `mapped()`, read through their device addresses. That
+        /// write has NO ordering relationship to any frame's execution: the CPU writes whenever it prepares, and
+        /// the GPU may already be reading the buffer for the frame before. The corruption that produced was
+        /// visible only in the cloud-only configuration, and only on the FIRST swapchain resize, which is the
+        /// frame whose preparation the rebuild moves relative to the previous frame's execution.
+        ///
+        /// NOW: the CPU writes a HOST-VISIBLE STAGING buffer, and the DEVICE buffer the shader reads is filled by
+        /// a copy RECORDED IN THIS FRAME - so the write is ordered by the frame itself, exactly as the driver
+        /// orders any other recorded work. The device buffers carry `storage` + `device_address` (the shader reads
+        /// them as an SSBO through the address in the push block) and are not host-visible at all.
+        ///
+        /// @return `error::ok`, or the contract's refusal for a copy that cannot be recorded (the caller logs it;
+        ///         a frame with no visible splat records nothing).
+        [[nodiscard]] deren::promise::rhi::error record_uploads(deren::promise::rhi::command_buffer& commands) const noexcept;
         [[nodiscard]] raster_push const& params() const noexcept {
             return push;
         }
@@ -106,11 +123,19 @@ export namespace deren::engine::gaussian_splatting {
         std::vector<draw_reference> reference_data;
         std::vector<instance_record> instance_data;
         std::vector<std::shared_ptr<raster_asset const>> owners;
+        /// THE DEVICE BUFFERS THE SHADER READS: `uniform_gpu_only` + `storage` + `device_address`, filled by the
+        /// copy `record_uploads` records - never written by the host (see that method's note).
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> reference_buffer, instance_buffer;
-        /// WHAT EACH BUFFER WAS CREATED WITH, so a later frame can write into it in place instead of creating a new
-        /// one: they are `storage_coherent` (host-visible), which is what the contract's `mapped()` exists for, and
-        /// re-creating 4.5 MB every frame is both the measured cost and the per-frame creation a swapchain rebuild
-        /// may trip over (the plan's Task 8).
+        /// THE HOST-VISIBLE STAGING BUFFERS THE CPU WRITES (a `staging_source` intent): the CPU's bytes land here
+        /// through `mapped()`, and the frame's recorded copy moves them to the device buffers above.
+        deren::promise::rhi::object_manager<deren::promise::rhi::buffer> reference_staging, instance_staging;
+        /// WHAT THIS FRAME MUST COPY, in bytes: set by `prepare_raster_frame` to the sizes it wrote into the
+        /// staging buffers, and read by `record_uploads`.
+        std::uint64_t instance_upload_bytes = 0, reference_upload_bytes = 0;
+        /// WHAT EACH PAIR WAS CREATED WITH, so a later frame can write into it in place instead of creating new
+        /// buffers: the staging half is host-visible (`mapped()`), which is what the contract's `mapped()` exists
+        /// for, and re-creating 4.5 MB every frame is both the measured cost and the per-frame creation a
+        /// swapchain rebuild may trip over (the plan's Task 8).
         std::uint64_t reference_capacity = 0;
         std::uint64_t instance_capacity = 0;
         std::uint64_t bytes = 0;
