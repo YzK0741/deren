@@ -1,10 +1,14 @@
 module;
 #include <algorithm>
+#include <chrono>
 #include <expected>
 #include <glm/glm.hpp>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <span>
+#include <thread>
+#include <utility>
 #include <vector>
 module deren.engine.gaussian_splatting.raster;
 import deren.utility;
@@ -13,6 +17,45 @@ namespace deren::engine::gaussian_splatting {
     namespace {
         auto failure(error_code code, char const* message) {
             return std::unexpected(foundation_error{code, message});
+        }
+
+        /// the worker count a frame's per-splat work wants: one per hardware thread, capped at 16 so a huge machine
+        /// does not spawn a hundred threads for one cloud - and 1 when the cloud is small enough that spawning them
+        /// would cost more than the work they share.
+        /// @note MEASURED, not assumed: this cloud is 562,974 splats and the per-splat pass below spent 240 ms of a
+        ///       334 ms frame on ONE thread (the sort took the other 94 ms), which is the 3 fps the panel showed.
+        [[nodiscard]] std::size_t raster_worker_count(std::size_t const count) noexcept {
+            unsigned const hardware = std::thread::hardware_concurrency();
+            std::size_t const workers = std::min<std::size_t>(hardware == 0u ? 1u : hardware, 16u);
+            return count < 8192u ? 1u : workers;
+        }
+
+        /// run @p work(index, begin, end) over @p count items, chunk 0 on the CALLING thread
+        ///
+        /// Every worker owns one index and one half-open range, so nothing is shared but the range boundaries: each
+        /// writes into its own storage and the caller decides what the order between them means. That is what keeps a
+        /// parallel pass byte-for-byte the same as the serial one where the order is observable (the draw order).
+        template <typename F>
+        void run_in_parallel(std::size_t const workers, std::size_t const count, F const& work) {
+            if (workers <= 1u) {
+                work(std::size_t{0}, std::size_t{0}, count);
+                return;
+            }
+            std::size_t const chunk = (count + workers - 1u) / workers;
+            std::vector<std::thread> pool;
+            pool.reserve(workers - 1u);
+            for (std::size_t index = 1; index < workers; ++index) {
+                std::size_t const begin = std::min(count, index * chunk);
+                std::size_t const end = std::min(count, begin + chunk);
+                if (begin >= end) {
+                    break;
+                }
+                pool.emplace_back([&work, index, begin, end] { work(index, begin, end); });
+            }
+            work(std::size_t{0}, std::size_t{0}, std::min(count, chunk));
+            for (std::thread& worker : pool) {
+                worker.join();
+            }
         }
     } // namespace
     std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(rhi::api_core& core, deren::gaussian::asset input, foundation_limits const& limits) {
@@ -36,6 +79,7 @@ namespace deren::engine::gaussian_splatting {
         return std::shared_ptr<raster_asset const>{std::move(result)};
     }
     std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits) {
+        auto const frame_started = std::chrono::steady_clock::now();
         auto sort_view = validate_raster_camera(camera);
         if (!sort_view) {
             return std::unexpected(sort_view.error());
@@ -75,42 +119,76 @@ namespace deren::engine::gaussian_splatting {
             record.sh_degree = gpu->sh_degree();
             records.push_back(record);
         }
+        auto const sort_started = std::chrono::steady_clock::now();
         auto sorted = sort_draw_references(sort_inputs, *sort_view, limits);
         if (!sorted) {
             return std::unexpected(sorted.error());
         }
+        auto const sorted_at = std::chrono::steady_clock::now();
         std::shared_ptr<raster_frame> result(new raster_frame{});
         result->total = static_cast<std::uint32_t>(sorted->size());
         result->push.view_projection = camera.view_projection;
         result->push.camera_position = glm::vec4{camera.position, 1};
         result->push.viewport_width = static_cast<float>(camera.extent.width);
         result->push.viewport_height = static_cast<float>(camera.extent.height);
-        result->reference_data.reserve(sorted->size());
-        for (auto const& reference : *sorted) {
-            auto const& input = inputs[reference.instance_index];
-            auto projected = project_splat(input.asset->geometry_records()[reference.local_gaussian_index], input.model, camera);
-            if (!projected) {
-                return std::unexpected(projected.error());
-            }
-            if (projected->visibility == projection_visibility::near_omitted) {
-                ++result->near_omitted;
-            } else if (projected->visibility == projection_visibility::outside) {
-                ++result->outside;
-            } else {
-                auto const& source = input.asset->source();
-                auto const& particle = source.particles[reference.local_gaussian_index];
-                glm::vec3 const center{particle.center[0], particle.center[1], particle.center[2]};
-                glm::vec3 const eye{records[reference.instance_index].inverse_model * glm::vec4{camera.position, 1}};
-                sh_record sh;
-                sh.coefficients = particle.sh;
-                auto radiance = evaluate_sh(sh, source.sh_degree, glm::normalize(center - eye));
-                if (!radiance) {
-                    return std::unexpected(radiance.error());
+        // ---- THE PER-SPLAT PASS, ON EVERY CORE IT CAN HAVE ----
+        // The work is INDEPENDENT PER SPLAT and it is the frame's whole cost (see raster_worker_count's note). Each
+        // worker fills its own vector and counts its own rejections; the caller then concatenates those vectors IN
+        // CHUNK ORDER and sums the counts, so the draw order and the reported totals are exactly the serial ones -
+        // the sort's answer, not the schedule's.
+        struct projected_chunk {
+            std::vector<draw_reference> references;
+            std::uint32_t near_omitted = 0;
+            std::uint32_t outside = 0;
+            std::optional<foundation_error> failure = {};
+        };
+        std::size_t const total = sorted->size();
+        std::size_t const workers = raster_worker_count(total);
+        std::vector<projected_chunk> chunks(workers);
+        run_in_parallel(workers, total, [&](std::size_t const index, std::size_t const begin, std::size_t const end) {
+            projected_chunk& chunk = chunks[index];
+            chunk.references.reserve(end - begin);
+            for (std::size_t i = begin; i < end; ++i) {
+                auto const& reference = (*sorted)[i];
+                auto const& input = inputs[reference.instance_index];
+                auto projected = project_splat(input.asset->geometry_records()[reference.local_gaussian_index], input.model, camera);
+                if (!projected) {
+                    chunk.failure = projected.error();
+                    return;
                 }
-                result->reference_data.push_back(reference);
+                if (projected->visibility == projection_visibility::near_omitted) {
+                    ++chunk.near_omitted;
+                } else if (projected->visibility == projection_visibility::outside) {
+                    ++chunk.outside;
+                } else {
+                    auto const& source = input.asset->source();
+                    auto const& particle = source.particles[reference.local_gaussian_index];
+                    glm::vec3 const center{particle.center[0], particle.center[1], particle.center[2]};
+                    glm::vec3 const eye{records[reference.instance_index].inverse_model * glm::vec4{camera.position, 1}};
+                    sh_record sh;
+                    sh.coefficients = particle.sh;
+                    auto radiance = evaluate_sh(sh, source.sh_degree, glm::normalize(center - eye));
+                    if (!radiance) {
+                        chunk.failure = radiance.error();
+                        return;
+                    }
+                    chunk.references.push_back(reference);
+                }
             }
+        });
+        result->reference_data.reserve(total);
+        for (projected_chunk& chunk : chunks) {
+            if (chunk.failure) {
+                return std::unexpected(*chunk.failure);
+            }
+            result->near_omitted += chunk.near_omitted;
+            result->outside += chunk.outside;
+            result->reference_data.insert(result->reference_data.end(), chunk.references.begin(), chunk.references.end());
         }
         result->push.visible_count = static_cast<std::uint32_t>(result->reference_data.size());
+        deren::utility::log("gaussian frame cost: gather {:.1f} ms, sort {:.1f} ms, project+SH {:.1f} ms ({} visible of {})",
+                            std::chrono::duration<double, std::milli>(sort_started - frame_started).count(), std::chrono::duration<double, std::milli>(sorted_at - sort_started).count(),
+                            std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - sorted_at).count(), result->reference_data.size(), sorted->size());
         if (result->push.visible_count == 0) {
             return std::shared_ptr<raster_frame const>{std::move(result)};
         }
