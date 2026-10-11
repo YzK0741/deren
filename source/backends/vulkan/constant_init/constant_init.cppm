@@ -788,11 +788,13 @@ export namespace deren::vulkan {
     // layouts still differed (the far side was COLOR_ATTACHMENT_OPTIMAL / SHADER_READ_ONLY_OPTIMAL /
     // TRANSFER_*_OPTIMAL / ...), because that role is what decides which stages and access masks the
     // barrier has to name.
-    /** @brief UNDEFINED -> GENERAL, color-attachment write (a scene target being rendered into) */
+    /** @brief UNDEFINED -> GENERAL, color-attachment write (a scene target being rendered into)
+     * @note The source stage also chains a swapchain image's acquire wait at COLOR_ATTACHMENT_OUTPUT.
+     *       Discarding its contents does not permit the layout transition to race presentation. */
     inline constexpr VkImageMemoryBarrier2 color_attachment_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = nullptr,
-        .srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .srcAccessMask = 0,
         .dstStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .dstAccessMask = VK_ACCESS_2_COLOR_ATTACHMENT_WRITE_BIT,
@@ -1156,7 +1158,7 @@ export namespace deren::vulkan {
     inline constexpr VkImageMemoryBarrier2 undefined_to_present_transition = {
         .sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2,
         .pNext = nullptr,
-        .srcStageMask = VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT,
+        .srcStageMask = VK_PIPELINE_STAGE_2_COLOR_ATTACHMENT_OUTPUT_BIT,
         .srcAccessMask = 0,
         .dstStageMask = VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT,
         .dstAccessMask = 0,

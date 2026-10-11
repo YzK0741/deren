@@ -111,7 +111,15 @@ TWO CORRECTNESS RULES EARNED THEIR COMMITS HERE, both from measurements rather t
 
 WHAT IS STILL OPEN, in the order it matters: (1) a frame with no imported geometry must be drivable, and (2) the depth clear must not depend on a leaf being present - which together would let the placeholder go back to being transparent, or disappear. Both are engine work rather than viewer work.
 
-### Known issue: the FIRST swapchain resize corrupts a cloud-only frame
+### Resize synchronization update (2026-10-11)
+
+The rebuilt `fb6c5b02` baseline did not reproduce the earlier colored-block corruption in the inspected resize captures. Synchronization validation did reproduce a separate, definite WSI error: the swapchain layout transition could execute before the acquire semaphore's wait. The submit waits at `COLOR_ATTACHMENT_OUTPUT`, but the initial color barrier's source stage was `TOP_OF_PIPE`. The initial color and undefined-to-present barriers now use `COLOR_ATTACHMENT_OUTPUT` as their source stage so the transition chains the acquire wait.
+
+The same test that reported `WRITE_AFTER_READ` before the change is validation-clean afterward. Early capture, repeated resizing, and rapid resizing were also exercised; the existing fourteen render hashes still match their frozen baseline. This verifies the synchronization fix, but does not establish it as the cause of the earlier intermittent visual corruption. See [the resize report](reviews/2026-10-11-resize-synchronization.md) for evidence, limits and the reusable GPU check.
+
+### Earlier resize investigation (historical)
+
+The following entries retain the earlier observations and rejected hypotheses. Read their retractions before using them as evidence; the current verified status is above.
 
 REPRODUCED, and it is specific to this path rather than to resizing in general. Recipe: start the viewer with the cloud's path in `model`, let it settle, then resize the window once (any size) and look - the frame fills with blue and olive blocks (splats projected through garbage) with the bouquet pushed into a corner. Resizing a SECOND time clears it, which is the sharpest clue in the report: generation 0 to generation 1 is the transition that leaves something stale, and the next one is fine.
 
