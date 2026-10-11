@@ -67,5 +67,14 @@ Files: add an isolated RHI probe under the Gaussian raster module and connect an
 - [x] Run small float HDR readback cases (plus regularized viewport edge coverage): red/blue alpha0.5 overlap center RGB (0.5,0,0.25), anisotropic coverage, SH sign, transformed second instance and opaque depth occlusion.
 - [x] Use a nontrivial camera/model and nonzero local/instance indices to exercise matrix and 48/192/160/8-byte layouts; inspect against CPU reference.
 - [x] Record actual GPU/device and numerical tolerance. If GPU capabilities prevent execution, report that limitation and preserve the probe; do not claim rendered validation.
-- [ ] Run full build/CTest, format, zero backend boundary and strict analysis; dispatch the required independent final reviewer, address important findings with RED/GREEN.
-- [ ] Push authorized commits and confirm remote LLVM23/Debug/ASan CI; record scope, limitations and next viewer-integration work.
+- [x] Run full build/CTest, format, zero backend boundary and strict analysis; dispatch the required independent final reviewer, address important findings with RED/GREEN.
+- [x] Push authorized commits and confirm remote LLVM23/Debug/ASan CI; record scope, limitations and next viewer-integration work.
+
+Done 2026-10-11: two independent reviews of this batch ran (the second over a5ff51b0..e3bce691 plus the
+working-tree changes; one blocker and two important findings, of which one blocker and one minor were real
+and two important were misreadings). The blocker was the push block's declared lanes, fixed in cdab7ee6 with
+a derived lane contract in test_shader_sources that fails without it; the plane-divergence reading was
+settled by transcribing the shader's rejection into test_gaussian_raster and pinning both planes. The first
+CI run then failed Release on five readability-trailing-comma findings that this machine's LLVM 22 clang-tidy
+does not report (CI is LLVM 23) - fixed in 6f334e32, after which both jobs are green, as is the record commit.
+Scope, limitations and the next viewer-integration work are in ../reviews/2026-10-11-gaussian-raster-pipeline.md.
