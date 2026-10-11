@@ -397,6 +397,26 @@ namespace {
         CHECK(settings.model == "Models/tri.gltf");
         CHECK(settings.grid_side == 3);
     }
+
+    /// THE EXTENSION IS WHAT PICKS THE LOADER, and the cases below are the ones a viewer would otherwise get
+    /// wrong: a Gaussian `.ply` must not reach the glTF importer, an extension spelled in capitals is still that
+    /// extension, and a path whose extension this build cannot read must be reported rather than defaulted - a
+    /// silent default is how "the wrong loader refused it" turns into a bug report about the file.
+    void test_model_format_follows_the_extension() {
+        using deren::app_config::model_format;
+        using deren::app_config::model_format_of;
+        CHECK(model_format_of("Models/tri.gltf") == model_format::gltf);
+        CHECK(model_format_of("D:/a/b.glb") == model_format::gltf);
+        CHECK(model_format_of("flowers_1.ply") == model_format::gaussian_ply);
+        CHECK(model_format_of("/assets/Bouquet.PLY") == model_format::gaussian_ply);
+        // No extension, an unknown one, and names that merely contain the letters: no default.
+        CHECK(model_format_of("Models/tri") == model_format::unsupported);
+        CHECK(model_format_of("Models/tri.ply.bak") == model_format::unsupported);
+        CHECK(model_format_of("assets.gltf/tri") == model_format::unsupported);
+        CHECK(model_format_of("") == model_format::unsupported);
+        // Nothing is opened, so a path that does not exist still classifies - the caller checks existence.
+        CHECK(model_format_of("/nonexistent/flowers.ply") == model_format::gaussian_ply);
+    }
 } // namespace
 
 int32_t main() {
@@ -409,5 +429,6 @@ int32_t main() {
     test_toon_shadow_softness_ladder_is_sanitized();
     test_area_light_derivation_matches_the_reference_package();
     test_resolve_from_argv_merges_config_and_positional();
+    test_model_format_follows_the_extension();
     return deren::vk_test::finish("test_app_config");
 }

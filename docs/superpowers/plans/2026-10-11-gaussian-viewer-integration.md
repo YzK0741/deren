@@ -54,16 +54,29 @@ Files: a small generator under source/scripts/ (or the existing probe helper), p
 - [ ] Decide the config spelling (`[render] gaussian = "<path>"`, empty = off) and the auto-locate behaviour,
       next to `model`/`background_glb`.
 
-## Task 1: configuration and asset lifetime
+## Task 1: the model path decides the loader, and the asset lives
 
-Files: source/application_configuration/*, the app side that owns asset loading, and a headless test.
+Files: source/application_configuration/*, source/app/chores.cpp (model selection + the file dialog's
+filter), source/app/main.cpp (the load site), and headless tests.
 
-- [ ] RED: a configuration test for the new key (absent, empty, a missing file, a malformed PLY) and a loader
-      test that a fully invalid file yields a diagnostic rather than a partially built asset.
-- [ ] Load the asset once at startup, build the `raster_asset`, and log the totals the design asks for
-      (particles, unique particles, GPU bytes, references) - the spec requires the UI to report the real total.
-- [ ] A load failure keeps the previous scene and says why; nothing is published half-built.
-- [ ] GREEN: the tests above pass; no GPU needed for either half.
+NO NEW CONFIGURATION KEY: `model` (and argv[1]) already names a file, so the file's own extension chooses the
+loader and there is no second key that can drift out of sync with the path.
+
+- [x] Classify the path in `deren::app_config` (pure CPU, tested by test_app_config): `.gltf`/`.glb` -> the
+      scene importer, `.ply` -> the Gaussian cloud loader, anything else -> `unsupported` rather than a silent
+      default. Case-insensitive, extension only, nothing opened. Lands in
+      `model_format_of`/`model_format` with ten cases in test_app_config.
+- [ ] The app's two sites follow it: the file dialog's filter (`*.glb;*.gltf` today) gains `*.ply` and its
+      title stops promising glTF only; `main.cpp`'s `gltf::load_model_async(model_path)` becomes a dispatch on
+      `model_format_of`, and `unsupported` panics naming the two formats this build reads.
+- [ ] The `.ply` branch loads the cloud once (`deren::gaussian::load_ply`), builds the `raster_asset`
+      (`make_raster_asset`), and logs the totals the design asks for (particles, GPU bytes, bounds) - the
+      spec requires the UI to report the real total, and 562,974 splats is not a number to guess at.
+- [ ] A load failure keeps the previous scene and says why; nothing is published half-built. The glTF branch
+      is untouched: a `.gltf`/`.glb` path must behave exactly as before.
+- [ ] RED: a loader test that a malformed PLY yields a diagnostic rather than a partial asset (the dialect
+      cases already exist; this adds the failure shape), plus a test that an unsupported extension is refused
+      by name.
 
 ## Task 2: the frame-chain stage
 

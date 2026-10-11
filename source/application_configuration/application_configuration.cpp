@@ -802,4 +802,34 @@ namespace deren::app_config {
         // no explicit default path: fall back to "config.toml" in the working directory
         return resolve_from_argv(argc, argv, "config.toml");
     }
+
+    namespace {
+        /// whether @p text ends with @p suffix, comparing ASCII case-insensitively (a path on a
+        /// case-insensitive filesystem may spell its extension either way, and this runs before any open)
+        bool has_suffix(std::string_view const text, std::string_view const suffix) noexcept {
+            if (text.size() < suffix.size()) {
+                return false;
+            }
+            std::string_view const tail = text.substr(text.size() - suffix.size());
+            for (std::size_t i = 0; i < suffix.size(); ++i) {
+                char const lower = tail[i] >= 'A' && tail[i] <= 'Z' ? static_cast<char>(tail[i] + 32) : tail[i];
+                if (lower != suffix[i]) {
+                    return false;
+                }
+            }
+            return true;
+        }
+    } // namespace
+
+    model_format model_format_of(std::string_view const path) noexcept {
+        // THE EXTENSION DECIDES, and only the extension: see the declaration for why an absent or unknown one
+        // is `unsupported` rather than a default, and why nothing is opened here.
+        if (has_suffix(path, ".gltf") || has_suffix(path, ".glb")) {
+            return model_format::gltf;
+        }
+        if (has_suffix(path, ".ply")) {
+            return model_format::gaussian_ply;
+        }
+        return model_format::unsupported;
+    }
 } // namespace deren::app_config

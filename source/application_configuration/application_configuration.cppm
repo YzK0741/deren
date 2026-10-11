@@ -580,7 +580,9 @@ namespace deren::app_config {
      */
     export struct app_settings {
         // model file (empty = locate default via paths.model_dir; "ask" opens the platform's own file
-        // dialog at startup - see wants_model_dialog, which is the only thing that may interpret it)
+        // dialog at startup - see wants_model_dialog, which is the only thing that may interpret it).
+        // WHICH LOADER READS IT COMES FROM ITS EXTENSION (see model_format_of): .gltf/.glb is the scene
+        // importer's, .ply a Gaussian splat cloud, and anything else is reported rather than defaulted.
         std::string model = {};
         int32_t grid_side = 0; // > 1 enables the instancing stress grid
         path_settings paths = {};
@@ -609,6 +611,34 @@ namespace deren::app_config {
      * rather than as an instruction.
      */
     export bool wants_model_dialog(app_settings const& settings);
+
+    /**
+     * @ingroup app_config
+     * @brief WHICH LOADER a model path asks for, decided by the path's extension
+     *
+     * `model` (and argv[1]) names a FILE, and the file's own extension is what says how to read it: a `.gltf`
+     * or `.glb` belongs to the scene importer, a `.ply` to the Gaussian splat cloud loader. That keeps the
+     * path as the ONE place the choice lives - there is no second key that can drift out of sync with it, and
+     * a path this build cannot read is one answer with one message rather than whatever a loader said first.
+     */
+    export enum class model_format {
+        gltf,         // .gltf / .glb: the retained scene importer (deren.gltf_loader)
+        gaussian_ply, // .ply: a Gaussian splat cloud (deren.gaussian_loader)
+        unsupported,  // anything else: the caller reports the two formats above
+    };
+
+    /**
+     * @ingroup app_config
+     * @brief classify @p path by extension, case-insensitively
+     * @return the loader the path asks for, or `unsupported` when its extension is unknown or absent
+     *
+     * NOTHING IS OPENED, and that is the point: the decision has to be made BEFORE a loader is chosen, and the
+     * caller checks existence itself (it has to, either way). A path with no extension is `unsupported` rather
+     * than a silent default, because "read it as glTF" is exactly the mistake a Gaussian `.ply` would trip
+     * over; and only the extension is compared, so a name that merely contains the letters ("tri.ply.bak",
+     * a directory called "a.ply") is not classified as an asset.
+     */
+    export model_format model_format_of(std::string_view path) noexcept;
 
     /**
      * @ingroup app_config
