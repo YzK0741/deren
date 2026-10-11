@@ -2430,6 +2430,46 @@ namespace deren::engine {
         };
     }
 
+    void runtime::set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset) noexcept {
+        this->gaussian_asset = std::move(asset);
+        this->gaussian_instances.clear();
+        if (this->gaussian_asset) {
+            // ONE IDENTITY INSTANCE until the viewer grows transforms: the cloud stands where the asset's own
+            // coordinates put it, and the app frames the camera from the bounds the loader reported.
+            this->gaussian_instances.push_back(gaussian_splatting::raster_instance{
+                .asset = this->gaussian_asset,
+                .model = glm::mat4{1.0f},
+                .stable_id = 0u,
+            });
+            deren::utility::log("gaussian: the cloud is set for every frame that follows ({} instance(s), {} particle(s))",
+                                this->gaussian_instances.size(), this->gaussian_asset->source().particles.size());
+        } else {
+            deren::utility::log("gaussian: the cloud was cleared; the splat stage now records nothing");
+        }
+    }
+
+    std::shared_ptr<gaussian_splatting::raster_frame const> runtime::make_gaussian_frame() noexcept {
+        if (!this->gaussian_asset) {
+            return {};
+        }
+        // THE CAMERA IS THE RENDERER'S OWN, unjittered: the splats are projected from the same view-projection the
+        // mesh passes use, and the TAA jitter is deliberately not applied - a splat is not resampled by the
+        // temporal resolve (the design turns TAA off while a cloud renders).
+        gaussian_splatting::raster_camera camera;
+        camera.view_projection = this->current_ubo.view_proj_unjittered;
+        camera.position = glm::vec3(glm::inverse(this->current_ubo.view)[3]);
+        camera.extent = this->render_extent();
+        auto const frame = gaussian_splatting::prepare_raster_frame(this->rhi_face(), this->gaussian_instances, camera, gaussian_splatting::foundation_limits{});
+        if (!frame) {
+            // THE FRAME IS SKIPPED, NOT FAKED, and the reason is the error's: the pass records nothing this frame
+            // and the mesh rendering that surrounds it is untouched (the design's own failure rule).
+            deren::utility::log("gaussian: this frame's snapshot was refused (error {}); the splats are skipped and the meshes render as usual",
+                                static_cast<int32_t>(frame.error().code));
+            return {};
+        }
+        return *frame;
+    }
+
     // THE TRANSPARENT PASS'S RESOLVER IS GONE TOO (S3), for the same reason as the scene pass's: two declared
     // targets, the shared scene block and a full-frame extent, all of them resolved from the declaration. Its gate
     // - "nothing blended this frame" - is the pass's FEATURE ("transparent", answered by `frame_transparent`
@@ -2611,6 +2651,7 @@ namespace deren::engine {
             .make_scene_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_scene_frame(); },
             .make_transparent_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_transparent_frame(); },
             .make_character_forward_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_character_forward_frame(); },
+            .make_gaussian_frame = [](void* owner) { return static_cast<runtime*>(owner)->make_gaussian_frame(); },
             .ensure_gbuffer_targets_sampled =
                 [](void* owner, std::shared_ptr<rhi::command_buffer> cmd, uint32_t image) { return static_cast<runtime*>(owner)->ensure_gbuffer_targets_sampled(cmd, image); },
             .ensure_gbuffer_depth_sampled =
@@ -2634,6 +2675,7 @@ namespace deren::engine {
         this->shadow_pass = {at("shadow")};
         this->scene_pass = {at("scene")};
         this->transparent_pass = {at("transparent")};
+        this->gaussian_pass = {at("gaussian")};
         this->character_forward_pass = {at("character_forward")};
         this->toon_screen_rim_pass = {at("toon_screen_rim")};
         this->goo_rim_pass = {at("goo_rim")};
@@ -3129,6 +3171,15 @@ namespace deren::engine {
                 // half-written - see the fallback's own comment.
                 this->clear_scene_color_for_missing_gbuffer();
             }
+            // THE GAUSSIAN SPLAT CLOUD, in the one place the design fixes it (docs/gaussian_splatting.md): after
+            // the lighting stage - so there is a lit HDR image and an opaque depth to take - and before the
+            // blended geometry, whose composites have to see the splats under them. The runner asks the pass's
+            // own feature name before it resolves the declaration, and the pass records nothing at all without a
+            // frame, so a session with no cloud configured records exactly what it recorded before this stage
+            // existed (which is what keeps the frozen capture scenarios byte-identical).
+            pass::stage const gaussian_stage = {.name = "gaussian", .passes = this->gaussian_pass, .marks = false};
+            this->prepare_stage(gaussian_stage);
+            [[maybe_unused]] pass::run_report const gaussian_report = pass::record_stage(gaussian_stage, this->make_pass_host());
             this->record_transparent_pass();
 
             // THE TOON CHARACTER STAGE, and its position here is the whole point of it: AFTER the lighting

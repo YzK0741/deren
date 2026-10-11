@@ -44,6 +44,7 @@ import deren.engine.pass;                       // the pass framework: the host 
 import deren.engine.pass.taa;                   // the second, and the first GRAPHICS one
 import deren.engine.pass.scene;                 // the third: the scene itself, whose work is DATA rather than a declaration
 import deren.engine.pass.transparent;           // the fourth: the blended geometry, over the shaded frame
+import deren.engine.gaussian_splatting.raster;  // the Gaussian splat cloud's own layer: the immutable asset, the sorted per-frame snapshot and the camera it projects through
 import deren.engine.pass.character_forward;     // ... and the toon character stage, which re-shades the OPAQUE leaves over it
 import deren.engine.pass.toon_screen_rim;       // ... and its second rim, a fullscreen additive contour from the depth
 import deren.engine.pass.goo_rim;               // ... and the REWRITTEN chain's rim, a fullscreen additive stage of its own
@@ -939,6 +940,21 @@ namespace deren::engine {
         // called transparent_pass, not transparent_stage: the local of that name in
         // runtime.frames.cppm would hide this member and MSVC /W4 reports C4458 (an error under /WX).
         std::array<pass::frame_pass*, 1> transparent_pass = {};
+        /**
+         * THE GAUSSIAN SPLAT CLOUD (deren.engine.pass.gaussian_splatting), recorded in the ONE place the design
+         * fixes: after the lighting stage, so there is a lit HDR image and an opaque depth to take, and before
+         * the blended geometry, whose composites must see the splats under them.
+         *
+         * IT DRAWS NOTHING ON ITS OWN: the pass records only what the app handed it (see set_gaussian_asset) and
+         * its own record() returns immediately on an empty frame, so a session that configured no cloud records
+         * exactly what it recorded before this stage existed - which is what keeps every frozen capture
+         * scenario byte-identical.
+         */
+        std::array<pass::frame_pass*, 1> gaussian_pass = {};
+        /// the cloud this session draws, and the instances it is drawn with (one identity instance until the
+        /// viewer grows transforms): empty means the stage above is a no-op
+        std::shared_ptr<gaussian_splatting::raster_asset const> gaussian_asset = {};
+        std::vector<gaussian_splatting::raster_instance> gaussian_instances = {};
         /**
          * THE CHARACTER-FORWARD PASS (deren.engine.pass.character_forward): the same OPAQUE leaves a second time,
          * shaded by the toon pipeline and written OVER the deferred result at depth-EQUAL. It sits after the
@@ -2392,6 +2408,10 @@ namespace deren::engine {
             /// Unlike the two above it carries no recording machinery of its own - the pass draws directly into
             /// the primary - so it is here because the LEAF LIST is the runtime's, not because of a secondary.
             pass::character_forward_frame (*make_character_forward_frame)(void* owner) = nullptr;
+            /// the GAUSSIAN snapshot: the immutable per-frame upload the splat pass draws, built by the runtime
+            /// because it owns the camera and the frame's completion points. An empty pointer means "nothing to
+            /// draw this frame", which the pass's own record() already treats as a no-op.
+            std::shared_ptr<gaussian_splatting::raster_frame const> (*make_gaussian_frame)(void* owner) = nullptr;
             // ---- the frame's ORDERING RULES a stage preamble runs: the runtime's per-image bookkeeping, whose
             //      flags belong to the passes that WROTE those images (see each accessor). Each takes the FRAME's
             //      contract buffer (see `cmd` above) and derives the native handle internally. ----
@@ -3738,6 +3758,32 @@ namespace deren::engine {
         [[nodiscard]] pass::owned_pipeline resolve_pipeline(std::string_view name) const noexcept;
         /** @brief this frame's blended geometry, as the transparent pass needs it */
         [[nodiscard]] pass::transparent_frame make_transparent_frame() noexcept;
+
+        /**
+         * @brief hand the renderer a Gaussian splat cloud to draw, or an empty pointer to stop drawing one
+         *
+         * THE APP OWNS THE DECISION AND THE LOADING (it is the side that knows what a file is: the model path's
+         * extension picks the loader - see app_config::model_format_of), and the renderer owns the drawing: it
+         * keeps the asset alive for as long as any submitted snapshot refers to it, projects it with the camera
+         * it is already animating, and records it in the frame's own stage. One identity instance is built
+         * here; per-instance transforms are the viewer's next step.
+         *
+         * A null asset stops the stage without touching anything else: the next frame's snapshot is empty and
+         * the pass records nothing, which is the same path a session that never configured a cloud takes.
+         */
+        void set_gaussian_asset(std::shared_ptr<gaussian_splatting::raster_asset const> asset) noexcept;
+
+        /// @brief this frame's immutable splat snapshot, or an empty pointer when there is nothing to draw
+        [[nodiscard]] std::shared_ptr<gaussian_splatting::raster_frame const> make_gaussian_frame() noexcept;
+
+        /// @brief whether a cloud is set to draw (`feature_active`'s half of the splat stage's gate)
+        ///
+        /// The gate is not cosmetic: the runner asks a pass's feature BEFORE it resolves the declaration, so
+        /// answering false here is what keeps a session with no cloud from resolving the stage's targets at all -
+        /// the same reason every other stage's gate is the pass's own feature name.
+        [[nodiscard]] bool gaussian_active() const noexcept {
+            return this->gaussian_asset != nullptr;
+        }
         /**
          * @brief this frame's OPAQUE geometry again, as the character-forward pass needs it
          *

@@ -7,6 +7,7 @@ module;
 #include <span>
 #include <vector>
 module deren.engine.gaussian_splatting.raster;
+import deren.utility;
 namespace deren::engine::gaussian_splatting {
     namespace rhi = deren::promise::rhi;
     namespace {
@@ -15,14 +16,19 @@ namespace deren::engine::gaussian_splatting {
         }
     } // namespace
     std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(rhi::api_core& core, deren::gaussian::asset input, foundation_limits const& limits) {
+        // THE VIEWER'S OWN PROGRESS, at the two stages that can be slow or refuse: a 562,974-splat cloud is
+        // packed and uploaded once, and "which half" is the first question when it does not arrive.
+        deren::utility::log("gaussian asset: packing {} particle(s) (SH degree {})", input.particles.size(), input.sh_degree);
         auto packed = pack_asset(input, limits);
         if (!packed) {
             return std::unexpected(packed.error());
         }
+        deren::utility::log("gaussian asset: packed {} geometry record(s); uploading to the device", packed->geometry.size());
         auto uploaded = upload_asset(core, *packed, limits);
         if (!uploaded) {
             return std::unexpected(uploaded.error());
         }
+        deren::utility::log("gaussian asset: the static tables are uploaded");
         std::shared_ptr<raster_asset> result(new raster_asset{});
         result->cpu_asset = std::make_shared<deren::gaussian::asset const>(std::move(input));
         result->gpu_owner = std::move(*uploaded);

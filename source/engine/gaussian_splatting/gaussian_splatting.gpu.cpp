@@ -11,6 +11,7 @@ module;
 #include <string>
 #include <utility>
 module deren.engine.gaussian_splatting;
+import deren.utility;
 namespace deren::engine::gaussian_splatting {
     namespace {
         auto failure(error_code code, std::string message) {
@@ -119,6 +120,8 @@ namespace deren::engine::gaussian_splatting {
         if (!address) {
             return failure(error_code::unsupported, "backend lacks device_address");
         }
+        deren::utility::log("gaussian upload: {} geometry record(s), {} SH record(s), {} byte(s) total, device_address available",
+                            asset.geometry.size(), asset.sh.size(), *size);
         rhi::buffer_desc desc{};
         // THE INTENT IS NAMED FOR THE ONLY UPLOAD PATH THAT EXISTS, NOT FOR WHAT THIS BUFFER IS. storage_gpu_only
         // is allocate-only: its Vk usage carries no TRANSFER_DST and create_buffer refuses initial contents

@@ -36,7 +36,8 @@ export module deren.engine.render_start_demo;
 
 import deren.engine.runtime;
 import deren.engine.pass;
-import deren.engine.pass.chain; // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
+import deren.engine.pass.chain;              // pass_chain: the chain the runtime owns its passes in, looked up by declaration name
+import deren.engine.pass.gaussian_splatting; // the splat cloud's pass: an immutable upload per frame, recorded between the lighting stage and the blended geometry
 import deren.engine.pass.cluster;
 import deren.engine.pass.deferred;
 import deren.engine.pass.fxaa;
@@ -193,6 +194,10 @@ export namespace deren::engine {
         pass::shadow_pass* shadow = nullptr;
         pass::scene_pass* scene = nullptr;
         pass::transparent_pass* transparent = nullptr;
+        /// THE GAUSSIAN SPLAT CLOUD (deren.engine.pass.gaussian_splatting): the one stage whose frame is not a
+        /// leaf list but an immutable upload the runtime prepares (it owns the camera and the frame's completion
+        /// points), recorded after the lighting stage and before the blended geometry.
+        pass::gaussian_splatting_pass* gaussian = nullptr;
         /// THE TOON CHARACTER STAGE: the same OPAQUE leaves again, through the character-forward pipeline, over
         /// the lit frame. Owned by the chain and looked up by its declaration name like every other pass here.
         pass::character_forward_pass* character_forward = nullptr;

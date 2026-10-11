@@ -35,6 +35,10 @@ namespace deren::engine {
         this->chain.emplace<pass::shadow_pass>();
         this->chain.emplace<pass::scene_pass>();
         this->chain.emplace<pass::transparent_pass>();
+        // ... AND THE GAUSSIAN SPLAT CLOUD, whose create step only builds its pipeline (it owns no descriptor
+        // family of its own): it records between the lighting stage and the blended geometry, and draws nothing
+        // at all until the app hands the runtime a cloud to draw.
+        this->chain.emplace<pass::gaussian_splatting_pass>();
         // ... and the toon character stage, right after the blended geometry: it re-shades the OPAQUE leaves
         // over the lit frame, at depth-EQUAL, so it must come after the lighting stage that produced what it
         // overwrites and after the blends that composite over the same pixels.
@@ -74,6 +78,7 @@ namespace deren::engine {
         this->shadow = this->find<pass::shadow_pass>("shadow");
         this->scene = this->find<pass::scene_pass>("scene");
         this->transparent = this->find<pass::transparent_pass>("transparent");
+        this->gaussian = this->find<pass::gaussian_splatting_pass>("gaussian");
         this->character_forward = this->find<pass::character_forward_pass>("character_forward");
         this->toon_screen_rim = this->find<pass::toon_screen_rim_pass>("toon_screen_rim");
         this->goo_rim = this->find<pass::goo_rim_pass>("goo_rim");
@@ -92,6 +97,7 @@ namespace deren::engine {
         found += this->shadow != nullptr ? 1u : 0u;
         found += this->scene != nullptr ? 1u : 0u;
         found += this->transparent != nullptr ? 1u : 0u;
+        found += this->gaussian != nullptr ? 1u : 0u;
         found += this->character_forward != nullptr ? 1u : 0u;
         found += this->rt_shadow != nullptr ? 1u : 0u;
         found += this->deferred != nullptr ? 1u : 0u;
@@ -99,7 +105,7 @@ namespace deren::engine {
         found += this->gbuffer_debug_pass != nullptr ? 1u : 0u;
         found += this->composite != nullptr ? 1u : 0u;
         found += this->fxaa != nullptr ? 1u : 0u;
-        if (found != 15) {
+        if (found != 16) {
             // NOT a fatal error: this demo is one application's chain, and a build of it that lacks a pass (a
             // shader that did not compile is the usual reason - that pass's own create step says why) renders
             // without it. Saying so once at startup is what keeps "the pass did not run" from looking like a
@@ -164,6 +170,14 @@ namespace deren::engine {
         } else if (stage == "transparent") {
             if (self.transparent != nullptr) {
                 self.transparent->set_frame(services.make_transparent_frame(services.owner));
+            }
+        } else if (stage == "gaussian") {
+            // NO FRAME-ORDER DUTY of its own: the stage sits where the design fixes it and the pass takes the
+            // lit HDR image and the opaque depth that are already there. The SNAPSHOT is the runtime's, because
+            // it is the side that owns the camera and the frame's completion points (see make_gaussian_frame);
+            // an empty one means this frame draws no splats, which the pass treats as a no-op.
+            if (self.gaussian != nullptr) {
+                self.gaussian->set_frame(services.make_gaussian_frame(services.owner));
             }
         } else if (stage == "character_forward") {
             // NO FRAME-ORDER DUTY of its own: this stage's two declared targets were both published long before
@@ -411,6 +425,13 @@ namespace deren::engine {
         }
         if (name == "transparent") {
             return facts.transparent_pending;
+        }
+        if (name == "gaussian") {
+            // THE SPLAT STAGE'S GATE, and it is deliberately the pass being ready AND a cloud being set: without
+            // a cloud the stage would resolve its targets and record nothing, and the frozen capture scenarios
+            // must not see even that. The asset half is the runtime's answer (`gaussian_active`), so the gate
+            // cannot drift from what the frame's snapshot would contain.
+            return self.gaussian != nullptr && self.gaussian->ready() && self.runtime_owner != nullptr && self.runtime_owner->gaussian_active();
         }
         if (name == "character_forward") {
             // THE RUNTIME'S COMPOSED PREDICATE (the knob AND this frame's opaque leaf list, see

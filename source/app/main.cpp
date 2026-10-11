@@ -23,8 +23,10 @@ import deren.vstd;
 import deren.application_configuration;
 import deren.chores; // demo bootstrap helpers (shader loading / dir locating / pipelines)
 import deren.gltf_loader;
-import deren.toon_material_sidecar; // the .toon.tsv a character model carries: its toon maps, and the _Use flags
-import deren.utility;               // re-exports deren.utility:frame_clock / frame_stats / bvh / better_pmr / thread_pool / data_block
+import deren.gaussian_loader;                  // ... and a Gaussian splat cloud, when the model path names a .ply
+import deren.engine.gaussian_splatting.raster; // the cloud's immutable GPU asset (make_raster_asset) and the snapshot the runtime prepares
+import deren.toon_material_sidecar;            // the .toon.tsv a character model carries: its toon maps, and the _Use flags
+import deren.utility;                          // re-exports deren.utility:frame_clock / frame_stats / bvh / better_pmr / thread_pool / data_block
 import deren.engine.animation;
 import deren.engine.animation.mmd_motion; // VMD (MMD motion) parsing, retargeting and clip baking      // animation::controller: glTF playback / skinning / morphs on the runtime tree
 import deren.engine.math;
@@ -505,17 +507,22 @@ int main(int argc, char** argv) {
                               "model '{}' has no extension this build reads: name a .gltf/.glb scene or a .ply gaussian splat cloud",
                               model_path);
     }
-    auto load_future = deren::gltf::load_model_async(model_path);
+    // A .ply NAMES THE CLOUD; THE SCENE IS STILL THE DEFAULT MODEL - the mixed case the design lists ("opaque
+    // mesh + gaussian cloud") and the honest first viewer. A gaussian-ONLY scene (no imported geometry at all)
+    // needs the environment upload path that the model import currently owns, and is the next step of
+    // docs/superpowers/plans/2026-10-11-gaussian-viewer-integration.md.
+    std::string scene_path = model_path;
     if (model_format == deren::app_config::model_format::gaussian_ply) {
-        // THE .ply BRANCH IS NOT WIRED YET, AND SAYING SO IS THE POINT: the cloud's loader is proven (see the
-        // asset test) but nothing draws one yet - the viewer stage that records it between the lighting stage
-        // and the transparent pass is the next task of
-        // docs/superpowers/plans/2026-10-11-gaussian-viewer-integration.md. Handing the path to the scene
-        // importer instead would answer with a glTF parse error about a file that never claimed to be glTF.
-        deren::utility::panic(std::source_location::current(),
-                              "'{}' is a gaussian splat cloud: this build loads .ply assets but has no stage that draws one yet",
-                              model_path);
+        std::optional<std::filesystem::path> const located = deren::chores::locate_model_file();
+        if (!located) {
+            deren::utility::panic(std::source_location::current(),
+                                  "'{}' is a gaussian splat cloud, and this build composites one over the default scene - which was not found; run from the project root, or restore gltf_model/DamagedHelmet.gltf",
+                                  model_path);
+        }
+        scene_path = located->string();
+        deren::utility::log("gaussian: '{}' names the splat cloud; the scene it is composited over is '{}'", model_path, scene_path);
     }
+    auto load_future = deren::gltf::load_model_async(scene_path);
 
     // 4b. THE WINDOW IS THE APPLICATION'S (see glfw_window_host above): GLFW is initialised and the window
     //     created HERE, before the runtime, so that the declaration order above gives the teardown order the
@@ -2567,6 +2574,46 @@ int main(int argc, char** argv) {
     // fine granularity so it can write per-frame data (scene node locals -> culling, skin
     // matrices, morph weights) between pacing and recording.
     int32_t last_render_mode = 0; // gui render-mode combo (0 = pbr); applied between frames below
+
+    // ---- THE GAUSSIAN CLOUD, WHEN THE MODEL PATH NAMED ONE --------------------------------------------
+    // The extension picked the loader before anything was opened (app_config::model_format_of); this is where
+    // the cloud is read and handed over, and the renderer does the rest: it projects the cloud with the camera
+    // it is already animating and records it between the lighting stage and the blended geometry. Done BEFORE
+    // the capture-camera override below, so an explicit --capture-camera still wins over this framing.
+    if (model_format == deren::app_config::model_format::gaussian_ply) {
+        deren::utility::log("gaussian: reading '{}'", model_path);
+        auto cloud = deren::gaussian::load_ply(model_path);
+        if (!cloud) {
+            deren::utility::panic(std::source_location::current(), "failed to load the gaussian splat cloud '{}': error code {} at byte {}",
+                                  model_path, static_cast<int32_t>(cloud.error().code), cloud.error().byte_offset);
+        }
+        deren::utility::log("gaussian: read {} splats; uploading the static tables", cloud->particles.size());
+        auto asset = deren::engine::gaussian_splatting::make_raster_asset(*core, std::move(*cloud), {});
+        if (!asset) {
+            deren::utility::panic(std::source_location::current(), "failed to upload the gaussian splat cloud '{}': error code {}",
+                                  model_path, static_cast<int32_t>(asset.error().code));
+        }
+        deren::utility::log("gaussian: the static tables are on the device");
+        deren::gaussian::asset const& source = (*asset)->source();
+        deren::utility::log("gaussian: the asset's CPU side is reachable");
+        glm::vec3 const cloud_min{source.bounds_min[0], source.bounds_min[1], source.bounds_min[2]};
+        glm::vec3 const cloud_max{source.bounds_max[0], source.bounds_max[1], source.bounds_max[2]};
+        glm::vec3 const cloud_centre = (cloud_min + cloud_max) * 0.5f;
+        float const cloud_radius = glm::length(cloud_max - cloud_min) * 0.5f;
+        // THE REAL TOTALS, before a single frame is drawn: the design requires the viewer to report them, and the
+        // acceptance cloud is 562,974 splats - not a number to guess at. The table estimate uses the contract's
+        // own strides (48-byte geometry record, 192-byte SH record).
+        deren::utility::log("gaussian: '{}' - {} splats, SH degree {}, bounds ({:.2f}, {:.2f}, {:.2f})..({:.2f}, {:.2f}, {:.2f}), "
+                            "static tables about {} MB",
+                            model_path, source.particles.size(), source.sh_degree,
+                            cloud_min.x, cloud_min.y, cloud_min.z, cloud_max.x, cloud_max.y, cloud_max.z,
+                            (source.particles.size() * (48u + 192u)) / (1024u * 1024u));
+        runtime.set_gaussian_asset(*asset);
+        // THE CLOUD IS THE POINT OF THIS RUN, so the camera looks at the cloud's own centre rather than at the
+        // scene the model path did not name.
+        runtime.camera.target = cloud_centre;
+        runtime.camera.distance = cloud_radius * 2.5f;
+    }
     // scripted capture: apply the camera override LAST, so nothing in the setup above (the orbit
     // framing of the imported scene, an authored glTF camera) can win over the requested view
     if (capture.camera) {
