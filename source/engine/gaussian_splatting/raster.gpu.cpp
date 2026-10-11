@@ -1,6 +1,7 @@
 module;
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 #include <expected>
 #include <glm/glm.hpp>
 #include <limits>
@@ -78,7 +79,7 @@ namespace deren::engine::gaussian_splatting {
         result->geometry = std::move(packed->geometry);
         return std::shared_ptr<raster_asset const>{std::move(result)};
     }
-    std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits) {
+    std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(rhi::api_core& core, std::span<raster_instance const> inputs, raster_camera const& camera, foundation_limits const& limits, raster_frame* const reuse) {
         auto const frame_started = std::chrono::steady_clock::now();
         auto sort_view = validate_raster_camera(camera);
         if (!sort_view) {
@@ -125,7 +126,22 @@ namespace deren::engine::gaussian_splatting {
             return std::unexpected(sorted.error());
         }
         auto const sorted_at = std::chrono::steady_clock::now();
-        std::shared_ptr<raster_frame> result(new raster_frame{});
+        // THE CALLER'S FRAME, WHEN IT GAVE ONE: its buffers are the frame's own, so a steady-state frame writes into
+        // them in place and allocates nothing (Task 8). The shared_ptr is a NON-OWNING view in that case - the caller
+        // owns the frame - and the counters and containers start clean either way, because a reused frame still holds
+        // the previous frame's answer.
+        std::shared_ptr<raster_frame> result{reuse, [](raster_frame*) {}};
+        if (reuse == nullptr) {
+            result = std::shared_ptr<raster_frame>{new raster_frame{}};
+        } else {
+            result->reference_data.clear();
+            result->instance_data.clear();
+            result->owners.clear();
+            result->bytes = 0;
+            result->total = 0;
+            result->near_omitted = 0;
+            result->outside = 0;
+        }
         result->total = static_cast<std::uint32_t>(sorted->size());
         result->push.view_projection = camera.view_projection;
         result->push.camera_position = glm::vec4{camera.position, 1};
@@ -215,20 +231,41 @@ namespace deren::engine::gaussian_splatting {
         rhi::buffer_desc desc;
         desc.usage = rhi::buffer_usage::storage_coherent;
         desc.flags = rhi::to_bits(rhi::buffer_flag::storage) | rhi::to_bits(rhi::buffer_flag::device_address);
-        desc.initial_bytes = std::as_bytes(std::span{result->instance_data});
-        desc.size = instance_bytes;
-        result->instance_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
-        if (!result->instance_buffer || result->instance_buffer->size() < desc.size) {
+        if (result->instance_buffer && result->instance_capacity >= instance_bytes) {
+            // IN PLACE: host-visible, so `mapped()` is the write the contract names for exactly this, and the bytes
+            // may be touched once the frame that wrote them has completed - which the caller's per-slot ring
+            // guarantees (the node the contract's own comment attaches to `mapped()`).
+            std::span<std::byte> const mapped = result->instance_buffer->mapped();
+            if (mapped.size() < instance_bytes) {
+                return failure(error_code::allocation_failure, "raster instance buffer is not mapped");
+            }
+            std::memcpy(mapped.data(), result->instance_data.data(), static_cast<std::size_t>(instance_bytes));
+        } else {
+            desc.initial_bytes = std::as_bytes(std::span{result->instance_data});
+            desc.size = instance_bytes;
+            result->instance_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
+            result->instance_capacity = instance_bytes;
+        }
+        if (!result->instance_buffer || result->instance_buffer->size() < instance_bytes) {
             return failure(error_code::allocation_failure, "raster instance upload failed");
         }
         result->push.instances_address = address->buffer_address(*result->instance_buffer, 0);
         if (result->push.instances_address == 0 || result->push.instances_address % alignof(instance_record) != 0) {
             return failure(error_code::invalid_address, "invalid raster instance address");
         }
-        desc.initial_bytes = std::as_bytes(std::span{result->reference_data});
-        desc.size = reference_bytes;
-        result->reference_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
-        if (!result->reference_buffer || result->reference_buffer->size() < desc.size) {
+        if (result->reference_buffer && result->reference_capacity >= reference_bytes) {
+            std::span<std::byte> const mapped = result->reference_buffer->mapped();
+            if (mapped.size() < reference_bytes) {
+                return failure(error_code::allocation_failure, "raster reference buffer is not mapped");
+            }
+            std::memcpy(mapped.data(), result->reference_data.data(), static_cast<std::size_t>(reference_bytes));
+        } else {
+            desc.initial_bytes = std::as_bytes(std::span{result->reference_data});
+            desc.size = reference_bytes;
+            result->reference_buffer = rhi::object_manager<rhi::buffer>{core.create_buffer(desc)};
+            result->reference_capacity = reference_bytes;
+        }
+        if (!result->reference_buffer || result->reference_buffer->size() < reference_bytes) {
             return failure(error_code::allocation_failure, "raster reference upload failed");
         }
         result->push.references_address = address->buffer_address(*result->reference_buffer, 0);

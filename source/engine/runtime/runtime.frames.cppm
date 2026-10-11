@@ -2451,7 +2451,7 @@ namespace deren::engine {
     std::shared_ptr<gaussian_splatting::raster_frame const> runtime::make_gaussian_frame() noexcept {
         // THIS SLOT'S SNAPSHOT, and the slot is the ring's position - which is the only index under which retaining
         // one snapshot per frame is correct (see the member's note: the swapchain image index is NOT it).
-        std::shared_ptr<gaussian_splatting::raster_frame const>& slot = this->gaussian_frames[static_cast<std::size_t>(this->frame_ring().position()) % this->gaussian_frames.size()];
+        std::shared_ptr<gaussian_splatting::raster_frame>& slot = this->gaussian_frames[static_cast<std::size_t>(this->frame_ring().position()) % this->gaussian_frames.size()];
         if (!this->gaussian_asset) {
             slot.reset();
             return {};
@@ -2463,7 +2463,11 @@ namespace deren::engine {
         camera.view_projection = this->current_ubo.view_proj_unjittered;
         camera.position = glm::vec3(glm::inverse(this->current_ubo.view)[3]);
         camera.extent = this->render_extent();
-        auto const frame = gaussian_splatting::prepare_raster_frame(this->rhi_face(), this->gaussian_instances, camera, gaussian_splatting::foundation_limits{});
+        // THE SLOT'S OWN FRAME IS HANDED BACK FOR REUSE, so a steady-state frame writes into the buffers it already
+        // has (4.5 MB at the acceptance cloud, created and released every frame before this) and allocates nothing:
+        // the contract's `mapped()` is the write for a `storage_coherent` buffer, and this slot's own frame has
+        // completed by the time the ring comes round again, which is the rule that comment states.
+        auto const frame = gaussian_splatting::prepare_raster_frame(this->rhi_face(), this->gaussian_instances, camera, gaussian_splatting::foundation_limits{}, slot.get());
         if (!frame) {
             // THE FRAME IS SKIPPED, NOT FAKED, and the reason is the error's: the pass records nothing this frame
             // and the mesh rendering that surrounds it is untouched (the design's own failure rule).
@@ -2475,7 +2479,11 @@ namespace deren::engine {
         // THE SLOT'S PREVIOUS SNAPSHOT IS DROPPED HERE AND NOWHERE ELSE: this slot's frame has completed, so its
         // buffers are safe to release - and every OTHER slot's snapshot is still held, which is the whole point of
         // the array.
-        slot = *frame;
+        // ON THE FIRST USE THE SLOT TAKES OWNERSHIP; afterwards it already owns this same frame, and reassigning
+        // would release the old value while the returned alias still named it. That is why the assignment is gated.
+        if (!slot) {
+            slot = std::const_pointer_cast<gaussian_splatting::raster_frame>(*frame);
+        }
         return slot;
     }
 

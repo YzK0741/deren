@@ -101,15 +101,24 @@ export namespace deren::engine::gaussian_splatting {
 
     private:
         raster_frame() = default;
-        friend std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&);
+        friend std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const&, raster_frame*);
         raster_push push;
         std::vector<draw_reference> reference_data;
         std::vector<instance_record> instance_data;
         std::vector<std::shared_ptr<raster_asset const>> owners;
         deren::promise::rhi::object_manager<deren::promise::rhi::buffer> reference_buffer, instance_buffer;
+        /// WHAT EACH BUFFER WAS CREATED WITH, so a later frame can write into it in place instead of creating a new
+        /// one: they are `storage_coherent` (host-visible), which is what the contract's `mapped()` exists for, and
+        /// re-creating 4.5 MB every frame is both the measured cost and the per-frame creation a swapchain rebuild
+        /// may trip over (the plan's Task 8).
+        std::uint64_t reference_capacity = 0;
+        std::uint64_t instance_capacity = 0;
         std::uint64_t bytes = 0;
         std::uint32_t total = 0, near_omitted = 0, outside = 0;
     };
     [[nodiscard]] std::expected<std::shared_ptr<raster_asset const>, foundation_error> make_raster_asset(deren::promise::rhi::api_core&, deren::gaussian::asset, foundation_limits const& = {});
-    [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {});
+    /// @param reuse an optional frame to REFILL (the caller keeps it alive; the returned pointer is a non-owning
+    ///        view of it when it is given), which is how a steady-state frame allocates nothing. @see raster_frame's
+    ///        capacity members and the plan's Task 8.
+    [[nodiscard]] std::expected<std::shared_ptr<raster_frame const>, foundation_error> prepare_raster_frame(deren::promise::rhi::api_core&, std::span<raster_instance const>, raster_camera const&, foundation_limits const& = {}, raster_frame* = nullptr);
 } // namespace deren::engine::gaussian_splatting

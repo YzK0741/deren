@@ -966,7 +966,7 @@ namespace deren::engine {
          * uninitialised background. Indexed by the ring's POSITION, never by the swapchain image index (the design
          * says so, and the two differ the moment the image count changes).
          */
-        std::array<std::shared_ptr<gaussian_splatting::raster_frame const>, rhi::max_frames_in_flight> gaussian_frames = {};
+        std::array<std::shared_ptr<gaussian_splatting::raster_frame>, rhi::max_frames_in_flight> gaussian_frames = {};
         /**
          * THE CHARACTER-FORWARD PASS (deren.engine.pass.character_forward): the same OPAQUE leaves a second time,
          * shaded by the toon pipeline and written OVER the deferred result at depth-EQUAL. It sits after the
