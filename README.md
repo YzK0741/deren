@@ -122,6 +122,23 @@ that do not consume a semver slot (e.g. `deren.gltf_loader` 0.1.0a after the swi
 - **Startup configuration (`deren.app_config` module)**: TOML config (`config.toml`, `--config <path>` override) merged with argv, covering model / instancing grid, resource paths, window/render settings (size, title, vsync, clear color, initial camera framing, shadow/fxaa/gpu-timings toggles, the cascade count + blend band of the shadow pass, the G-buffer debug view and its channel) and IBL resolutions. See `config.example.toml`.
 - **Engineering practices**: automatic `clang-format` before every build, `-Wall -Wextra -Werror`, and **exceptions disabled in all build configurations** (`-fno-exceptions`; the vendored `std` module makes this work), plus `-flto -march=native -fno-rtti` in Release builds (LTO also covers the vendored libs). Release additionally runs dead-code elimination (`-ffunction-sections -fdata-sections` on every target + link-time `--gc-sections`) and strips symbols at link (`-s`), keeping the single-file exe at ~2.9 MB with no runtime cost.
 
+## Gaussian splatting
+
+![The Gaussian viewer: NVIDIA's Bouquet of Flowers (CC BY-SA 4.0), 562,974 splats, rendered by deren](docs/images/gaussian-viewer.jpg)
+
+A `.ply` in the `model` key IS a Gaussian splat cloud and nothing else: the extension picks the loader (`.gltf`/`.glb` to the scene importer, `.ply` to `deren::gaussian::load_ply`, anything else refused by name), the cloud is packed onto the device once, and a `gaussian` stage the renderer records between the lighting stage and the blended geometry draws it every frame over the opaque depth. No model is loaded with it - the frame's only other leaf is a placeholder the application builds itself - so what you see is the cloud over the environment.
+
+Measured on the screenshot above (RTX 4060 Laptop, 1280x720): **562,974 splats**, SH degree 3, **135.1 MB** of static tables uploaded once, **zero** validation errors, and a per-frame cost that is CPU-side and parallel across the machine's cores - 67 ms depth sort + 33 ms projection/SH on 16 threads, which is the 9.7 fps the panel shows (the design's out-of-scope item, GPU sorting, is what would take the rest off the CPU).
+
+```powershell
+# fetch the asset (133 MB, CC BY-SA 4.0 - fetched, never committed) and point config.toml at it:
+./source/scripts/fetch_gaussian_viewer_asset.ps1 -BuildDir build-release-dyn-clang64
+#   config.toml:  model = "gaussian-viewer\\flowers\\flowers_1\\flowers_1.ply"
+./build-release-dyn-clang64/deren.exe    # left-drag orbit, wheel zoom, F12 screenshot, F1 panel, ESC quit
+```
+
+`docs/gaussian_splatting.md` carries the pipeline, the numbers, the two engine gaps still open and the placeholder triangle's reasons; `docs/gaussian_loader.md` is the loader itself.
+
 ## Documentation
 
 The project uses **Doxygen** for API documentation; every module, class, interface **and shader** is annotated in-source with `@defgroup` / `@brief`. The shader sources are part of the generated reference too: `Doxyfile` maps `*.slang` (and the retired `*.vert` / `*.frag` / `*.comp` extensions, plus the `*.glsl` includes) to the C++ parser (`EXTENSION_MAPPING` + `FILE_PATTERNS`), so each shader gets a file page with its documented functions, all collected under the `shaders` group (see [docs/shaders.md](docs/shaders.md) for the pass chain, the shared scene-set binding table and the push-constant contract, and [docs/conventions.md](docs/conventions.md) for the module-name, verb-prefix and partition rules). The generated HTML and the LaTeX manual are **not** committed to the repo (they would drown the source tree in generated files) — build them whenever you need them with the platform wrapper script: `source/scripts/windows/build_docs.ps1` (PowerShell / Windows) or `source/scripts/posix/build_docs.sh` (POSIX sh — WSL / Linux / macOS / an MSYS2 shell). They run `doxygen Doxyfile`, then compile the LaTeX manual into `docs/latex/refman.pdf`:

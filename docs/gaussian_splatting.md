@@ -80,3 +80,35 @@ The config must locate this build's shaders and an available model, as for any a
 Verified 2026-10-11 on NVIDIA GeForce RTX 4060 Laptop GPU, driver 617.42: five cases / 5181 pixels, maximum RGB error 0.0008074641, no Vulkan validation errors. The clear-only negative run failed the overlap center with RGB (0,0,0), proving the readback comparison can detect a missing draw. The same run exposed and corrected the static factory's earlier allocate-only upload mismatch.
 
 The projection/SH/raster approach follows NVIDIA's [vk_gaussian_splatting vertex reference](https://github.com/nvpro-samples/vk_gaussian_splatting/blob/main/shaders/threedgs_raster.vert.slang). Our record layout, Cholesky ellipse basis, 3-sigma domain and frame ownership follow this engine's design.
+
+## The viewer: the whole path, and what it costs
+
+THE `.ply` TO PIXELS PATH IS IN THE APPLICATION NOW, and it is one decision wide: the model path's extension picks the loader (`deren::app_config::model_format_of` - `.gltf`/`.glb` to the scene importer, `.ply` to `deren::gaussian::load_ply`, anything else refused by name). There is no `gaussian` configuration key and there is not meant to be one: the path IS the interface, so a second key could only drift away from it. The cloud is then packed onto the device once (`make_raster_asset`) and drawn every frame by a `gaussian` stage the runtime records between the lighting stage and the blended geometry - the order the design fixes, because the splats composite into the lit HDR image over the opaque depth and the blended meshes have to see them under themselves.
+
+MEASURED ON THE ACCEPTANCE ASSET (NVIDIA's Bouquet of Flowers, `flowers_1.ply`, CC BY-SA 4.0, 562,974 splats, SH degree 3, 133.2 MB on disk; fetched rather than committed, by `source/scripts/fetch_gaussian_viewer_asset.ps1`):
+
+| what | measured |
+| --- | --- |
+| `load_ply` | 0.4 s for the whole file |
+| static tables | 562,974 geometry + 562,974 SH records = 135,113,760 bytes, uploaded once |
+| the CPU frame, first version | 93 ms sort + 240 ms projection/SH = 334 ms, i.e. 2.9 fps on ONE thread |
+| the CPU frame, now | 67 ms sort + 33 ms projection/SH = about 100 ms on 16 threads, i.e. 8-10 fps |
+| validation | zero VUIDs with the layers on, at 1280x720 |
+
+THE FRAME'S COST IS CPU-SIDE, WHICH IS WHY THE GPU LOOKS IDLE, and both halves are the design's own reference implementation: the depth sort and the per-splat projection/SH evaluation. They are now split across the machine's cores WITHOUT changing their answers - each worker fills its own storage and the results are concatenated in chunk order, and the sort's comparator is unchanged, so the draw order and the reported totals are the serial ones (the Gaussian tests pin that). What remains on the CPU is exactly what the design's out-of-scope item would remove: sorting and culling on the GPU.
+
+THE FRAME'S ONLY OTHER LEAF IS A PLACEHOLDER, and it is scaffolding rather than scenery. Two measured reasons, and the second is why it is opaque:
+
+* THE ENGINE CANNOT YET DRIVE A FRAME WITH NO IMPORTED GEOMETRY. With an empty scene the first frame's submission and the next frame's open both fail `11 = device_lost`, with zero VUIDs and an empty stderr, and unchanged by `shadow`, `clustered_lights`, `gui`, `unlit`, by removing the splat pass from the chain entirely, or by adding a geometry-carrying instancing grid.
+* THE DEPTH BUFFER HAS TO BE WRITTEN BY SOMETHING OPAQUE. With a transparent placeholder the frame was legal and the splat pass recorded a full draw (562,974 visible splats, `record error 0`) and the image was still black, because every splat failed a depth test against a depth nothing had written.
+
+So `deren::chores::add_placeholder_triangle` builds one triangle in the runtime's scene tree: opaque black, one unit across, sixty units behind the cloud (about seven pixels at the camera's 45 degree field, and inside the orbit camera's `max(100, ...)` far plane, because a clipped leaf is no opaque leaf). It is black and the frame's clear is black, so it is invisible wherever it lands - its first, full-frustum version was not, and it covered the sky until it was shrunk, which is how the background turned out to have been the environment all along rather than a clear colour.
+
+TWO CORRECTNESS RULES EARNED THEIR COMMITS HERE, both from measurements rather than reviews:
+
+* SNAPSHOT RETENTION IS BY FRAME SLOT. The design says snapshots are retained until their frame slot completes and are never keyed by the swapchain image index; holding ONE latest snapshot instead released the buffers of a frame the GPU could still be executing (`rhi::max_frames_in_flight` is 2), which showed up as blocky splats over an uninitialised background the moment a window resize put more frames in flight. `gaussian_frames` is one snapshot per slot now, indexed by the ring's position.
+* A STAGE THAT SAMPLES OWES THE FRAME-ORDER DUTY. The splat stage reads the lit HDR image and the opaque depth, so it publishes their attachment writes the way the G-buffer samplers do. In a mixed scene the lighting stage has already done it; in a cloud-only one nothing else would.
+
+WHAT IS STILL OPEN, in the order it matters: (1) a frame with no imported geometry must be drivable, and (2) the depth clear must not depend on a leaf being present - which together would let the placeholder go back to being transparent, or disappear. Both are engine work rather than viewer work.
+
+TO RUN IT: put the cloud's path in `model`, keep `gltf_model/DamagedHelmet.gltf` (or another model) findable from the working directory so the scene lookup succeeds, and start the viewer from the project root or the build directory. Left-drag orbits, the wheel zooms, F12 writes a screenshot through `[paths] screenshot_dir`, F1 toggles the panel and Escape quits; the panel's `gpu (60f)` and `cpu (60f)` rows are the costs measured above.
