@@ -25,7 +25,7 @@ The regression suite was observed failing (393 checks, 8 failures) before the fi
 - clang-format-check: passed.
 - Backend boundary: zero engine/application backend imports and zero leaked boundary symbols.
 - Strict clang-tidy for all 19 CI source entries: passed on local LLVM 22.1.8.
-- Remote LLVM 23 Release/Debug and ASan/UBSan CI: pending push; local checks do not substitute for this gate.
+- Remote LLVM 23.1.3 CI: passed. Release CTest 22/22 and ASan/UBSan CTest 21/21 passed; Debug build, strict analysis and runtime packaging passed. [CI run 38100311365](https://github.com/YzK0741/deren/actions/runs/38100311365) validated code commit `c913f6a8`.
 
 The local tree also contains an unrelated Vulkan surface-cleanup change and the preexisting root probe DLL deletion. They are preserved and excluded from this batch's commits. Remote CI will verify the committed tree independently.
 
@@ -39,3 +39,9 @@ The local tree also contains an unrelated Vulkan surface-cleanup change and the 
 - Shared GPU assets retain RHI buffers under the existing device/backend-root lifetime contract. Submission retention, real GPU layout/readback probes and raster visibility are required by the next batch; this foundation claims no rendered output.
 
 No minor findings were deferred.
+
+## Completion
+
+The foundation and review corrections were committed and pushed to master through `c913f6a8`. All gates are green. The final completion update changes only this report and the plan, and uses `[skip ci]` because the validated source tree is unchanged. No source changes followed the CI run. Incorrectly classifying a code change as documentation would invalidate this shortcut; the final staged file list is checked before committing.
+
+Next batch: CPU projection/SH reference, Slang raster shaders and layout/readback probes, the Gaussian pass, frame-slot retention and viewer integration. Actual Gaussian rendering is not yet implemented.

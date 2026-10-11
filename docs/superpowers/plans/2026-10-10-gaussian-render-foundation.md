@@ -83,7 +83,7 @@ Namespace: `deren::engine::gaussian_splatting`.
 - [x] Own buffers with existing RHI object ownership conventions and publish the shared asset only after both buffers and addresses succeed. Validate packed input again because it is public; do not retain upload spans beyond creation.
 - [x] Document API, budgets, ownership and completion-slot responsibilities. Future frame snapshots must retain these assets until GPU work completes; this factory alone does not supply that submission lifetime.
 - [x] Run full Release build, all CTest tests, clang-format-check, check-backend-boundary and applicable clang-tidy sequentially with builds. Review the final diff and commit.
-- [ ] Push authorized commits and confirm Release/Debug, strict LLVM 23 analysis and ASan/UBSan CI pass before reporting completion.
+- [x] Push authorized commits and confirm Release/Debug, strict LLVM 23 analysis and ASan/UBSan CI pass before reporting completion. Verified at `c913f6a8`: [CI run 38100311365](https://github.com/YzK0741/deren/actions/runs/38100311365), Release 22/22 and sanitizer 21/21 tests passed.
 
 ## Following batch
 
