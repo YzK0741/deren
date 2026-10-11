@@ -163,4 +163,17 @@ SO THE EVIDENCE IS VISUAL ONLY, and on that evidence the corruption is real and 
 
 ONE MORE MISTAKE WORTH RECORDING, because it cost a wrong conclusion: an earlier "control 2" (this configuration with the model swapped to the helmet) never ran that configuration at all. The file had been produced by substituting the model path with `..\gltf_model\DamagedHelmet.gltf`, whose single backslashes are an INVALID TOML escape, so the parse failed and the run silently used the defaults. The valid control (`..\\gltf_model\\DamagedHelmet.gltf`, escaping the backslashes) is the one whose capture is clean above.
 
+### Probe B, under the visual protocol: the corruption needs the STAGE's work, not the asset
+
+Three runs with a scripted resize, judged by looking at the captures: with the splat pass REMOVED from the chain the
+stage's gate is false, so the stage does nothing at all - no scene-order ensure calls, no snapshot, no draw - while
+the application still hands the cloud asset to the runtime. All three captures are clean (one was looked at: sky with
+the little black placeholder triangle now visible because nothing covers it, 175.8 fps), and the three files are 44-45
+KB against the 280-330 KB a corrupt frame produces and the 226-278 KB a clean cloud frame produces.
+
+So the cloud asset's presence is not the cause. The stage's OWN runtime work is required - the two G-buffer ensure
+calls, the per-frame snapshot `prepare_raster_frame` builds, or the draw itself. The next split needs no rebuild:
+keep the stage and cull every splat with a far-away camera (`--capture-camera 0,0,3,1000,0,0` leaves
+`visible_count` at zero), which keeps the ensures and the snapshot and removes only the draw.
+
 TO RUN IT: put the cloud's path in `model`, keep `gltf_model/DamagedHelmet.gltf` (or another model) findable from the working directory so the scene lookup succeeds, and start the viewer from the project root or the build directory. Left-drag orbits, the wheel zooms, F12 writes a screenshot through `[paths] screenshot_dir`, F1 toggles the panel and Escape quits; the panel's `gpu (60f)` and `cpu (60f)` rows are the costs measured above.
