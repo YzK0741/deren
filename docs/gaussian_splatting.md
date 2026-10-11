@@ -177,3 +177,15 @@ keep the stage and cull every splat with a far-away camera (`--capture-camera 0,
 `visible_count` at zero), which keeps the ensures and the snapshot and removes only the draw.
 
 TO RUN IT: put the cloud's path in `model`, keep `gltf_model/DamagedHelmet.gltf` (or another model) findable from the working directory so the scene lookup succeeds, and start the viewer from the project root or the build directory. Left-drag orbits, the wheel zooms, F12 writes a screenshot through `[paths] screenshot_dir`, F1 toggles the panel and Escape quits; the panel's `gpu (60f)` and `cpu (60f)` rows are the costs measured above.
+
+### What NVIDIA's own implementation does differently (`src/splat_sorter_async.{h,cpp}`, Apache-2.0)
+
+Read after probe B narrowed the corruption to the stage's own runtime work, and it is a direct contrast with what this viewer does:
+
+| `vk_gaussian_splatting` | this viewer |
+| --- | --- |
+| `sortAsync(camDir, camCop, ...)` with `lazy = true` starts a sort ONLY when the viewpoint changed | sorts 562,974 splats every frame, unconditionally |
+| the result is handed over by `consume(std::vector<uint32_t>& indices)`, which `swap`s into the CALLER'S vector, and the sorter keeps `m_indices` and `distances` as MEMBERS - a frame allocates nothing | `prepare_raster_frame` creates a new GPU buffer (4.5 MB at the acceptance cloud) plus new vectors every frame |
+| `waitUntilIdleAndReset()` carries an explicit contract: "wait for any in-flight sort to complete and clear stale data. Must be called before deleting splat sets whose positions may be referenced" | the per-slot retention in `gaussian_frames` covers the snapshot's lifetime; nothing covers a buffer a frame may still be reading |
+
+THE CHANGE THAT FOLLOWS, one change with two payoffs: allocate the reference/instance buffers ONCE PER FRAME SLOT in the runtime and refill them in place - the design's "retained until the slot completes", read the way NVIDIA reads it - instead of creating them per frame inside `prepare_raster_frame`. If the per-frame creation through the contract's `create_buffer` is what a swapchain rebuild trips over (probe B says the corruption lives in the stage's own work), that removes it; and it removes the per-frame allocation and staging copy the performance work measured. The `lazy` viewpoint check is the second, independent win: a static camera should not re-sort at all.
